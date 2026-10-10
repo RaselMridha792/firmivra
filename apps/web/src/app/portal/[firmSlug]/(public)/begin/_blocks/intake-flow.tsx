@@ -8,6 +8,7 @@ import {
   type BeginOnlineForm,
   fillIntakeText,
   type IntakeFormKey,
+  type IntakeAnswers,
   type IntakeSignatureInput,
   type IntakeStep,
   type IntakeUpload,
@@ -18,7 +19,15 @@ import { Button, Input, PageContainer } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, LockKeyhole, Save } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
@@ -34,7 +43,7 @@ import {
 } from './intake-agreement';
 import type { Fill } from './intake-fields';
 import { IntakeReview } from './intake-review';
-import { StepSections } from './intake-step';
+import { StepSections, type StepProps } from './intake-step';
 import {
   allAnswers,
   clearHidden,
@@ -55,7 +64,7 @@ export const draftKey = (slug: string, form: IntakeFormKey) => [
 ];
 
 /** The service's form as its mockups head it: the title with its last two words in orange. */
-function FormHeader({
+export function FormHeader({
   title,
   subtitle,
   children,
@@ -90,7 +99,16 @@ function FormHeader({
  * the steps, saved as the person moves between them, the review with Edit links, the agreement
  * and the submit, which opens the success page.
  */
-export function IntakePage({ firmSlug, form }: { firmSlug: string; form: IntakeFormKey }) {
+type IntakeRenderers = {
+  startForm?: ComponentType<StartFormProps>;
+  personalStep?: ComponentType<StepProps>;
+};
+
+export function IntakePage({
+  firmSlug,
+  form,
+  ...renderers
+}: { firmSlug: string; form: IntakeFormKey } & IntakeRenderers) {
   const client = api.beginOnline(firmSlug);
   const draft = useApiQuery(draftKey(firmSlug, form), async (): Promise<DraftState> => {
     try {
@@ -115,9 +133,19 @@ export function IntakePage({ firmSlug, form }: { firmSlug: string; form: IntakeF
         <PageState query={draft} isEmpty={() => false}>
           {(found) =>
             found && typeof found === 'object' ? (
-              <IntakeFlow key={found.form} firmSlug={firmSlug} draft={found} />
+              <IntakeFlow
+                key={found.form}
+                firmSlug={firmSlug}
+                draft={found}
+                personalStep={renderers.personalStep}
+              />
             ) : (
-              <StartCard firmSlug={firmSlug} form={form} ended={found} />
+              <StartCard
+                firmSlug={firmSlug}
+                form={form}
+                ended={found}
+                startForm={renderers.startForm}
+              />
             )
           }
         </PageState>
@@ -214,15 +242,17 @@ function StartCard({
   firmSlug,
   form,
   ended,
+  startForm: Start = StartForm,
 }: {
   firmSlug: string;
   form: IntakeFormKey;
   ended: 'SUBMITTED' | 'EXPIRED' | null;
-}) {
+} & Pick<IntakeRenderers, 'startForm'>) {
   const client = api.beginOnline(firmSlug);
   const queryClient = useQueryClient();
   const definition = useApiQuery(['begin-online', firmSlug, form, 'form'], () => client.form(form));
   const agreements = useAgreements(firmSlug, form);
+  const pendingDraftRef = useRef<BeginDraft | null>(null);
   const notice = ended && (
     <p
       role="status"
@@ -234,19 +264,27 @@ function StartCard({
   return (
     <PageState query={definition} isEmpty={() => false}>
       {(found) => (
-        <StartForm
+        <Start
           notice={notice}
           unavailable={agreements.data?.ready === false}
           found={found}
-          onStart={async (body) => {
-            const started = await client.start(form, body);
-            queryClient.setQueryData(draftKey(firmSlug, form), started);
+          onStart={async (body, answers) => {
+            const started =
+              (answers && pendingDraftRef.current) || (await client.start(form, body));
+            if (answers) pendingDraftRef.current = started;
+            if (answers) await client.saveStep(form, started.definition.steps[0]!.key, { answers });
+            queryClient.setQueryData(
+              draftKey(firmSlug, form),
+              answers ? await client.get(form) : started,
+            );
           }}
         />
       )}
     </PageState>
   );
 }
+
+export type StartFormProps = Parameters<typeof StartForm>[0];
 
 function StartForm({
   found,
@@ -257,12 +295,12 @@ function StartForm({
   found: BeginOnlineForm;
   notice: ReactNode;
   unavailable: boolean;
-  onStart: (body: StartBeginDraftRequest) => Promise<void>;
+  onStart: (body: StartBeginDraftRequest, answers?: IntakeAnswers) => Promise<void>;
 }) {
   const fill = useFill(found.taxYear);
   const [values, setValues] = useState({ firstName: '', lastName: '', email: '', phone: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const start = useApiMutation(onStart);
+  const start = useApiMutation((body: StartBeginDraftRequest) => onStart(body));
   const steps = found.definition.steps.map((s, i) => ({ id: i + 1, label: fill(s.title) }));
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -346,7 +384,11 @@ function StartForm({
   );
 }
 
-function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }) {
+function IntakeFlow({
+  firmSlug,
+  draft,
+  personalStep: PersonalStep,
+}: { firmSlug: string; draft: BeginDraft } & Pick<IntakeRenderers, 'personalStep'>) {
   const { definition, form } = draft;
   const client = useMemo(() => api.beginOnline(firmSlug), [firmSlug]);
   const router = useRouter();
@@ -643,7 +685,11 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
           />
         )}
         <div className={step.review ? 'mt-3' : ''}>
-          <StepSections {...sectionProps} step={rest} />
+          {PersonalStep && step.key === 'personal' ? (
+            <PersonalStep {...sectionProps} step={rest} />
+          ) : (
+            <StepSections {...sectionProps} step={rest} />
+          )}
         </div>
         {step.review && (
           <AgreementPanel
@@ -710,7 +756,11 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
             disabled={save.isPending || submit.isPending}
             className="min-w-40"
           >
-            {step.review ? words.submit : words.next}
+            {step.review
+              ? words.submit
+              : PersonalStep && step.key === 'personal'
+                ? 'Continue'
+                : words.next}
             <ArrowRight aria-hidden="true" className="size-4" />
           </Button>
         </footer>

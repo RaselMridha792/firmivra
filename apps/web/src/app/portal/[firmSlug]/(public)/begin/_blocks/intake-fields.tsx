@@ -317,7 +317,7 @@ export function ScalarInput({
             error={error}
             className={compactInput}
             data-field={field.key}
-            options={[{ value: '', label: 'Select a state' }, ...STATE_OPTIONS]}
+            options={[{ value: '', label: placeholder ?? 'Select a state' }, ...STATE_OPTIONS]}
             value={text}
             onChange={(event) => onChange(event.target.value)}
           />

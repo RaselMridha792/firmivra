@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { IntakePage } from '../_blocks/intake-flow';
+import { AnnualTaxPage } from './_components/annual-tax-page';
 
 export const metadata: Metadata = { title: 'Annual tax preparation' };
 
@@ -9,5 +9,5 @@ export default async function AnnualTaxPreparationPage({
   params: Promise<{ firmSlug: string }>;
 }) {
   const { firmSlug } = await params;
-  return <IntakePage firmSlug={firmSlug} form="ANNUAL_TAX" />;
+  return <AnnualTaxPage firmSlug={firmSlug} />;
 }

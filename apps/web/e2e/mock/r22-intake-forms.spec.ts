@@ -29,6 +29,7 @@ const current = (page: Page) => page.locator('[aria-current="step"]');
 
 async function start(page: Page, path: string) {
   await page.goto(`${origin}/lvp/begin/${path}`);
+  if (path === 'annual-tax') return expect(page.locator('[data-annual-personal]')).toBeVisible();
   await page.getByLabel('First Name *').fill('Avery');
   await page.getByLabel('Last Name *').fill('Example');
   await page.getByLabel('Email Address *').fill('avery@example.test');
@@ -140,6 +141,35 @@ for (const f of FORMS) {
     await expect(page).toHaveURL(`${origin}/lvp/begin/done?form=${f.path}`, { timeout: 20_000 });
   });
 }
+
+test('annual-tax: global header/footer and one return type, kept after saving', async ({
+  page,
+}) => {
+  await start(page, 'annual-tax');
+  await expect(page.getByRole('banner')).toHaveCount(1);
+  await expect(page.getByRole('banner')).toBeVisible();
+  await expect(page.getByRole('contentinfo')).toHaveCount(1);
+  await expect(page.getByRole('contentinfo')).toBeVisible();
+  await expect(page.getByRole('contentinfo')).toContainText('Powered by Firmivra');
+  await expect(page.getByRole('navigation', { name: 'Website', exact: true })).toHaveCount(0);
+  const types = page.locator('[data-cell="returnTypes"]');
+  for (const name of [
+    'Personal (1040)',
+    'Business (1120, 1120-S, 1065, etc.)',
+    'Both Personal & Business',
+  ]) {
+    await types.getByRole('radio', { name, exact: true }).check();
+    await expect(types.getByRole('radio', { checked: true })).toHaveCount(1);
+    await expect(types.getByRole('radio', { name, exact: true })).toBeChecked();
+  }
+  await fillStep(page);
+  await continueTo(page, 2);
+  await page.getByTestId('intake-back').click();
+  await expect(types.getByRole('radio', { checked: true })).toHaveCount(1);
+  await expect(
+    types.getByRole('radio', { name: 'Both Personal & Business', exact: true }),
+  ).toBeChecked();
+});
 
 test('a phone-width form has no sideways scroll and works by keyboard', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
@@ -334,10 +364,7 @@ test('a saved SSN that is hidden and shown again asks for a new one', async ({ p
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${origin}/lvp/begin`);
   await page.getByTestId('intake-annual-tax').click();
-  await page.getByLabel('First Name *').fill('Avery');
-  await page.getByLabel('Last Name *').fill('Example');
-  await page.getByLabel('Email Address *').fill('avery@example.test');
-  await page.getByRole('button', { name: 'Start My Form' }).click();
+  await expect(page.locator('[data-annual-personal]')).toBeVisible();
   await page.getByRole('radio', { name: 'Married Filing Jointly' }).check();
   await page.getByLabel('Spouse SSN *').fill('123454321');
   await fillStep(page);
