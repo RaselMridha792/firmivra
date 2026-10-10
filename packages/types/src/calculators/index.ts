@@ -22,6 +22,12 @@ export {
   type QuarterlySteadyResult,
 } from './quarterly.js';
 export {
+  estimateTaxReturn,
+  TaxReturnInput,
+  type TaxReturnNotice,
+  type TaxReturnResult,
+} from './tax-return.js';
+export {
   createCalculatorsClient,
   createMyCalculatorsClient,
   createPublicCalculatorsClient,

@@ -61,3 +61,20 @@ test('the quarterly calculator gives the hand-worked self-employed case', async 
   await expect(result.getByText('$4,708')).toBeVisible();
   await expect(result.getByText('$18,831')).toBeVisible();
 });
+
+test('the tax return estimator gives a refund for the $75,000 wage case', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(portal('/lvp/calculators/tax-return'));
+  await page.getByLabel('W-2 Wages').fill('75000');
+  await page.getByLabel('Federal Income Tax Withheld').fill('9000');
+  await page.getByRole('button', { name: 'Get My Tax Estimate' }).click();
+  const result = page.getByTestId('tax-return-result');
+  await expect(result.getByText('Estimated Federal Refund')).toBeVisible();
+  await expect(result.getByText('$1,330')).toBeVisible();
+  await expect(result.getByText('$7,670').first()).toBeVisible();
+  await page.getByLabel('W-2 Wages').fill('75000');
+  await page.getByLabel('Federal Income Tax Withheld').fill('5000');
+  await page.getByRole('button', { name: 'Get My Tax Estimate' }).click();
+  await expect(result.getByText('Estimated Federal Amount Due')).toBeVisible();
+  await expect(result.getByText('$2,670')).toBeVisible();
+});
