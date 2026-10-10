@@ -1,10 +1,10 @@
 import { BrandLockup } from './brand-lockup';
 
 /**
- * Firmivra's loader for the signed-in Super Admin and firm sites: the whole lockup fades in and
- * out, and keeps still for people who turn motion off. `fullScreen` fills the window (the sign-in
- * check, before the shell is there); otherwise it fills the page area inside the shell. Not for
- * the client portal, which shows the firm's own branding.
+ * Firmivra's loader for the signed-in Super Admin and firm sites: just the whole lockup, fading in
+ * and out (still for people who turn motion off); "Loading…" is for screen readers only.
+ * `fullScreen` fills the window (the sign-in check, before the shell is there); otherwise it fills
+ * the page area inside the shell. Not for the client portal, which shows the firm's own branding.
  */
 export function BrandLoader({
   subtitle,
@@ -18,13 +18,12 @@ export function BrandLoader({
     <div
       role="status"
       data-testid="brand-loader"
-      className={`flex flex-col items-center justify-center gap-4 ${fullScreen ? 'min-h-screen' : 'min-h-96'}`}
+      className={`flex items-center justify-center ${fullScreen ? 'min-h-screen' : 'min-h-96'}`}
     >
-      {/* Screen readers hear only "Loading…". */}
       <div aria-hidden className="animate-pulse motion-reduce:animate-none">
         <BrandLockup subtitle={subtitle} />
       </div>
-      <p className="text-sm text-muted">Loading…</p>
+      <span className="sr-only">Loading…</span>
     </div>
   );
 }

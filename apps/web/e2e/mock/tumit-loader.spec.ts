@@ -32,9 +32,10 @@ test('a page still loading shows the Firmivra loader inside the console', async 
   const loader = page.getByTestId('brand-loader');
   await expect(loader).toBeVisible();
   await expect(loader).toHaveAttribute('role', 'status');
-  await expect(loader).toContainText('Loading…');
+  // "Loading…" is there for screen readers only; on screen it is just the lockup.
+  await expect(loader.getByText('Loading…')).toHaveClass(/sr-only/);
   await expect(loader.getByText('Super Admin Portal')).toBeVisible();
-  // The lockup fades in and out; screen readers hear only "Loading…".
+  // The lockup fades in and out, hidden from screen readers.
   await expect(loader.locator('[aria-hidden="true"]')).toHaveCSS('animation-name', 'pulse');
   // The sidebar and header stay around it.
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
