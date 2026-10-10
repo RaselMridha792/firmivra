@@ -1137,7 +1137,8 @@ CREATE TRIGGER esign_requests_rules
 -- (SENT, DELIVERED, VIEWED, PARTIALLY_SIGNED) and that recipient has not signed, both held FOR
 -- SHARE; so finish writes the values before it sets signed_at. A sender's field (no recipient)
 -- only before sending (DRAFT, NEEDS_APPROVAL). A closed request's (COMPLETED, DECLINED, EXPIRED,
--- VOIDED) recipients never change: a decline writes the recipient before the request.
+-- VOIDED) recipients never change, except token_version rising (ending a kiosk session revokes
+-- the signer's session after the request closed); a decline writes the recipient before the request.
 CREATE FUNCTION esign_request_parts_rules() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = public, pg_temp
@@ -1185,7 +1186,8 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF req_status IN ('COMPLETED', 'DECLINED', 'EXPIRED', 'VOIDED') THEN
+  IF req_status IN ('COMPLETED', 'DECLINED', 'EXPIRED', 'VOIDED')
+     AND NOT changed <@ ARRAY['token_version'] THEN
     RAISE EXCEPTION 'esign recipients: a % request''s recipients never change', req_status
       USING ERRCODE = 'check_violation';
   END IF;

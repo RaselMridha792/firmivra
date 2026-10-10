@@ -441,13 +441,20 @@ describe('while signing', () => {
     await expect(link('COPY')).resolves.toMatchObject({ purpose: 'COPY' });
   });
 
-  it("freezes a closed request's recipients", async () => {
+  it("freezes a closed request's recipients, except a token_version rise", async () => {
     const closed = async (close: (requestId: string) => Promise<unknown>) => {
       const { request, signer } = await sent(A);
       await close(request.id);
+      // Ending a kiosk session revokes the signer's session even after the request closed.
+      await expect(
+        as(A).esignRecipient.update({
+          where: { id: signer.id },
+          data: { tokenVersion: { increment: 1 } },
+        }),
+      ).resolves.toMatchObject({ id: signer.id });
       for (const data of [
         { reminderCount: 1 },
-        { tokenVersion: 1 },
+        { tokenVersion: 5, reminderCount: 1 },
         { lastRemindedAt: new Date() },
         { name: 'Pat Renamed' },
         { email: 'other@example.test' },
