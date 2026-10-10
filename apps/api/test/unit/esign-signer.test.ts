@@ -1133,3 +1133,108 @@ describe('slice 2: nothing secret leaves', () => {
     }
   });
 });
+
+describe('in person (the kiosk link)', () => {
+  /** An IN_PERSON signer whose kiosk `userId` started `startedAt` ago; its link token. */
+  async function kiosk(me = signer({ delivery: 'IN_PERSON' }), startedMinutesAgo = 1) {
+    const id = await sent(w.a, [me]);
+    const startedAt = new Date(Date.now() - startedMinutesAgo * MIN);
+    const lock = { userId: w.users.ownerA, requestId: id, recipientId: me.id, startedAt };
+    signers.kiosks.of(w.a).set(w.users.ownerA, { ...lock, activeAt: startedAt });
+    return { id, me, token: link(w.a, id, me.id, { purpose: 'IN_PERSON' }) };
+  }
+  const activeAt = () => signers.kiosks.of(w.a).get(w.users.ownerA)!.activeAt;
+
+  it('skips both codes, records IN_PERSON on every event and moves the kiosk timer', async () => {
+    const me = signer({ delivery: 'IN_PERSON', authMethod: 'ACCESS_CODE' });
+    const { id, token } = await kiosk(me);
+    const b = new Browser();
+    const opened = await api(b).open(token);
+    expect([opened.step, opened.codeSentTo]).toEqual(['CONSENT', null]);
+    expect(+activeAt()).toBeGreaterThan(Date.now() - MIN / 2);
+    const before = activeAt();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 5 * MIN);
+    await api(b).accept(consentId());
+    expect(+activeAt()).toBeGreaterThan(+before);
+    await api(b).envelope();
+    await api(b).adopt();
+    expect((await api(b).finish()).step).toBe('DONE');
+    expect(notify.sent).toEqual([]);
+    const events = await w.repo.events(w.a, id);
+    expect(events.map((e) => [e.type, e.authMethod])).toEqual([
+      ['AUTH_PASSED', 'IN_PERSON'],
+      ['CONSENTED', 'IN_PERSON'],
+      ['VIEWED', 'IN_PERSON'],
+      ['SIGNED', 'IN_PERSON'],
+    ]);
+    expect(w.audit.entries[0]).toMatchObject({
+      action: 'esign.signer_link_opened',
+      metadata: { requestId: id, authMethod: 'IN_PERSON' },
+    });
+    const out = JSON.stringify([w.audit.entries, events]);
+    expect(out).not.toContain(token);
+  });
+
+  it('a decline at the kiosk records IN_PERSON too', async () => {
+    const { id, token } = await kiosk();
+    const b = new Browser();
+    await api(b).open(token);
+    await api(b).decline('Fake reason');
+    const events = await w.repo.events(w.a, id);
+    expect(events.at(-1)).toMatchObject({ type: 'DECLINED', authMethod: 'IN_PERSON' });
+  });
+
+  it('only the kiosk link opens an IN_PERSON signer, and it opens no one else', async () => {
+    const { id, me } = await kiosk();
+    expect(await refused(api(new Browser()).open(link(w.a, id, me.id)))).toBe('404 LINK_INVALID');
+    const other = signer();
+    const id2 = await sent(w.a, [other]);
+    const odd = link(w.a, id2, other.id, { purpose: 'IN_PERSON' });
+    expect(await refused(api(new Browser()).open(odd))).toBe('404 LINK_INVALID');
+  });
+
+  it('an older token_version, another slug or no kiosk is LINK_INVALID', async () => {
+    const { id, me, token } = await kiosk();
+    expect(await refused(api(new Browser(), SLUG_B).open(token))).toBe('404 LINK_INVALID');
+    signers.versions.of(w.a).set(me.id, 1);
+    expect(await refused(api(new Browser()).open(token))).toBe('404 LINK_INVALID');
+    signers.versions.of(w.a).set(me.id, 0);
+    signers.kiosks.of(w.a).clear();
+    expect(await refused(api(new Browser()).open(token))).toBe('404 LINK_INVALID');
+    expect((await w.repo.events(w.a, id)).length).toBe(0);
+  });
+
+  it('an idle kiosk ends the signer session and is never revived', async () => {
+    const { token } = await kiosk();
+    const b = new Browser();
+    await api(b).open(token);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 15 * MIN);
+    const idle = activeAt();
+    expect(await refused(api(b).state())).toBe('404 LINK_INVALID');
+    expect(activeAt()).toEqual(idle);
+    const late = await kiosk(signer({ delivery: 'IN_PERSON' }), 16);
+    expect(await refused(api(new Browser()).open(late.token))).toBe('404 LINK_INVALID');
+  });
+
+  it('moves only the newest kiosk of the recipient (the member who started it)', async () => {
+    const { id, me, token } = await kiosk();
+    const old = new Date(Date.now() - 10 * MIN);
+    const stale = { userId: w.users.staffA, requestId: id, recipientId: me.id, startedAt: old };
+    signers.kiosks.of(w.a).set(w.users.staffA, { ...stale, activeAt: old });
+    await api(new Browser()).open(token);
+    expect(signers.kiosks.of(w.a).get(w.users.staffA)!.activeAt).toEqual(old);
+    expect(+activeAt()).toBeGreaterThan(+old);
+  });
+
+  it('the Signature center never opens an IN_PERSON signer', async () => {
+    const me = signer({ delivery: 'IN_PERSON' });
+    const id = await sent(w.a, [me]);
+    const record = (await signers.signer(w.a, id, me.id))!;
+    const firm = { id: w.a, slug: SLUG_A, name: 'Fake Firm A' };
+    expect(await refused(svc.openFromPortal(firm, record, new Browser().res))).toBe(
+      '404 LINK_INVALID',
+    );
+  });
+});
