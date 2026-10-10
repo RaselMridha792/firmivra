@@ -157,23 +157,6 @@ function Calculator({
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <Card title="Your information">
-        <div className="mb-4 flex flex-wrap gap-3">
-          <Button type="button" aria-pressed="true">
-            My Income Is Fairly Steady
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled
-            title="Coming soon"
-            aria-describedby="varies-note"
-          >
-            My Income Varies During the Year
-          </Button>
-        </div>
-        <p id="varies-note" className="mb-4 text-xs text-muted">
-          The option for income that changes during the year is coming soon.
-        </p>
         <form
           className="flex flex-col gap-4"
           noValidate
