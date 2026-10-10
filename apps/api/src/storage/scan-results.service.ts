@@ -2,8 +2,9 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, ScanStatus } from '@firmivra/db';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { Notifier } from '../notifications/notifier.js';
 import { lockRequest } from './document-records.js';
-import { refusedUpload } from './uploads.service.js';
+import { refusedUpload, tellShared } from './uploads.service.js';
 
 /**
  * One GuardDuty Malware Protection for S3 result, as its EventBridge event gives it
@@ -14,13 +15,19 @@ export interface ScanResult {
   key: string;
   status: 'NO_THREATS_FOUND' | 'THREATS_FOUND' | 'UNSUPPORTED' | 'ACCESS_DENIED' | 'FAILED';
   reasons?: readonly string[];
+  /**
+   * The scanned object's S3 version id: logged by the consumer, not stored (documents has no
+   * version column yet; R0's `s3_version_id` will pin it).
+   */
+  versionId?: string | null;
 }
 
 /**
  * What became of the document: its new scan status; UNSCANNED for a password-protected PDF,
  * accepted unscanned (CLEAN, q24); PENDING when the scan broke on our side (the alarm and a
  * rescan); UNKNOWN for a documents key with no document yet (the confirm may still come: the
- * handler leaves the message for redelivery, then dead-letters it to the alarm); IGNORED for a
+ * consumer leaves the message for redelivery; DocumentScanHandler makes it IGNORED once the
+ * confirm window has passed); IGNORED for a
  * key outside the documents prefixes, a document whose result is already set, or an upload the
  * confirm refused (its object is deleted; delete the message).
  */
@@ -41,8 +48,13 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** tenant/{businessId}/documents/{uploadId}, as uploads.service.ts names a new object. */
 const KEY = new RegExp(`^tenant/(${UUID})/documents/(${UUID})$`);
 
-/** The scan status a result gives a file of this type, or null for "our side, still PENDING". */
-function statusFor(
+/**
+ * The scan status a result gives a file of this type, or null for "our side, still PENDING". The
+ * one mapping for every scanned prefix (the handlers in storage/scan-queue/scan-router.ts):
+ * NO_THREATS_FOUND is CLEAN, THREATS_FOUND INFECTED, a file reason FAILED, except q24's PDF that
+ * only needs a password (CLEAN, `unscanned`).
+ */
+export function scanVerdict(
   result: ScanResult,
   contentType: string,
 ): { scan: ScanStatus; unscanned: boolean; reasons: string[] } | null {
@@ -60,8 +72,8 @@ function statusFor(
 
 /**
  * Records a malware scan result on its document (R5; the rules in docs/api/documents.yaml "Scan
- * results"). The GuardDuty result handler (the SQS consumer, with the infra) calls this; there is
- * no route. The document is found by its S3 key in the firm its prefix names, never by a firm id
+ * results"). DocumentScanHandler calls this for each GuardDuty result the SQS consumer
+ * (storage/scan-queue) routes to the documents prefix; there is no route. The document is found by its S3 key in the firm its prefix names, never by a firm id
  * in the message, and only a PENDING document takes a result (the database refuses to change one
  * once set). q22: a SUBMITTED request whose newest file becomes INFECTED or FAILED goes back to
  * REQUESTED, in the same transaction. q24: UNSUPPORTED with PASSWORD_PROTECTED on a PDF is
@@ -69,7 +81,8 @@ function statusFor(
  * is our side and leaves the file PENDING for the alarm and a rescan. A result that comes before
  * the confirm saves its document is UNKNOWN, for redelivery; one for an upload the confirm
  * refused (its `document.upload_refused` audit row) is IGNORED, so it never reaches the alarm.
- * Lock order: the request, then the document. Audited with ids and codes only.
+ * A file the firm shared (FIRM_TO_CLIENT) that becomes CLEAN tells the client after the commit
+ * (`document.shared`). Lock order: the request, then the document. Audited with ids and codes only.
  */
 @Injectable()
 export class ScanResultsService {
@@ -78,32 +91,54 @@ export class ScanResultsService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly notifier: Notifier,
   ) {}
 
   async recordScanResult(result: ScanResult): Promise<ScanOutcome> {
     const [, businessId, uploadId] = KEY.exec(result.key) ?? [];
     if (!businessId || !uploadId) return 'IGNORED';
+    const { outcome, shared } = await this.record(businessId, uploadId, result);
+    if (shared) await tellShared(this.notifier, this.logger, { businessId, ...shared });
+    return outcome;
+  }
+
+  /** The result in one transaction; `shared` when a file the firm shared became CLEAN. */
+  private record(
+    businessId: string,
+    uploadId: string,
+    result: ScanResult,
+  ): Promise<{
+    outcome: ScanOutcome;
+    shared?: { documentId: string; uploadedByUserId: string | null };
+  }> {
     return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       const doc = await tx.document.findFirst({
         where: { businessId, s3Key: result.key },
-        select: { id: true, clientId: true, requestId: true, contentType: true },
+        select: {
+          id: true,
+          clientId: true,
+          requestId: true,
+          contentType: true,
+          direction: true,
+          uploadedByUserId: true,
+        },
       });
       if (!doc) {
         // GuardDuty scanned the PUT of a file the confirm then refused and deleted: nothing to do.
         if (await refusedUpload(tx, businessId, uploadId, { sinceMs: SCAN_REFUSALS_SINCE_MS })) {
           this.logger.log(`Scan result for refused upload ${uploadId}; ignored`);
-          return 'IGNORED';
+          return { outcome: 'IGNORED' };
         }
         // GuardDuty scans on the PUT; the confirm that saves the document can come later.
         this.logger.warn(`Scan result for upload ${uploadId} has no document yet; redeliver`);
-        return 'UNKNOWN';
+        return { outcome: 'UNKNOWN' };
       }
       const request = doc.requestId ? await lockRequest(tx, businessId, doc.requestId) : null;
       const [locked] = await tx.$queryRaw<{ scan_status: ScanStatus }[]>`
         SELECT scan_status::text AS scan_status FROM documents
         WHERE business_id = ${businessId}::uuid AND id = ${doc.id}::uuid FOR UPDATE`;
-      if (locked?.scan_status !== 'PENDING') return 'IGNORED';
-      const next = statusFor(result, doc.contentType);
+      if (locked?.scan_status !== 'PENDING') return { outcome: 'IGNORED' };
+      const next = scanVerdict(result, doc.contentType);
       if (!next) {
         // Our side (UNSUPPORTED_STORAGE_CLASS, ACCESS_DENIED, FAILED): the alarm and a rescan.
         this.logger.warn(`Scan of document ${doc.id} did not finish: ${result.status}; PENDING`);
@@ -114,7 +149,7 @@ export class ScanResultsService {
           { clientId: doc.clientId, result: result.status, reasons: result.reasons ?? [] },
           { businessId },
         );
-        return 'PENDING';
+        return { outcome: 'PENDING' };
       }
       await tx.document.update({
         where: { id: doc.id },
@@ -153,7 +188,12 @@ export class ScanResultsService {
           );
         }
       }
-      return next.unscanned ? 'UNSCANNED' : next.scan;
+      // The client hears of a shared file only once it can open it (UNSCANNED is CLEAN too).
+      const shared =
+        next.scan === 'CLEAN' && doc.direction === 'FIRM_TO_CLIENT'
+          ? { documentId: doc.id, uploadedByUserId: doc.uploadedByUserId }
+          : undefined;
+      return { outcome: next.unscanned ? 'UNSCANNED' : next.scan, shared };
     });
   }
 }

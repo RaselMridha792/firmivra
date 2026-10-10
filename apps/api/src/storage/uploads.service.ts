@@ -80,6 +80,30 @@ export async function refusedUpload(
   return row !== null;
 }
 
+/**
+ * The client's bell for a file the firm shared (`document.shared`, to the client's ACTIVE PRIMARY
+ * login; no email copy), once the file is CLEAN: at confirm in SCAN_MODE=local, else when its scan
+ * result commits (ScanResultsService), so the client is never pointed at a file still being
+ * checked. A scan result is set once, so a document is told at most once. Called after the change
+ * commits; a failure is logged with the document id and the error's name and never undoes it.
+ */
+export async function tellShared(
+  notifier: Notifier,
+  logger: Logger,
+  doc: { businessId: string; documentId: string; uploadedByUserId: string | null },
+): Promise<void> {
+  try {
+    await notifier.notify({
+      businessId: doc.businessId,
+      event: 'document.shared',
+      recordId: doc.documentId,
+      actorUserId: doc.uploadedByUserId,
+    });
+  } catch (error) {
+    logger.warn(`document.shared for document ${doc.documentId} not written (${errorName(error)})`);
+  }
+}
+
 /** One confirm or refusal of a key at a time, until the transaction ends. */
 async function lockUpload(tx: TxClient, key: string): Promise<void> {
   const lockKey = `document-upload:${key}`;
@@ -143,7 +167,8 @@ export class UploadsService {
    * must find it open (409 REQUEST_CLOSED) and makes it SUBMITTED in the same transaction.
    * Every refusal (the byte checks, 403, 404, NO_OPEN_SERVICE, REQUEST_CLOSED,
    * CATEGORY_ARCHIVED) goes through `refuse`: audited, then the object deleted, never while a
-   * document has the key. Once a portal upload commits, the firm is told (`tellFirm`). Returns
+   * document has the key. Once a portal upload commits, the firm is told (`tellFirm`); a shared
+   * firm upload that is CLEAN at once (SCAN_MODE=local) tells the client (`tellShared`). Returns
    * the new document's id.
    */
   async confirm(
@@ -270,18 +295,26 @@ export class UploadsService {
       }
       throw error;
     }
-    await this.tellFirm(claim, id);
+    if (claim.pool === 'CLIENT') await this.tellFirm(claim, id);
+    else if (claim.direction === 'FIRM_TO_CLIENT' && scanMode === 'local') {
+      // Shared and CLEAN at once; in guardduty mode the scan result tells the client.
+      await tellShared(this.notifier, this.logger, {
+        businessId,
+        documentId: id,
+        uploadedByUserId: claim.userId,
+      });
+    }
     return id;
   }
 
   /**
-   * The firm's bell for a portal upload that committed (R6's Notifier; staff uploads tell nobody):
-   * `document-request.submitted` when it answers a request, else `document.uploaded`. The
+   * The firm's bell for a portal upload that committed (R6's Notifier; a firm upload tells only
+   * the client, and only a shared one: `tellShared`): `document-request.submitted` when it answers
+   * a request, else `document.uploaded`. The
    * Notifier resolves on a database failure; anything else is logged with ids only and never
    * undoes the upload.
    */
   private async tellFirm(claim: UploadClaim, documentId: string): Promise<void> {
-    if (claim.pool !== 'CLIENT') return;
     const [event, recordId] = claim.requestId
       ? (['document-request.submitted', claim.requestId] as const)
       : (['document.uploaded', documentId] as const);

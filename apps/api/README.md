@@ -93,6 +93,13 @@ await this.notify.send({
 - `EMAIL_MODE`: `smtp` sends to Mailpit locally (inbox at http://localhost:8025), `ses` sends through Amazon SES in AWS, `log` sends nothing. Production refuses `smtp` and `log`.
 - `SMS_MODE=sns` sends through Amazon SNS once `SMS_ORIGINATION_NUMBER` (the registered toll-free number) is set. Until then, and with `SMS_MODE=log`, nothing is sent and the log notes only the template.
 
+## Malware scan results (`storage/scan-queue`)
+
+- GuardDuty scans every new object under `tenant/` of the documents bucket; EventBridge sends each result to an SQS queue, which `ScanResultConsumer` long-polls with the task role (R1 step 19, `docs/SETUP-LOG.md`). There is no route for results.
+- `SCAN_RESULTS_QUEUE_URL`: set by the infra app stack in AWS; empty locally and in CI, where nothing is read (use `SCAN_MODE=local`). A production build with `SCAN_MODE=guardduty` refuses to start without it. A result must name the queue's account and region and `S3_DOCUMENTS_BUCKET`.
+- Routing: `ScanResultRouter` (global) takes the firm from the key (`tenant/{businessId}/{prefix}/...`) and hands the handler for that prefix the firm's business scope only. A module that writes objects under a new prefix registers a `ScanResultHandler` in its `onModuleInit`; the contract is in `scan-router.ts`. Documents: `DocumentScanHandler`.
+- The log has ids, status and reason codes only, and three markers the infra alarms count: `SCAN_UNFINISHED`, `SCAN_REJECTED` and `SCAN_LAST_RECEIVE`.
+
 ## Adding a module
 
 ```ts

@@ -28,6 +28,7 @@ import { NotificationsModule } from '../notifications/notifications.controller.j
 import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from './config.js';
 import type { FirmActor } from './document-records.js';
 import { DocumentRequestsService } from './document-requests.service.js';
+import { DocumentScanHandler } from './document-scan-handler.js';
 import { createS3Client, DOCUMENT_STORAGE, S3DocumentStorage } from './document-storage.js';
 import { FirmDocumentsService } from './firm-documents.service.js';
 import { MyDocumentsController } from './my-documents.controller.js';
@@ -196,8 +197,9 @@ export class DocumentsController {
     FirmDocumentsService,
     MyDocumentsService,
     DocumentRequestsService,
-    // For the GuardDuty result handler (the SQS consumer comes with the infra).
+    // GuardDuty's results for tenant/{id}/documents/ (storage/scan-queue routes them here).
     ScanResultsService,
+    DocumentScanHandler,
   ],
   // Portal intake uploads (R11) use the same tickets, confirm and bucket.
   exports: [UploadsService, DOCUMENT_STORAGE, ScanResultsService],
