@@ -61,16 +61,16 @@ jobs:
                   'page.tsx',
                   '_components/',
                   'clients/',
+                  'invoices/',
                   'sign-ups/',
                   'workspaces/',
                 ].map((p) => `${WEB}firm/(workspace)/${p}`),
               ],
-              // Firm Sign under a client is R13-web's (the Oct 18 plan); a client's
-              // Messages and Invoices tabs are Nahid's F10 (Rasel, Oct 9).
+              // Firm Sign under a client is R13-web's (the Oct 18 plan); a client's Messages
+              // tab is Nahid's F10 (Rasel, Oct 9). The invoices pages are Fahad's (Rasel, Oct 10).
               except: [
                 `${WEB}firm/(workspace)/clients/[id]/signatures/`,
                 `${WEB}firm/(workspace)/clients/[id]/messages/`,
-                `${WEB}firm/(workspace)/clients/[id]/invoices/`,
               ],
             },
             tumit: {
@@ -83,6 +83,7 @@ jobs:
                   'team/',
                   'audit-log/',
                   'calendar/',
+                  'leads/[id]/',
                   'settings/profile/',
                   'settings/branding/',
                   'settings/portal/',
@@ -92,13 +93,12 @@ jobs:
                 `${WEB}portal/[firmSlug]/(client)/appointments/`,
               ],
             },
-            // F10 from Oct 9 (Rasel); the portal pages moved to R17, Rasel's own session.
+            // F10's messages from Oct 9 (Rasel); its invoices pages went to Fahad on Oct 10. The
+            // portal pages moved to R17, Rasel's own session.
             nahid: {
               logins: ['asratulhasannahid'],
               files: [
-                ...['messages/', 'invoices/', 'clients/[id]/messages/', 'clients/[id]/invoices/'].map(
-                  (p) => `${WEB}firm/(workspace)/${p}`,
-                ),
+                ...['messages/', 'clients/[id]/messages/'].map((p) => `${WEB}firm/(workspace)/${p}`),
               ],
             },
             arfan: {
@@ -108,6 +108,8 @@ jobs:
                 `${WEB}firm/(workspace)/leads/`,
                 'apps/web/e2e/',
               ],
+              // The lead page is Tumit's (Rasel, Oct 10); Arfan keeps the leads list.
+              except: [`${WEB}firm/(workspace)/leads/[id]/`],
             },
           };
           // Everyone: their own tests (also the mock-mode ones) and their task file.
