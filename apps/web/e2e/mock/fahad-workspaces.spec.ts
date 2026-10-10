@@ -11,6 +11,8 @@ for (const width of [375, 768, 1024, 1440]) {
     await expect(list).not.toContainText('Bookkeeping (Growth)');
     await page.getByLabel('Search workspaces').fill('No matching service');
     await expect(page.getByText('No workspaces match these filters.')).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
   });
 }
