@@ -5,13 +5,8 @@ import { Button, Card, Table, type Column, type TableServerControl } from '@firm
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../lib/query';
+import { dateText } from '../../../_components/client-parts';
 import { StatusPill } from './status-pill';
-const date = new Intl.DateTimeFormat('en-GB', {
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-  timeZone: 'UTC',
-});
 const columns: Column<FirmDocument>[] = [
   {
     id: 'name',
@@ -28,6 +23,7 @@ const columns: Column<FirmDocument>[] = [
   },
   {
     id: 'category',
+    className: 'w-16 lg:w-40',
     label: 'Category',
     cell: (row) => (
       <span className="block min-w-0 truncate" title={row.category?.name ?? 'Uncategorized'}>
@@ -37,16 +33,23 @@ const columns: Column<FirmDocument>[] = [
   },
   {
     id: 'year',
+    className: 'w-10 lg:w-16',
     label: 'Year',
-    cell: (row) => <span>{row.taxYear ?? 'â€”'}</span>,
+    cell: (row) => <span>{row.taxYear ?? '\u2014'}</span>,
   },
-  { id: 'status', label: 'Status', cell: (row) => <StatusPill status={row.scanStatus} /> },
+  {
+    id: 'status',
+    className: 'w-28 lg:w-36',
+    label: 'Status',
+    cell: (row) => <StatusPill status={row.scanStatus} />,
+  },
   {
     id: 'date',
+    className: 'w-20 lg:w-28',
     label: 'Date',
     cell: (row) => (
       <time className="block" dateTime={row.createdAt}>
-        {date.format(new Date(row.createdAt))}
+        {dateText(row.createdAt)}
       </time>
     ),
   },
@@ -67,6 +70,7 @@ export function DocumentList({
   });
   const actions: Column<FirmDocument> = {
     id: 'download',
+    className: 'w-20 lg:w-28',
     label: 'Download',
     cell: (row) => (
       <Button
@@ -101,12 +105,12 @@ export function DocumentList({
               </div>
               <div>
                 <dt className="text-muted">Year</dt>
-                <dd className="text-text">{row.taxYear ?? 'â€”'}</dd>
+                <dd className="text-text">{row.taxYear ?? '\u2014'}</dd>
               </div>
             </dl>
             <StatusPill status={row.scanStatus} />
             <p className="text-sm text-muted">
-              Date: <time dateTime={row.createdAt}>{date.format(new Date(row.createdAt))}</time>
+              Date: <time dateTime={row.createdAt}>{dateText(row.createdAt)}</time>
             </p>
             <Button
               variant="secondary"
@@ -123,7 +127,7 @@ export function DocumentList({
       </div>
       <div className="hidden min-w-0 max-w-full md:block" data-testid="documents-table-scroll">
         <div
-          className="min-w-0 [&>div>div:last-child]:hidden [&_table]:table-fixed [&_td]:px-1 [&_th]:px-1 [&_th:nth-child(2)]:w-16 [&_th:nth-child(3)]:w-10 [&_th:nth-child(4)]:w-28 [&_th:nth-child(5)]:w-16 [&_th:nth-child(6)]:w-20 lg:[&_td]:px-2 lg:[&_th]:px-2 lg:[&_th:nth-child(2)]:w-40 lg:[&_th:nth-child(3)]:w-16 lg:[&_th:nth-child(4)]:w-36 lg:[&_th:nth-child(5)]:w-28 lg:[&_th:nth-child(6)]:w-28"
+          className="min-w-0 [&_td]:px-1 [&_th]:px-1 lg:[&_td]:px-2 lg:[&_th]:px-2"
           data-testid="client-documents-table"
         >
           <Table
@@ -131,6 +135,8 @@ export function DocumentList({
             columns={[...columns, actions]}
             rowKey={(row) => row.id}
             caption="Client documents"
+            showPagination={false}
+            tableClassName="table-fixed"
             server={{ ...pagination, onSort: () => {} }}
           />
         </div>

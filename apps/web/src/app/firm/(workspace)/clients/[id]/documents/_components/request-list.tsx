@@ -6,6 +6,7 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { dateText } from '../../../_components/client-parts';
 import { MarkMissingForm } from './mark-missing-form';
 import { RequestDocumentForm } from './request-document-form';
 const labels = {
@@ -50,6 +51,9 @@ export function RequestList({ clientId }: { clientId: string }) {
   const accept = useApiMutation((id: string) => api.documents.acceptRequest(id), {
     invalidate: ['document-requests', clientId],
   });
+  const cancel = useApiMutation((id: string) => api.documents.cancelRequest(id), {
+    invalidate: ['document-requests', clientId],
+  });
   const actions = (row: FirmDocumentRequest) =>
     row.status === 'SUBMITTED' ? (
       <div className="flex flex-wrap gap-2">
@@ -58,7 +62,7 @@ export function RequestList({ clientId }: { clientId: string }) {
           disabled={accept.isPending}
           data-testid="request-accept"
           aria-label={`Accept ${row.title}`}
-          onClick={() => accept.mutate(row.id)}
+          onClick={() => accept.mutate(row.id, { onError: () => void requests.refetch() })}
         >
           Accept
         </Button>
@@ -72,6 +76,16 @@ export function RequestList({ clientId }: { clientId: string }) {
           Mark missing
         </Button>
       </div>
+    ) : row.status === 'NOT_AVAILABLE' ? (
+      <Button
+        variant="secondary"
+        disabled={cancel.isPending}
+        data-testid="request-cancel"
+        aria-label={`Cancel ${row.title}`}
+        onClick={() => cancel.mutate(row.id)}
+      >
+        Cancel
+      </Button>
     ) : null;
   const columns: Column<FirmDocumentRequest>[] = [
     {
@@ -89,7 +103,11 @@ export function RequestList({ clientId }: { clientId: string }) {
       cell: (row) => <span className="wrap-anywhere">{row.service.title}</span>,
     },
     { id: 'status', label: 'Status', cell: (row) => <RequestStatus row={row} /> },
-    { id: 'due', label: 'Due date', cell: (row) => row.dueOn ?? '—' },
+    {
+      id: 'due',
+      label: 'Due date',
+      cell: (row) => (row.dueOn ? dateText(`${row.dueOn}T12:00:00`) : '\u2014'),
+    },
     { id: 'actions', label: 'Actions', cell: actions },
   ];
   return (
@@ -100,9 +118,9 @@ export function RequestList({ clientId }: { clientId: string }) {
           Request a document
         </Button>
       </div>
-      {accept.error ? (
+      {accept.error || cancel.error ? (
         <p role="alert" className="text-sm text-danger" data-testid="request-accept-error">
-          {errorMessage(accept.error, DOCUMENT_ERRORS)}
+          {errorMessage(accept.error ?? cancel.error, DOCUMENT_ERRORS)}
         </p>
       ) : null}
       <PageState query={requests} empty="No document requests yet.">
@@ -114,7 +132,9 @@ export function RequestList({ clientId }: { clientId: string }) {
                   <h3 className="font-bold text-heading wrap-anywhere">{row.title}</h3>
                   <p className="text-sm text-muted wrap-anywhere">{row.service.title}</p>
                   <RequestStatus row={row} />
-                  <p className="text-sm text-muted">Due date: {row.dueOn ?? '—'}</p>
+                  <p className="text-sm text-muted">
+                    Due date: {row.dueOn ? dateText(`${row.dueOn}T12:00:00`) : '\u2014'}
+                  </p>
                   {actions(row)}
                 </Card>
               ))}

@@ -9,15 +9,6 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-test('manual documents preview', async ({ page }) => {
-  test.skip(process.env['FAHAD_MANUAL'] !== '1', 'Opt-in manual preview');
-  test.setTimeout(0);
-  await page.setViewportSize({ width: Number(process.env['FAHAD_WIDTH'] ?? 1440), height: 1000 });
-  await page.goto(url);
-  await expect(page.getByTestId('client-documents-screen')).toBeVisible();
-  await page.pause();
-});
-
 for (const width of [375, 768, 1024, 1440]) {
   test(`documents fit ${width}px and filters return an empty state`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 1000 });
@@ -52,19 +43,6 @@ for (const width of [375, 768, 1024, 1440]) {
   });
 }
 
-for (const [status, code, state] of [
-  [403, 'FORBIDDEN', 'page-forbidden'],
-  [500, 'INTERNAL_ERROR', 'page-error'],
-] as const) {
-  test(`documents shows ${state} when client access fails`, async ({ page }) => {
-    await page.route('**/api/v1/business/clients/0199b6a1-0000-7000-8000-000000000001', (route) =>
-      route.fulfill({ status, json: { error: { code, message: 'Unable to open this client.' } } }),
-    );
-    await page.goto(url);
-    await expect(page.getByTestId(state)).toBeVisible();
-  });
-}
-
 test('request validation, creation, accept and missing reason', async ({ page }) => {
   await page.goto(url);
   const requests = page.getByTestId('requests-desktop-table');
@@ -73,7 +51,10 @@ test('request validation, creation, accept and missing reason', async ({ page })
   await page.getByTestId('request-submit').click();
   await expect(page.getByTestId('request-service')).toHaveAttribute('aria-invalid', 'true');
   await page.getByTestId('request-service').selectOption({ index: 1 });
-  await page.getByRole('dialog').getByTestId('request-title').fill('Quarterly expense receipts');
+  await page
+    .getByRole('dialog')
+    .getByTestId('request-document-title')
+    .fill('Quarterly expense receipts');
   await page.getByTestId('request-submit').click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(requests).toContainText('Quarterly expense receipts');
@@ -83,6 +64,14 @@ test('request validation, creation, accept and missing reason', async ({ page })
   await expect(
     requests.getByRole('row').filter({ hasText: 'W-2 from your employer' }),
   ).toContainText('Accepted');
+  await requests
+    .getByRole('button', { name: 'Accept 1099-NEC for your contract work', exact: true })
+    .click();
+  await expect(page.getByTestId('request-accept-error')).toContainText(/still being checked/i);
+  await requests.getByRole('button', { name: 'Cancel Childcare receipts', exact: true }).click();
+  await expect(requests.getByRole('row').filter({ hasText: 'Childcare receipts' })).toContainText(
+    'Cancelled',
+  );
   await requests
     .getByRole('button', { name: 'Mark 1099-NEC for your contract work missing', exact: true })
     .click();

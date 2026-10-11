@@ -48,12 +48,12 @@ export function RequestDocumentForm({
                     { value: '', label: 'Choose a service' },
                     ...items.map((item) => ({ value: item.id, label: item.title })),
                   ]}
-                  error={form.formState.errors.serviceId?.message}
+                  error={form.formState.errors.serviceId ? 'Choose a service' : undefined}
                   {...form.register('serviceId')}
                 />
                 <Input
                   label="Document title"
-                  data-testid="request-title"
+                  data-testid="request-document-title"
                   error={form.formState.errors.title?.message}
                   {...form.register('title')}
                 />
