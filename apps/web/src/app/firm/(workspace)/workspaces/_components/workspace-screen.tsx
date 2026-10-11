@@ -1,53 +1,59 @@
-﻿'use client';
+'use client';
 import { type Workspace } from '@firmivra/types';
-import { Badge, Button, Card, Select } from '@firmivra/ui';
+import { Badge, Button, Card, Modal, Select } from '@firmivra/ui';
 import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { WORKSPACE_ERRORS } from './workspace-errors';
 import { NoteForm, ReportForm, TaskForm } from './workspace-forms';
 export function WorkspaceScreen({ engagementId }: { engagementId: string }) {
-  const query = useApiQuery(['workspace', engagementId], () => api.workspaces.get(engagementId));
+  const query = useApiQuery(['workspaces', engagementId, 'detail'], () =>
+    api.workspaces.get(engagementId),
+  );
   return (
     <PageState query={query}>{(workspace) => <WorkspaceDetail workspace={workspace} />}</PageState>
   );
 }
 function WorkspaceDetail({ workspace }: { workspace: Workspace }) {
   const id = workspace.engagementId;
+  const [confirmation, setConfirmation] = useState<{ reportId: string; publish: boolean } | null>(
+    null,
+  );
   const open = workspace.status === 'PENDING' || workspace.status === 'ACTIVE';
   const [taskCursors, setTaskCursors] = useState<(string | undefined)[]>([undefined]);
   const [reportCursors, setReportCursors] = useState<(string | undefined)[]>([undefined]);
   const [docCursors, setDocCursors] = useState<(string | undefined)[]>([undefined]);
-  const tasks = useApiQuery(['workspace-tasks', id, taskCursors.at(-1)], () =>
+  const tasks = useApiQuery(['workspaces', id, 'tasks', taskCursors.at(-1)], () =>
     api.tasks.list({ engagementId: id, cursor: taskCursors.at(-1) }),
   );
-  const reports = useApiQuery(['workspace-reports', id, reportCursors.at(-1)], () =>
+  const reports = useApiQuery(['workspaces', id, 'reports', reportCursors.at(-1)], () =>
     api.workspaces.reports(id, { cursor: reportCursors.at(-1) }),
   );
-  const documents = useApiQuery(['workspace-documents', id, docCursors.at(-1)], () =>
+  const documents = useApiQuery(['workspaces', id, 'documents', docCursors.at(-1)], () =>
     api.documents.list(workspace.client.id, { serviceId: id, cursor: docCursors.at(-1) }),
   );
-  const notes = useApiQuery(['workspace-notes', id], () =>
+  const notes = useApiQuery(['workspaces', id, 'notes'], () =>
     api.clientNotes.list(workspace.client.id, { engagementId: id }),
   );
   const stage = useApiMutation(
     (value: string) => api.engagements.update(id, { stage: value || null }),
-    { invalidate: ['workspace', id] },
+    { invalidate: ['workspaces'] },
   );
   const task = useApiMutation((taskId: string) => api.tasks.update(taskId, { status: 'DONE' }), {
-    invalidate: ['workspace-tasks', id],
+    invalidate: ['workspaces'],
   });
   const report = useApiMutation(
     ({ reportId, publish }: { reportId: string; publish: boolean }) =>
       publish ? api.workspaces.publishReport(reportId) : api.workspaces.unpublishReport(reportId),
-    { invalidate: ['workspace-reports', id] },
+    { invalidate: ['workspaces'] },
   );
   const download = useApiMutation(async (docId: string) => {
     const link = await api.documents.download(docId);
     window.location.assign(link.url);
   });
-  const errors = [stage.error, task.error, report.error, download.error].filter(Boolean);
+
   return (
     <div className="min-w-0 space-y-6" data-testid="workspace-detail">
       <div className="space-y-3">
@@ -68,14 +74,11 @@ function WorkspaceDetail({ workspace }: { workspace: Workspace }) {
             ...workspace.stages.map((value) => ({ value, label: value })),
           ]}
         />
+        <ActionError error={stage.error} />
       </div>
-      {errors.length ? (
-        <p role="alert" className="text-sm text-danger">
-          {errors.map((error) => errorMessage(error)).join(' ')}
-        </p>
-      ) : null}
       <Card className="space-y-4" data-testid="workspace-tasks">
         <h2 className="text-xl font-semibold text-heading">Tasks</h2>
+        <ActionError error={task.error} />
         {open ? <TaskForm workspace={workspace} /> : null}
         <PageState query={tasks} empty="No tasks yet." isEmpty={(data) => !data.items.length}>
           {(data) => (
@@ -92,7 +95,7 @@ function WorkspaceDetail({ workspace }: { workspace: Workspace }) {
                         {row.status} · Due: {row.dueOn ?? '—'}
                       </p>
                     </div>
-                    {row.status === 'OPEN' ? (
+                    {open && row.status === 'OPEN' ? (
                       <Button
                         variant="secondary"
                         disabled={task.isPending}
@@ -117,6 +120,7 @@ function WorkspaceDetail({ workspace }: { workspace: Workspace }) {
       </Card>
       <Card className="space-y-4" data-testid="workspace-documents">
         <h2 className="text-xl font-semibold text-heading">Documents</h2>
+        <ActionError error={download.error} />
         <PageState
           query={documents}
           empty="No documents for this workspace."
@@ -174,6 +178,7 @@ function WorkspaceDetail({ workspace }: { workspace: Workspace }) {
       </Card>
       <Card className="space-y-4" data-testid="workspace-reports">
         <h2 className="text-xl font-semibold text-heading">Reports</h2>
+        <ActionError error={report.error} />
         {open ? <ReportForm workspace={workspace} /> : null}
         <PageState query={reports} empty="No reports yet." isEmpty={(data) => !data.items.length}>
           {(data) => (
@@ -199,7 +204,7 @@ function WorkspaceDetail({ workspace }: { workspace: Workspace }) {
                       variant="secondary"
                       disabled={report.isPending || (!open && row.status === 'DRAFT')}
                       onClick={() =>
-                        report.mutate({ reportId: row.id, publish: row.status === 'DRAFT' })
+                        setConfirmation({ reportId: row.id, publish: row.status === 'DRAFT' })
                       }
                       aria-label={`${row.status === 'DRAFT' ? 'Publish' : 'Unpublish'} ${row.title}`}
                     >
@@ -218,8 +223,36 @@ function WorkspaceDetail({ workspace }: { workspace: Workspace }) {
           )}
         </PageState>
       </Card>
+      <Modal
+        open={!!confirmation}
+        title={confirmation?.publish ? 'Publish report?' : 'Unpublish report?'}
+        onClose={() => setConfirmation(null)}
+      >
+        <p className="text-sm text-muted">
+          {confirmation?.publish
+            ? 'This report will be visible to the client.'
+            : 'This report will no longer be visible to the client.'}
+        </p>
+        <ActionError error={report.error} />
+        <Button
+          disabled={report.isPending}
+          onClick={() => {
+            if (confirmation)
+              report.mutate(confirmation, { onSuccess: () => setConfirmation(null) });
+          }}
+        >
+          Confirm {confirmation?.publish ? 'publish' : 'unpublish'}
+        </Button>
+      </Modal>
     </div>
   );
+}
+function ActionError({ error }: { error: unknown }) {
+  return error ? (
+    <p role="alert" className="text-sm text-danger">
+      {errorMessage(error, WORKSPACE_ERRORS)}
+    </p>
+  ) : null;
 }
 function Pages({
   cursors,

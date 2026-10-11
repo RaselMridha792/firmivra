@@ -1,8 +1,8 @@
-﻿'use client';
+'use client';
 import { EngagementStatus, WorkspaceKind, type WorkspaceListItem } from '@firmivra/types';
 import { Badge, Button, Card, Input, Select, Table, type Column } from '@firmivra/ui';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
@@ -10,12 +10,20 @@ export function WorkspacesScreen() {
   const [kind, setKind] = useState('');
   const [status, setStatus] = useState('ACTIVE');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
-  const query = useApiQuery(['workspaces', kind, status, search, cursors.at(-1)], () =>
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setCursors([undefined]);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const query = useApiQuery(['workspaces', kind, status, debouncedSearch, cursors.at(-1)], () =>
     api.workspaces.list({
       kind: kind ? WorkspaceKind.parse(kind) : undefined,
       status: EngagementStatus.parse(status),
-      search: search || undefined,
+      search: debouncedSearch || undefined,
       cursor: cursors.at(-1),
     }),
   );
@@ -30,7 +38,11 @@ export function WorkspacesScreen() {
   const columns: Column<WorkspaceListItem>[] = [
     { id: 'title', label: 'Workspace', cell: link },
     { id: 'client', label: 'Client', cell: (row) => row.client.displayName },
-    { id: 'status', label: 'Status', cell: (row) => <Badge>{row.status}</Badge> },
+    {
+      id: 'status',
+      label: 'Status',
+      cell: (row) => <Badge>{row.status.charAt(0) + row.status.slice(1).toLowerCase()}</Badge>,
+    },
     { id: 'stage', label: 'Stage', cell: (row) => row.stage ?? '—' },
     { id: 'tasks', label: 'Open tasks', cell: (row) => row.openTasks },
     { id: 'due', label: 'Next due date', cell: (row) => row.nextDueOn ?? '—' },
@@ -44,9 +56,9 @@ export function WorkspacesScreen() {
         <Input
           label="Search workspaces"
           value={search}
+          maxLength={100}
           onChange={(e) => {
             setSearch(e.target.value);
-            setCursors([undefined]);
           }}
         />
         <Select
@@ -87,7 +99,7 @@ export function WorkspacesScreen() {
                 <Card key={row.engagementId} className="space-y-3">
                   {link(row)}
                   <p>{row.client.displayName}</p>
-                  <Badge>{row.status}</Badge>
+                  <Badge>{row.status.charAt(0) + row.status.slice(1).toLowerCase()}</Badge>
                   <p className="text-sm text-muted">Stage: {row.stage ?? '—'}</p>
                   <p className="text-sm text-muted">
                     Open tasks: {row.openTasks} · Next due: {row.nextDueOn ?? '—'}

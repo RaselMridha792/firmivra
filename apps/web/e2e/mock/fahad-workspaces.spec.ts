@@ -1,4 +1,4 @@
-﻿import { expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 for (const width of [375, 768, 1024, 1440]) {
   test(`workspace list fits ${width}px and filters by service`, async ({ page }) => {
@@ -6,6 +6,8 @@ for (const width of [375, 768, 1024, 1440]) {
     await page.goto(`http://app.localhost:${port}/workspaces`);
     const list = page.getByTestId(width < 768 ? 'workspace-cards' : 'workspace-table');
     await expect(list).toContainText('Bookkeeping (Growth)');
+    await expect(list).toContainText('Active');
+    await expect(page.getByLabel('Search workspaces')).toHaveAttribute('maxlength', '100');
     await page.getByLabel('Service', { exact: true }).selectOption('TAX_PLANNING');
     await expect(list).toContainText('2026 Tax Planning');
     await expect(list).not.toContainText('Bookkeeping (Growth)');
