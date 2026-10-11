@@ -18,6 +18,7 @@ export function AppShell({
   search,
   greeting,
   footer,
+  bell,
   children,
 }: {
   /** Under the logo, for example "Super Admin Portal". */
@@ -31,6 +32,8 @@ export function AppShell({
   greeting?: ReactNode;
   /** Under the page area (portal: copyright and links). */
   footer?: ReactNode;
+  /** Replaces the header's plain bell, for example the firm's `<NotificationBell />` (F07). */
+  bell?: ReactNode;
   children: ReactNode;
 }) {
   const [drawer, setDrawer] = useState(false);
@@ -63,6 +66,7 @@ export function AppShell({
         <Header
           search={search}
           greeting={greeting}
+          bell={bell}
           roleLabel={roleLabel}
           onOpenMenu={() => setDrawer(true)}
         />
