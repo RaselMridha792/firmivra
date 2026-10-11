@@ -110,3 +110,17 @@ test('a version keeps, replaces or refuses its PDF original', async ({ page }) =
   await expect(page.getByRole('button', { name: 'Publish version 4' })).toBeVisible();
   await expect(page.getByText(/intake-terms-v3\.pdf/).first()).toBeVisible();
 });
+
+test.describe('in Honolulu (UTC-10)', () => {
+  test.use({ timezoneId: 'Pacific/Honolulu' });
+
+  test('a version shows the day it was published there, and its effective date as set', async ({
+    page,
+  }) => {
+    await openAgreements(page);
+    // The mock publishes at 09:00 UTC on Oct 6, still Oct 5 in Honolulu; Oct 1 is a calendar date.
+    const sample = page.getByTestId('agreement').first();
+    await expect(sample).toContainText('published Oct 5, 2026');
+    await expect(sample).toContainText('effective Oct 1, 2026');
+  });
+});

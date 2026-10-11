@@ -114,3 +114,33 @@ test('a firm opens from the firms list, with the way back', async ({ page }) => 
   await page.getByRole('link', { name: 'Back to Firms' }).click();
   await expect(page.getByTestId('page-title')).toHaveText('Firms');
 });
+
+test.describe('in a time zone far from UTC', () => {
+  test.use({ timezoneId: 'Pacific/Kiritimati' });
+
+  test("Date Approved is the viewer's own day, as on the firm's page", async ({ page }) => {
+    // The mock approves firms hours or days before "now"; at 16:00 UTC every approval is
+    // already the next day in UTC+14.
+    await page.clock.setFixedTime(new Date('2026-07-08T16:00:00Z'));
+    await mockAdminSession(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(admin('/firms'));
+    await page.getByRole('tab', { name: /^All Firms \(/ }).click();
+    const dates = page.locator('table time');
+    await expect(dates.first()).toBeVisible();
+    const shown = await dates.evaluateAll((times) =>
+      times.map((time) => {
+        const at = new Date(time.getAttribute('datetime') ?? '');
+        return {
+          text: time.textContent,
+          local: new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(at),
+          utc: new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(
+            at,
+          ),
+        };
+      }),
+    );
+    for (const date of shown) expect(date.text).toBe(date.local);
+    expect(shown.some((date) => date.local !== date.utc)).toBe(true);
+  });
+});
