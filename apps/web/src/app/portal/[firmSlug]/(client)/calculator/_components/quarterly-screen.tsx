@@ -73,8 +73,7 @@ const amount = (text: string): number => (text.trim() === '' ? 0 : Number(text.r
 
 /**
  * /{firm}/calculator/quarterly-estimate (signed in) and /{firm}/calculators/quarterly-estimate
- * (public): the Quarterly Estimated Tax Calculator (Octavia's guide). Runs in the browser. Only
- * "My Income Is Fairly Steady" is built so far.
+ * (public): the Quarterly Estimated Tax Calculator (Octavia's guide). Runs in the browser.
  */
 export function QuarterlyScreen({ publicPage = false }: { publicPage?: boolean }) {
   const slug = String(useParams<{ firmSlug: string }>().firmSlug);
@@ -83,10 +82,7 @@ export function QuarterlyScreen({ publicPage = false }: { publicPage?: boolean }
   );
   return (
     <div className="flex flex-col gap-6">
-      <PortalPageHeader
-        title={`${CURRENT_TAX_YEAR} Quarterly Estimated Tax Calculator`}
-        subtitle="How is your income earned during the year?"
-      />
+      <PortalPageHeader title={`${CURRENT_TAX_YEAR} Quarterly Estimated Tax Calculator`} />
       <PageState query={calculator}>
         {(c) => <Calculator disclaimer={c.disclaimer} slug={slug} publicPage={publicPage} />}
       </PageState>

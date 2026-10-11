@@ -52,6 +52,7 @@ test('the quarterly calculator gives the hand-worked self-employed case', async 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(portal('/lvp/calculators/quarterly-estimate'));
   await expect(page.getByText(/coming soon/i)).toHaveCount(0);
+  await expect(page.getByText('How is your income earned during the year?')).toHaveCount(0);
   await page.getByLabel('Gross Business Income (if self-employed)').fill('100000');
   await page.getByLabel('Business Expenses').fill('20000');
   await page.getByRole('button', { name: 'Calculate My Estimated Tax Payment' }).click();
