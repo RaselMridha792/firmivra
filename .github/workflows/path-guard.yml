@@ -112,6 +112,14 @@ jobs:
               except: [`${WEB}firm/(workspace)/leads/[id]/`],
             },
           };
+          // Two tickets, each scoped wider than its developer's normal list, replacing it (not
+          // added to it) for that branch only; every other branch keeps today's lists unchanged.
+          // Temporary: delete this block and its use below after the night of 13 Oct 2026 (Dhaka).
+          const TEMP_EXPIRES = new Date('2026-10-14T00:00:00+06:00');
+          const TEMP_OVERRIDES = [
+            { dev: 'fahad', prefix: 'fahad/FIR-444-', files: [WEB, 'packages/ui/'] },
+            { dev: 'arfan', prefix: 'arfan/FIR-445-', files: [WEB, 'apps/web/e2e/'] },
+          ];
           // Everyone: their own tests (also the mock-mode ones) and their task file.
           for (const [name, dev] of Object.entries(DEVELOPERS)) {
             dev.files.push(
@@ -152,8 +160,12 @@ jobs:
             process.exit(1);
           }
           const dev = DEVELOPERS[name];
-          const allowed = (file) =>
-            dev.files.some((p) => matches(p, file)) && !(dev.except ?? []).some((p) => matches(p, file));
+          const override =
+            Date.now() < TEMP_EXPIRES.getTime() &&
+            TEMP_OVERRIDES.find((o) => o.dev === name && branch.startsWith(o.prefix));
+          const files = override ? override.files : dev.files;
+          const except = override ? [] : (dev.except ?? []);
+          const allowed = (file) => files.some((p) => matches(p, file)) && !except.some((p) => matches(p, file));
           // A rename changes two paths: both must be the developer's.
           const changed = readFileSync(filesPath, 'utf8')
             .split('\n')
