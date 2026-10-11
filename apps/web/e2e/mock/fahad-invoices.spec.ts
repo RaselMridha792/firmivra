@@ -8,14 +8,6 @@ test.beforeEach(async ({ page }) => {
     route.fulfill({ json: clientFixtures()[0] }),
   );
 });
-test('manual invoices preview', async ({ page }) => {
-  test.skip(process.env['FAHAD_MANUAL'] !== '1', 'Opt-in manual preview');
-  test.setTimeout(0);
-  await page.setViewportSize({ width: Number(process.env['FAHAD_WIDTH'] ?? 1440), height: 1000 });
-  await page.goto(client);
-  await expect(page.getByTestId('invoices-screen')).toBeVisible();
-  await page.pause();
-});
 for (const width of [375, 768, 1024, 1440]) {
   test(`invoice list fits ${width}px and status filter works`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 1000 });
@@ -24,6 +16,8 @@ for (const width of [375, 768, 1024, 1440]) {
     await expect(list).toContainText('INV-');
     await page.getByTestId('invoice-status-filter').selectOption('PAID');
     await expect(list).toContainText('Paid');
+    await expect(list).not.toContainText('Draft');
+    await expect(list).not.toContainText('Open');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -31,9 +25,6 @@ for (const width of [375, 768, 1024, 1440]) {
   });
 }
 test('create a multiple-line draft, remove a line and send', async ({ page }) => {
-  await page.route('**/api/v1/business/clients/0199b6a1-0000-7000-8000-000000000001', (route) =>
-    route.fulfill({ json: clientFixtures()[0] }),
-  );
   await page.goto(client);
   await page.getByTestId('invoice-new').click();
   await page.getByTestId('invoice-create').click();
@@ -44,6 +35,9 @@ test('create a multiple-line draft, remove a line and send', async ({ page }) =>
   await page.getByLabel('Due date', { exact: true }).fill('2099-10-31');
   await page.getByLabel('Description 1', { exact: true }).fill('Quarterly bookkeeping review');
   await page.getByLabel('Quantity 1', { exact: true }).fill('2');
+  await page.getByLabel('Unit price 1 (USD)', { exact: true }).fill('$50');
+  await page.getByTestId('invoice-create').click();
+  await expect(page.getByText('Enter an amount like 125.50')).toBeVisible();
   await page.getByLabel('Unit price 1 (USD)', { exact: true }).fill('125.50');
   await page.getByRole('button', { name: 'Add line', exact: true }).click();
   await page.getByLabel('Description 2', { exact: true }).fill('Quarterly planning review');
@@ -60,4 +54,53 @@ test('create a multiple-line draft, remove a line and send', async ({ page }) =>
   await expect(row).toContainText('$50.00');
   await row.getByTestId('invoice-send').click();
   await expect(row).toContainText('Open');
+});
+
+test('a draft can be cancelled with a required reason', async ({ page }) => {
+  await page.goto(client);
+  const table = page.getByTestId('invoices-table');
+  const button = table.getByTestId('invoice-cancel').first();
+  const number = (await button.getAttribute('aria-label'))!.replace('Cancel ', '');
+  await button.click();
+  await page.getByRole('button', { name: 'Confirm cancellation' }).click();
+  await expect(page.getByLabel('Cancellation reason')).toHaveAttribute('aria-invalid', 'true');
+  await page.getByLabel('Cancellation reason').fill('Created by mistake.');
+  await page.getByRole('button', { name: 'Confirm cancellation' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(table.getByRole('row').filter({ hasText: number })).toContainText('Canceled');
+});
+
+test('archived client hides creation and Send', async ({ page }) => {
+  await page.route('**/api/v1/business/clients/0199b6a1-0000-7000-8000-000000000001', (route) =>
+    route.fulfill({ json: { ...clientFixtures()[0], archivedAt: '2026-01-01T00:00:00Z' } }),
+  );
+  await page.goto(client);
+  await expect(page.getByTestId('invoices-table')).toBeVisible();
+  await expect(page.getByTestId('invoice-new')).toHaveCount(0);
+  await expect(page.getByTestId('invoice-send')).toHaveCount(0);
+  await expect(page.getByTestId('page-title')).toHaveCount(1);
+});
+
+test('invalid quantity and past due date keep the draft form open', async ({ page }) => {
+  await page.goto(client);
+  await page.getByTestId('invoice-new').click();
+  await page.getByLabel('Description 1', { exact: true }).fill('Monthly bookkeeping');
+  await page.getByLabel('Unit price 1 (USD)', { exact: true }).fill('100');
+  await page.getByLabel('Due date', { exact: true }).fill('2099-10-31');
+  await page.getByLabel('Quantity 1', { exact: true }).fill('');
+  await page.getByTestId('invoice-create').click();
+  await expect(page.getByText('Enter a quantity greater than zero')).toBeVisible();
+  await page.getByLabel('Quantity 1', { exact: true }).fill('1');
+  await page.getByLabel('Due date', { exact: true }).fill('2000-01-01');
+  await page.getByTestId('invoice-create').click();
+  await expect(page.getByText('Choose today or a future date')).toBeVisible();
+  await expect(page.getByTestId('invoice-form')).toBeVisible();
+});
+
+test('a newly opened form uses today after the page crosses midnight', async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 9, 11, 12) });
+  await page.goto(client);
+  await page.clock.setSystemTime(new Date(2026, 9, 12, 12));
+  await page.getByTestId('invoice-new').click();
+  await expect(page.getByLabel('Due date', { exact: true })).toHaveAttribute('min', '2026-10-12');
 });

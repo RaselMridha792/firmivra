@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import { INVOICE_ERRORS, InvoiceStatus, type InvoiceListItem } from '@firmivra/types';
 import { Badge, Button, Card, Select, Table, type Column } from '@firmivra/ui';
 import { useState } from 'react';
@@ -7,6 +7,9 @@ import { RequireRole } from '../../../../../components/require-role';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { dateText } from '../../clients/_components/client-parts';
+import { useClientRecord } from '../../clients/[id]/_components/use-client-record';
+import { InvoiceCancelForm } from './invoice-cancel-form';
 import { InvoiceForm } from './invoice-form';
 const labels = {
   DRAFT: 'Draft',
@@ -21,12 +24,23 @@ const amount = (row: InvoiceListItem) =>
   );
 const statusBadge = (row: InvoiceListItem) => (
   <span className="whitespace-nowrap">
-    <Badge tone={row.status === 'PAID' ? 'success' : row.status === 'OPEN' ? 'warning' : 'info'}>
+    <Badge
+      tone={
+        row.status === 'PAID'
+          ? 'success'
+          : row.status === 'OPEN'
+            ? 'warning'
+            : row.status === 'CANCELED'
+              ? 'neutral'
+              : 'info'
+      }
+    >
       {labels[row.status]}
     </Badge>
   </span>
 );
 export function InvoicesScreen({ clientId }: { clientId?: string }) {
+  const [canceling, setCanceling] = useState<InvoiceListItem>();
   const [status, setStatus] = useState('');
   const [creating, setCreating] = useState(false);
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
@@ -46,16 +60,12 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
   const action = (row: InvoiceListItem) =>
     row.status === 'DRAFT' ? (
       <RequireRole roles={['OWNER', 'ADMIN']}>
-        <Button
-          variant="secondary"
-          className="w-full"
-          data-testid="invoice-send"
-          disabled={send.isPending}
-          aria-label={`Send ${row.number}`}
-          onClick={() => send.mutate(row.id)}
-        >
-          Send
-        </Button>
+        <DraftActions
+          row={row}
+          pending={send.isPending}
+          onSend={() => send.mutate(row.id)}
+          onCancel={() => setCanceling(row)}
+        />
       </RequireRole>
     ) : null;
   const columns: Column<InvoiceListItem>[] = [
@@ -74,7 +84,11 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
         </div>
       ),
     },
-    { id: 'due', label: 'Due date', cell: (row) => row.dueOn ?? '—' },
+    {
+      id: 'due',
+      label: 'Due date',
+      cell: (row) => (row.dueOn ? dateText(`${row.dueOn}T12:00:00`) : '—'),
+    },
     { id: 'amount', label: 'Amount', cell: amount },
     { id: 'status', label: 'Status', cell: statusBadge },
     { id: 'actions', label: 'Actions', cell: action },
@@ -82,30 +96,28 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
   return (
     <div className="min-w-0 space-y-4" data-testid="invoices-screen">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-heading" data-testid="page-title">
-          {clientId ? 'Client invoices' : 'Invoices'}
-        </h1>
+        <InvoiceHeading clientId={clientId} />
         {clientId ? (
           <RequireRole roles={['OWNER', 'ADMIN']}>
-            <Button onClick={() => setCreating(true)} data-testid="invoice-new">
-              New invoice
-            </Button>
+            <NewInvoiceButton clientId={clientId} onClick={() => setCreating(true)} />
           </RequireRole>
         ) : null}
       </div>
-      <Select
-        label="Status"
-        data-testid="invoice-status-filter"
-        value={status}
-        onChange={(event) => {
-          setStatus(event.target.value);
-          setCursors([undefined]);
-        }}
-        options={[
-          { value: '', label: 'All statuses' },
-          ...InvoiceStatus.options.map((value) => ({ value, label: labels[value] })),
-        ]}
-      />
+      <div className="max-w-xs">
+        <Select
+          label="Status"
+          data-testid="invoice-status-filter"
+          value={status}
+          onChange={(event) => {
+            setStatus(event.target.value);
+            setCursors([undefined]);
+          }}
+          options={[
+            { value: '', label: 'All statuses' },
+            ...InvoiceStatus.options.map((value) => ({ value, label: labels[value] })),
+          ]}
+        />
+      </div>
       {send.error ? (
         <p role="alert" className="text-sm text-danger">
           {errorMessage(send.error, INVOICE_ERRORS)}
@@ -131,7 +143,9 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
                     {!clientId ? `${row.client.displayName} · ` : ''}
                     {row.title}
                   </p>
-                  <p className="text-sm text-muted">Due date: {row.dueOn ?? '—'}</p>
+                  <p className="text-sm text-muted">
+                    Due date: {row.dueOn ? dateText(`${row.dueOn}T12:00:00`) : '—'}
+                  </p>
                   <p className="font-semibold">{amount(row)}</p>
                   {statusBadge(row)}
                   {action(row)}
@@ -172,9 +186,66 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
           </>
         )}
       </PageState>
+      {canceling ? (
+        <InvoiceCancelForm invoice={canceling} onClose={() => setCanceling(undefined)} />
+      ) : null}
       {creating && clientId ? (
         <InvoiceForm clientId={clientId} onClose={() => setCreating(false)} />
       ) : null}
+    </div>
+  );
+}
+
+function InvoiceHeading({ clientId }: { clientId?: string }) {
+  return clientId ? (
+    <h2 className="text-2xl font-semibold text-heading">Client invoices</h2>
+  ) : (
+    <h1 className="text-2xl font-semibold text-heading" data-testid="page-title">
+      Invoices
+    </h1>
+  );
+}
+function NewInvoiceButton({ clientId, onClick }: { clientId: string; onClick: () => void }) {
+  const client = useClientRecord(clientId);
+  return client.data && !client.data.archivedAt ? (
+    <Button onClick={onClick} data-testid="invoice-new">
+      New invoice
+    </Button>
+  ) : null;
+}
+function DraftActions({
+  row,
+  pending,
+  onSend,
+  onCancel,
+}: {
+  row: InvoiceListItem;
+  pending: boolean;
+  onSend: () => void;
+  onCancel: () => void;
+}) {
+  const client = useClientRecord(row.client.id);
+  return (
+    <div className="flex flex-wrap gap-2">
+      {client.data && !client.data.archivedAt ? (
+        <Button
+          variant="secondary"
+          disabled={pending}
+          aria-label={`Send ${row.number}`}
+          data-testid="invoice-send"
+          onClick={onSend}
+        >
+          Send
+        </Button>
+      ) : null}
+      <Button
+        variant="secondary"
+        onClick={onCancel}
+        aria-label={`Cancel ${row.number}`}
+        data-testid="invoice-cancel"
+      >
+        Cancel
+      </Button>
     </div>
   );
 }
