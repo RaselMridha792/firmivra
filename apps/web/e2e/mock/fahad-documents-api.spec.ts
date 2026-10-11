@@ -1,9 +1,60 @@
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { createDocumentsMock } from '../../src/mocks/documents';
 import { clientFixtures, firstClientId } from '../../src/mocks/clients';
 
-const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
+const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 2);
 const url = `http://app.localhost:${port}/clients/${firstClientId}/documents`;
+// The all-mock server bypasses HTTP. This spec owns a separate server so documents
+// use the real client with synthetic transport responses; no environment file changes.
+test.describe.configure({ mode: 'serial' });
+let server: ChildProcess | undefined;
+test.beforeAll(async ({ request }) => {
+  const webDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const next = createRequire(resolve(webDir, 'package.json')).resolve('next/dist/bin/next');
+  server = spawn(process.execPath, [next, 'dev', '--port', port], {
+    cwd: webDir,
+    windowsHide: true,
+    detached: process.platform !== 'win32',
+    stdio: 'ignore',
+    env: {
+      ...process.env,
+      NODE_ENV: 'development',
+      WEB_PORT: port,
+      NEXT_PUBLIC_API_MOCK: 'me,engagements,esign',
+      NEXT_DIST_DIR: '.next/documents-api',
+    },
+  });
+  await expect
+    .poll(
+      async () => {
+        if (server?.exitCode !== null)
+          throw new Error('Documents test server exited before startup');
+        try {
+          return (
+            await request.get('http://localhost:' + port + '/healthz', { timeout: 2000 })
+          ).ok();
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 60000 },
+    )
+    .toBe(true);
+});
+test.afterAll(() => {
+  if (!server?.pid) return;
+  if (process.platform === 'win32')
+    spawnSync('taskkill', ['/PID', String(server.pid), '/T', '/F'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+  else process.kill(-server.pid, 'SIGTERM');
+});
+
 test.beforeEach(async ({ page }) => {
   const documents = createDocumentsMock({ role: 'OWNER' });
   await page.route('**/api/v1/**', async (route) => {
