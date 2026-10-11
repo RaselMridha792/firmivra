@@ -13,7 +13,8 @@ export function PortalPageHeader({
   titleAs: Title = 'h1',
 }: {
   title: ReactNode;
-  subtitle: ReactNode;
+  /** Left out where a page has nothing to say under the title. */
+  subtitle?: ReactNode;
   /** The handwritten-style line on the right; its last sentence goes on a second line. */
   script?: string;
   /** "p" where each tab's own card holds the page's h1. */
@@ -32,7 +33,7 @@ export function PortalPageHeader({
           <Title className="font-display text-4xl leading-tight font-bold text-heading md:text-5xl">
             {title}
           </Title>
-          <p className="mt-1 text-lg text-text">{subtitle}</p>
+          {subtitle ? <p className="mt-1 text-lg text-text">{subtitle}</p> : null}
         </div>
         <p
           aria-hidden
