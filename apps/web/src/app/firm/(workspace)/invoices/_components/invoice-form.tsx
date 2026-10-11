@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import { CreateInvoiceRequest, INVOICE_ERRORS, invoiceTotals } from '@firmivra/types';
 import { Button, Card, Input, Modal } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -12,6 +12,8 @@ const cents = (input: string | number) => {
   const [whole = '0', fraction = ''] = value.split('.');
   return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
 };
+const now = new Date();
+const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 export function InvoiceForm({ clientId, onClose }: { clientId: string; onClose: () => void }) {
   const form = useForm<CreateInvoiceRequest>({
     resolver: zodResolver(CreateInvoiceRequest),
@@ -37,11 +39,18 @@ export function InvoiceForm({ clientId, onClose }: { clientId: string; onClose: 
       <form
         className="space-y-4"
         data-testid="invoice-form"
-        onSubmit={form.handleSubmit((body) => create.mutate(body, { onSuccess: onClose }))}
+        onSubmit={form.handleSubmit((body) => {
+          if (body.dueOn < today) {
+            form.setError('dueOn', { message: 'Choose today or a future date' });
+            return;
+          }
+          create.mutate(body, { onSuccess: onClose });
+        })}
       >
         <Input
           label="Due date"
           type="date"
+          min={today}
           error={form.formState.errors.dueOn?.message}
           {...form.register('dueOn')}
         />
@@ -57,14 +66,22 @@ export function InvoiceForm({ clientId, onClose }: { clientId: string; onClose: 
                 label={`Quantity ${index + 1}`}
                 type="number"
                 step="0.01"
-                error={form.formState.errors.lines?.[index]?.quantity?.message}
+                error={
+                  form.formState.errors.lines?.[index]?.quantity
+                    ? 'Enter a quantity greater than zero'
+                    : undefined
+                }
                 {...form.register(`lines.${index}.quantity`, { valueAsNumber: true })}
               />
               <Input
                 label={`Unit price ${index + 1} (USD)`}
                 type="text"
                 inputMode="decimal"
-                error={form.formState.errors.lines?.[index]?.unitAmountCents?.message}
+                error={
+                  form.formState.errors.lines?.[index]?.unitAmountCents
+                    ? 'Enter an amount like 125.50'
+                    : undefined
+                }
                 {...form.register(`lines.${index}.unitAmountCents`, { setValueAs: cents })}
               />
             </div>
