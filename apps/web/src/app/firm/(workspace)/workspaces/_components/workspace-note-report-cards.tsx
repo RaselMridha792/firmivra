@@ -7,6 +7,7 @@ import { api } from '../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { NoteForm, ReportForm } from './workspace-forms';
 import { ActionError, Pages } from './workspace-parts';
+import { ReportActions } from './report-actions';
 export function NoteCard({ workspace }: { workspace: Workspace }) {
   const id = workspace.engagementId;
   const notes = useApiQuery(['workspaces', id, 'notes'], () =>
@@ -15,6 +16,7 @@ export function NoteCard({ workspace }: { workspace: Workspace }) {
   return (
     <Card className="space-y-4" data-testid="workspace-notes">
       <h2 className="text-xl font-semibold text-heading">Internal notes</h2>
+      <p className="text-sm text-muted">Internal note, not visible to the client.</p>
       <NoteForm workspace={workspace} />
       <PageState query={notes} empty="No internal notes yet.">
         {(rows) => (
@@ -82,6 +84,7 @@ export function ReportCard({ workspace }: { workspace: Workspace }) {
                     >
                       {row.status === 'DRAFT' ? 'Publish' : 'Unpublish'}
                     </Button>
+                    <ReportActions report={row} workspace={workspace} />
                   </li>
                 ))}
               </ul>

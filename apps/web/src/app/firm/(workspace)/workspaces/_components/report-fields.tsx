@@ -2,7 +2,7 @@
 import { type CreateReportRequest, type Workspace } from '@firmivra/types';
 import { Button, Input, Textarea } from '@firmivra/ui';
 import { useState } from 'react';
-import { useFieldArray, type UseFormReturn } from 'react-hook-form';
+import { useController, useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
@@ -18,6 +18,38 @@ const amount = (value: string | number | null | undefined) => {
     (value.trim().startsWith('-') ? -1 : 1)
   );
 };
+
+function FigureAmount({
+  form,
+  index,
+}: {
+  form: UseFormReturn<CreateReportRequest>;
+  index: number;
+}) {
+  const { field, fieldState } = useController({
+    control: form.control,
+    name: `data.lines.${index}.amountCents`,
+  });
+  const [value, setValue] = useState(() => (field.value == null ? '' : String(field.value / 100)));
+  return (
+    <Input
+      {...field}
+      label={`Amount ${index + 1} (USD, optional)`}
+      type="text"
+      inputMode="decimal"
+      value={value}
+      error={
+        fieldState.error
+          ? 'Enter an amount with at most two decimal places, within the supported limit.'
+          : undefined
+      }
+      onChange={(event) => {
+        setValue(event.target.value);
+        field.onChange(amount(event.target.value));
+      }}
+    />
+  );
+}
 
 export function ReportFigures({ form }: { form: UseFormReturn<CreateReportRequest> }) {
   const lines = useFieldArray({ control: form.control, name: 'data.lines' });
@@ -36,17 +68,7 @@ export function ReportFigures({ form }: { form: UseFormReturn<CreateReportReques
             error={form.formState.errors.data?.lines?.[index]?.label?.message}
             {...form.register(`data.lines.${index}.label`)}
           />
-          <Input
-            label={`Amount ${index + 1} (USD, optional)`}
-            type="text"
-            inputMode="decimal"
-            error={
-              form.formState.errors.data?.lines?.[index]?.amountCents
-                ? 'Enter an amount with at most two decimal places, within the supported limit.'
-                : undefined
-            }
-            {...form.register(`data.lines.${index}.amountCents`, { setValueAs: amount })}
-          />
+          <FigureAmount form={form} index={index} />
           <Textarea
             label={`Figure note ${index + 1} (optional)`}
             maxLength={400}
