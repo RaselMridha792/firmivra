@@ -428,10 +428,10 @@ export class AppStack extends Stack {
         DB_APP_PASSWORD: ecs.Secret.fromSecretsManager(data.appDbSecret, 'password'),
       },
     });
-    // Read-only, only the two pools link-dev-users reads (no clients pool). ListUsers with the
-    // filter sub = "<sub>" finds the user and its attributes; AdminGetUser does not take the sub
-    // in pools that sign in by username.
-    for (const pool of [auth.staff.pool, auth.admins.pool]) {
+    // Read-only, on all three pools link-dev-users and one-off account scripts read. ListUsers
+    // with the filter sub = "<sub>" finds the user and its attributes; AdminGetUser does not take
+    // the sub in pools that sign in by username.
+    for (const pool of [auth.staff.pool, auth.clients.pool, auth.admins.pool]) {
       pool.grant(this.migrateTask.taskRole, 'cognito-idp:ListUsers');
     }
 
