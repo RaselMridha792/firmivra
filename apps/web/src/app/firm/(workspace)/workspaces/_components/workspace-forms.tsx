@@ -13,6 +13,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
 import { WORKSPACE_ERRORS } from './workspace-errors';
+import { ReportDocument, ReportFigures } from './report-fields';
 export function TaskForm({ workspace }: { workspace: Workspace }) {
   const form = useForm<CreateTaskRequest>({
     resolver: zodResolver(CreateTaskRequest),
@@ -104,6 +105,7 @@ export function ReportForm({ workspace }: { workspace: Workspace }) {
         mutation.mutate(body, { onSuccess: () => form.reset() }),
       )}
       data-testid="workspace-report-form"
+      noValidate
     >
       <Select
         label="Report type"
@@ -129,6 +131,8 @@ export function ReportForm({ workspace }: { workspace: Workspace }) {
         error={form.formState.errors.data?.summary?.message}
         {...form.register('data.summary')}
       />
+      <ReportFigures form={form} />
+      <ReportDocument workspace={workspace} form={form} />
       {mutation.error ? (
         <p role="alert" className="text-sm text-danger">
           {errorMessage(mutation.error, WORKSPACE_ERRORS)}
