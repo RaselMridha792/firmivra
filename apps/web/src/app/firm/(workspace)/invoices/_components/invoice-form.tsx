@@ -12,9 +12,12 @@ const cents = (input: string | number) => {
   const [whole = '0', fraction = ''] = value.split('.');
   return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
 };
-const now = new Date();
-const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+const localToday = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
 export function InvoiceForm({ clientId, onClose }: { clientId: string; onClose: () => void }) {
+  const today = localToday();
   const form = useForm<CreateInvoiceRequest>({
     resolver: zodResolver(CreateInvoiceRequest),
     defaultValues: {
@@ -38,9 +41,10 @@ export function InvoiceForm({ clientId, onClose }: { clientId: string; onClose: 
     <Modal open title="New invoice" onClose={onClose}>
       <form
         className="space-y-4"
+        noValidate
         data-testid="invoice-form"
         onSubmit={form.handleSubmit((body) => {
-          if (body.dueOn < today) {
+          if (body.dueOn < localToday()) {
             form.setError('dueOn', { message: 'Choose today or a future date' });
             return;
           }
@@ -67,9 +71,9 @@ export function InvoiceForm({ clientId, onClose }: { clientId: string; onClose: 
                 type="number"
                 step="0.01"
                 error={
-                  form.formState.errors.lines?.[index]?.quantity
+                  form.formState.errors.lines?.[index]?.quantity?.type === 'invalid_type'
                     ? 'Enter a quantity greater than zero'
-                    : undefined
+                    : form.formState.errors.lines?.[index]?.quantity?.message
                 }
                 {...form.register(`lines.${index}.quantity`, { valueAsNumber: true })}
               />
@@ -78,9 +82,9 @@ export function InvoiceForm({ clientId, onClose }: { clientId: string; onClose: 
                 type="text"
                 inputMode="decimal"
                 error={
-                  form.formState.errors.lines?.[index]?.unitAmountCents
+                  form.formState.errors.lines?.[index]?.unitAmountCents?.type === 'invalid_type'
                     ? 'Enter an amount like 125.50'
-                    : undefined
+                    : form.formState.errors.lines?.[index]?.unitAmountCents?.message
                 }
                 {...form.register(`lines.${index}.unitAmountCents`, { setValueAs: cents })}
               />

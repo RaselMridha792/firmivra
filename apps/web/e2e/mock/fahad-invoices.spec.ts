@@ -80,3 +80,27 @@ test('archived client hides creation and Send', async ({ page }) => {
   await expect(page.getByTestId('invoice-send')).toHaveCount(0);
   await expect(page.getByTestId('page-title')).toHaveCount(1);
 });
+
+test('invalid quantity and past due date keep the draft form open', async ({ page }) => {
+  await page.goto(client);
+  await page.getByTestId('invoice-new').click();
+  await page.getByLabel('Description 1', { exact: true }).fill('Monthly bookkeeping');
+  await page.getByLabel('Unit price 1 (USD)', { exact: true }).fill('100');
+  await page.getByLabel('Due date', { exact: true }).fill('2099-10-31');
+  await page.getByLabel('Quantity 1', { exact: true }).fill('');
+  await page.getByTestId('invoice-create').click();
+  await expect(page.getByText('Enter a quantity greater than zero')).toBeVisible();
+  await page.getByLabel('Quantity 1', { exact: true }).fill('1');
+  await page.getByLabel('Due date', { exact: true }).fill('2000-01-01');
+  await page.getByTestId('invoice-create').click();
+  await expect(page.getByText('Choose today or a future date')).toBeVisible();
+  await expect(page.getByTestId('invoice-form')).toBeVisible();
+});
+
+test('a newly opened form uses today after the page crosses midnight', async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 9, 11, 12) });
+  await page.goto(client);
+  await page.clock.setSystemTime(new Date(2026, 9, 12, 12));
+  await page.getByTestId('invoice-new').click();
+  await expect(page.getByLabel('Due date', { exact: true })).toHaveAttribute('min', '2026-10-12');
+});
