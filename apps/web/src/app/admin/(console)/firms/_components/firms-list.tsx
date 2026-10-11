@@ -34,10 +34,9 @@ const tabs: {
 const statusText = (status: string) =>
   status === 'PENDING_SETUP' ? 'Pending Setup' : status === 'ACTIVE' ? 'Active' : 'Inactive';
 
+/** The approval moment on the viewer's own calendar, as on the firm's page. */
 const dateText = (value: string) =>
-  new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(
-    new Date(value),
-  );
+  new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(new Date(value));
 
 function ApprovedDate({ value }: { value: string | null }) {
   return value ? <time dateTime={value}>{dateText(value)}</time> : <>—</>;
