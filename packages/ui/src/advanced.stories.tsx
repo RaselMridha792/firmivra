@@ -32,6 +32,30 @@ export const DataTable: Story = {
     />
   ),
 };
+export const ExternalPager: Story = {
+  render: () => (
+    <Table
+      caption="External pagination"
+      rows={tableRows}
+      rowKey={(row) => row.id}
+      showPagination={false}
+      tableClassName="table-fixed"
+      columns={[{ id: 'sum', label: 'Total', className: 'w-20', cell: (row) => row.sum }]}
+      server={{
+        page: 1,
+        hasNext: true,
+        hasPrevious: false,
+        onNext: () => {},
+        onPrevious: () => {},
+        onSort: () => {},
+      }}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).getByRole('table')).toBeVisible();
+    await expect(within(canvasElement).queryByRole('button', { name: 'Next' })).toBeNull();
+  },
+};
 function ServerTableDemo() {
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<TableSort>();

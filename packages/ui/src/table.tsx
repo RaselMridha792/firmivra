@@ -9,6 +9,7 @@ export interface Column<T> {
   cell: (row: T) => ReactNode;
   sortValue?: (row: T) => string | number;
   sortable?: boolean;
+  className?: string;
 }
 export interface TableSort {
   id: string;
@@ -31,6 +32,8 @@ export interface TableProps<T> {
   loading?: boolean;
   pageSize?: number;
   server?: TableServerControl;
+  showPagination?: boolean;
+  tableClassName?: string;
   emptyTitle?: string;
   emptyText?: string;
 }
@@ -42,6 +45,8 @@ export function Table<T>({
   loading,
   pageSize = 10,
   server,
+  showPagination = true,
+  tableClassName = '',
   emptyTitle = 'No records yet',
   emptyText = 'Records will appear here when available.',
 }: TableProps<T>) {
@@ -84,7 +89,7 @@ export function Table<T>({
   return (
     <div>
       <div className="overflow-x-auto rounded-card border border-border">
-        <table className="w-full text-left text-sm">
+        <table className={`w-full text-left text-sm ${tableClassName}`}>
           <caption className="sr-only">{caption}</caption>
           <thead className="bg-folder-surface text-heading">
             <tr>
@@ -93,7 +98,7 @@ export function Table<T>({
                   key={column.id}
                   scope="col"
                   aria-sort={sort?.id === column.id ? direction : undefined}
-                  className="px-4 py-3"
+                  className={`px-4 py-3 ${column.className ?? ''}`}
                 >
                   {column.sortValue || (server && column.sortable) ? (
                     <Button variant="ghost" onClick={() => toggle(column.id)}>
@@ -110,7 +115,7 @@ export function Table<T>({
             {(server ? rows : ordered.slice(current * size, (current + 1) * size)).map((row) => (
               <tr key={rowKey(row)} className="border-t border-border even:bg-subtle">
                 {columns.map((column) => (
-                  <td key={column.id} className="px-4 py-3">
+                  <td key={column.id} className={`px-4 py-3 ${column.className ?? ''}`}>
                     {column.cell(row)}
                   </td>
                 ))}
@@ -119,27 +124,29 @@ export function Table<T>({
           </tbody>
         </table>
       </div>
-      <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-muted">
-        <p aria-live="polite">
-          {server
-            ? `Page ${server.page}`
-            : `Page ${current + 1} of ${pages} · ${rows.length} records`}
-        </p>
-        <Button
-          variant="secondary"
-          disabled={server ? !server.hasPrevious : !current}
-          onClick={server ? server.onPrevious : () => setPage(current - 1)}
-        >
-          Previous
-        </Button>
-        <Button
-          variant="secondary"
-          disabled={server ? !server.hasNext : current >= pages - 1}
-          onClick={server ? server.onNext : () => setPage(current + 1)}
-        >
-          Next
-        </Button>
-      </div>
+      {showPagination ? (
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-muted">
+          <p aria-live="polite">
+            {server
+              ? `Page ${server.page}`
+              : `Page ${current + 1} of ${pages} · ${rows.length} records`}
+          </p>
+          <Button
+            variant="secondary"
+            disabled={server ? !server.hasPrevious : !current}
+            onClick={server ? server.onPrevious : () => setPage(current - 1)}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={server ? !server.hasNext : current >= pages - 1}
+            onClick={server ? server.onNext : () => setPage(current + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

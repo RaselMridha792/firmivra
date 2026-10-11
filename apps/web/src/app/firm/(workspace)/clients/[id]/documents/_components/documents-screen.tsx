@@ -28,9 +28,7 @@ export function DocumentsScreen({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-4" data-testid="client-documents-screen">
-      <h1 className="text-2xl font-semibold text-heading" data-testid="page-title">
-        Client documents
-      </h1>
+      <h2 className="text-2xl font-semibold text-heading">Client documents</h2>
       <PageState query={categories}>
         {(items) => (
           <div className="grid gap-4 sm:grid-cols-2" data-testid="document-filters">
