@@ -6,6 +6,9 @@ export const WORKSPACE_ERRORS: Record<string, string> = {
   SCAN_PENDING: 'This file is still being checked. Try again when the scan finishes.',
   FILE_BLOCKED: 'This file did not pass its security scan and cannot be downloaded.',
   WRONG_REPORT_KIND: 'Choose a report type available for this workspace.',
+  DOCUMENT_MISMATCH: 'Choose a document belonging to this service.',
+  REPORT_WAS_PUBLISHED:
+    'This report was previously published. Unpublish it instead of deleting it.',
   CLIENT_NOT_ASSIGNED: 'Assign this client to the selected staff member first.',
   ENGAGEMENT_MISMATCH: 'Choose a service belonging to this client.',
 };
