@@ -23,7 +23,7 @@ export function WeekGrid({
 }: GridProps & { from: string; today: string; onOpenDay: (date: string) => void }) {
   const dates = Array.from({ length: 7 }, (_, i) => addDays(from, i));
   return (
-    <div className="grid gap-3 md:grid-cols-7">
+    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
       {dates.map((date) => {
         const items = grid.items.filter(
           (item) => localParts(item.startsAt, grid.timeZone).date === date,
@@ -33,13 +33,13 @@ export function WeekGrid({
             key={date}
             data-testid="calendar-day"
             aria-label={dayLabel(date)}
-            className="flex flex-col gap-2 rounded-card border border-border bg-surface p-2 md:min-h-32"
+            className="flex min-w-0 flex-col gap-2 rounded-card border border-border bg-surface p-2 md:min-h-32"
           >
             <button
               type="button"
               onClick={() => onOpenDay(date)}
               aria-current={date === today ? 'date' : undefined}
-              className={`rounded-control px-1 text-left text-sm font-semibold hover:bg-canvas ${date === today ? 'text-link' : 'text-text'}`}
+              className={`whitespace-nowrap rounded-control px-1 text-left text-sm font-semibold hover:bg-canvas ${date === today ? 'text-link' : 'text-text'}`}
             >
               {dayLabel(date)}
             </button>
