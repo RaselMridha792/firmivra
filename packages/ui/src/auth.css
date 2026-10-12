@@ -34,7 +34,7 @@
   --auth-description-width: 26.5rem;
   --auth-feature-copy-width: 15rem;
   --auth-logo-light-width: 24.25rem;
-  --auth-logo-light-height: 8.625rem;
+  --auth-logo-light-height: calc(2 * var(--space-16) + var(--space-6));
   --auth-logo-width: 22.9375rem;
   --auth-logo-height: 8.25rem;
   --auth-title-size: 2.125rem;
