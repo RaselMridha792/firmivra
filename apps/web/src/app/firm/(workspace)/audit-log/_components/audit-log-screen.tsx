@@ -1,7 +1,7 @@
 'use client';
 
 import type { AuditEntry } from '@firmivra/types';
-import { Card, Table, type Column } from '@firmivra/ui';
+import { Button, Card, EmptyState, Table, type Column } from '@firmivra/ui';
 import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { RequireRole } from '../../../../../components/require-role';
@@ -31,22 +31,22 @@ const shown = (value: unknown) =>
 function Details({ entry }: { entry: AuditEntry }) {
   const metadata = Object.entries(entry.metadata);
   return (
-    <details>
+    <details className="min-w-0 max-w-full" data-testid="audit-details">
       <summary className="cursor-pointer text-link">Details</summary>
-      <dl className="mt-2 grid gap-1 text-xs">
+      <dl className="mt-2 grid min-w-0 gap-2 text-xs md:gap-1">
         {metadata.length ? (
           metadata.map(([key, value]) => (
-            <div key={key} className="flex flex-wrap gap-1">
-              <dt className="text-muted">{key}:</dt>
-              <dd className="break-all">{shown(value)}</dd>
+            <div key={key} className="grid min-w-0 gap-1 sm:flex sm:flex-wrap">
+              <dt className="wrap-anywhere text-muted">{key}:</dt>
+              <dd className="min-w-0 wrap-anywhere">{shown(value)}</dd>
             </div>
           ))
         ) : (
           <p className="text-muted">No details recorded.</p>
         )}
-        <div className="flex flex-wrap gap-1">
+        <div className="grid min-w-0 gap-1 sm:flex sm:flex-wrap">
           <dt className="text-muted">Request:</dt>
-          <dd className="break-all">{entry.requestId ?? '—'}</dd>
+          <dd className="min-w-0 wrap-anywhere">{entry.requestId ?? '—'}</dd>
         </div>
       </dl>
     </details>
@@ -98,7 +98,7 @@ export function AuditLogScreen() {
   const log = useApiQuery(['audit-log', query], () => api.auditLog.list(query));
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-4">
       <div>
         <h1 data-testid="page-title" className="text-2xl font-semibold text-text">
           Audit log
@@ -119,24 +119,76 @@ export function AuditLogScreen() {
         </Card>
       </RequireRole>
       <PageState query={log}>
-        {(page) => (
-          <Table
-            caption="Audit log"
-            rows={page.items}
-            columns={columns}
-            rowKey={(entry) => entry.id}
-            emptyTitle="No entries"
-            emptyText="Nothing matches these filters."
-            server={{
-              page: cursors.length + 1,
-              hasPrevious: cursors.length > 0,
-              hasNext: page.nextCursor !== null,
-              onPrevious: () => setCursors(cursors.slice(0, -1)),
-              onNext: () => page.nextCursor && setCursors([...cursors, page.nextCursor]),
-              onSort: () => undefined,
-            }}
-          />
-        )}
+        {(page) => {
+          const controls = {
+            page: cursors.length + 1,
+            hasPrevious: cursors.length > 0,
+            hasNext: page.nextCursor !== null,
+            onPrevious: () => setCursors(cursors.slice(0, -1)),
+            onNext: () => page.nextCursor && setCursors([...cursors, page.nextCursor]),
+            onSort: () => undefined,
+          };
+          if (!page.items.length)
+            return <EmptyState title="No entries" description="Nothing matches these filters." />;
+          return (
+            <>
+              <section
+                className="space-y-4 md:hidden"
+                aria-label="Audit log entries"
+                data-testid="audit-mobile-cards"
+              >
+                {page.items.map((entry) => (
+                  <Card
+                    key={entry.id}
+                    className="min-w-0 space-y-4"
+                    data-testid="audit-mobile-entry"
+                  >
+                    <dl className="min-w-0 space-y-3">
+                      {columns
+                        .filter((column) => column.id !== 'details')
+                        .map((column) => (
+                          <div key={column.id} className="min-w-0 space-y-1">
+                            <dt className="text-sm text-muted">{column.label}</dt>
+                            <dd className="min-w-0 wrap-anywhere [&_time]:whitespace-normal">
+                              {column.cell(entry)}
+                            </dd>
+                          </div>
+                        ))}
+                    </dl>
+                    <Details entry={entry} />
+                  </Card>
+                ))}
+                <nav aria-label="Audit log pages" className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant="secondary"
+                    disabled={!controls.hasPrevious}
+                    onClick={controls.onPrevious}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={!controls.hasNext}
+                    onClick={controls.onNext}
+                  >
+                    Next
+                  </Button>
+                </nav>
+              </section>
+              <div className="hidden min-w-0 md:block">
+                <Table
+                  caption="Audit log"
+                  rows={page.items}
+                  columns={columns}
+                  rowKey={(entry) => entry.id}
+                  emptyTitle="No entries"
+                  emptyText="Nothing matches these filters."
+                  server={controls}
+                />
+              </div>
+            </>
+          );
+        }}
       </PageState>
     </div>
   );
