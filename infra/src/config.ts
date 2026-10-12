@@ -44,6 +44,12 @@ export interface EnvConfig {
    */
   stripeSecretName?: string;
   /**
+   * While the account's SES is in the sandbox, also let the API task role send from any verified
+   * identity (not just this env's own), so a later verified address works without a redeploy.
+   * Remove once SES production access is granted (docs/SETUP-LOG.md).
+   */
+  sesSandboxSendFromAnyIdentity?: boolean;
+  /**
    * The three distributions' *.cloudfront.net domains, filled in after the first app deploy.
    * Used for the documents bucket CORS while there is no custom domain. Unset: CORS allows
    * https://*.cloudfront.net until the domains are known.
@@ -91,6 +97,7 @@ const dev: EnvConfig = {
     configurationSet: 'firmivra-dev-email',
   },
   stripeSecretName: 'firmivra/dev/stripe',
+  sesSandboxSendFromAnyIdentity: true,
   github: { owner: 'RaselMridha792', ownerId: 149437621, repo: 'firmivra', repoId: 1404534844 },
   // AZ ids use1-az1 and use1-az2 (CloudFront VPC origins are not offered in every zone).
   availabilityZones: ['us-east-1a', 'us-east-1b'],

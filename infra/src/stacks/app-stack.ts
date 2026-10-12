@@ -351,6 +351,19 @@ export class AppStack extends Stack {
       apiRole.addToPrincipalPolicy(statement);
     }
     email?.identity.grantSendEmail(apiRole);
+    // Tests the recipient-identity theory for the Oct 11 AccessDeniedException on
+    // firm-application.received/approved: while SES is in the sandbox, grant send from any
+    // identity in the account, not just this env's own. Remove once SES production access is
+    // granted (docs/SETUP-LOG.md); grantSendEmail above already covers the normal case.
+    if (config.sesSandboxSendFromAnyIdentity) {
+      apiRole.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          sid: 'SesSandboxAnyIdentity',
+          actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+          resources: [`arn:aws:ses:${config.region}:${config.account}:identity/*`],
+        }),
+      );
+    }
     apiRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
         sid: 'SmsToPhoneNumbers',
