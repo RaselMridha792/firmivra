@@ -159,7 +159,7 @@ function Estimator({ disclaimer }: { disclaimer: string }) {
           />
           {money('wages', 'W-2 Wages')}
           {money('otherIncome', 'Other Ordinary Income')}
-          <fieldset className="flex flex-col">
+          <fieldset className="flex flex-row flex-wrap gap-x-6">
             <legend className="text-sm font-medium text-text">Are You Self-Employed?</legend>
             <Radio
               name="self-employed"
@@ -180,7 +180,7 @@ function Estimator({ disclaimer }: { disclaimer: string }) {
               {money('businessExpenses', 'Business Expenses')}
             </>
           ) : null}
-          <fieldset className="flex flex-col">
+          <fieldset className="flex flex-row flex-wrap gap-x-6">
             <legend className="text-sm font-medium text-text">Deduction Type</legend>
             <Radio
               name="deduction"
