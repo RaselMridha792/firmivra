@@ -16,6 +16,20 @@ import { usePortal } from '../../../layout';
 import { LegalDialog } from '../../_components/legal-dialog';
 import { SIGN_UP_ERRORS } from './shared';
 
+const ACCOUNT_RADIO_CLASSES = [
+  'mt-1 grid size-6 shrink-0 cursor-pointer appearance-none place-content-center rounded-full border-2 border-platform-blue bg-surface',
+  'checked:border-transparent checked:bg-linear-135/srgb checked:from-action checked:to-action-hover',
+  "before:invisible before:size-2 before:rounded-full before:bg-white before:content-[''] checked:before:visible",
+  'focus-visible:outline-platform-blue disabled:cursor-not-allowed',
+].join(' ');
+
+const AGREEMENT_CHECKBOX_CLASSES = [
+  'grid size-6 shrink-0 cursor-pointer appearance-none place-content-center rounded-sm border-2 border-platform-blue bg-surface',
+  'checked:border-transparent checked:bg-linear-135/srgb checked:from-action checked:to-action-hover',
+  "before:invisible before:-mt-1 before:h-3 before:w-2 before:rotate-45 before:border-r-2 before:border-b-2 before:border-white before:content-[''] checked:before:visible",
+  'focus-visible:outline-platform-blue disabled:cursor-not-allowed',
+].join(' ');
+
 /** The API's fields (the versions come from the firm's info), plus the two the screen checks. */
 const Fields = SignUpRequest.omit({ accepted: true });
 type Values = Omit<SignUpRequest, 'accepted'> & { confirm: string; agree: boolean };
@@ -177,12 +191,12 @@ export function SignUpForm() {
             {ACCOUNT_TYPES.map((type) => (
               <label
                 key={type.value}
-                className="flex cursor-pointer gap-3 rounded-card border border-border p-4 has-checked:border-action has-checked:bg-folder-surface"
+                className="flex cursor-pointer gap-3 rounded-card border border-border p-4 has-checked:border-platform-blue has-checked:bg-folder-surface"
               >
                 <input
                   type="radio"
                   value={type.value}
-                  className="mt-1 size-5 shrink-0 accent-action"
+                  className={ACCOUNT_RADIO_CLASSES}
                   {...form.register('accountType')}
                 />
                 <span>
@@ -198,7 +212,7 @@ export function SignUpForm() {
             <label className="flex min-h-11 items-center gap-3">
               <input
                 type="checkbox"
-                className="size-5 shrink-0 accent-action"
+                className={AGREEMENT_CHECKBOX_CLASSES}
                 aria-invalid={errors.agree ? true : undefined}
                 {...form.register('agree')}
               />
