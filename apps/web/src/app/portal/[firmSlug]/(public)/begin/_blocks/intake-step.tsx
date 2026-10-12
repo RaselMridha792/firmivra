@@ -38,7 +38,7 @@ function wideField(f: IntakeField): boolean {
 /** A panel that takes both columns of the step: tables, repeating rows, cards, long lists. */
 function wideSection(section: IntakeSection): boolean {
   return (
-    section.fields.length > 10 ||
+    section.fields.length > 12 ||
     section.fields.some(
       (f) =>
         f.type === 'grid' ||
