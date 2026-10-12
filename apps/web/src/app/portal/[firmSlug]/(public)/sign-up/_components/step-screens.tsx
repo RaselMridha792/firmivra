@@ -26,6 +26,7 @@ const doneBenefits: Benefit[] = [
 export function VerifyEmailScreen() {
   return (
     <SignUpFrame
+      signUpLook
       step="email"
       heading="Verify Your"
       highlight="Email Address"
@@ -41,6 +42,7 @@ export function VerifyEmailScreen() {
 export function VerifyPhoneScreen() {
   return (
     <SignUpFrame
+      signUpLook
       step="phone"
       heading="Verify Your"
       highlight="Phone Number"
@@ -56,6 +58,7 @@ export function VerifyPhoneScreen() {
 export function DoneScreen() {
   return (
     <SignUpFrame
+      signUpLook
       step="done"
       heading="You're"
       highlight="All Set!"
