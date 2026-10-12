@@ -21,6 +21,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Header } from '../../../../components/app-shell/header';
 import { isActive } from '../../../../components/app-shell/types';
+import lvpLogo from './_components/lvp-logo.png';
 import { usePortal } from '../layout';
 import { PortalFooter } from '../(public)/_components/portal-footer';
 import { taglineWords } from '../(public)/_components/tagline';
@@ -196,6 +197,13 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
         >
           {branding.logoUrl ? (
             <Image unoptimized src={branding.logoUrl} alt={business.name} width={176} height={56} />
+          ) : business.slug === 'lvp' ? (
+            <Image
+              src={lvpLogo}
+              alt={business.name}
+              sizes="192px"
+              className="h-16 w-auto object-contain"
+            />
           ) : (
             business.name
           )}
