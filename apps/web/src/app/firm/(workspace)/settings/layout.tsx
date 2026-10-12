@@ -29,8 +29,11 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   const { role } = useFirm();
   const manager = role === 'OWNER' || role === 'ADMIN';
   return (
-    <div className="flex flex-col gap-6 md:flex-row">
-      <nav aria-label="Settings" className="flex flex-col gap-1 md:w-56">
+    <div className="flex min-w-0 flex-col gap-6 xl:flex-row">
+      <nav
+        aria-label="Settings"
+        className="flex min-w-0 flex-wrap gap-1 xl:w-56 xl:shrink-0 xl:flex-col xl:flex-nowrap"
+      >
         {menu
           .filter(([, href]) => manager || STAFF_MENU.has(href))
           .map(([label, href]) => {
@@ -40,7 +43,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
                 key={href}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className={`rounded-control px-3 py-2 text-sm ${active ? 'bg-surface font-semibold text-text' : 'text-muted hover:text-text'}`}
+                className={`whitespace-nowrap rounded-control px-3 py-2 text-sm ${active ? 'bg-surface font-semibold text-text' : 'text-muted hover:text-text'}`}
               >
                 {label}
               </Link>
