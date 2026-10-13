@@ -14,6 +14,7 @@ import {
   Shield,
   Sprout,
   SquareCheckBig,
+  Target,
   Upload,
   Utensils,
   Wrench,
@@ -435,7 +436,211 @@ const PAYROLL: FormLook = {
   },
 };
 
+/** Tax Planning: `Tax Planning intake 1.png` to `Tax planning intake 4.png`. */
+const TAX_PLANNING: FormLook = {
+  unnumbered: true,
+  stepperBox: true,
+  hero: {
+    profile: 'Smart Tax Strategies for a Brighter Tomorrow.',
+    finances: 'Smart Strategies. Brighter Outcomes.',
+    goals: 'Let\u2019s Build a Smarter Tax Strategy.',
+    review: 'Review. Sign. Submit.',
+  },
+  panels: {
+    // Step 1, Client, Business & Tax Profile.
+    contact: {
+      icon: User,
+      iconCircle: true,
+      wide: true,
+      rows: ['fullName phone email'],
+    },
+    business: {
+      icon: BriefcaseBusiness,
+      iconCircle: true,
+      wide: true,
+      rows: [
+        'businessName dba ein',
+        'businessStructure industry yearsInBusiness',
+        'operatingStates owners employees contractors',
+      ],
+    },
+    accounting: {
+      icon: FileText,
+      iconCircle: true,
+      wide: true,
+      rows: ['accountingMethod:3 planningTaxYear:3 hasBookkeeper:6'],
+    },
+    details: {
+      icon: Target,
+      iconCircle: true,
+      wide: true,
+      columns: [
+        { span: 7, rows: ['services', 'servicesOther'] },
+        { span: 5, rows: ['reasons', 'reasonsOther'] },
+      ],
+      optionColumns: { services: 2, reasons: 1 },
+    },
+    // Step 2, Income & Financial Information: amounts set beside their labels.
+    personalIncome: {
+      icon: User,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      columns: [
+        {
+          span: 6,
+          rows: [
+            'w2Income',
+            'selfEmploymentIncome',
+            'investmentIncome',
+            'rentalIncome',
+            'retirementIncome',
+            'otherIncome',
+          ],
+        },
+        { span: 6, rows: ['multipleStates', 'incomeStates', 'filingStatus', 'incomeChanges'] },
+      ],
+      inline: [
+        'w2Income',
+        'selfEmploymentIncome',
+        'investmentIncome',
+        'rentalIncome',
+        'retirementIncome',
+        'otherIncome',
+      ],
+    },
+    businessFinances: {
+      icon: BriefcaseBusiness,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      columns: [
+        {
+          span: 6,
+          rows: [
+            'businessRevenue',
+            'netProfit',
+            'ownerCompensation',
+            'totalPayroll',
+            'majorExpenses',
+          ],
+        },
+        { span: 6, rows: ['plannedPurchases', 'plannedPurchasesDetails', 'otherEntities'] },
+      ],
+      inline: [
+        'businessRevenue',
+        'netProfit',
+        'ownerCompensation',
+        'totalPayroll',
+        'majorExpenses',
+      ],
+    },
+    currentTax: {
+      icon: FileText,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      columns: [
+        {
+          span: 6,
+          rows: [
+            'filedRecentReturn',
+            'recentReturnYear',
+            'priorLiability',
+            'priorRefundOrOwed',
+            'federalWithholding',
+            'stateWithholding',
+            'federalEstimated',
+            'stateEstimated',
+          ],
+        },
+        {
+          span: 6,
+          rows: [
+            'taxIssues',
+            'taxIssuesDetails',
+            'majorChanges',
+            'majorChangesDetails',
+            'taxProfessional',
+            'taxProfessionalName',
+          ],
+        },
+      ],
+      inline: [
+        'recentReturnYear',
+        'priorLiability',
+        'priorRefundOrOwed',
+        'federalWithholding',
+        'stateWithholding',
+        'federalEstimated',
+        'stateEstimated',
+      ],
+    },
+    additionalFinancial: {
+      icon: ChartNoAxesColumnIncreasing,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      rows: ['upcomingExpenses:3 upcomingExpensesDetails:4 financialComments:5'],
+    },
+    // Step 3, Planning Goals & Opportunities.
+    goals: {
+      icon: Target,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      quiet: ['goals'],
+      optionColumns: { goals: 3 },
+    },
+    changes: {
+      icon: Lightbulb,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      quiet: ['upcomingChanges'],
+      optionColumns: { upcomingChanges: 2 },
+    },
+    concerns: {
+      icon: Settings,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      columns: [
+        { span: 8, rows: ['concerns', 'concernsOther'] },
+        { span: 4, rows: ['specificQuestion'] },
+      ],
+      quiet: ['concerns'],
+      optionColumns: { concerns: 2 },
+      warm: ['specificQuestion'],
+    },
+    vision: {
+      icon: Target,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      rows: ['shortTermGoals longTermGoals visionComments'],
+    },
+    // Step 4, Review & Submit.
+    reviewNote: { hidden: true },
+  },
+  review: {
+    collapsed: true,
+    titles: {
+      answers: 'Review Your Information',
+      answersNote:
+        'Please review your responses below. You can edit any section before submitting.',
+    },
+    icons: { profile: User, finances: Calculator, goals: Target },
+    notes: {
+      profile: 'Your contact information, business details, and tax setup.',
+      finances: 'Your personal and business income, expenses, and current tax information.',
+      goals: 'Your tax planning goals, upcoming changes, and specific concerns.',
+    },
+  },
+};
+
 const LOOKS: Partial<Record<IntakeFormKey, FormLook>> = {
+  TAX_PLANNING,
   ANNUAL_TAX,
   QUARTERLY_TAX,
   BOOKKEEPING,

@@ -63,6 +63,7 @@ function FormHeader({
   titleBreak = false,
   eyebrow = false,
   tagline,
+  hero,
   children,
 }: {
   title: string;
@@ -73,10 +74,26 @@ function FormHeader({
   eyebrow?: boolean | undefined;
   /** A second line under the subtitle. */
   tagline?: string | undefined;
+  /** Set left: the title, this bold tagline, and the subtitle under it. */
+  hero?: string | undefined;
   children?: ReactNode;
 }) {
   const words = title.split(' ');
   const tail = words.length > 2 ? words.splice(-2).join(' ') : '';
+  if (hero !== undefined) {
+    return (
+      <header className="mb-3 max-w-xl">
+        <h1 className="font-display text-4xl leading-tight font-bold text-heading sm:text-5xl">
+          {title}
+        </h1>
+        {hero && (
+          <p className="mt-2 font-display text-2xl leading-tight font-bold text-heading">{hero}</p>
+        )}
+        {subtitle && <p className="mt-1 text-base text-heading">{subtitle}</p>}
+        {children}
+      </header>
+    );
+  }
   if (eyebrow && tail) {
     return (
       <header className="mb-3 text-center">
@@ -361,8 +378,14 @@ function StartForm({
         titleBreak={formLook(found.definition.key).titleBreak}
         eyebrow={formLook(found.definition.key).eyebrow}
         tagline={formLook(found.definition.key).tagline}
+        hero={formLook(found.definition.key).hero?.[found.definition.steps[0]?.key ?? '']}
       />
-      <IntakeStepper steps={steps} current={0} onEdit={() => undefined} />
+      <IntakeStepper
+        steps={steps}
+        current={0}
+        onEdit={() => undefined}
+        boxed={formLook(found.definition.key).stepperBox}
+      />
       {notice}
       {unavailable && <UnavailableNote />}
       <form noValidate onSubmit={submit} className="mx-auto max-w-2xl">
@@ -675,15 +698,24 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
     <div ref={topRef} tabIndex={-1} className="outline-none">
       <FormHeader
         title={fill(definition.title)}
-        subtitle={definition.subtitle ? fill(definition.subtitle) : undefined}
+        // A hero header says the step's own words under its tagline.
+        subtitle={
+          look.hero && step.subtitle && step.subtitle !== look.hero[step.key]
+            ? fill(step.subtitle)
+            : definition.subtitle
+              ? fill(definition.subtitle)
+              : undefined
+        }
         titleBreak={look.titleBreak}
         eyebrow={look.eyebrow}
         tagline={look.tagline}
+        hero={look.hero?.[step.key]}
       >
         {/* The step's own heading under the form's, as its mockup sets it, unless a panel of
             the step is its heading. */}
         {step.subtitle &&
           !look.stepperHints &&
+          !look.hero &&
           !(step.review && look.reviewHeading) &&
           !step.sections.some((s) => look.panels[s.key]?.intro) && (
             <div className="mt-2">
@@ -705,6 +737,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
           hint: look.stepperHints?.[s.key],
         }))}
         current={definition.steps.findIndex((s) => s.key === step.key) + 1}
+        boxed={look.stepperBox}
         onEdit={(id) => {
           const target = definition.steps[id - 1];
           if (target && shown.steps.has(target.key)) void jump(target.key);
