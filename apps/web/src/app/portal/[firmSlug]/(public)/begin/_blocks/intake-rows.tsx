@@ -3,7 +3,7 @@
 import type { IntakeField } from '@firmivra/types';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { type RowsLook, SPAN } from './intake-layout';
+import { type GridLook, type RowsLook, SPAN } from './intake-layout';
 
 /** How a cell asks for one field to be drawn (see intake-fields `ScalarInput`). */
 export interface FieldLook {
@@ -21,6 +21,11 @@ export interface FieldLook {
   tile?: boolean;
   /** A note as a list: its sentences as bullets beside a large icon. */
   list?: boolean;
+  /** Choices in this many columns. */
+  columns?: 1 | 2 | 3 | 4;
+  /** An upload zone with a "Choose Files" button. */
+  chooser?: boolean;
+  grid?: GridLook;
 }
 
 export type Unit =
@@ -166,6 +171,10 @@ function UnitCell({
     ...(look.yesNoList && f.type === 'yesNo' ? { row: true } : {}),
     ...(look.inline?.includes(f.key) ? { inline: true } : {}),
     ...(look.boxed?.[f.key] ? { box: look.boxed[f.key] } : {}),
+    ...(look.optionColumns?.[f.key] ? { columns: look.optionColumns[f.key] } : {}),
+    ...(look.quiet?.includes(f.key) ? { quiet: true } : {}),
+    ...(look.chooser && f.type === 'upload' ? { chooser: true } : {}),
+    ...(look.grids?.[f.key] ? { grid: look.grids[f.key] } : {}),
   });
 }
 

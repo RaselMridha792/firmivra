@@ -40,8 +40,9 @@ export function SectionPanel({
   className?: string;
 }) {
   const titleId = useId();
-  // "Business Information (if applicable)": the bracket smaller, as the mockups set it.
-  const bracket = /^(.*\S)\s+(\([^()]*\))$/.exec(title);
+  // "Business Information (if applicable)": a lower-case bracket smaller, as the mockups set it
+  // ("Business Income (Gross Receipts)" keeps its size).
+  const bracket = /^(.*\S)\s+(\([a-z][^()]*\))$/.exec(title);
   return (
     <Card
       aria-labelledby={titleId}

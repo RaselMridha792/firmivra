@@ -31,6 +31,14 @@ export function splitBracket(text: string): [string, string] {
   return m ? [m[1]!, m[2]!] : [text, ''];
 }
 
+/** Choice columns (whole classes, so Tailwind finds them). */
+const OPTION_COLUMNS = {
+  1: 'grid-cols-1',
+  2: 'sm:grid-cols-2',
+  3: 'sm:grid-cols-3',
+  4: 'sm:grid-cols-4',
+} as const;
+
 /** What a field shows when its definition has no placeholder, as the mockups fill them. */
 const PLACEHOLDERS: Partial<Record<IntakeScalarField['type'], string>> = {
   email: 'you@example.com',
@@ -64,6 +72,7 @@ function OptionList({
   row,
   box: BoxIcon,
   quiet = false,
+  columns,
 }: {
   name: string;
   label: string;
@@ -82,6 +91,8 @@ function OptionList({
   box?: LucideIcon | undefined;
   /** The question only for screen readers (its panel's title asks it). */
   quiet?: boolean | undefined;
+  /** The choices in this many columns, as the mockup sets them. */
+  columns?: 1 | 2 | 3 | 4 | undefined;
 }) {
   const id = useId();
   const chosen = Array.isArray(value) ? value : typeof value === 'string' && value ? [value] : [];
@@ -192,11 +203,13 @@ function OptionList({
           className={
             row
               ? 'flex shrink-0 gap-x-6'
-              : inline
-                ? 'flex flex-wrap gap-x-12'
-                : many || BoxIcon
-                  ? 'clear-both grid gap-x-4 sm:grid-cols-2'
-                  : 'flex flex-wrap gap-x-6'
+              : columns
+                ? `clear-both grid gap-x-4 ${OPTION_COLUMNS[columns]}`
+                : inline
+                  ? 'flex flex-wrap gap-x-12'
+                  : many || BoxIcon
+                    ? 'clear-both grid gap-x-4 sm:grid-cols-2'
+                    : 'flex flex-wrap gap-x-6'
           }
         >
           {options.map((o) =>
@@ -465,6 +478,7 @@ export function ScalarInput({
             cards={field.display === 'cards'}
             box={look.box}
             quiet={look.quiet}
+            columns={look.columns}
             value={value}
             onChange={onChange}
             error={error}
@@ -483,6 +497,7 @@ export function ScalarInput({
             cards={field.display === 'cards'}
             box={look.box}
             quiet={look.quiet}
+            columns={look.columns}
             selectAll={field.selectAll ? fill(field.selectAll) : undefined}
             value={value}
             onChange={onChange}

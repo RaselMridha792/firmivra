@@ -10,6 +10,13 @@ import type { LucideIcon } from 'lucide-react';
 // `spouse` prefix: first, middle and last on one line); an address is `address`
 // (`spouseAddress`...: the street, then city, state and ZIP on the next line).
 
+/** A grid as its mockup draws it: an icon per row, and quarter columns in their own tints. */
+export interface GridLook {
+  icons?: Record<string, LucideIcon>;
+  /** Each amount column tinted, with a calendar icon and "Enter amount" under its name. */
+  tones?: boolean;
+}
+
 export interface RowsLook {
   rows?: string[];
   /** Side-by-side columns, each with its width in twelfths and its own rows. */
@@ -24,6 +31,14 @@ export interface RowsLook {
   yesNoList?: boolean;
   /** City, State and ZIP keep their labels (otherwise their placeholders name them). */
   addressLabels?: boolean;
+  /** Choices set out in this many columns, by field key. */
+  optionColumns?: Record<string, 1 | 2 | 3 | 4>;
+  /** Fields whose label only screen readers hear (the panel's title and subtitle say it). */
+  quiet?: string[];
+  /** Upload zones drawn as "Drag and drop your files here / or / Choose Files". */
+  chooser?: boolean;
+  /** Grids by field key. */
+  grids?: Record<string, GridLook>;
   /** A group: a lone row without its "Business 1" heading box (rows get one from the second). */
   bare?: boolean;
 }
@@ -53,8 +68,22 @@ export interface PanelLook extends RowsLook {
   tiles?: boolean;
   /** A tinted panel (the payment choice). */
   tint?: boolean;
+  /** No number (a panel the mockup leaves unnumbered among numbered ones). */
+  noNumber?: boolean;
   /** A group field's rows, by the group's key. */
   groups?: Record<string, RowsLook>;
+}
+
+/** How the review step draws the answers. */
+export interface ReviewLook {
+  /** One card per step, its answers as "Label: answer" lines, instead of one per panel. */
+  byStep?: boolean;
+  /** Cards under a coloured title band, in turn navy, accent and blue. */
+  banded?: boolean;
+  /** The cards on the left; the files, the review step's own panels and the agreement right. */
+  aside?: boolean;
+  /** The cards' icons, by step key. */
+  icons?: Record<string, LucideIcon>;
 }
 
 export interface FormLook {
@@ -63,6 +92,12 @@ export interface FormLook {
   footerNote?: string;
   /** The review opens with its own "Review Your Information" heading. */
   reviewHeading?: boolean;
+  review?: ReviewLook;
+  /**
+   * Panels stacked in two independent columns (left keys, right keys), each column as tall as its
+   * own panels, where the mockup does not line them up in rows.
+   */
+  stacks?: [string[], string[]][];
 }
 
 export const NO_LOOK: FormLook = { panels: {} };
