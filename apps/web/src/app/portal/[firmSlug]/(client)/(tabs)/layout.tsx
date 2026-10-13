@@ -28,6 +28,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   const documentsPage = isActive(pathname, `/${firmSlug}/documents`);
   const isMessagesPage = isActive(pathname, `/${firmSlug}/messages`);
   const taxReturns = isActive(pathname, `/${firmSlug}/taxes`);
+  const isBusinessPage = isActive(pathname, `/${firmSlug}/business`);
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
@@ -49,7 +50,11 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
             const href = `/${firmSlug}/${path}`;
             const active = isActive(pathname, href);
             const activeBorder =
-              path === 'messages' || path === 'taxes' || path === 'documents' || path === 'intake'
+              path === 'business' ||
+              path === 'messages' ||
+              path === 'taxes' ||
+              path === 'documents' ||
+              path === 'intake'
                 ? 'border-firm-primary'
                 : 'border-firm-accent';
             const tabClassName = active
@@ -69,14 +74,24 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
         </nav>
         {children}
         <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
-          <RecentActivity slug={firmSlug} blueAccents={documentsPage || isMessagesPage} />
-          <QuickLinks slug={firmSlug} blueAccents={documentsPage || isMessagesPage} />
+          <RecentActivity
+            slug={firmSlug}
+            blueAccents={documentsPage || isMessagesPage || isBusinessPage}
+          />
+          <QuickLinks
+            slug={firmSlug}
+            blueAccents={documentsPage || isMessagesPage || isBusinessPage}
+            businessLayout={isBusinessPage}
+          />
         </div>
       </div>
       <RightColumn
         slug={firmSlug}
         isMessagesPage={isMessagesPage}
-        blueAccents={intakeActive || documentsPage || taxReturns || isMessagesPage}
+        blueAccents={
+          intakeActive || documentsPage || taxReturns || isMessagesPage || isBusinessPage
+        }
+        businessPage={isBusinessPage}
         showIntakeTip={intakeActive}
       />
     </div>
