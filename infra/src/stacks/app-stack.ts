@@ -351,6 +351,21 @@ export class AppStack extends Stack {
       apiRole.addToPrincipalPolicy(statement);
     }
     email?.identity.grantSendEmail(apiRole);
+    // The identity's default configuration set (email-stack.ts) is applied even when the API
+    // never names it: SES still checks the caller's permission on that configuration set
+    // resource, not only on the sending identity. Needed whether or not SES is in the sandbox,
+    // so it is not inside the sesSandboxSendFromAnyIdentity flag below.
+    if (email) {
+      apiRole.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          sid: 'SesConfigurationSet',
+          actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+          resources: [
+            `arn:aws:ses:${config.region}:${config.account}:configuration-set/${email.configurationSet.configurationSetName}`,
+          ],
+        }),
+      );
+    }
     // Tests the recipient-identity theory for the Oct 11 AccessDeniedException on
     // firm-application.received/approved: while SES is in the sandbox, grant send from any
     // identity in the account, not just this env's own. Remove once SES production access is
