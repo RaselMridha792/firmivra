@@ -2,6 +2,7 @@ import type { IntakeFormKey } from '@firmivra/types';
 import {
   BriefcaseBusiness,
   Building2,
+  CreditCard,
   Calculator,
   ChartColumn,
   FileText,
@@ -18,6 +19,7 @@ import { type FormLook, NO_LOOK } from './intake-layout';
 /** Annual Tax: `Annual Intake Form 1.png` to `Annual Tax Intake Form 4.png`. */
 const ANNUAL_TAX: FormLook = {
   footerNote: 'documentsNote',
+  reviewHeading: true,
   panels: {
     personal: {
       icon: User,
@@ -81,6 +83,8 @@ const ANNUAL_TAX: FormLook = {
     businessDocuments: { badge: BriefcaseBusiness, wide: true },
     formationDocuments: { badge: Building2, wide: true },
     certify: { headless: true, bar: true, wide: true },
+    // Step 4, Review & Sign: the payment choice in a tinted panel.
+    payment: { badge: CreditCard, tint: true, wide: true },
   },
 };
 

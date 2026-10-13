@@ -616,9 +616,11 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         }}
       />
       {/* A step whose mockup has its own heading panel shows its subtitle there. */}
-      {step.subtitle && !step.sections.some((s) => look.panels[s.key]?.intro) && (
-        <p className="mb-2 text-center text-xs">{fill(step.subtitle)}</p>
-      )}
+      {step.subtitle &&
+        !(step.review && look.reviewHeading) &&
+        !step.sections.some((s) => look.panels[s.key]?.intro) && (
+          <p className="mb-2 text-center text-xs">{fill(step.subtitle)}</p>
+        )}
       {agreements.data?.ready === false && <UnavailableNote />}
       <form
         ref={formRef}
@@ -652,6 +654,12 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
             uploads={uploads}
             fill={fill}
             onEdit={(key) => void jump(key)}
+            look={look}
+            heading={
+              look.reviewHeading
+                ? { number: stepNumber, subtitle: step.subtitle && fill(step.subtitle) }
+                : undefined
+            }
           />
         )}
         <div className={step.review ? 'mt-3' : ''}>
