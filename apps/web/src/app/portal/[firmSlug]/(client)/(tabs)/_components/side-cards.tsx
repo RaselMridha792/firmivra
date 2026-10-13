@@ -17,6 +17,7 @@ import type { ReactNode } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { ButtonLink } from '../../../(public)/_components/button-link';
+import { NotesCard } from '../messages/_components/notes-card';
 
 const dateTime = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
@@ -32,20 +33,28 @@ function LinkCard({
   children,
   href,
   action,
+  useSidebarBlue = false,
 }: {
   icon: LucideIcon;
   title: string;
   children: ReactNode;
   href: string;
   action: string;
+  useSidebarBlue?: boolean;
 }) {
   return (
     <Card className="flex gap-3">
-      <Icon aria-hidden className="size-10 shrink-0 text-firm-accent" />
+      <Icon
+        aria-hidden
+        className={`size-10 shrink-0 ${useSidebarBlue ? 'text-firm-primary' : 'text-firm-accent'}`}
+      />
       <div className="min-w-0">
         <h2 className="font-display text-lg font-bold text-heading">{title}</h2>
         <div className="my-1 text-sm text-text">{children}</div>
-        <Link href={href} className="inline-flex items-center gap-2 text-link underline">
+        <Link
+          href={href}
+          className={`inline-flex items-center gap-2 underline ${useSidebarBlue ? 'text-firm-primary' : 'text-link'}`}
+        >
           {action} <ArrowRight aria-hidden className="size-4" />
         </Link>
       </div>
@@ -53,8 +62,56 @@ function LinkCard({
   );
 }
 
-/** Need Help, the next appointment, and the two document shortcuts. */
-export function RightColumn({ slug }: { slug: string }) {
+/** Need Help, appointment and document shortcuts; Messages also places Notes here. */
+export function RightColumn({
+  slug,
+  isMessagesPage = false,
+}: {
+  slug: string;
+  isMessagesPage?: boolean;
+}) {
+  return isMessagesPage ? <MessagesRightColumn slug={slug} /> : <DefaultRightColumn slug={slug} />;
+}
+
+function MessagesRightColumn({ slug }: { slug: string }) {
+  const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
+    api.myAppointments(slug).list({ when: 'upcoming' }),
+  );
+  const next = upcoming.data?.[0];
+  return (
+    <aside
+      aria-label="Help, appointments, and notes"
+      className="flex w-full flex-col gap-4 lg:w-72"
+    >
+      <Card className="bg-firm-primary! text-on-action">
+        <h2 className="font-display text-2xl font-bold">Need Help?</h2>
+        <p className="my-3 text-sm">Our team is here for you.</p>
+        <ButtonLink href={`/${slug}/messages`} className="cursor-pointer">
+          Send a Message
+        </ButtonLink>
+      </Card>
+      <LinkCard
+        icon={CalendarDays}
+        title="Upcoming Appointment"
+        href={`/${slug}/appointments`}
+        action={next ? 'View Appointment' : 'Schedule Now'}
+        useSidebarBlue
+      >
+        {next ? (
+          <p data-testid="next-appointment">
+            {next.type?.name ?? 'Appointment'} with {next.staffName},{' '}
+            {dateTime.format(new Date(next.startsAt))}
+          </p>
+        ) : (
+          <p>No upcoming appointments.</p>
+        )}
+      </LinkCard>
+      <NotesCard slug={slug} />
+    </aside>
+  );
+}
+
+function DefaultRightColumn({ slug }: { slug: string }) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
   );
@@ -109,7 +166,13 @@ const quickLinks = (slug: string): [LucideIcon, string, string, string][] => [
 ];
 
 /** "Quick Links" under the folder tabs. */
-export function QuickLinks({ slug }: { slug: string }) {
+export function QuickLinks({
+  slug,
+  useSidebarBlue = false,
+}: {
+  slug: string;
+  useSidebarBlue?: boolean;
+}) {
   return (
     <Card>
       <h2 className="mb-2 font-display text-2xl font-bold text-heading">Quick Links</h2>
@@ -117,12 +180,18 @@ export function QuickLinks({ slug }: { slug: string }) {
         {quickLinks(slug).map(([Icon, title, description, href]) => (
           <li key={title}>
             <Link href={href} className="flex items-center gap-3 py-2 hover:bg-folder-surface">
-              <Icon aria-hidden className="size-8 shrink-0 text-firm-accent" />
+              <Icon
+                aria-hidden
+                className={`size-8 shrink-0 ${useSidebarBlue ? 'text-firm-primary' : 'text-firm-accent'}`}
+              />
               <span className="min-w-0 flex-1">
                 <span className="block font-semibold text-heading">{title}</span>
                 <span className="block text-sm text-text">{description}</span>
               </span>
-              <ChevronRight aria-hidden className="size-5 shrink-0 text-firm-accent" />
+              <ChevronRight
+                aria-hidden
+                className={`size-5 shrink-0 ${useSidebarBlue ? 'text-firm-primary' : 'text-firm-accent'}`}
+              />
             </Link>
           </li>
         ))}

@@ -11,9 +11,12 @@ import { useApiQuery } from '../../../../../../../lib/query';
 import { usePortal } from '../../../../layout';
 import { fromLabel, when } from './message-parts';
 import { NewMessageDialog, ThreadDialog } from './thread-dialogs';
-import { NotesCard } from './notes-card';
 
 type Filter = 'all' | 'from-firm' | 'sent';
+const sidebarBlueButton =
+  'bg-firm-primary! text-on-action! hover:bg-navigation-hover! focus-visible:outline-firm-primary enabled:cursor-pointer';
+const secondaryBlueButton =
+  'border-folder-border! text-firm-primary! hover:bg-folder-surface! enabled:cursor-pointer';
 
 /**
  * "Messages and Notes" (docs/mockups/client-portal/Messages and notes.png, N09): the threads with
@@ -65,13 +68,13 @@ export function MessagesScreen() {
       cell: (t) => (
         <span className="flex items-center gap-3">
           {t.unreadCount > 0 ? (
-            <span className="size-2 rounded-full bg-firm-accent">
+            <span className="size-2 rounded-full bg-firm-primary">
               <span className="sr-only">Unread</span>
             </span>
           ) : null}
           <Button
             variant="ghost"
-            className="underline"
+            className="text-firm-primary! underline hover:bg-folder-surface! enabled:cursor-pointer"
             onClick={() => setOpenId(t.id)}
             aria-label={`View ${t.subject}`}
           >
@@ -96,7 +99,7 @@ export function MessagesScreen() {
               important updates, questions, and next steps.
             </p>
           </div>
-          <Button onClick={() => setComposing(true)}>
+          <Button className={sidebarBlueButton} onClick={() => setComposing(true)}>
             Send a Message <ArrowRight aria-hidden className="size-5" />
           </Button>
         </header>
@@ -106,6 +109,7 @@ export function MessagesScreen() {
               <Button
                 key={value}
                 variant={filter === value ? 'primary' : 'secondary'}
+                className={filter === value ? sidebarBlueButton : secondaryBlueButton}
                 aria-pressed={filter === value}
                 onClick={() => setFilter(value)}
               >
@@ -137,7 +141,6 @@ export function MessagesScreen() {
           )}
         </PageState>
       </div>
-      <NotesCard slug={slug} />
       <ThreadDialog slug={slug} threadId={openId} onClose={() => setOpenId(null)} />
       <NewMessageDialog
         slug={slug}

@@ -9,8 +9,9 @@ interface ModalProps {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  closeButtonClassName?: string;
 }
-export function Modal({ open, title, children, onClose }: ModalProps) {
+export function Modal({ open, title, children, onClose, closeButtonClassName = '' }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
@@ -40,7 +41,12 @@ export function Modal({ open, title, children, onClose }: ModalProps) {
         <h2 id={titleId} className="text-2xl font-bold text-heading">
           {title}
         </h2>
-        <Button variant="ghost" onClick={onClose} aria-label="Close dialog">
+        <Button
+          variant="ghost"
+          className={closeButtonClassName}
+          onClick={onClose}
+          aria-label="Close dialog"
+        >
           ×
         </Button>
       </div>
