@@ -84,7 +84,7 @@ export function GridInput({
         {parts.map((rows, part) => (
           <div
             key={rows[0]!.key}
-            className="w-full min-w-0 overflow-x-auto rounded-control border border-folder-border"
+            className="relative w-full min-w-0 overflow-x-auto rounded-control border border-folder-border"
             tabIndex={0}
             role="region"
             aria-label={parts.length > 1 ? `${label}, part ${part + 1} of ${parts.length}` : label}

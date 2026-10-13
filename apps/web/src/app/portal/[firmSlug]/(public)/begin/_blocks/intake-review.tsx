@@ -156,7 +156,7 @@ function answerView(
 /** A small table inside a review row (a group's entries, a grid's filled rows). */
 function AnswerTable({ head, rows }: { head: string[]; rows: { key: string; cells: string[] }[] }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full border-collapse text-left">
         <thead className="bg-folder-surface">
           <tr>
