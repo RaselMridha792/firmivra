@@ -25,6 +25,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
   const pathname = usePathname();
   const isMessagesPage = isActive(pathname, `/${firmSlug}/messages`);
+  const taxReturns = isActive(pathname, `/${firmSlug}/taxes`);
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
@@ -45,7 +46,10 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           {tabs.map(([label, path]) => {
             const href = `/${firmSlug}/${path}`;
             const active = isActive(pathname, href);
-            const activeBorder = path === 'messages' ? 'border-firm-primary' : 'border-firm-accent';
+            const activeBorder =
+              path === 'messages' || path === 'taxes'
+                ? 'border-firm-primary'
+                : 'border-firm-accent';
             const tabClassName = active
               ? `border-t-4 ${activeBorder} bg-surface font-semibold text-firm-primary`
               : 'bg-folder-surface text-firm-primary hover:bg-folder-hover';
@@ -67,7 +71,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           <QuickLinks slug={firmSlug} useSidebarBlue={isMessagesPage} />
         </div>
       </div>
-      <RightColumn slug={firmSlug} isMessagesPage={isMessagesPage} />
+      <RightColumn slug={firmSlug} isMessagesPage={isMessagesPage} blueAccents={taxReturns} />
     </div>
   );
 }

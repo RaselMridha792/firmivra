@@ -33,27 +33,27 @@ function LinkCard({
   children,
   href,
   action,
-  useSidebarBlue = false,
+  blueAccent = false,
 }: {
   icon: LucideIcon;
   title: string;
   children: ReactNode;
   href: string;
   action: string;
-  useSidebarBlue?: boolean;
+  blueAccent?: boolean;
 }) {
   return (
     <Card className="flex gap-3">
       <Icon
         aria-hidden
-        className={`size-10 shrink-0 ${useSidebarBlue ? 'text-firm-primary' : 'text-firm-accent'}`}
+        className={`size-10 shrink-0 ${blueAccent ? 'text-firm-primary' : 'text-firm-accent'}`}
       />
       <div className="min-w-0">
         <h2 className="font-display text-lg font-bold text-heading">{title}</h2>
         <div className="my-1 text-sm text-text">{children}</div>
         <Link
           href={href}
-          className={`inline-flex items-center gap-2 underline ${useSidebarBlue ? 'text-firm-primary' : 'text-link'}`}
+          className={`inline-flex items-center gap-2 underline ${blueAccent ? 'text-firm-primary' : 'text-link'}`}
         >
           {action} <ArrowRight aria-hidden className="size-4" />
         </Link>
@@ -66,11 +66,17 @@ function LinkCard({
 export function RightColumn({
   slug,
   isMessagesPage = false,
+  blueAccents = false,
 }: {
   slug: string;
   isMessagesPage?: boolean;
+  blueAccents?: boolean;
 }) {
-  return isMessagesPage ? <MessagesRightColumn slug={slug} /> : <DefaultRightColumn slug={slug} />;
+  return isMessagesPage ? (
+    <MessagesRightColumn slug={slug} />
+  ) : (
+    <DefaultRightColumn slug={slug} blueAccents={blueAccents} />
+  );
 }
 
 function MessagesRightColumn({ slug }: { slug: string }) {
@@ -95,7 +101,7 @@ function MessagesRightColumn({ slug }: { slug: string }) {
         title="Upcoming Appointment"
         href={`/${slug}/appointments`}
         action={next ? 'View Appointment' : 'Schedule Now'}
-        useSidebarBlue
+        blueAccent
       >
         {next ? (
           <p data-testid="next-appointment">
@@ -111,7 +117,7 @@ function MessagesRightColumn({ slug }: { slug: string }) {
   );
 }
 
-function DefaultRightColumn({ slug }: { slug: string }) {
+function DefaultRightColumn({ slug, blueAccents }: { slug: string; blueAccents: boolean }) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
   );
@@ -128,6 +134,7 @@ function DefaultRightColumn({ slug }: { slug: string }) {
         title="Upcoming Appointment"
         href={`/${slug}/appointments`}
         action={next ? 'View Appointment' : 'Schedule Now'}
+        blueAccent={blueAccents}
       >
         {next ? (
           <p data-testid="next-appointment">
@@ -143,6 +150,7 @@ function DefaultRightColumn({ slug }: { slug: string }) {
         title="My Uploaded Documents"
         href={`/${slug}/documents`}
         action="View My Uploads"
+        blueAccent={blueAccents}
       >
         View documents you uploaded to the portal.
       </LinkCard>
@@ -151,6 +159,7 @@ function DefaultRightColumn({ slug }: { slug: string }) {
         title="Firm Uploaded Documents"
         href={`/${slug}/documents?source=firm`}
         action="View Firm Documents"
+        blueAccent={blueAccents}
       >
         View documents shared with you by the firm.
       </LinkCard>

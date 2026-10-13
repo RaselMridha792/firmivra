@@ -127,13 +127,13 @@ export function MonthCalendar({
               className={`flex h-14 flex-col items-center justify-center gap-1 border-t border-border enabled:hover:bg-canvas disabled:cursor-default ${index % 7 ? 'border-l' : ''} ${inMonth ? 'text-text' : 'text-muted'}`}
             >
               <span
-                className={`flex size-9 items-center justify-center rounded-pill ${isToday ? 'bg-action font-semibold text-on-action' : ''}`}
+                className={`flex size-9 items-center justify-center rounded-pill ${isToday ? 'bg-firm-primary font-semibold text-on-action' : ''}`}
               >
                 {Number(day.slice(8))}
               </span>
               <span
                 aria-hidden
-                className={`size-1.5 rounded-pill ${scheduled.has(day) ? 'bg-action' : past.has(day) ? 'bg-control-border' : ''}`}
+                className={`size-1.5 rounded-pill ${scheduled.has(day) ? 'bg-firm-primary' : past.has(day) ? 'bg-control-border' : ''}`}
               />
             </button>
           );
@@ -141,7 +141,7 @@ export function MonthCalendar({
       </div>
       <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-text">
         <span className="flex items-center gap-2">
-          <span aria-hidden className="size-3 rounded-pill bg-action" /> Scheduled
+          <span aria-hidden className="size-3 rounded-pill bg-firm-primary" /> Scheduled
         </span>
         <span className="flex items-center gap-2">
           <span aria-hidden className="size-3 rounded-pill bg-control-border" /> Past
