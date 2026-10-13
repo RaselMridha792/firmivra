@@ -320,14 +320,20 @@ export function IntakeStepper({
   steps,
   current,
   onEdit,
+  boxed = false,
 }: {
   /** `skipped`: a step the answers leave out (Annual's business step for a personal return). */
   steps: { id: number; label: string; skipped?: boolean; hint?: string | undefined }[];
   current: number;
   onEdit: (step: number) => void;
+  /** In a white box, the steps not reached in grey (Tax Planning's mockups). */
+  boxed?: boolean | undefined;
 }) {
   return (
-    <ol aria-label="Intake progress" className="mb-3 flex">
+    <ol
+      aria-label="Intake progress"
+      className={`mb-3 flex ${boxed ? 'rounded-card border border-folder-border bg-surface px-2 py-3 shadow-sm' : ''}`}
+    >
       {steps.map(({ id, label, skipped, hint }, index) => (
         <li
           key={id}
@@ -342,7 +348,7 @@ export function IntakeStepper({
             disabled={id > current || skipped}
             onClick={() => onEdit(id)}
             aria-label={skipped ? `${label} (not needed)` : `Go to ${label}`}
-            className={`relative min-h-8! w-8 rounded-full! p-0! text-sm! font-bold! ${current === id ? 'bg-action! text-on-action!' : 'bg-folder-surface! text-firm-primary!'} ${skipped ? 'opacity-50' : ''}`}
+            className={`relative min-h-8! w-8 rounded-full! p-0! text-sm! font-bold! ${current === id ? 'bg-action! text-on-action!' : boxed ? 'bg-muted! text-on-action!' : 'bg-folder-surface! text-firm-primary!'} ${skipped ? 'opacity-50' : ''}`}
           >
             <span aria-hidden="true">{index + 1}</span>
           </Button>
