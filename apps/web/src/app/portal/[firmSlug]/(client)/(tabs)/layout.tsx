@@ -24,6 +24,7 @@ const tabs: [label: string, path: string][] = [
 export default function TabsLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
   const pathname = usePathname();
+  const intakeActive = isActive(pathname, `/${firmSlug}/intake`);
   const documentsPage = isActive(pathname, `/${firmSlug}/documents`);
   const isMessagesPage = isActive(pathname, `/${firmSlug}/messages`);
   const taxReturns = isActive(pathname, `/${firmSlug}/taxes`);
@@ -48,7 +49,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
             const href = `/${firmSlug}/${path}`;
             const active = isActive(pathname, href);
             const activeBorder =
-              path === 'messages' || path === 'taxes' || path === 'documents'
+              path === 'messages' || path === 'taxes' || path === 'documents' || path === 'intake'
                 ? 'border-firm-primary'
                 : 'border-firm-accent';
             const tabClassName = active
@@ -75,7 +76,8 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
       <RightColumn
         slug={firmSlug}
         isMessagesPage={isMessagesPage}
-        blueAccents={documentsPage || taxReturns}
+        blueAccents={intakeActive || documentsPage || taxReturns || isMessagesPage}
+        showIntakeTip={intakeActive}
       />
     </div>
   );
