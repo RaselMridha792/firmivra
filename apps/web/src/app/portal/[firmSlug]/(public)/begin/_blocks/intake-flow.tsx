@@ -95,7 +95,7 @@ function FormHeader({
         <h1 className="font-display text-4xl leading-tight font-bold text-heading sm:text-5xl">
           {heroTail && tail ? (
             <>
-              {words.join(' ')}
+              {words.join(' ')}{' '}
               <span className="mt-1 block font-sans text-2xl font-semibold tracking-brand uppercase">
                 {tail}
               </span>
@@ -116,17 +116,17 @@ function FormHeader({
   if (eyebrow && tail) {
     return (
       <header className="mb-3 text-center">
+        {/* The dots are drawn beside the heading, so its text is the form's title alone. */}
+        <p
+          aria-hidden="true"
+          className="mb-1 flex items-center justify-center gap-2 text-sm font-semibold tracking-eyebrow text-heading uppercase"
+        >
+          <span className="text-accent">·</span>
+          {words.join(' ')}
+          <span className="text-accent">·</span>
+        </p>
         <h1 className="font-display text-4xl leading-none font-bold text-heading sm:text-6xl">
-          <span className="mb-1 block font-sans text-sm font-semibold tracking-eyebrow uppercase">
-            <span aria-hidden="true" className="text-accent">
-              ·{' '}
-            </span>
-            {words.join(' ')}
-            <span aria-hidden="true" className="text-accent">
-              {' '}
-              ·
-            </span>
-          </span>
+          <span className="sr-only">{words.join(' ')} </span>
           {tail}
         </h1>
         {subtitle && <p className="mt-1 text-lg text-heading">{subtitle}</p>}
