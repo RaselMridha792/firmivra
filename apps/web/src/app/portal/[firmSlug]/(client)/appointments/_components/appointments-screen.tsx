@@ -7,6 +7,7 @@ import { useRef, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { usePortal } from '../../../layout';
+import { PortalPageHeader } from '../../_components/portal-page-header';
 import { AppointmentStats } from './appointment-stats';
 import { ScheduleModal } from './book-appointment';
 import { MonthCalendar } from './month-calendar';
@@ -59,21 +60,15 @@ export function AppointmentsScreen() {
   };
 
   return (
-    <div className="flex w-full flex-col gap-6">
-      <div>
-        <h1
-          data-testid="page-title"
-          className="font-display text-4xl font-bold text-heading md:text-5xl"
-        >
-          Appointments
-        </h1>
-        <p className="mt-1 text-lg text-text">
-          Schedule, view, and manage your appointments with {business.name}.
-        </p>
-      </div>
+    <div className="flex w-full flex-col gap-6 [&_.ui-dialog>div>button]:text-firm-primary">
+      <PortalPageHeader
+        title={<span data-testid="page-title">Appointments</span>}
+        subtitle={`Schedule, view, and manage your appointments with ${business.name}.`}
+      />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:flex">
         <AppointmentStats upcoming={upcoming.data} past={past.data} />
         <Button
+          variant="dark"
           className="min-h-14 self-center px-6 text-base sm:col-span-2 xl:shrink-0"
           onClick={() => setSchedule({})}
         >

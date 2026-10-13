@@ -93,7 +93,7 @@ export function UpcomingAppointments({
         <button
           type="button"
           onClick={onViewAll}
-          className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold whitespace-nowrap text-link hover:underline"
+          className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold whitespace-nowrap text-firm-primary hover:underline"
         >
           View All <ArrowRight aria-hidden className="size-4" />
         </button>
@@ -182,7 +182,9 @@ function AppointmentRow({
         <div className="flex items-start justify-between gap-2">
           <p className="font-semibold text-heading">{item.type?.name ?? 'Appointment'}</p>
           <div className="flex shrink-0 items-center gap-1">
-            <Badge tone={status.tone}>{status.label}</Badge>
+            <span className={status.tone === 'info' ? '[&>span]:text-firm-primary' : undefined}>
+              <Badge tone={status.tone}>{status.label}</Badge>
+            </span>
             {menu}
           </div>
         </div>
@@ -216,7 +218,7 @@ function Place({ item, join }: { item: MyAppointment; join: boolean }) {
         <span className="text-muted"> · with {item.staffName}</span>
       </span>
       {link && join ? (
-        <a href={link} target="_blank" rel="noreferrer" className="break-all text-link">
+        <a href={link} target="_blank" rel="noreferrer" className="break-all text-firm-primary">
           Join link
         </a>
       ) : null}
@@ -450,6 +452,7 @@ function Reschedule({
         onPick={setPicked}
       />
       <Button
+        variant="dark"
         disabled={!picked || move.isPending}
         onClick={() =>
           picked &&
@@ -517,7 +520,7 @@ function Cancel({
           {...form.register('reason')}
         />
       </div>
-      <Button type="submit" disabled={cancel.isPending}>
+      <Button type="submit" variant="dark" disabled={cancel.isPending}>
         {cancel.isPending ? 'Cancelling…' : 'Cancel this appointment'}
       </Button>
       {cancel.error ? (
