@@ -17,6 +17,10 @@ export interface FieldLook {
   inline?: boolean;
   /** A tinted box with this icon and the label as its heading. */
   box?: LucideIcon;
+  /** An upload as a narrow tile (one of a row of them). */
+  tile?: boolean;
+  /** A note as a list: its sentences as bullets beside a large icon. */
+  list?: boolean;
 }
 
 type Unit =

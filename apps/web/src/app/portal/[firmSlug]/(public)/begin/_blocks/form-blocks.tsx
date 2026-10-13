@@ -14,6 +14,8 @@ export function SectionPanel({
   iconPosition = 'end',
   aside,
   bar = false,
+  badge,
+  size = 'panel',
   children,
   className = '',
 }: {
@@ -25,6 +27,10 @@ export function SectionPanel({
   aside?: ReactNode;
   /** A tinted bar: the title on the left and the fields on the right (a form's comments). */
   bar?: boolean | undefined;
+  /** An icon in the number's circle instead of a number. */
+  badge?: ReactNode;
+  /** `intro`: the step's own heading, large and unnumbered; `none`: no header at all. */
+  size?: 'panel' | 'intro' | 'none';
   children: ReactNode;
   className?: string;
 }) {
@@ -36,8 +42,18 @@ export function SectionPanel({
       aria-labelledby={titleId}
       className={`min-w-0 border-folder-border! p-3! shadow-none! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${bar ? 'bg-accent-soft! sm:flex sm:items-center sm:gap-4' : ''} ${className}`}
     >
-      <header className={`flex items-center gap-3 ${bar ? 'mb-2 sm:mb-0 sm:w-5/12' : 'mb-2'}`}>
-        {number !== undefined && (
+      <header
+        className={`flex items-center gap-3 ${size === 'none' ? 'sr-only' : bar ? 'mb-2 sm:mb-0 sm:w-5/12' : 'mb-2'}`}
+      >
+        {badge && (
+          <span
+            aria-hidden="true"
+            className="grid size-11 shrink-0 place-items-center rounded-full bg-action text-on-action"
+          >
+            {badge}
+          </span>
+        )}
+        {number !== undefined && !badge && (
           <span
             aria-hidden="true"
             className="grid size-11 shrink-0 place-items-center rounded-full bg-navigation font-display text-3xl leading-none text-white"
@@ -53,7 +69,7 @@ export function SectionPanel({
         <div className="min-w-0 flex-1">
           <h2
             id={titleId}
-            className={`font-display leading-tight font-bold text-heading ${bar ? 'text-lg' : 'text-2xl'}`}
+            className={`font-display leading-tight font-bold text-heading ${bar ? 'text-lg' : size === 'intro' ? 'text-3xl' : 'text-2xl'}`}
           >
             {bracket ? (
               <>
@@ -66,7 +82,11 @@ export function SectionPanel({
               title
             )}
           </h2>
-          {subtitle && <p className="text-xs text-firm-primary">{subtitle}</p>}
+          {subtitle && (
+            <p className={`text-firm-primary ${size === 'intro' ? 'mt-1 text-sm' : 'text-xs'}`}>
+              {subtitle}
+            </p>
+          )}
         </div>
         {icon && iconPosition === 'end' && (
           <span aria-hidden="true" className="shrink-0 text-accent">

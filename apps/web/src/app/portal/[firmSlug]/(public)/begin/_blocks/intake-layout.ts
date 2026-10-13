@@ -43,6 +43,14 @@ export interface PanelLook extends RowsLook {
   joinIcons?: Record<string, LucideIcon>;
   /** No number: the title on the left and the fields on the right, in one tinted bar. */
   bar?: boolean;
+  /** No title at all (a certification box). */
+  headless?: boolean;
+  /** The step's heading: a large unnumbered title with the step's subtitle under it. */
+  intro?: boolean;
+  /** An icon in the number's circle instead of the number. */
+  badge?: LucideIcon;
+  /** Upload slots side by side, one tile each. */
+  tiles?: boolean;
   /** A group field's rows, by the group's key. */
   groups?: Record<string, RowsLook>;
 }
