@@ -144,21 +144,65 @@ function OptionList({
       )}
       {/* Package cards; options with help text read as a bold title and its help beneath. */}
       {!cards && options.some((o) => o.help) ? (
-        <div className="clear-both grid gap-x-6 gap-y-2 md:grid-cols-3">
+        <div
+          className={`clear-both grid md:grid-cols-3 ${cardIcons ? 'gap-2' : 'gap-x-6 gap-y-2'}`}
+        >
+          {options.map((o) => {
+            const Icon = cardIcons?.[o.value];
+            return Icon ? (
+              <label
+                key={o.value}
+                className="flex min-w-0 cursor-pointer items-start gap-3 rounded-control border border-folder-border bg-surface p-3"
+              >
+                <input
+                  type={multiple ? 'checkbox' : 'radio'}
+                  name={name}
+                  checked={chosen.includes(o.value)}
+                  onChange={(event) => toggle(o.value, event.target.checked)}
+                  className="mt-0.5 size-5 shrink-0"
+                />
+                <span
+                  aria-hidden="true"
+                  className="grid size-12 shrink-0 place-items-center rounded-full bg-folder-surface text-heading"
+                >
+                  <Icon className="size-6" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-display text-base leading-tight font-bold text-heading">
+                    {o.label}
+                  </span>
+                  {o.help && <span className="block text-xs text-firm-primary">{o.help}</span>}
+                </span>
+              </label>
+            ) : (
+              <label key={o.value} className="flex min-w-0 cursor-pointer items-start gap-2">
+                <input
+                  type={multiple ? 'checkbox' : 'radio'}
+                  name={name}
+                  checked={chosen.includes(o.value)}
+                  onChange={(event) => toggle(o.value, event.target.checked)}
+                  className="mt-0.5 size-5 shrink-0"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-heading">{o.label}</span>
+                  {o.help && <span className="block text-xs text-firm-primary">{o.help}</span>}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      ) : cards && !options.some((o) => o.details || o.badge) ? (
+        <div className="clear-both grid gap-2 md:grid-cols-3">
           {options.map((o) => (
-            <label key={o.value} className="flex min-w-0 cursor-pointer items-start gap-2">
-              <input
-                type={multiple ? 'checkbox' : 'radio'}
-                name={name}
-                checked={chosen.includes(o.value)}
-                onChange={(event) => toggle(o.value, event.target.checked)}
-                className="mt-0.5 size-5 shrink-0"
-              />
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-heading">{o.label}</span>
-                {o.help && <span className="block text-xs text-firm-primary">{o.help}</span>}
-              </span>
-            </label>
+            <ServiceCard
+              key={o.value}
+              option={o}
+              name={name}
+              multiple={multiple}
+              on={chosen.includes(o.value)}
+              icon={cardIcons?.[o.value]}
+              onChange={(on) => toggle(o.value, on)}
+            />
           ))}
         </div>
       ) : cards ? (
@@ -478,6 +522,7 @@ export function ScalarInput({
             box={look.box}
             quiet={look.quiet}
             columns={look.columns}
+            cardIcons={look.cardIcons}
             selectAll={field.selectAll ? fill(field.selectAll) : undefined}
             value={value}
             onChange={onChange}
@@ -733,6 +778,51 @@ function PackageCard({
           })}
         </ul>
       )}
+    </label>
+  );
+}
+
+/** A service as a small card: its tick box, an icon in a pale circle, the name and its help. */
+function ServiceCard({
+  option: o,
+  name,
+  multiple,
+  on,
+  icon: Icon,
+  onChange,
+}: {
+  option: IntakeOption;
+  name: string;
+  multiple: boolean;
+  on: boolean;
+  icon: LucideIcon | undefined;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <label
+      className={`flex min-w-0 cursor-pointer items-start gap-3 rounded-control border p-3 ${on ? 'border-action bg-accent-soft' : 'border-folder-border bg-surface'}`}
+    >
+      <input
+        type={multiple ? 'checkbox' : 'radio'}
+        name={name}
+        checked={on}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 size-5 shrink-0"
+      />
+      {Icon && (
+        <span
+          aria-hidden="true"
+          className="grid size-12 shrink-0 place-items-center rounded-full bg-folder-surface text-heading"
+        >
+          <Icon className="size-6" />
+        </span>
+      )}
+      <span className="min-w-0">
+        <span className="block font-display text-base leading-tight font-bold text-heading">
+          {o.label}
+        </span>
+        {o.help && <span className="mt-0.5 block text-xs text-firm-primary">{o.help}</span>}
+      </span>
     </label>
   );
 }
