@@ -28,6 +28,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   const documentsPage = isActive(pathname, `/${firmSlug}/documents`);
   const isMessagesPage = isActive(pathname, `/${firmSlug}/messages`);
   const taxReturns = isActive(pathname, `/${firmSlug}/taxes`);
+  const invoicesPage = isActive(pathname, `/${firmSlug}/invoices`);
   const isBusinessPage = isActive(pathname, `/${firmSlug}/business`);
 
   return (
@@ -37,7 +38,10 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           titleAs="p"
           title={
             <>
-              My Client <span className="text-firm-accent">Portal</span>
+              My Client{' '}
+              <span className={invoicesPage ? 'text-firm-primary' : 'text-firm-accent'}>
+                Portal
+              </span>
             </>
           }
           subtitle="Access your forms, documents, and resources anytime, anywhere."
@@ -54,7 +58,8 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
               path === 'messages' ||
               path === 'taxes' ||
               path === 'documents' ||
-              path === 'intake'
+              path === 'intake' ||
+              path === 'invoices'
                 ? 'border-firm-primary'
                 : 'border-firm-accent';
             const tabClassName = active
@@ -76,11 +81,11 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
         <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
           <RecentActivity
             slug={firmSlug}
-            blueAccents={documentsPage || isMessagesPage || isBusinessPage}
+            blueAccents={invoicesPage || documentsPage || isMessagesPage || isBusinessPage}
           />
           <QuickLinks
             slug={firmSlug}
-            blueAccents={documentsPage || isMessagesPage || isBusinessPage}
+            blueAccents={invoicesPage || documentsPage || isMessagesPage || isBusinessPage}
             businessLayout={isBusinessPage}
           />
         </div>
@@ -89,10 +94,16 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
         slug={firmSlug}
         isMessagesPage={isMessagesPage}
         blueAccents={
-          intakeActive || documentsPage || taxReturns || isMessagesPage || isBusinessPage
+          intakeActive ||
+          documentsPage ||
+          taxReturns ||
+          isMessagesPage ||
+          isBusinessPage ||
+          invoicesPage
         }
         businessPage={isBusinessPage}
         showIntakeTip={intakeActive}
+        showInvoiceInfo={invoicesPage}
       />
     </div>
   );
