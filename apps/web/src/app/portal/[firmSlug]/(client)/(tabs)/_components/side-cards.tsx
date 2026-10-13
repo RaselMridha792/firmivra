@@ -8,6 +8,7 @@ import {
   CloudUpload,
   FileUp,
   FolderOpen,
+  Lightbulb,
   Mail,
   UserRound,
   type LucideIcon,
@@ -65,9 +66,11 @@ function LinkCard({
 export function RightColumn({
   slug,
   blueAccents = false,
+  showIntakeTip = false,
 }: {
   slug: string;
   blueAccents?: boolean;
+  showIntakeTip?: boolean;
 }) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
@@ -96,24 +99,40 @@ export function RightColumn({
           <p>No upcoming appointments.</p>
         )}
       </LinkCard>
-      <LinkCard
-        icon={FileUp}
-        title="My Uploaded Documents"
-        href={`/${slug}/documents`}
-        action="View My Uploads"
-        blueAccent={blueAccents}
-      >
-        View documents you uploaded to the portal.
-      </LinkCard>
-      <LinkCard
-        icon={FolderOpen}
-        title="Firm Uploaded Documents"
-        href={`/${slug}/documents?source=firm`}
-        action="View Firm Documents"
-        blueAccent={blueAccents}
-      >
-        View documents shared with you by the firm.
-      </LinkCard>
+      {showIntakeTip ? (
+        <Card className="bg-folder-surface!">
+          <div className="flex items-start gap-3">
+            <Lightbulb aria-hidden className="size-8 shrink-0 text-firm-accent" />
+            <div>
+              <h2 className="font-display text-lg font-bold text-heading">Tax Tip</h2>
+              <p className="mt-2 text-sm text-text">
+                Keep your documents organized throughout the year for a faster, smoother tax season.
+              </p>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <>
+          <LinkCard
+            icon={FileUp}
+            title="My Uploaded Documents"
+            href={`/${slug}/documents`}
+            action="View My Uploads"
+            blueAccent={blueAccents}
+          >
+            View documents you uploaded to the portal.
+          </LinkCard>
+          <LinkCard
+            icon={FolderOpen}
+            title="Firm Uploaded Documents"
+            href={`/${slug}/documents?source=firm`}
+            action="View Firm Documents"
+            blueAccent={blueAccents}
+          >
+            View documents shared with you by the firm.
+          </LinkCard>
+        </>
+      )}
     </aside>
   );
 }
