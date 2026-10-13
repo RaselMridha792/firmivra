@@ -137,7 +137,7 @@ function Booking({
             type="button"
             aria-pressed={type?.id === item.id}
             onClick={() => choose(item)}
-            className={`rounded-card border p-4 text-left ${type?.id === item.id ? 'border-action bg-accent-soft' : 'border-border bg-surface hover:bg-canvas'}`}
+            className={`rounded-card border p-4 text-left ${type?.id === item.id ? 'border-firm-primary bg-folder-surface' : 'border-border bg-surface hover:bg-canvas'}`}
           >
             <span className="block font-semibold text-heading">{item.name}</span>
             <span className="block text-sm text-muted">
@@ -167,7 +167,7 @@ function Booking({
           <p className="text-sm text-text">
             {type.name} · {when(picked.startsAt)}
           </p>
-          <Button onClick={() => confirm(picked)} disabled={book.isPending}>
+          <Button variant="dark" onClick={() => confirm(picked)} disabled={book.isPending}>
             {book.isPending ? 'Booking…' : 'Confirm booking'}
           </Button>
         </div>

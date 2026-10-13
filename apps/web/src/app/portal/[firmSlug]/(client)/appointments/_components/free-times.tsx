@@ -77,7 +77,12 @@ export function FreeTimes({
                 {free.map((slot) => (
                   <Button
                     key={slot.startsAt}
-                    variant={picked?.startsAt === slot.startsAt ? 'primary' : 'outline'}
+                    variant={picked?.startsAt === slot.startsAt ? 'dark' : 'secondary'}
+                    className={
+                      picked?.startsAt === slot.startsAt
+                        ? ''
+                        : 'border-firm-primary text-firm-primary hover:bg-folder-surface'
+                    }
                     aria-pressed={picked?.startsAt === slot.startsAt}
                     disabled={isCurrent(slot)}
                     onClick={() => onPick(slot)}
