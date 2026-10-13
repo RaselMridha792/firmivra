@@ -122,14 +122,16 @@ export function GroupInput({
       ))}
       {groupError && <p className="text-xs text-danger">{groupError}</p>}
       {rows.length < field.maxItems && (
-        <Button
-          variant="outline"
-          onClick={() => onChange([...rows, emptyRow(field.fields)])}
-          className="w-full border-dashed text-xs! sm:min-h-7!"
-        >
-          <Plus aria-hidden="true" className="size-4" />
-          {fill(field.addLabel)}
-        </Button>
+        <div className={look?.bare ? 'flex justify-end' : ''}>
+          <Button
+            variant="outline"
+            onClick={() => onChange([...rows, emptyRow(field.fields)])}
+            className={`w-full border-dashed text-xs! sm:min-h-7! ${look?.bare ? 'sm:w-1/3' : ''}`}
+          >
+            <Plus aria-hidden="true" className="size-4" />
+            {fill(field.addLabel)}
+          </Button>
+        </div>
       )}
     </div>
   );
