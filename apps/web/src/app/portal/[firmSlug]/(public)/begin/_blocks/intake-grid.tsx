@@ -56,7 +56,7 @@ export function GridInput({
       <div className={half ? 'grid items-start gap-3 lg:grid-cols-2' : ''}>
         {parts.map((rows, part) => (
           <div
-            key={rows[0]?.key ?? part}
+            key={rows[0]!.key}
             className="w-full min-w-0 overflow-x-auto rounded-control border border-folder-border"
             tabIndex={0}
             role="region"
