@@ -63,6 +63,7 @@ function OptionList({
   inline,
   row,
   box: BoxIcon,
+  quiet = false,
 }: {
   name: string;
   label: string;
@@ -79,6 +80,8 @@ function OptionList({
   row?: boolean | undefined;
   /** A tinted box with this icon and the label as its heading. */
   box?: LucideIcon | undefined;
+  /** The question only for screen readers (its panel's title asks it). */
+  quiet?: boolean | undefined;
 }) {
   const id = useId();
   const chosen = Array.isArray(value) ? value : typeof value === 'string' && value ? [value] : [];
@@ -106,7 +109,7 @@ function OptionList({
           </span>
         </legend>
       ) : (
-        <legend className={row ? 'sr-only' : 'mb-1 text-xs font-medium text-firm-primary'}>
+        <legend className={row || quiet ? 'sr-only' : 'mb-1 text-xs font-medium text-firm-primary'}>
           {label}
         </legend>
       )}
@@ -124,8 +127,26 @@ function OptionList({
           onChange={(event) => onChange(event.target.checked ? options.map((o) => o.value) : [])}
         />
       )}
-      {/* Options with help text read as cards: a bold title and its help beneath (the mockups). */}
-      {cards || options.some((o) => o.help) ? (
+      {/* Package cards; options with help text read as a bold title and its help beneath. */}
+      {!cards && options.some((o) => o.help) ? (
+        <div className="clear-both grid gap-x-6 gap-y-2 md:grid-cols-3">
+          {options.map((o) => (
+            <label key={o.value} className="flex min-w-0 cursor-pointer items-start gap-2">
+              <input
+                type={multiple ? 'checkbox' : 'radio'}
+                name={name}
+                checked={chosen.includes(o.value)}
+                onChange={(event) => toggle(o.value, event.target.checked)}
+                className="mt-0.5 size-5 shrink-0"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-heading">{o.label}</span>
+                {o.help && <span className="block text-xs text-firm-primary">{o.help}</span>}
+              </span>
+            </label>
+          ))}
+        </div>
+      ) : cards ? (
         <div className="grid gap-2 md:grid-cols-3">
           {options.map((o) => {
             const on = chosen.includes(o.value);
@@ -409,6 +430,7 @@ export function ScalarInput({
             multiple={false}
             inline
             row={look.row}
+            quiet={look.quiet}
             value={value === true ? 'YES' : value === false ? 'NO' : ''}
             onChange={(v) => onChange(v === 'YES' ? true : v === 'NO' ? false : null)}
             error={error}
@@ -442,6 +464,7 @@ export function ScalarInput({
             multiple={false}
             cards={field.display === 'cards'}
             box={look.box}
+            quiet={look.quiet}
             value={value}
             onChange={onChange}
             error={error}
@@ -459,6 +482,7 @@ export function ScalarInput({
             multiple
             cards={field.display === 'cards'}
             box={look.box}
+            quiet={look.quiet}
             selectAll={field.selectAll ? fill(field.selectAll) : undefined}
             value={value}
             onChange={onChange}
