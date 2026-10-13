@@ -160,9 +160,15 @@ function IntakeOverview({ slug }: { slug: string }) {
             View All <ArrowRight aria-hidden className="inline size-4" />
           </Link>
         </div>
-        <p className="grid min-h-24 place-items-center text-center text-sm text-muted">
-          Service progress will appear here when it is available.
-        </p>
+        <div className="grid min-h-36 content-center justify-items-center gap-2 rounded-card bg-folder-surface px-4 py-5 text-center">
+          <span className="grid size-11 place-items-center rounded-full bg-surface text-firm-primary">
+            <ChartColumn aria-hidden className="size-6" />
+          </span>
+          <h3 className="font-semibold text-heading">No active services yet</h3>
+          <p className="max-w-xs text-sm text-muted">
+            Service milestones and updates will be ready once work gets underway.
+          </p>
+        </div>
       </Card>
       <Card className="min-w-0 p-4! xl:col-span-2 2xl:col-span-1">
         <div className="mb-3 flex items-center gap-2">
