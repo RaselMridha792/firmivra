@@ -117,6 +117,41 @@ export function UploadInput({
       }}
     />
   );
+  const fileList = (files.length > 0 || busy > 0) && (
+    <ul className="space-y-1" aria-live="polite">
+      {files.map((file) => (
+        <li
+          key={file.id}
+          className="flex items-center gap-2 rounded-control border border-folder-border px-2 py-1 text-xs"
+        >
+          <FileText aria-hidden="true" className="size-4 shrink-0 text-accent" />
+          <span className="min-w-0 flex-1 truncate">{file.fileName}</span>
+          <span className={file.status === 'BLOCKED' ? 'text-danger' : 'text-muted'}>
+            {STATUS_TEXT[file.status]}
+          </span>
+          <Button
+            variant="ghost"
+            aria-label={`Remove ${file.fileName}`}
+            onClick={() => {
+              setFailure('');
+              actions
+                .remove(file.id)
+                .catch((e: unknown) => setFailure(errorMessage(e, BEGIN_ONLINE_ERRORS)));
+            }}
+            className="min-h-7! px-1! py-1!"
+          >
+            <X aria-hidden="true" className="size-4" />
+          </Button>
+        </li>
+      ))}
+      {busy > 0 && (
+        <li className="flex items-center gap-2 text-xs text-muted">
+          <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+          Uploading…
+        </li>
+      )}
+    </ul>
+  );
   if (button) {
     return (
       <div className="min-w-0 space-y-1" data-slot={field.key}>
@@ -126,12 +161,7 @@ export function UploadInput({
           {fileInput}
         </label>
         {field.help && <p className="text-xs text-muted">{fill(field.help)}</p>}
-        {busy > 0 && (
-          <p className="flex items-center gap-2 text-xs text-muted" aria-live="polite">
-            <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-            Uploading…
-          </p>
-        )}
+        {fileList}
         {failure && (
           <p role="alert" className="text-xs text-danger">
             {failure}
@@ -253,41 +283,7 @@ export function UploadInput({
           </div>
         )}
       </div>
-      {(files.length > 0 || busy > 0) && (
-        <ul className="space-y-1" aria-live="polite">
-          {files.map((file) => (
-            <li
-              key={file.id}
-              className="flex items-center gap-2 rounded-control border border-folder-border px-2 py-1 text-xs"
-            >
-              <FileText aria-hidden="true" className="size-4 shrink-0 text-accent" />
-              <span className="min-w-0 flex-1 truncate">{file.fileName}</span>
-              <span className={file.status === 'BLOCKED' ? 'text-danger' : 'text-muted'}>
-                {STATUS_TEXT[file.status]}
-              </span>
-              <Button
-                variant="ghost"
-                aria-label={`Remove ${file.fileName}`}
-                onClick={() => {
-                  setFailure('');
-                  actions
-                    .remove(file.id)
-                    .catch((e: unknown) => setFailure(errorMessage(e, BEGIN_ONLINE_ERRORS)));
-                }}
-                className="min-h-7! px-1! py-1!"
-              >
-                <X aria-hidden="true" className="size-4" />
-              </Button>
-            </li>
-          ))}
-          {busy > 0 && (
-            <li className="flex items-center gap-2 text-xs text-muted">
-              <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-              Uploading…
-            </li>
-          )}
-        </ul>
-      )}
+      {fileList}
       {failure && (
         <p role="alert" className="text-xs text-danger">
           {failure}
