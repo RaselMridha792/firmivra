@@ -25,6 +25,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
   const pathname = usePathname();
   const documentsPage = isActive(pathname, `/${firmSlug}/documents`);
+  const isMessagesPage = isActive(pathname, `/${firmSlug}/messages`);
   const taxReturns = isActive(pathname, `/${firmSlug}/taxes`);
 
   return (
@@ -49,12 +50,19 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           {tabs.map(([label, path]) => {
             const href = `/${firmSlug}/${path}`;
             const active = isActive(pathname, href);
+            const activeBorder =
+              path === 'messages' || path === 'taxes' || path === 'documents'
+                ? 'border-firm-primary'
+                : 'border-firm-accent';
+            const tabClassName = active
+              ? `border-t-4 ${activeBorder} bg-surface font-semibold text-firm-primary`
+              : 'bg-folder-surface text-firm-primary hover:bg-folder-hover';
             return (
               <Link
                 key={path}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className={`min-w-32 flex-1 rounded-t-card px-3 py-4 text-center text-sm ${active ? `border-t-4 ${path === 'taxes' || path === 'documents' ? 'border-firm-primary' : 'border-firm-accent'} bg-surface font-semibold text-firm-primary` : 'bg-folder-surface text-firm-primary hover:bg-folder-hover'}`}
+                className={`min-w-32 flex-1 cursor-pointer rounded-t-card px-3 py-4 text-center text-sm ${tabClassName}`}
               >
                 {label}
               </Link>
@@ -63,11 +71,15 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
         </nav>
         {children}
         <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
-          <RecentActivity slug={firmSlug} blueAccents={documentsPage} />
-          <QuickLinks slug={firmSlug} blueAccents={documentsPage} />
+          <RecentActivity slug={firmSlug} blueAccents={documentsPage || isMessagesPage} />
+          <QuickLinks slug={firmSlug} blueAccents={documentsPage || isMessagesPage} />
         </div>
       </div>
-      <RightColumn slug={firmSlug} blueAccents={documentsPage || taxReturns} />
+      <RightColumn
+        slug={firmSlug}
+        isMessagesPage={isMessagesPage}
+        blueAccents={documentsPage || taxReturns}
+      />
     </div>
   );
 }

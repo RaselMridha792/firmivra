@@ -17,6 +17,7 @@ import type { ReactNode } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { ButtonLink } from '../../../(public)/_components/button-link';
+import { NotesCard } from '../messages/_components/notes-card';
 
 const dateTime = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
@@ -61,14 +62,62 @@ function LinkCard({
   );
 }
 
-/** Need Help, the next appointment, and the two document shortcuts. */
+/** Need Help, appointment and document shortcuts; Messages also places Notes here. */
 export function RightColumn({
   slug,
+  isMessagesPage = false,
   blueAccents = false,
 }: {
   slug: string;
+  isMessagesPage?: boolean;
   blueAccents?: boolean;
 }) {
+  return isMessagesPage ? (
+    <MessagesRightColumn slug={slug} />
+  ) : (
+    <DefaultRightColumn slug={slug} blueAccents={blueAccents} />
+  );
+}
+
+function MessagesRightColumn({ slug }: { slug: string }) {
+  const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
+    api.myAppointments(slug).list({ when: 'upcoming' }),
+  );
+  const next = upcoming.data?.[0];
+  return (
+    <aside
+      aria-label="Help, appointments, and notes"
+      className="flex w-full flex-col gap-4 lg:w-72"
+    >
+      <Card className="bg-firm-primary! text-on-action">
+        <h2 className="font-display text-2xl font-bold">Need Help?</h2>
+        <p className="my-3 text-sm">Our team is here for you.</p>
+        <ButtonLink href={`/${slug}/messages`} className="cursor-pointer">
+          Send a Message
+        </ButtonLink>
+      </Card>
+      <LinkCard
+        icon={CalendarDays}
+        title="Upcoming Appointment"
+        href={`/${slug}/appointments`}
+        action={next ? 'View Appointment' : 'Schedule Now'}
+        blueAccent
+      >
+        {next ? (
+          <p data-testid="next-appointment">
+            {next.type?.name ?? 'Appointment'} with {next.staffName},{' '}
+            {dateTime.format(new Date(next.startsAt))}
+          </p>
+        ) : (
+          <p>No upcoming appointments.</p>
+        )}
+      </LinkCard>
+      <NotesCard slug={slug} />
+    </aside>
+  );
+}
+
+function DefaultRightColumn({ slug, blueAccents }: { slug: string; blueAccents: boolean }) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
   );
