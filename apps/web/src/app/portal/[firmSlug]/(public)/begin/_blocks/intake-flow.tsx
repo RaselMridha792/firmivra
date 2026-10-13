@@ -35,6 +35,7 @@ import {
 import { type Fill, InfoNote } from './intake-fields';
 import { IntakeReview } from './intake-review';
 import { StepSections } from './intake-step';
+import { NO_LOOK } from './intake-layout';
 import { formLook } from './looks';
 import {
   allAnswers,
@@ -601,7 +602,22 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
       <FormHeader
         title={fill(definition.title)}
         subtitle={definition.subtitle ? fill(definition.subtitle) : undefined}
-      />
+      >
+        {/* The step's own heading under the form's, as its mockup sets it, unless a panel of
+            the step is its heading. */}
+        {step.subtitle &&
+          !(step.review && look.reviewHeading) &&
+          !step.sections.some((s) => look.panels[s.key]?.intro) && (
+            <div className="mt-2">
+              {look !== NO_LOOK && (
+                <p className="font-display text-xl leading-tight font-bold text-heading">
+                  {fill(step.title)}
+                </p>
+              )}
+              <p className="text-xs">{fill(step.subtitle)}</p>
+            </div>
+          )}
+      </FormHeader>
       {/* Every step of the form, as the mockups number them; one the answers leave out is marked. */}
       <IntakeStepper
         steps={definition.steps.map((s, i) => ({
@@ -615,12 +631,6 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
           if (target && shown.steps.has(target.key)) void jump(target.key);
         }}
       />
-      {/* A step whose mockup has its own heading panel shows its subtitle there. */}
-      {step.subtitle &&
-        !(step.review && look.reviewHeading) &&
-        !step.sections.some((s) => look.panels[s.key]?.intro) && (
-          <p className="mb-2 text-center text-xs">{fill(step.subtitle)}</p>
-        )}
       {agreements.data?.ready === false && <UnavailableNote />}
       <form
         ref={formRef}
