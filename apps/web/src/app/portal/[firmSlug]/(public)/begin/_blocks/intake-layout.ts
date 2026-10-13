@@ -39,6 +39,12 @@ export interface RowsLook {
   chooser?: boolean;
   /** Grids by field key. */
   grids?: Record<string, GridLook>;
+  /** A group drawn as a table: a column per field, a line per row. */
+  table?: boolean;
+  /** Notes drawn as a box: the icon and the bold title, the text under it. */
+  noteCards?: string[];
+  /** Package cards' icons, by option value. */
+  cardIcons?: Record<string, LucideIcon>;
   /** A group: a lone row without its "Business 1" heading box (rows get one from the second). */
   bare?: boolean;
 }
@@ -70,6 +76,8 @@ export interface PanelLook extends RowsLook {
   tint?: boolean;
   /** No number (a panel the mockup leaves unnumbered among numbered ones). */
   noNumber?: boolean;
+  /** The previous panel's number again (the mockup numbers two panels alike). */
+  shareNumber?: boolean;
   /** A group field's rows, by the group's key. */
   groups?: Record<string, RowsLook>;
 }
@@ -93,6 +101,11 @@ export interface FormLook {
   /** The review opens with its own "Review Your Information" heading. */
   reviewHeading?: boolean;
   review?: ReviewLook;
+  /** The form's title on two lines: its last two words (in the accent colour) under the rest. */
+  titleBreak?: boolean;
+  /** A line under each step's name in the stepper, by step key (the step's subtitle then shows
+   * nowhere else). */
+  stepperHints?: Record<string, string>;
   /**
    * Panels stacked in two independent columns (left keys, right keys), each column as tall as its
    * own panels, where the mockup does not line them up in rows.

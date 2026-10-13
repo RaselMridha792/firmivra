@@ -26,6 +26,10 @@ export interface FieldLook {
   /** An upload zone with a "Choose Files" button. */
   chooser?: boolean;
   grid?: GridLook;
+  /** A note as a box: icon and bold title, the text under it. */
+  noteCard?: boolean;
+  /** Package cards' icons, by option value. */
+  cardIcons?: Record<string, LucideIcon>;
 }
 
 export type Unit =
@@ -175,6 +179,8 @@ function UnitCell({
     ...(look.quiet?.includes(f.key) ? { quiet: true } : {}),
     ...(look.chooser && f.type === 'upload' ? { chooser: true } : {}),
     ...(look.grids?.[f.key] ? { grid: look.grids[f.key] } : {}),
+    ...(look.noteCards?.includes(f.key) ? { noteCard: true } : {}),
+    ...(look.cardIcons ? { cardIcons: look.cardIcons } : {}),
   });
 }
 

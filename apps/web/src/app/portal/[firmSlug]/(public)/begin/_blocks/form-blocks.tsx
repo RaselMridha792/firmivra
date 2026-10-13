@@ -307,13 +307,13 @@ export function IntakeStepper({
   onEdit,
 }: {
   /** `skipped`: a step the answers leave out (Annual's business step for a personal return). */
-  steps: { id: number; label: string; skipped?: boolean }[];
+  steps: { id: number; label: string; skipped?: boolean; hint?: string | undefined }[];
   current: number;
   onEdit: (step: number) => void;
 }) {
   return (
     <ol aria-label="Intake progress" className="mb-3 flex">
-      {steps.map(({ id, label, skipped }, index) => (
+      {steps.map(({ id, label, skipped, hint }, index) => (
         <li
           key={id}
           aria-current={current === id ? 'step' : undefined}
@@ -334,6 +334,7 @@ export function IntakeStepper({
           <span className={`px-1 ${skipped ? 'font-normal text-muted line-through' : ''}`}>
             {label}
           </span>
+          {hint && !skipped && <span className="px-1 text-xs font-normal">{hint}</span>}
           {skipped && <span className="text-xs text-muted">Not needed</span>}
         </li>
       ))}
