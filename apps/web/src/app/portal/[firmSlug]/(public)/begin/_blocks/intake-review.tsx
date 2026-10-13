@@ -8,11 +8,12 @@ import {
   US_STATES,
 } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
-import { Pencil } from 'lucide-react';
+import { CircleCheck, CloudUpload, Pencil } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { ReviewCard, ReviewRows, SectionPanel } from './form-blocks';
 import type { Fill } from './intake-fields';
-import { type FormLook, fullRows } from './intake-layout';
+import { type FormLook, fullRows, type ReviewLook } from './intake-layout';
 import { units } from './intake-rows';
 import {
   formatCents,
@@ -244,6 +245,30 @@ export function IntakeReview({
   heading?: { number: number; subtitle: string | undefined } | undefined;
 }) {
   const steps = definition.steps.filter((s) => !s.review && shownSteps.has(s.key));
+  if (look.review?.byStep) {
+    return (
+      <div className="grid content-start gap-3" data-testid="intake-review">
+        {steps.map((step, i) => (
+          <StepCard
+            key={step.key}
+            title={fill(step.title)}
+            index={i}
+            review={look.review!}
+            icon={look.review?.icons?.[step.key]}
+            onEdit={() => onEdit(step.key)}
+            rows={lineRows(
+              step.sections.flatMap((s) =>
+                s.fields.filter((f) => f.type !== 'info' && shownFields.has(f.key)),
+              ),
+              values,
+              fill,
+              uploads,
+            )}
+          />
+        ))}
+      </div>
+    );
+  }
   const cards = steps.flatMap((step) =>
     step.sections.flatMap((section) => {
       const fields = section.fields.filter((f) => f.type !== 'info' && shownFields.has(f.key));
@@ -301,6 +326,204 @@ export function IntakeReview({
           </ReviewCard>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** The coloured title bands of a banded review, in turn (whole classes, so Tailwind finds them). */
+const BANDS = [
+  'bg-navigation text-on-action',
+  'bg-action text-on-action',
+  'bg-info text-on-action',
+];
+
+/** A step's answers as "Label: answer" lines: a table's filled cells and a group's rows each a line. */
+function lineRows(
+  fields: IntakeField[],
+  values: ScreenValues,
+  fill: Fill,
+  uploads: readonly IntakeUpload[],
+): [string, string, string][] {
+  return units(fields).flatMap((unit): [string, string, string][] => {
+    if (unit.kind !== 'field') {
+      const parts = unit.kind === 'name' ? unit.parts : [unit.street, ...unit.rest];
+      const text = parts
+        .map((part) => scalarText(part as IntakeScalarField, values[part.key]))
+        .filter(Boolean)
+        .join(unit.kind === 'name' ? ' ' : ', ');
+      return [[unit.key, unit.kind === 'name' ? 'Full Name' : fill(unit.street.label), text]];
+    }
+    const f = unit.field;
+    const v = values[f.key];
+    if (f.type === 'grid') {
+      const grid = (v ?? {}) as ScreenGrid;
+      return f.rows.flatMap((row) =>
+        f.columns.flatMap((col): [string, string, string][] => {
+          const text = grid[row.key]?.[col.key] ?? '';
+          if (!text) return [];
+          const cents = col.type === 'currency' ? toCents(text) : null;
+          const shown =
+            col.type === 'date' ? usDate(text) : cents === null ? text : formatCents(cents);
+          const name =
+            f.columns.length > 1 ? `${fill(row.label)} ${fill(col.label)}` : fill(row.label);
+          return [[`${f.key}.${row.key}.${col.key}`, name, shown]];
+        }),
+      );
+    }
+    if (f.type === 'group') {
+      const rows = (v ?? []) as ScreenRow[];
+      return rows.flatMap((row, i) =>
+        f.fields.flatMap((sub): [string, string, string][] => {
+          const text = scalarText(sub, row[sub.key]);
+          if (!text) return [];
+          const name =
+            rows.length > 1 ? `${fill(f.itemLabel)} ${i + 1}: ${fill(sub.label)}` : fill(sub.label);
+          return [[`${f.key}.${row.id}.${sub.key}`, name, text]];
+        }),
+      );
+    }
+    if (f.type === 'upload') {
+      const view = answerView(f, v, fill, uploads);
+      return [[f.key, fill(f.label), typeof view === 'string' ? view : '']];
+    }
+    if (f.type === 'info') return [];
+    return [[f.key, fill(f.label), scalarText(f, v)]];
+  });
+}
+
+/** One step's answers under a title band (or a plain title), with its Edit button. */
+function StepCard({
+  title,
+  index,
+  review,
+  icon: Icon,
+  onEdit,
+  rows,
+}: {
+  title: string;
+  index: number;
+  review: ReviewLook;
+  icon: LucideIcon | undefined;
+  onEdit: () => void;
+  rows: [string, string, string][];
+}) {
+  const band = review.banded ? BANDS[index % BANDS.length] : 'text-heading';
+  return (
+    <section className="min-w-0 overflow-hidden rounded-card border border-folder-border bg-surface">
+      <header className={`flex items-center gap-3 px-3 py-2 ${band}`}>
+        {Icon && <Icon aria-hidden="true" className="size-7 shrink-0" />}
+        <h3 className="min-w-0 flex-1 font-display text-xl font-bold">{title}</h3>
+        <Button
+          variant="outline"
+          onClick={onEdit}
+          aria-label={`Edit ${title}`}
+          className="min-h-8! gap-1! border-surface! bg-surface! px-3! py-1! text-xs! text-heading!"
+        >
+          <Pencil aria-hidden="true" className="size-3" />
+          Edit
+        </Button>
+      </header>
+      <dl className="space-y-1 p-3 text-sm">
+        {rows.map(([id, label, text]) => (
+          <div key={id} className="flex gap-3">
+            <dt className="w-2/5 shrink-0 text-firm-primary">{label}:</dt>
+            <dd className="min-w-0 flex-1 break-words text-text">{text || 'N/A'}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+/** Every file of the form, as the review's "Uploaded Supporting Documents" card lists them. */
+export function UploadedFiles({
+  definition,
+  uploads,
+  fill,
+  onEdit,
+}: {
+  definition: IntakeFormDefinition;
+  uploads: readonly IntakeUpload[];
+  fill: Fill;
+  onEdit: (stepKey: string) => void;
+}) {
+  const slots = new Map(
+    definition.steps.flatMap((step) =>
+      step.sections.flatMap((s) =>
+        s.fields.flatMap((f) => (f.type === 'upload' ? [[f.key, { step, f }] as const] : [])),
+      ),
+    ),
+  );
+  const firstStep = uploads.map((u) => slots.get(u.slot)?.step).find((s) => s && !s.review);
+  return (
+    <section className="min-w-0 rounded-card border border-folder-border bg-surface p-3">
+      <header className="mb-2 flex items-center gap-3">
+        <span className="grid size-11 shrink-0 place-items-center rounded-full bg-heading text-on-action">
+          <CloudUpload aria-hidden="true" className="size-6" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-display text-lg font-bold text-heading">
+            Uploaded Supporting Documents
+          </h3>
+          <p className="text-xs text-firm-primary">
+            Please review the documents you have uploaded. You can add more if needed.
+          </p>
+        </div>
+        {firstStep && (
+          <Button
+            variant="outline"
+            onClick={() => onEdit(firstStep.key)}
+            aria-label="Edit Uploaded Supporting Documents"
+            className="min-h-8! gap-1! px-3! py-1! text-xs!"
+          >
+            <Pencil aria-hidden="true" className="size-3" />
+            Edit
+          </Button>
+        )}
+      </header>
+      {uploads.length ? (
+        <div className="max-h-56 overflow-auto rounded-control border border-folder-border">
+          <table className="w-full border-collapse text-left text-xs">
+            <thead className="bg-folder-surface text-heading">
+              <tr>
+                <th scope="col" className="px-2 py-1 font-semibold">
+                  File Name
+                </th>
+                <th scope="col" className="px-2 py-1 font-semibold">
+                  Document Type
+                </th>
+                <th scope="col" className="px-2 py-1 font-semibold">
+                  Date Uploaded
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {uploads.map((u) => (
+                <tr key={u.id} className="border-t border-folder-border">
+                  <td className="px-2 py-1 break-all">{u.fileName}</td>
+                  <td className="px-2 py-1">{fill(slots.get(u.slot)?.f.label ?? u.slot)}</td>
+                  <td className="px-2 py-1">{usDate(u.uploadedAt.slice(0, 10))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-xs text-muted">No documents uploaded yet.</p>
+      )}
+    </section>
+  );
+}
+
+/** The accent "Review & Submit" band over the agreement, with the step's subtitle under it. */
+export function SubmitBand({ title, subtitle }: { title: string; subtitle: string | undefined }) {
+  return (
+    <div>
+      <p className="flex items-center gap-3 rounded-card bg-action px-3 py-2 text-on-action">
+        <CircleCheck aria-hidden="true" className="size-8 shrink-0" />
+        <span className="font-display text-2xl font-bold">{title}</span>
+      </p>
+      {subtitle && <p className="mt-2 px-3 text-sm text-firm-primary">{subtitle}</p>}
     </div>
   );
 }
