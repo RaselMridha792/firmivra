@@ -21,8 +21,10 @@ export function IntakeCards() {
           className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-primary"
         />
         <div className="flex-1">
-          <h1 className="font-display text-3xl font-bold text-heading">Select an Intake Form</h1>
-          <p className="text-text">
+          <h1 className="font-display text-4xl font-bold text-heading md:text-5xl">
+            Select an Intake Form
+          </h1>
+          <p className="text-lg leading-relaxed text-text">
             Choose the intake form for the service you need. This helps us gather the information
             needed for providing accurate services and the best possible support.
           </p>
@@ -38,7 +40,7 @@ export function IntakeCards() {
               aria-hidden
               className="size-14 rounded-full bg-folder-surface p-3 text-firm-primary"
             />
-            <h2 className="font-display text-lg font-bold text-heading">{title}</h2>
+            <h2 className="font-display text-xl font-bold text-heading">{title}</h2>
             <ButtonLink href={`/${slug}/intake/${path}`} aria-label={`Go to ${title}`}>
               Go to Intake Form
             </ButtonLink>
