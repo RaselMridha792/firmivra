@@ -112,14 +112,15 @@ jobs:
               except: [`${WEB}firm/(workspace)/leads/[id]/`],
             },
           };
-          // Two tickets, each adding extra paths on top of its developer's normal list, for that
-          // branch only; the normal list and except both still apply, every other branch keeps
-          // today's lists unchanged. Temporary: delete this block and its use below after the
-          // night of 13 Oct 2026 (Dhaka).
+          // Three tickets, each adding extra paths on top of its developer's normal list, for
+          // that branch only; the normal list and except both still apply, every other branch
+          // keeps today's lists unchanged. Temporary: delete this block and its use below after
+          // the night of 13 Oct 2026 (Dhaka).
           const TEMP_EXPIRES = new Date('2026-10-14T00:00:00+06:00');
           const TEMP_OVERRIDES = [
             { dev: 'fahad', prefix: 'fahad/FIR-444-', extra: [WEB, 'apps/web/src/components/', 'packages/ui/'] },
             { dev: 'arfan', prefix: 'arfan/FIR-445-', extra: [WEB, 'apps/web/src/components/', 'apps/web/e2e/'] },
+            { dev: 'tumit', prefix: 'tumit/FIR-445-', extra: [`${WEB}portal/[firmSlug]/(public)/begin/`, 'apps/web/e2e/mock/'] },
           ];
           // Everyone: their own tests (also the mock-mode ones) and their task file.
           for (const [name, dev] of Object.entries(DEVELOPERS)) {
