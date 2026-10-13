@@ -9,7 +9,15 @@ import {
   UPLOAD_LIMITS,
 } from '@firmivra/types';
 import { Button, Checkbox } from '@firmivra/ui';
-import { CloudUpload, FileText, LoaderCircle, type LucideIcon, Upload, X } from 'lucide-react';
+import {
+  CloudUpload,
+  FileText,
+  LoaderCircle,
+  type LucideIcon,
+  Plus,
+  Upload,
+  X,
+} from 'lucide-react';
 import { useId, useState } from 'react';
 import { errorMessage } from '../../../../../../lib/errors';
 import type { Fill } from './intake-fields';
@@ -47,6 +55,7 @@ export function UploadInput({
   chooser = false,
   card: CardIcon,
   wideCard = false,
+  button = false,
 }: {
   field: IntakeUploadField;
   value: ScreenUpload;
@@ -62,6 +71,8 @@ export function UploadInput({
   card?: LucideIcon | undefined;
   /** The card wide and warm: the title and help left, the zone right. */
   wideCard?: boolean;
+  /** A "+ Upload ..." button with the help under it (more files on a review). */
+  button?: boolean;
 }) {
   const id = useId();
   const [busy, setBusy] = useState(0);
@@ -91,6 +102,44 @@ export function UploadInput({
     }
   }
 
+  const fileInput = (
+    <input
+      id={`${id}-file`}
+      type="file"
+      multiple
+      accept={ACCEPT}
+      aria-labelledby={`${id}-label`}
+      disabled={files.length >= field.maxFiles}
+      className="sr-only"
+      onChange={(event) => {
+        void send(Array.from(event.target.files ?? []));
+        event.target.value = '';
+      }}
+    />
+  );
+  if (button) {
+    return (
+      <div className="min-w-0 space-y-1" data-slot={field.key}>
+        <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-control border border-info px-4 text-sm font-semibold text-info has-focus-visible:outline-2 has-focus-visible:outline-focus">
+          <Plus aria-hidden="true" className="size-4" />
+          <span id={`${id}-label`}>{fill(field.label)}</span>
+          {fileInput}
+        </label>
+        {field.help && <p className="text-xs text-muted">{fill(field.help)}</p>}
+        {busy > 0 && (
+          <p className="flex items-center gap-2 text-xs text-muted" aria-live="polite">
+            <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+            Uploading…
+          </p>
+        )}
+        {failure && (
+          <p role="alert" className="text-xs text-danger">
+            {failure}
+          </p>
+        )}
+      </div>
+    );
+  }
   return (
     <div
       className={`min-w-0 space-y-2 ${tile ? 'h-full rounded-control border border-folder-border p-2' : ''} ${CardIcon ? `h-full rounded-card border p-3 ${wideCard ? 'border-accent bg-accent-soft md:grid md:grid-cols-2 md:items-center md:gap-4 md:space-y-0' : 'border-folder-border bg-surface'}` : ''}`}
