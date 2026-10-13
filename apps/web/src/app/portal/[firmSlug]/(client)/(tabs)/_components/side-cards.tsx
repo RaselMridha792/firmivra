@@ -126,7 +126,7 @@ const quickLinks = (slug: string): [LucideIcon, string, string, string][] => [
 ];
 
 /** "Quick Links" under the folder tabs. */
-export function QuickLinks({ slug }: { slug: string }) {
+export function QuickLinks({ slug, blueAccents = false }: { slug: string; blueAccents?: boolean }) {
   return (
     <Card>
       <h2 className="mb-2 font-display text-2xl font-bold text-heading">Quick Links</h2>
@@ -134,12 +134,18 @@ export function QuickLinks({ slug }: { slug: string }) {
         {quickLinks(slug).map(([Icon, title, description, href]) => (
           <li key={title}>
             <Link href={href} className="flex items-center gap-3 py-2 hover:bg-folder-surface">
-              <Icon aria-hidden className="size-8 shrink-0 text-firm-accent" />
+              <Icon
+                aria-hidden
+                className={`size-8 shrink-0 ${blueAccents ? 'text-firm-primary' : 'text-firm-accent'}`}
+              />
               <span className="min-w-0 flex-1">
                 <span className="block font-semibold text-heading">{title}</span>
                 <span className="block text-sm text-text">{description}</span>
               </span>
-              <ChevronRight aria-hidden className="size-5 shrink-0 text-firm-accent" />
+              <ChevronRight
+                aria-hidden
+                className={`size-5 shrink-0 ${blueAccents ? 'text-firm-primary' : 'text-firm-accent'}`}
+              />
             </Link>
           </li>
         ))}
