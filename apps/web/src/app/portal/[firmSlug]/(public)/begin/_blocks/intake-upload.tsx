@@ -107,10 +107,10 @@ export function UploadInput({
             setDragging(false);
             void send(Array.from(event.dataTransfer.files));
           }}
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-control border border-dashed text-center text-xs has-focus-visible:outline-2 has-focus-visible:outline-focus ${tile ? 'p-2' : 'min-h-28 p-3'} ${dragging ? 'border-action bg-accent-soft' : error ? 'border-danger' : 'border-action'}`}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-control border border-dashed text-center text-xs has-focus-visible:outline-2 has-focus-visible:outline-focus ${tile ? 'p-2' : 'min-h-28 p-3'} ${dragging ? 'border-heading bg-folder-surface' : error ? 'border-danger' : 'border-heading'}`}
         >
-          <CloudUpload aria-hidden="true" className="size-8 fill-accent-soft text-action" />
-          <span className={`font-semibold text-link ${tile ? '' : 'text-sm'}`}>
+          <CloudUpload aria-hidden="true" className="size-8 fill-folder-surface text-heading" />
+          <span className={`font-semibold text-heading ${tile ? '' : 'text-sm'}`}>
             Click to upload
           </span>
           <span>or drag and drop{tile ? '' : ' files here'}</span>
@@ -132,7 +132,7 @@ export function UploadInput({
         </label>
         {field.examples && field.examples.length > 0 && (
           <div className="flex gap-3 rounded-control bg-folder-surface p-3 text-xs">
-            <FileText aria-hidden="true" className="size-8 shrink-0 text-action" />
+            <FileText aria-hidden="true" className="size-8 shrink-0 text-heading" />
             <div className="min-w-0 flex-1">
               <p className="mb-1 font-semibold text-heading">Examples of {fill(field.label)}:</p>
               <ul className="list-outside list-disc gap-x-6 pl-4 sm:columns-2 [&>li]:break-inside-avoid">
