@@ -119,10 +119,13 @@ for (const f of FORMS) {
       }
     }
 
-    // The review: a card per step with Edit, then the review step's own fields and the agreement.
+    // The review: a card per panel with Edit (each earlier step has at least one), then the review
+    // step's own fields and the agreement.
     const review = page.getByTestId('intake-review');
     await expect(review).toBeVisible();
-    await expect(review.getByRole('button', { name: /^Edit / })).toHaveCount(f.steps.length - 1);
+    expect(await review.getByRole('button', { name: /^Edit / }).count()).toBeGreaterThanOrEqual(
+      f.steps.length - 1,
+    );
     await expect(review).not.toContainText('123456789');
     await page.screenshot({ path: test.info().outputPath(`${f.path}-review.png`), fullPage: true });
 
