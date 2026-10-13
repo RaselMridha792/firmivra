@@ -60,18 +60,24 @@ export const draftKey = (slug: string, form: IntakeFormKey) => [
 function FormHeader({
   title,
   subtitle,
+  titleBreak = false,
   children,
 }: {
   title: string;
-  subtitle?: string;
+  subtitle?: string | undefined;
+  /** The accent words on a line of their own (Bookkeeping's mockup). */
+  titleBreak?: boolean | undefined;
   children?: ReactNode;
 }) {
   const words = title.split(' ');
   const tail = words.length > 2 ? words.splice(-2).join(' ') : '';
   return (
     <header className="mb-3 text-center">
-      <h1 className="font-display text-3xl leading-tight font-bold text-heading sm:text-5xl">
-        {words.join(' ')} {tail && <span className="text-accent">{tail}</span>}
+      <h1
+        className={`font-display text-3xl font-bold text-heading sm:text-5xl ${titleBreak ? 'leading-none' : 'leading-tight'}`}
+      >
+        {words.join(' ')}{' '}
+        {tail && <span className={`text-accent ${titleBreak ? 'block' : ''}`}>{tail}</span>}
       </h1>
       {subtitle && <p className="mx-auto mt-1 max-w-2xl text-xs">{subtitle}</p>}
       <div className="mx-auto mt-2 flex max-w-2xl items-center justify-center gap-2 rounded-control bg-folder-surface px-3 py-1 text-xs">
@@ -156,7 +162,13 @@ const WORDING: Record<
   },
   BOOKKEEPING: {
     back: (title) => `Back to ${title}`,
-    next: 'Continue to Next Step',
+    next: (step) =>
+      [
+        '',
+        'Continue to Business Background Details',
+        'Continue to Document Upload',
+        'Continue to Review & Sign',
+      ][step] ?? 'Continue',
     later: 'Save & Exit',
     submit: 'Submit Intake Form',
   },
@@ -291,6 +303,7 @@ function StartForm({
       <FormHeader
         title={fill(found.definition.title)}
         subtitle={found.definition.subtitle ? fill(found.definition.subtitle) : undefined}
+        titleBreak={formLook(found.definition.key).titleBreak}
       />
       <IntakeStepper steps={steps} current={0} onEdit={() => undefined} />
       {notice}
@@ -605,10 +618,12 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
       <FormHeader
         title={fill(definition.title)}
         subtitle={definition.subtitle ? fill(definition.subtitle) : undefined}
+        titleBreak={look.titleBreak}
       >
         {/* The step's own heading under the form's, as its mockup sets it, unless a panel of
             the step is its heading. */}
         {step.subtitle &&
+          !look.stepperHints &&
           !(step.review && look.reviewHeading) &&
           !step.sections.some((s) => look.panels[s.key]?.intro) && (
             <div className="mt-2">
@@ -627,6 +642,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
           id: i + 1,
           label: fill(s.title),
           skipped: !shown.steps.has(s.key),
+          hint: look.stepperHints?.[s.key],
         }))}
         current={definition.steps.findIndex((s) => s.key === step.key) + 1}
         onEdit={(id) => {
@@ -764,9 +780,10 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
               </button>
             ) : (
               <Button
-                variant="ghost"
+                variant="outline"
                 onClick={() => void later()}
                 disabled={save.isPending || resumeLink.isPending}
+                className="min-w-32 border-heading! text-heading!"
               >
                 <Save aria-hidden="true" className="size-4" />
                 {words.later}

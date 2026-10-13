@@ -12,6 +12,7 @@ import {
   Package,
   Percent,
   Shield,
+  Sprout,
   Utensils,
   Wrench,
   Building2,
@@ -22,6 +23,7 @@ import {
   CloudUpload,
   FileText,
   Flag,
+  Gem,
   IdCard,
   MapPin,
   MessageSquareMore,
@@ -214,6 +216,61 @@ const QUARTERLY_TAX: FormLook = {
   },
 };
 
-const LOOKS: Partial<Record<IntakeFormKey, FormLook>> = { ANNUAL_TAX, QUARTERLY_TAX };
+/** Bookkeeping: `Bookkeeping intake.png` and the three after it. */
+const BOOKKEEPING: FormLook = {
+  titleBreak: true,
+  stepperHints: {
+    business: 'Tell us about you and your business.',
+    background: 'Help us understand your operations.',
+    documents: 'Upload your required documents.',
+    review: 'Review your information and sign.',
+  },
+  panels: {
+    // Step 1, Personal and Business Information.
+    contact: { rows: ['phone:6'], labels: { name: 'Full Name' } },
+    business: {
+      shareNumber: true,
+      rows: [
+        'businessName dba',
+        'ein businessPhone',
+        'website',
+        'industry:5 entityType:4 yearsInBusiness:3',
+      ],
+    },
+    package: {
+      wide: true,
+      quiet: ['package'],
+      cardIcons: { STARTER: Sprout, GROWTH: ChartNoAxesColumnIncreasing, PREMIUM: Gem },
+    },
+    additional: {
+      rows: [
+        'primaryBanks accountingSoftware',
+        'hasBookkeeper bookkeeperLastDay',
+        'currentSituation reportFrequency',
+      ],
+    },
+    details: {},
+    expensesAssets: {
+      wide: true,
+      columns: [
+        { span: 6, rows: ['commonExpenses', 'commonExpensesOther'] },
+        { span: 6, rows: ['assets'] },
+      ],
+      optionColumns: { commonExpenses: 2 },
+      groups: { assets: { table: true } },
+    },
+    systems: {
+      wide: true,
+      columns: [
+        { span: 8, rows: ['systems'] },
+        { span: 4, rows: ['noPasswords'] },
+      ],
+      noteCards: ['noPasswords'],
+      groups: { systems: { table: true } },
+    },
+  },
+};
+
+const LOOKS: Partial<Record<IntakeFormKey, FormLook>> = { ANNUAL_TAX, QUARTERLY_TAX, BOOKKEEPING };
 
 export const formLook = (form: IntakeFormKey): FormLook => LOOKS[form] ?? NO_LOOK;

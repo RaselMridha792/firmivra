@@ -99,7 +99,14 @@ export function FieldInput({
   const set = (v: ScreenValue) => onChange(field.key, v);
   switch (field.type) {
     case 'info':
-      return <InfoNote label={fill(field.label)} text={fill(field.text)} list={look?.list} />;
+      return (
+        <InfoNote
+          label={fill(field.label)}
+          text={fill(field.text)}
+          list={look?.list}
+          card={look?.noteCard}
+        />
+      );
     case 'grid':
       return (
         <GridInput
@@ -283,9 +290,12 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
   const span = fullRows(panels.map((p) => stackOf.has(p.key) || isWide(p)));
   // Numbered in the definition's order, whichever column a panel sits in.
   const numbers = new Map<string, number>();
+  let last = 0;
   for (const p of panels) {
     const plain = p.panel?.bar || p.panel?.intro || p.panel?.headless || p.panel?.noNumber;
-    if (!plain) numbers.set(p.key, numbers.size + 1);
+    if (plain) continue;
+    if (!p.panel?.shareNumber || last === 0) last += 1;
+    numbers.set(p.key, last);
   }
   const drawn = new Set<number>();
   return (
