@@ -18,7 +18,7 @@ const when = new Intl.DateTimeFormat('en-US', {
  * "Recent Activity" next to Quick Links: the client's 5 newest notifications (client-visible
  * events only), each opening its page; View All goes to the Notification Center.
  */
-export function RecentActivity({ slug }: { slug: string }) {
+export function RecentActivity({ slug, blueLinks = false }: { slug: string; blueLinks?: boolean }) {
   const recent = useApiQuery(['my-notifications', slug, 'recent'], () =>
     api.myNotifications(slug).list({ limit: 5 }),
   );
@@ -27,7 +27,10 @@ export function RecentActivity({ slug }: { slug: string }) {
     <Card>
       <div className="mb-2 flex items-baseline gap-2">
         <h2 className="flex-1 font-display text-2xl font-bold text-heading">Recent Activity</h2>
-        <Link className="text-sm text-link underline" href={`/${slug}/notifications`}>
+        <Link
+          className={`text-sm ${blueLinks ? 'text-firm-primary' : 'text-link'} underline`}
+          href={`/${slug}/notifications`}
+        >
           View All
         </Link>
       </div>

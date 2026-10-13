@@ -8,6 +8,7 @@ import {
   CloudUpload,
   FileUp,
   FolderOpen,
+  Info,
   Mail,
   UserRound,
   type LucideIcon,
@@ -33,6 +34,7 @@ function LinkCard({
   href,
   action,
   blueAccent = false,
+  compactIcon = false,
 }: {
   icon: LucideIcon;
   title: string;
@@ -40,12 +42,13 @@ function LinkCard({
   href: string;
   action: string;
   blueAccent?: boolean;
+  compactIcon?: boolean;
 }) {
   return (
     <Card className="flex gap-3">
       <Icon
         aria-hidden
-        className={`size-10 shrink-0 ${blueAccent ? 'text-firm-primary' : 'text-firm-accent'}`}
+        className={`${compactIcon ? 'size-8' : 'size-10'} shrink-0 ${blueAccent ? 'text-firm-primary' : 'text-firm-accent'}`}
       />
       <div className="min-w-0">
         <h2 className="font-display text-lg font-bold text-heading">{title}</h2>
@@ -65,9 +68,11 @@ function LinkCard({
 export function RightColumn({
   slug,
   blueAccents = false,
+  showInvoiceInfo = false,
 }: {
   slug: string;
   blueAccents?: boolean;
+  showInvoiceInfo?: boolean;
 }) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
@@ -86,6 +91,7 @@ export function RightColumn({
         href={`/${slug}/appointments`}
         action={next ? 'View Appointment' : 'Schedule Now'}
         blueAccent={blueAccents}
+        compactIcon={showInvoiceInfo}
       >
         {next ? (
           <p data-testid="next-appointment">
@@ -96,25 +102,69 @@ export function RightColumn({
           <p>No upcoming appointments.</p>
         )}
       </LinkCard>
-      <LinkCard
-        icon={FileUp}
-        title="My Uploaded Documents"
-        href={`/${slug}/documents`}
-        action="View My Uploads"
-        blueAccent={blueAccents}
-      >
-        View documents you uploaded to the portal.
-      </LinkCard>
-      <LinkCard
-        icon={FolderOpen}
-        title="Firm Uploaded Documents"
-        href={`/${slug}/documents?source=firm`}
-        action="View Firm Documents"
-        blueAccent={blueAccents}
-      >
-        View documents shared with you by the firm.
-      </LinkCard>
+      {showInvoiceInfo ? (
+        <ImportantInfoCard />
+      ) : (
+        <>
+          <LinkCard
+            icon={FileUp}
+            title="My Uploaded Documents"
+            href={`/${slug}/documents`}
+            action="View My Uploads"
+            blueAccent={blueAccents}
+          >
+            View documents you uploaded to the portal.
+          </LinkCard>
+          <LinkCard
+            icon={FolderOpen}
+            title="Firm Uploaded Documents"
+            href={`/${slug}/documents?source=firm`}
+            action="View Firm Documents"
+            blueAccent={blueAccents}
+          >
+            View documents shared with you by the firm.
+          </LinkCard>
+        </>
+      )}
     </aside>
+  );
+}
+
+const invoiceInfo = [
+  [
+    'How do I cancel my recurring service?',
+    'Send an email or message through the portal to request cancellation at least 14 days before your next billing cycle to ensure you are not billed again.',
+  ],
+  [
+    'If I cancel my recurring service, will my business portal still be active?',
+    'You will continue to have access to related documents and information for 60 days after cancellation so you can download what you need.',
+  ],
+  [
+    'If I reactivate my account within 90 days, will I still have access to my details?',
+    'Yes. If you reactivate within 90 days, your account details and access can be restored.',
+  ],
+  [
+    'What if I need documents after 60 days?',
+    'If you need documents after 60 days, please call the office to request copies.',
+  ],
+];
+
+function ImportantInfoCard() {
+  return (
+    <Card>
+      <div className="flex items-center gap-3">
+        <Info aria-hidden className="size-5 shrink-0 text-firm-primary" />
+        <h2 className="font-display text-lg font-bold text-heading">Important Info</h2>
+      </div>
+      <dl className="mt-3 ml-8 divide-y divide-border text-xs">
+        {invoiceInfo.map(([question, answer]) => (
+          <div key={question} className="py-2 first:pt-0 last:pb-0">
+            <dt className="text-sm font-bold text-firm-primary">{question}</dt>
+            <dd className="mt-1 text-text">{answer}</dd>
+          </div>
+        ))}
+      </dl>
+    </Card>
   );
 }
 
@@ -126,7 +176,7 @@ const quickLinks = (slug: string): [LucideIcon, string, string, string][] => [
 ];
 
 /** "Quick Links" under the folder tabs. */
-export function QuickLinks({ slug }: { slug: string }) {
+export function QuickLinks({ slug, blueAccents = false }: { slug: string; blueAccents?: boolean }) {
   return (
     <Card>
       <h2 className="mb-2 font-display text-2xl font-bold text-heading">Quick Links</h2>
@@ -134,12 +184,18 @@ export function QuickLinks({ slug }: { slug: string }) {
         {quickLinks(slug).map(([Icon, title, description, href]) => (
           <li key={title}>
             <Link href={href} className="flex items-center gap-3 py-2 hover:bg-folder-surface">
-              <Icon aria-hidden className="size-8 shrink-0 text-firm-accent" />
+              <Icon
+                aria-hidden
+                className={`size-8 shrink-0 ${blueAccents ? 'text-firm-primary' : 'text-firm-accent'}`}
+              />
               <span className="min-w-0 flex-1">
                 <span className="block font-semibold text-heading">{title}</span>
                 <span className="block text-sm text-text">{description}</span>
               </span>
-              <ChevronRight aria-hidden className="size-5 shrink-0 text-firm-accent" />
+              <ChevronRight
+                aria-hidden
+                className={`size-5 shrink-0 ${blueAccents ? 'text-firm-primary' : 'text-firm-accent'}`}
+              />
             </Link>
           </li>
         ))}
