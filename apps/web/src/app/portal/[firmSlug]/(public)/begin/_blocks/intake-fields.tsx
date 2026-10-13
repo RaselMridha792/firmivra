@@ -33,9 +33,9 @@ export function splitBracket(text: string): [string, string] {
 
 /** Choice columns (whole classes, so Tailwind finds them). */
 const OPTION_COLUMNS = {
-  1: 'grid-cols-1',
-  2: 'sm:grid-cols-2',
-  3: 'sm:grid-cols-3',
+  1: 'grid',
+  2: 'sm:columns-2 sm:gap-x-4 [&>*]:break-inside-avoid',
+  3: 'sm:columns-3 sm:gap-x-4 [&>*]:break-inside-avoid',
   // Four short choices on one line (the quarters), never wrapping inside a label.
   4: 'sm:flex sm:flex-wrap sm:gap-x-3 [&_label]:whitespace-nowrap',
 } as const;
@@ -137,7 +137,7 @@ function OptionList({
         <Checkbox
           name={`${name}-all`}
           label={selectAll}
-          className="gap-2! text-xs! font-semibold sm:min-h-6!"
+          className="mb-1 gap-2! rounded-control bg-folder-surface px-2 text-xs! font-semibold sm:min-h-7!"
           checked={chosen.length === options.length}
           onChange={(event) => onChange(event.target.checked ? options.map((o) => o.value) : [])}
         />
@@ -181,7 +181,7 @@ function OptionList({
             row
               ? 'flex shrink-0 gap-x-6'
               : columns
-                ? `clear-both grid gap-x-4 [&_input]:size-4 ${OPTION_COLUMNS[columns]}`
+                ? `clear-both gap-x-4 [&_input]:size-4 ${OPTION_COLUMNS[columns]}`
                 : inline
                   ? 'flex flex-wrap gap-x-12'
                   : many || BoxIcon
@@ -299,7 +299,7 @@ export function ScalarInput({
     'data-type': field.type,
   };
   // The label only for screen readers, or on the left of the input, as the mockup draws it.
-  const wrap = `min-w-0 [&_label]:text-xs [&_label]:text-firm-primary ${look.quiet ? '[&_label]:sr-only' : ''} ${look.inline ? 'sm:[&>div]:flex-row sm:[&>div]:items-center sm:[&>div]:gap-3 [&_input]:flex-1 [&_label]:shrink-0' : ''}`;
+  const wrap = `min-w-0 [&_label]:text-xs [&_label]:text-firm-primary ${look.quiet ? '[&_label]:sr-only' : ''} ${look.inline ? 'sm:[&>div]:flex-row sm:[&>div]:items-center sm:[&>div]:gap-3 [&_input]:flex-1 sm:[&_label]:w-3/5 [&_label]:shrink-0' : ''}`;
   const help = field.help ? <Help text={fill(field.help)} /> : null;
   switch (field.type) {
     case 'text':
