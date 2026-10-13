@@ -125,7 +125,9 @@ export interface ReviewLook {
   /** Steps the review leaves out (their files are listed on their own). */
   skipSteps?: string[];
   /** The rows by sections instead of by step: each row's title and the sections it holds. */
-  rows?: { title: string; sections: string[] }[];
+  rows?: { title: string; sections: string[]; icon?: LucideIcon }[];
+  /** By-step cards two to a row. */
+  twoColumns?: boolean;
   /** The review's own panels' titles, numbered with the agreement's (Bookkeeping). */
   titles?: { answers: string; answersNote: string; files?: string; filesNote?: string };
   /** The cards' icons, by step key. */
@@ -166,6 +168,8 @@ export interface FormLook {
   hero?: Record<string, string>;
   /** The stepper in a white box, the steps not reached in grey. */
   stepperBox?: boolean;
+  /** With a hero: the title's last two words as a spaced line under the rest ("INTAKE FORM"). */
+  heroTail?: boolean;
 }
 
 export const NO_LOOK: FormLook = { panels: {} };
