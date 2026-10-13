@@ -61,16 +61,44 @@ function FormHeader({
   title,
   subtitle,
   titleBreak = false,
+  eyebrow = false,
+  tagline,
   children,
 }: {
   title: string;
   subtitle?: string | undefined;
   /** The accent words on a line of their own (Bookkeeping's mockup). */
   titleBreak?: boolean | undefined;
+  /** The words before "Intake Form" as a spaced line over it (Payroll's mockup). */
+  eyebrow?: boolean | undefined;
+  /** A second line under the subtitle. */
+  tagline?: string | undefined;
   children?: ReactNode;
 }) {
   const words = title.split(' ');
   const tail = words.length > 2 ? words.splice(-2).join(' ') : '';
+  if (eyebrow && tail) {
+    return (
+      <header className="mb-3 text-center">
+        <h1 className="font-display text-4xl leading-none font-bold text-heading sm:text-6xl">
+          <span className="mb-1 block font-sans text-sm font-semibold tracking-eyebrow uppercase">
+            <span aria-hidden="true" className="text-accent">
+              ·{' '}
+            </span>
+            {words.join(' ')}
+            <span aria-hidden="true" className="text-accent">
+              {' '}
+              ·
+            </span>
+          </span>
+          {tail}
+        </h1>
+        {subtitle && <p className="mt-1 text-lg text-heading">{subtitle}</p>}
+        {tagline && <p className="text-sm text-heading">{tagline}</p>}
+        {children}
+      </header>
+    );
+  }
   return (
     <header className="mb-3 text-center">
       <h1
@@ -200,7 +228,8 @@ const WORDING: Record<
   },
   PAYROLL: {
     back: (_, step) => `Back to Step ${step}`,
-    next: 'Continue to Next Step',
+    next: (step) =>
+      step === 1 ? 'Continue to Step 2' : 'Continue to Review & Sign Service Agreement',
     later: 'Exit Form',
     submit: 'Submit Form',
   },
@@ -330,6 +359,8 @@ function StartForm({
         title={fill(found.definition.title)}
         subtitle={found.definition.subtitle ? fill(found.definition.subtitle) : undefined}
         titleBreak={formLook(found.definition.key).titleBreak}
+        eyebrow={formLook(found.definition.key).eyebrow}
+        tagline={formLook(found.definition.key).tagline}
       />
       <IntakeStepper steps={steps} current={0} onEdit={() => undefined} />
       {notice}
@@ -646,6 +677,8 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         title={fill(definition.title)}
         subtitle={definition.subtitle ? fill(definition.subtitle) : undefined}
         titleBreak={look.titleBreak}
+        eyebrow={look.eyebrow}
+        tagline={look.tagline}
       >
         {/* The step's own heading under the form's, as its mockup sets it, unless a panel of
             the step is its heading. */}
@@ -826,7 +859,12 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
                 disabled={save.isPending || resumeLink.isPending}
                 className="min-w-32 border-heading! text-heading!"
               >
-                <Save aria-hidden="true" className="size-4" />
+                {/* "Exit Form" leaves, as its mockup's arrow says; the others save. */}
+                {words.later === 'Exit Form' ? (
+                  <ArrowLeft aria-hidden="true" className="size-4" />
+                ) : (
+                  <Save aria-hidden="true" className="size-4" />
+                )}
                 {words.later}
               </Button>
             )}

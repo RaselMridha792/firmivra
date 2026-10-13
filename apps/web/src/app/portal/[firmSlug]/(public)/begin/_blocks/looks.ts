@@ -14,6 +14,7 @@ import {
   Shield,
   Sprout,
   SquareCheckBig,
+  Upload,
   Utensils,
   Wrench,
   Building2,
@@ -21,6 +22,8 @@ import {
   Calculator,
   CalendarDays,
   ChartNoAxesColumnIncreasing,
+  CircleDollarSign,
+  ClipboardList,
   CloudUpload,
   FileSpreadsheet,
   FileText,
@@ -350,6 +353,93 @@ const BOOKKEEPING: FormLook = {
   },
 };
 
-const LOOKS: Partial<Record<IntakeFormKey, FormLook>> = { ANNUAL_TAX, QUARTERLY_TAX, BOOKKEEPING };
+/** Payroll: `Payroll intake 1.png`, `Payroll intake 2.png`, `Payroll Review intake.png`. */
+const PAYROLL: FormLook = {
+  eyebrow: true,
+  tagline: 'Accurate Payroll. Compliant Business. Confident Growth.',
+  unnumbered: true,
+  banners: ['business', 'payroll', 'review'],
+  stepperHints: {
+    business: 'Tell us about your business and payroll needs.',
+    payroll: 'Provide employee and payroll information.',
+    review: 'Upload documents and review before submitting.',
+  },
+  stacks: [
+    {
+      columns: [
+        ['business', 'businessType'],
+        ['ownership', 'needs', 'additional'],
+      ],
+    },
+    { columns: [['employees'], ['schedule'], ['setup']], stretch: true },
+    { columns: [['paymentTax'], ['payDeductions'], ['additionalPayroll']], stretch: true },
+  ],
+  panels: {
+    // Step 1, Business Details.
+    business: {
+      icon: Building2,
+      iconCircle: true,
+      rows: ['ein stateOfFormation', 'businessPhone businessEmail'],
+      addressLabels: true,
+    },
+    businessType: {
+      icon: BriefcaseBusiness,
+      iconCircle: true,
+      optionColumns: { businessFocus: 3 },
+    },
+    ownership: { icon: Users, iconCircle: true, rows: ['fullName phone'] },
+    needs: { icon: Settings, iconCircle: true, optionColumns: { payrollSituation: 1 } },
+    additional: { icon: ClipboardList, iconCircle: true },
+    // Step 2, Payroll Details.
+    employees: { icon: Users, iconCircle: true },
+    schedule: { icon: CalendarDays, iconCircle: true },
+    setup: { icon: Settings, iconCircle: true },
+    paymentTax: { icon: CircleDollarSign, iconCircle: true, optionColumns: { payrollTaxes: 1 } },
+    payDeductions: {
+      icon: ClipboardList,
+      iconCircle: true,
+      optionColumns: { payMethods: 1, benefits: 1 },
+    },
+    additionalPayroll: { icon: Users, iconCircle: true, optionColumns: { assistance: 1 } },
+    documents: { icon: Upload, iconCircle: true, wide: true, quiet: ['payrollDocuments'] },
+    // Step 3, Review & Sign.
+    additionalDocuments: { headless: true, wide: true, uploadButtons: ['additionalDocuments'] },
+    additionalInformation: {
+      icon: MessageSquareMore,
+      iconCircle: true,
+      wide: true,
+      quiet: ['additionalInformation'],
+    },
+  },
+  agreementTitle: '3. Review Our Service Agreement',
+  review: {
+    collapsed: true,
+    agreementRight: true,
+    titles: {
+      answers: 'Review Your Information',
+      answersNote: 'Please review your answers. You can go back to make changes if needed.',
+      files: 'Review Your Uploaded Documents',
+      filesNote:
+        "Here are the documents you've uploaded. You can view, download, or replace any file.",
+    },
+    rows: [
+      {
+        title: 'Business Details',
+        sections: ['business', 'businessType', 'ownership', 'needs', 'additional'],
+      },
+      { title: 'Payroll Details', sections: ['employees', 'schedule', 'setup', 'documents'] },
+      { title: 'Payment & Tax Information', sections: ['paymentTax'] },
+      { title: 'Employee Pay & Deductions', sections: ['payDeductions'] },
+      { title: 'Additional Payroll Information', sections: ['additionalPayroll'] },
+    ],
+  },
+};
+
+const LOOKS: Partial<Record<IntakeFormKey, FormLook>> = {
+  ANNUAL_TAX,
+  QUARTERLY_TAX,
+  BOOKKEEPING,
+  PAYROLL,
+};
 
 export const formLook = (form: IntakeFormKey): FormLook => LOOKS[form] ?? NO_LOOK;
