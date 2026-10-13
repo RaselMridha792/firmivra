@@ -93,6 +93,7 @@ export function FieldInput({
           onChange={set}
           errors={errors}
           fill={fill}
+          quiet={look?.quiet === true}
         />
       );
     case 'group':
@@ -158,8 +159,11 @@ function SectionFields({
       </div>
     );
   }
-  // A bar's one field is named by the bar's subtitle.
-  const quiet = panel.bar && fields.length === 1 ? fields[0]!.key : undefined;
+  // A bar's one field is named by the bar's subtitle; a field named like its panel keeps its
+  // label for screen readers only (the title already says it).
+  const title = props.fill(section.title);
+  const quiet = (f: IntakeField) =>
+    (panel.bar && fields.length === 1) || props.fill(f.label) === title;
   return (
     <div data-section={section.key} className="min-w-0 flex-1">
       <FieldRows
@@ -169,7 +173,7 @@ function SectionFields({
           <FieldInput
             field={f}
             {...props}
-            look={f.key === quiet ? { ...fieldLook, quiet: true } : fieldLook}
+            look={quiet(f) ? { ...fieldLook, quiet: true } : fieldLook}
             groupLook={f.type === 'group' ? panel.groups?.[f.key] : undefined}
           />
         )}
