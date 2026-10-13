@@ -154,7 +154,7 @@ function PayrollDashboard({ items, slug }: { items: MyContentItem[]; slug: strin
                 {index + 1}
               </span>
               <Icon aria-hidden className="mx-auto size-7 text-firm-primary" />
-              <h3 className="text-center text-sm leading-tight font-semibold text-heading">
+              <h3 className="text-center text-base leading-tight font-bold text-heading">
                 {title}
               </h3>
               {Array.isArray(detail) ? (
