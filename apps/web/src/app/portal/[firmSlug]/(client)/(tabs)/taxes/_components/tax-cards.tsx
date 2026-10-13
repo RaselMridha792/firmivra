@@ -57,7 +57,12 @@ export function TaxPaymentCard({ slug }: { slug: string }) {
             {money(next.balanceDueCents, next.currency)}
           </p>
           {next.dueOn ? <p className="text-sm text-text">Due by {day(next.dueOn)}</p> : null}
-          <ButtonLink href={`/${slug}/invoices`}>Make a Payment</ButtonLink>
+          <ButtonLink
+            href={`/${slug}/invoices`}
+            className="bg-firm-primary! hover:bg-navigation-hover!"
+          >
+            Make a Payment
+          </ButtonLink>
         </>
       ) : (
         <p className="text-sm text-text">
