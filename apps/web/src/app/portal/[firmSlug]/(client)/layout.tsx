@@ -241,7 +241,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
         <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
       </div>
       <div className="print:hidden">
-        <PortalFooter contact />
+        <PortalFooter contact compact />
       </div>
       <div className="[&_dialog]:m-0 [&_dialog]:h-screen! [&_dialog]:max-h-screen! [&_dialog]:w-sidebar! [&_dialog]:rounded-none [&_dialog]:p-0 [&_dialog>div]:p-4">
         <Modal open={drawer} title="Portal menu" onClose={() => setDrawer(false)}>
