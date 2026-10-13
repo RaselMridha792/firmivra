@@ -259,7 +259,7 @@ export function IntakeReview({
     return (
       <div className="grid content-start gap-3" data-testid="intake-review">
         <SectionPanel
-          number={titles ? 1 : undefined}
+          number={titles?.files ? 1 : undefined}
           numberInTitle
           title={titles?.answers ?? 'Review Your Information'}
           subtitle={titles?.answersNote}
@@ -609,7 +609,14 @@ function StepRow({
   return (
     <details className="group rounded-control border border-folder-border bg-folder-surface">
       <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-2">
-        {Icon && <Icon aria-hidden="true" className="size-8 shrink-0 fill-current text-heading" />}
+        {Icon && (
+          <span
+            aria-hidden="true"
+            className="grid size-11 shrink-0 place-items-center rounded-full bg-surface text-heading"
+          >
+            <Icon className="size-6" />
+          </span>
+        )}
         <span className="min-w-0 flex-1">
           <span className="block font-display text-base font-bold text-info">{title}</span>
           {note && <span className="block text-xs text-text">{note}</span>}
