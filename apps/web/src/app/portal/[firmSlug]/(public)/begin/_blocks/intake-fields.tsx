@@ -430,7 +430,9 @@ export function ScalarInput({
       );
     case 'checkbox':
       return (
-        <div className="min-w-0">
+        <div
+          className={`min-w-0 ${look.alert ? 'rounded-control border border-danger bg-surface p-3 [&_label]:font-display [&_label]:text-base! [&_label]:font-bold [&_label]:text-danger' : ''}`}
+        >
           <Checkbox
             name={name}
             label={label}
