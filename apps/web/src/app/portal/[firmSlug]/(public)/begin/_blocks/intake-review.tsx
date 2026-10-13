@@ -7,9 +7,13 @@ import {
   type IntakeUpload,
   US_STATES,
 } from '@firmivra/types';
+import { Button } from '@firmivra/ui';
+import { Pencil } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { ReviewCard, ReviewRows } from './form-blocks';
+import { ReviewCard, ReviewRows, SectionPanel } from './form-blocks';
 import type { Fill } from './intake-fields';
+import { type FormLook, fullRows } from './intake-layout';
+import { units } from './intake-rows';
 import {
   formatCents,
   isMasked,
@@ -103,17 +107,42 @@ function answerView(
       );
     }
     case 'group': {
-      // The mockups' tables (Dependents...): a column per field, a row per entry.
+      // The mockups' tables (Dependents...): a column per field (the name's parts as one, the
+      // tick boxes as "Other Details"), a row per entry.
       const rows = ((v ?? []) as ScreenRow[]).filter((row) =>
         f.fields.some((sub) => scalarText(sub, row[sub.key])),
       );
       if (!rows.length) return '';
+      const ticks = f.fields.filter((sub) => sub.type === 'checkbox');
+      const columns = units(f.fields.filter((sub) => sub.type !== 'checkbox'));
+      const cellOf = (unit: (typeof columns)[number], row: ScreenRow) =>
+        unit.kind === 'field'
+          ? scalarText(unit.field as IntakeScalarField, row[unit.key])
+          : (unit.kind === 'name' ? unit.parts : [unit.street, ...unit.rest])
+              .map((part) => scalarText(part as IntakeScalarField, row[part.key]))
+              .filter(Boolean)
+              .join(unit.kind === 'name' ? ' ' : ', ');
       return (
         <AnswerTable
-          head={f.fields.map((sub) => fill(sub.label))}
+          head={[
+            ...columns.map((u) =>
+              u.kind === 'name' ? 'Name' : u.kind === 'address' ? 'Address' : fill(u.field.label),
+            ),
+            ...(ticks.length ? ['Other Details'] : []),
+          ]}
           rows={rows.map((row) => ({
             key: row.id,
-            cells: f.fields.map((sub) => scalarText(sub, row[sub.key])),
+            cells: [
+              ...columns.map((u) => cellOf(u, row)),
+              ...(ticks.length
+                ? [
+                    ticks
+                      .filter((t) => row[t.key] === true)
+                      .map((t) => fill(t.label))
+                      .join(', ') || 'N/A',
+                  ]
+                : []),
+            ],
           }))}
         />
       );
@@ -128,10 +157,14 @@ function AnswerTable({ head, rows }: { head: string[]; rows: { key: string; cell
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-left">
-        <thead>
+        <thead className="bg-folder-surface">
           <tr>
             {head.map((h, i) => (
-              <th key={`${h}-${String(i)}`} scope="col" className="pr-2 font-semibold text-heading">
+              <th
+                key={`${h}-${String(i)}`}
+                scope="col"
+                className="px-2 py-1 font-semibold text-heading"
+              >
                 {h}
               </th>
             ))}
@@ -139,9 +172,9 @@ function AnswerTable({ head, rows }: { head: string[]; rows: { key: string; cell
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.key}>
+            <tr key={row.key} className="border-t border-folder-border">
               {row.cells.map((c, i) => (
-                <td key={`${String(i)}-${c}`} className="pr-2 align-top">
+                <td key={`${String(i)}-${c}`} className="px-2 py-1 align-top">
                   {c || '—'}
                 </td>
               ))}
@@ -153,9 +186,40 @@ function AnswerTable({ head, rows }: { head: string[]; rows: { key: string; cell
   );
 }
 
+/** A section's answers as review rows: a name or an address on one row, as entered together. */
+function sectionRows(
+  fields: IntakeField[],
+  values: ScreenValues,
+  fill: Fill,
+  uploads: readonly IntakeUpload[],
+  /** A table named like its card shows no label of its own. */
+  title: string,
+): [string, ReactNode, string, boolean][] {
+  return units(fields).map((unit): [string, ReactNode, string, boolean] => {
+    if (unit.kind === 'field') {
+      const f = unit.field;
+      const wide = f.type === 'group' || f.type === 'grid';
+      return [
+        wide && fill(f.label) === title ? '' : fill(f.label),
+        answerView(f, values[f.key], fill, uploads),
+        f.key,
+        wide,
+      ];
+    }
+    const parts = unit.kind === 'name' ? unit.parts : [unit.street, ...unit.rest];
+    const text = parts
+      .map((part) => scalarText(part as IntakeScalarField, values[part.key]))
+      .filter(Boolean)
+      .join(unit.kind === 'name' ? ' ' : ', ');
+    const label = unit.kind === 'name' ? 'Full Name' : fill(unit.street.label);
+    return [label, text, unit.key, false];
+  });
+}
+
 /**
- * The review step's summary: one card per earlier step the answers show, each with an Edit
- * button that opens that step, its answers by panel (SSNs and EINs as the last 4 only).
+ * The review step's summary as its mockup draws it: the step's own heading with "Edit
+ * Information", then a card per panel the answers show (two to a row), each with an Edit button
+ * that opens its step. SSNs and EINs show as the last 4 only.
  */
 export function IntakeReview({
   definition,
@@ -165,6 +229,8 @@ export function IntakeReview({
   uploads,
   fill,
   onEdit,
+  look,
+  heading,
 }: {
   definition: IntakeFormDefinition;
   values: ScreenValues;
@@ -173,33 +239,68 @@ export function IntakeReview({
   uploads: readonly IntakeUpload[];
   fill: Fill;
   onEdit: (stepKey: string) => void;
+  look: FormLook;
+  /** The step's number and subtitle for its "Review Your Information" heading. */
+  heading?: { number: number; subtitle: string | undefined } | undefined;
 }) {
   const steps = definition.steps.filter((s) => !s.review && shownSteps.has(s.key));
+  const cards = steps.flatMap((step) =>
+    step.sections.flatMap((section) => {
+      const fields = section.fields.filter((f) => f.type !== 'info' && shownFields.has(f.key));
+      if (!fields.length) return [];
+      const panel = look.panels[section.key];
+      const wide = fields.some(
+        (f) => f.type === 'grid' || (f.type === 'group' && f.fields.length > 6),
+      );
+      return [
+        {
+          step,
+          section,
+          title: fill(section.title),
+          icon: panel?.icon ?? panel?.badge,
+          fields,
+          wide,
+        },
+      ];
+    }),
+  );
+  const first = steps[0];
+  const span = fullRows(cards.map((c) => c.wide));
   return (
     <div className="space-y-3" data-testid="intake-review">
-      {steps.map((step) => (
-        <ReviewCard key={step.key} title={fill(step.title)} onEdit={() => onEdit(step.key)}>
-          <div className="grid gap-3 lg:grid-cols-2">
-            {step.sections.map((section) => {
-              const rows = section.fields
-                .filter((f) => f.type !== 'info' && shownFields.has(f.key))
-                .map((f): [string, ReactNode, string, boolean] => [
-                  fill(f.label),
-                  answerView(f, values[f.key], fill, uploads),
-                  f.key,
-                  f.type === 'group' || f.type === 'grid',
-                ]);
-              if (!rows.length) return null;
-              return (
-                <div key={section.key} className="min-w-0">
-                  <h4 className="mb-1 text-xs font-semibold text-heading">{fill(section.title)}</h4>
-                  <ReviewRows rows={rows} />
-                </div>
-              );
-            })}
-          </div>
-        </ReviewCard>
-      ))}
+      {heading && first && (
+        <SectionPanel
+          number={heading.number}
+          title="Review Your Information"
+          subtitle={heading.subtitle}
+          size="intro"
+          action={
+            <Button
+              variant="outline"
+              onClick={() => onEdit(first.key)}
+              className="min-h-9! gap-2! px-4! text-sm!"
+            >
+              <Pencil aria-hidden="true" className="size-4" />
+              Edit Information
+            </Button>
+          }
+        >
+          {null}
+        </SectionPanel>
+      )}
+      <div className="grid gap-3 lg:grid-cols-2">
+        {cards.map(({ step, section, title, icon: Icon, fields }, i) => (
+          <ReviewCard
+            key={section.key}
+            title={title}
+            icon={Icon ? <Icon aria-hidden="true" className="size-8 fill-accent-soft" /> : null}
+            onEdit={() => onEdit(step.key)}
+            className={span[i] ? 'lg:col-span-2' : ''}
+          >
+            <ReviewRows rows={sectionRows(fields, values, fill, uploads, title)} />
+          </ReviewCard>
+        ))}
+      </div>
     </div>
   );
 }

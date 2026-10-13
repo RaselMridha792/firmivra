@@ -23,7 +23,7 @@ export interface FieldLook {
   list?: boolean;
 }
 
-type Unit =
+export type Unit =
   | { kind: 'field'; key: string; field: IntakeField }
   | { kind: 'name'; key: string; parts: IntakeField[] }
   | { kind: 'address'; key: string; street: IntakeField; rest: IntakeField[] };
@@ -35,7 +35,7 @@ const withPrefix = (prefix: string, name: string) =>
  * The shown fields as the cells they make, in order: a name's parts (fullName in
  * packages/types) are one cell, and so are an address's street, city, state and ZIP.
  */
-function units(fields: IntakeField[]): Unit[] {
+export function units(fields: IntakeField[]): Unit[] {
   const byKey = new Map(fields.map((f) => [f.key, f]));
   const used = new Set<string>();
   const out: Unit[] = [];
