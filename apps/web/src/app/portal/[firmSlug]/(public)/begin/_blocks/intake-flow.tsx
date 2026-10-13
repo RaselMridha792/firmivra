@@ -32,9 +32,10 @@ import {
   agreementSignature,
   emptyAgreement,
 } from './intake-agreement';
-import type { Fill } from './intake-fields';
+import { type Fill, InfoNote } from './intake-fields';
 import { IntakeReview } from './intake-review';
 import { StepSections } from './intake-step';
+import { formLook } from './looks';
 import {
   allAnswers,
   clearHidden,
@@ -68,7 +69,7 @@ function FormHeader({
   const tail = words.length > 2 ? words.splice(-2).join(' ') : '';
   return (
     <header className="mb-3 text-center">
-      <h1 className="font-display text-3xl leading-tight font-bold text-heading sm:text-4xl">
+      <h1 className="font-display text-3xl leading-tight font-bold text-heading sm:text-5xl">
         {words.join(' ')} {tail && <span className="text-accent">{tail}</span>}
       </h1>
       {subtitle && <p className="mx-auto mt-1 max-w-2xl text-xs">{subtitle}</p>}
@@ -131,7 +132,8 @@ const WORDING: Record<
   IntakeFormKey,
   {
     back: (title: string, step: number) => string;
-    next: string;
+    /** Continue's words on each step (by its number), as each step's mockup words it. */
+    next: string | ((step: number) => string);
     later: string;
     laterAsLink?: boolean;
     submit: string;
@@ -139,7 +141,7 @@ const WORDING: Record<
 > = {
   ANNUAL_TAX: {
     back: () => 'Back',
-    next: 'Continue to Next Step',
+    next: (step) => (step === 3 ? 'Continue to Next Step' : 'Continue'),
     later: 'Save and Continue Later',
     submit: 'Submit Intake Form',
   },
@@ -558,6 +560,13 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   const failureText = failure ? errorMessage(failure, BEGIN_ONLINE_ERRORS) : '';
   const previous = steps[index - 1];
   const words = WORDING[form];
+  const look = formLook(form);
+  const stepNumber = definition.steps.indexOf(step) + 1;
+  const nextWords = typeof words.next === 'string' ? words.next : words.next(stepNumber);
+  // The note the mockup sets beside Continue ("Important: ..."), when this step shows it.
+  const note = step.sections
+    .flatMap((s) => s.fields)
+    .find((f) => f.key === look.footerNote && shown.fields.has(f.key));
   // The review step's info-only panels ("Review Your Information...") come before the answers.
   const infoOnly = (sec: IntakeStep['sections'][number]) =>
     sec.fields.every((f) => f.type === 'info');
@@ -628,7 +637,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         )}
         {step.review && intro.sections.length > 0 && (
           <div className="mb-3">
-            <StepSections {...sectionProps} step={intro} />
+            <StepSections {...sectionProps} step={intro} look={look} />
           </div>
         )}
         {step.review && (
@@ -643,7 +652,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
           />
         )}
         <div className={step.review ? 'mt-3' : ''}>
-          <StepSections {...sectionProps} step={rest} />
+          <StepSections {...sectionProps} step={rest} look={look} />
         </div>
         {step.review && (
           <AgreementPanel
@@ -669,6 +678,22 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
           <p role="alert" className="mt-3 text-sm text-danger">
             {failureText}
           </p>
+        )}
+        {note?.type === 'info' && (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <div className="min-w-0 flex-1 [&>div]:bg-accent-soft [&>div]:p-3">
+              <InfoNote label={`${fill(note.label)}:`} text={fill(note.text)} />
+            </div>
+            <Button
+              type="submit"
+              data-testid="intake-next"
+              disabled={save.isPending || submit.isPending}
+              className="min-w-48"
+            >
+              {nextWords}
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Button>
+          </div>
         )}
         <footer className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -704,15 +729,17 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
               </Button>
             )}
           </div>
-          <Button
-            type="submit"
-            data-testid="intake-next"
-            disabled={save.isPending || submit.isPending}
-            className="min-w-40"
-          >
-            {step.review ? words.submit : words.next}
-            <ArrowRight aria-hidden="true" className="size-4" />
-          </Button>
+          {!note && (
+            <Button
+              type="submit"
+              data-testid="intake-next"
+              disabled={save.isPending || submit.isPending}
+              className="min-w-40"
+            >
+              {step.review ? words.submit : nextWords}
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Button>
+          )}
         </footer>
       </form>
     </div>
