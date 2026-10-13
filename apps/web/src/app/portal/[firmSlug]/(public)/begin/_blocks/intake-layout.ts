@@ -51,6 +51,8 @@ export interface PanelLook extends RowsLook {
   badge?: LucideIcon;
   /** Upload slots side by side, one tile each. */
   tiles?: boolean;
+  /** A tinted panel (the payment choice). */
+  tint?: boolean;
   /** A group field's rows, by the group's key. */
   groups?: Record<string, RowsLook>;
 }
@@ -59,9 +61,34 @@ export interface FormLook {
   panels: Record<string, PanelLook>;
   /** An info field shown in the bar beside Continue instead of in its panel. */
   footerNote?: string;
+  /** The review opens with its own "Review Your Information" heading. */
+  reviewHeading?: boolean;
 }
 
 export const NO_LOOK: FormLook = { panels: {} };
+
+/**
+ * Which of a two-column list's items take the whole row: the wide ones, and a half-width one left
+ * alone in its row (the next is wide, or there is none), so no hole is left beside it.
+ */
+export function fullRows(wide: boolean[]): boolean[] {
+  const out: boolean[] = [];
+  let open = false;
+  wide.forEach((w, i) => {
+    if (w || wide.length === 1) {
+      out.push(true);
+      open = false;
+    } else if (open) {
+      out.push(false);
+      open = false;
+    } else {
+      const alone = i === wide.length - 1 || wide[i + 1] === true;
+      out.push(alone);
+      open = !alone;
+    }
+  });
+  return out;
+}
 
 /** The span classes a row's cells use (whole classes, so Tailwind finds them). */
 export const SPAN: Record<number, string> = {

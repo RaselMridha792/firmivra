@@ -16,6 +16,8 @@ export function SectionPanel({
   bar = false,
   badge,
   size = 'panel',
+  action,
+  tint = false,
   children,
   className = '',
 }: {
@@ -31,6 +33,9 @@ export function SectionPanel({
   badge?: ReactNode;
   /** `intro`: the step's own heading, large and unnumbered; `none`: no header at all. */
   size?: 'panel' | 'intro' | 'none';
+  /** A button at the header's end ("Edit Information"). */
+  action?: ReactNode;
+  tint?: boolean | undefined;
   children: ReactNode;
   className?: string;
 }) {
@@ -40,7 +45,7 @@ export function SectionPanel({
   return (
     <Card
       aria-labelledby={titleId}
-      className={`min-w-0 border-folder-border! p-3! shadow-none! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${bar ? 'bg-accent-soft! sm:flex sm:items-center sm:gap-4' : ''} ${className}`}
+      className={`min-w-0 border-folder-border! p-3! shadow-none! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${bar ? 'bg-accent-soft! sm:flex sm:items-center sm:gap-4' : ''} ${tint ? 'bg-accent-soft!' : ''} ${className}`}
     >
       <header
         className={`flex items-center gap-3 ${size === 'none' ? 'sr-only' : bar ? 'mb-2 sm:mb-0 sm:w-5/12' : 'mb-2'}`}
@@ -93,6 +98,7 @@ export function SectionPanel({
             {icon}
           </span>
         )}
+        {action}
       </header>
       {aside ? (
         <>
@@ -336,24 +342,27 @@ export function IntakeStepper({
 
 export function ReviewCard({
   title,
+  icon,
   onEdit,
   children,
   className = '',
 }: {
   title: string;
+  icon?: ReactNode;
   onEdit: () => void;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <Card className={`min-w-0 border-folder-border! p-3! shadow-none! ${className}`}>
-      <header className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="font-display text-lg font-bold text-heading">{title}</h3>
+      <header className="mb-2 flex items-center gap-3">
+        {icon && <span className="shrink-0 text-accent">{icon}</span>}
+        <h3 className="min-w-0 flex-1 font-display text-lg font-bold text-heading">{title}</h3>
         <Button
           variant="outline"
           onClick={onEdit}
           aria-label={`Edit ${title}`}
-          className="min-h-7! gap-1! px-2! py-1! text-xs!"
+          className="min-h-8! gap-1! px-3! py-1! text-xs!"
         >
           <Pencil aria-hidden="true" className="size-3" />
           Edit
@@ -374,11 +383,13 @@ export function ReviewRows({ rows }: { rows: [string, ReactNode, string?, boolea
           className={`border-b border-folder-border last:border-0 ${wide ? '' : 'grid grid-cols-2'}`}
         >
           <dt
-            className={`px-2 py-1 text-firm-primary ${wide ? 'font-semibold' : 'border-r border-folder-border'}`}
+            className={`px-2 py-1 text-firm-primary ${wide ? (label ? 'font-semibold' : 'sr-only') : 'border-r border-folder-border'}`}
           >
             {label}
           </dt>
-          <dd className="min-w-0 px-2 py-1 break-words text-muted">{value || 'Not provided'}</dd>
+          <dd className={`min-w-0 break-words text-text ${wide && !label ? '' : 'px-2 py-1'}`}>
+            {value || 'Not provided'}
+          </dd>
         </div>
       ))}
     </dl>

@@ -7,7 +7,7 @@ import { SectionPanel } from './form-blocks';
 import { type Fill, InfoNote, ScalarInput, splitBracket } from './intake-fields';
 import { GridInput } from './intake-grid';
 import { GroupInput } from './intake-group';
-import { type FormLook, NO_LOOK, type PanelLook, type RowsLook } from './intake-layout';
+import { type FormLook, fullRows, NO_LOOK, type PanelLook, type RowsLook } from './intake-layout';
 import { type FieldLook, FieldRows } from './intake-rows';
 import { type UploadActions, UploadInput } from './intake-upload';
 import {
@@ -258,22 +258,7 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
   }
   const isWide = (p: (typeof panels)[number]) =>
     p.panel ? !!(p.panel.wide || p.panel.bar) : wideSection(p.parts[0]!);
-  // A half-width panel left alone in its row takes the row instead of leaving a hole beside it.
-  const span: boolean[] = [];
-  let open = false;
-  panels.forEach((p, i) => {
-    if (isWide(p) || panels.length === 1) {
-      span.push(true);
-      open = false;
-    } else if (open) {
-      span.push(false);
-      open = false;
-    } else {
-      const next = panels[i + 1];
-      span.push(!next || isWide(next));
-      open = !span[i];
-    }
-  });
+  const span = fullRows(panels.map(isWide));
   let number = 0;
   return (
     <div className="grid gap-3 lg:grid-cols-2">
@@ -298,6 +283,7 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
             icon={p.panel?.icon ? <PanelIcon icon={p.panel.icon} /> : undefined}
             iconPosition={p.panel?.iconFirst || p.panel?.bar ? 'start' : 'end'}
             bar={p.panel?.bar}
+            tint={p.panel?.tint}
             className={span[i] ? 'lg:col-span-2' : ''}
           >
             {joined
