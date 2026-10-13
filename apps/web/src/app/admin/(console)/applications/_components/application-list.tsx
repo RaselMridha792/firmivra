@@ -141,7 +141,7 @@ export function ApplicationList() {
       <div
         role="tablist"
         aria-label="Application status"
-        className="flex gap-6 overflow-x-auto rounded-t-card border border-border bg-surface px-4 pt-3"
+        className="flex flex-wrap gap-x-4 gap-y-0 rounded-t-card border border-border bg-surface px-4 pt-3"
       >
         {tabs.map(({ id, label }) => {
           const value =
@@ -172,12 +172,12 @@ export function ApplicationList() {
       </div>
 
       <div
-        className="grid items-end gap-4 border-x border-border bg-surface p-4 md:grid-cols-3"
+        className="grid min-w-0 grid-cols-1 items-end gap-4 border-x border-border bg-surface p-4 sm:grid-cols-2 xl:grid-cols-3"
         data-testid="application-filters"
       >
         <SearchBox
           label="Search applications"
-          className="w-full"
+          className="min-w-0 w-full sm:col-span-2 xl:col-span-1"
           value={search}
           onChange={(event) => {
             setSearch(event.target.value);
@@ -185,7 +185,7 @@ export function ApplicationList() {
           }}
           placeholder="Search by business, owner, or email..."
         />
-        <label className="flex flex-col gap-1 text-sm text-muted">
+        <label className="flex min-w-0 flex-col gap-1 text-sm text-muted">
           Status
           <select
             aria-label="Filter by status"
@@ -195,7 +195,7 @@ export function ApplicationList() {
               setTab('all');
               setPage(1);
             }}
-            className={`${selectClass} w-full`}
+            className={`${selectClass} min-w-0 w-full max-w-full`}
           >
             {statuses.map(({ value, label }) => (
               <option key={value || 'all'} value={value}>
@@ -204,7 +204,7 @@ export function ApplicationList() {
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-sm text-muted">
+        <label className="flex min-w-0 flex-col gap-1 text-sm text-muted">
           Date Range
           <select
             aria-label="Filter by date range"
@@ -215,7 +215,7 @@ export function ApplicationList() {
               setDates(rangeBounds(value));
               setPage(1);
             }}
-            className={`${selectClass} w-full`}
+            className={`${selectClass} min-w-0 w-full max-w-full`}
           >
             <option value="all">All Time</option>
             <option value="7">Last 7 days</option>

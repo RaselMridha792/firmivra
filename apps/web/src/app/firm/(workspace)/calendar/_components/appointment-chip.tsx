@@ -40,7 +40,7 @@ export function AppointmentChip({
       <button
         type="button"
         onClick={() => onOpen(item.id)}
-        className={`w-full rounded-control border-l-4 px-2 py-1 text-left text-xs ${cancelled ? 'border-border bg-subtle text-muted line-through' : 'border-action bg-info-soft text-text hover:bg-accent-soft'}`}
+        className={`min-w-0 w-full wrap-anywhere rounded-control border-l-4 px-2 py-1 text-left text-xs ${cancelled ? 'border-border bg-subtle text-muted line-through' : 'border-action bg-info-soft text-text hover:bg-accent-soft'}`}
       >
         <span className="block font-semibold">
           {time}

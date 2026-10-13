@@ -1,0 +1,4 @@
+.messagesPage :global(.ui-dialog button[aria-label='Close dialog']) {
+  color: var(--color-firm-primary) !important;
+  cursor: pointer;
+}

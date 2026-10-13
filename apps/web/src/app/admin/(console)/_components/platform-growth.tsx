@@ -43,6 +43,7 @@ export function PlatformGrowth() {
       <SectionTitle
         icon={ChartColumn}
         nowrap
+        className="flex-wrap sm:flex-nowrap"
         action={
           <span className="relative ml-auto shrink-0">
             <label className="sr-only" htmlFor={id}>
