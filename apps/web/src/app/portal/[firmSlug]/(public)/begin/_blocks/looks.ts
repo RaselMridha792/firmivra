@@ -5,6 +5,7 @@ import {
   Calculator,
   ChartColumn,
   FileText,
+  IdCard,
   MessageSquareMore,
   ReceiptText,
   User,
@@ -72,6 +73,14 @@ const ANNUAL_TAX: FormLook = {
     payroll: { icon: Users, wide: true },
     incomeTaxesPaid: { icon: ReceiptText, wide: true },
     businessExpenses: { icon: Calculator, wide: true },
+    // Step 3, Required Document Upload.
+    uploadRules: { intro: true, wide: true },
+    identity: { badge: IdCard, tiles: true, wide: true },
+    incomeDocuments: { badge: FileText, wide: true },
+    deductionDocuments: { badge: ReceiptText, wide: true },
+    businessDocuments: { badge: BriefcaseBusiness, wide: true },
+    formationDocuments: { badge: Building2, wide: true },
+    certify: { headless: true, bar: true, wide: true },
   },
 };
 
