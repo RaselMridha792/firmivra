@@ -2,9 +2,11 @@ import type { IntakeFormKey } from '@firmivra/types';
 import {
   BriefcaseBusiness,
   Building2,
+  Calculator,
   ChartColumn,
   FileText,
   MessageSquareMore,
+  ReceiptText,
   User,
   Users,
 } from 'lucide-react';
@@ -65,6 +67,11 @@ const ANNUAL_TAX: FormLook = {
       },
     },
     comments: { bar: true, icon: MessageSquareMore },
+    // Step 2, Business Income & Expenses: four wide tables.
+    businessIncome: { icon: ChartColumn, wide: true },
+    payroll: { icon: Users, wide: true },
+    incomeTaxesPaid: { icon: ReceiptText, wide: true },
+    businessExpenses: { icon: Calculator, wide: true },
   },
 };
 
