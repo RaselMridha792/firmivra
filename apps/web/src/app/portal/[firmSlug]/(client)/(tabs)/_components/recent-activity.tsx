@@ -3,6 +3,7 @@
 import { notificationLink, type NotificationItem } from '@firmivra/types';
 import { Card } from '@firmivra/ui';
 import {
+  ArrowRight,
   BriefcaseBusiness,
   CalendarDays,
   ClipboardCheck,
@@ -105,10 +106,10 @@ function ActivityIcon({ item }: { item: NotificationItem }) {
  */
 export function RecentActivity({
   slug,
-  useSidebarBlue = false,
+  blueAccents = false,
 }: {
   slug: string;
-  useSidebarBlue?: boolean;
+  blueAccents?: boolean;
 }) {
   const recent = useApiQuery(['my-notifications', slug, 'recent'], () =>
     api.myNotifications(slug).list({ limit: 5 }),
@@ -119,10 +120,10 @@ export function RecentActivity({
       <div className="mb-2 flex items-baseline gap-2">
         <h2 className="flex-1 font-display text-2xl font-bold text-heading">Recent Activity</h2>
         <Link
-          className={`text-sm underline ${useSidebarBlue ? 'text-firm-primary' : 'text-link'}`}
+          className={`inline-flex items-center gap-1 text-sm underline ${blueAccents ? 'text-firm-primary' : 'text-link'}`}
           href={`/${slug}/notifications`}
         >
-          View All
+          View All <ArrowRight aria-hidden className="size-4" />
         </Link>
       </div>
       {items.length === 0 ? (

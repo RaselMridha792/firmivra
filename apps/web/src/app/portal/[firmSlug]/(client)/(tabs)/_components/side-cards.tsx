@@ -8,6 +8,7 @@ import {
   CloudUpload,
   FileUp,
   FolderOpen,
+  Lightbulb,
   Mail,
   UserRound,
   type LucideIcon,
@@ -69,16 +70,23 @@ export function RightColumn({
   isMessagesPage = false,
   blueAccents = false,
   businessPage = false,
+  showIntakeTip = false,
 }: {
   slug: string;
   isMessagesPage?: boolean;
   blueAccents?: boolean;
   businessPage?: boolean;
+  showIntakeTip?: boolean;
 }) {
   return isMessagesPage ? (
     <MessagesRightColumn slug={slug} />
   ) : (
-    <DefaultRightColumn slug={slug} blueAccents={blueAccents} businessPage={businessPage} />
+    <DefaultRightColumn
+      slug={slug}
+      blueAccents={blueAccents}
+      businessPage={businessPage}
+      showIntakeTip={showIntakeTip}
+    />
   );
 }
 
@@ -124,10 +132,12 @@ function DefaultRightColumn({
   slug,
   blueAccents,
   businessPage,
+  showIntakeTip,
 }: {
   slug: string;
   blueAccents: boolean;
   businessPage: boolean;
+  showIntakeTip: boolean;
 }) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
@@ -158,6 +168,18 @@ function DefaultRightColumn({
       </LinkCard>
       {businessPage ? (
         <HelpfulResources slug={slug} compact />
+      ) : showIntakeTip ? (
+        <Card className="bg-folder-surface!">
+          <div className="flex items-start gap-3">
+            <Lightbulb aria-hidden className="size-8 shrink-0 text-firm-accent" />
+            <div>
+              <h2 className="font-display text-lg font-bold text-heading">Tax Tip</h2>
+              <p className="mt-2 text-sm text-text">
+                Keep your documents organized throughout the year for a faster, smoother tax season.
+              </p>
+            </div>
+          </div>
+        </Card>
       ) : (
         <>
           <LinkCard
@@ -194,11 +216,11 @@ const quickLinks = (slug: string): [LucideIcon, string, string, string][] => [
 /** "Quick Links" under the folder tabs. */
 export function QuickLinks({
   slug,
-  useSidebarBlue = false,
+  blueAccents = false,
   businessLayout = false,
 }: {
   slug: string;
-  useSidebarBlue?: boolean;
+  blueAccents?: boolean;
   businessLayout?: boolean;
 }) {
   return (
@@ -221,7 +243,7 @@ export function QuickLinks({
             >
               <Icon
                 aria-hidden
-                className={`size-8 shrink-0 ${useSidebarBlue ? 'text-firm-primary' : 'text-firm-accent'}`}
+                className={`size-8 shrink-0 ${blueAccents ? 'text-firm-primary' : 'text-firm-accent'}`}
               />
               <span className={businessLayout ? 'min-w-0' : 'min-w-0 flex-1'}>
                 <span className="block font-semibold text-heading">{title}</span>
@@ -232,7 +254,7 @@ export function QuickLinks({
               {!businessLayout ? (
                 <ChevronRight
                   aria-hidden
-                  className={`size-5 shrink-0 ${useSidebarBlue ? 'text-firm-primary' : 'text-firm-accent'}`}
+                  className={`size-5 shrink-0 ${blueAccents ? 'text-firm-primary' : 'text-firm-accent'}`}
                 />
               ) : null}
             </Link>

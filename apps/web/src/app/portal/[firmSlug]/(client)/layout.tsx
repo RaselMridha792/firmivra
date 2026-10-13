@@ -126,6 +126,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
   const { business, branding } = usePortal();
   const { me, signOut } = useMe();
   const pathname = usePathname();
+  const documentsPage = pathname === `/${slug}/documents`;
   const [drawer, setDrawer] = useState(false);
   // A failed check only hides the menu line.
   const signatures = useApiQuery(['my-signatures-status', slug], () =>
@@ -217,7 +218,11 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
             greeting={
               <>
                 <p className="font-display text-xl font-bold text-heading md:text-3xl">
-                  Welcome Back, <span className="text-link">{me.user.name.split(' ')[0]}</span>!
+                  Welcome Back,{' '}
+                  <span className={documentsPage ? 'text-firm-primary' : 'text-link'}>
+                    {me.user.name.split(' ')[0]}
+                  </span>
+                  !
                 </p>
                 <p className="hidden text-base font-normal md:block">
                   Your documents. Your services. All in one place.

@@ -13,7 +13,7 @@ const STATUS: Record<
   MyDocumentRequest['status'],
   [string, 'info' | 'success' | 'warning' | 'danger' | 'neutral']
 > = {
-  REQUESTED: ['Requested', 'warning'],
+  REQUESTED: ['Requested', 'info'],
   REJECTED: ['Needs a new file', 'danger'],
   SUBMITTED: ['Received', 'info'],
   ACCEPTED: ['Accepted', 'success'],
@@ -87,7 +87,9 @@ function RequestRow({
       {r.statusNote ? <p className="text-sm text-text">Note: {r.statusNote}</p> : null}
       {open(r) && !answering ? (
         <div className="flex flex-wrap gap-2">
-          <Button onClick={onUpload}>Upload</Button>
+          <Button onClick={onUpload} className="bg-firm-primary! hover:bg-navigation-hover!">
+            Upload
+          </Button>
           <Button variant="secondary" onClick={() => setAnswering(true)}>
             I don&apos;t have this
           </Button>
@@ -110,7 +112,11 @@ function RequestRow({
             </p>
           ) : null}
           <div className="flex gap-2">
-            <Button type="submit" disabled={notAvailable.isPending}>
+            <Button
+              type="submit"
+              disabled={notAvailable.isPending}
+              className="bg-firm-primary! hover:bg-navigation-hover!"
+            >
               Send
             </Button>
             <Button variant="secondary" onClick={() => setAnswering(false)}>

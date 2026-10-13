@@ -135,7 +135,7 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
                 Online payments are not enabled. You can still create and send invoices.
               </p>
             ) : null}
-            <div className="space-y-4 md:hidden" data-testid="invoices-cards">
+            <div className="space-y-4 xl:hidden" data-testid="invoices-cards">
               {data.items.map((row) => (
                 <Card key={row.id} className="min-w-0 space-y-3" data-testid="invoice-card">
                   <h2 className="font-bold text-heading">{row.number}</h2>
@@ -153,7 +153,7 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
               ))}
             </div>
             <div
-              className="hidden md:block [&_table]:table-fixed [&_td]:px-2 [&_td]:wrap-anywhere [&_th]:px-2"
+              className="hidden xl:block [&_table]:table-fixed [&_td]:px-2 [&_td]:wrap-anywhere [&_th]:px-2"
               data-testid="invoices-table"
             >
               <Table
@@ -171,7 +171,7 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
                 }}
               />
             </div>
-            <nav className="grid grid-cols-2 gap-3 md:hidden" aria-label="Invoice pages">
+            <nav className="grid grid-cols-2 gap-3 xl:hidden" aria-label="Invoice pages">
               <Button variant="secondary" disabled={cursors.length === 1} onClick={previous}>
                 Previous
               </Button>
