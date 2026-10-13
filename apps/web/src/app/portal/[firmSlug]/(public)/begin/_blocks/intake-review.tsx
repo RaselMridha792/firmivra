@@ -267,23 +267,33 @@ export function IntakeReview({
           badgeDark
         >
           <div className="grid gap-2">
-            {steps.map((step) => (
-              <StepRow
-                key={step.key}
-                title={fill(step.title)}
-                note={look.review?.notes?.[step.key]}
-                icon={look.review?.icons?.[step.key]}
-                onEdit={() => onEdit(step.key)}
-                rows={lineRows(
-                  step.sections.flatMap((s) =>
-                    s.fields.filter((f) => f.type !== 'info' && shownFields.has(f.key)),
-                  ),
-                  values,
-                  fill,
-                  uploads,
-                )}
-              />
-            ))}
+            {(
+              look.review.rows ??
+              steps.map((step) => ({ title: '', sections: step.sections.map((s) => s.key) }))
+            ).map((row) => {
+              const step = steps.find((st) => st.sections.some((s) => s.key === row.sections[0]));
+              if (!step) return null;
+              const sections = steps.flatMap((st) =>
+                st.sections.filter((s) => row.sections.includes(s.key)),
+              );
+              return (
+                <StepRow
+                  key={row.sections.join('|')}
+                  title={row.title || fill(step.title)}
+                  note={look.review?.rows ? undefined : look.review?.notes?.[step.key]}
+                  icon={look.review?.rows ? undefined : look.review?.icons?.[step.key]}
+                  onEdit={() => onEdit(step.key)}
+                  rows={lineRows(
+                    sections.flatMap((s) =>
+                      s.fields.filter((f) => f.type !== 'info' && shownFields.has(f.key)),
+                    ),
+                    values,
+                    fill,
+                    uploads,
+                  )}
+                />
+              );
+            })}
           </div>
         </SectionPanel>
         {titles?.files && (
