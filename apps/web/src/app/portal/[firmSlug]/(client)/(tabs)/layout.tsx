@@ -26,6 +26,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isMessagesPage = isActive(pathname, `/${firmSlug}/messages`);
   const taxReturns = isActive(pathname, `/${firmSlug}/taxes`);
+  const isBusinessPage = isActive(pathname, `/${firmSlug}/business`);
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
@@ -47,7 +48,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
             const href = `/${firmSlug}/${path}`;
             const active = isActive(pathname, href);
             const activeBorder =
-              path === 'messages' || path === 'taxes'
+              path === 'business' || path === 'messages' || path === 'taxes'
                 ? 'border-firm-primary'
                 : 'border-firm-accent';
             const tabClassName = active
@@ -67,11 +68,20 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
         </nav>
         {children}
         <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
-          <RecentActivity slug={firmSlug} useSidebarBlue={isMessagesPage} />
-          <QuickLinks slug={firmSlug} useSidebarBlue={isMessagesPage} />
+          <RecentActivity slug={firmSlug} useSidebarBlue={isMessagesPage || isBusinessPage} />
+          <QuickLinks
+            slug={firmSlug}
+            useSidebarBlue={isMessagesPage || isBusinessPage}
+            businessLayout={isBusinessPage}
+          />
         </div>
       </div>
-      <RightColumn slug={firmSlug} isMessagesPage={isMessagesPage} blueAccents={taxReturns} />
+      <RightColumn
+        slug={firmSlug}
+        isMessagesPage={isMessagesPage}
+        blueAccents={taxReturns || isBusinessPage}
+        businessPage={isBusinessPage}
+      />
     </div>
   );
 }

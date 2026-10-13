@@ -2,7 +2,7 @@
 
 import { DOCUMENT_ERRORS, type MyDocument, PORTAL_BLOCKED_TEXT } from '@firmivra/types';
 import { Badge, Button, type Column, Input, Table } from '@firmivra/ui';
-import { Download } from 'lucide-react';
+import { Download, FileText } from 'lucide-react';
 import { useDeferredValue, useState } from 'react';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
@@ -32,7 +32,12 @@ export function BusinessDocuments({ slug }: { slug: string }) {
       label: 'Name',
       sortable: true,
       sortValue: (d) => d.fileName.toLowerCase(),
-      cell: (d) => <span className="font-medium break-all text-heading">{d.fileName}</span>,
+      cell: (d) => (
+        <span className="flex items-center gap-2 font-medium break-all text-heading">
+          <FileText aria-hidden className="size-4 shrink-0 text-firm-primary" />
+          {d.fileName}
+        </span>
+      ),
     },
     { id: 'type', label: 'Type', cell: (d) => d.category?.name ?? 'Uncategorized' },
     { id: 'service', label: 'Service', cell: (d) => d.service.title },
@@ -51,7 +56,7 @@ export function BusinessDocuments({ slug }: { slug: string }) {
         d.status === 'READY' ? (
           <Button
             variant="ghost"
-            className="underline"
+            className="text-firm-primary! underline hover:bg-folder-surface"
             disabled={download.isPending}
             onClick={() => download.mutate(d.id)}
             aria-label={`Download ${d.fileName}`}
@@ -67,16 +72,19 @@ export function BusinessDocuments({ slug }: { slug: string }) {
   ];
   return (
     <section aria-labelledby="business-documents" className="grid min-w-0 grid-cols-1 gap-3">
-      <h2 id="business-documents" className="font-display text-2xl font-bold text-heading">
+      <h2 id="business-documents" className="font-display text-xl font-bold text-heading">
         Your Business Documents
       </h2>
-      <Input
-        label="Search"
-        type="search"
-        placeholder="Search documents…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+      <div className="rounded-card border border-folder-border bg-folder-surface p-3">
+        <Input
+          label="Search documents"
+          type="search"
+          placeholder="Search documents…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="focus:!outline-firm-primary"
+        />
+      </div>
       {download.isError ? (
         <p role="alert" className="text-sm text-danger">
           {errorMessage(download.error, DOCUMENT_ERRORS)}
@@ -90,6 +98,7 @@ export function BusinessDocuments({ slug }: { slug: string }) {
             columns={columns}
             rowKey={(d) => d.id}
             pageSize={5}
+            tableClassName="text-xs [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2 [&_thead_button]:text-firm-primary! [&_thead_button:hover]:bg-folder-hover"
             emptyTitle="No shared documents yet"
             emptyText="Documents your firm shares with you will appear here."
           />

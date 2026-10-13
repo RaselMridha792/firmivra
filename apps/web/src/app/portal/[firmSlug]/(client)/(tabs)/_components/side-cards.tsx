@@ -18,6 +18,7 @@ import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { ButtonLink } from '../../../(public)/_components/button-link';
 import { NotesCard } from '../messages/_components/notes-card';
+import { HelpfulResources } from '../business/_components/business-cards';
 
 const dateTime = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
@@ -67,15 +68,17 @@ export function RightColumn({
   slug,
   isMessagesPage = false,
   blueAccents = false,
+  businessPage = false,
 }: {
   slug: string;
   isMessagesPage?: boolean;
   blueAccents?: boolean;
+  businessPage?: boolean;
 }) {
   return isMessagesPage ? (
     <MessagesRightColumn slug={slug} />
   ) : (
-    <DefaultRightColumn slug={slug} blueAccents={blueAccents} />
+    <DefaultRightColumn slug={slug} blueAccents={blueAccents} businessPage={businessPage} />
   );
 }
 
@@ -117,7 +120,15 @@ function MessagesRightColumn({ slug }: { slug: string }) {
   );
 }
 
-function DefaultRightColumn({ slug, blueAccents }: { slug: string; blueAccents: boolean }) {
+function DefaultRightColumn({
+  slug,
+  blueAccents,
+  businessPage,
+}: {
+  slug: string;
+  blueAccents: boolean;
+  businessPage: boolean;
+}) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
   );
@@ -145,24 +156,30 @@ function DefaultRightColumn({ slug, blueAccents }: { slug: string; blueAccents: 
           <p>No upcoming appointments.</p>
         )}
       </LinkCard>
-      <LinkCard
-        icon={FileUp}
-        title="My Uploaded Documents"
-        href={`/${slug}/documents`}
-        action="View My Uploads"
-        blueAccent={blueAccents}
-      >
-        View documents you uploaded to the portal.
-      </LinkCard>
-      <LinkCard
-        icon={FolderOpen}
-        title="Firm Uploaded Documents"
-        href={`/${slug}/documents?source=firm`}
-        action="View Firm Documents"
-        blueAccent={blueAccents}
-      >
-        View documents shared with you by the firm.
-      </LinkCard>
+      {businessPage ? (
+        <HelpfulResources slug={slug} compact />
+      ) : (
+        <>
+          <LinkCard
+            icon={FileUp}
+            title="My Uploaded Documents"
+            href={`/${slug}/documents`}
+            action="View My Uploads"
+            blueAccent={blueAccents}
+          >
+            View documents you uploaded to the portal.
+          </LinkCard>
+          <LinkCard
+            icon={FolderOpen}
+            title="Firm Uploaded Documents"
+            href={`/${slug}/documents?source=firm`}
+            action="View Firm Documents"
+            blueAccent={blueAccents}
+          >
+            View documents shared with you by the firm.
+          </LinkCard>
+        </>
+      )}
     </aside>
   );
 }
@@ -178,29 +195,46 @@ const quickLinks = (slug: string): [LucideIcon, string, string, string][] => [
 export function QuickLinks({
   slug,
   useSidebarBlue = false,
+  businessLayout = false,
 }: {
   slug: string;
   useSidebarBlue?: boolean;
+  businessLayout?: boolean;
 }) {
   return (
     <Card>
       <h2 className="mb-2 font-display text-2xl font-bold text-heading">Quick Links</h2>
-      <ul className="divide-y divide-border">
+      <ul
+        className={
+          businessLayout ? 'grid grid-cols-2 gap-2 2xl:grid-cols-4' : 'divide-y divide-border'
+        }
+      >
         {quickLinks(slug).map(([Icon, title, description, href]) => (
           <li key={title}>
-            <Link href={href} className="flex items-center gap-3 py-2 hover:bg-folder-surface">
+            <Link
+              href={href}
+              className={
+                businessLayout
+                  ? 'flex h-full flex-col items-center justify-center gap-2 rounded-card border border-folder-border p-3 text-center hover:bg-folder-surface'
+                  : 'flex items-center gap-3 py-2 hover:bg-folder-surface'
+              }
+            >
               <Icon
                 aria-hidden
                 className={`size-8 shrink-0 ${useSidebarBlue ? 'text-firm-primary' : 'text-firm-accent'}`}
               />
-              <span className="min-w-0 flex-1">
+              <span className={businessLayout ? 'min-w-0' : 'min-w-0 flex-1'}>
                 <span className="block font-semibold text-heading">{title}</span>
-                <span className="block text-sm text-text">{description}</span>
+                <span className={`block text-sm text-text ${businessLayout ? 'sr-only' : ''}`}>
+                  {description}
+                </span>
               </span>
-              <ChevronRight
-                aria-hidden
-                className={`size-5 shrink-0 ${useSidebarBlue ? 'text-firm-primary' : 'text-firm-accent'}`}
-              />
+              {!businessLayout ? (
+                <ChevronRight
+                  aria-hidden
+                  className={`size-5 shrink-0 ${useSidebarBlue ? 'text-firm-primary' : 'text-firm-accent'}`}
+                />
+              ) : null}
             </Link>
           </li>
         ))}
