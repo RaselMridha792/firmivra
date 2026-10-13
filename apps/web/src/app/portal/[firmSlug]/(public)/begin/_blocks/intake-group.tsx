@@ -6,7 +6,7 @@ import {
   intakeConditionHolds,
 } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
-import { ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, Info, Plus, Trash2 } from 'lucide-react';
 import { useEffect } from 'react';
 import { type Fill, ScalarInput } from './intake-fields';
 import type { RowsLook } from './intake-layout';
@@ -43,6 +43,89 @@ export function GroupInput({
   useEffect(() => {
     if (needsRow) onChange([emptyRow(field.fields)]);
   }, [needsRow, onChange, field.fields]);
+  if (look?.table) {
+    return (
+      <div className="min-w-0 space-y-2" data-group={field.key} data-rows={rows.length}>
+        {/* With a help line the table has its own heading and note (Business Assets). */}
+        {field.help ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <p className="font-display text-lg font-bold text-heading">{fill(field.label)}</p>
+            <p className="flex min-w-48 flex-1 items-start gap-2 rounded-control bg-folder-surface px-2 py-1 text-xs">
+              <Info aria-hidden="true" className="size-5 shrink-0 fill-action text-surface" />
+              {fill(field.help)}
+            </p>
+          </div>
+        ) : (
+          <p className="sr-only">{fill(field.label)}</p>
+        )}
+        <div className="relative overflow-x-auto rounded-control border border-folder-border">
+          <table className="w-full min-w-xl border-collapse text-left text-xs lg:min-w-0">
+            <thead className="bg-folder-surface text-heading">
+              <tr>
+                {field.fields.map((sub) => (
+                  <th key={sub.key} scope="col" className="px-2 py-1 font-semibold">
+                    {fill(sub.label)}
+                    {sub.required ? '\u00a0*' : ''}
+                  </th>
+                ))}
+                <th scope="col" className="w-8">
+                  <span className="sr-only">Remove</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr
+                  key={row.id}
+                  data-testid={`${field.key}-${index + 1}`}
+                  className="border-t border-folder-border"
+                >
+                  {field.fields.map((sub) => (
+                    <td key={sub.key} className="px-1 py-1 align-middle">
+                      {intakeConditionHolds(sub.showIf, row) && (
+                        <ScalarInput
+                          field={sub}
+                          name={`${field.key}-${row.id}-${sub.key}`}
+                          value={row[sub.key] ?? null}
+                          onChange={(v) => setCell(index, sub.key, v)}
+                          error={errors[issueKey([field.key, index, sub.key])]}
+                          fill={fill}
+                          look={{ quiet: true, ...(sub.type === 'yesNo' ? { row: true } : {}) }}
+                        />
+                      )}
+                    </td>
+                  ))}
+                  <td className="px-1">
+                    {rows.length > field.minItems && (
+                      <Button
+                        variant="ghost"
+                        aria-label={`Remove ${item.toLowerCase()} ${index + 1}`}
+                        onClick={() => onChange(rows.filter((_, i) => i !== index))}
+                        className="min-h-7! px-1! py-1!"
+                      >
+                        <Trash2 aria-hidden="true" className="size-4" />
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {groupError && <p className="text-xs text-danger">{groupError}</p>}
+        {rows.length < field.maxItems && (
+          <Button
+            variant="outline"
+            onClick={() => onChange([...rows, emptyRow(field.fields)])}
+            className="w-full border-heading! text-xs! text-heading! sm:min-h-8!"
+          >
+            <Plus aria-hidden="true" className="size-4" />
+            {fill(field.addLabel)}
+          </Button>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="min-w-0 space-y-2" data-group={field.key} data-rows={rows.length}>
       <p className={look ? 'sr-only' : 'text-xs font-medium text-firm-primary'}>
