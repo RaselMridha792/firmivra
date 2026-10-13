@@ -230,7 +230,7 @@ export function MaskedInput({
       <Button
         variant="ghost"
         disabled={disabled}
-        aria-label={`${visible ? 'Hide' : 'Show'} ${label.replace(' *', '')}`}
+        aria-label={`${visible ? 'Hide' : 'Show'} ${label.replace(/\s\*$/, '')}`}
         aria-pressed={visible}
         onClick={() => setVisible(!visible)}
         className="absolute top-5 right-1 min-h-7! px-1! py-1!"
