@@ -24,6 +24,7 @@ const tabs: [label: string, path: string][] = [
 export default function TabsLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
   const pathname = usePathname();
+  const taxReturns = isActive(pathname, `/${firmSlug}/taxes`);
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
@@ -49,7 +50,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
                 key={path}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className={`min-w-32 flex-1 rounded-t-card px-3 py-4 text-center text-sm ${active ? 'border-t-4 border-firm-accent bg-surface font-semibold text-firm-primary' : 'bg-folder-surface text-firm-primary hover:bg-folder-hover'}`}
+                className={`min-w-32 flex-1 rounded-t-card px-3 py-4 text-center text-sm ${active ? `border-t-4 ${path === 'taxes' ? 'border-firm-primary' : 'border-firm-accent'} bg-surface font-semibold text-firm-primary` : 'bg-folder-surface text-firm-primary hover:bg-folder-hover'}`}
               >
                 {label}
               </Link>
@@ -62,7 +63,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           <QuickLinks slug={firmSlug} />
         </div>
       </div>
-      <RightColumn slug={firmSlug} />
+      <RightColumn slug={firmSlug} blueAccents={taxReturns} />
     </div>
   );
 }

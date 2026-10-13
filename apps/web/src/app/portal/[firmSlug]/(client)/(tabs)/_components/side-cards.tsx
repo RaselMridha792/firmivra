@@ -32,20 +32,28 @@ function LinkCard({
   children,
   href,
   action,
+  blueAccent = false,
 }: {
   icon: LucideIcon;
   title: string;
   children: ReactNode;
   href: string;
   action: string;
+  blueAccent?: boolean;
 }) {
   return (
     <Card className="flex gap-3">
-      <Icon aria-hidden className="size-10 shrink-0 text-firm-accent" />
+      <Icon
+        aria-hidden
+        className={`size-10 shrink-0 ${blueAccent ? 'text-firm-primary' : 'text-firm-accent'}`}
+      />
       <div className="min-w-0">
         <h2 className="font-display text-lg font-bold text-heading">{title}</h2>
         <div className="my-1 text-sm text-text">{children}</div>
-        <Link href={href} className="inline-flex items-center gap-2 text-link underline">
+        <Link
+          href={href}
+          className={`inline-flex items-center gap-2 underline ${blueAccent ? 'text-firm-primary' : 'text-link'}`}
+        >
           {action} <ArrowRight aria-hidden className="size-4" />
         </Link>
       </div>
@@ -54,7 +62,13 @@ function LinkCard({
 }
 
 /** Need Help, the next appointment, and the two document shortcuts. */
-export function RightColumn({ slug }: { slug: string }) {
+export function RightColumn({
+  slug,
+  blueAccents = false,
+}: {
+  slug: string;
+  blueAccents?: boolean;
+}) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
   );
@@ -71,6 +85,7 @@ export function RightColumn({ slug }: { slug: string }) {
         title="Upcoming Appointment"
         href={`/${slug}/appointments`}
         action={next ? 'View Appointment' : 'Schedule Now'}
+        blueAccent={blueAccents}
       >
         {next ? (
           <p data-testid="next-appointment">
@@ -86,6 +101,7 @@ export function RightColumn({ slug }: { slug: string }) {
         title="My Uploaded Documents"
         href={`/${slug}/documents`}
         action="View My Uploads"
+        blueAccent={blueAccents}
       >
         View documents you uploaded to the portal.
       </LinkCard>
@@ -94,6 +110,7 @@ export function RightColumn({ slug }: { slug: string }) {
         title="Firm Uploaded Documents"
         href={`/${slug}/documents?source=firm`}
         action="View Firm Documents"
+        blueAccent={blueAccents}
       >
         View documents shared with you by the firm.
       </LinkCard>
