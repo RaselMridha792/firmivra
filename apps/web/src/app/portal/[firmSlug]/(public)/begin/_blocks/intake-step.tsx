@@ -146,6 +146,7 @@ export function FieldInput({
           chooser={look?.chooser === true}
           card={look?.uploadCard}
           wideCard={look?.uploadWide === true}
+          button={look?.uploadButton === true}
         />
       );
     default:
@@ -302,7 +303,8 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
   const numbers = new Map<string, number>();
   let last = 0;
   for (const p of panels) {
-    const plain = p.panel?.bar || p.panel?.intro || p.panel?.headless || p.panel?.noNumber;
+    const plain =
+      look.unnumbered || p.panel?.bar || p.panel?.intro || p.panel?.headless || p.panel?.noNumber;
     if (plain) continue;
     if (!p.panel?.shareNumber || last === 0) last += 1;
     numbers.set(p.key, last);
@@ -325,7 +327,7 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
               <div key={keys.join('|')} className="grid min-w-0 gap-3">
                 {keys
                   .flatMap((k) => panels.find((x) => x.key === k) ?? [])
-                  .map((x) => renderPanel(x))}
+                  .map((x) => renderPanel(x, false, columns.length > 2))}
               </div>
             ))}
           </div>
@@ -334,7 +336,7 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
     </div>
   );
 
-  function renderPanel(p: (typeof panels)[number], full = false) {
+  function renderPanel(p: (typeof panels)[number], full = false, compact = false) {
     const first = p.parts[0]!;
     const joined = p.panel?.join !== undefined;
     const subtitle =
@@ -354,14 +356,25 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
         size={p.panel?.headless ? 'none' : p.panel?.intro ? 'intro' : 'panel'}
         title={props.fill(p.panel?.title ?? first.title)}
         subtitle={subtitle ? props.fill(subtitle) : barSubtitle}
-        icon={p.panel?.icon ? <PanelIcon icon={p.panel.icon} tone={p.panel.iconTone} /> : undefined}
-        iconPosition={p.panel?.iconFirst || p.panel?.bar ? 'start' : 'end'}
+        icon={
+          p.panel?.icon ? (
+            p.panel.iconCircle ? (
+              <span className="grid size-14 place-items-center rounded-full bg-folder-surface text-heading">
+                <p.panel.icon className="size-8 fill-current [&_circle]:fill-surface [&_path+path]:stroke-surface" />
+              </span>
+            ) : (
+              <PanelIcon icon={p.panel.icon} tone={p.panel.iconTone} />
+            )
+          ) : undefined
+        }
+        iconPosition={p.panel?.iconFirst || p.panel?.iconCircle || p.panel?.bar ? 'start' : 'end'}
         bar={p.panel?.bar}
         tint={p.panel?.tint}
         plain={p.panel?.plain}
         tone={p.panel?.tone}
         numberInTitle={p.panel?.numberInTitle}
         badgeDark={p.panel?.badgeDark}
+        compact={compact}
         // A panel under its lead note spans through the note's wrapper instead.
         className={full && !lead ? 'lg:col-span-2' : ''}
       >
