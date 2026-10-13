@@ -35,10 +35,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           titleAs="p"
           title={
             <>
-              My Client{' '}
-              <span className={documentsPage ? 'text-firm-primary' : 'text-firm-accent'}>
-                Portal
-              </span>
+              My Client <span className="text-firm-accent">Portal</span>
             </>
           }
           subtitle="Access your forms, documents, and resources anytime, anywhere."
