@@ -274,7 +274,9 @@ function JoinedPart({
  */
 export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProps) {
   const visible = (key: string) => shown.has(key);
-  const sections = step.sections.filter((s) => s.fields.some((f) => visible(f.key)));
+  const sections = step.sections.filter(
+    (s) => s.fields.some((f) => visible(f.key)) && !look.panels[s.key]?.hidden,
+  );
   // A joined panel takes the place of its first shown member; the others are drawn inside it.
   const anchorOf = new Map<string, string>();
   for (const [key, panel] of Object.entries(look.panels)) {
@@ -304,7 +306,11 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
   let last = 0;
   for (const p of panels) {
     const plain =
-      look.unnumbered || p.panel?.bar || p.panel?.intro || p.panel?.headless || p.panel?.noNumber;
+      (look.unnumbered && !p.panel?.numberInTitle) ||
+      p.panel?.bar ||
+      p.panel?.intro ||
+      p.panel?.headless ||
+      p.panel?.noNumber;
     if (plain) continue;
     if (!p.panel?.shareNumber || last === 0) last += 1;
     numbers.set(p.key, last);
@@ -360,7 +366,10 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
           p.panel?.icon ? (
             p.panel.iconCircle ? (
               <span className="grid size-14 place-items-center rounded-full bg-folder-surface text-heading">
-                <p.panel.icon className="size-8 fill-current [&_circle]:fill-surface [&_path+path]:stroke-surface" />
+                <p.panel.icon
+                  className={`size-8 ${p.panel.icon === ChartNoAxesColumnIncreasing ? '' : 'fill-current [&_circle]:fill-surface [&_path+path]:stroke-surface'}`}
+                  strokeWidth={p.panel.icon === ChartNoAxesColumnIncreasing ? 3.5 : 2}
+                />
               </span>
             ) : (
               <PanelIcon icon={p.panel.icon} tone={p.panel.iconTone} />
