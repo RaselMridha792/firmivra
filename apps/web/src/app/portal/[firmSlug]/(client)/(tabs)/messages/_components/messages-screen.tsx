@@ -11,6 +11,7 @@ import { useApiQuery } from '../../../../../../../lib/query';
 import { usePortal } from '../../../../layout';
 import { fromLabel, when } from './message-parts';
 import { NewMessageDialog, ThreadDialog } from './thread-dialogs';
+import styles from './messages-screen.module.css';
 
 type Filter = 'all' | 'from-firm' | 'sent';
 const sidebarBlueButton =
@@ -85,7 +86,7 @@ export function MessagesScreen() {
     },
   ];
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-4">
+    <div className={`${styles.messagesPage} grid min-w-0 grid-cols-1 gap-4`}>
       <div className="grid min-w-0 grid-cols-1 gap-4 rounded-card bg-surface p-4 md:p-6">
         <header className="flex flex-col gap-4 md:flex-row md:items-start">
           <MessageSquareText

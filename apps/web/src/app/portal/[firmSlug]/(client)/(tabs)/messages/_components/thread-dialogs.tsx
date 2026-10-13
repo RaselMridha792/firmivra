@@ -28,12 +28,7 @@ export function ThreadDialog({
   onClose: () => void;
 }) {
   return (
-    <Modal
-      open={threadId !== null}
-      title="Conversation"
-      onClose={onClose}
-      closeButtonClassName="text-firm-primary! hover:bg-folder-surface! enabled:cursor-pointer"
-    >
+    <Modal open={threadId !== null} title="Conversation" onClose={onClose}>
       <div className="grid max-w-modal gap-4">
         {threadId ? (
           <ThreadBody key={threadId} slug={slug} threadId={threadId} onClose={onClose} />
@@ -180,12 +175,7 @@ export function NewMessageDialog({
   );
   const errors = form.formState.errors;
   return (
-    <Modal
-      open={open}
-      title="Send a Message"
-      onClose={onClose}
-      closeButtonClassName="text-firm-primary! hover:bg-folder-surface! enabled:cursor-pointer"
-    >
+    <Modal open={open} title="Send a Message" onClose={onClose}>
       <form
         noValidate
         className="grid max-w-modal gap-4"
