@@ -4,7 +4,7 @@ for (const width of [375, 768, 1024, 1440]) {
   test(`workspace list fits ${width}px and filters by service`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto(`http://app.localhost:${port}/workspaces`);
-    const list = page.getByTestId(width < 768 ? 'workspace-cards' : 'workspace-table');
+    const list = page.getByTestId(width < 1280 ? 'workspace-cards' : 'workspace-table');
     await expect(list).toContainText('Bookkeeping (Growth)');
     await expect(list).toContainText('Active');
     await expect(page.getByLabel('Search workspaces')).toHaveAttribute('maxlength', '100');
