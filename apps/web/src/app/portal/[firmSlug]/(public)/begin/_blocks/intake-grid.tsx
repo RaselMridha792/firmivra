@@ -43,6 +43,9 @@ export function GridInput({
   const total = (col: string) =>
     field.rows.reduce((sum, row) => sum + (toCents(value[row.key]?.[col] ?? '') ?? 0), 0);
   const wide = field.columns.length > 2;
+  // The mockups' widths: a fifth each for the row names and notes beside four quarters, two
+  // fifths each beside a single amount.
+  const labelWidth = wide ? 'w-1/5' : 'w-2/5';
   const half =
     field.columns.length <= 2 && field.rows.length > 12 ? Math.ceil(field.rows.length / 2) : 0;
   const parts = half ? [field.rows.slice(0, half), field.rows.slice(half)] : [field.rows];
@@ -68,14 +71,14 @@ export function GridInput({
               <caption className="sr-only">{label}</caption>
               <thead className="bg-folder-surface text-heading">
                 <tr>
-                  <th scope="col" className="w-1/5 px-2 py-1 font-semibold">
+                  <th scope="col" className={`${labelWidth} px-2 py-1 font-semibold`}>
                     {ROW_HEADER[field.key] ?? 'Description'}
                   </th>
                   {field.columns.map((col) => (
                     <th
                       key={col.key}
                       scope="col"
-                      className={`px-2 py-1 font-semibold ${col.type === 'text' ? 'w-1/5' : ''}`}
+                      className={`px-2 py-1 font-semibold ${col.type === 'text' ? labelWidth : ''}`}
                     >
                       {fill(col.label)}
                     </th>
