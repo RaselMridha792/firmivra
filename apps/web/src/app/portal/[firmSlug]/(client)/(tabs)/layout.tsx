@@ -24,6 +24,7 @@ const tabs: [label: string, path: string][] = [
 export default function TabsLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
   const pathname = usePathname();
+  const documentsPage = isActive(pathname, `/${firmSlug}/documents`);
   const isMessagesPage = isActive(pathname, `/${firmSlug}/messages`);
   const taxReturns = isActive(pathname, `/${firmSlug}/taxes`);
 
@@ -47,7 +48,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
             const href = `/${firmSlug}/${path}`;
             const active = isActive(pathname, href);
             const activeBorder =
-              path === 'messages' || path === 'taxes'
+              path === 'messages' || path === 'taxes' || path === 'documents'
                 ? 'border-firm-primary'
                 : 'border-firm-accent';
             const tabClassName = active
@@ -58,7 +59,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
                 key={path}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className={`min-w-32 flex-1 cursor-pointer rounded-t-card px-3 py-4 text-center text-sm ${tabClassName}`}
+                className={`min-w-32 flex-1 cursor-pointer rounded-t-card px-3 py-4 text-center text-base ${tabClassName}`}
               >
                 {label}
               </Link>
@@ -67,11 +68,15 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
         </nav>
         {children}
         <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
-          <RecentActivity slug={firmSlug} useSidebarBlue={isMessagesPage} />
-          <QuickLinks slug={firmSlug} useSidebarBlue={isMessagesPage} />
+          <RecentActivity slug={firmSlug} blueAccents={documentsPage || isMessagesPage} />
+          <QuickLinks slug={firmSlug} blueAccents={documentsPage || isMessagesPage} />
         </div>
       </div>
-      <RightColumn slug={firmSlug} isMessagesPage={isMessagesPage} blueAccents={taxReturns} />
+      <RightColumn
+        slug={firmSlug}
+        isMessagesPage={isMessagesPage}
+        blueAccents={documentsPage || taxReturns}
+      />
     </div>
   );
 }
