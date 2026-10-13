@@ -1,7 +1,17 @@
 'use client';
 
 import type { IntakeField, IntakeSection, IntakeStep } from '@firmivra/types';
-import type { LucideIcon } from 'lucide-react';
+import {
+  BriefcaseBusiness,
+  Building2,
+  Calculator,
+  ChartNoAxesColumnIncreasing,
+  FileText,
+  IdCard,
+  type LucideIcon,
+  MessageSquareMore,
+  ReceiptText,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { SectionPanel } from './form-blocks';
 import { type Fill, InfoNote, ScalarInput, splitBracket } from './intake-fields';
@@ -190,6 +200,7 @@ function SectionFields({
             look={{
               ...fieldLook,
               ...(quiet(f) ? { quiet: true } : {}),
+              ...(panel.bar && f.type === 'textarea' ? { inline: true } : {}),
               ...(panel.intro && f.type === 'info' ? { list: true } : {}),
             }}
             groupLook={f.type === 'group' ? panel.groups?.[f.key] : undefined}
@@ -319,9 +330,28 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
   );
 }
 
+/**
+ * The mockups' solid accent icon at a panel's edge. A drawn shape (a page, a building) keeps its
+ * inner lines white, as the mockups draw them.
+ */
 function PanelIcon({ icon: Icon }: { icon: LucideIcon }) {
-  return <Icon className="size-10 fill-accent-soft" strokeWidth={1.75} />;
+  return (
+    <Icon
+      className={`size-10 fill-current ${DETAILED.has(Icon) ? '[&_path+path]:stroke-surface' : ''}`}
+      strokeWidth={Icon === ChartNoAxesColumnIncreasing ? 3.5 : 1.5}
+    />
+  );
 }
+
+const DETAILED = new Set<LucideIcon>([
+  BriefcaseBusiness,
+  Building2,
+  Calculator,
+  FileText,
+  IdCard,
+  MessageSquareMore,
+  ReceiptText,
+]);
 
 /** A panel's one field named like the panel: its help line serves as the panel's subtitle. */
 function soleHelp(section: IntakeSection, visible: (key: string) => boolean, fill: Fill) {

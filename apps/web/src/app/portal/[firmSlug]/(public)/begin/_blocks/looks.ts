@@ -4,7 +4,7 @@ import {
   Building2,
   CreditCard,
   Calculator,
-  ChartColumn,
+  ChartNoAxesColumnIncreasing,
   FileText,
   IdCard,
   MessageSquareMore,
@@ -53,7 +53,7 @@ const ANNUAL_TAX: FormLook = {
       },
     },
     deductions: { icon: FileText, yesNoList: true },
-    income: { icon: ChartColumn, yesNoList: true, inline: ['incomeDetails'] },
+    income: { icon: ChartNoAxesColumnIncreasing, yesNoList: true, inline: ['incomeDetails'] },
     business: {
       icon: Building2,
       iconFirst: true,
@@ -71,7 +71,7 @@ const ANNUAL_TAX: FormLook = {
     },
     comments: { bar: true, icon: MessageSquareMore },
     // Step 2, Business Income & Expenses: four wide tables.
-    businessIncome: { icon: ChartColumn, wide: true },
+    businessIncome: { icon: ChartNoAxesColumnIncreasing, wide: true },
     payroll: { icon: Users, wide: true },
     incomeTaxesPaid: { icon: ReceiptText, wide: true },
     businessExpenses: { icon: Calculator, wide: true },
