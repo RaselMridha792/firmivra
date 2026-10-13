@@ -45,6 +45,12 @@ export interface RowsLook {
   noteCards?: string[];
   /** Package cards' icons, by option value. */
   cardIcons?: Record<string, LucideIcon>;
+  /** Uploads drawn as cards with this icon, by field key. */
+  uploadCards?: Record<string, LucideIcon>;
+  /** Upload cards drawn wide and warm: the text left, the drop zone right. */
+  uploadWide?: string[];
+  /** Tick boxes drawn as a red-edged box ("I don't have my inventory organized yet."). */
+  alerts?: string[];
   /** A group: a lone row without its "Business 1" heading box (rows get one from the second). */
   bare?: boolean;
 }
@@ -78,6 +84,18 @@ export interface PanelLook extends RowsLook {
   noNumber?: boolean;
   /** The previous panel's number again (the mockup numbers two panels alike). */
   shareNumber?: boolean;
+  /** No box: a large heading on the page with the fields under it. */
+  plain?: boolean;
+  /** A note field shown as a box above the panel instead of inside it. */
+  lead?: string;
+  /** A tinted panel with a matching edge. */
+  tone?: 'danger' | 'warm';
+  /** Its number written into its title ("1. Business Accounts") instead of in a circle. */
+  numberInTitle?: boolean;
+  /** The edge icon's colour: the heading's navy or the danger red (otherwise the accent). */
+  iconTone?: 'heading' | 'danger';
+  /** The badge circle navy with a white icon (otherwise the accent). */
+  badgeDark?: boolean;
   /** A group field's rows, by the group's key. */
   groups?: Record<string, RowsLook>;
 }
@@ -90,6 +108,16 @@ export interface ReviewLook {
   banded?: boolean;
   /** The cards on the left; the files, the review step's own panels and the agreement right. */
   aside?: boolean;
+  /** The answers, the files and the step's own panels on the left; the agreement right. */
+  agreementRight?: boolean;
+  /** Each step as a row that opens to its answers, with a line saying what it holds. */
+  collapsed?: boolean;
+  /** The line under each step's row, by step key. */
+  notes?: Record<string, string>;
+  /** Steps the review leaves out (their files are listed on their own). */
+  skipSteps?: string[];
+  /** The review's own panels' titles, numbered with the agreement's (Bookkeeping). */
+  titles?: { answers: string; answersNote: string; files?: string; filesNote?: string };
   /** The cards' icons, by step key. */
   icons?: Record<string, LucideIcon>;
 }
@@ -107,10 +135,14 @@ export interface FormLook {
    * nowhere else). */
   stepperHints?: Record<string, string>;
   /**
-   * Panels stacked in two independent columns (left keys, right keys), each column as tall as its
-   * own panels, where the mockup does not line them up in rows.
+   * Panels in independent columns, each a list of panel keys, where the mockup does not line them
+   * up in rows. `stretch` makes a row's columns as tall as each other.
    */
-  stacks?: [string[], string[]][];
+  stacks?: { columns: string[][]; stretch?: boolean }[];
+  /** Steps that open with a navy band: the step's number, title and subtitle. */
+  banners?: string[];
+  /** The agreement panel's title ("4. Review & Sign Our Agreement"). */
+  agreementTitle?: string;
 }
 
 export const NO_LOOK: FormLook = { panels: {} };

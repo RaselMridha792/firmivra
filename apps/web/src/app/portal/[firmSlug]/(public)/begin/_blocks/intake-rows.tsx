@@ -30,6 +30,12 @@ export interface FieldLook {
   noteCard?: boolean;
   /** Package cards' icons, by option value. */
   cardIcons?: Record<string, LucideIcon>;
+  /** An upload as a card with this icon. */
+  uploadCard?: LucideIcon;
+  /** The upload card wide and warm. */
+  uploadWide?: boolean;
+  /** A tick box in a red-edged box. */
+  alert?: boolean;
 }
 
 export type Unit =
@@ -181,6 +187,9 @@ function UnitCell({
     ...(look.grids?.[f.key] ? { grid: look.grids[f.key] } : {}),
     ...(look.noteCards?.includes(f.key) ? { noteCard: true } : {}),
     ...(look.cardIcons ? { cardIcons: look.cardIcons } : {}),
+    ...(look.uploadCards?.[f.key] ? { uploadCard: look.uploadCards[f.key] } : {}),
+    ...(look.uploadWide?.includes(f.key) ? { uploadWide: true } : {}),
+    ...(look.alerts?.includes(f.key) ? { alert: true } : {}),
   });
 }
 
