@@ -64,6 +64,7 @@ function FormHeader({
   eyebrow = false,
   tagline,
   hero,
+  heroTail = false,
   children,
 }: {
   title: string;
@@ -76,20 +77,38 @@ function FormHeader({
   tagline?: string | undefined;
   /** Set left: the title, this bold tagline, and the subtitle under it. */
   hero?: string | undefined;
+  /** The title's last two words as a spaced line under the rest. */
+  heroTail?: boolean | undefined;
   children?: ReactNode;
 }) {
   const words = title.split(' ');
   const tail = words.length > 2 ? words.splice(-2).join(' ') : '';
   if (hero !== undefined) {
+    // The subtitle without the tagline it may open with (it is already the bold line above).
+    const plain = (text: string) => text.replace(/’/g, "'");
+    const rest =
+      subtitle && hero && plain(subtitle).startsWith(plain(hero))
+        ? subtitle.slice(hero.length).trim()
+        : subtitle;
     return (
       <header className="mb-3 max-w-xl">
         <h1 className="font-display text-4xl leading-tight font-bold text-heading sm:text-5xl">
-          {title}
+          {heroTail && tail ? (
+            <>
+              {words.join(' ')}
+              <span className="mt-1 block font-sans text-2xl font-semibold tracking-brand uppercase">
+                {tail}
+              </span>
+              <span aria-hidden="true" className="mt-2 block h-1 w-16 rounded-pill bg-accent" />
+            </>
+          ) : (
+            title
+          )}
         </h1>
         {hero && (
           <p className="mt-2 font-display text-2xl leading-tight font-bold text-heading">{hero}</p>
         )}
-        {subtitle && <p className="mt-1 text-base text-heading">{subtitle}</p>}
+        {rest && <p className="mt-1 text-base text-heading">{rest}</p>}
         {children}
       </header>
     );
@@ -379,6 +398,7 @@ function StartForm({
         eyebrow={formLook(found.definition.key).eyebrow}
         tagline={formLook(found.definition.key).tagline}
         hero={formLook(found.definition.key).hero?.[found.definition.steps[0]?.key ?? '']}
+        heroTail={formLook(found.definition.key).heroTail}
       />
       <IntakeStepper
         steps={steps}
@@ -700,7 +720,10 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         title={fill(definition.title)}
         // A hero header says the step's own words under its tagline.
         subtitle={
-          look.hero && step.subtitle && step.subtitle !== look.hero[step.key]
+          look.hero &&
+          step.subtitle &&
+          step.subtitle.replace(/\u2019/g, "'") !==
+            (look.hero[step.key] ?? '').replace(/\u2019/g, "'")
             ? fill(step.subtitle)
             : definition.subtitle
               ? fill(definition.subtitle)
@@ -710,6 +733,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         eyebrow={look.eyebrow}
         tagline={look.tagline}
         hero={look.hero?.[step.key]}
+        heroTail={look.heroTail}
       >
         {/* The step's own heading under the form's, as its mockup sets it, unless a panel of
             the step is its heading. */}

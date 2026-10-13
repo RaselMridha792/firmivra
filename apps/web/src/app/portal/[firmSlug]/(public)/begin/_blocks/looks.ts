@@ -3,6 +3,11 @@ import {
   BriefcaseBusiness,
   Car,
   ChartColumnBig,
+  FilePen,
+  Monitor,
+  Palette,
+  ShieldCheck,
+  Store,
   Ellipsis,
   House,
   Landmark,
@@ -639,7 +644,151 @@ const TAX_PLANNING: FormLook = {
   },
 };
 
+/** Business Development: `Development intake 1.png` to `Development Intake 4.png`. */
+const BUSINESS_DEVELOPMENT: FormLook = {
+  unnumbered: true,
+  stepperBox: true,
+  heroTail: true,
+  hero: {
+    services: 'Let\u2019s turn your vision into a real business.',
+    details: 'Let\u2019s Build Your Vision Together!',
+    more: 'Let\u2019s Build Your Vision Together!',
+    review: 'Almost Done!',
+  },
+  panels: {
+    // Step 1, Your Information & Services: headings on the page, the services as cards.
+    contact: {
+      title: 'Personal & Business Information',
+      wide: true,
+      rows: ['fullName phone email', 'businessName businessAddress'],
+      addressLabels: true,
+    },
+    services: {
+      title: 'Business Development Services',
+      wide: true,
+      quiet: ['services'],
+      cardIcons: {
+        FORMATION: Building2,
+        EIN: FileText,
+        REGISTERED_AGENT_LOCAL: ShieldCheck,
+        REGISTERED_AGENT_US: MapPin,
+        BUSINESS_PLAN: FilePen,
+        OPERATING_AGREEMENT: FileText,
+        LOGO: Palette,
+        WEBSITE: Monitor,
+        PRODUCT_DEVELOPMENT: Package,
+        SERVICE_DEVELOPMENT: Settings,
+        BUDGETING: Calculator,
+        RESOURCES: Users,
+      },
+    },
+    // Step 2, Business Details.
+    overview: {
+      icon: Store,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      columns: [
+        { span: 4, rows: ['currentStatus'] },
+        { span: 4, rows: ['businessType', 'businessTypeOther'] },
+        { span: 4, rows: ['hasNameInMind', 'proposedName'] },
+      ],
+      optionColumns: { currentStatus: 1, businessType: 2 },
+    },
+    accounting: {
+      icon: FileText,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      columns: [
+        { span: 6, rows: ['accountingYear', 'fiscalStartMonth'] },
+        { span: 6, rows: ['usesSoftware', 'hasBookkeeper'] },
+      ],
+      optionColumns: { accountingYear: 1 },
+    },
+    about: {
+      icon: BriefcaseBusiness,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      rows: ['productsOrServices targetMarket', 'unique nearTermVision'],
+    },
+    location: {
+      icon: MapPin,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      rows: ['primaryState registeredAgentStates'],
+    },
+    branding: {
+      icon: Palette,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      rows: ['logoColors colorsReason'],
+    },
+    additional: {
+      icon: Monitor,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      quiet: ['additionalInformation'],
+    },
+    // Step 3, Additional Information.
+    goals: {
+      icon: FileText,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      columns: [
+        { span: 6, rows: ['mainGoals'] },
+        { span: 6, rows: ['timeframe', 'longTermVision'] },
+      ],
+    },
+    stage: {
+      icon: Target,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      columns: [
+        { span: 4, rows: ['stage', 'stageOther'] },
+        { span: 8, rows: ['challenges', 'challengesOther'] },
+      ],
+      optionColumns: { stage: 1, challenges: 2 },
+    },
+    questions: { icon: Users, iconCircle: true, wide: true, numberInTitle: true },
+    documents: {
+      icon: CloudUpload,
+      iconCircle: true,
+      wide: true,
+      numberInTitle: true,
+      quiet: ['documents'],
+    },
+    // Step 4, Review & Submit.
+    reviewNote: { hidden: true },
+  },
+  review: {
+    byStep: true,
+    twoColumns: true,
+    rows: [
+      { title: '1. Personal & Business Information', sections: ['contact'], icon: User },
+      { title: '2. Selected Services', sections: ['services'], icon: ClipboardList },
+      {
+        title: '3. Business Details',
+        sections: ['overview', 'accounting', 'about', 'location', 'branding', 'additional'],
+        icon: Building2,
+      },
+      {
+        title: '4. Additional Information',
+        sections: ['goals', 'stage', 'questions', 'documents'],
+        icon: ClipboardList,
+      },
+    ],
+  },
+};
+
 const LOOKS: Partial<Record<IntakeFormKey, FormLook>> = {
+  BUSINESS_DEVELOPMENT,
   TAX_PLANNING,
   ANNUAL_TAX,
   QUARTERLY_TAX,
