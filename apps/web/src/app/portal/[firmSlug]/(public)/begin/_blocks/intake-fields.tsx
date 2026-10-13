@@ -422,7 +422,8 @@ export function ScalarInput({
           <Checkbox
             name={name}
             label={label}
-            className="gap-2! text-xs! sm:min-h-6!"
+            // A long label (a certification) starts beside the box, not centred on it.
+            className={`gap-2! text-xs! sm:min-h-6! ${label.length > 80 ? 'items-start! [&_input]:mt-0.5' : ''}`}
             checked={value === true}
             aria-invalid={error ? true : undefined}
             onChange={(event) => onChange(event.target.checked)}
@@ -523,7 +524,32 @@ function TextareaInput({
 }
 
 /** Text to read, with no answer (an "i" callout). */
-export function InfoNote({ label, text }: { label: string; text: string }) {
+export function InfoNote({
+  label,
+  text,
+  list = false,
+}: {
+  label: string;
+  text: string;
+  /** Its sentences as bullets beside a large icon (a step's "Important:" box). */
+  list?: boolean | undefined;
+}) {
+  if (list) {
+    const items = text.split(/(?<=\.)\s+(?=[A-Z"])/);
+    return (
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-control bg-accent-soft p-3 text-xs">
+        <p className="flex items-center gap-3">
+          <Info aria-hidden="true" className="size-10 shrink-0 text-accent" />
+          <strong className="font-display text-xl text-heading">{label}:</strong>
+        </p>
+        <ul className="min-w-60 flex-1 list-disc space-y-0.5 pl-4">
+          {items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
   return (
     <div className="flex items-start gap-2 rounded-control bg-folder-surface p-2 text-xs">
       <Info aria-hidden="true" className="size-5 shrink-0 text-accent" />
