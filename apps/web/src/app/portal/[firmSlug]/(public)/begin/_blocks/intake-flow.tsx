@@ -32,9 +32,11 @@ import {
   agreementSignature,
   emptyAgreement,
 } from './intake-agreement';
-import type { Fill } from './intake-fields';
-import { IntakeReview } from './intake-review';
+import { type Fill, InfoNote } from './intake-fields';
+import { IntakeReview, SubmitBand, UploadedFiles } from './intake-review';
 import { StepSections } from './intake-step';
+import { NO_LOOK } from './intake-layout';
+import { formLook } from './looks';
 import {
   allAnswers,
   clearHidden,
@@ -58,18 +60,88 @@ export const draftKey = (slug: string, form: IntakeFormKey) => [
 function FormHeader({
   title,
   subtitle,
+  titleBreak = false,
+  eyebrow = false,
+  tagline,
+  hero,
+  heroTail = false,
   children,
 }: {
   title: string;
-  subtitle?: string;
+  subtitle?: string | undefined;
+  /** The accent words on a line of their own (Bookkeeping's mockup). */
+  titleBreak?: boolean | undefined;
+  /** The words before "Intake Form" as a spaced line over it (Payroll's mockup). */
+  eyebrow?: boolean | undefined;
+  /** A second line under the subtitle. */
+  tagline?: string | undefined;
+  /** Set left: the title, this bold tagline, and the subtitle under it. */
+  hero?: string | undefined;
+  /** The title's last two words as a spaced line under the rest. */
+  heroTail?: boolean | undefined;
   children?: ReactNode;
 }) {
   const words = title.split(' ');
   const tail = words.length > 2 ? words.splice(-2).join(' ') : '';
+  if (hero !== undefined) {
+    // The subtitle without the tagline it may open with (it is already the bold line above).
+    const plain = (text: string) => text.replace(/’/g, "'");
+    const rest =
+      subtitle && hero && plain(subtitle).startsWith(plain(hero))
+        ? subtitle.slice(hero.length).trim()
+        : subtitle;
+    return (
+      <header className="mb-3 max-w-xl">
+        <h1 className="font-display text-4xl leading-tight font-bold text-heading sm:text-5xl">
+          {heroTail && tail ? (
+            <>
+              {words.join(' ')}{' '}
+              <span className="mt-1 block font-sans text-2xl font-semibold tracking-brand uppercase">
+                {tail}
+              </span>
+              <span aria-hidden="true" className="mt-2 block h-1 w-16 rounded-pill bg-accent" />
+            </>
+          ) : (
+            title
+          )}
+        </h1>
+        {hero && (
+          <p className="mt-2 font-display text-2xl leading-tight font-bold text-heading">{hero}</p>
+        )}
+        {rest && <p className="mt-1 text-base text-heading">{rest}</p>}
+        {children}
+      </header>
+    );
+  }
+  if (eyebrow && tail) {
+    return (
+      <header className="mb-3 text-center">
+        {/* The dots are drawn beside the heading, so its text is the form's title alone. */}
+        <p
+          aria-hidden="true"
+          className="mb-1 flex items-center justify-center gap-2 text-sm font-semibold tracking-eyebrow text-heading uppercase"
+        >
+          <span className="text-accent">·</span>
+          {words.join(' ')}
+          <span className="text-accent">·</span>
+        </p>
+        <h1 className="font-display text-4xl leading-none font-bold text-heading sm:text-6xl">
+          <span className="sr-only">{words.join(' ')} </span>
+          {tail}
+        </h1>
+        {subtitle && <p className="mt-1 text-lg text-heading">{subtitle}</p>}
+        {tagline && <p className="text-sm text-heading">{tagline}</p>}
+        {children}
+      </header>
+    );
+  }
   return (
     <header className="mb-3 text-center">
-      <h1 className="font-display text-3xl leading-tight font-bold text-heading sm:text-4xl">
-        {words.join(' ')} {tail && <span className="text-accent">{tail}</span>}
+      <h1
+        className={`font-display text-3xl font-bold text-heading sm:text-5xl ${titleBreak ? 'leading-none' : 'leading-tight'}`}
+      >
+        {words.join(' ')}{' '}
+        {tail && <span className={`text-accent ${titleBreak ? 'block' : ''}`}>{tail}</span>}
       </h1>
       {subtitle && <p className="mx-auto mt-1 max-w-2xl text-xs">{subtitle}</p>}
       <div className="mx-auto mt-2 flex max-w-2xl items-center justify-center gap-2 rounded-control bg-folder-surface px-3 py-1 text-xs">
@@ -81,6 +153,32 @@ function FormHeader({
       </div>
       {children}
     </header>
+  );
+}
+
+/** A step's navy band: its number in an accent circle, its title and its subtitle. */
+function StepBanner({
+  number,
+  title,
+  subtitle,
+}: {
+  number: number;
+  title: string;
+  subtitle: string | undefined;
+}) {
+  return (
+    <div className="mb-3 flex items-center gap-4 rounded-card bg-navigation px-4 py-3 text-on-action">
+      <span
+        aria-hidden="true"
+        className="grid size-14 shrink-0 place-items-center rounded-full bg-action font-display text-4xl font-bold text-heading"
+      >
+        {number}
+      </span>
+      <div className="min-w-0">
+        <p className="font-display text-2xl leading-tight font-bold sm:text-3xl">{title}</p>
+        {subtitle && <p className="text-sm">{subtitle}</p>}
+      </div>
+    </div>
   );
 }
 
@@ -131,7 +229,8 @@ const WORDING: Record<
   IntakeFormKey,
   {
     back: (title: string, step: number) => string;
-    next: string;
+    /** Continue's words on each step (by its number), as each step's mockup words it. */
+    next: string | ((step: number) => string);
     later: string;
     laterAsLink?: boolean;
     submit: string;
@@ -139,25 +238,34 @@ const WORDING: Record<
 > = {
   ANNUAL_TAX: {
     back: () => 'Back',
-    next: 'Continue to Next Step',
+    next: (step) => (step === 3 ? 'Continue to Next Step' : 'Continue'),
     later: 'Save and Continue Later',
     submit: 'Submit Intake Form',
   },
   QUARTERLY_TAX: {
     back: () => 'Back',
-    next: 'Continue to Next Step',
+    next: (step) =>
+      ['', 'Continue', 'Continue to Business Expenses', 'Continue to Documents'][step] ??
+      'Continue',
     later: 'Save and Continue Later',
     submit: 'Submit Intake Form',
   },
   BOOKKEEPING: {
-    back: (title) => `Back to ${title}`,
-    next: 'Continue to Next Step',
+    back: (title, step) => (step === 1 ? 'Back to Previous Step' : `Back to ${title}`),
+    next: (step) =>
+      [
+        '',
+        'Continue to Business Background Details',
+        'Continue to Document Upload',
+        'Continue to Review & Sign',
+      ][step] ?? 'Continue',
     later: 'Save & Exit',
     submit: 'Submit Intake Form',
   },
   PAYROLL: {
     back: (_, step) => `Back to Step ${step}`,
-    next: 'Continue to Next Step',
+    next: (step) =>
+      step === 1 ? 'Continue to Step 2' : 'Continue to Review & Sign Service Agreement',
     later: 'Exit Form',
     submit: 'Submit Form',
   },
@@ -286,8 +394,18 @@ function StartForm({
       <FormHeader
         title={fill(found.definition.title)}
         subtitle={found.definition.subtitle ? fill(found.definition.subtitle) : undefined}
+        titleBreak={formLook(found.definition.key).titleBreak}
+        eyebrow={formLook(found.definition.key).eyebrow}
+        tagline={formLook(found.definition.key).tagline}
+        hero={formLook(found.definition.key).hero?.[found.definition.steps[0]?.key ?? '']}
+        heroTail={formLook(found.definition.key).heroTail}
       />
-      <IntakeStepper steps={steps} current={0} onEdit={() => undefined} />
+      <IntakeStepper
+        steps={steps}
+        current={0}
+        onEdit={() => undefined}
+        boxed={formLook(found.definition.key).stepperBox}
+      />
       {notice}
       {unavailable && <UnavailableNote />}
       <form noValidate onSubmit={submit} className="mx-auto max-w-2xl">
@@ -558,6 +676,15 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   const failureText = failure ? errorMessage(failure, BEGIN_ONLINE_ERRORS) : '';
   const previous = steps[index - 1];
   const words = WORDING[form];
+  const look = formLook(form);
+  const aside = step.review === true && look.review?.aside === true;
+  const agreementRight = step.review === true && look.review?.agreementRight === true;
+  const stepNumber = definition.steps.indexOf(step) + 1;
+  const nextWords = typeof words.next === 'string' ? words.next : words.next(stepNumber);
+  // The note the mockup sets beside Continue ("Important: ..."), when this step shows it.
+  const note = step.sections
+    .flatMap((s) => s.fields)
+    .find((f) => f.key === look.footerNote && shown.fields.has(f.key));
   // The review step's info-only panels ("Review Your Information...") come before the answers.
   const infoOnly = (sec: IntakeStep['sections'][number]) =>
     sec.fields.every((f) => f.type === 'info');
@@ -591,22 +718,62 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
     <div ref={topRef} tabIndex={-1} className="outline-none">
       <FormHeader
         title={fill(definition.title)}
-        subtitle={definition.subtitle ? fill(definition.subtitle) : undefined}
-      />
+        // A hero header says the step's own words under its tagline.
+        subtitle={
+          look.hero &&
+          step.subtitle &&
+          step.subtitle.replace(/\u2019/g, "'") !==
+            (look.hero[step.key] ?? '').replace(/\u2019/g, "'")
+            ? fill(step.subtitle)
+            : definition.subtitle
+              ? fill(definition.subtitle)
+              : undefined
+        }
+        titleBreak={look.titleBreak}
+        eyebrow={look.eyebrow}
+        tagline={look.tagline}
+        hero={look.hero?.[step.key]}
+        heroTail={look.heroTail}
+      >
+        {/* The step's own heading under the form's, as its mockup sets it, unless a panel of
+            the step is its heading. */}
+        {step.subtitle &&
+          !look.stepperHints &&
+          !look.hero &&
+          !(step.review && look.reviewHeading) &&
+          !step.sections.some((s) => look.panels[s.key]?.intro) && (
+            <div className="mt-2">
+              {look !== NO_LOOK && (
+                <p className="font-display text-xl leading-tight font-bold text-heading">
+                  {fill(step.title)}
+                </p>
+              )}
+              <p className="text-xs">{fill(step.subtitle)}</p>
+            </div>
+          )}
+      </FormHeader>
       {/* Every step of the form, as the mockups number them; one the answers leave out is marked. */}
       <IntakeStepper
         steps={definition.steps.map((s, i) => ({
           id: i + 1,
           label: fill(s.title),
           skipped: !shown.steps.has(s.key),
+          hint: look.stepperHints?.[s.key],
         }))}
         current={definition.steps.findIndex((s) => s.key === step.key) + 1}
+        boxed={look.stepperBox}
         onEdit={(id) => {
           const target = definition.steps[id - 1];
           if (target && shown.steps.has(target.key)) void jump(target.key);
         }}
       />
-      {step.subtitle && <p className="mb-2 text-center text-xs">{fill(step.subtitle)}</p>}
+      {look.banners?.includes(step.key) && (
+        <StepBanner
+          number={stepNumber}
+          title={fill(step.title)}
+          subtitle={step.subtitle ? fill(step.subtitle) : undefined}
+        />
+      )}
       {agreements.data?.ready === false && <UnavailableNote />}
       <form
         ref={formRef}
@@ -628,35 +795,68 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         )}
         {step.review && intro.sections.length > 0 && (
           <div className="mb-3">
-            <StepSections {...sectionProps} step={intro} />
+            <StepSections {...sectionProps} step={intro} look={look} />
           </div>
         )}
-        {step.review && (
-          <IntakeReview
-            definition={definition}
-            values={values}
-            shownSteps={shown.steps}
-            shownFields={shown.fields}
-            uploads={uploads}
-            fill={fill}
-            onEdit={(key) => void jump(key)}
-          />
-        )}
-        <div className={step.review ? 'mt-3' : ''}>
-          <StepSections {...sectionProps} step={rest} />
+        {/* The mockup's two columns: the answers left; files, the step's panels and the
+            agreement right. Otherwise one after another. */}
+        <div className={aside || agreementRight ? 'grid items-start gap-3 lg:grid-cols-2' : ''}>
+          {step.review && (
+            <div className={agreementRight ? 'grid min-w-0 content-start gap-3' : 'contents'}>
+              <IntakeReview
+                definition={definition}
+                values={values}
+                shownSteps={shown.steps}
+                shownFields={shown.fields}
+                uploads={uploads}
+                fill={fill}
+                onEdit={(key) => void jump(key)}
+                look={look}
+                heading={
+                  look.reviewHeading
+                    ? { number: stepNumber, subtitle: step.subtitle && fill(step.subtitle) }
+                    : undefined
+                }
+              />
+              {agreementRight && <StepSections {...sectionProps} step={rest} look={look} />}
+            </div>
+          )}
+          <div className={aside || agreementRight ? 'grid min-w-0 gap-3 [&>*]:mt-0!' : ''}>
+            {aside && (
+              <UploadedFiles
+                definition={definition}
+                uploads={uploads}
+                fill={fill}
+                onEdit={(key) => void jump(key)}
+              />
+            )}
+            {!agreementRight && (
+              <div className={step.review && !aside ? 'mt-3' : ''}>
+                <StepSections {...sectionProps} step={rest} look={look} />
+              </div>
+            )}
+            {aside && (
+              <SubmitBand
+                title={fill(step.title)}
+                subtitle="Please read the agreement below, certify, sign, and submit your intake form."
+              />
+            )}
+            {step.review && (
+              <AgreementPanel
+                firmSlug={firmSlug}
+                block={agreements.data}
+                failed={agreements.isError}
+                onRetry={() => void agreements.refetch()}
+                form={form}
+                value={agreement}
+                onChange={setAgreement}
+                error={agreementError}
+                title={look.agreementTitle}
+                stacked={agreementRight}
+              />
+            )}
+          </div>
         </div>
-        {step.review && (
-          <AgreementPanel
-            firmSlug={firmSlug}
-            block={agreements.data}
-            failed={agreements.isError}
-            onRetry={() => void agreements.refetch()}
-            form={form}
-            value={agreement}
-            onChange={setAgreement}
-            error={agreementError}
-          />
-        )}
         {notice && (
           <p
             role="status"
@@ -669,6 +869,22 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
           <p role="alert" className="mt-3 text-sm text-danger">
             {failureText}
           </p>
+        )}
+        {note?.type === 'info' && (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <div className="min-w-0 flex-1 [&>div]:bg-accent-soft [&>div]:p-3">
+              <InfoNote label={`${fill(note.label)}:`} text={fill(note.text)} />
+            </div>
+            <Button
+              type="submit"
+              data-testid="intake-next"
+              disabled={save.isPending || submit.isPending}
+              className="min-w-48"
+            >
+              {nextWords}
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Button>
+          </div>
         )}
         <footer className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -695,24 +911,32 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
               </button>
             ) : (
               <Button
-                variant="ghost"
+                variant="outline"
                 onClick={() => void later()}
                 disabled={save.isPending || resumeLink.isPending}
+                className="min-w-32 border-heading! text-heading!"
               >
-                <Save aria-hidden="true" className="size-4" />
+                {/* "Exit Form" leaves, as its mockup's arrow says; the others save. */}
+                {words.later === 'Exit Form' ? (
+                  <ArrowLeft aria-hidden="true" className="size-4" />
+                ) : (
+                  <Save aria-hidden="true" className="size-4" />
+                )}
                 {words.later}
               </Button>
             )}
           </div>
-          <Button
-            type="submit"
-            data-testid="intake-next"
-            disabled={save.isPending || submit.isPending}
-            className="min-w-40"
-          >
-            {step.review ? words.submit : words.next}
-            <ArrowRight aria-hidden="true" className="size-4" />
-          </Button>
+          {!note && (
+            <Button
+              type="submit"
+              data-testid="intake-next"
+              disabled={save.isPending || submit.isPending}
+              className="min-w-40"
+            >
+              {step.review ? words.submit : nextWords}
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Button>
+          )}
         </footer>
       </form>
     </div>
