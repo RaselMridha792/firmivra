@@ -210,7 +210,7 @@ function Rows({
       {cells.flat().map(({ units: list, span }) => (
         <div
           key={list[0]!.key}
-          className={`col-span-12 min-w-0 ${SPAN[span] ?? SPAN[12]} ${list.length > 1 ? 'flex flex-wrap items-center gap-x-5' : ''}`}
+          className={`col-span-12 min-w-0 ${SPAN[span] ?? SPAN[12]} ${list.length > 1 ? 'flex flex-wrap items-center gap-x-5' : ''} ${look.warm?.includes(list[0]!.key) ? 'rounded-control bg-accent-soft p-3' : ''}`}
         >
           {list.map((unit) => (
             <UnitCell key={unit.key} unit={unit} look={look} render={render} />

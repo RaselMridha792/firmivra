@@ -53,6 +53,8 @@ export interface RowsLook {
   alerts?: string[];
   /** Uploads drawn as a "+ Upload ..." button with their help under it. */
   uploadButtons?: string[];
+  /** Fields set in a warm tinted box ("Have a specific question?"). */
+  warm?: string[];
   /** A group: a lone row without its "Business 1" heading box (rows get one from the second). */
   bare?: boolean;
 }
@@ -100,6 +102,8 @@ export interface PanelLook extends RowsLook {
   badgeDark?: boolean;
   /** The icon before the title in a pale circle, in the heading's navy. */
   iconCircle?: boolean;
+  /** Not drawn (its text is said elsewhere on the step). */
+  hidden?: boolean;
   /** A group field's rows, by the group's key. */
   groups?: Record<string, RowsLook>;
 }
@@ -155,6 +159,13 @@ export interface FormLook {
   tagline?: string;
   /** No panel numbers at all. */
   unnumbered?: boolean;
+  /**
+   * The header set left, as the mockup's hero: the title, then each step's bold tagline (by step
+   * key) and the step's subtitle under it.
+   */
+  hero?: Record<string, string>;
+  /** The stepper in a white box, the steps not reached in grey. */
+  stepperBox?: boolean;
 }
 
 export const NO_LOOK: FormLook = { panels: {} };
