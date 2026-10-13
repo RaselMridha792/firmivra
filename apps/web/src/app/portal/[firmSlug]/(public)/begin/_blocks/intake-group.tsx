@@ -1,9 +1,16 @@
 'use client';
 
-import { type IntakeGroupField, intakeConditionHolds } from '@firmivra/types';
+import {
+  type IntakeGroupField,
+  type IntakeScalarField,
+  intakeConditionHolds,
+} from '@firmivra/types';
 import { Button } from '@firmivra/ui';
 import { ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { useEffect } from 'react';
 import { type Fill, ScalarInput } from './intake-fields';
+import type { RowsLook } from './intake-layout';
+import { FieldRows } from './intake-rows';
 import { emptyRow, issueKey, type ScreenRow, type ScreenScalar } from './intake-values';
 
 /**
@@ -16,20 +23,29 @@ export function GroupInput({
   onChange,
   errors,
   fill,
+  look,
 }: {
   field: IntakeGroupField;
   rows: ScreenRow[];
   onChange: (rows: ScreenRow[]) => void;
   errors: Readonly<Record<string, string>>;
   fill: Fill;
+  /** The rows its mockup draws a row's fields in; the group's own label is then left out. */
+  look?: RowsLook | undefined;
 }) {
   const item = fill(field.itemLabel);
   const setCell = (index: number, key: string, v: ScreenScalar) =>
     onChange(rows.map((row, i) => (i === index ? { ...row, [key]: v } : row)));
   const groupError = errors[issueKey([field.key])];
+  // A required group opens with its first row, as its mockup shows it ("Dependent 1").
+  const needsRow = look !== undefined && field.required && rows.length === 0;
+  const bare = look?.bare === true && rows.length === 1;
+  useEffect(() => {
+    if (needsRow) onChange([emptyRow(field.fields)]);
+  }, [needsRow, onChange, field.fields]);
   return (
     <div className="min-w-0 space-y-2" data-group={field.key} data-rows={rows.length}>
-      <p className="text-xs font-medium text-firm-primary">
+      <p className={look ? 'sr-only' : 'text-xs font-medium text-firm-primary'}>
         {fill(field.label)}
         {field.required ? ' *' : ''}
       </p>
@@ -39,9 +55,11 @@ export function GroupInput({
           key={row.id}
           open
           data-testid={`${field.key}-${index + 1}`}
-          className="rounded-control border border-folder-border"
+          className={bare ? '' : 'rounded-control border border-folder-border'}
         >
-          <summary className="flex cursor-pointer items-center gap-2 rounded-t-control bg-folder-surface px-2 py-1 text-xs font-semibold text-heading">
+          <summary
+            className={`flex cursor-pointer items-center gap-2 rounded-t-control bg-folder-surface px-2 py-1 text-xs font-semibold text-heading ${bare ? 'sr-only' : ''}`}
+          >
             <ChevronDown aria-hidden="true" className="size-4" />
             {item} {index + 1}
             {rows.length > field.minItems && (
@@ -58,27 +76,48 @@ export function GroupInput({
               </Button>
             )}
           </summary>
-          <div className="grid gap-2 p-2 sm:grid-cols-2">
-            {field.fields
-              .filter((sub) => intakeConditionHolds(sub.showIf, row))
-              .map((sub) => (
-                <div
-                  key={sub.key}
-                  className={
-                    sub.type === 'textarea' || sub.type === 'checkboxes' ? 'sm:col-span-2' : ''
-                  }
-                >
+          {look ? (
+            <div className={bare ? '' : 'p-2'}>
+              <FieldRows
+                fields={field.fields.filter((sub) => intakeConditionHolds(sub.showIf, row))}
+                look={look}
+                render={(sub, fieldLook) => (
                   <ScalarInput
-                    field={sub}
+                    // A group's fields are all scalar (IntakeGroupField).
+                    field={sub as IntakeScalarField}
                     name={`${field.key}-${row.id}-${sub.key}`}
                     value={row[sub.key] ?? null}
                     onChange={(v) => setCell(index, sub.key, v)}
                     error={errors[issueKey([field.key, index, sub.key])]}
                     fill={fill}
+                    look={fieldLook}
                   />
-                </div>
-              ))}
-          </div>
+                )}
+              />
+            </div>
+          ) : (
+            <div className="grid gap-2 p-2 sm:grid-cols-2">
+              {field.fields
+                .filter((sub) => intakeConditionHolds(sub.showIf, row))
+                .map((sub) => (
+                  <div
+                    key={sub.key}
+                    className={
+                      sub.type === 'textarea' || sub.type === 'checkboxes' ? 'sm:col-span-2' : ''
+                    }
+                  >
+                    <ScalarInput
+                      field={sub}
+                      name={`${field.key}-${row.id}-${sub.key}`}
+                      value={row[sub.key] ?? null}
+                      onChange={(v) => setCell(index, sub.key, v)}
+                      error={errors[issueKey([field.key, index, sub.key])]}
+                      fill={fill}
+                    />
+                  </div>
+                ))}
+            </div>
+          )}
         </details>
       ))}
       {groupError && <p className="text-xs text-danger">{groupError}</p>}
