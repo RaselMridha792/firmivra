@@ -61,7 +61,7 @@ export function SectionPanel({
         {number !== undefined && !badge && (
           <span
             aria-hidden="true"
-            className="grid size-11 shrink-0 place-items-center rounded-full bg-navigation font-display text-3xl leading-none text-white"
+            className="grid size-11 shrink-0 place-items-center rounded-full bg-navigation font-display text-3xl leading-none text-accent"
           >
             {number}
           </span>
@@ -74,7 +74,7 @@ export function SectionPanel({
         <div className="min-w-0 flex-1">
           <h2
             id={titleId}
-            className={`font-display leading-tight font-bold text-heading ${bar ? 'text-lg' : size === 'intro' ? 'text-3xl' : 'text-2xl'}`}
+            className={`font-display leading-tight font-bold text-heading ${bar ? 'text-base' : size === 'intro' ? 'text-3xl' : 'text-xl'}`}
           >
             {bracket ? (
               <>
