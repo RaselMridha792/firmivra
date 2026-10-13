@@ -18,6 +18,10 @@ export function SectionPanel({
   size = 'panel',
   action,
   tint = false,
+  plain = false,
+  tone,
+  numberInTitle = false,
+  badgeDark = false,
   children,
   className = '',
 }: {
@@ -36,6 +40,13 @@ export function SectionPanel({
   /** A button at the header's end ("Edit Information"). */
   action?: ReactNode;
   tint?: boolean | undefined;
+  /** No box: a large heading on the page. */
+  plain?: boolean | undefined;
+  tone?: 'danger' | 'warm' | undefined;
+  /** "1. Title" instead of the number in a circle. */
+  numberInTitle?: boolean | undefined;
+  /** A navy badge circle with a white icon. */
+  badgeDark?: boolean | undefined;
   children: ReactNode;
   className?: string;
 }) {
@@ -46,7 +57,7 @@ export function SectionPanel({
   return (
     <Card
       aria-labelledby={titleId}
-      className={`min-w-0 border-folder-border! p-3! shadow-none! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${bar ? 'bg-accent-soft! sm:flex sm:items-center sm:gap-4' : ''} ${tint ? 'bg-accent-soft!' : ''} ${className}`}
+      className={`min-w-0 border-folder-border! p-3! shadow-none! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${bar ? 'bg-accent-soft! sm:flex sm:items-center sm:gap-4' : ''} ${tint ? 'bg-accent-soft!' : ''} ${plain ? 'border-0! bg-transparent! px-0!' : ''} ${tone === 'danger' ? 'border-danger! bg-danger-soft!' : tone === 'warm' ? 'border-accent! bg-accent-soft!' : ''} ${className}`}
     >
       <header
         className={`flex items-center gap-3 ${size === 'none' ? 'sr-only' : bar ? 'mb-2 sm:mb-0 sm:w-5/12' : 'mb-2'}`}
@@ -54,12 +65,12 @@ export function SectionPanel({
         {badge && (
           <span
             aria-hidden="true"
-            className="grid size-11 shrink-0 place-items-center rounded-full bg-action text-on-action"
+            className={`grid size-11 shrink-0 place-items-center rounded-full text-on-action ${badgeDark ? 'bg-heading' : 'bg-action'}`}
           >
             {badge}
           </span>
         )}
-        {number !== undefined && !badge && (
+        {number !== undefined && !badge && !numberInTitle && !plain && (
           <span
             aria-hidden="true"
             className="grid size-11 shrink-0 place-items-center rounded-full bg-navigation font-display text-3xl leading-none text-accent"
@@ -75,8 +86,9 @@ export function SectionPanel({
         <div className="min-w-0 flex-1">
           <h2
             id={titleId}
-            className={`font-display leading-tight font-bold text-heading ${bar ? 'text-base' : size === 'intro' ? 'text-3xl' : 'text-xl'}`}
+            className={`font-display leading-tight font-bold text-heading ${bar ? 'text-base' : size === 'intro' || plain ? 'text-3xl' : numberInTitle ? 'text-lg' : 'text-xl'}`}
           >
+            {number !== undefined && (numberInTitle || plain) && `${number}. `}
             {bracket ? (
               <>
                 {bracket[1]}{' '}
