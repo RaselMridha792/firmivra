@@ -5,12 +5,17 @@ import {
   BriefcaseBusiness,
   Building2,
   Calculator,
+  CalendarDays,
   ChartNoAxesColumnIncreasing,
+  CloudUpload,
   FileText,
   IdCard,
   type LucideIcon,
+  MapPin,
   MessageSquareMore,
+  Paperclip,
   ReceiptText,
+  Settings,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { SectionPanel } from './form-blocks';
@@ -104,6 +109,7 @@ export function FieldInput({
           errors={errors}
           fill={fill}
           quiet={look?.quiet === true}
+          look={look?.grid}
         />
       );
     case 'group':
@@ -128,6 +134,7 @@ export function FieldInput({
           actions={actions}
           tile={look?.tile === true}
           quiet={look?.quiet === true}
+          chooser={look?.chooser === true}
         />
       );
     default:
@@ -269,75 +276,108 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
   }
   const isWide = (p: (typeof panels)[number]) =>
     p.panel ? !!(p.panel.wide || p.panel.bar) : wideSection(p.parts[0]!);
-  const span = fullRows(panels.map(isWide));
-  let number = 0;
+  const stackOf = new Map<string, number>();
+  look.stacks?.forEach(([left, right], i) => {
+    for (const key of [...left, ...right]) stackOf.set(key, i);
+  });
+  const span = fullRows(panels.map((p) => stackOf.has(p.key) || isWide(p)));
+  // Numbered in the definition's order, whichever column a panel sits in.
+  const numbers = new Map<string, number>();
+  for (const p of panels) {
+    const plain = p.panel?.bar || p.panel?.intro || p.panel?.headless || p.panel?.noNumber;
+    if (!plain) numbers.set(p.key, numbers.size + 1);
+  }
+  const drawn = new Set<number>();
   return (
     <div className="grid gap-3 lg:grid-cols-2">
       {panels.map((p, i) => {
-        const first = p.parts[0]!;
-        const joined = p.panel?.join !== undefined;
-        const subtitle =
-          p.panel?.subtitle ??
-          (p.panel?.intro ? step.subtitle : undefined) ??
-          (joined ? undefined : (first.subtitle ?? soleHelp(first, visible, props.fill)));
-        const barSubtitle = p.panel?.bar ? barLabel(first, visible, props.fill) : undefined;
-        const unnumbered = p.panel?.bar || p.panel?.intro || p.panel?.headless;
-        const Badge = p.panel?.badge;
+        const stack = stackOf.get(p.key);
+        if (stack === undefined) return renderPanel(p, span[i] === true);
+        if (drawn.has(stack)) return null;
+        drawn.add(stack);
+        const column = (keys: string[]) =>
+          keys.flatMap((k) => panels.find((x) => x.key === k) ?? []).map((x) => renderPanel(x));
+        const [left, right] = look.stacks![stack]!;
         return (
-          <SectionPanel
-            key={p.key}
-            number={unnumbered ? undefined : (number += 1)}
-            badge={Badge ? <Badge className="size-6" /> : undefined}
-            size={p.panel?.headless ? 'none' : p.panel?.intro ? 'intro' : 'panel'}
-            title={props.fill(p.panel?.title ?? first.title)}
-            subtitle={subtitle ? props.fill(subtitle) : barSubtitle}
-            icon={p.panel?.icon ? <PanelIcon icon={p.panel.icon} /> : undefined}
-            iconPosition={p.panel?.iconFirst || p.panel?.bar ? 'start' : 'end'}
-            bar={p.panel?.bar}
-            tint={p.panel?.tint}
-            className={span[i] ? 'lg:col-span-2' : ''}
+          <div
+            key={`stack-${p.key}`}
+            className="grid items-start gap-3 lg:col-span-2 lg:grid-cols-2"
           >
-            {joined
-              ? p.parts.map((part) => (
-                  <JoinedPart
-                    key={part.key}
-                    heading={props.fill(part.title)}
-                    icon={p.panel?.joinIcons?.[part.key]}
-                  >
-                    <SectionFields
-                      section={part}
-                      panel={look.panels[part.key] ?? p.panel}
-                      props={props}
-                      visible={visible}
-                      skip={look.footerNote}
-                    />
-                  </JoinedPart>
-                ))
-              : p.parts.map((part) => (
-                  <SectionFields
-                    key={part.key}
-                    section={part}
-                    panel={p.panel}
-                    props={props}
-                    visible={visible}
-                    skip={look.footerNote}
-                  />
-                ))}
-          </SectionPanel>
+            <div className="grid min-w-0 gap-3">{column(left)}</div>
+            <div className="grid min-w-0 gap-3">{column(right)}</div>
+          </div>
         );
       })}
     </div>
   );
+
+  function renderPanel(p: (typeof panels)[number], full = false) {
+    const first = p.parts[0]!;
+    const joined = p.panel?.join !== undefined;
+    const subtitle =
+      p.panel?.subtitle ??
+      (p.panel?.intro ? step.subtitle : undefined) ??
+      (joined ? undefined : (first.subtitle ?? soleHelp(first, p.panel, visible, props.fill)));
+    const barSubtitle = p.panel?.bar ? barLabel(first, visible, props.fill) : undefined;
+    const Badge = p.panel?.badge;
+    return (
+      <SectionPanel
+        key={p.key}
+        number={numbers.get(p.key)}
+        badge={Badge ? <Badge className="size-6" /> : undefined}
+        size={p.panel?.headless ? 'none' : p.panel?.intro ? 'intro' : 'panel'}
+        title={props.fill(p.panel?.title ?? first.title)}
+        subtitle={subtitle ? props.fill(subtitle) : barSubtitle}
+        icon={p.panel?.icon ? <PanelIcon icon={p.panel.icon} /> : undefined}
+        iconPosition={p.panel?.iconFirst || p.panel?.bar ? 'start' : 'end'}
+        bar={p.panel?.bar}
+        tint={p.panel?.tint}
+        className={full ? 'lg:col-span-2' : ''}
+      >
+        {joined
+          ? p.parts.map((part) => (
+              <JoinedPart
+                key={part.key}
+                heading={props.fill(part.title)}
+                icon={p.panel?.joinIcons?.[part.key]}
+              >
+                <SectionFields
+                  section={part}
+                  panel={look.panels[part.key] ?? p.panel}
+                  props={props}
+                  visible={visible}
+                  skip={look.footerNote}
+                />
+              </JoinedPart>
+            ))
+          : p.parts.map((part) => (
+              <SectionFields
+                key={part.key}
+                section={part}
+                panel={p.panel}
+                props={props}
+                visible={visible}
+                skip={look.footerNote}
+              />
+            ))}
+      </SectionPanel>
+    );
+  }
 }
 
 /**
- * The mockups' solid accent icon at a panel's edge. A drawn shape (a page, a building) keeps its
- * inner lines white, as the mockups draw them.
+ * The mockups' solid accent icon at a panel's edge. A drawn shape (a page, a building, a gear)
+ * keeps its inner lines and holes white; a line drawing (a paper clip) stays a line.
  */
 function PanelIcon({ icon: Icon }: { icon: LucideIcon }) {
+  const look = OUTLINE.has(Icon)
+    ? ''
+    : DETAILED.has(Icon)
+      ? 'fill-current [&_circle]:fill-surface [&_path+path]:stroke-surface'
+      : 'fill-current';
   return (
     <Icon
-      className={`size-10 fill-current ${DETAILED.has(Icon) ? '[&_path+path]:stroke-surface' : ''}`}
+      className={`size-10 ${look}`}
       strokeWidth={Icon === ChartNoAxesColumnIncreasing ? 3.5 : 1.5}
     />
   );
@@ -347,19 +387,31 @@ const DETAILED = new Set<LucideIcon>([
   BriefcaseBusiness,
   Building2,
   Calculator,
+  CalendarDays,
   FileText,
   IdCard,
+  MapPin,
   MessageSquareMore,
   ReceiptText,
+  Settings,
 ]);
+const OUTLINE = new Set<LucideIcon>([CloudUpload, Paperclip]);
 
-/** A panel's one field named like the panel: its help line serves as the panel's subtitle. */
-function soleHelp(section: IntakeSection, visible: (key: string) => boolean, fill: Fill) {
+/**
+ * A panel's one field named like the panel (or quiet by its look): its help line serves as the
+ * panel's subtitle.
+ */
+function soleHelp(
+  section: IntakeSection,
+  panel: PanelLook | undefined,
+  visible: (key: string) => boolean,
+  fill: Fill,
+) {
   const fields = section.fields.filter((f) => visible(f.key));
   const only = fields.length === 1 ? fields[0]! : undefined;
-  return only && 'help' in only && only.help && fill(only.label) === fill(section.title)
-    ? only.help
-    : undefined;
+  const quiet =
+    only && (fill(only.label) === fill(section.title) || panel?.quiet?.includes(only.key));
+  return only && quiet && 'help' in only && only.help ? only.help : undefined;
 }
 
 /** A bar's one field: its label is the bar's subtitle. */
