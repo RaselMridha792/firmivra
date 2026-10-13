@@ -355,7 +355,9 @@ export function IntakeStepper({
           <span className={`px-1 ${skipped ? 'font-normal text-muted line-through' : ''}`}>
             {label}
           </span>
-          {hint && !skipped && <span className="px-1 text-xs font-normal">{hint}</span>}
+          {hint && !skipped && (
+            <span className="hidden px-1 text-xs font-normal sm:block">{hint}</span>
+          )}
           {skipped && <span className="text-xs text-muted">Not needed</span>}
         </li>
       ))}
