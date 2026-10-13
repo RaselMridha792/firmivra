@@ -121,13 +121,13 @@ for (const f of FORMS) {
       }
     }
 
-    // The review: a card per panel with Edit (each earlier step has at least one), then the review
-    // step's own fields and the agreement.
+    // The review: each earlier step reachable from it (Edit on its answers, or Replace on a
+    // file it uploaded), then the review step's own fields and the agreement.
     const review = page.getByTestId('intake-review');
     await expect(review).toBeVisible();
-    expect(await review.getByRole('button', { name: /^Edit / }).count()).toBeGreaterThanOrEqual(
-      f.steps.length - 1,
-    );
+    expect(
+      await review.getByRole('button', { name: /^(Edit|Replace) / }).count(),
+    ).toBeGreaterThanOrEqual(f.steps.length - 1);
     await expect(review).not.toContainText('123456789');
     await page.screenshot({ path: test.info().outputPath(`${f.path}-review.png`), fullPage: true });
 
@@ -221,6 +221,8 @@ test('leaving and reopening a form loads the saved answers, not the first ones',
   await page.getByLabel('Last Name *').fill('Example');
   await page.getByLabel('Email Address *').fill('avery@example.test');
   await page.getByRole('button', { name: 'Start My Form' }).click();
+  // As start() does: the steps are on screen before anything is filled.
+  await expect(current(page)).toContainText(/./);
   const first = form(page).locator('form input[data-type="text"]:visible').first();
   await fillStep(page);
   await first.fill('Saved Name');
