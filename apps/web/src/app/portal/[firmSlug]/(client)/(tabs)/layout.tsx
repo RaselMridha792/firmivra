@@ -42,7 +42,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
         />
         <nav
           aria-label="Portal folders"
-          className="flex overflow-x-auto gap-1 border-b border-folder-border"
+          className="grid grid-cols-2 gap-1 border-b border-folder-border md:grid-cols-3 xl:grid-cols-6"
         >
           {tabs.map(([label, path]) => {
             const href = `/${firmSlug}/${path}`;
@@ -59,7 +59,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
                 key={path}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className={`min-w-32 flex-1 cursor-pointer rounded-t-card px-3 py-4 text-center text-sm ${tabClassName}`}
+                className={`min-w-0 cursor-pointer rounded-t-card px-3 py-4 text-center text-sm ${tabClassName}`}
               >
                 {label}
               </Link>

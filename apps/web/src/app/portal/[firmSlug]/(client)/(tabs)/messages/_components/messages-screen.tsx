@@ -45,13 +45,15 @@ export function MessagesScreen() {
       id: 'subject',
       label: 'Subject',
       cell: (t) => (
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 items-center gap-2">
           {t.from === 'FIRM' ? (
             <Mail aria-hidden className="size-5 shrink-0 text-firm-primary" />
           ) : (
             <Send aria-hidden className="size-5 shrink-0 text-firm-primary" />
           )}
-          <span className={t.unreadCount > 0 ? 'font-bold text-heading' : 'text-heading'}>
+          <span
+            className={`min-w-0 break-words ${t.unreadCount > 0 ? 'font-bold text-heading' : 'text-heading'}`}
+          >
             {t.subject}
           </span>
         </span>
@@ -75,7 +77,7 @@ export function MessagesScreen() {
           ) : null}
           <Button
             variant="ghost"
-            className="text-firm-primary! underline hover:bg-folder-surface! enabled:cursor-pointer"
+            className="w-full text-firm-primary! underline hover:bg-folder-surface! enabled:cursor-pointer xl:w-auto"
             onClick={() => setOpenId(t.id)}
             aria-label={`View ${t.subject}`}
           >
@@ -88,19 +90,22 @@ export function MessagesScreen() {
   return (
     <div className={`${styles.messagesPage} grid min-w-0 grid-cols-1 gap-4`}>
       <div className="grid min-w-0 grid-cols-1 gap-4 rounded-card bg-surface p-4 md:p-6">
-        <header className="flex flex-col gap-4 md:flex-row md:items-start">
+        <header className="grid grid-cols-1 gap-4 sm:grid-cols-12 sm:items-start">
           <MessageSquareText
             aria-hidden
-            className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-primary"
+            className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-primary sm:col-span-2 xl:col-span-1"
           />
-          <div className="flex-1">
+          <div className="min-w-0 sm:col-span-10 xl:col-span-8">
             <h1 className="font-display text-3xl font-bold text-heading">Messages and Notes</h1>
             <p className="text-text">
               Send messages to our team and view all conversations in one place. Keep track of
               important updates, questions, and next steps.
             </p>
           </div>
-          <Button className={sidebarBlueButton} onClick={() => setComposing(true)}>
+          <Button
+            className={`${sidebarBlueButton} whitespace-nowrap sm:col-span-12 xl:col-span-3`}
+            onClick={() => setComposing(true)}
+          >
             Send a Message <ArrowRight aria-hidden className="size-5" />
           </Button>
         </header>
@@ -130,15 +135,30 @@ export function MessagesScreen() {
         </div>
         <PageState query={list}>
           {(data) => (
-            <Table
-              caption="Messages"
-              rows={data.items}
-              columns={columns}
-              rowKey={(t) => t.id}
-              pageSize={10}
-              emptyTitle="No messages"
-              emptyText="Conversations with your firm will appear here."
-            />
+            <div
+              data-testid="portal-messages-list"
+              className="[&_table]:block [&_thead]:hidden [&_tbody]:grid [&_tbody]:gap-3 [&_tbody_tr]:grid [&_tbody_tr]:grid-cols-1 [&_tbody_tr]:rounded-card [&_td]:block [&_td]:px-3 [&_td]:py-2 [&>div>div:last-child]:gap-2 [&>div>div:last-child]:text-xs xl:[&_table]:table xl:[&_thead]:table-header-group xl:[&_tbody]:table-row-group xl:[&_tbody_tr]:table-row xl:[&_td]:table-cell xl:[&_td]:px-4 xl:[&_td]:py-3"
+            >
+              <Table<MyMessageThread>
+                caption="Messages"
+                rows={data.items}
+                columns={columns.map((column) => ({
+                  ...column,
+                  cell: (thread) => (
+                    <div className="min-w-0 break-words">
+                      <span className="mb-1 block text-xs text-muted xl:hidden">
+                        {column.label}
+                      </span>
+                      {column.cell(thread)}
+                    </div>
+                  ),
+                }))}
+                rowKey={(t) => t.id}
+                pageSize={10}
+                emptyTitle="No messages"
+                emptyText="Conversations with your firm will appear here."
+              />
+            </div>
           )}
         </PageState>
       </div>
