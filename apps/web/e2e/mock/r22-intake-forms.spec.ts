@@ -84,6 +84,8 @@ async function fillStep(page: Page) {
       if ((await slot.getByRole('listitem').count()) > 0) continue;
       await slot.locator('input[type=file]').setInputFiles(PDF);
       await expect(slot.getByRole('listitem').first()).toBeVisible();
+      // Continue counts only finished uploads: wait until this one is in the slot's list.
+      await expect(slot.getByText('Uploading…')).toHaveCount(0);
     }
     // Single required tick boxes (certifications), not "I don't have this document".
     for (const box of await root.getByRole('checkbox', { name: /\*$/ }).all()) {
