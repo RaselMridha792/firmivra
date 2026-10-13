@@ -51,6 +51,8 @@ export interface RowsLook {
   uploadWide?: string[];
   /** Tick boxes drawn as a red-edged box ("I don't have my inventory organized yet."). */
   alerts?: string[];
+  /** Uploads drawn as a "+ Upload ..." button with their help under it. */
+  uploadButtons?: string[];
   /** A group: a lone row without its "Business 1" heading box (rows get one from the second). */
   bare?: boolean;
 }
@@ -96,6 +98,8 @@ export interface PanelLook extends RowsLook {
   iconTone?: 'heading' | 'danger';
   /** The badge circle navy with a white icon (otherwise the accent). */
   badgeDark?: boolean;
+  /** The icon before the title in a pale circle, in the heading's navy. */
+  iconCircle?: boolean;
   /** A group field's rows, by the group's key. */
   groups?: Record<string, RowsLook>;
 }
@@ -116,6 +120,8 @@ export interface ReviewLook {
   notes?: Record<string, string>;
   /** Steps the review leaves out (their files are listed on their own). */
   skipSteps?: string[];
+  /** The rows by sections instead of by step: each row's title and the sections it holds. */
+  rows?: { title: string; sections: string[] }[];
   /** The review's own panels' titles, numbered with the agreement's (Bookkeeping). */
   titles?: { answers: string; answersNote: string; files?: string; filesNote?: string };
   /** The cards' icons, by step key. */
@@ -143,6 +149,12 @@ export interface FormLook {
   banners?: string[];
   /** The agreement panel's title ("4. Review & Sign Our Agreement"). */
   agreementTitle?: string;
+  /** The words before "Intake Form" as a spaced eyebrow over it ("· PAYROLL SERVICES ·"). */
+  eyebrow?: boolean;
+  /** A second line under the form's subtitle, as its mockup has it. */
+  tagline?: string;
+  /** No panel numbers at all. */
+  unnumbered?: boolean;
 }
 
 export const NO_LOOK: FormLook = { panels: {} };

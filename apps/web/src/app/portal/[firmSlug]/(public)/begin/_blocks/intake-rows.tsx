@@ -36,6 +36,8 @@ export interface FieldLook {
   uploadWide?: boolean;
   /** A tick box in a red-edged box. */
   alert?: boolean;
+  /** An upload as a "+ Upload ..." button. */
+  uploadButton?: boolean;
 }
 
 export type Unit =
@@ -190,6 +192,7 @@ function UnitCell({
     ...(look.uploadCards?.[f.key] ? { uploadCard: look.uploadCards[f.key] } : {}),
     ...(look.uploadWide?.includes(f.key) ? { uploadWide: true } : {}),
     ...(look.alerts?.includes(f.key) ? { alert: true } : {}),
+    ...(look.uploadButtons?.includes(f.key) ? { uploadButton: true } : {}),
   });
 }
 

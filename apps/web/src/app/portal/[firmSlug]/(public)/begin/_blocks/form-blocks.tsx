@@ -22,6 +22,7 @@ export function SectionPanel({
   tone,
   numberInTitle = false,
   badgeDark = false,
+  compact = false,
   children,
   className = '',
 }: {
@@ -47,6 +48,8 @@ export function SectionPanel({
   numberInTitle?: boolean | undefined;
   /** A navy badge circle with a white icon. */
   badgeDark?: boolean | undefined;
+  /** A smaller title (a panel in a column of three). */
+  compact?: boolean | undefined;
   children: ReactNode;
   className?: string;
 }) {
@@ -86,7 +89,7 @@ export function SectionPanel({
         <div className="min-w-0 flex-1">
           <h2
             id={titleId}
-            className={`font-display leading-tight font-bold text-heading ${bar ? 'text-base' : size === 'intro' || plain ? 'text-3xl' : numberInTitle ? 'text-lg' : 'text-xl'}`}
+            className={`font-display leading-tight font-bold text-heading ${bar ? 'text-base' : size === 'intro' || plain ? 'text-3xl' : numberInTitle || compact ? 'text-lg' : 'text-xl'}`}
           >
             {number !== undefined && (numberInTitle || plain) && `${number}. `}
             {bracket ? (
