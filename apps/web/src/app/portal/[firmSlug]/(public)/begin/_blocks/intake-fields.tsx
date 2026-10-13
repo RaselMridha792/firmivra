@@ -7,9 +7,10 @@ import {
   US_STATES,
 } from '@firmivra/types';
 import { Button, Checkbox, Input, Radio, Select } from '@firmivra/ui';
-import { CircleCheck, Info } from 'lucide-react';
+import { CircleCheck, Info, type LucideIcon } from 'lucide-react';
 import { useId } from 'react';
 import { compactInput, MaskedInput } from './form-blocks';
+import type { FieldLook } from './intake-rows';
 import { isMasked, type ScreenScalar } from './intake-values';
 
 // One input per scalar field type of an intake definition (packages/types/src/intake/definition.ts).
@@ -19,8 +20,23 @@ export type Fill = (text: string) => string;
 
 const STATE_OPTIONS = Object.entries(US_STATES).map(([value, label]) => ({ value, label }));
 
+// A no-break space before the star, so it never wraps onto a line of its own.
+const NBSP_STAR = `${String.fromCharCode(0xa0)}*`;
 export const labelOf = (f: { label: string; required: boolean }, fill: Fill) =>
-  `${fill(f.label)}${f.required ? ' *' : ''}`;
+  `${fill(f.label)}${f.required ? NBSP_STAR : ''}`;
+
+/** "Title (if applicable) *" → the title, and its last bracket (with any star) to set smaller. */
+export function splitBracket(text: string): [string, string] {
+  const m = /^(.*\S)\s+(\([^()]*\)(?:\s\*)?)$/.exec(text);
+  return m ? [m[1]!, m[2]!] : [text, ''];
+}
+
+/** What a field shows when its definition has no placeholder, as the mockups fill them. */
+const PLACEHOLDERS: Partial<Record<IntakeScalarField['type'], string>> = {
+  email: 'you@example.com',
+  phone: '(   )     -',
+  url: 'https://www.yourwebsite.com',
+};
 
 function ErrorText({ id, error }: { id: string; error?: string | undefined }) {
   return error ? (
@@ -45,6 +61,8 @@ function OptionList({
   cards,
   selectAll,
   inline,
+  row,
+  box: BoxIcon,
 }: {
   name: string;
   label: string;
@@ -55,7 +73,12 @@ function OptionList({
   error?: string | undefined;
   cards?: boolean;
   selectAll?: string | undefined;
+  /** Yes/No: the two answers set wide apart on one line. */
   inline?: boolean;
+  /** The question and its answers on one line (a list of Yes/No questions). */
+  row?: boolean | undefined;
+  /** A tinted box with this icon and the label as its heading. */
+  box?: LucideIcon | undefined;
 }) {
   const id = useId();
   const chosen = Array.isArray(value) ? value : typeof value === 'string' && value ? [value] : [];
@@ -64,13 +87,34 @@ function OptionList({
       multiple ? (on ? [...chosen, code] : chosen.filter((c) => c !== code)) : on ? code : '',
     );
   const many = options.length > 6;
+  const [main, bracket] = splitBracket(label);
+  const choice = `gap-2! text-xs! ${row ? 'sm:min-h-5!' : 'sm:min-h-6!'}`;
   return (
     <fieldset
       aria-invalid={error ? true : undefined}
       aria-describedby={error ? `${id}-error` : undefined}
-      className="min-w-0"
+      className={`min-w-0 ${row ? 'flex flex-wrap items-center gap-x-3' : ''} ${BoxIcon ? 'rounded-control bg-accent-soft p-3' : ''}`}
     >
-      <legend className="mb-1 text-xs font-medium text-firm-primary">{label}</legend>
+      {BoxIcon ? (
+        <legend className="float-left mb-2 flex w-full items-center gap-2">
+          <BoxIcon aria-hidden="true" className="size-7 shrink-0 text-accent" />
+          <span>
+            <span className="font-display text-lg leading-tight font-bold text-heading">
+              {main}
+            </span>{' '}
+            {bracket && <span className="text-xs text-firm-primary">{bracket}</span>}
+          </span>
+        </legend>
+      ) : (
+        <legend className={row ? 'sr-only' : 'mb-1 text-xs font-medium text-firm-primary'}>
+          {label}
+        </legend>
+      )}
+      {row && (
+        <span aria-hidden="true" className="min-w-0 flex-1 text-xs text-firm-primary">
+          {label}
+        </span>
+      )}
       {multiple && selectAll && (
         <Checkbox
           name={`${name}-all`}
@@ -125,11 +169,13 @@ function OptionList({
       ) : (
         <div
           className={
-            inline
-              ? 'flex flex-wrap gap-x-4'
-              : many
-                ? 'grid gap-x-4 sm:grid-cols-2'
-                : 'flex flex-wrap gap-x-4'
+            row
+              ? 'flex shrink-0 gap-x-6'
+              : inline
+                ? 'flex flex-wrap gap-x-12'
+                : many || BoxIcon
+                  ? 'clear-both grid gap-x-4 sm:grid-cols-2'
+                  : 'flex flex-wrap gap-x-6'
           }
         >
           {options.map((o) =>
@@ -138,7 +184,7 @@ function OptionList({
                 key={o.value}
                 name={name}
                 label={o.label}
-                className="gap-2! text-xs! sm:min-h-6!"
+                className={choice}
                 checked={chosen.includes(o.value)}
                 onChange={(event) => toggle(o.value, event.target.checked)}
               />
@@ -147,7 +193,7 @@ function OptionList({
                 key={o.value}
                 name={name}
                 label={o.label}
-                className="gap-2! text-xs! sm:min-h-6!"
+                className={choice}
                 checked={chosen.includes(o.value)}
                 onChange={() => toggle(o.value, true)}
               />
@@ -215,6 +261,7 @@ export function ScalarInput({
   error,
   fill,
   name,
+  look = {},
 }: {
   field: IntakeScalarField;
   value: ScreenScalar;
@@ -223,9 +270,14 @@ export function ScalarInput({
   fill: Fill;
   /** A unique name for radios and checkboxes (group rows pass one per row). */
   name: string;
+  /** How its mockup draws it (intake-rows). */
+  look?: FieldLook;
 }) {
-  const label = labelOf(field, fill);
-  const placeholder = field.placeholder ? fill(field.placeholder) : undefined;
+  const label = look.label
+    ? labelOf({ label: look.label, required: field.required }, (t) => t)
+    : labelOf(field, fill);
+  const placeholder =
+    look.placeholder ?? (field.placeholder ? fill(field.placeholder) : PLACEHOLDERS[field.type]);
   const text = typeof value === 'string' ? value : '';
   const common = {
     label,
@@ -235,6 +287,8 @@ export function ScalarInput({
     'data-field': field.key,
     'data-type': field.type,
   };
+  // The label only for screen readers, or on the left of the input, as the mockup draws it.
+  const wrap = `min-w-0 [&_label]:text-xs [&_label]:text-firm-primary ${look.quiet ? '[&_label]:sr-only' : ''} ${look.inline ? 'sm:[&>div]:flex-row sm:[&>div]:items-center sm:[&>div]:gap-3 [&_input]:flex-1 [&_label]:shrink-0' : ''}`;
   const help = field.help ? <Help text={fill(field.help)} /> : null;
   switch (field.type) {
     case 'text':
@@ -261,7 +315,7 @@ export function ScalarInput({
                   : 'text';
       const numeric = ['year', 'number', 'currency', 'zip'].includes(field.type);
       return (
-        <div className="min-w-0 [&_label]:text-xs [&_label]:text-firm-primary">
+        <div className={wrap}>
           <Input
             {...common}
             type={type}
@@ -280,6 +334,7 @@ export function ScalarInput({
         <TextareaInput
           field={field}
           label={label}
+          look={look}
           value={text}
           onChange={onChange}
           error={error}
@@ -290,7 +345,7 @@ export function ScalarInput({
     case 'ssn':
     case 'ein':
       return (
-        <div className="min-w-0">
+        <div className={wrap}>
           <MaskedNumberInput
             field={field}
             label={label}
@@ -311,13 +366,13 @@ export function ScalarInput({
           error={error}
         />
       ) : (
-        <div className="min-w-0 [&_label]:text-xs [&_label]:text-firm-primary">
+        <div className={wrap}>
           <Select
             label={label}
             error={error}
             className={compactInput}
             data-field={field.key}
-            options={[{ value: '', label: 'Select a state' }, ...STATE_OPTIONS]}
+            options={[{ value: '', label: look.placeholder ?? 'Select a state' }, ...STATE_OPTIONS]}
             value={text}
             onChange={(event) => onChange(event.target.value)}
           />
@@ -325,7 +380,7 @@ export function ScalarInput({
       );
     case 'select':
       return (
-        <div className="min-w-0 [&_label]:text-xs [&_label]:text-firm-primary">
+        <div className={wrap}>
           <Select
             label={label}
             error={error}
@@ -353,6 +408,7 @@ export function ScalarInput({
             ]}
             multiple={false}
             inline
+            row={look.row}
             value={value === true ? 'YES' : value === false ? 'NO' : ''}
             onChange={(v) => onChange(v === 'YES' ? true : v === 'NO' ? false : null)}
             error={error}
@@ -384,6 +440,7 @@ export function ScalarInput({
             options={field.options}
             multiple={false}
             cards={field.display === 'cards'}
+            box={look.box}
             value={value}
             onChange={onChange}
             error={error}
@@ -400,6 +457,7 @@ export function ScalarInput({
             options={field.options}
             multiple
             cards={field.display === 'cards'}
+            box={look.box}
             selectAll={field.selectAll ? fill(field.selectAll) : undefined}
             value={value}
             onChange={onChange}
@@ -414,6 +472,7 @@ export function ScalarInput({
 function TextareaInput({
   field,
   label,
+  look,
   value,
   onChange,
   error,
@@ -421,6 +480,7 @@ function TextareaInput({
 }: {
   field: Extract<IntakeScalarField, { type: 'textarea' }>;
   label: string;
+  look: FieldLook;
   value: string;
   onChange: (value: string) => void;
   error?: string | undefined;
@@ -428,23 +488,32 @@ function TextareaInput({
 }) {
   const id = useId();
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={id} className="text-xs font-medium text-firm-primary">
+    <div
+      className={`flex min-w-0 flex-col gap-1 ${look.inline ? 'sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3' : ''}`}
+    >
+      <label
+        htmlFor={id}
+        className={`text-xs font-medium text-firm-primary ${look.quiet ? 'sr-only' : ''} ${look.inline ? 'sm:shrink-0' : ''}`}
+      >
         {label}
       </label>
       <textarea
         id={id}
         data-field={field.key}
-        rows={3}
+        rows={look.inline ? 1 : 3}
         maxLength={field.maxLength}
         placeholder={field.placeholder ? fill(field.placeholder) : undefined}
         aria-invalid={error ? true : undefined}
         aria-describedby={`${id}-count${error ? ` ${id}-error` : ''}`}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className={`rounded-control border bg-surface px-2 py-1 text-xs text-text placeholder:text-muted focus:outline-2 focus:outline-accent-500 ${error ? 'border-danger' : 'border-border'}`}
+        className={`rounded-control border bg-surface px-2 py-1 text-xs text-text placeholder:text-muted focus:outline-2 focus:outline-accent-500 ${look.inline ? 'sm:min-w-0 sm:flex-1' : ''} ${error ? 'border-danger' : 'border-border'}`}
       />
-      <p id={`${id}-count`} className="text-right text-xs text-muted">
+      {/* The count shows once something is typed (the mockups' empty fields have none). */}
+      <p
+        id={`${id}-count`}
+        className={`text-right text-xs text-muted ${value ? (look.inline ? 'sm:w-full' : '') : 'sr-only'}`}
+      >
         {value.length.toLocaleString('en-US')}/{field.maxLength.toLocaleString('en-US')}
       </p>
       {field.help && <Help text={fill(field.help)} />}
