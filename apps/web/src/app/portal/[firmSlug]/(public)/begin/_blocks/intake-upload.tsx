@@ -9,7 +9,7 @@ import {
   UPLOAD_LIMITS,
 } from '@firmivra/types';
 import { Button, Checkbox } from '@firmivra/ui';
-import { CloudUpload, FileText, LoaderCircle, X } from 'lucide-react';
+import { CloudUpload, FileText, LoaderCircle, type LucideIcon, Upload, X } from 'lucide-react';
 import { useId, useState } from 'react';
 import { errorMessage } from '../../../../../../lib/errors';
 import type { Fill } from './intake-fields';
@@ -45,6 +45,8 @@ export function UploadInput({
   tile = false,
   quiet = false,
   chooser = false,
+  card: CardIcon,
+  wideCard = false,
 }: {
   field: IntakeUploadField;
   value: ScreenUpload;
@@ -56,6 +58,10 @@ export function UploadInput({
   quiet?: boolean;
   /** The zone as "Drag and drop your files here / or / Choose Files" with the file types. */
   chooser?: boolean;
+  /** A card: this icon in a circle beside the title and help, the zone under them. */
+  card?: LucideIcon | undefined;
+  /** The card wide and warm: the title and help left, the zone right. */
+  wideCard?: boolean;
 }) {
   const id = useId();
   const [busy, setBusy] = useState(0);
@@ -87,15 +93,36 @@ export function UploadInput({
 
   return (
     <div
-      className={`min-w-0 space-y-2 ${tile ? 'h-full rounded-control border border-folder-border p-2' : ''}`}
+      className={`min-w-0 space-y-2 ${tile ? 'h-full rounded-control border border-folder-border p-2' : ''} ${CardIcon ? `h-full rounded-card border p-3 ${wideCard ? 'border-accent bg-accent-soft md:grid md:grid-cols-2 md:items-center md:gap-4 md:space-y-0' : 'border-folder-border bg-surface'}` : ''}`}
       data-slot={field.key}
     >
-      <div className={quiet ? 'sr-only' : tile ? 'min-h-8' : ''}>
-        <p id={`${id}-label`} className="text-xs font-semibold text-heading">
-          {label}
-        </p>
-        {field.help && <p className="text-xs text-firm-primary">{fill(field.help)}</p>}
-      </div>
+      {CardIcon ? (
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className={`grid size-16 shrink-0 place-items-center rounded-full text-heading ${wideCard ? 'bg-accent-soft' : 'bg-folder-surface'}`}
+          >
+            <CardIcon className="size-9" />
+          </span>
+          <div className="min-w-0">
+            <p
+              id={`${id}-label`}
+              className="font-display text-lg leading-tight font-bold text-info"
+            >
+              {fill(field.label)}
+              {field.required && <span className="text-danger">{'\u00a0*'}</span>}
+            </p>
+            {field.help && <p className="mt-1 text-sm text-text">{fill(field.help)}</p>}
+          </div>
+        </div>
+      ) : (
+        <div className={quiet ? 'sr-only' : tile ? 'min-h-8' : ''}>
+          <p id={`${id}-label`} className="text-xs font-semibold text-heading">
+            {label}
+          </p>
+          {field.help && <p className="text-xs text-firm-primary">{fill(field.help)}</p>}
+        </div>
+      )}
       <div className={`grid gap-3 ${field.examples?.length && !tile ? 'md:grid-cols-2' : ''}`}>
         {/* The whole zone opens the file chooser; the file input inside stays keyboard-reachable. */}
         <label
@@ -110,9 +137,17 @@ export function UploadInput({
             setDragging(false);
             void send(Array.from(event.dataTransfer.files));
           }}
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-control border border-dashed text-center text-xs has-focus-visible:outline-2 has-focus-visible:outline-focus ${tile ? 'p-2' : 'min-h-28 p-3'} ${dragging ? 'border-heading bg-folder-surface' : error ? 'border-danger' : 'border-heading'}`}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-control border border-dashed text-center text-xs has-focus-visible:outline-2 has-focus-visible:outline-focus ${tile ? 'p-2' : 'min-h-28 p-3'} ${CardIcon ? 'bg-surface' : ''} ${dragging ? 'border-heading bg-folder-surface' : error ? 'border-danger' : CardIcon ? 'border-info' : 'border-heading'}`}
         >
-          {chooser ? (
+          {CardIcon ? (
+            <>
+              <Upload aria-hidden="true" className="size-8 text-heading" />
+              <span className="mt-1 text-sm">
+                <span className="font-semibold text-info">Click to upload</span> or drag and drop
+              </span>
+              <span className="text-text">{UPLOAD_LIMITS.typeNames} (Max 10 MB)</span>
+            </>
+          ) : chooser ? (
             <>
               <span className="flex items-center gap-4">
                 <CloudUpload aria-hidden="true" className="size-12 text-heading" />
