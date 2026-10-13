@@ -32,7 +32,7 @@ export function CalendarToolbar({
   onNew: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-3 rounded-card border border-border bg-surface p-4">
+    <div className="flex min-w-0 flex-wrap items-end justify-between gap-3 rounded-card border border-border bg-surface p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" onClick={() => onMove(-1)} aria-label={`Previous ${view}`}>
           <ChevronLeft aria-hidden className="size-4" />
@@ -47,7 +47,7 @@ export function CalendarToolbar({
           {label}
         </p>
       </div>
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex min-w-0 max-w-full flex-wrap items-end gap-3">
         <div role="group" aria-label="View" className="flex gap-1">
           {(['day', 'week'] as const).map((option) => (
             <Button

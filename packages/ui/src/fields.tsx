@@ -21,7 +21,7 @@ export function Select({ label, options, error, id, className = '', ...props }: 
           id={fieldId}
           aria-invalid={!!error}
           aria-describedby={error ? `${fieldId}-error` : undefined}
-          className={`w-full appearance-none rounded-control border bg-surface py-2 pl-3 pr-10 text-base text-text focus:outline-2 focus:outline-accent-500 disabled:bg-disabled ${error ? 'border-danger' : 'border-border'} ${className}`}
+          className={`min-w-0 w-full max-w-full appearance-none rounded-control border bg-surface py-2 pl-3 pr-10 text-base text-text focus:outline-2 focus:outline-accent-500 disabled:bg-disabled ${error ? 'border-danger' : 'border-border'} ${className}`}
           {...props}
         >
           {options.map((o) => (

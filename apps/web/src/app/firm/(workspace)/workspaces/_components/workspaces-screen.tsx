@@ -94,7 +94,7 @@ export function WorkspacesScreen() {
       >
         {(data) => (
           <>
-            <div className="space-y-4 md:hidden" data-testid="workspace-cards">
+            <div className="space-y-4 xl:hidden" data-testid="workspace-cards">
               {data.items.map((row) => (
                 <Card key={row.engagementId} className="space-y-3">
                   {link(row)}
@@ -108,7 +108,7 @@ export function WorkspacesScreen() {
               ))}
             </div>
             <div
-              className="hidden md:block [&_table]:table-fixed [&_td]:wrap-anywhere [&_td]:px-2 [&_th]:px-2"
+              className="hidden xl:block [&_table]:table-fixed [&_td]:wrap-anywhere [&_td]:px-2 [&_th]:px-2"
               data-testid="workspace-table"
             >
               <Table
@@ -128,7 +128,7 @@ export function WorkspacesScreen() {
                 }}
               />
             </div>
-            <nav aria-label="Workspace pages" className="grid grid-cols-2 gap-3 md:hidden">
+            <nav aria-label="Workspace pages" className="grid grid-cols-2 gap-3 xl:hidden">
               <Button
                 variant="secondary"
                 disabled={cursors.length === 1}

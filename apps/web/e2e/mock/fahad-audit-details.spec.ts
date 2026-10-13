@@ -5,7 +5,7 @@ for (const width of [375, 390, 768, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto(`http://app.localhost:${port}/audit-log`);
     const entries =
-      width < 768
+      width < 1280
         ? page.getByTestId('audit-mobile-entry')
         : page.getByRole('table', { name: 'Audit log' }).locator('tbody tr');
     await expect(entries).toHaveCount(6);
@@ -13,7 +13,7 @@ for (const width of [375, 390, 768, 1440]) {
     await first.getByText('Details', { exact: true }).click();
     const details = first.getByTestId('audit-details');
     await expect(details.locator('dd').last()).toHaveText('mock-request-1');
-    if (width < 768) {
+    if (width < 1280) {
       for (const value of await details.locator('dt, dd').all()) {
         const box = await value.boundingBox();
         expect(box!.x + box!.width).toBeLessThanOrEqual(width);

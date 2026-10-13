@@ -42,7 +42,7 @@ export function LeadsScreen() {
         </h1>
         <p className="text-sm text-muted">Begin Online submissions, newest first.</p>
       </div>
-      <div className="w-full sm:max-w-xs">
+      <div className="min-w-0 w-full max-w-full sm:max-w-xs">
         <Select
           label="Filter by status"
           value={status}

@@ -47,7 +47,7 @@ export function TeamScreen() {
     !member.isYou && (role === 'OWNER' || (role === 'ADMIN' && member.role === 'STAFF'));
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-4">
       <div>
         <h1 data-testid="page-title" className="text-2xl font-semibold text-text">
           Team
@@ -81,7 +81,7 @@ export function TeamScreen() {
                   </span>
                   <span className="block break-all text-sm text-muted">{member.user.email}</span>
                 </span>
-                <span className="flex flex-wrap items-center gap-2">
+                <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
                   {role === 'OWNER' && !member.isYou && member.status === 'ACTIVE' ? (
                     <Select
                       label="Role"
