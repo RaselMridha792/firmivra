@@ -10,7 +10,7 @@ import {
 } from '@firmivra/types';
 import { Button, Checkbox } from '@firmivra/ui';
 import { CloudUpload, FileText, LoaderCircle, X } from 'lucide-react';
-import { useId, useRef, useState } from 'react';
+import { useId, useState } from 'react';
 import { errorMessage } from '../../../../../../lib/errors';
 import type { Fill } from './intake-fields';
 import { issueKey, type ScreenUpload } from './intake-values';
@@ -31,7 +31,9 @@ const STATUS_TEXT: Record<IntakeUpload['status'], string> = {
 
 /**
  * An upload field: a drop zone that sends each file at once (the draft keeps it), the slot's
- * files with Remove, an examples list, and "I don't have this document" with its reason.
+ * files with Remove, an examples list, and "I don't have this document" with its reason. As a
+ * `tile` it is one narrow box of a row of them; `quiet` leaves the label (and the help, which its
+ * panel shows) to screen readers.
  */
 export function UploadInput({
   field,
@@ -40,6 +42,8 @@ export function UploadInput({
   errors,
   fill,
   actions,
+  tile = false,
+  quiet = false,
 }: {
   field: IntakeUploadField;
   value: ScreenUpload;
@@ -47,9 +51,10 @@ export function UploadInput({
   errors: Readonly<Record<string, string>>;
   fill: Fill;
   actions: UploadActions;
+  tile?: boolean;
+  quiet?: boolean;
 }) {
   const id = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(0);
   const [failure, setFailure] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -78,13 +83,20 @@ export function UploadInput({
   }
 
   return (
-    <div className="min-w-0 space-y-2" data-slot={field.key}>
-      <p id={`${id}-label`} className="text-xs font-semibold text-heading">
-        {label}
-      </p>
-      {field.help && <p className="text-xs text-muted">{fill(field.help)}</p>}
-      <div className="grid gap-2 md:grid-cols-2">
-        <div
+    <div
+      className={`min-w-0 space-y-2 ${tile ? 'h-full rounded-control border border-folder-border p-2' : ''}`}
+      data-slot={field.key}
+    >
+      <div className={quiet ? 'sr-only' : tile ? 'min-h-8' : ''}>
+        <p id={`${id}-label`} className="text-xs font-semibold text-heading">
+          {label}
+        </p>
+        {field.help && <p className="text-xs text-firm-primary">{fill(field.help)}</p>}
+      </div>
+      <div className={`grid gap-3 ${tile ? '' : 'md:grid-cols-2'}`}>
+        {/* The whole zone opens the file chooser; the file input inside stays keyboard-reachable. */}
+        <label
+          title={`${UPLOAD_LIMITS.typeNames}, up to 10 MB each`}
           onDragOver={(event) => {
             event.preventDefault();
             setDragging(true);
@@ -95,17 +107,16 @@ export function UploadInput({
             setDragging(false);
             void send(Array.from(event.dataTransfer.files));
           }}
-          className={`flex flex-col items-center justify-center gap-1 rounded-control border-2 border-dashed p-3 text-center text-xs ${dragging ? 'border-action bg-accent-soft' : error ? 'border-danger' : 'border-folder-border'}`}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-control border border-dashed text-center text-xs has-focus-visible:outline-2 has-focus-visible:outline-focus ${tile ? 'p-2' : 'min-h-28 p-3'} ${dragging ? 'border-action bg-accent-soft' : error ? 'border-danger' : 'border-action'}`}
         >
-          <CloudUpload aria-hidden="true" className="size-8 text-accent" />
-          <p>
-            <strong>Click to upload</strong> or drag and drop
-          </p>
-          <p className="text-muted">
-            {UPLOAD_LIMITS.typeNames}, up to 10 MB each (upload as many as needed)
-          </p>
+          <CloudUpload aria-hidden="true" className="size-8 fill-accent-soft text-action" />
+          <span className={`font-semibold text-link ${tile ? '' : 'text-sm'}`}>
+            Click to upload
+          </span>
+          <span>or drag and drop{tile ? '' : ' files here'}</span>
+          <span>(Upload as many as needed)</span>
+          <span className="sr-only">{UPLOAD_LIMITS.typeNames}, up to 10 MB each</span>
           <input
-            ref={inputRef}
             id={`${id}-file`}
             type="file"
             multiple
@@ -118,23 +129,18 @@ export function UploadInput({
               event.target.value = '';
             }}
           />
-          <Button
-            variant="outline"
-            disabled={files.length >= field.maxFiles}
-            onClick={() => inputRef.current?.click()}
-            className="min-h-7! px-3! py-1! text-xs!"
-          >
-            Choose Files
-          </Button>
-        </div>
+        </label>
         {field.examples && field.examples.length > 0 && (
-          <div className="rounded-control bg-folder-surface p-2 text-xs">
-            <p className="mb-1 font-semibold text-heading">Examples</p>
-            <ul className="grid list-inside list-disc gap-x-3 sm:grid-cols-2">
-              {field.examples.map((example) => (
-                <li key={example}>{fill(example)}</li>
-              ))}
-            </ul>
+          <div className="flex gap-3 rounded-control bg-folder-surface p-3 text-xs">
+            <FileText aria-hidden="true" className="size-8 shrink-0 text-action" />
+            <div className="min-w-0 flex-1">
+              <p className="mb-1 font-semibold text-heading">Examples of {fill(field.label)}:</p>
+              <ul className="list-outside list-disc gap-x-6 pl-4 sm:columns-2 [&>li]:break-inside-avoid">
+                {field.examples.map((example) => (
+                  <li key={example}>{fill(example)}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
       </div>
