@@ -13,6 +13,7 @@ import {
   Percent,
   Shield,
   Sprout,
+  SquareCheckBig,
   Utensils,
   Wrench,
   Building2,
@@ -21,6 +22,7 @@ import {
   CalendarDays,
   ChartNoAxesColumnIncreasing,
   CloudUpload,
+  FileSpreadsheet,
   FileText,
   Flag,
   Gem,
@@ -119,14 +121,18 @@ const QUARTERLY_TAX: FormLook = {
     icons: { business: Building2, taxesIncome: ChartNoAxesColumnIncreasing, expenses: FileText },
   },
   stacks: [
-    [
-      ['business', 'quarterly', 'records'],
-      ['ownership', 'industry', 'years', 'additional'],
-    ],
-    [
-      ['filingPeriod', 'grossReceipts', 'priorYear'],
-      ['federalPayments', 'statePayments', 'payrollWages', 'payrollTaxes', 'additionalTax'],
-    ],
+    {
+      columns: [
+        ['business', 'quarterly', 'records'],
+        ['ownership', 'industry', 'years', 'additional'],
+      ],
+    },
+    {
+      columns: [
+        ['filingPeriod', 'grossReceipts', 'priorYear'],
+        ['federalPayments', 'statePayments', 'payrollWages', 'payrollTaxes', 'additionalTax'],
+      ],
+    },
   ],
   panels: {
     // Step 1, Business Information.
@@ -267,6 +273,79 @@ const BOOKKEEPING: FormLook = {
       ],
       noteCards: ['noPasswords'],
       groups: { systems: { table: true } },
+    },
+    // Step 2, Business Background Details: three columns of numbered panels.
+    history: { icon: CalendarDays, iconFirst: true, numberInTitle: true, iconTone: 'heading' },
+    accounts: { icon: Landmark, iconFirst: true, numberInTitle: true, iconTone: 'heading' },
+    receivables: { icon: CreditCard, iconFirst: true, numberInTitle: true, iconTone: 'heading' },
+    payables: { icon: ReceiptText, iconFirst: true, numberInTitle: true, iconTone: 'heading' },
+    people: { icon: Users, iconFirst: true, numberInTitle: true, iconTone: 'heading' },
+    salesTax: { icon: FileText, iconFirst: true, numberInTitle: true, iconTone: 'heading' },
+    inventory: {
+      icon: Package,
+      iconFirst: true,
+      numberInTitle: true,
+      iconTone: 'danger',
+      tone: 'danger',
+      alerts: ['inventoryHelp'],
+    },
+    financing: { icon: FileText, iconFirst: true, numberInTitle: true, iconTone: 'heading' },
+    owner: { icon: User, iconFirst: true, numberInTitle: true, iconTone: 'heading' },
+    openingBalances: {
+      icon: ChartNoAxesColumnIncreasing,
+      iconFirst: true,
+      numberInTitle: true,
+      iconTone: 'heading',
+    },
+    basis: { icon: Calculator, iconFirst: true, numberInTitle: true, iconTone: 'heading' },
+    // Step 3, Document Upload: headings on the page, upload cards two to a row.
+    required: {
+      plain: true,
+      wide: true,
+      lead: 'uploadRules',
+      rows: ['formationDocument einDocument', 'lastYearReturn supportingDocuments'],
+      uploadCards: {
+        formationDocument: FileText,
+        einDocument: IdCard,
+        lastYearReturn: FileSpreadsheet,
+        supportingDocuments: FileText,
+        inventoryRecords: Package,
+      },
+      uploadWide: ['inventoryRecords'],
+    },
+    comments: { plain: true, wide: true, quiet: ['onboardingComments'] },
+    // Step 4, Review & Sign Agreement.
+    confirm: {
+      title: '3. Review & Confirm',
+      noNumber: true,
+      badge: SquareCheckBig,
+      badgeDark: true,
+    },
+  },
+  stacks: [
+    { columns: [['history'], ['accounts'], ['receivables']], stretch: true },
+    { columns: [['payables'], ['people'], ['salesTax']], stretch: true },
+    { columns: [['inventory'], ['financing', 'openingBalances'], ['owner', 'basis']] },
+  ],
+  banners: ['background', 'documents', 'review'],
+  agreementTitle: '4. Review & Sign Our Agreement',
+  review: {
+    collapsed: true,
+    agreementRight: true,
+    skipSteps: ['documents'],
+    titles: {
+      answers: 'Review Your Information',
+      answersNote:
+        'Please review the information you provided. If you need to make changes, click “Edit” in any section.',
+      files: 'Review Your Uploaded Documents',
+      filesNote:
+        'Please confirm that all required documents have been uploaded. You can view or replace any document if needed.',
+    },
+    icons: { business: User, background: Landmark },
+    notes: {
+      business: 'Your name, contact details, business name, EIN, address, and basic information.',
+      background:
+        'Your business operations, accounts, payroll, inventory, tax information, and more.',
     },
   },
 };

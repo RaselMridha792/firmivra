@@ -92,6 +92,32 @@ function FormHeader({
   );
 }
 
+/** A step's navy band: its number in an accent circle, its title and its subtitle. */
+function StepBanner({
+  number,
+  title,
+  subtitle,
+}: {
+  number: number;
+  title: string;
+  subtitle: string | undefined;
+}) {
+  return (
+    <div className="mb-3 flex items-center gap-4 rounded-card bg-navigation px-4 py-3 text-on-action">
+      <span
+        aria-hidden="true"
+        className="grid size-14 shrink-0 place-items-center rounded-full bg-action font-display text-4xl font-bold text-heading"
+      >
+        {number}
+      </span>
+      <div className="min-w-0">
+        <p className="font-display text-2xl leading-tight font-bold sm:text-3xl">{title}</p>
+        {subtitle && <p className="text-sm">{subtitle}</p>}
+      </div>
+    </div>
+  );
+}
+
 /**
  * A Begin Online service page (/{firm}/begin/{service}): the form from its definition. Without a
  * draft in this browser it opens with "Let's get started" (name and email start the draft); then
@@ -161,7 +187,7 @@ const WORDING: Record<
     submit: 'Submit Intake Form',
   },
   BOOKKEEPING: {
-    back: (title) => `Back to ${title}`,
+    back: (title, step) => (step === 1 ? 'Back to Previous Step' : `Back to ${title}`),
     next: (step) =>
       [
         '',
@@ -578,6 +604,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   const words = WORDING[form];
   const look = formLook(form);
   const aside = step.review === true && look.review?.aside === true;
+  const agreementRight = step.review === true && look.review?.agreementRight === true;
   const stepNumber = definition.steps.indexOf(step) + 1;
   const nextWords = typeof words.next === 'string' ? words.next : words.next(stepNumber);
   // The note the mockup sets beside Continue ("Important: ..."), when this step shows it.
@@ -650,6 +677,13 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
           if (target && shown.steps.has(target.key)) void jump(target.key);
         }}
       />
+      {look.banners?.includes(step.key) && (
+        <StepBanner
+          number={stepNumber}
+          title={fill(step.title)}
+          subtitle={step.subtitle ? fill(step.subtitle) : undefined}
+        />
+      )}
       {agreements.data?.ready === false && <UnavailableNote />}
       <form
         ref={formRef}
@@ -676,25 +710,28 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         )}
         {/* The mockup's two columns: the answers left; files, the step's panels and the
             agreement right. Otherwise one after another. */}
-        <div className={aside ? 'grid items-start gap-3 lg:grid-cols-2' : ''}>
+        <div className={aside || agreementRight ? 'grid items-start gap-3 lg:grid-cols-2' : ''}>
           {step.review && (
-            <IntakeReview
-              definition={definition}
-              values={values}
-              shownSteps={shown.steps}
-              shownFields={shown.fields}
-              uploads={uploads}
-              fill={fill}
-              onEdit={(key) => void jump(key)}
-              look={look}
-              heading={
-                look.reviewHeading
-                  ? { number: stepNumber, subtitle: step.subtitle && fill(step.subtitle) }
-                  : undefined
-              }
-            />
+            <div className={agreementRight ? 'grid min-w-0 content-start gap-3' : 'contents'}>
+              <IntakeReview
+                definition={definition}
+                values={values}
+                shownSteps={shown.steps}
+                shownFields={shown.fields}
+                uploads={uploads}
+                fill={fill}
+                onEdit={(key) => void jump(key)}
+                look={look}
+                heading={
+                  look.reviewHeading
+                    ? { number: stepNumber, subtitle: step.subtitle && fill(step.subtitle) }
+                    : undefined
+                }
+              />
+              {agreementRight && <StepSections {...sectionProps} step={rest} look={look} />}
+            </div>
           )}
-          <div className={aside ? 'grid min-w-0 gap-3 [&>*]:mt-0!' : ''}>
+          <div className={aside || agreementRight ? 'grid min-w-0 gap-3 [&>*]:mt-0!' : ''}>
             {aside && (
               <UploadedFiles
                 definition={definition}
@@ -703,9 +740,11 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
                 onEdit={(key) => void jump(key)}
               />
             )}
-            <div className={step.review && !aside ? 'mt-3' : ''}>
-              <StepSections {...sectionProps} step={rest} look={look} />
-            </div>
+            {!agreementRight && (
+              <div className={step.review && !aside ? 'mt-3' : ''}>
+                <StepSections {...sectionProps} step={rest} look={look} />
+              </div>
+            )}
             {aside && (
               <SubmitBand
                 title={fill(step.title)}
@@ -722,6 +761,8 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
                 value={agreement}
                 onChange={setAgreement}
                 error={agreementError}
+                title={look.agreementTitle}
+                stacked={agreementRight}
               />
             )}
           </div>
