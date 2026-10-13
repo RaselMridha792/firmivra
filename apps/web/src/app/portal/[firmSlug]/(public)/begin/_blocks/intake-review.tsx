@@ -8,7 +8,14 @@ import {
   US_STATES,
 } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
-import { CircleCheck, CloudUpload, Pencil } from 'lucide-react';
+import {
+  ChevronDown,
+  CircleCheck,
+  ClipboardList,
+  CloudUpload,
+  FileText,
+  Pencil,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { ReviewCard, ReviewRows, SectionPanel } from './form-blocks';
@@ -244,7 +251,54 @@ export function IntakeReview({
   /** The step's number and subtitle for its "Review Your Information" heading. */
   heading?: { number: number; subtitle: string | undefined } | undefined;
 }) {
-  const steps = definition.steps.filter((s) => !s.review && shownSteps.has(s.key));
+  const steps = definition.steps.filter(
+    (s) => !s.review && shownSteps.has(s.key) && !look.review?.skipSteps?.includes(s.key),
+  );
+  if (look.review?.collapsed) {
+    const titles = look.review.titles;
+    return (
+      <div className="grid content-start gap-3" data-testid="intake-review">
+        <SectionPanel
+          number={titles ? 1 : undefined}
+          numberInTitle
+          title={titles?.answers ?? 'Review Your Information'}
+          subtitle={titles?.answersNote}
+          badge={<ClipboardList className="size-6" />}
+          badgeDark
+        >
+          <div className="grid gap-2">
+            {steps.map((step) => (
+              <StepRow
+                key={step.key}
+                title={fill(step.title)}
+                note={look.review?.notes?.[step.key]}
+                icon={look.review?.icons?.[step.key]}
+                onEdit={() => onEdit(step.key)}
+                rows={lineRows(
+                  step.sections.flatMap((s) =>
+                    s.fields.filter((f) => f.type !== 'info' && shownFields.has(f.key)),
+                  ),
+                  values,
+                  fill,
+                  uploads,
+                )}
+              />
+            ))}
+          </div>
+        </SectionPanel>
+        {titles?.files && (
+          <FileRows
+            definition={definition}
+            uploads={uploads}
+            fill={fill}
+            onEdit={onEdit}
+            title={titles.files}
+            note={titles.filesNote}
+          />
+        )}
+      </div>
+    );
+  }
   if (look.review?.byStep) {
     return (
       <div className="grid content-start gap-3" data-testid="intake-review">
@@ -525,5 +579,125 @@ export function SubmitBand({ title, subtitle }: { title: string; subtitle: strin
       </p>
       {subtitle && <p className="mt-2 px-3 text-sm text-firm-primary">{subtitle}</p>}
     </div>
+  );
+}
+
+/** One step as a row that opens to its answers: icon, title, a line on what it holds, Edit. */
+function StepRow({
+  title,
+  note,
+  icon: Icon,
+  onEdit,
+  rows,
+}: {
+  title: string;
+  note: string | undefined;
+  icon: LucideIcon | undefined;
+  onEdit: () => void;
+  rows: [string, string, string][];
+}) {
+  return (
+    <details className="group rounded-control border border-folder-border bg-folder-surface">
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-2">
+        {Icon && <Icon aria-hidden="true" className="size-8 shrink-0 fill-current text-heading" />}
+        <span className="min-w-0 flex-1">
+          <span className="block font-display text-base font-bold text-info">{title}</span>
+          {note && <span className="block text-xs text-text">{note}</span>}
+        </span>
+        <Button
+          variant="outline"
+          onClick={(event) => {
+            event.preventDefault();
+            onEdit();
+          }}
+          aria-label={`Edit ${title}`}
+          className="min-h-8! px-4! py-1! text-xs!"
+        >
+          Edit
+        </Button>
+        <ChevronDown
+          aria-hidden="true"
+          className="size-5 shrink-0 text-info transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <dl className="space-y-1 border-t border-folder-border bg-surface p-3 text-sm">
+        {rows.map(([id, label, text]) => (
+          <div key={id} className="flex gap-3">
+            <dt className="w-2/5 shrink-0 text-firm-primary">{label}:</dt>
+            <dd className="min-w-0 flex-1 break-words text-text">{text || 'N/A'}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
+/** The files as a list: the document's name, the file, the date and a button to its step. */
+function FileRows({
+  definition,
+  uploads,
+  fill,
+  onEdit,
+  title,
+  note,
+}: {
+  definition: IntakeFormDefinition;
+  uploads: readonly IntakeUpload[];
+  fill: Fill;
+  onEdit: (stepKey: string) => void;
+  title: string;
+  note: string | undefined;
+}) {
+  const slots = new Map(
+    definition.steps.flatMap((step) =>
+      step.sections.flatMap((s) =>
+        s.fields.flatMap((f) => (f.type === 'upload' ? [[f.key, { step, f }] as const] : [])),
+      ),
+    ),
+  );
+  return (
+    <SectionPanel
+      number={2}
+      numberInTitle
+      title={title}
+      subtitle={note}
+      badge={<FileText className="size-6" />}
+      badgeDark
+    >
+      {uploads.length ? (
+        <ul className="grid gap-2">
+          {uploads.map((u) => {
+            const slot = slots.get(u.slot);
+            return (
+              <li
+                key={u.id}
+                className="flex flex-wrap items-center gap-3 rounded-control border border-folder-border p-2 text-xs"
+              >
+                <FileText aria-hidden="true" className="size-6 shrink-0 text-heading" />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-display text-sm font-bold text-info">
+                    {fill(slot?.f.label ?? u.slot)}
+                  </span>
+                  <span className="block break-all">{u.fileName}</span>
+                </span>
+                <span>Uploaded {usDate(u.uploadedAt.slice(0, 10))}</span>
+                {slot && !slot.step.review && (
+                  <Button
+                    variant="outline"
+                    onClick={() => onEdit(slot.step.key)}
+                    aria-label={`Replace ${u.fileName}`}
+                    className="min-h-8! px-3! py-1! text-xs!"
+                  >
+                    Replace
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="text-xs text-muted">No documents uploaded yet.</p>
+      )}
+    </SectionPanel>
   );
 }
