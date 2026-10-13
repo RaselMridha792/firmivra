@@ -84,7 +84,7 @@ export function FieldInput({
   const set = (v: ScreenValue) => onChange(field.key, v);
   switch (field.type) {
     case 'info':
-      return <InfoNote label={fill(field.label)} text={fill(field.text)} />;
+      return <InfoNote label={fill(field.label)} text={fill(field.text)} list={look?.list} />;
     case 'grid':
       return (
         <GridInput
@@ -116,6 +116,8 @@ export function FieldInput({
           errors={errors}
           fill={fill}
           actions={actions}
+          tile={look?.tile === true}
+          quiet={look?.quiet === true}
         />
       );
     default:
@@ -164,6 +166,18 @@ function SectionFields({
   const title = props.fill(section.title);
   const quiet = (f: IntakeField) =>
     (panel.bar && fields.length === 1) || props.fill(f.label) === title;
+  if (panel.tiles) {
+    return (
+      <div
+        data-section={section.key}
+        className={`grid gap-2 sm:grid-cols-2 ${TILE_COLUMNS[Math.min(fields.length, 5)] ?? ''}`}
+      >
+        {fields.map((f) => (
+          <FieldInput key={f.key} field={f} {...props} look={{ tile: true }} />
+        ))}
+      </div>
+    );
+  }
   return (
     <div data-section={section.key} className="min-w-0 flex-1">
       <FieldRows
@@ -173,7 +187,11 @@ function SectionFields({
           <FieldInput
             field={f}
             {...props}
-            look={quiet(f) ? { ...fieldLook, quiet: true } : fieldLook}
+            look={{
+              ...fieldLook,
+              ...(quiet(f) ? { quiet: true } : {}),
+              ...(panel.intro && f.type === 'info' ? { list: true } : {}),
+            }}
             groupLook={f.type === 'group' ? panel.groups?.[f.key] : undefined}
           />
         )}
@@ -181,6 +199,13 @@ function SectionFields({
     </div>
   );
 }
+
+/** Upload tiles' columns by how many there are (whole classes, so Tailwind finds them). */
+const TILE_COLUMNS: Record<number, string> = {
+  3: 'lg:grid-cols-3',
+  4: 'lg:grid-cols-4',
+  5: 'lg:grid-cols-5',
+};
 
 /** A joined section inside a panel: its own heading with an icon, then its fields. */
 function JoinedPart({
@@ -255,12 +280,19 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
       {panels.map((p, i) => {
         const first = p.parts[0]!;
         const joined = p.panel?.join !== undefined;
-        const subtitle = p.panel?.subtitle ?? (joined ? undefined : first.subtitle);
+        const subtitle =
+          p.panel?.subtitle ??
+          (p.panel?.intro ? step.subtitle : undefined) ??
+          (joined ? undefined : (first.subtitle ?? soleHelp(first, visible, props.fill)));
         const barSubtitle = p.panel?.bar ? barLabel(first, visible, props.fill) : undefined;
+        const unnumbered = p.panel?.bar || p.panel?.intro || p.panel?.headless;
+        const Badge = p.panel?.badge;
         return (
           <SectionPanel
             key={p.key}
-            number={p.panel?.bar ? undefined : (number += 1)}
+            number={unnumbered ? undefined : (number += 1)}
+            badge={Badge ? <Badge className="size-6" /> : undefined}
+            size={p.panel?.headless ? 'none' : p.panel?.intro ? 'intro' : 'panel'}
             title={props.fill(p.panel?.title ?? first.title)}
             subtitle={subtitle ? props.fill(subtitle) : barSubtitle}
             icon={p.panel?.icon ? <PanelIcon icon={p.panel.icon} /> : undefined}
@@ -303,6 +335,15 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
 
 function PanelIcon({ icon: Icon }: { icon: LucideIcon }) {
   return <Icon className="size-10 fill-accent-soft" strokeWidth={1.75} />;
+}
+
+/** A panel's one field named like the panel: its help line serves as the panel's subtitle. */
+function soleHelp(section: IntakeSection, visible: (key: string) => boolean, fill: Fill) {
+  const fields = section.fields.filter((f) => visible(f.key));
+  const only = fields.length === 1 ? fields[0]! : undefined;
+  return only && 'help' in only && only.help && fill(only.label) === fill(section.title)
+    ? only.help
+    : undefined;
 }
 
 /** A bar's one field: its label is the bar's subtitle. */

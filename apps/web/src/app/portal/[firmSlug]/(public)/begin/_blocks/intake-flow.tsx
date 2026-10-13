@@ -615,7 +615,10 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
           if (target && shown.steps.has(target.key)) void jump(target.key);
         }}
       />
-      {step.subtitle && <p className="mb-2 text-center text-xs">{fill(step.subtitle)}</p>}
+      {/* A step whose mockup has its own heading panel shows its subtitle there. */}
+      {step.subtitle && !step.sections.some((s) => look.panels[s.key]?.intro) && (
+        <p className="mb-2 text-center text-xs">{fill(step.subtitle)}</p>
+      )}
       {agreements.data?.ready === false && <UnavailableNote />}
       <form
         ref={formRef}
