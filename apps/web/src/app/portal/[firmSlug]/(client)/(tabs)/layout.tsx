@@ -59,7 +59,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
                 key={path}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className={`min-w-32 flex-1 cursor-pointer rounded-t-card px-3 py-4 text-center text-sm ${tabClassName}`}
+                className={`min-w-32 flex-1 cursor-pointer rounded-t-card px-3 py-4 text-center text-base ${tabClassName}`}
               >
                 {label}
               </Link>

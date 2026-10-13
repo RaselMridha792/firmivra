@@ -39,7 +39,7 @@ export function PortalFooter({ contact = false, width }: { contact?: boolean; wi
       : []),
   ];
 
-  if (business.slug === 'lvp') {
+  if (business.slug === 'lvp' && width === 'public') {
     const columns: { title: string; items: FooterItem[] }[] = [
       {
         title: 'Quick Links',
