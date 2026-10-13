@@ -36,7 +36,8 @@ const OPTION_COLUMNS = {
   1: 'grid-cols-1',
   2: 'sm:grid-cols-2',
   3: 'sm:grid-cols-3',
-  4: 'sm:grid-cols-4',
+  // Four short choices on one line (the quarters), never wrapping inside a label.
+  4: 'sm:flex sm:flex-wrap sm:gap-x-3 [&_label]:whitespace-nowrap',
 } as const;
 
 /** What a field shows when its definition has no placeholder, as the mockups fill them. */
@@ -73,6 +74,7 @@ function OptionList({
   box: BoxIcon,
   quiet = false,
   columns,
+  cardIcons,
 }: {
   name: string;
   label: string;
@@ -93,6 +95,8 @@ function OptionList({
   quiet?: boolean | undefined;
   /** The choices in this many columns, as the mockup sets them. */
   columns?: 1 | 2 | 3 | 4 | undefined;
+  /** Package cards' icons, by option value. */
+  cardIcons?: Record<string, LucideIcon> | undefined;
 }) {
   const id = useId();
   const chosen = Array.isArray(value) ? value : typeof value === 'string' && value ? [value] : [];
@@ -124,7 +128,7 @@ function OptionList({
           {label}
         </legend>
       )}
-      {row && (
+      {row && !quiet && (
         <span aria-hidden="true" className="min-w-0 flex-1 text-xs text-firm-primary">
           {label}
         </span>
@@ -158,45 +162,18 @@ function OptionList({
           ))}
         </div>
       ) : cards ? (
-        <div className="grid gap-2 md:grid-cols-3">
-          {options.map((o) => {
-            const on = chosen.includes(o.value);
-            return (
-              <label
-                key={o.value}
-                className={`flex min-w-0 cursor-pointer flex-col gap-1 rounded-control border p-3 ${on ? 'border-action bg-accent-soft' : 'border-folder-border bg-surface'}`}
-              >
-                <span className="flex items-center gap-2">
-                  <input
-                    type={multiple ? 'checkbox' : 'radio'}
-                    name={name}
-                    checked={on}
-                    onChange={(event) => toggle(o.value, event.target.checked)}
-                    className="size-4 shrink-0"
-                  />
-                  <span className="flex-1 font-display text-lg font-bold text-heading">
-                    {o.label}
-                  </span>
-                  {o.badge && (
-                    <span className="rounded-control bg-action px-2 py-0.5 text-xs font-semibold text-on-action">
-                      {o.badge}
-                    </span>
-                  )}
-                </span>
-                {o.help && <span className="text-xs text-firm-primary">{o.help}</span>}
-                {o.details && (
-                  <ul className="space-y-1 text-xs">
-                    {o.details.map((d) => (
-                      <li key={d} className="flex items-start gap-1">
-                        <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-accent" />
-                        {d}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </label>
-            );
-          })}
+        <div className="clear-both grid gap-3 md:grid-cols-3">
+          {options.map((o) => (
+            <PackageCard
+              key={o.value}
+              option={o}
+              name={name}
+              multiple={multiple}
+              on={chosen.includes(o.value)}
+              icon={cardIcons?.[o.value]}
+              onChange={(on) => toggle(o.value, on)}
+            />
+          ))}
         </div>
       ) : (
         <div
@@ -204,7 +181,7 @@ function OptionList({
             row
               ? 'flex shrink-0 gap-x-6'
               : columns
-                ? `clear-both grid gap-x-4 ${OPTION_COLUMNS[columns]}`
+                ? `clear-both grid gap-x-4 [&_input]:size-4 ${OPTION_COLUMNS[columns]}`
                 : inline
                   ? 'flex flex-wrap gap-x-12'
                   : many || BoxIcon
@@ -479,6 +456,7 @@ export function ScalarInput({
             box={look.box}
             quiet={look.quiet}
             columns={look.columns}
+            cardIcons={look.cardIcons}
             value={value}
             onChange={onChange}
             error={error}
@@ -567,12 +545,26 @@ export function InfoNote({
   label,
   text,
   list = false,
+  card = false,
 }: {
   label: string;
   text: string;
   /** Its sentences as bullets beside a large icon (a step's "Important:" box). */
   list?: boolean | undefined;
+  /** A box: the icon and the bold title on one line, the text under it. */
+  card?: boolean | undefined;
 }) {
+  if (card) {
+    return (
+      <div className="rounded-control bg-folder-surface p-3 text-xs">
+        <p className="mb-1 flex items-center gap-2 text-sm font-semibold text-heading">
+          <Info aria-hidden="true" className="size-6 shrink-0 fill-action text-surface" />
+          {label}
+        </p>
+        <p>{text}</p>
+      </div>
+    );
+  }
   if (list) {
     const items = text.split(/(?<=\.)\s+(?=[A-Z"])/);
     return (
@@ -655,5 +647,90 @@ function StatesInput({
         </ul>
       )}
     </div>
+  );
+}
+
+/** "Essential Bookkeeping. Solid Foundation. Perfect for..." → the short tagline and the rest. */
+function tagline(help: string): [string, string] {
+  const sentences = help.split(/(?<=\.)\s+/);
+  let n = 0;
+  while (n < sentences.length - 1 && sentences[n]!.split(' ').length <= 3) n += 1;
+  return [sentences.slice(0, n).join(' '), sentences.slice(n).join(' ')];
+}
+
+/** A package as its mockup's card: icon, name, badge and radio; tagline, help and ticks. */
+function PackageCard({
+  option: o,
+  name,
+  multiple,
+  on,
+  icon: Icon,
+  onChange,
+}: {
+  option: IntakeOption;
+  name: string;
+  multiple: boolean;
+  on: boolean;
+  icon: LucideIcon | undefined;
+  onChange: (on: boolean) => void;
+}) {
+  const [lead, rest] = tagline(o.help ?? '');
+  return (
+    <label
+      className={`flex min-w-0 cursor-pointer flex-col gap-2 rounded-card border p-4 ${on ? 'border-action bg-accent-soft' : 'border-folder-border bg-folder-surface'}`}
+    >
+      <span className="flex items-center gap-3">
+        {Icon && (
+          <Icon
+            aria-hidden="true"
+            className={`size-9 shrink-0 fill-current ${on ? 'text-action' : 'text-info'}`}
+          />
+        )}
+        <span className="font-display text-xl font-bold text-heading">{o.label}</span>
+        {o.badge && (
+          <span className="rounded-control bg-action px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-on-action">
+            {o.badge}
+          </span>
+        )}
+        <input
+          type={multiple ? 'checkbox' : 'radio'}
+          name={name}
+          checked={on}
+          onChange={(event) => onChange(event.target.checked)}
+          className="ml-auto size-5 shrink-0"
+        />
+      </span>
+      {lead && (
+        <span className={`font-display text-sm font-bold ${on ? 'text-action' : 'text-heading'}`}>
+          {lead}
+        </span>
+      )}
+      {rest && <span className="text-sm text-text">{rest}</span>}
+      {o.details && (
+        <ul className="space-y-1 text-sm text-firm-primary">
+          {o.details.map((d) => {
+            const everything = /^(Everything in )(.+)$/.exec(d);
+            return (
+              <li key={d} className="flex items-start gap-2">
+                <CircleCheck
+                  aria-hidden="true"
+                  className="mt-0.5 size-4 shrink-0 fill-action text-surface"
+                />
+                <span>
+                  {everything ? (
+                    <>
+                      {everything[1]}
+                      <strong>{everything[2]}</strong>
+                    </>
+                  ) : (
+                    d
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </label>
   );
 }
