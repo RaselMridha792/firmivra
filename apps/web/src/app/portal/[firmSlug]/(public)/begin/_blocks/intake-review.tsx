@@ -310,26 +310,46 @@ export function IntakeReview({
     );
   }
   if (look.review?.byStep) {
+    const review = look.review;
+    const lists = new Set(Object.values(look.panels).flatMap((p) => p.quiet ?? []));
+    const groups =
+      review.rows ??
+      steps.map((step) => ({
+        title: '',
+        sections: step.sections.map((s) => s.key),
+        icon: review.icons?.[step.key],
+      }));
     return (
-      <div className="grid content-start gap-3" data-testid="intake-review">
-        {steps.map((step, i) => (
-          <StepCard
-            key={step.key}
-            title={fill(step.title)}
-            index={i}
-            review={look.review!}
-            icon={look.review?.icons?.[step.key]}
-            onEdit={() => onEdit(step.key)}
-            rows={lineRows(
-              step.sections.flatMap((s) =>
-                s.fields.filter((f) => f.type !== 'info' && shownFields.has(f.key)),
-              ),
-              values,
-              fill,
-              uploads,
-            )}
-          />
-        ))}
+      <div
+        className={`grid content-start gap-3 ${review.twoColumns ? 'lg:grid-cols-2' : ''}`}
+        data-testid="intake-review"
+      >
+        {groups.map((group, i) => {
+          const step = steps.find((st) => st.sections.some((s) => s.key === group.sections[0]));
+          if (!step) return null;
+          const sections = steps.flatMap((st) =>
+            st.sections.filter((s) => group.sections.includes(s.key)),
+          );
+          return (
+            <StepCard
+              key={group.sections.join('|')}
+              title={group.title || fill(step.title)}
+              index={i}
+              review={review}
+              icon={group.icon}
+              onEdit={() => onEdit(step.key)}
+              rows={lineRows(
+                sections.flatMap((s) =>
+                  s.fields.filter((f) => f.type !== 'info' && shownFields.has(f.key)),
+                ),
+                values,
+                fill,
+                uploads,
+                lists,
+              )}
+            />
+          );
+        })}
       </div>
     );
   }
@@ -407,6 +427,8 @@ function lineRows(
   values: ScreenValues,
   fill: Fill,
   uploads: readonly IntakeUpload[],
+  /** Choice fields shown as their ticked answers alone (the question is the card's title). */
+  lists: ReadonlySet<string> = new Set(),
 ): [string, string, string][] {
   return units(fields).flatMap((unit): [string, string, string][] => {
     if (unit.kind !== 'field') {
@@ -451,6 +473,14 @@ function lineRows(
       return [[f.key, fill(f.label), typeof view === 'string' ? view : '']];
     }
     if (f.type === 'info') return [];
+    if (f.type === 'checkboxes' && lists.has(f.key)) {
+      const chosen = Array.isArray(v) ? (v as string[]) : [];
+      return chosen.map((code): [string, string, string] => [
+        `${f.key}.${code}`,
+        '',
+        f.options.find((o) => o.value === code)?.label ?? code,
+      ]);
+    }
     return [[f.key, fill(f.label), scalarText(f, v)]];
   });
 }
@@ -475,7 +505,17 @@ function StepCard({
   return (
     <section className="min-w-0 overflow-hidden rounded-card border border-folder-border bg-surface">
       <header className={`flex items-center gap-3 px-3 py-2 ${band}`}>
-        {Icon && <Icon aria-hidden="true" className="size-7 shrink-0" />}
+        {Icon &&
+          (review.banded ? (
+            <Icon aria-hidden="true" className="size-7 shrink-0" />
+          ) : (
+            <span
+              aria-hidden="true"
+              className="grid size-11 shrink-0 place-items-center rounded-full bg-folder-surface text-heading"
+            >
+              <Icon className="size-6" />
+            </span>
+          ))}
         <h3 className="min-w-0 flex-1 font-display text-xl font-bold">{title}</h3>
         <Button
           variant="outline"
@@ -488,12 +528,25 @@ function StepCard({
         </Button>
       </header>
       <dl className="space-y-1 p-3 text-sm">
-        {rows.map(([id, label, text]) => (
-          <div key={id} className="flex gap-3">
-            <dt className="w-2/5 shrink-0 text-firm-primary">{label}:</dt>
-            <dd className="min-w-0 flex-1 break-words text-text">{text || 'N/A'}</dd>
-          </div>
-        ))}
+        {rows.map(([id, label, text]) =>
+          label ? (
+            <div key={id} className="flex gap-3">
+              <dt className="w-2/5 shrink-0 text-firm-primary">{label}:</dt>
+              <dd className="min-w-0 flex-1 break-words text-text">{text || 'N/A'}</dd>
+            </div>
+          ) : (
+            <div key={id} className="flex items-center gap-2">
+              <dt className="sr-only">Chosen</dt>
+              <dd className="flex items-center gap-2 text-text">
+                <CircleCheck
+                  aria-hidden="true"
+                  className="size-4 shrink-0 fill-action text-surface"
+                />
+                {text}
+              </dd>
+            </div>
+          ),
+        )}
       </dl>
     </section>
   );
