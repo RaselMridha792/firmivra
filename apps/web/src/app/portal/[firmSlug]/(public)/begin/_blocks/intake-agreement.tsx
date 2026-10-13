@@ -8,7 +8,7 @@ import {
   type LegalKind,
 } from '@firmivra/types';
 import { Button, Checkbox, Input, Modal } from '@firmivra/ui';
-import { Download } from 'lucide-react';
+import { Download, FileSignature } from 'lucide-react';
 import { useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
@@ -144,7 +144,7 @@ function AgreementCard({
         tabIndex={0}
         role="region"
         aria-label={agreement.title}
-        className="max-h-56 overflow-y-auto rounded-control border border-folder-border bg-folder-surface p-3 text-xs"
+        className="max-h-36 overflow-y-auto rounded-control border border-folder-border bg-surface p-3 text-xs"
       >
         <AgreementText body={agreement.bodyMarkdown} />
       </div>
@@ -235,6 +235,7 @@ export function AgreementPanel({
     <SectionPanel
       title="Service Agreement"
       subtitle="Please read the agreement in full, then sign below."
+      badge={<FileSignature className="size-6" />}
       className="mt-3"
     >
       <div className="space-y-4">
@@ -275,7 +276,9 @@ export function AgreementPanel({
             </Modal>
           </div>
         )}
-        <div className="grid gap-2 sm:grid-cols-2 [&_label]:text-xs">
+        <div
+          className={`grid gap-2 [&_label]:text-xs ${form === 'ANNUAL_TAX' ? 'sm:grid-cols-3' : 'sm:grid-cols-2 lg:grid-cols-4'}`}
+        >
           <Input
             label="Full Name *"
             autoComplete="name"
