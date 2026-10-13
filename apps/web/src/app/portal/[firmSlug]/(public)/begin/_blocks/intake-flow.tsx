@@ -33,7 +33,7 @@ import {
   emptyAgreement,
 } from './intake-agreement';
 import { type Fill, InfoNote } from './intake-fields';
-import { IntakeReview } from './intake-review';
+import { IntakeReview, SubmitBand, UploadedFiles } from './intake-review';
 import { StepSections } from './intake-step';
 import { NO_LOOK } from './intake-layout';
 import { formLook } from './looks';
@@ -148,7 +148,9 @@ const WORDING: Record<
   },
   QUARTERLY_TAX: {
     back: () => 'Back',
-    next: 'Continue to Next Step',
+    next: (step) =>
+      ['', 'Continue', 'Continue to Business Expenses', 'Continue to Documents'][step] ??
+      'Continue',
     later: 'Save and Continue Later',
     submit: 'Submit Intake Form',
   },
@@ -562,6 +564,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   const previous = steps[index - 1];
   const words = WORDING[form];
   const look = formLook(form);
+  const aside = step.review === true && look.review?.aside === true;
   const stepNumber = definition.steps.indexOf(step) + 1;
   const nextWords = typeof words.next === 'string' ? words.next : words.next(stepNumber);
   // The note the mockup sets beside Continue ("Important: ..."), when this step shows it.
@@ -655,38 +658,58 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
             <StepSections {...sectionProps} step={intro} look={look} />
           </div>
         )}
-        {step.review && (
-          <IntakeReview
-            definition={definition}
-            values={values}
-            shownSteps={shown.steps}
-            shownFields={shown.fields}
-            uploads={uploads}
-            fill={fill}
-            onEdit={(key) => void jump(key)}
-            look={look}
-            heading={
-              look.reviewHeading
-                ? { number: stepNumber, subtitle: step.subtitle && fill(step.subtitle) }
-                : undefined
-            }
-          />
-        )}
-        <div className={step.review ? 'mt-3' : ''}>
-          <StepSections {...sectionProps} step={rest} look={look} />
+        {/* The mockup's two columns: the answers left; files, the step's panels and the
+            agreement right. Otherwise one after another. */}
+        <div className={aside ? 'grid items-start gap-3 lg:grid-cols-2' : ''}>
+          {step.review && (
+            <IntakeReview
+              definition={definition}
+              values={values}
+              shownSteps={shown.steps}
+              shownFields={shown.fields}
+              uploads={uploads}
+              fill={fill}
+              onEdit={(key) => void jump(key)}
+              look={look}
+              heading={
+                look.reviewHeading
+                  ? { number: stepNumber, subtitle: step.subtitle && fill(step.subtitle) }
+                  : undefined
+              }
+            />
+          )}
+          <div className={aside ? 'grid min-w-0 gap-3 [&>*]:mt-0!' : ''}>
+            {aside && (
+              <UploadedFiles
+                definition={definition}
+                uploads={uploads}
+                fill={fill}
+                onEdit={(key) => void jump(key)}
+              />
+            )}
+            <div className={step.review && !aside ? 'mt-3' : ''}>
+              <StepSections {...sectionProps} step={rest} look={look} />
+            </div>
+            {aside && (
+              <SubmitBand
+                title={fill(step.title)}
+                subtitle="Please read the agreement below, certify, sign, and submit your intake form."
+              />
+            )}
+            {step.review && (
+              <AgreementPanel
+                firmSlug={firmSlug}
+                block={agreements.data}
+                failed={agreements.isError}
+                onRetry={() => void agreements.refetch()}
+                form={form}
+                value={agreement}
+                onChange={setAgreement}
+                error={agreementError}
+              />
+            )}
+          </div>
         </div>
-        {step.review && (
-          <AgreementPanel
-            firmSlug={firmSlug}
-            block={agreements.data}
-            failed={agreements.isError}
-            onRetry={() => void agreements.refetch()}
-            form={form}
-            value={agreement}
-            onChange={setAgreement}
-            error={agreementError}
-          />
-        )}
         {notice && (
           <p
             role="status"

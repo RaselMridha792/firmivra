@@ -1,14 +1,33 @@
 import type { IntakeFormKey } from '@firmivra/types';
 import {
   BriefcaseBusiness,
+  Car,
+  ChartColumnBig,
+  Ellipsis,
+  House,
+  Landmark,
+  Lightbulb,
+  Megaphone,
+  NotebookPen,
+  Package,
+  Percent,
+  Shield,
+  Utensils,
+  Wrench,
   Building2,
   CreditCard,
   Calculator,
+  CalendarDays,
   ChartNoAxesColumnIncreasing,
+  CloudUpload,
   FileText,
+  Flag,
   IdCard,
+  MapPin,
   MessageSquareMore,
+  Paperclip,
   ReceiptText,
+  Settings,
   User,
   Users,
 } from 'lucide-react';
@@ -88,6 +107,113 @@ const ANNUAL_TAX: FormLook = {
   },
 };
 
-const LOOKS: Partial<Record<IntakeFormKey, FormLook>> = { ANNUAL_TAX };
+/** Quarterly Tax: `business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png`. */
+const QUARTERLY_TAX: FormLook = {
+  footerNote: 'businessNote',
+  review: {
+    byStep: true,
+    banded: true,
+    aside: true,
+    icons: { business: Building2, taxesIncome: ChartNoAxesColumnIncreasing, expenses: FileText },
+  },
+  stacks: [
+    [
+      ['business', 'quarterly', 'records'],
+      ['ownership', 'industry', 'years', 'additional'],
+    ],
+    [
+      ['filingPeriod', 'grossReceipts', 'priorYear'],
+      ['federalPayments', 'statePayments', 'payrollWages', 'payrollTaxes', 'additionalTax'],
+    ],
+  ],
+  panels: {
+    // Step 1, Business Information.
+    business: { icon: Building2, rows: ['ein phone'], addressLabels: true },
+    ownership: { icon: Users, optionColumns: { businessStructure: 2 } },
+    industry: { icon: BriefcaseBusiness, iconFirst: true, noNumber: true },
+    quarterly: { icon: FileText, optionColumns: { quarters: 4 } },
+    years: { icon: ChartNoAxesColumnIncreasing },
+    records: { icon: Settings },
+    additional: { icon: MessageSquareMore },
+    // Step 2, Taxes & Income.
+    filingPeriod: { icon: CalendarDays, rows: ['taxYearStart taxYearEnd'] },
+    federalPayments: { icon: Flag },
+    grossReceipts: { icon: ChartNoAxesColumnIncreasing },
+    statePayments: {
+      icon: MapPin,
+      groups: {
+        statePayments: {
+          rows: [
+            'state',
+            'q1Amount q1Date',
+            'q2Amount q2Date',
+            'q3Amount q3Date',
+            'q4Amount q4Date',
+          ],
+        },
+      },
+    },
+    payrollWages: { icon: Users },
+    payrollTaxes: { icon: FileText },
+    priorYear: { icon: FileText },
+    additionalTax: { icon: MessageSquareMore },
+    incomeDocuments: {
+      icon: Paperclip,
+      iconFirst: true,
+      wide: true,
+      quiet: ['incomeDocuments'],
+      chooser: true,
+    },
+    // Step 3, Business Expenses.
+    expenses: {
+      icon: BriefcaseBusiness,
+      iconFirst: true,
+      noNumber: true,
+      wide: true,
+      grids: {
+        expenses: {
+          tones: true,
+          icons: {
+            cogs: Package,
+            office: Paperclip,
+            rent: House,
+            utilities: Lightbulb,
+            vehicleTravel: Car,
+            meals: Utensils,
+            payroll: Users,
+            professional: FileText,
+            marketing: Megaphone,
+            insurance: Shield,
+            repairs: Wrench,
+            taxesLicenses: Landmark,
+            interest: Percent,
+            depreciation: ChartColumnBig,
+            other: Ellipsis,
+          },
+        },
+      },
+    },
+    expenseDocuments: {
+      icon: FileText,
+      iconFirst: true,
+      noNumber: true,
+      wide: true,
+      quiet: ['expenseDocuments'],
+      chooser: true,
+    },
+    expenseNotes: { icon: NotebookPen, iconFirst: true, noNumber: true, wide: true },
+    // Step 4, Review & Submit: the optional extra files beside the answers.
+    additionalDocuments: {
+      icon: CloudUpload,
+      iconFirst: true,
+      noNumber: true,
+      wide: true,
+      quiet: ['additionalDocuments'],
+      chooser: true,
+    },
+  },
+};
+
+const LOOKS: Partial<Record<IntakeFormKey, FormLook>> = { ANNUAL_TAX, QUARTERLY_TAX };
 
 export const formLook = (form: IntakeFormKey): FormLook => LOOKS[form] ?? NO_LOOK;
