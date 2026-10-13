@@ -44,6 +44,7 @@ export function UploadInput({
   actions,
   tile = false,
   quiet = false,
+  chooser = false,
 }: {
   field: IntakeUploadField;
   value: ScreenUpload;
@@ -53,6 +54,8 @@ export function UploadInput({
   actions: UploadActions;
   tile?: boolean;
   quiet?: boolean;
+  /** The zone as "Drag and drop your files here / or / Choose Files" with the file types. */
+  chooser?: boolean;
 }) {
   const id = useId();
   const [busy, setBusy] = useState(0);
@@ -93,7 +96,7 @@ export function UploadInput({
         </p>
         {field.help && <p className="text-xs text-firm-primary">{fill(field.help)}</p>}
       </div>
-      <div className={`grid gap-3 ${tile ? '' : 'md:grid-cols-2'}`}>
+      <div className={`grid gap-3 ${field.examples?.length && !tile ? 'md:grid-cols-2' : ''}`}>
         {/* The whole zone opens the file chooser; the file input inside stays keyboard-reachable. */}
         <label
           title={`${UPLOAD_LIMITS.typeNames}, up to 10 MB each`}
@@ -109,13 +112,35 @@ export function UploadInput({
           }}
           className={`flex cursor-pointer flex-col items-center justify-center rounded-control border border-dashed text-center text-xs has-focus-visible:outline-2 has-focus-visible:outline-focus ${tile ? 'p-2' : 'min-h-28 p-3'} ${dragging ? 'border-heading bg-folder-surface' : error ? 'border-danger' : 'border-heading'}`}
         >
-          <CloudUpload aria-hidden="true" className="size-8 fill-folder-surface text-heading" />
-          <span className={`font-semibold text-heading ${tile ? '' : 'text-sm'}`}>
-            Click to upload
-          </span>
-          <span>or drag and drop{tile ? '' : ' files here'}</span>
-          <span>(Upload as many as needed)</span>
-          <span className="sr-only">{UPLOAD_LIMITS.typeNames}, up to 10 MB each</span>
+          {chooser ? (
+            <>
+              <span className="flex items-center gap-4">
+                <CloudUpload aria-hidden="true" className="size-12 text-heading" />
+                <span className="flex flex-col items-center">
+                  <span className="text-sm font-semibold text-heading">
+                    Drag and drop your files here
+                  </span>
+                  <span>or</span>
+                  <span className="mt-1 rounded-control bg-navigation px-8 py-1 text-xs font-semibold text-on-action">
+                    Choose Files
+                  </span>
+                </span>
+              </span>
+              <span className="mt-2">
+                Supported formats: {UPLOAD_LIMITS.typeNames}. You can upload multiple files.
+              </span>
+            </>
+          ) : (
+            <>
+              <CloudUpload aria-hidden="true" className="size-8 fill-folder-surface text-heading" />
+              <span className={`font-semibold text-heading ${tile ? '' : 'text-sm'}`}>
+                Click to upload
+              </span>
+              <span>or drag and drop{tile ? '' : ' files here'}</span>
+              <span>(Upload as many as needed)</span>
+              <span className="sr-only">{UPLOAD_LIMITS.typeNames}, up to 10 MB each</span>
+            </>
+          )}
           <input
             id={`${id}-file`}
             type="file"
