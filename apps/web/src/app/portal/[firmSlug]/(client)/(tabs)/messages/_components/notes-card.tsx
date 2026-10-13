@@ -3,7 +3,7 @@
 import { type MyNote, SaveMyNoteRequest } from '@firmivra/types';
 import { Button, Card, Checkbox, Input } from '@firmivra/ui';
 import { NotebookPen } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useId, useState } from 'react';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
@@ -20,11 +20,10 @@ const toLocal = (iso: string) => {
 export function NotesCard({ slug }: { slug: string }) {
   const note = useApiQuery(['my-notes', slug], () => api.myNotes(slug).get());
   return (
-    <Card className="grid min-w-0 gap-3">
-      <h2 className="flex items-center gap-2 font-display text-2xl font-bold text-heading">
+    <Card className="grid min-w-0 gap-3 p-4!">
+      <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
         <NotebookPen aria-hidden className="size-6 text-firm-primary" /> Notes
       </h2>
-      <p className="text-sm text-muted">Only you can see your notes. Your firm never sees them.</p>
       <PageState query={note} isEmpty={() => false}>
         {(data) => <NoteForm key={data.note?.savedAt ?? 'new'} slug={slug} note={data.note} />}
       </PageState>
@@ -33,6 +32,7 @@ export function NotesCard({ slug }: { slug: string }) {
 }
 
 function NoteForm({ slug, note }: { slug: string; note: MyNote | null }) {
+  const noteInputId = useId();
   const pending = note?.reminder && !note.reminder.sentAt ? note.reminder.remindAt : null;
   const [body, setBody] = useState(note?.body ?? '');
   const [remind, setRemind] = useState(pending !== null);
@@ -55,18 +55,21 @@ function NoteForm({ slug, note }: { slug: string; note: MyNote | null }) {
     save.mutate(parsed.data);
   };
   return (
-    <form noValidate onSubmit={submit} className="grid gap-3">
-      <label className="grid gap-1 text-sm font-medium text-text">
+    <form noValidate onSubmit={submit} className="grid gap-2">
+      <label htmlFor={noteInputId} className="sr-only">
         Your note
-        <textarea
-          rows={5}
-          className={textareaClass}
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-        />
       </label>
+      <textarea
+        id={noteInputId}
+        rows={3}
+        className={textareaClass}
+        placeholder="Add a note..."
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+      />
       <Checkbox
-        label="Set as reminder"
+        label="Set a reminder"
+        className="[&_input]:accent-firm-primary"
         checked={remind}
         onChange={(e) => setRemind(e.target.checked)}
       />
@@ -94,7 +97,11 @@ function NoteForm({ slug, note }: { slug: string; note: MyNote | null }) {
           {note.reminder?.sentAt ? '. The reminder was sent.' : ''}
         </p>
       ) : null}
-      <Button type="submit" className="justify-self-start" disabled={save.isPending}>
+      <Button
+        type="submit"
+        className="w-full bg-firm-primary! text-on-action! hover:bg-navigation-hover! focus-visible:outline-firm-primary enabled:cursor-pointer"
+        disabled={save.isPending}
+      >
         Save Note
       </Button>
     </form>
