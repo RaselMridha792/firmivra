@@ -8,11 +8,13 @@ import {
   CalendarDays,
   ChartNoAxesColumnIncreasing,
   CloudUpload,
+  CreditCard,
   FileText,
   IdCard,
   type LucideIcon,
   MapPin,
   MessageSquareMore,
+  Package,
   Paperclip,
   ReceiptText,
   Settings,
@@ -142,6 +144,8 @@ export function FieldInput({
           tile={look?.tile === true}
           quiet={look?.quiet === true}
           chooser={look?.chooser === true}
+          card={look?.uploadCard}
+          wideCard={look?.uploadWide === true}
         />
       );
     default:
@@ -225,6 +229,12 @@ function SectionFields({
   );
 }
 
+/** Stacked columns' grids (whole classes, so Tailwind finds them). */
+const STACK_COLUMNS: Record<number, string> = {
+  2: 'lg:grid-cols-2',
+  3: 'lg:grid-cols-3',
+};
+
 /** Upload tiles' columns by how many there are (whole classes, so Tailwind finds them). */
 const TILE_COLUMNS: Record<number, string> = {
   3: 'lg:grid-cols-3',
@@ -284,8 +294,8 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
   const isWide = (p: (typeof panels)[number]) =>
     p.panel ? !!(p.panel.wide || p.panel.bar) : wideSection(p.parts[0]!);
   const stackOf = new Map<string, number>();
-  look.stacks?.forEach(([left, right], i) => {
-    for (const key of [...left, ...right]) stackOf.set(key, i);
+  look.stacks?.forEach((stack, i) => {
+    for (const key of stack.columns.flat()) stackOf.set(key, i);
   });
   const span = fullRows(panels.map((p) => stackOf.has(p.key) || isWide(p)));
   // Numbered in the definition's order, whichever column a panel sits in.
@@ -305,16 +315,19 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
         if (stack === undefined) return renderPanel(p, span[i] === true);
         if (drawn.has(stack)) return null;
         drawn.add(stack);
-        const column = (keys: string[]) =>
-          keys.flatMap((k) => panels.find((x) => x.key === k) ?? []).map((x) => renderPanel(x));
-        const [left, right] = look.stacks![stack]!;
+        const { columns, stretch } = look.stacks![stack]!;
         return (
           <div
             key={`stack-${p.key}`}
-            className="grid items-start gap-3 lg:col-span-2 lg:grid-cols-2"
+            className={`grid gap-3 lg:col-span-2 ${STACK_COLUMNS[columns.length] ?? ''} ${stretch ? '' : 'items-start'}`}
           >
-            <div className="grid min-w-0 gap-3">{column(left)}</div>
-            <div className="grid min-w-0 gap-3">{column(right)}</div>
+            {columns.map((keys) => (
+              <div key={keys.join('|')} className="grid min-w-0 gap-3">
+                {keys
+                  .flatMap((k) => panels.find((x) => x.key === k) ?? [])
+                  .map((x) => renderPanel(x))}
+              </div>
+            ))}
           </div>
         );
       })}
@@ -330,7 +343,10 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
       (joined ? undefined : (first.subtitle ?? soleHelp(first, p.panel, visible, props.fill)));
     const barSubtitle = p.panel?.bar ? barLabel(first, visible, props.fill) : undefined;
     const Badge = p.panel?.badge;
-    return (
+    const lead = p.panel?.lead
+      ? p.parts[0]!.fields.find((f) => f.key === p.panel!.lead && visible(f.key))
+      : undefined;
+    const panel = (
       <SectionPanel
         key={p.key}
         number={numbers.get(p.key)}
@@ -338,11 +354,16 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
         size={p.panel?.headless ? 'none' : p.panel?.intro ? 'intro' : 'panel'}
         title={props.fill(p.panel?.title ?? first.title)}
         subtitle={subtitle ? props.fill(subtitle) : barSubtitle}
-        icon={p.panel?.icon ? <PanelIcon icon={p.panel.icon} /> : undefined}
+        icon={p.panel?.icon ? <PanelIcon icon={p.panel.icon} tone={p.panel.iconTone} /> : undefined}
         iconPosition={p.panel?.iconFirst || p.panel?.bar ? 'start' : 'end'}
         bar={p.panel?.bar}
         tint={p.panel?.tint}
-        className={full ? 'lg:col-span-2' : ''}
+        plain={p.panel?.plain}
+        tone={p.panel?.tone}
+        numberInTitle={p.panel?.numberInTitle}
+        badgeDark={p.panel?.badgeDark}
+        // A panel under its lead note spans through the note's wrapper instead.
+        className={full && !lead ? 'lg:col-span-2' : ''}
       >
         {joined
           ? p.parts.map((part) => (
@@ -367,10 +388,17 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
                 panel={p.panel}
                 props={props}
                 visible={visible}
-                skip={look.footerNote}
+                skip={lead?.key ?? look.footerNote}
               />
             ))}
       </SectionPanel>
+    );
+    if (lead?.type !== 'info') return panel;
+    return (
+      <div key={p.key} className={`grid min-w-0 gap-3 ${full ? 'lg:col-span-2' : ''}`}>
+        <InfoNote label={props.fill(lead.label)} text={props.fill(lead.text)} card />
+        {panel}
+      </div>
     );
   }
 }
@@ -379,7 +407,13 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
  * The mockups' solid accent icon at a panel's edge. A drawn shape (a page, a building, a gear)
  * keeps its inner lines and holes white; a line drawing (a paper clip) stays a line.
  */
-function PanelIcon({ icon: Icon }: { icon: LucideIcon }) {
+function PanelIcon({
+  icon: Icon,
+  tone,
+}: {
+  icon: LucideIcon;
+  tone?: 'heading' | 'danger' | undefined;
+}) {
   const look = OUTLINE.has(Icon)
     ? ''
     : DETAILED.has(Icon)
@@ -387,7 +421,7 @@ function PanelIcon({ icon: Icon }: { icon: LucideIcon }) {
       : 'fill-current';
   return (
     <Icon
-      className={`size-10 ${look}`}
+      className={`size-10 ${look} ${tone === 'heading' ? 'text-heading' : tone === 'danger' ? 'text-danger' : ''}`}
       strokeWidth={Icon === ChartNoAxesColumnIncreasing ? 3.5 : 1.5}
     />
   );
@@ -395,6 +429,8 @@ function PanelIcon({ icon: Icon }: { icon: LucideIcon }) {
 
 const DETAILED = new Set<LucideIcon>([
   BriefcaseBusiness,
+  CreditCard,
+  Package,
   Building2,
   Calculator,
   CalendarDays,
