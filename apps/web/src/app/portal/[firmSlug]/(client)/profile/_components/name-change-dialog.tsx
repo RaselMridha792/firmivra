@@ -42,7 +42,7 @@ export function NameChangeDialog({
           <p role="status" className="text-text">
             Thank you. Our team will review your request and update your name.
           </p>
-          <Button className="justify-self-start" onClick={close}>
+          <Button variant="dark" className="justify-self-start" onClick={close}>
             Close
           </Button>
         </div>
@@ -64,10 +64,14 @@ export function NameChangeDialog({
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={send.isPending}>
+            <Button type="submit" variant="dark" disabled={send.isPending}>
               Send Request
             </Button>
-            <Button variant="secondary" onClick={close}>
+            <Button
+              variant="secondary"
+              className="border-firm-primary text-firm-primary hover:bg-folder-surface"
+              onClick={close}
+            >
               Cancel
             </Button>
           </div>
