@@ -13,25 +13,30 @@ export function SectionPanel({
   icon,
   iconPosition = 'end',
   aside,
+  bar = false,
   children,
   className = '',
 }: {
-  number?: number;
+  number?: number | undefined;
   title: string;
-  subtitle?: string;
+  subtitle?: string | undefined;
   icon?: ReactNode;
   iconPosition?: 'start' | 'end';
   aside?: ReactNode;
+  /** A tinted bar: the title on the left and the fields on the right (a form's comments). */
+  bar?: boolean | undefined;
   children: ReactNode;
   className?: string;
 }) {
   const titleId = useId();
+  // "Business Information (if applicable)": the bracket smaller, as the mockups set it.
+  const bracket = /^(.*\S)\s+(\([^()]*\))$/.exec(title);
   return (
     <Card
       aria-labelledby={titleId}
-      className={`min-w-0 border-folder-border! p-3! shadow-none! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${className}`}
+      className={`min-w-0 border-folder-border! p-3! shadow-none! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${bar ? 'bg-accent-soft! sm:flex sm:items-center sm:gap-4' : ''} ${className}`}
     >
-      <header className="mb-2 flex items-center gap-3">
+      <header className={`flex items-center gap-3 ${bar ? 'mb-2 sm:mb-0 sm:w-5/12' : 'mb-2'}`}>
         {number !== undefined && (
           <span
             aria-hidden="true"
@@ -46,8 +51,20 @@ export function SectionPanel({
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <h2 id={titleId} className="font-display text-xl leading-tight font-bold text-heading">
-            {title}
+          <h2
+            id={titleId}
+            className={`font-display leading-tight font-bold text-heading ${bar ? 'text-lg' : 'text-2xl'}`}
+          >
+            {bracket ? (
+              <>
+                {bracket[1]}{' '}
+                <span className="font-sans text-xs font-normal text-firm-primary">
+                  {bracket[2]}
+                </span>
+              </>
+            ) : (
+              title
+            )}
           </h2>
           {subtitle && <p className="text-xs text-firm-primary">{subtitle}</p>}
         </div>
@@ -273,23 +290,21 @@ export function IntakeStepper({
         <li
           key={id}
           aria-current={current === id ? 'step' : undefined}
-          className="relative flex min-w-0 flex-1 flex-col items-center gap-1 text-center text-xs text-firm-primary"
+          className="relative flex min-w-0 flex-1 flex-col items-center gap-1 text-center text-sm font-semibold text-firm-primary"
         >
           {index < steps.length - 1 && (
-            <span aria-hidden="true" className="absolute top-4 left-1/2 h-px w-full bg-action/40" />
+            <span aria-hidden="true" className="absolute top-4 left-1/2 h-px w-full bg-action" />
           )}
           <Button
             variant="ghost"
             disabled={id > current || skipped}
             onClick={() => onEdit(id)}
             aria-label={skipped ? `${label} (not needed)` : `Go to ${label}`}
-            className={`relative min-h-9! w-9 rounded-full! p-0! ${current === id ? 'bg-action! text-on-action!' : 'bg-folder-surface!'} ${skipped ? 'opacity-50' : ''}`}
+            className={`relative min-h-8! w-8 rounded-full! p-0! text-sm! font-bold! ${current === id ? 'bg-action! text-on-action!' : 'bg-folder-surface! text-firm-primary!'} ${skipped ? 'opacity-50' : ''}`}
           >
             <span aria-hidden="true">{index + 1}</span>
           </Button>
-          <span
-            className={`px-1 ${current === id ? 'font-semibold' : ''} ${skipped ? 'text-muted line-through' : ''}`}
-          >
+          <span className={`px-1 ${skipped ? 'font-normal text-muted line-through' : ''}`}>
             {label}
           </span>
           {skipped && <span className="text-xs text-muted">Not needed</span>}
