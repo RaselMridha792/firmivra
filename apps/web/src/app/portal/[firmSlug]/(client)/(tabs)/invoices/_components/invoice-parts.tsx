@@ -61,6 +61,7 @@ export function PayButton({
       disabled={pay.isPending}
       onClick={() => pay.mutate(invoice.id)}
       aria-label={`Pay ${invoice.number} now`}
+      className="cursor-pointer bg-firm-primary! hover:bg-navigation-hover! focus-visible:outline-firm-primary! disabled:bg-disabled! disabled:text-disabled-text!"
     >
       Pay Now
     </Button>

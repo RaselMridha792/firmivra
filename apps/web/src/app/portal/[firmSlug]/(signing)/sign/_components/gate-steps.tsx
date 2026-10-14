@@ -229,6 +229,7 @@ export function ConsentStep({ signing, firmSlug, opening, state, onState, onLost
             <Checkbox
               label={`I agree to sign ${state.firmName}'s documents electronically.`}
               checked={agreed}
+              className="[&_input]:accent-firm-primary"
               onChange={(e) => setAgreed(e.target.checked)}
             />
             {(error ?? message(accept.error)) && (
@@ -237,7 +238,11 @@ export function ConsentStep({ signing, firmSlug, opening, state, onState, onLost
               </p>
             )}
             <div>
-              <Button type="submit" disabled={accept.isPending || consent.isFetching}>
+              <Button
+                type="submit"
+                disabled={accept.isPending || consent.isFetching}
+                className="bg-firm-primary! text-on-action! hover:bg-navigation-hover! focus-visible:outline-firm-primary"
+              >
                 Continue
               </Button>
             </div>

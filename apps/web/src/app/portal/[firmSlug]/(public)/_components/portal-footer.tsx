@@ -17,7 +17,7 @@ const linkStyle = 'block rounded-sm py-0.5 text-xs text-on-action hover:text-fir
 
 type FooterItem = { label: string; href?: string; legal?: LegalKind };
 
-/** LVP's public footer follows the mockup; the compact option is used by signed-in portal pages. */
+/** Public LVP pages use the extended footer; the signed-in client shell keeps its compact footer. */
 export function PortalFooter({
   contact = false,
   width,
@@ -47,7 +47,7 @@ export function PortalFooter({
       : []),
   ];
 
-  if (business.slug === 'lvp' && !compact) {
+  if (business.slug === 'lvp' && width === 'public' && !compact) {
     const columns: { title: string; items: FooterItem[] }[] = [
       {
         title: 'Quick Links',

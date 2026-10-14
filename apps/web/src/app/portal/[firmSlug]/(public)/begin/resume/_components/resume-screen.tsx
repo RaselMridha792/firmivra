@@ -6,15 +6,16 @@ import {
   EmailResumeLinkRequest,
   resumeTokenFromHash,
 } from '@firmivra/types';
-import { Button, Card, Input, PageContainer } from '@firmivra/ui';
+import { Button, Input, PageContainer } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { LoaderCircle, MailCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, LoaderCircle, LockKeyhole, Mail, MailCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../lib/query';
+import { compactInput, SectionPanel } from '../../_blocks/form-blocks';
 import { draftKey } from '../../_blocks/intake-flow';
 
 /**
@@ -73,17 +74,33 @@ export function ResumeScreen({ firmSlug }: { firmSlug: string }) {
     <div
       data-theme="begin-online"
       data-testid="begin-resume"
-      className="bg-surface py-8 text-firm-primary"
+      className="bg-surface py-4 text-xs text-firm-primary"
     >
-      <PageContainer className="flex flex-col items-center">
-        <h1 className="text-center font-display text-4xl font-bold text-heading">
-          Continue Your <span className="text-accent">Form</span>
-        </h1>
-        <p className="mt-1 max-w-xl text-center text-sm">
-          Your answers are saved securely. Open the link we emailed you to pick up where you left
-          off.
-        </p>
-        <Card className="mt-4 w-full max-w-lg">
+      {/* Set as the service forms' header and start card (begin/_blocks), so it reads as one of them. */}
+      <PageContainer>
+        <header className="mb-3 text-center">
+          <h1 className="font-display text-3xl leading-tight font-bold text-heading sm:text-5xl">
+            Continue Your <span className="text-accent">Form</span>
+          </h1>
+          <p className="mx-auto mt-1 max-w-2xl text-xs">
+            Your answers are saved securely. Open the link we emailed you to pick up where you left
+            off.
+          </p>
+          <div className="mx-auto mt-2 flex max-w-2xl items-center justify-center gap-2 rounded-control bg-folder-surface px-3 py-1 text-xs">
+            <LockKeyhole aria-hidden="true" className="size-4 shrink-0" />
+            <p>
+              This is a <strong>secure and encrypted form.</strong> Your information is protected
+              using industry-standard encryption.
+            </p>
+          </div>
+        </header>
+        <SectionPanel
+          number={1}
+          title="Get a New Link"
+          subtitle="Enter the email you started your form with and we'll send you a link to continue."
+          icon={<Mail className="size-10" strokeWidth={1.5} />}
+          className="mx-auto max-w-2xl"
+        >
           {resume.isPending || resume.isSuccess ? (
             <p role="status" className="flex items-center gap-2 text-sm">
               <LoaderCircle aria-hidden="true" className="size-5 animate-spin" />
@@ -102,29 +119,39 @@ export function ResumeScreen({ firmSlug }: { firmSlug: string }) {
                   {failure}
                 </p>
               )}
-              <p className="text-sm">Enter your email and we&apos;ll send you a new link.</p>
-              <Input
-                label="Email Address *"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                error={emailError}
-              />
+              <div className="[&_label]:text-xs [&_label]:text-firm-primary">
+                <Input
+                  label="Email Address *"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  error={emailError}
+                  className={compactInput}
+                />
+              </div>
               {link.error && (
                 <p role="alert" className="text-sm text-danger">
                   {errorMessage(link.error, BEGIN_ONLINE_ERRORS)}
                 </p>
               )}
-              <Button type="submit" disabled={link.isPending} className="w-full">
-                Email Me My Link
-              </Button>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Link
+                  href={`/${firmSlug}/begin`}
+                  className="inline-flex min-h-11 items-center gap-2 text-sm text-link underline"
+                >
+                  <ArrowLeft aria-hidden="true" className="size-4" />
+                  Start a new form
+                </Link>
+                <Button type="submit" disabled={link.isPending} className="min-w-40">
+                  Email Me My Link
+                  <ArrowRight aria-hidden="true" className="size-4" />
+                </Button>
+              </div>
             </form>
           )}
-        </Card>
-        <Link href={`/${firmSlug}/begin`} className="mt-3 text-sm underline">
-          Start a new form
-        </Link>
+        </SectionPanel>
       </PageContainer>
     </div>
   );
