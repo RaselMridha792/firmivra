@@ -2961,8 +2961,12 @@ model MessageTemplate {
   createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  category TemplateCategory?        @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
-  versions MessageTemplateVersion[]
+  category    TemplateCategory?           @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  versions    MessageTemplateVersion[]
+  attachments MessageTemplateAttachment[]
+  shares      MessageTemplateShare[]
+  favorites   MessageTemplateFavorite[]
+  uses        MessageTemplateUse[]
 
   @@unique([businessId, id])
   @@unique([businessId, starterKey])
@@ -2988,4 +2992,98 @@ model MessageTemplateVersion {
 
   @@unique([businessId, templateId, version])
   @@map("message_template_versions")
+}
+
+/// A file attached to a template: an S3 key under the firm's prefix, never file content.
+model MessageTemplateAttachment {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  templateId  String   @map("template_id") @db.Uuid
+  fileName    String   @map("file_name")
+  contentType String   @map("content_type")
+  sizeBytes   Int      @map("size_bytes")
+  s3Key       String   @unique @map("s3_key")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  template MessageTemplate @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, templateId])
+  @@map("message_template_attachments")
+}
+
+/// A person a SELECTED template is shared with ("Shared with Me").
+model MessageTemplateShare {
+  businessId String   @map("business_id") @db.Uuid
+  templateId String   @map("template_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  template MessageTemplate @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Cascade)
+
+  @@id([templateId, userId])
+  @@index([businessId, userId])
+  @@map("message_template_shares")
+}
+
+/// A person's own favourite; it never changes anyone else's.
+model MessageTemplateFavorite {
+  businessId String   @map("business_id") @db.Uuid
+  templateId String   @map("template_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  template MessageTemplate @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Cascade)
+
+  @@id([templateId, userId])
+  @@index([businessId, userId])
+  @@map("message_template_favorites")
+}
+
+/// Insert-only: one row per real use or send (never a preview or an edit). The use count is the
+/// number of rows. `purpose` is the module ("communication", "automation", "appointment"...).
+model MessageTemplateUse {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  templateId   String   @map("template_id") @db.Uuid
+  version      Int
+  purpose      String
+  entityType   String?  @map("entity_type")
+  entityId     String?  @map("entity_id") @db.Uuid
+  usedByUserId String?  @map("used_by_user_id") @db.Uuid
+  usedAt       DateTime @default(now()) @map("used_at") @db.Timestamptz(3)
+
+  template MessageTemplate @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, templateId, usedAt])
+  @@map("message_template_uses")
+}
+
+/// One row per firm: the footer, disclaimer and signature the Branding & Letterhead tool adds to
+/// letters and emails. The logo, name and colours come from business_settings.
+model TemplateBranding {
+  businessId        String   @id @map("business_id") @db.Uuid
+  footerText        String?  @map("footer_text")
+  disclaimer        String?
+  signatureText     String?  @map("signature_text")
+  letterheadEnabled Boolean  @default(true) @map("letterhead_enabled")
+  updatedByUserId   String?  @map("updated_by_user_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("template_branding")
+}
+
+/// A firm-defined merge field (the Custom group): `[Key]` in a template, filled from `fallback`.
+model CustomMergeField {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  key        String
+  label      String
+  fallback   String?
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([businessId, key])
+  @@map("custom_merge_fields")
 }

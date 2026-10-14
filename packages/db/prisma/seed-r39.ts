@@ -50,4 +50,27 @@ async function seedTemplates(tx: TxClient, businessId: string) {
       savedByUserId: ownerUserId,
     },
   });
+  const link = { businessId, templateId: template.id };
+  await tx.messageTemplateShare.create({ data: { ...link, userId: SEED_USERS.lvpStaff.id } });
+  await tx.messageTemplateFavorite.create({ data: { ...link, userId: ownerUserId } });
+  await tx.messageTemplateUse.create({ data: { ...link, version: 1, purpose: 'communication' } });
+  await tx.messageTemplateAttachment.create({
+    data: {
+      ...link,
+      fileName: 'Organizer.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 1024,
+      s3Key: `tenant/${businessId}/templates/${template.id}/organizer-sample.pdf`,
+    },
+  });
+  await tx.templateBranding.upsert({
+    where: { businessId },
+    update: {},
+    create: { businessId, footerText: 'LVP Accounting & Taxes', disclaimer: 'Sample disclaimer.' },
+  });
+  await tx.customMergeField.upsert({
+    where: { businessId_key: { businessId, key: 'Office Hours' } },
+    update: {},
+    create: { businessId, key: 'Office Hours', label: 'Office hours', fallback: '9 to 5' },
+  });
 }
