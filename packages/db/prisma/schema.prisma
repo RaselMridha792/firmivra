@@ -117,6 +117,24 @@ enum TaskStatus {
   CANCELLED
 }
 
+/// Where an OPEN task stands (the Tasks screens' Not Started, Pending, In Progress, Waiting,
+/// Blocked). status stays the lifecycle: DONE shows as Completed, and overdue is never stored but
+/// derived from an incomplete task past its due date (R38).
+enum TaskProgress {
+  NOT_STARTED
+  PENDING
+  IN_PROGRESS
+  /// Waiting on the client.
+  WAITING
+  BLOCKED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
 /// Bookkeeping: REPORT, RECONCILIATION. Tax Planning: ESTIMATE, PROJECTION.
 enum ReportKind {
   REPORT
@@ -342,6 +360,9 @@ model Business {
   platformOwnerInvites PlatformOwnerInvite[]
   esignSettings        EsignSettings?
 
+  // R38 work modules.
+  taskTypes TaskType[]
+
   @@map("businesses")
 }
 
@@ -420,6 +441,7 @@ model Membership {
   assignedClients     Client[]
   assignedEngagements Engagement[]
   assignedTasks       Task[]
+  taskCollaborations  TaskAssignee[]
   workingHours        WorkingHours[]
   blockedTimes        BlockedTime[]
   appointments        Appointment[]
@@ -855,6 +877,7 @@ model Service {
   intakeForms IntakeForm[]
   agreements  FirmAgreement[]
   leads       Lead[]
+  tasks       Task[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -953,13 +976,42 @@ model Task {
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client         Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement     Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  assignedMember Membership? @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  // R38 (Tasks module): the columns below belong to the Tasks screens (see the R38 section).
+  priority          TaskPriority @default(MEDIUM)
+  progress          TaskProgress @default(PENDING)
+  typeId            String?      @map("type_id") @db.Uuid
+  /// The firm's service this work belongs to (Services & Pricing), optional.
+  serviceId         String?      @map("service_id") @db.Uuid
+  startOn           DateTime?    @map("start_on") @db.Date
+  /// Time of day the task is due, in the firm's timezone; only with dueOn, never with allDay.
+  dueTime           DateTime?    @map("due_time") @db.Time(0)
+  allDay            Boolean      @default(true) @map("all_day")
+  /// The client's portal shows the task (approved fields only) while this is true.
+  clientVisible     Boolean      @default(false) @map("client_visible")
+  /// Staff only, never shown to the client.
+  internalNotes     String?      @map("internal_notes")
+  /// Why the task is BLOCKED; its prerequisite (dependsOnTaskId) is the other reason.
+  blockedReason     String?      @map("blocked_reason")
+  /// The one task that must be completed first. The database refuses a cycle.
+  dependsOnTaskId   String?      @map("depends_on_task_id") @db.Uuid
+  completedByUserId String?      @map("completed_by_user_id") @db.Uuid
+  archivedAt        DateTime?    @map("archived_at") @db.Timestamptz(3)
 
+  client         Client         @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement     Engagement?    @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember Membership?    @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  type           TaskType?      @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  service        Service?       @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  dependsOn      Task?          @relation("TaskDependency", fields: [businessId, dependsOnTaskId], references: [businessId, id], onDelete: Restrict)
+  dependents     Task[]         @relation("TaskDependency")
+  assignees      TaskAssignee[]
+
+  @@unique([businessId, id])
   @@index([businessId, clientId])
   @@index([businessId, engagementId])
   @@index([businessId, assignedUserId, status])
+  @@index([businessId, status, dueOn])
+  @@index([businessId, dependsOnTaskId])
   @@map("tasks")
 }
 
@@ -2872,4 +2924,43 @@ model EsignBulkItem {
   @@unique([batchId, clientId])
   @@index([businessId, state])
   @@map("esign_bulk_items")
+}
+
+// ---------- R38: work modules (Rasel, Oct 14) ----------
+// The database for Bookkeeping, Tax Planning, Tasks, Compliance & Deadlines and Automations
+// (docs/mockups/firm-workspace/<module>/source). Firm tables with forced RLS, one migration per
+// group (r38_*). Rows that say who acted keep a plain user id, as tasks.created_by_user_id does;
+// assignees are same-firm members through a foreign key.
+
+/// A firm-configured task category ("Business Advisory", "Bookkeeping"). Archived, not deleted.
+model TaskType {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  name       String
+  sortOrder  Int       @default(0) @map("sort_order")
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+  tasks    Task[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, name])
+  @@map("task_types")
+}
+
+/// An additional assignee (collaborator) of a task. Being one never gives access to the client.
+model TaskAssignee {
+  businessId String   @map("business_id") @db.Uuid
+  taskId     String   @map("task_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task   Task       @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Cascade)
+  member Membership @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@id([taskId, userId])
+  @@index([businessId, userId])
+  @@map("task_assignees")
 }

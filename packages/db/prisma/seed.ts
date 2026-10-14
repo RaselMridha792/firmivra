@@ -34,6 +34,7 @@ import {
   SEED_ESIGN_IDS,
   SAMPLE_ESIGN_CONSENT,
 } from './seed-data.js';
+import { seedWorkModules } from './seed-r38.js';
 
 config({ path: '../../.env', quiet: true });
 
@@ -844,6 +845,17 @@ async function main() {
         assignedUserId: SEED_USERS.lvpStaff.id,
         createdByUserId: SEED_USERS.lvpOwner.id,
       },
+    });
+    await seedWorkModules(tx, {
+      businessId: businesses.lvp,
+      clientId: SEED_CLIENT_IDS.lvp,
+      ownerId: SEED_USERS.lvpOwner.id,
+      staffId: SEED_USERS.lvpStaff.id,
+      taskId: SEED_WORK_IDS.lvpTask,
+      taxEngagementId: SEED_WORK_IDS.lvpTax,
+      bookkeepingEngagementId: SEED_WORK_IDS.lvpBookkeeping,
+      taxServiceId: service('Annual Tax'),
+      bookkeepingServiceId: service('Bookkeeping'),
     });
     await tx.note.upsert({
       where: { id: SEED_WORK_IDS.lvpNote },

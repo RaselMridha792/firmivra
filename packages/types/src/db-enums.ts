@@ -72,6 +72,13 @@ export type TaskKind = z.infer<typeof TaskKind>;
 export const TaskStatus = z.enum(['OPEN', 'DONE', 'CANCELLED']);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
+/** Where an OPEN task stands (the Tasks screens' Not Started, Pending, In Progress, Waiting, Blocked). status stays the lifecycle: DONE shows as Completed, and overdue is never stored but derived from an incomplete task past its due date (R38). */
+export const TaskProgress = z.enum(['NOT_STARTED', 'PENDING', 'IN_PROGRESS', 'WAITING', 'BLOCKED']);
+export type TaskProgress = z.infer<typeof TaskProgress>;
+
+export const TaskPriority = z.enum(['LOW', 'MEDIUM', 'HIGH']);
+export type TaskPriority = z.infer<typeof TaskPriority>;
+
 /** Bookkeeping: REPORT, RECONCILIATION. Tax Planning: ESTIMATE, PROJECTION. */
 export const ReportKind = z.enum(['REPORT', 'RECONCILIATION', 'ESTIMATE', 'PROJECTION']);
 export type ReportKind = z.infer<typeof ReportKind>;
