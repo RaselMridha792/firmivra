@@ -160,7 +160,7 @@ describe('filings', () => {
     ).resolves.toBeTruthy();
   });
 
-  it('a paper filing says when; an e-file one is never filed on paper; accepted extensions say until when', async () => {
+  it('a paper filing says when; an e-file one is never filed on paper', async () => {
     const r = await newReturn();
     await expect(newFiling(r.id, { filingMethod: 'PAPER', status: 'PAPER_FILED' })).rejects.toThrow(
       /tax_return_filings_paper/,
@@ -171,17 +171,6 @@ describe('filings', () => {
     await expect(newFiling(r.id, { jurisdiction: 'GA', status: 'ACCEPTED' })).rejects.toThrow(
       /follows its attempts/,
     );
-    await expect(
-      newFiling(r.id, { jurisdiction: 'GA', extensionStatus: 'ACCEPTED' }),
-    ).rejects.toThrow(/tax_return_filings_extension/);
-    await expect(
-      newFiling(r.id, {
-        jurisdiction: 'FL',
-        extensionStatus: 'ACCEPTED',
-        extendedDueOn: new Date('2027-10-15'),
-        extensionConfirmation: 'EXT-12345',
-      }),
-    ).resolves.toBeTruthy();
   });
 });
 

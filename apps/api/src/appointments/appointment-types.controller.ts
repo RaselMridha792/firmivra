@@ -6,7 +6,7 @@ import {
   type AppointmentTypeList,
   AppointmentTypesQuery,
 } from '@firmivra/types';
-import { CurrentTenant, FIRM_MANAGERS, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentTenant, FIRM_MANAGERS, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { AppointmentTypesService } from './appointment-types.service.js';
@@ -19,6 +19,7 @@ const idPipe = new ZodValidationPipe(idParam(AppointmentTypeId));
  * edit, archive and restore (Staff: 403). The firm comes from TenantGuard.
  */
 @Controller('business/appointment-types')
+@Access('APPOINTMENTS')
 @Roles(...FIRM_STAFF)
 export class AppointmentTypesController {
   constructor(private readonly types: AppointmentTypesService) {}

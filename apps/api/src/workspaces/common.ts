@@ -2,7 +2,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { databaseErrorCode, type TxClient } from '@firmivra/db';
 import type { MemberRef } from '@firmivra/types';
 import type { ClientsActor } from '../clients/clients.service.js';
-import type { AuthContext, TenantContext } from '../common/request-context.js';
+import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 
 // Shared by the R12 tasks, workspaces and reports services.
 
@@ -23,7 +23,7 @@ export function actorOf(
   tenant: TenantContext | undefined,
 ): ClientsActor {
   if (!auth || tenant?.kind !== 'staff') throw new Error('firm routes are for firm members');
-  return { userId: auth.userId, role: tenant.role };
+  return { userId: auth.userId, role: legacyFirmRole(tenant.role) };
 }
 
 /** The signed-in client login of a portal route (from the session, never the URL). */

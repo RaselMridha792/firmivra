@@ -10,7 +10,7 @@ import {
   UpdateNotificationPreferencesRequest,
 } from '@firmivra/types';
 import { z } from 'zod';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { Notifier } from './notifier.js';
@@ -102,6 +102,7 @@ abstract class NotificationRoutes {
 
 /** The firm site: the member's own, in the firm the request acts in (every role). */
 @Controller('business/me')
+@Access('DASHBOARD', 'VIEW')
 @Roles(...FIRM_STAFF)
 export class NotificationsController extends NotificationRoutes {
   constructor(notifications: NotificationsService) {

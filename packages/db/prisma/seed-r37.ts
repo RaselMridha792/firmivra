@@ -487,7 +487,7 @@ async function seedClientFields(tx: TxClient, businessId: string) {
   });
   await tx.clientProfile.update({
     where: { clientId: SEED_CLIENT_IDS.lvp },
-    data: { emailOptIn: true, smsOptIn: true, county: 'Gwinnett' },
+    data: { county: 'Gwinnett' },
   });
   for (const [id, name] of [
     [ID.tagBackTaxes, 'Back Taxes'],

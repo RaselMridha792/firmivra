@@ -23,6 +23,7 @@ Firmivra is one multi-tenant platform shared by many businesses. Each business (
 - `docs/AUTH-DESIGN.md`: Cognito pools, sign-in flow, cookies, guards (see "Authentication" below).
 - `docs/SCRUM-PLAN.md`: team, process, sprints, Definition of Ready and Done.
 - `docs/mockups/{begin-online,client-portal,super-admin,firm-workspace}/`: Octavia's mockups. Screens must match them.
+- `docs/design-match.md`: the six rules and the checklist for matching a screen to its design. Read it before building any screen.
 - `docs/specs/`: Octavia's written instructions (.docx) for each area.
 - `docs/tasks/<NAME>.md`: each developer's ticket plan.
 
@@ -89,7 +90,7 @@ Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style
 ## Branches and pull requests
 
 - Branch from the latest `main`: `<name>/FIR-<issue number>-short-name`, for example `fahad/FIR-42-login-screen`.
-- Open a PR into `main` under 400 changed lines and fill in the PR template. UI PRs include the mockup next to a screenshot of the result.
+- Open a PR into `main`, one ticket or one page per PR, and fill in the PR template. UI PRs include the mockup next to a screenshot of the result.
 - CI must pass. Your pair pre-reviews first (Fahad + Tumit, Nahid + Arfan; all four build screens). Only Rasel approves and merges (squash).
 - A merge to `main` deploys to dev. Production deploys only from a `v*` tag that Rasel creates, after approval.
 - Never push to `main`, never force-push a branch someone else uses, never commit `.env`.

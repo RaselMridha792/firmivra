@@ -33,6 +33,7 @@ export * from './esign/index.js';
 export * from './intake/index.js';
 export * from './begin-online/index.js';
 export * from './leads/index.js';
+export * from './services-pricing/index.js';
 export * from './messages/index.js';
 export * from './agreements/index.js';
 export * from './dashboard/index.js';
@@ -42,6 +43,7 @@ export { AppointmentStatus, LocationKind } from './appointments/index.js';
 export { ContentKind } from './content/index.js';
 export { TaskKind, TaskStatus } from './tasks/index.js';
 export { ReportKind, ReportStatus } from './workspaces/index.js';
+export { BillingFrequency, PromotionStatus } from './services-pricing/index.js';
 // Intake agreements and Firm Sign (R14, R13) will export modules that use these database enums:
 // name them here so the root always takes the generated values.
 export { AgreementScope, SignatureMethod } from './schemas.js';

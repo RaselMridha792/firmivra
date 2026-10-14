@@ -44,7 +44,7 @@ Checklist:
 - [ ] Components use tokens only (no hex values inside components)
 - [ ] Every component has a story
 - [ ] Labels on inputs and a visible focus ring
-- [ ] Under 400 changed lines per PR
+- [ ] One ticket or one page per PR
 
 ### F02 · Oct 7 · Sign-in, MFA and activate (firm and Super Admin)
 
@@ -65,7 +65,7 @@ Checklist:
 - [ ] Errors shown with `errorMessage()`
 - [ ] No token, code or password in localStorage, the URL or the console
 - [ ] The existing Playwright sign-in tests still pass
-- [ ] Split sign-in and activate into two PRs if it goes over 400 lines
+- [ ] Sign-in and activate in two PRs (one page per PR)
 
 ### F03 · Oct 8 · Firm dashboard and menu
 
