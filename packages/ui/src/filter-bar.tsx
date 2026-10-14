@@ -6,20 +6,36 @@ import {
   useId,
   useRef,
   useState,
+  type CSSProperties,
   type InputHTMLAttributes,
   type ReactNode,
 } from 'react';
 import { Button } from './button';
 
+export interface SearchFieldProps extends InputHTMLAttributes<HTMLInputElement> {
+  label: string;
+  /**
+   * Overrides the 14rem default floor (a CSS length), for a filter row with several other
+   * fields and little room. A CSS variable, not a competing Tailwind min-w class: two min-w
+   * classes on one element don't reliably override each other.
+   */
+  minWidth?: string;
+}
 /** The filled search box at the start of a filter bar. */
 export function SearchField({
   label,
   className = '',
+  minWidth,
+  style,
   ...props
-}: InputHTMLAttributes<HTMLInputElement> & { label: string }) {
+}: SearchFieldProps) {
+  const fieldStyle = minWidth
+    ? ({ ...style, '--search-field-min-w': minWidth } as CSSProperties)
+    : style;
   return (
     <label
-      className={`flex h-10 min-w-56 flex-1 items-center gap-2 rounded-lg border border-divider bg-canvas px-3 text-muted focus-within:outline-2 focus-within:outline-focus ${className}`}
+      style={fieldStyle}
+      className={`flex h-10 min-w-[var(--search-field-min-w,14rem)] flex-1 items-center gap-2 rounded-lg border border-divider bg-canvas px-3 text-muted focus-within:outline-2 focus-within:outline-focus ${className}`}
     >
       <MagnifyingGlass aria-hidden weight="bold" className="size-4.5 shrink-0" />
       <span className="sr-only">{label}</span>
