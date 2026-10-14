@@ -11,6 +11,7 @@ export async function seedR39(tx: TxClient, businessId: string) {
   await seedAudiences(tx, businessId);
   await seedCommunications(tx, businessId);
   await seedReports(tx, businessId);
+  await seedPayroll(tx, businessId);
 }
 
 async function seedTemplates(tx: TxClient, businessId: string) {
@@ -302,6 +303,55 @@ async function seedReports(tx: TxClient, businessId: string) {
       rowCount: 10,
       startedAt: now,
       finishedAt: now,
+    },
+  });
+}
+
+async function seedPayroll(tx: TxClient, businessId: string) {
+  await tx.payrollSettings.upsert({ where: { businessId }, update: {}, create: { businessId } });
+  const service = await tx.service.findFirstOrThrow({ where: { businessId, kind: 'PAYROLL' } });
+  const client = await tx.client.findFirstOrThrow({ where: { businessId } });
+  let engagement = await tx.engagement.findFirst({
+    where: { businessId, clientId: client.id, serviceId: service.id },
+  });
+  engagement ??= await tx.engagement.create({
+    data: { businessId, clientId: client.id, serviceId: service.id, title: '2026 Payroll' },
+  });
+  if (
+    await tx.payrollClient.findUnique({
+      where: { businessId_engagementId: { businessId, engagementId: engagement.id } },
+    })
+  )
+    return;
+  const payrollClient = await tx.payrollClient.create({
+    data: {
+      businessId,
+      clientId: client.id,
+      engagementId: engagement.id,
+      status: 'ON_TRACK',
+      frequency: 'BIWEEKLY',
+      providerKey: 'gusto',
+      industry: 'Restaurant',
+      assignedUserId: SEED_USERS.lvpStaff.id,
+      serviceSince: new Date('2024-01-15'),
+    },
+  });
+  const link = { businessId, payrollClientId: payrollClient.id };
+  await tx.payrollClientChange.create({
+    data: {
+      ...link,
+      field: 'status',
+      oldValue: 'NOT_STARTED',
+      newValue: 'ON_TRACK',
+      changedByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
+  await tx.payrollActivity.create({
+    data: {
+      ...link,
+      kind: 'CLIENT_CALL',
+      summary: 'Confirmed the pay schedule.',
+      loggedByUserId: SEED_USERS.lvpOwner.id,
     },
   });
 }

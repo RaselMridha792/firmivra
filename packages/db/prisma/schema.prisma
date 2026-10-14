@@ -740,6 +740,7 @@ model Client {
   commConsents   CommunicationConsent[]
   commAudience   CommunicationAudienceEntry[]
   commRecipients CommunicationRecipient[]
+  payrollClients PayrollClient[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -915,6 +916,9 @@ model Engagement {
   taxReturns       TaxReturn[]
   esignRequests    EsignRequest[]
   esignBulkItems   EsignBulkItem[]
+
+  // R39
+  payrollClient PayrollClient?
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -3175,6 +3179,7 @@ model IntegrationConnection {
   mappings       IntegrationFieldMapping[]
   syncRuns       IntegrationSyncRun[]
   communications Communication[]
+  payrollClients PayrollClient[]
 
   @@unique([businessId, id])
   @@unique([businessId, provider, environment])
@@ -3822,4 +3827,136 @@ model ReportRun {
   @@index([businessId, definitionId])
   @@index([businessId, scheduleId])
   @@map("report_runs")
+}
+
+// ---------- Payroll: tracking only (Firmivra never runs payroll; the connected provider does) ----------
+
+/// Firmivra's own workflow status for a payroll client, not the provider's.
+enum PayrollClientStatus {
+  ON_TRACK
+  PROCESSING
+  ACTION_REQUIRED
+  PAST_DUE
+  NOT_STARTED
+  ON_HOLD
+  ARCHIVED
+}
+
+enum PayrollFrequency {
+  WEEKLY
+  BIWEEKLY
+  SEMI_MONTHLY
+  MONTHLY
+}
+
+enum PayrollActivityKind {
+  PAYROLL_REVIEW
+  CLIENT_CALL
+  PROVIDER_ISSUE
+  NOTICE_FOLLOW_UP
+  DOCUMENT_FOLLOW_UP
+  OTHER
+}
+
+/// A client's payroll service, one per PAYROLL engagement. The engagement carries the plan
+/// (service and package), the client and the history; tasks, notes, documents, appointments and
+/// messages hang on that engagement. This row adds the payroll workflow: status, schedule, the
+/// provider (`providerKey`, and the Integrations connection when connected), the employee count
+/// the provider reported and when, next and last pay dates, and the assigned staff. Dates and
+/// counts the provider has not confirmed stay empty: nothing is estimated. Paused or archived,
+/// never deleted.
+model PayrollClient {
+  id                String              @id @default(uuid(7)) @db.Uuid
+  businessId        String              @map("business_id") @db.Uuid
+  clientId          String              @map("client_id") @db.Uuid
+  engagementId      String              @map("engagement_id") @db.Uuid
+  status            PayrollClientStatus @default(NOT_STARTED)
+  frequency         PayrollFrequency?
+  /// The payroll provider's catalog key ("gusto", "adp"...), set even before a connection exists.
+  providerKey       String?             @map("provider_key")
+  connectionId      String?             @map("connection_id") @db.Uuid
+  industry          String?
+  /// Reported by the provider or imported; null until then.
+  employeeCount     Int?                @map("employee_count")
+  employeeCountAt   DateTime?           @map("employee_count_at") @db.Timestamptz(3)
+  nextPayrollOn     DateTime?           @map("next_payroll_on") @db.Date
+  /// Where the next date came from: "provider" or "schedule".
+  nextPayrollSource String?             @map("next_payroll_source")
+  lastRunOn         DateTime?           @map("last_run_on") @db.Date
+  lastSyncedAt      DateTime?           @map("last_synced_at") @db.Timestamptz(3)
+  lastSyncAttemptAt DateTime?           @map("last_sync_attempt_at") @db.Timestamptz(3)
+  assignedUserId    String?             @map("assigned_user_id") @db.Uuid
+  serviceSince      DateTime?           @map("service_since") @db.Date
+  pausedAt          DateTime?           @map("paused_at") @db.Timestamptz(3)
+  archivedAt        DateTime?           @map("archived_at") @db.Timestamptz(3)
+  /// Client-level options: report schedule, reminders, document checklist, portal visibility.
+  settings          Json                @default("{}")
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client                 @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement             @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  connection IntegrationConnection? @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
+  changes    PayrollClientChange[]
+  activities PayrollActivity[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId])
+  @@unique([businessId, clientId, engagementId])
+  @@index([businessId, status])
+  @@index([businessId, nextPayrollOn])
+  @@index([businessId, assignedUserId])
+  @@map("payroll_clients")
+}
+
+/// Insert-only history of a payroll client's service: status, frequency, plan, assignee, pause,
+/// archive, provider. Values are short codes or names, never payroll figures.
+model PayrollClientChange {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  payrollClientId String   @map("payroll_client_id") @db.Uuid
+  field           String
+  oldValue        String?  @map("old_value")
+  newValue        String?  @map("new_value")
+  reason          String?
+  changedByUserId String?  @map("changed_by_user_id") @db.Uuid
+  changedAt       DateTime @default(now()) @map("changed_at") @db.Timestamptz(3)
+
+  payrollClient PayrollClient @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, payrollClientId, changedAt])
+  @@map("payroll_client_changes")
+}
+
+/// Insert-only log of what staff did for a payroll client (a review, a call, a provider issue).
+/// Internal; never shown to the client.
+model PayrollActivity {
+  id              String              @id @default(uuid(7)) @db.Uuid
+  businessId      String              @map("business_id") @db.Uuid
+  payrollClientId String              @map("payroll_client_id") @db.Uuid
+  kind            PayrollActivityKind
+  summary         String
+  occurredAt      DateTime            @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  loggedByUserId  String              @map("logged_by_user_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  payrollClient PayrollClient @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, payrollClientId, occurredAt])
+  @@map("payroll_activities")
+}
+
+/// One row per firm: payroll module defaults. Provider credentials are never here (Integrations).
+model PayrollSettings {
+  businessId         String   @id @map("business_id") @db.Uuid
+  defaultAssigneeId  String?  @map("default_assignee_id") @db.Uuid
+  reminderDaysBefore Int      @default(3) @map("reminder_days_before")
+  staleAfterHours    Int      @default(48) @map("stale_after_hours")
+  /// Workflow labels, due-date rules, document request templates, report visibility.
+  settings           Json     @default("{}")
+  updatedByUserId    String?  @map("updated_by_user_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("payroll_settings")
 }

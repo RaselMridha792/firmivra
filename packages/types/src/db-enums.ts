@@ -520,3 +520,28 @@ export type ReportRunKind = z.infer<typeof ReportRunKind>;
 
 export const ReportRunStatus = z.enum(['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED']);
 export type ReportRunStatus = z.infer<typeof ReportRunStatus>;
+
+/** Firmivra's own workflow status for a payroll client, not the provider's. */
+export const PayrollClientStatus = z.enum([
+  'ON_TRACK',
+  'PROCESSING',
+  'ACTION_REQUIRED',
+  'PAST_DUE',
+  'NOT_STARTED',
+  'ON_HOLD',
+  'ARCHIVED',
+]);
+export type PayrollClientStatus = z.infer<typeof PayrollClientStatus>;
+
+export const PayrollFrequency = z.enum(['WEEKLY', 'BIWEEKLY', 'SEMI_MONTHLY', 'MONTHLY']);
+export type PayrollFrequency = z.infer<typeof PayrollFrequency>;
+
+export const PayrollActivityKind = z.enum([
+  'PAYROLL_REVIEW',
+  'CLIENT_CALL',
+  'PROVIDER_ISSUE',
+  'NOTICE_FOLLOW_UP',
+  'DOCUMENT_FOLLOW_UP',
+  'OTHER',
+]);
+export type PayrollActivityKind = z.infer<typeof PayrollActivityKind>;
