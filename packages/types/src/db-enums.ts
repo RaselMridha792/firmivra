@@ -382,3 +382,23 @@ export type InvoiceEventType = z.infer<typeof InvoiceEventType>;
 
 export const InvoiceActorKind = z.enum(['STAFF', 'CLIENT', 'SYSTEM']);
 export type InvoiceActorKind = z.infer<typeof InvoiceActorKind>;
+
+/** How often a recurring invoice, or a recurring service's billing, comes round. */
+export const BillingFrequency = z.enum([
+  'ONE_TIME',
+  'WEEKLY',
+  'BIWEEKLY',
+  'SEMI_MONTHLY',
+  'MONTHLY',
+  'QUARTERLY',
+  'SEMIANNUAL',
+  'ANNUAL',
+]);
+export type BillingFrequency = z.infer<typeof BillingFrequency>;
+
+/** ACTIVE sends on its schedule (Upcoming when `start_on` is still ahead); PAUSED keeps its place and history; COMPLETED ran out its end rule; ENDED was stopped or archived by the firm. */
+export const RecurringInvoiceStatus = z.enum(['ACTIVE', 'PAUSED', 'COMPLETED', 'ENDED']);
+export type RecurringInvoiceStatus = z.infer<typeof RecurringInvoiceStatus>;
+
+export const InvoiceDelivery = z.enum(['EMAIL', 'PORTAL', 'EMAIL_AND_PORTAL']);
+export type InvoiceDelivery = z.infer<typeof InvoiceDelivery>;

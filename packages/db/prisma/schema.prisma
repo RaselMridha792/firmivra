@@ -459,6 +459,8 @@ model Membership {
   esignKioskLock        EsignKioskLock?        @relation("EsignKioskLock")
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
   invoiceAttachments    InvoiceAttachment[]
+  recurringAssigned     RecurringInvoice[]     @relation("RecurringAssignedTo")
+  recurringCreated      RecurringInvoice[]     @relation("RecurringCreatedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -489,15 +491,15 @@ model ClientAccount {
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business          Business            @relation(fields: [businessId], references: [id])
-  user              User                @relation(fields: [userId], references: [id])
-  client            Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  invites           Invite[]
-  privateNotes      ClientPrivateNote[]
-  legalAcceptances  LegalAcceptance[]
-  intakeSignatures  IntakeSignature[]
-  verificationCodes VerificationCode[]
-  esignRecipients   EsignRecipient[]
+  business                 Business              @relation(fields: [businessId], references: [id])
+  user                     User                  @relation(fields: [userId], references: [id])
+  client                   Client?               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  invites                  Invite[]
+  privateNotes             ClientPrivateNote[]
+  legalAcceptances         LegalAcceptance[]
+  intakeSignatures         IntakeSignature[]
+  verificationCodes        VerificationCode[]
+  esignRecipients          EsignRecipient[]
 
   @@unique([businessId, email])
   // Target of client-owned rows (private notes).
@@ -733,21 +735,22 @@ model Client {
   createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business         Business                 @relation(fields: [businessId], references: [id])
-  assignedMember   Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  profile          ClientProfile?
-  accounts         ClientAccount[]
-  taxStatuses      ClientTaxStatus[]
-  taxStatusHistory ClientTaxStatusHistory[]
-  engagements      Engagement[]
-  tasks            Task[]
-  notes            Note[]
-  appointments     Appointment[]
-  messageThreads   MessageThread[]
-  invoices         Invoice[]
-  taxReturns       TaxReturn[]
-  esignRequests    EsignRequest[]
-  esignBulkItems   EsignBulkItem[]
+  business          Business                 @relation(fields: [businessId], references: [id])
+  assignedMember    Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  profile           ClientProfile?
+  accounts          ClientAccount[]
+  taxStatuses       ClientTaxStatus[]
+  taxStatusHistory  ClientTaxStatusHistory[]
+  engagements       Engagement[]
+  tasks             Task[]
+  notes             Note[]
+  appointments      Appointment[]
+  messageThreads    MessageThread[]
+  invoices          Invoice[]
+  taxReturns        TaxReturn[]
+  esignRequests     EsignRequest[]
+  esignBulkItems    EsignBulkItem[]
+  recurringInvoices RecurringInvoice[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -864,12 +867,13 @@ model Service {
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business     Business        @relation(fields: [businessId], references: [id])
-  engagements  Engagement[]
-  intakeForms  IntakeForm[]
-  agreements   FirmAgreement[]
-  leads        Lead[]
-  invoiceLines InvoiceLine[]
+  business       Business               @relation(fields: [businessId], references: [id])
+  engagements    Engagement[]
+  intakeForms    IntakeForm[]
+  agreements     FirmAgreement[]
+  leads          Lead[]
+  invoiceLines   InvoiceLine[]
+  recurringLines RecurringInvoiceLine[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -907,23 +911,24 @@ model Engagement {
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client           Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  service          Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  assignedMember   Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  statusHistory    EngagementStatusHistory[]
-  tasks            Task[]
-  notes            Note[]
-  reports          EngagementReport[]
-  documents        Document[]
-  documentRequests DocumentRequest[]
-  intakes          Intake[]
-  leads            Lead[]
-  appointments     Appointment[]
-  messageThreads   MessageThread[]
-  invoices         Invoice[]
-  taxReturns       TaxReturn[]
-  esignRequests    EsignRequest[]
-  esignBulkItems   EsignBulkItem[]
+  client            Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  service           Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember    Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  statusHistory     EngagementStatusHistory[]
+  tasks             Task[]
+  notes             Note[]
+  reports           EngagementReport[]
+  documents         Document[]
+  documentRequests  DocumentRequest[]
+  intakes           Intake[]
+  leads             Lead[]
+  appointments      Appointment[]
+  messageThreads    MessageThread[]
+  invoices          Invoice[]
+  taxReturns        TaxReturn[]
+  esignRequests     EsignRequest[]
+  esignBulkItems    EsignBulkItem[]
+  recurringInvoices RecurringInvoice[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -1661,6 +1666,10 @@ model Invoice {
   /// The methods the client may use on this invoice (MANUAL: the firm records it).
   paymentMethods          InvoicePaymentMethod[] @default([CARD, ACH, MANUAL]) @map("payment_methods")
   autopay                 Boolean                @default(false)
+  /// R36: the recurring schedule that made this invoice and the period it covers (both or neither;
+  /// one invoice per schedule and period, so a rerun of the job makes no second one).
+  recurringInvoiceId      String?                @map("recurring_invoice_id") @db.Uuid
+  recurringPeriodOn       DateTime?              @map("recurring_period_on") @db.Date
 
   client          Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement      Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -1671,6 +1680,7 @@ model Invoice {
   lines           InvoiceLine[]
   tracking        InvoiceTracking?
   attachments     InvoiceAttachment[]
+  recurring       RecurringInvoice?   @relation(fields: [businessId, recurringInvoiceId], references: [businessId, id], onDelete: Restrict)
   events          InvoiceEvent[]
   payments        Payment[]
   offlinePayments OfflinePayment[]
@@ -1680,6 +1690,7 @@ model Invoice {
   @@index([businessId, clientId, status])
   @@index([businessId, status, dueOn])
   @@index([businessId, assignedUserId])
+  @@index([businessId, recurringInvoiceId])
   @@map("invoices")
 }
 
@@ -2967,8 +2978,9 @@ model InvoiceTaxRate {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business  @relation(fields: [businessId], references: [id])
-  invoices Invoice[]
+  business  Business           @relation(fields: [businessId], references: [id])
+  invoices  Invoice[]
+  recurring RecurringInvoice[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -2999,8 +3011,9 @@ model InvoiceTemplate {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business  @relation(fields: [businessId], references: [id])
-  invoices Invoice[]
+  business          Business           @relation(fields: [businessId], references: [id])
+  invoices          Invoice[]
+  recurringInvoices RecurringInvoice[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -3169,4 +3182,105 @@ model DepositAccount {
   @@unique([businessId, name])
   @@unique([businessId, id])
   @@map("deposit_accounts")
+}
+
+/// How often a recurring invoice, or a recurring service's billing, comes round.
+enum BillingFrequency {
+  ONE_TIME
+  WEEKLY
+  BIWEEKLY
+  SEMI_MONTHLY
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  ANNUAL
+}
+
+/// ACTIVE sends on its schedule (Upcoming when `start_on` is still ahead); PAUSED keeps its place
+/// and history; COMPLETED ran out its end rule; ENDED was stopped or archived by the firm.
+enum RecurringInvoiceStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ENDED
+}
+
+enum InvoiceDelivery {
+  EMAIL
+  PORTAL
+  EMAIL_AND_PORTAL
+}
+
+/// A schedule that makes invoices for one client (Recurring Invoices screen). The amount is its
+/// lines (`recurring_invoice_lines`); the schedule's own prices are the billing agreement, so a
+/// catalog price change never reaches it silently. The job makes a draft or sends, per `auto_send`,
+/// one invoice per period (`invoices.recurring_period_on`).
+model RecurringInvoice {
+  id              String                 @id @default(uuid(7)) @db.Uuid
+  businessId      String                 @map("business_id") @db.Uuid
+  clientId        String                 @map("client_id") @db.Uuid
+  engagementId    String?                @map("engagement_id") @db.Uuid
+  /// What the schedule is called ("Monthly Bookkeeping"), shown in the table's template column.
+  name            String
+  templateId      String?                @map("template_id") @db.Uuid
+  frequency       BillingFrequency
+  startOn         DateTime               @map("start_on") @db.Date
+  /// The next period to invoice; null once COMPLETED or ENDED.
+  nextSendOn      DateTime?              @map("next_send_on") @db.Date
+  /// The end rule: never (both empty), on a date, or after a number of invoices.
+  endOn           DateTime?              @map("end_on") @db.Date
+  maxOccurrences  Int?                   @map("max_occurrences")
+  occurrences     Int                    @default(0)
+  status          RecurringInvoiceStatus @default(ACTIVE)
+  autoSend        Boolean                @default(true) @map("auto_send")
+  autopay         Boolean                @default(false)
+  delivery        InvoiceDelivery        @default(EMAIL_AND_PORTAL)
+  paymentTerms    String?                @map("payment_terms")
+  taxRateId       String?                @map("tax_rate_id") @db.Uuid
+  discountType    InvoiceDiscountType    @default(FIXED) @map("discount_type")
+  discountPercent Decimal?               @map("discount_percent") @db.Decimal(5, 2)
+  discountCents   Int                    @default(0) @map("discount_cents")
+  notesToClient   String?                @map("notes_to_client")
+  assignedUserId  String?                @map("assigned_user_id") @db.Uuid
+  createdByUserId String?                @map("created_by_user_id") @db.Uuid
+  pausedAt        DateTime?              @map("paused_at") @db.Timestamptz(3)
+  endedAt         DateTime?              @map("ended_at") @db.Timestamptz(3)
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client                 @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?            @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  template   InvoiceTemplate?       @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  taxRate    InvoiceTaxRate?        @relation(fields: [businessId, taxRateId], references: [businessId, id], onDelete: Restrict)
+  assignedTo Membership?            @relation("RecurringAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  createdBy  Membership?            @relation("RecurringCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  lines      RecurringInvoiceLine[]
+  invoices   Invoice[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status, nextSendOn])
+  @@index([businessId, clientId])
+  @@map("recurring_invoices")
+}
+
+/// One line of a recurring invoice, copied onto each invoice it makes. Quantity up to 2 decimals.
+model RecurringInvoiceLine {
+  id                 String   @id @default(uuid(7)) @db.Uuid
+  businessId         String   @map("business_id") @db.Uuid
+  recurringInvoiceId String   @map("recurring_invoice_id") @db.Uuid
+  serviceId          String?  @map("service_id") @db.Uuid
+  itemName           String?  @map("item_name")
+  description        String
+  quantity           Decimal  @default(1) @db.Decimal(10, 2)
+  unitAmountCents    Int      @map("unit_amount_cents")
+  taxable            Boolean  @default(false)
+  sortOrder          Int      @default(0) @map("sort_order")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  recurring RecurringInvoice @relation(fields: [businessId, recurringInvoiceId], references: [businessId, id], onDelete: Restrict)
+  service   Service?         @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, recurringInvoiceId])
+  @@map("recurring_invoice_lines")
 }

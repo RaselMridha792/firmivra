@@ -1,12 +1,18 @@
 // R36 seed rows (money and portal modules), called from seed.ts. Synthetic sample setup only:
 // the firm's own tax rates, templates and settings, never real client data. Safe to run again.
 import { runInScope, type createPrismaClient } from '../src/client.js';
-import { SEED_BILLING_IDS, SEED_DOCUMENT_IDS, SEED_USERS } from './seed-data.js';
+import {
+  SEED_BILLING_IDS,
+  SEED_CLIENT_IDS,
+  SEED_DOCUMENT_IDS,
+  SEED_USERS,
+  SEED_WORK_IDS,
+} from './seed-data.js';
 
 type Prisma = ReturnType<typeof createPrismaClient>;
 
 export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFirmB: string }) {
-  // Invoices and Payments: a sample tax rate, the standard invoice template, a deposit account and the default payment settings.
+  // Invoices and Payments: a sample tax rate, the standard invoice template, a deposit account, the default payment settings and for LVP, a recurring schedule.
   for (const businessId of [businesses.lvp, businesses.testFirmB]) {
     await runInScope(prisma, { kind: 'business', businessId }, async (tx) => {
       await tx.invoiceTaxRate.upsert({
@@ -73,5 +79,30 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
       update: {},
       create: { ...lvp, invoiceId, documentId, addedByUserId: SEED_USERS.lvpOwner.id },
     });
+    // A monthly bookkeeping schedule.
+    const clientId = SEED_CLIENT_IDS.lvp;
+    if ((await tx.recurringInvoice.count({ where: { name: 'Monthly Bookkeeping' } })) === 0) {
+      const schedule = await tx.recurringInvoice.create({
+        data: {
+          ...lvp,
+          clientId,
+          engagementId: SEED_WORK_IDS.lvpBookkeeping,
+          name: 'Monthly Bookkeeping',
+          frequency: 'MONTHLY',
+          startOn: new Date('2026-11-01'),
+          nextSendOn: new Date('2026-11-01'),
+          paymentTerms: 'net_14',
+          createdByUserId: SEED_USERS.lvpOwner.id,
+        },
+      });
+      await tx.recurringInvoiceLine.create({
+        data: {
+          ...lvp,
+          recurringInvoiceId: schedule.id,
+          description: 'Bookkeeping (Growth), monthly',
+          unitAmountCents: 30000,
+        },
+      });
+    }
   });
 }
