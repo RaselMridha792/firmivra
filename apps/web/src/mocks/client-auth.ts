@@ -37,6 +37,8 @@ import {
   SignUpState,
   VerifyCodeRequest,
 } from '@firmivra/types';
+import lvpLogoDark from './assets/lvp-logo-dark.png';
+import lvpLogoLight from './assets/lvp-logo-light.png';
 
 // ---------- Fixtures (parsed on first use, so one that breaks the contract fails then) ----------
 const LVP_ID = '00000000-0000-4000-a000-000000000101';
@@ -115,15 +117,20 @@ export function clientAuthFixtures() {
   return (fixtures ??= buildFixtures());
 }
 
+/** A bundled file as the absolute address the contract wants, on whatever site shows it. */
+const assetUrl = (path: string) =>
+  new URL(path, typeof window === 'undefined' ? 'http://localhost' : window.location.origin).href;
+
 function buildFixtures() {
   /** GET /api/v1/portal/lvp/info */
   const portalInfo = PortalInfo.parse({
     business: { slug: 'lvp', name: 'LVP Accounting & Taxes' },
     branding: {
-      logoUrl: null,
-      logoLightUrl: null,
-      sidebarSlogan: null,
-      sidebarMotto: null,
+      // The beta firm's logos (cropped from the dashboard design) and sidebar lines.
+      logoUrl: assetUrl(lvpLogoDark.src),
+      logoLightUrl: assetUrl(lvpLogoLight.src),
+      sidebarSlogan: 'More Than Taxes. We Build Futures.',
+      sidebarMotto: 'PEOPLE | PLANS | PROSPERITY',
       primaryColor: '#1F3A6B',
       accentColor: '#C9A227',
       portalName: 'LVP Accounting & Taxes Client Portal',

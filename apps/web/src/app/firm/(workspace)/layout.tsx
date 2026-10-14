@@ -209,10 +209,7 @@ function FirmShell({
   // The portal's public info is the one place every role can read the firm's logo and motto.
   const info = useApiQuery(['firm', firm.id, 'branding'], () => portalAuth(firm.slug).info());
   const unread = useApiQuery(['messages', 'unread-count'], () => api.messages.unreadCount());
-  const logoUrl = info.data?.branding.logoUrl ?? null;
-  // `tagline` joins the portal info contract in its own PR (see the portal's tagline.tsx).
-  const tagline = (info.data?.branding as { tagline?: unknown } | undefined)?.tagline;
-  const motto = typeof tagline === 'string' ? tagline : '';
+  const branding = info.data?.branding;
   const badge = unread.data?.total;
   return (
     <AppShell
@@ -225,11 +222,9 @@ function FirmShell({
       roleLabel={role ? ROLE_LABEL[role] : 'Staff'}
       brand={{
         name: firm.name,
-        logoUrl,
-        motto: motto
-          .split('|')
-          .map((w) => w.trim())
-          .filter(Boolean),
+        logoUrl: branding?.logoUrl ?? null,
+        slogan: branding?.sidebarSlogan ?? null,
+        motto: branding?.sidebarMotto ?? null,
       }}
       headerStart={<FirmSearch />}
       headerActions={
@@ -239,7 +234,13 @@ function FirmShell({
         </>
       }
       bell={<FirmBell />}
-      footer={<FirmFooter name={firm.name} logoUrl={logoUrl} supportEmail={COMPANY.supportEmail} />}
+      footer={
+        <FirmFooter
+          name={firm.name}
+          logoUrl={branding?.logoLightUrl ?? null}
+          supportEmail={COMPANY.supportEmail}
+        />
+      }
     >
       {children}
     </AppShell>
