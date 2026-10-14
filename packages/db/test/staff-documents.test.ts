@@ -10,13 +10,20 @@ const owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
 const db = createDatabase(urls.app, TEST_CLIENT_OPTIONS);
 
 const run = randomUUID().slice(0, 8);
-const ids = { firmA: '', firmB: '', memberA: '', memberB: '' };
+const ids = { firmA: '', firmB: '', memberA: '', memberB: '', staffA: '', managerA: '' };
+const u = { owner: randomUUID(), staff: randomUUID(), manager: randomUUID(), ownerB: randomUUID() };
 const firm = () => db.forBusiness(ids.firmA);
+/** The acting person (documents are for the acting Owner or Admin only). */
+const as = (actor: string, business = ids.firmA) =>
+  db.forBusiness(business, { actorUserId: actor });
+const asOwner = () => as(u.owner);
+/** The document scanner: a job with no actor. */
+const scanner = () => db.forBusiness(ids.firmA);
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 let n = 0;
 const doc = (data: Record<string, unknown> = {}) => {
   const name = `file-${n++}.pdf`;
-  return firm().staffDocument.create({
+  return asOwner().staffDocument.create({
     data: {
       businessId: ids.firmA,
       membershipId: ids.memberA,
@@ -43,7 +50,7 @@ const session = (data: Record<string, unknown> = {}) =>
   });
 
 beforeAll(async () => {
-  const users = [randomUUID(), randomUUID()];
+  const users = Object.values(u);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const id of users) {
       await tx.user.create({
@@ -57,15 +64,18 @@ beforeAll(async () => {
     tx: Parameters<Parameters<typeof runInScope>[2]>[0],
     business: string,
     userId: string,
+    role: 'OWNER' | 'STAFF' | 'MANAGER',
   ) =>
     tx.membership
-      .create({ data: { businessId: business, userId, role: 'OWNER', status: 'ACTIVE' } })
+      .create({ data: { businessId: business, userId, role, status: 'ACTIVE' } })
       .then((m) => m.id);
   await runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
-    ids.memberA = await add(tx, ids.firmA, users[0]!);
+    ids.memberA = await add(tx, ids.firmA, u.owner, 'OWNER');
+    ids.staffA = await add(tx, ids.firmA, u.staff, 'STAFF');
+    ids.managerA = await add(tx, ids.firmA, u.manager, 'MANAGER');
   });
   await runInScope(owner, { kind: 'business', businessId: ids.firmB }, async (tx) => {
-    ids.memberB = await add(tx, ids.firmB, users[1]!);
+    ids.memberB = await add(tx, ids.firmB, u.ownerB, 'OWNER');
   });
 });
 
@@ -77,7 +87,7 @@ describe('staff documents and sessions: isolation', () => {
   it('a firm sees only its own', async () => {
     const d = await doc();
     const s = await session();
-    const other = db.forBusiness(ids.firmB);
+    const other = as(u.ownerB, ids.firmB);
     expect(await other.staffDocument.findUnique({ where: { id: d.id } })).toBeNull();
     expect(await other.staffSession.findUnique({ where: { id: s.id } })).toBeNull();
     expect(
@@ -140,7 +150,7 @@ describe('staff documents: rules', () => {
   it('changes only the type, the archive time and the scan result', async () => {
     const d = await doc();
     const update = (data: Record<string, unknown>) =>
-      firm().staffDocument.update({ where: { id: d.id }, data });
+      asOwner().staffDocument.update({ where: { id: d.id }, data });
     await expect(update({ fileName: 'renamed.pdf' })).rejects.toThrow();
     await expect(
       update({ s3Key: `tenant/${ids.firmA}/staff/${ids.memberA}/moved.pdf` }),
@@ -155,7 +165,7 @@ describe('staff documents: rules', () => {
 
   it('is never deleted', async () => {
     const d = await doc();
-    await expect(firm().staffDocument.delete({ where: { id: d.id } })).rejects.toThrow();
+    await expect(asOwner().staffDocument.delete({ where: { id: d.id } })).rejects.toThrow();
   });
 });
 
@@ -182,5 +192,116 @@ describe('staff sessions: rules', () => {
     await expect(update({ lastActiveAt: new Date() })).rejects.toThrow();
     await expect(update({ revokedAt: null })).rejects.toThrow();
     await expect(firm().staffSession.delete({ where: { id: s.id } })).rejects.toThrow();
+  });
+});
+
+describe('staff documents: the wall', () => {
+  it('shows and changes documents only to the acting Owner or Admin', async () => {
+    const d = await doc();
+    for (const actor of [u.staff, u.manager]) {
+      const person = as(actor);
+      expect(await person.staffDocument.findMany(), actor).toEqual([]);
+      expect(await person.staffDocument.findUnique({ where: { id: d.id } })).toBeNull();
+      expect(
+        await person.staffDocument.updateMany({ where: { id: d.id }, data: { type: 'NDA' } }),
+      ).toEqual({ count: 0 });
+      await expect(
+        person.staffDocument.create({
+          data: {
+            businessId: ids.firmA,
+            membershipId: ids.memberA,
+            type: 'NDA',
+            fileName: 'w.pdf',
+            contentType: 'application/pdf',
+            sizeBytes: 1,
+            sha256: sha('w'),
+            s3Key: `tenant/${ids.firmA}/staff/${ids.memberA}/w.pdf`,
+          },
+        }),
+      ).rejects.toThrow();
+    }
+    expect((await asOwner().staffDocument.findUnique({ where: { id: d.id } }))?.type).toBe('W4');
+  });
+
+  it('shows a session with no actor only pending files, or one it scanned minutes ago', async () => {
+    const old = await doc({ scanStatus: 'CLEAN', scannedAt: new Date(Date.now() - 10 * 60_000) });
+    const fresh = await doc({ scanStatus: 'CLEAN', scannedAt: new Date() });
+    const pending = await doc();
+    const seen = (await scanner().staffDocument.findMany()).map((d) => d.id);
+    expect(seen).toContain(pending.id);
+    expect(seen).toContain(fresh.id);
+    expect(seen).not.toContain(old.id);
+  });
+
+  it('shows nothing to another firm, acting or not', async () => {
+    await doc();
+    expect(await as(u.ownerB, ids.firmB).staffDocument.count()).toBe(0);
+    expect(await db.forBusiness(ids.firmB).staffDocument.count()).toBe(0);
+    // An owner of firm B naming firm A's scope is no manager there.
+    expect(await as(u.ownerB, ids.firmA).staffDocument.count()).toBe(0);
+  });
+});
+
+describe('staff documents: the scanner', () => {
+  it('sets the scan result of a PENDING file and nothing else', async () => {
+    const d = await doc();
+    // updateMany returns no row: the scanner may not read a row once it is scanned, and update()
+    // would read it back.
+    const update = (data: Record<string, unknown>) =>
+      scanner().staffDocument.updateMany({ where: { id: d.id }, data });
+    // The scanner can read the pending row it works on.
+    expect(await scanner().staffDocument.findUnique({ where: { id: d.id } })).toMatchObject({
+      scanStatus: 'PENDING',
+    });
+    for (const data of [
+      { type: 'NDA' },
+      { archivedAt: new Date() },
+      { fileName: 'renamed.pdf' },
+      { sizeBytes: 1 },
+      { s3Key: `tenant/${ids.firmA}/staff/${ids.memberA}/moved.pdf` },
+      { sha256: sha('other') },
+      { membershipId: ids.staffA, s3Key: `tenant/${ids.firmA}/staff/${ids.staffA}/m.pdf` },
+      { uploadedById: ids.staffA },
+      { type: 'NDA', scanStatus: 'CLEAN', scannedAt: new Date() },
+    ]) {
+      await expect(update(data), JSON.stringify(data)).rejects.toThrow();
+    }
+    await expect(update({ scanStatus: 'CLEAN', scannedAt: new Date() })).resolves.toEqual({
+      count: 1,
+    });
+    expect(await asOwner().staffDocument.findUnique({ where: { id: d.id } })).toMatchObject({
+      scanStatus: 'CLEAN',
+      type: 'W4',
+      fileName: d.fileName,
+    });
+    // Scanned once: the row is out of the scanner's sight, so a second result changes nothing.
+    await expect(update({ scanStatus: 'INFECTED', scannedAt: new Date() })).resolves.toEqual({
+      count: 0,
+    });
+  });
+
+  it("cannot create or delete a document, or reach another firm's", async () => {
+    await expect(
+      scanner().staffDocument.create({
+        data: {
+          businessId: ids.firmA,
+          membershipId: ids.memberA,
+          type: 'NDA',
+          fileName: 's.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 1,
+          sha256: sha('s'),
+          s3Key: `tenant/${ids.firmA}/staff/${ids.memberA}/s.pdf`,
+        },
+      }),
+    ).rejects.toThrow();
+    const d = await doc();
+    await expect(scanner().staffDocument.delete({ where: { id: d.id } })).rejects.toThrow();
+    expect(
+      await db.forBusiness(ids.firmB).staffDocument.updateMany({
+        where: { id: d.id },
+        data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+      }),
+    ).toEqual({ count: 0 });
   });
 });
