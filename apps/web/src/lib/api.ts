@@ -6,6 +6,7 @@ import {
   createAppointmentTypesClient,
   createAuditLogClient,
   createAvailabilityClient,
+  createBrandingClient,
   createBeginOnlineClient,
   createCalculatorsClient,
   createClientNotesClient,
@@ -19,6 +20,7 @@ import {
   createInvoicesClient,
   createLeadsClient,
   createDashboardClient,
+  createDepartmentsClient,
   createMessagesClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
@@ -41,12 +43,17 @@ import {
   createPaymentsSetupClient,
   createPublicAgreementsClient,
   createRequest,
+  createRolesClient,
+  createSchedulingClient,
   createSettingsClient,
+  createSettingsOverviewClient,
+  createStaffClient,
   createSupportAccessClient,
   createTasksClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
+  createUsersClient,
   createWorkspacesClient,
 } from '@firmivra/types';
 import {
@@ -90,12 +97,19 @@ import {
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createSettingsMock } from '../mocks/settings';
+import {
+  createBrandingMock,
+  createSettingsOverviewMock,
+  createUsersMock,
+} from '../mocks/settings-admin';
+import { createSchedulingMock } from '../mocks/scheduling';
+import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff';
 import { createTasksMock } from '../mocks/tasks';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
-import { MOCK_ROLE, mocked } from './mock';
+import { MOCK_ROLE, mocked, mockedEmpty } from './mock';
 import { sessionFetch } from './session';
 
 /**
@@ -125,6 +139,36 @@ export const api = {
       : createTaxStatusesClient(request),
   /** The firm's team: roles, deactivate, resend invites (docs/api/team.yaml). Invites: staffAuth. */
   team: dev && mocked('team') ? sharedTeamMock(MOCK_ROLE) : createTeamClient(request),
+  /** Staff Management (R42 contract): directory, Create/Edit Staff, security, documents, import. */
+  staff:
+    dev && mocked('staff')
+      ? createStaffMock({ role: MOCK_ROLE, empty: mockedEmpty('staff') })
+      : createStaffClient(request, options.baseUrl),
+  /** Teams & Departments and the org chart (R42 contract). Mock shares api.staff's rows. */
+  departments:
+    dev && mocked('departments')
+      ? createDepartmentsMock({ role: MOCK_ROLE, empty: mockedEmpty('departments') })
+      : createDepartmentsClient(request),
+  /** Roles and the permission grid (R42 contract): Create Staff step 2, Settings > Users & Roles. */
+  roles:
+    dev && mocked('roles')
+      ? createRolesMock({ role: MOCK_ROLE, empty: mockedEmpty('roles') })
+      : createRolesClient(request),
+  /** Settings > Overview (R42 contract). */
+  settingsOverview:
+    dev && mocked('settingsOverview')
+      ? createSettingsOverviewMock({ role: MOCK_ROLE, empty: mockedEmpty('settingsOverview') })
+      : createSettingsOverviewClient(request),
+  /** Settings > Company Profile & Branding beyond api.settings (R42 contract). */
+  branding:
+    dev && mocked('branding')
+      ? createBrandingMock({ role: MOCK_ROLE, empty: mockedEmpty('branding') })
+      : createBrandingClient(request),
+  /** Settings > Users & Roles: the user table, KPIs, export, Invite User (R42 contract). */
+  users:
+    dev && mocked('users')
+      ? createUsersMock({ role: MOCK_ROLE, empty: mockedEmpty('users') })
+      : createUsersClient(request, options.baseUrl),
   /** Settings, the setup wizard, and the firm's Terms and Privacy (docs/api/settings.yaml). */
   settings:
     dev && mocked('settings')
@@ -174,6 +218,11 @@ export const api = {
     dev && mocked('appointments')
       ? createAppointmentsMock({ role: MOCK_ROLE })
       : createAppointmentsClient(request),
+  /** Appointments workspace (R42 contract): KPIs, agenda views, the full scheduling form, availability panel. */
+  scheduling:
+    dev && mocked('scheduling')
+      ? createSchedulingMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') })
+      : createSchedulingClient(request),
   /** Appointments (R12): the signed-in client's own, per firm (portal). */
   myAppointments: (firmSlug: string) =>
     dev && mocked('myAppointments')

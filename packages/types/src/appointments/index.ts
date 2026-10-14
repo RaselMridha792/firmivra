@@ -10,3 +10,5 @@ export {
   type AvailabilityClient,
   type MyAppointmentsClient,
 } from './client.js';
+export * from './scheduling.js';
+export { createSchedulingClient, type SchedulingClient } from './scheduling-client.js';
