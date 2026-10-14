@@ -6,6 +6,7 @@ import {
   SEED_CLIENT_IDS,
   SEED_DOCUMENT_IDS,
   SEED_INTAKE_IDS,
+  SEED_TAX_RETURN_IDS,
   SEED_USERS,
   SEED_WORK_IDS,
 } from './seed-data.js';
@@ -243,10 +244,26 @@ async function seedDocumentShares(tx: TxClient, businessId: string) {
   });
 }
 
+/** Tax Returns: the 2025 return in review with its people, filing status and deadline. */
+async function seedTaxReturnWorkflow(tx: TxClient) {
+  await tx.taxReturn.update({
+    where: { id: SEED_TAX_RETURN_IDS.lvp2025 },
+    data: {
+      workflowStatus: 'READY_FOR_REVIEW',
+      preparerUserId: SEED_USERS.lvpStaff.id,
+      reviewerUserId: SEED_USERS.lvpOwner.id,
+      filingStatus: 'SINGLE',
+      dueOn: new Date('2026-10-15'),
+      updatedByUserId: SEED_USERS.lvpStaff.id,
+    },
+  });
+}
+
 export async function seedR37(tx: TxClient, businessId: string) {
   await seedIntakeSend(tx, businessId);
   await seedIntakeTemplates(tx, businessId);
   await seedDocumentLibrary(tx, businessId);
   await seedDocumentRequests(tx, businessId);
   await seedDocumentShares(tx, businessId);
+  await seedTaxReturnWorkflow(tx);
 }

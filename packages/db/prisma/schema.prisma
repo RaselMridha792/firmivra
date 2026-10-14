@@ -470,6 +470,10 @@ model Membership {
   documentSharesGranted    DocumentShare[]           @relation("ShareGrantedBy")
   documentSharesRevoked    DocumentShare[]           @relation("ShareRevokedBy")
   documentSettingsReviewer DocumentSettings[]        @relation("DocumentSettingsReviewer")
+  taxReturnsPrepared       TaxReturn[]               @relation("TaxReturnPreparer")
+  taxReturnsReviewed       TaxReturn[]               @relation("TaxReturnReviewer")
+  taxReturnsValidated      TaxReturn[]               @relation("TaxReturnValidator")
+  taxReturnsUpdated        TaxReturn[]               @relation("TaxReturnUpdatedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -2098,12 +2102,57 @@ model TaxReturn {
   createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  // R37 (Tax Returns module): the firm's workflow, people, dates and amendments. `status` stays
+  // what the client sees and follows workflowStatus (the database keeps the two together).
+  workflowStatus         TaxReturnWorkflowStatus @default(IN_PREPARATION) @map("workflow_status")
+  /// Why the last move was made; required when a return moves back a step.
+  statusReason           String?                 @map("status_reason")
+  preparerUserId         String?                 @map("preparer_user_id") @db.Uuid
+  reviewerUserId         String?                 @map("reviewer_user_id") @db.Uuid
+  /// Individual returns only.
+  filingStatus           TaxpayerFilingStatus?   @map("filing_status")
+  /// The filing deadline (or the estimate's due date); an extension never moves it.
+  dueOn                  DateTime?               @map("due_on") @db.Date
+  /// The filed return this one amends (the same client's), with the reason.
+  amendsReturnId         String?                 @map("amends_return_id") @db.Uuid
+  amendReason            String?                 @map("amend_reason")
+  /// Quarterly estimates only: the amount in cents, its status and when it was paid.
+  estimateAmountCents    Int?                    @map("estimate_amount_cents")
+  estimateStatus         TaxEstimateStatus?      @map("estimate_status")
+  estimatePaidOn         DateTime?               @map("estimate_paid_on") @db.Date
+  /// The manual final validation (there is no tax software here): when and by whom.
+  finalValidatedAt       DateTime?               @map("final_validated_at") @db.Timestamptz(3)
+  finalValidatedByUserId String?                 @map("final_validated_by_user_id") @db.Uuid
+  importSource           String?                 @map("import_source")
+  importedAt             DateTime?               @map("imported_at") @db.Timestamptz(3)
+  /// Hidden from lists, never deleted.
+  archivedAt             DateTime?               @map("archived_at") @db.Timestamptz(3)
+  /// Who made the last change; the history row's author.
+  updatedByUserId        String?                 @map("updated_by_user_id") @db.Uuid
+
+  preparer       Membership?        @relation("TaxReturnPreparer", fields: [businessId, preparerUserId], references: [businessId, userId], onDelete: Restrict)
+  reviewer       Membership?        @relation("TaxReturnReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
+  finalValidator Membership?        @relation("TaxReturnValidator", fields: [businessId, finalValidatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy      Membership?        @relation("TaxReturnUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  amends         TaxReturn?         @relation("TaxReturnAmends", fields: [businessId, clientId, amendsReturnId], references: [businessId, clientId, id], onDelete: Restrict)
+  amendedBy      TaxReturn[]        @relation("TaxReturnAmends")
+  history        TaxReturnHistory[]
+
   client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   document   Document?   @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
 
+  // R37: target of the amendment and child-table keys; the list's filters and sorts.
+  @@unique([businessId, clientId, id])
+  @@unique([businessId, id])
   @@index([businessId, clientId, taxYear])
   @@index([businessId, documentId])
+  @@index([businessId, taxYear, workflowStatus])
+  @@index([businessId, preparerUserId, workflowStatus])
+  @@index([businessId, reviewerUserId])
+  @@index([businessId, updatedAt])
+  @@index([businessId, dueOn])
+  @@index([businessId, amendsReturnId])
   @@map("tax_returns")
 }
 
@@ -3348,4 +3397,61 @@ model DocumentSettings {
   defaultReviewer Membership? @relation("DocumentSettingsReviewer", fields: [businessId, defaultReviewerUserId], references: [businessId, userId], onDelete: Restrict)
 
   @@map("document_settings")
+}
+
+/// Where a return is in the firm's own workflow (Tax Returns list and workspace). The client
+/// sees the five-value TaxReturnStatus, which the database derives from this.
+enum TaxReturnWorkflowStatus {
+  IN_PREPARATION
+  /// A side state: entered and left from any step without a reason.
+  WAITING_ON_CLIENT
+  READY_FOR_REVIEW
+  READY_FOR_SIGNATURE
+  READY_TO_FILE
+  /// The firm recorded that the return was sent (status tracking only; nothing is transmitted).
+  TRANSMITTED
+  ACCEPTED
+  REJECTED
+  CLOSED
+}
+
+enum TaxpayerFilingStatus {
+  SINGLE
+  MARRIED_FILING_JOINTLY
+  MARRIED_FILING_SEPARATELY
+  HEAD_OF_HOUSEHOLD
+  QUALIFYING_SURVIVING_SPOUSE
+}
+
+/// A quarterly estimate's own progress (Overdue is computed: past dueOn and not PAID).
+enum TaxEstimateStatus {
+  NOT_STARTED
+  CALCULATED
+  SENT_TO_CLIENT
+  SCHEDULED
+  PAID
+}
+
+/// Every change of a return's workflow status, preparer or reviewer, written by the database
+/// (status log, assignment history, the reasons for moving back, and the "vs last month" counts).
+model TaxReturnHistory {
+  id              String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  businessId      String                  @map("business_id") @db.Uuid
+  taxReturnId     String                  @map("tax_return_id") @db.Uuid
+  workflowStatus  TaxReturnWorkflowStatus @map("workflow_status")
+  preparerUserId  String?                 @map("preparer_user_id") @db.Uuid
+  reviewerUserId  String?                 @map("reviewer_user_id") @db.Uuid
+  reason          String?
+  changedByUserId String?                 @map("changed_by_user_id") @db.Uuid
+  /// The time of the change itself (not of its transaction's start).
+  changedAt       DateTime                @default(dbgenerated("clock_timestamp()")) @map("changed_at") @db.Timestamptz(3)
+  /// The order the rows were written in: the newest is the current state.
+  seq             BigInt                  @default(autoincrement())
+
+  // A return that was never filed can be deleted, and takes its history with it.
+  taxReturn TaxReturn @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([businessId, taxReturnId, seq])
+  @@index([businessId, changedAt])
+  @@map("tax_return_history")
 }

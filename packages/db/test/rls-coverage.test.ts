@@ -48,6 +48,7 @@ describe('row-level security coverage', () => {
     const readOnly = [
       'platform_admins',
       'client_tax_status_history',
+      'tax_return_history',
       'platform_user_signups',
       'platform_owner_invites',
     ];
@@ -73,6 +74,8 @@ describe('row-level security coverage', () => {
                    ('client_tax_status_history', 'INSERT'),
                    ('client_tax_status_history', 'UPDATE'),
                    ('client_tax_status_history', 'DELETE'),
+                   ('tax_return_history', 'INSERT'), ('tax_return_history', 'UPDATE'),
+                   ('tax_return_history', 'DELETE'),
                    ('engagements', 'DELETE'),
                    ('engagement_status_history', 'UPDATE'),
                    ('engagement_status_history', 'DELETE'),

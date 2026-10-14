@@ -392,3 +392,36 @@ export type DocumentRequestPacketStatus = z.infer<typeof DocumentRequestPacketSt
 
 export const DocumentShareRecipient = z.enum(['CLIENT', 'MEMBER']);
 export type DocumentShareRecipient = z.infer<typeof DocumentShareRecipient>;
+
+/** Where a return is in the firm's own workflow (Tax Returns list and workspace). The client sees the five-value TaxReturnStatus, which the database derives from this. */
+export const TaxReturnWorkflowStatus = z.enum([
+  'IN_PREPARATION',
+  'WAITING_ON_CLIENT',
+  'READY_FOR_REVIEW',
+  'READY_FOR_SIGNATURE',
+  'READY_TO_FILE',
+  'TRANSMITTED',
+  'ACCEPTED',
+  'REJECTED',
+  'CLOSED',
+]);
+export type TaxReturnWorkflowStatus = z.infer<typeof TaxReturnWorkflowStatus>;
+
+export const TaxpayerFilingStatus = z.enum([
+  'SINGLE',
+  'MARRIED_FILING_JOINTLY',
+  'MARRIED_FILING_SEPARATELY',
+  'HEAD_OF_HOUSEHOLD',
+  'QUALIFYING_SURVIVING_SPOUSE',
+]);
+export type TaxpayerFilingStatus = z.infer<typeof TaxpayerFilingStatus>;
+
+/** A quarterly estimate's own progress (Overdue is computed: past dueOn and not PAID). */
+export const TaxEstimateStatus = z.enum([
+  'NOT_STARTED',
+  'CALCULATED',
+  'SENT_TO_CLIENT',
+  'SCHEDULED',
+  'PAID',
+]);
+export type TaxEstimateStatus = z.infer<typeof TaxEstimateStatus>;
