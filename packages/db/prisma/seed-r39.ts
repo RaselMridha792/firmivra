@@ -411,4 +411,32 @@ async function seedPayroll(tx: TxClient, businessId: string) {
       loggedByUserId: SEED_USERS.lvpOwner.id,
     },
   });
+
+  const jasmine = await tx.payrollWorker.findFirstOrThrow({
+    where: { ...link, displayName: 'Jasmine Smith' },
+  });
+  const current = await tx.payrollRun.findFirstOrThrow({
+    where: { ...link, status: 'IN_PROGRESS' },
+  });
+  await tx.payrollRunLine.create({
+    data: {
+      businessId,
+      runId: current.id,
+      workerId: jasmine.id,
+      hours: 80,
+      regularPayCents: 144_000,
+      otherEarningsCents: 5000,
+      deductionsCents: 22_045,
+      totalPayCents: 126_955,
+    },
+  });
+  await tx.payrollRunIssue.create({
+    data: {
+      businessId,
+      runId: current.id,
+      severity: 'WARNING',
+      code: 'overtime_review',
+      message: 'Two workers have overtime hours. Review for accuracy.',
+    },
+  });
 }

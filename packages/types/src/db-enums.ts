@@ -568,3 +568,15 @@ export const PayrollRunStatus = z.enum([
   'NEEDS_ATTENTION',
 ]);
 export type PayrollRunStatus = z.infer<typeof PayrollRunStatus>;
+
+export const PayrollLineStatus = z.enum([
+  'READY',
+  'WARNING',
+  'ERROR',
+  'PENDING_CHANGE',
+  'EXCLUDED',
+]);
+export type PayrollLineStatus = z.infer<typeof PayrollLineStatus>;
+
+export const PayrollIssueSeverity = z.enum(['INFO', 'WARNING', 'ERROR']);
+export type PayrollIssueSeverity = z.infer<typeof PayrollIssueSeverity>;

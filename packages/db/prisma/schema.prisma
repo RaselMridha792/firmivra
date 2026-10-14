@@ -4026,7 +4026,9 @@ model PayrollWorker {
   createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  payrollClient PayrollClient @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
+  payrollClient PayrollClient     @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
+  runLines      PayrollRunLine[]
+  runIssues     PayrollRunIssue[]
 
   @@unique([businessId, id])
   @@unique([payrollClientId, externalId])
@@ -4084,11 +4086,78 @@ model PayrollRun {
   createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  payrollClient PayrollClient @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
+  payrollClient PayrollClient     @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
+  lines         PayrollRunLine[]
+  issues        PayrollRunIssue[]
 
   @@unique([businessId, id])
   @@unique([payrollClientId, periodStart, periodEnd])
   @@index([businessId, status, payDate])
   @@index([businessId, payrollClientId, payDate])
   @@map("payroll_runs")
+}
+
+// ---------- Payroll: run lines and exceptions ----------
+
+enum PayrollLineStatus {
+  READY
+  WARNING
+  ERROR
+  PENDING_CHANGE
+  EXCLUDED
+}
+
+enum PayrollIssueSeverity {
+  INFO
+  WARNING
+  /// Blocks approval until resolved.
+  ERROR
+}
+
+/// One worker's line in a run (the employee pay grid): hours and the pay parts in cents. The
+/// total is checked against the parts. Lines of a run change only while it is being prepared.
+model PayrollRunLine {
+  id                 String            @id @default(uuid(7)) @db.Uuid
+  businessId         String            @map("business_id") @db.Uuid
+  runId              String            @map("run_id") @db.Uuid
+  workerId           String            @map("worker_id") @db.Uuid
+  hours              Decimal           @default(0) @db.Decimal(7, 2)
+  regularPayCents    Int               @default(0) @map("regular_pay_cents")
+  overtimePayCents   Int               @default(0) @map("overtime_pay_cents")
+  otherEarningsCents Int               @default(0) @map("other_earnings_cents")
+  deductionsCents    Int               @default(0) @map("deductions_cents")
+  totalPayCents      Int               @default(0) @map("total_pay_cents")
+  status             PayrollLineStatus @default(READY)
+  note               String?
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  run    PayrollRun    @relation(fields: [businessId, runId], references: [businessId, id], onDelete: Restrict)
+  worker PayrollWorker @relation(fields: [businessId, workerId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([runId, workerId])
+  @@index([businessId, workerId])
+  @@map("payroll_run_lines")
+}
+
+/// A warning or blocking error found for a run (missing bank validation, invalid hours, a tax
+/// setup issue, an unusual overtime figure), from the provider or the firm's checks. The message
+/// is short and names no pay, SSN or bank detail. An unresolved ERROR blocks approval.
+model PayrollRunIssue {
+  id               String               @id @default(uuid(7)) @db.Uuid
+  businessId       String               @map("business_id") @db.Uuid
+  runId            String               @map("run_id") @db.Uuid
+  workerId         String?              @map("worker_id") @db.Uuid
+  severity         PayrollIssueSeverity
+  code             String
+  message          String
+  resolvedAt       DateTime?            @map("resolved_at") @db.Timestamptz(3)
+  resolvedByUserId String?              @map("resolved_by_user_id") @db.Uuid
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  run    PayrollRun     @relation(fields: [businessId, runId], references: [businessId, id], onDelete: Restrict)
+  worker PayrollWorker? @relation(fields: [businessId, workerId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, runId, severity])
+  @@map("payroll_run_issues")
 }
