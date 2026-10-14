@@ -349,6 +349,7 @@ model Business {
   stripeAccount        StripeAccount?
   platformOwnerInvites PlatformOwnerInvite[]
   esignSettings        EsignSettings?
+  departments          Department[]
 
   @@map("businesses")
 }
@@ -453,6 +454,12 @@ model Membership {
   esignUploads          EsignPendingUpload[]   @relation("EsignUploadMember")
   esignKioskLock        EsignKioskLock?        @relation("EsignKioskLock")
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
+
+  // Staff management (R35).
+  departmentsHeaded Department[]       @relation("DepartmentHead")
+  teamsLed          Team[]             @relation("TeamLead")
+  teamMemberships   TeamMember[]
+  departments       MemberDepartment[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -2880,4 +2887,98 @@ model EsignBulkItem {
   @@unique([batchId, clientId])
   @@index([businessId, state])
   @@map("esign_bulk_items")
+}
+
+// ---------- Staff management (R35, migration r35_staff_roles_teams) ----------
+// Departments, teams and who is in them, for Staff Management and Settings > Users & Roles
+// (docs/mockups/firm-workspace/staff-management). Every table is a firm table with forced RLS.
+// Departments and teams are never deleted: INACTIVE or ARCHIVED instead, so history stays.
+
+enum StaffGroupStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+/// A member's place in a team: their one primary team, their one backup team, or a member.
+enum TeamMemberKind {
+  PRIMARY
+  BACKUP
+  MEMBER
+}
+
+/// A department (Tax, Bookkeeping, Payroll...). Names are unique per firm among those not
+/// archived, case-insensitively (SQL-only partial index).
+model Department {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  businessId       String           @map("business_id") @db.Uuid
+  name             String
+  description      String?
+  headMembershipId String?          @map("head_membership_id") @db.Uuid
+  status           StaffGroupStatus @default(ACTIVE)
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business           @relation(fields: [businessId], references: [id])
+  head     Membership?        @relation("DepartmentHead", fields: [businessId, headMembershipId], references: [businessId, id], onDelete: Restrict)
+  teams    Team[]
+  members  MemberDepartment[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@map("departments")
+}
+
+/// A team inside one department. Names are unique per firm among those not archived,
+/// case-insensitively (SQL-only partial index).
+model Team {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  businessId       String           @map("business_id") @db.Uuid
+  departmentId     String           @map("department_id") @db.Uuid
+  name             String
+  description      String?
+  leadMembershipId String?          @map("lead_membership_id") @db.Uuid
+  status           StaffGroupStatus @default(ACTIVE)
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  department Department   @relation(fields: [businessId, departmentId], references: [businessId, id], onDelete: Restrict)
+  lead       Membership?  @relation("TeamLead", fields: [businessId, leadMembershipId], references: [businessId, id], onDelete: Restrict)
+  members    TeamMember[]
+
+  @@unique([businessId, id])
+  @@index([businessId, departmentId])
+  @@map("teams")
+}
+
+/// A member of a team. A member has at most one PRIMARY and one BACKUP team (SQL-only partial
+/// indexes); added only to an ACTIVE team.
+model TeamMember {
+  businessId   String         @map("business_id") @db.Uuid
+  teamId       String         @map("team_id") @db.Uuid
+  membershipId String         @map("membership_id") @db.Uuid
+  kind         TeamMemberKind @default(MEMBER)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  team       Team       @relation(fields: [businessId, teamId], references: [businessId, id], onDelete: Restrict)
+  membership Membership @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([teamId, membershipId])
+  @@index([businessId, membershipId])
+  @@map("team_members")
+}
+
+/// A member's department (Department(s) on Create Staff); added only to an ACTIVE department.
+model MemberDepartment {
+  businessId   String   @map("business_id") @db.Uuid
+  membershipId String   @map("membership_id") @db.Uuid
+  departmentId String   @map("department_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  membership Membership @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+  department Department @relation(fields: [businessId, departmentId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([membershipId, departmentId])
+  @@index([businessId, departmentId])
+  @@map("member_departments")
 }

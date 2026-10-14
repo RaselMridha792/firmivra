@@ -360,3 +360,10 @@ export type EsignEmailStatus = z.infer<typeof EsignEmailStatus>;
 /** An upload started and not confirmed: a request's file, or a signer's attachment. */
 export const EsignUploadKind = z.enum(['DOCUMENT', 'ATTACHMENT']);
 export type EsignUploadKind = z.infer<typeof EsignUploadKind>;
+
+export const StaffGroupStatus = z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']);
+export type StaffGroupStatus = z.infer<typeof StaffGroupStatus>;
+
+/** A member's place in a team: their one primary team, their one backup team, or a member. */
+export const TeamMemberKind = z.enum(['PRIMARY', 'BACKUP', 'MEMBER']);
+export type TeamMemberKind = z.infer<typeof TeamMemberKind>;

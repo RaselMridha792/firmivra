@@ -9,6 +9,7 @@ import {
   SEED_BUSINESSES,
   SEED_CLIENT_IDS,
   SEED_INVITE_ID,
+  SEED_STAFF_GROUP_IDS,
   SEED_OWNER_INVITE_ID,
   SEED_SERVICES,
   SEED_TAX_STATUSES,
@@ -702,6 +703,64 @@ async function main() {
         tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
         expiresAt: new Date(Date.now() + 6 * 86_400_000),
         invitedByUserId: SEED_USERS.lvpOwner.id,
+      },
+    });
+
+    // One department headed by the owner, with a team led by the staff member.
+    const lvpMembers = await tx.membership.findMany({
+      where: { userId: { in: [SEED_USERS.lvpOwner.id, SEED_USERS.lvpStaff.id] } },
+      select: { id: true, userId: true },
+    });
+    const memberOf = (userId: string) => lvpMembers.find((m) => m.userId === userId)!.id;
+    await tx.department.upsert({
+      where: { id: SEED_STAFF_GROUP_IDS.department },
+      update: {},
+      create: {
+        id: SEED_STAFF_GROUP_IDS.department,
+        businessId: businesses.lvp,
+        name: 'Tax',
+        description: 'Individual and business tax preparation and planning.',
+        headMembershipId: memberOf(SEED_USERS.lvpOwner.id),
+      },
+    });
+    await tx.team.upsert({
+      where: { id: SEED_STAFF_GROUP_IDS.team },
+      update: {},
+      create: {
+        id: SEED_STAFF_GROUP_IDS.team,
+        businessId: businesses.lvp,
+        departmentId: SEED_STAFF_GROUP_IDS.department,
+        name: 'Individual Tax',
+        leadMembershipId: memberOf(SEED_USERS.lvpStaff.id),
+      },
+    });
+    await tx.teamMember.upsert({
+      where: {
+        teamId_membershipId: {
+          teamId: SEED_STAFF_GROUP_IDS.team,
+          membershipId: memberOf(SEED_USERS.lvpStaff.id),
+        },
+      },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        teamId: SEED_STAFF_GROUP_IDS.team,
+        membershipId: memberOf(SEED_USERS.lvpStaff.id),
+        kind: 'PRIMARY',
+      },
+    });
+    await tx.memberDepartment.upsert({
+      where: {
+        membershipId_departmentId: {
+          membershipId: memberOf(SEED_USERS.lvpStaff.id),
+          departmentId: SEED_STAFF_GROUP_IDS.department,
+        },
+      },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        membershipId: memberOf(SEED_USERS.lvpStaff.id),
+        departmentId: SEED_STAFF_GROUP_IDS.department,
       },
     });
 
