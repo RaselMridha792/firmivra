@@ -209,3 +209,17 @@
 dialog::backdrop {
   background: var(--color-overlay);
 }
+/* The Drawer slides in from the right; people who ask for less motion get it without. */
+@keyframes ui-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+.ui-drawer[open] {
+  animation: ui-drawer-in 200ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-drawer[open] {
+    animation: none;
+  }
+}
