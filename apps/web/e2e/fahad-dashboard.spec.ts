@@ -1,18 +1,35 @@
 import { expect, test } from '@playwright/test';
 
 const base = `http://app.localhost:${process.env['WEB_PORT'] ?? '3000'}`;
+// Octavia's order (docs/mockups/firm-workspace/dashboard), then the four extras.
 const menu = [
   'Dashboard',
   'Clients',
   'Sign-ups',
   'Leads',
   'Appointments',
-  'Messages',
+  'Intake Forms',
+  'Documents',
+  'Client Portal',
+  'Tax Returns',
+  'Bookkeeping',
+  'Payroll',
+  'Tax Planning & Strategy',
+  'Business Advisory & Development',
   'Invoices & Payments',
+  'Messages',
+  'Communications',
+  'Tasks',
+  'Automations',
+  'Compliance & Deadlines',
+  'Reports',
+  'Templates',
+  'Services & Pricing',
   'Workspaces',
   'Firm Sign',
   'Audit log',
   'Staff Management',
+  'Integrations',
   'Settings',
 ];
 
