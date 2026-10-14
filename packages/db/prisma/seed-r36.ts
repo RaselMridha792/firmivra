@@ -126,7 +126,7 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
     });
 
     // The catalog: categories, and sample prices (the designs' sample figures, not real prices) on
-    // LVP's seeded services, each with what it includes a line item, an add-on, and a package of them.
+    // LVP's seeded services, each with what it includes, a line item and an add-on, then a package and a promotion.
     const categories = new Map<string, string>();
     for (const [sortOrder, name] of ['Tax Preparation', 'Bookkeeping', 'Advisory'].entries()) {
       const row = await tx.serviceCategory.upsert({
@@ -213,6 +213,34 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
       }
       await tx.servicePackageAddOn.create({
         data: { ...lvp, packageId: pkg.id, name: 'Audit representation', priceCents: 25000 },
+      });
+    }
+
+    // A promotion for the tax category, used once on the open invoice.
+    if ((await tx.promotion.count({ where: { name: 'Sample new-client discount' } })) === 0) {
+      const promotion = await tx.promotion.create({
+        data: {
+          ...lvp,
+          name: 'Sample new-client discount',
+          discountType: 'PERCENT',
+          discountPercent: 10,
+          appliesTo: 'CATEGORIES',
+          eligibility: 'NEW_CLIENTS',
+          promoCode: 'WELCOME10',
+          status: 'ACTIVE',
+        },
+      });
+      await tx.promotionTarget.create({
+        data: { ...lvp, promotionId: promotion.id, categoryId: categories.get('Tax Preparation') },
+      });
+      await tx.promotionRedemption.create({
+        data: {
+          ...lvp,
+          promotionId: promotion.id,
+          invoiceId: SEED_BILLING_IDS.openInvoice,
+          clientId,
+          discountCents: 1000,
+        },
       });
     }
   });

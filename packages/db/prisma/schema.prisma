@@ -352,6 +352,7 @@ model Business {
   depositAccounts      DepositAccount[]
   serviceCategories    ServiceCategory[]
   servicePackages      ServicePackage[]
+  promotions           Promotion[]
 
   @@map("businesses")
 }
@@ -740,23 +741,24 @@ model Client {
   createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business          Business                 @relation(fields: [businessId], references: [id])
-  assignedMember    Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  profile           ClientProfile?
-  accounts          ClientAccount[]
-  taxStatuses       ClientTaxStatus[]
-  taxStatusHistory  ClientTaxStatusHistory[]
-  engagements       Engagement[]
-  tasks             Task[]
-  notes             Note[]
-  appointments      Appointment[]
-  messageThreads    MessageThread[]
-  invoices          Invoice[]
-  taxReturns        TaxReturn[]
-  esignRequests     EsignRequest[]
-  esignBulkItems    EsignBulkItem[]
-  recurringInvoices RecurringInvoice[]
-  paymentMethods    ClientPaymentMethod[]
+  business             Business                 @relation(fields: [businessId], references: [id])
+  assignedMember       Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  profile              ClientProfile?
+  accounts             ClientAccount[]
+  taxStatuses          ClientTaxStatus[]
+  taxStatusHistory     ClientTaxStatusHistory[]
+  engagements          Engagement[]
+  tasks                Task[]
+  notes                Note[]
+  appointments         Appointment[]
+  messageThreads       MessageThread[]
+  invoices             Invoice[]
+  taxReturns           TaxReturn[]
+  esignRequests        EsignRequest[]
+  esignBulkItems       EsignBulkItem[]
+  recurringInvoices    RecurringInvoice[]
+  paymentMethods       ClientPaymentMethod[]
+  promotionRedemptions PromotionRedemption[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -895,20 +897,21 @@ model Service {
   lineItemMode           ServiceLineItemMode @default(INFORMATIONAL) @map("line_item_mode")
   updatedByUserId        String?             @map("updated_by_user_id") @db.Uuid
 
-  business       Business               @relation(fields: [businessId], references: [id])
-  engagements    Engagement[]
-  intakeForms    IntakeForm[]
-  agreements     FirmAgreement[]
-  leads          Lead[]
-  invoiceLines   InvoiceLine[]
-  recurringLines RecurringInvoiceLine[]
-  category       ServiceCategory?       @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
-  updatedBy      Membership?            @relation("ServiceUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
-  inclusions     ServiceInclusion[]
-  lineItems      ServiceLineItem[]
-  addOns         ServiceAddOn[]
-  linkedAddOns   ServiceAddOn[]         @relation("ServiceAddOnLinked")
-  packageItems   ServicePackageItem[]
+  business         Business               @relation(fields: [businessId], references: [id])
+  engagements      Engagement[]
+  intakeForms      IntakeForm[]
+  agreements       FirmAgreement[]
+  leads            Lead[]
+  invoiceLines     InvoiceLine[]
+  recurringLines   RecurringInvoiceLine[]
+  category         ServiceCategory?       @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  updatedBy        Membership?            @relation("ServiceUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  inclusions       ServiceInclusion[]
+  lineItems        ServiceLineItem[]
+  addOns           ServiceAddOn[]
+  linkedAddOns     ServiceAddOn[]         @relation("ServiceAddOnLinked")
+  packageItems     ServicePackageItem[]
+  promotionTargets PromotionTarget[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -1708,19 +1711,20 @@ model Invoice {
   recurringInvoiceId      String?                @map("recurring_invoice_id") @db.Uuid
   recurringPeriodOn       DateTime?              @map("recurring_period_on") @db.Date
 
-  client          Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement      Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  createdBy       Membership?         @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
-  assignedTo      Membership?         @relation("InvoiceAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  taxRate         InvoiceTaxRate?     @relation(fields: [businessId, taxRateId], references: [businessId, id], onDelete: Restrict)
-  template        InvoiceTemplate?    @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
-  lines           InvoiceLine[]
-  tracking        InvoiceTracking?
-  attachments     InvoiceAttachment[]
-  recurring       RecurringInvoice?   @relation(fields: [businessId, recurringInvoiceId], references: [businessId, id], onDelete: Restrict)
-  events          InvoiceEvent[]
-  payments        Payment[]
-  offlinePayments OfflinePayment[]
+  client               Client                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement           Engagement?           @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  createdBy            Membership?           @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  assignedTo           Membership?           @relation("InvoiceAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  taxRate              InvoiceTaxRate?       @relation(fields: [businessId, taxRateId], references: [businessId, id], onDelete: Restrict)
+  template             InvoiceTemplate?      @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  lines                InvoiceLine[]
+  tracking             InvoiceTracking?
+  attachments          InvoiceAttachment[]
+  recurring            RecurringInvoice?     @relation(fields: [businessId, recurringInvoiceId], references: [businessId, id], onDelete: Restrict)
+  events               InvoiceEvent[]
+  payments             Payment[]
+  offlinePayments      OfflinePayment[]
+  promotionRedemptions PromotionRedemption[]
 
   @@unique([businessId, number])
   @@unique([businessId, id])
@@ -3402,9 +3406,10 @@ model ServiceCategory {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business         @relation(fields: [businessId], references: [id])
-  services Service[]
-  packages ServicePackage[]
+  business         Business          @relation(fields: [businessId], references: [id])
+  services         Service[]
+  packages         ServicePackage[]
+  promotionTargets PromotionTarget[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -3508,11 +3513,12 @@ model ServicePackage {
   createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business  Business              @relation(fields: [businessId], references: [id])
-  category  ServiceCategory?      @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
-  updatedBy Membership?           @relation("PackageUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
-  items     ServicePackageItem[]
-  addOns    ServicePackageAddOn[]
+  business         Business              @relation(fields: [businessId], references: [id])
+  category         ServiceCategory?      @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  updatedBy        Membership?           @relation("PackageUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  items            ServicePackageItem[]
+  addOns           ServicePackageAddOn[]
+  promotionTargets PromotionTarget[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -3560,4 +3566,100 @@ model ServicePackageAddOn {
 
   @@unique([businessId, packageId, name])
   @@map("service_package_add_ons")
+}
+
+/// What a promotion discounts.
+enum PromotionAppliesTo {
+  ALL
+  CATEGORIES
+  SERVICES
+  PACKAGES
+}
+
+enum PromotionEligibility {
+  ALL_CLIENTS
+  NEW_CLIENTS
+  EXISTING_CLIENTS
+}
+
+/// DRAFT is not live; ACTIVE is live inside its dates ("Scheduled" before `starts_at` and "Expired"
+/// after `ends_at` are worked out from the dates); INACTIVE was ended by the firm.
+enum PromotionStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+/// A date-limited or rule-based discount (Discounts and Promotions). Changing or ending one never
+/// rewrites a completed invoice: the discount an invoice got is on the invoice and in its
+/// redemption. By default a promotion does not stack with another on the same invoice.
+model Promotion {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  businessId      String               @map("business_id") @db.Uuid
+  /// The firm's own name for it; not shown to clients.
+  name            String
+  description     String?
+  discountType    InvoiceDiscountType  @map("discount_type")
+  discountPercent Decimal?             @map("discount_percent") @db.Decimal(5, 2)
+  discountCents   Int?                 @map("discount_cents")
+  appliesTo       PromotionAppliesTo   @default(ALL) @map("applies_to")
+  /// The window, in instants; the firm picks them in its own time zone.
+  startsAt        DateTime?            @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime?            @map("ends_at") @db.Timestamptz(3)
+  eligibility     PromotionEligibility @default(ALL_CLIENTS)
+  /// Upper-case letters, digits, hyphens and underscores; unique in the firm.
+  promoCode       String?              @map("promo_code")
+  allowStacking   Boolean              @default(false) @map("allow_stacking")
+  status          PromotionStatus      @default(DRAFT)
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business    Business              @relation(fields: [businessId], references: [id])
+  targets     PromotionTarget[]
+  redemptions PromotionRedemption[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@map("promotions")
+}
+
+/// One category, service or package a promotion applies to (for appliesTo CATEGORIES, SERVICES or
+/// PACKAGES; ALL has none). Exactly one of the three is set, and it matches the promotion's kind.
+model PromotionTarget {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  promotionId String   @map("promotion_id") @db.Uuid
+  categoryId  String?  @map("category_id") @db.Uuid
+  serviceId   String?  @map("service_id") @db.Uuid
+  packageId   String?  @map("package_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  promotion Promotion        @relation(fields: [businessId, promotionId], references: [businessId, id], onDelete: Restrict)
+  category  ServiceCategory? @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  service   Service?         @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  package   ServicePackage?  @relation(fields: [businessId, packageId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, promotionId])
+  @@map("promotion_targets")
+}
+
+/// A promotion used on an invoice: who, which invoice and how much it took off. Insert-only, one per
+/// promotion and invoice (a retry is a duplicate). Usage is the count of these.
+model PromotionRedemption {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  promotionId   String   @map("promotion_id") @db.Uuid
+  invoiceId     String   @map("invoice_id") @db.Uuid
+  clientId      String   @map("client_id") @db.Uuid
+  discountCents Int      @map("discount_cents")
+  redeemedAt    DateTime @default(now()) @map("redeemed_at") @db.Timestamptz(3)
+
+  promotion Promotion @relation(fields: [businessId, promotionId], references: [businessId, id], onDelete: Restrict)
+  invoice   Invoice   @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  client    Client    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([promotionId, invoiceId])
+  @@index([businessId, invoiceId])
+  @@index([businessId, clientId])
+  @@map("promotion_redemptions")
 }

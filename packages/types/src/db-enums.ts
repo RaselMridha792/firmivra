@@ -424,3 +424,14 @@ export type ServiceInclusionKind = z.infer<typeof ServiceInclusionKind>;
 
 export const ServiceLineItemMode = z.enum(['INFORMATIONAL', 'ADDITIVE']);
 export type ServiceLineItemMode = z.infer<typeof ServiceLineItemMode>;
+
+/** What a promotion discounts. */
+export const PromotionAppliesTo = z.enum(['ALL', 'CATEGORIES', 'SERVICES', 'PACKAGES']);
+export type PromotionAppliesTo = z.infer<typeof PromotionAppliesTo>;
+
+export const PromotionEligibility = z.enum(['ALL_CLIENTS', 'NEW_CLIENTS', 'EXISTING_CLIENTS']);
+export type PromotionEligibility = z.infer<typeof PromotionEligibility>;
+
+/** DRAFT is not live; ACTIVE is live inside its dates ("Scheduled" before `starts_at` and "Expired" after `ends_at` are worked out from the dates); INACTIVE was ended by the firm. */
+export const PromotionStatus = z.enum(['DRAFT', 'ACTIVE', 'INACTIVE']);
+export type PromotionStatus = z.infer<typeof PromotionStatus>;
