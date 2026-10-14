@@ -2,12 +2,15 @@
 // Tax Returns, Appointments, Clients and Leads (LVP only). One function, called once by seed.ts;
 // safe to run again (fixed ids, upserts or create-once). No real client data.
 import type { TxClient } from '../src/client.js';
-import { SEED_INTAKE_IDS, SEED_USERS, SEED_WORK_IDS } from './seed-data.js';
+import { SEED_DOCUMENT_IDS, SEED_INTAKE_IDS, SEED_USERS, SEED_WORK_IDS } from './seed-data.js';
 
 /** Fixed ids of the R37 rows (RFC 9562 UUIDs, variant 8). */
 const ID = {
   intakeDraft: '00000000-0000-4a37-8000-000000000001',
   shortTaxTemplate: '00000000-0000-4a37-8000-000000000002',
+  folderClientDocs: '00000000-0000-4a37-8000-000000000011',
+  folderPersonalTax: '00000000-0000-4a37-8000-000000000012',
+  folderFirmInternal: '00000000-0000-4a37-8000-000000000013',
 } as const;
 
 /** Intake Forms: the firm's settings, a draft send, and the send setup of the seeded intake. */
@@ -76,7 +79,61 @@ async function seedIntakeTemplates(tx: TxClient, businessId: string) {
   }
 }
 
+/** Documents: a small folder tree, and the library details of the seeded documents. */
+async function seedDocumentLibrary(tx: TxClient, businessId: string) {
+  const folder = (
+    id: string,
+    name: string,
+    extra: { scope?: 'CLIENT' | 'FIRM'; parentId?: string; sortOrder: number },
+  ) =>
+    tx.documentFolder.upsert({
+      where: { id },
+      update: {},
+      create: { id, businessId, name, color: extra.scope === 'FIRM' ? 'GRAY' : 'BLUE', ...extra },
+    });
+  await folder(ID.folderClientDocs, 'Client Documents', { sortOrder: 1 });
+  await tx.documentFolder.upsert({
+    where: { id: ID.folderPersonalTax },
+    update: {},
+    create: {
+      id: ID.folderPersonalTax,
+      businessId,
+      name: 'Personal Tax',
+      parentId: ID.folderClientDocs,
+      sortOrder: 1,
+      allowClientUploads: true,
+      defaultClientAccess: 'VIEW_UPLOAD',
+      requireExpiryDate: false,
+    },
+  });
+  await folder(ID.folderFirmInternal, 'Firm Internal', { scope: 'FIRM', sortOrder: 2 });
+  await tx.document.update({
+    where: { id: SEED_DOCUMENT_IDS.return2024 },
+    data: {
+      folderId: ID.folderPersonalTax,
+      description: 'Filed 2024 Form 1040 (synthetic)',
+      tags: ['1040', 'filed'],
+      reviewStatus: 'COMPLETED',
+      reviewerUserId: SEED_USERS.lvpOwner.id,
+      reviewedAt: new Date('2025-04-10T15:00:00Z'),
+      reviewedByUserId: SEED_USERS.lvpOwner.id,
+      notifyClient: true,
+    },
+  });
+  await tx.document.update({
+    where: { id: SEED_DOCUMENT_IDS.interestDocument },
+    data: {
+      folderId: ID.folderPersonalTax,
+      description: '1099-INT from the bank (synthetic)',
+      tags: ['1099-INT'],
+      reviewStatus: 'NEEDS_REVIEW',
+      reviewerUserId: SEED_USERS.lvpStaff.id,
+    },
+  });
+}
+
 export async function seedR37(tx: TxClient, businessId: string) {
   await seedIntakeSend(tx, businessId);
   await seedIntakeTemplates(tx, businessId);
+  await seedDocumentLibrary(tx, businessId);
 }

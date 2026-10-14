@@ -527,6 +527,7 @@ describe('no scope set', () => {
     expect(await unscopedApp.intakeSignatureAgreement.findMany()).toEqual([]);
     expect(await unscopedApp.intakeSettings.findMany()).toEqual([]);
     expect(await unscopedApp.intakeTemplate.findMany()).toEqual([]);
+    expect(await unscopedApp.documentFolder.findMany()).toEqual([]);
   });
 });
 

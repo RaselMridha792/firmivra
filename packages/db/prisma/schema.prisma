@@ -345,6 +345,7 @@ model Business {
   esignSettings        EsignSettings?
   intakeSettings       IntakeSettings?
   intakeTemplates      IntakeTemplate[]
+  documentFolders      DocumentFolder[]
 
   @@map("businesses")
 }
@@ -457,6 +458,8 @@ model Membership {
   intakeSettingsFollowUp  IntakeSettings[] @relation("IntakeSettingsFollowUp")
   intakeTemplatesCreated  IntakeTemplate[] @relation("IntakeTemplateCreatedBy")
   intakeTemplatesAssigned IntakeTemplate[] @relation("IntakeTemplateAssignedTo")
+  documentsReviewer       Document[]       @relation("DocumentReviewer")
+  documentsReviewedBy     Document[]       @relation("DocumentReviewedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1096,6 +1099,31 @@ model Document {
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  // R37 (Documents module): folder, details, review, validity, versions, archive and trash.
+  /// Organisation only, never access. A FIRM folder takes no client-visible document.
+  folderId         String?               @map("folder_id") @db.Uuid
+  /// One line, up to 500 characters.
+  description      String?
+  /// Up to 20, each 1 to 40 characters, none twice (ignoring case).
+  tags             String[]              @default([])
+  /// Null: no review needed. VERIFIED and COMPLETED carry who and when (CHECK).
+  reviewStatus     DocumentReviewStatus? @map("review_status")
+  reviewerUserId   String?               @map("reviewer_user_id") @db.Uuid
+  reviewedAt       DateTime?             @map("reviewed_at") @db.Timestamptz(3)
+  reviewedByUserId String?               @map("reviewed_by_user_id") @db.Uuid
+  /// When the document itself stops being valid (a license, an ID). Not retention: nothing is
+  /// deleted by it.
+  expiresOn        DateTime?             @map("expires_on") @db.Date
+  /// The upload's "Notify client" choice, kept for the moment the scan result arrives.
+  notifyClient     Boolean               @default(false) @map("notify_client")
+  archivedAt       DateTime?             @map("archived_at") @db.Timestamptz(3)
+  /// Reversible; the purge stays under the retention and legal-hold delete rules.
+  trashedAt        DateTime?             @map("trashed_at") @db.Timestamptz(3)
+
+  folder     DocumentFolder? @relation(fields: [businessId, folderId], references: [businessId, id], onDelete: Restrict)
+  reviewer   Membership?     @relation("DocumentReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
+  reviewedBy Membership?     @relation("DocumentReviewedBy", fields: [businessId, reviewedByUserId], references: [businessId, userId], onDelete: Restrict)
+
   esignRequest       EsignRequest?       @relation("EsignFiledDocuments", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
   esignFinalOf       EsignRequest?       @relation("EsignFinalDocument")
   esignCertificateOf EsignRequest?       @relation("EsignCertificateDocument")
@@ -1114,10 +1142,18 @@ model Document {
   @@unique([businessId, leadUploadId])
   // Lets reports require that their document belongs to the same engagement.
   @@unique([businessId, engagementId, id])
+  // R37: the firm-wide library, its filters and the duplicate warning.
   @@index([businessId, clientId, createdAt])
   @@index([businessId, requestId])
   @@index([businessId, intakeId])
   @@index([businessId, esignRequestId])
+  @@index([businessId, createdAt])
+  @@index([businessId, folderId])
+  @@index([businessId, reviewStatus])
+  @@index([businessId, reviewerUserId])
+  @@index([businessId, categoryId])
+  @@index([businessId, clientId, sha256])
+  @@index([businessId, expiresOn])
   @@map("documents")
 }
 
@@ -3019,4 +3055,70 @@ model IntakeTemplate {
   @@unique([businessId, id, serviceId])
   @@index([businessId, serviceId, archivedAt])
   @@map("intake_templates")
+}
+
+/// Where a document is in review. "Signed" is not stored: Firm Sign's records say it.
+enum DocumentReviewStatus {
+  NEEDS_REVIEW
+  IN_REVIEW
+  VERIFIED
+  REPLACEMENT_REQUESTED
+  COMPLETED
+}
+
+/// CLIENT folders hold a client's documents; FIRM folders are the firm's own (never shared).
+enum DocumentFolderScope {
+  CLIENT
+  FIRM
+}
+
+/// Folder colours, mapped to packages/ui tokens by the screens (no hex values here).
+enum FolderColor {
+  BLUE
+  GREEN
+  YELLOW
+  ORANGE
+  PINK
+  PURPLE
+  GRAY
+}
+
+/// A folder's default for "Make visible to client" on that client's own new documents. Never a
+/// grant to all clients.
+enum FolderClientAccess {
+  NONE
+  VIEW
+  VIEW_UPLOAD
+}
+
+/// The folder tree of the document library (Settings > Folders & Categories). Document types
+/// stay in DocumentCategory. Archived, deleted only while empty and without subfolders (API).
+model DocumentFolder {
+  id                  String              @id @default(uuid(7)) @db.Uuid
+  businessId          String              @map("business_id") @db.Uuid
+  /// One line, 1 to 80 characters; unique among live folders of the same parent.
+  name                String
+  description         String?
+  parentId            String?             @map("parent_id") @db.Uuid
+  /// The same as the parent's; fixed.
+  scope               DocumentFolderScope @default(CLIENT)
+  color               FolderColor         @default(BLUE)
+  sortOrder           Int                 @default(0) @map("sort_order")
+  requireExpiryDate   Boolean             @default(false) @map("require_expiry_date")
+  remindBeforeExpiry  Boolean             @default(false) @map("remind_before_expiry")
+  allowClientUploads  Boolean             @default(false) @map("allow_client_uploads")
+  notifyStaffOnUpload Boolean             @default(false) @map("notify_staff_on_upload")
+  defaultClientAccess FolderClientAccess  @default(NONE) @map("default_client_access")
+  archivedAt          DateTime?           @map("archived_at") @db.Timestamptz(3)
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business         @relation(fields: [businessId], references: [id])
+  parent    DocumentFolder?  @relation("FolderTree", fields: [businessId, parentId], references: [businessId, id], onDelete: Restrict)
+  children  DocumentFolder[] @relation("FolderTree")
+  documents Document[]
+
+  @@unique([businessId, id])
+  @@index([businessId, parentId, sortOrder])
+  @@map("document_folders")
 }

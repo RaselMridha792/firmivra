@@ -354,3 +354,25 @@ export type EsignUploadKind = z.infer<typeof EsignUploadKind>;
 /** How an intake is delivered to its recipient. PORTAL only for a client's intake (CHECK). */
 export const IntakeDelivery = z.enum(['EMAIL', 'SMS', 'PORTAL']);
 export type IntakeDelivery = z.infer<typeof IntakeDelivery>;
+
+/** Where a document is in review. "Signed" is not stored: Firm Sign's records say it. */
+export const DocumentReviewStatus = z.enum([
+  'NEEDS_REVIEW',
+  'IN_REVIEW',
+  'VERIFIED',
+  'REPLACEMENT_REQUESTED',
+  'COMPLETED',
+]);
+export type DocumentReviewStatus = z.infer<typeof DocumentReviewStatus>;
+
+/** CLIENT folders hold a client's documents; FIRM folders are the firm's own (never shared). */
+export const DocumentFolderScope = z.enum(['CLIENT', 'FIRM']);
+export type DocumentFolderScope = z.infer<typeof DocumentFolderScope>;
+
+/** Folder colours, mapped to packages/ui tokens by the screens (no hex values here). */
+export const FolderColor = z.enum(['BLUE', 'GREEN', 'YELLOW', 'ORANGE', 'PINK', 'PURPLE', 'GRAY']);
+export type FolderColor = z.infer<typeof FolderColor>;
+
+/** A folder's default for "Make visible to client" on that client's own new documents. Never a grant to all clients. */
+export const FolderClientAccess = z.enum(['NONE', 'VIEW', 'VIEW_UPLOAD']);
+export type FolderClientAccess = z.infer<typeof FolderClientAccess>;
