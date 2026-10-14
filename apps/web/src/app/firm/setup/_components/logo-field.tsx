@@ -1,6 +1,12 @@
 'use client';
 
-import { DOCUMENT_ERRORS, type FirmSettings, LOGO_ERRORS, LOGO_LIMITS } from '@firmivra/types';
+import {
+  DOCUMENT_ERRORS,
+  type FirmSettings,
+  LOGO_ERRORS,
+  LOGO_LIMITS,
+  type LogoVariant,
+} from '@firmivra/types';
 import { Button } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
@@ -15,11 +21,20 @@ const MESSAGES = { ...LOGO_ERRORS, UPLOAD_FAILED: DOCUMENT_ERRORS.UPLOAD_FAILED 
 const ACCEPT = [...Object.keys(LOGO_LIMITS.types), ...Object.values(LOGO_LIMITS.types).flat()];
 
 /**
- * The firm's logo (the setup wizard's branding step and Settings > Branding): preview, Upload or
- * Replace, and Remove. It saves at once, apart from the form's other fields. Until a logo is
- * uploaded, the Firmivra logo stays.
+ * One of the firm's two logos (the setup wizard's branding step and Settings > Branding): a
+ * preview on the background it is made for, Upload or Replace, and Remove. It saves at once, apart
+ * from the form's other fields.
  */
-export function LogoField({ firm }: { firm: FirmSettings }) {
+export function LogoField({
+  firm,
+  variant,
+  label,
+}: {
+  firm: FirmSettings;
+  variant: LogoVariant;
+  label: string;
+}) {
+  const logoUrl = variant === 'light' ? firm.logoLightUrl : firm.logoUrl;
   const inputRef = useRef<HTMLInputElement>(null);
   const [done, setDone] = useState<string | null>(null);
   const client = useQueryClient();
@@ -29,12 +44,12 @@ export function LogoField({ firm }: { firm: FirmSettings }) {
   const upload = useApiMutation(
     (file: File) =>
       uploadLogo(file, {
-        start: (body) => api.settings.createLogoUpload(body),
+        start: (body) => api.settings.createLogoUpload({ ...body, variant }),
         finish: (uploadToken) => api.settings.confirmLogoUpload({ uploadToken }),
       }),
     { invalidate: FIRM_SETTINGS },
   );
-  const remove = useApiMutation((_: void) => api.settings.removeLogo(), {
+  const remove = useApiMutation((_: void) => api.settings.removeLogo(variant), {
     invalidate: FIRM_SETTINGS,
   });
   const error = upload.error ?? remove.error;
@@ -65,21 +80,27 @@ export function LogoField({ firm }: { firm: FirmSettings }) {
   };
 
   return (
-    <div className="flex flex-col gap-2" data-testid="logo-field">
-      <p className="text-sm font-medium text-text">Logo</p>
+    <div className="flex flex-col gap-2" data-testid={`logo-field-${variant}`}>
+      <p className="text-sm font-medium text-text">{label}</p>
       <div className="flex flex-wrap items-center gap-4">
-        <div className="flex h-16 w-40 items-center justify-center rounded-control border border-border bg-surface p-2">
-          {firm.logoUrl ? (
+        <div
+          className={`flex h-20 w-48 items-center justify-center rounded-control border border-border p-2 ${variant === 'dark' ? 'bg-brand-900' : 'bg-surface'}`}
+        >
+          {logoUrl ? (
             <Image
               unoptimized
-              src={firm.logoUrl}
-              alt={`${firm.name} logo`}
-              width={144}
-              height={48}
-              className="h-auto max-h-12 w-auto object-contain"
+              src={logoUrl}
+              alt={`${firm.name} logo for ${variant} backgrounds`}
+              width={176}
+              height={64}
+              className="h-auto max-h-16 w-auto max-w-full object-contain"
             />
           ) : (
-            <span className="text-center text-xs text-muted">Firmivra logo</span>
+            <span
+              className={`text-center text-xs ${variant === 'dark' ? 'text-brand-100' : 'text-muted'}`}
+            >
+              No logo yet
+            </span>
           )}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -89,9 +110,9 @@ export function LogoField({ firm }: { firm: FirmSettings }) {
             disabled={busy}
             onClick={() => inputRef.current?.click()}
           >
-            {upload.isPending ? 'Uploading…' : firm.logoUrl ? 'Replace logo' : 'Upload logo'}
+            {upload.isPending ? 'Uploading…' : logoUrl ? 'Replace logo' : 'Upload logo'}
           </Button>
-          {firm.logoUrl ? (
+          {logoUrl ? (
             <Button type="button" variant="ghost" disabled={busy} onClick={clear}>
               {remove.isPending ? 'Removing…' : 'Remove logo'}
             </Button>
@@ -102,14 +123,12 @@ export function LogoField({ firm }: { firm: FirmSettings }) {
           type="file"
           hidden
           accept={ACCEPT.join(',')}
-          aria-label="Logo file"
-          data-testid="logo-input"
+          aria-label={`${label} file`}
+          data-testid={`logo-input-${variant}`}
           onChange={pick}
         />
       </div>
-      <p className="text-sm text-muted">
-        {LOGO_LIMITS.typeNames}, up to 2 MB. The Firmivra logo shows until you upload yours.
-      </p>
+      <p className="text-sm text-muted">{LOGO_LIMITS.typeNames}, up to 2 MB.</p>
       {done && !error ? (
         <p role="status" className="text-sm text-success">
           {done}
