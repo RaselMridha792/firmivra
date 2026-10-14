@@ -16,7 +16,9 @@ import {
   createEngagementsClient,
   createEsignClient,
   createFirmApplicationsClient,
+  createIntakeFormsClient,
   createInvoicesClient,
+  createLeadPipelineClient,
   createLeadsClient,
   createDashboardClient,
   createMessagesClient,
@@ -41,6 +43,7 @@ import {
   createPaymentsSetupClient,
   createPublicAgreementsClient,
   createRequest,
+  createServicesPricingClient,
   createSettingsClient,
   createSupportAccessClient,
   createTasksClient,
@@ -77,6 +80,9 @@ import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
+import { createLeadPipelineMock } from '../mocks/leads-pipeline';
+import { createIntakeFormsMock } from '../mocks/intake-forms';
+import { createServicesPricingMock } from '../mocks/services-pricing';
 import { createDashboardMock } from '../mocks/dashboard';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
@@ -95,7 +101,7 @@ import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-retur
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
-import { MOCK_ROLE, mocked } from './mock';
+import { MOCK_ROLE, mocked, mockedEmpty } from './mock';
 import { sessionFetch } from './session';
 
 /**
@@ -148,6 +154,21 @@ export const api = {
       : createTaxReturnsClient(request),
   /** Begin Online leads (R11): the firm's inbox, convert and decline. */
   leads: dev && mocked('leads') ? createLeadsMock({ role: MOCK_ROLE }) : createLeadsClient(request),
+  /** Leads page and Lead Profile (R43 contract): pipeline, follow-ups, activity, convert to client. */
+  leadPipeline:
+    dev && mocked('leadPipeline')
+      ? createLeadPipelineMock({ role: MOCK_ROLE, empty: mockedEmpty('leadPipeline') })
+      : createLeadPipelineClient(request),
+  /** Intake Forms workspace (R43 contract): dashboard, builder, send, review, templates, settings. */
+  intakeForms:
+    dev && mocked('intakeForms')
+      ? createIntakeFormsMock({ role: MOCK_ROLE, empty: mockedEmpty('intakeForms') })
+      : createIntakeFormsClient(request),
+  /** Services & Pricing (R43 contract): services, categories, packages, promotions. */
+  servicesPricing:
+    dev && mocked('servicesPricing')
+      ? createServicesPricingMock({ role: MOCK_ROLE, empty: mockedEmpty('servicesPricing') })
+      : createServicesPricingClient(request),
   /** The firm dashboard's numbers (R30). */
   dashboard: dev && mocked('dashboard') ? createDashboardMock() : createDashboardClient(request),
   /** Client records (R10): the signed-in client's own, per firm (portal). */
