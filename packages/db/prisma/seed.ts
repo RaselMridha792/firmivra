@@ -36,6 +36,7 @@ import {
   SAMPLE_ESIGN_CONSENT,
 } from './seed-data.js';
 import { seedR36 } from './seed-r36.js';
+import { seedR37 } from './seed-r37.js';
 import { seedR39 } from './seed-r39.js';
 import { seedWorkModules } from './seed-r38.js';
 
@@ -175,26 +176,28 @@ async function seedIntakeForms(
   for (const name of serviceNames) {
     const serviceId = service(name);
     const { kind } = await tx.service.findUniqueOrThrow({ where: { id: serviceId } });
-    const row = await tx.intakeForm.upsert({
-      where: { businessId_serviceId_version: { businessId, serviceId, version: 1 } },
-      update: {},
-      create: {
-        businessId,
-        serviceId,
-        version: 1,
-        title: `${name} intake`,
-        // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in, so
-        // the seeded lead's answers and upload slot fit their form (real forms: r0_followups).
-        definition:
-          kind === 'ANNUAL_TAX' && INTAKE_FORMS.ANNUAL_TAX
-            ? INTAKE_FORMS.ANNUAL_TAX
-            : seedFormDefinition(kind, `${name} intake`),
-        // Deprecated: the agreement comes from the firm's intake agreements (seedFirmAgreement).
-        agreementText: null,
-        status: 'PUBLISHED',
-        publishedAt: new Date(),
-      },
-    });
+    // The database files a new form under the service's default template (R37).
+    const found = await tx.intakeForm.findFirst({ where: { businessId, serviceId, version: 1 } });
+    const row =
+      found ??
+      (await tx.intakeForm.create({
+        data: {
+          businessId,
+          serviceId,
+          version: 1,
+          title: `${name} intake`,
+          // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in, so
+          // the seeded lead's answers and upload slot fit their form (real forms: r0_followups).
+          definition:
+            kind === 'ANNUAL_TAX' && INTAKE_FORMS.ANNUAL_TAX
+              ? INTAKE_FORMS.ANNUAL_TAX
+              : seedFormDefinition(kind, `${name} intake`),
+          // Deprecated: the agreement comes from the firm's intake agreements (seedFirmAgreement).
+          agreementText: null,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+        },
+      }));
     ids.set(name, row.id);
   }
   return byName('intake form', ids);
@@ -1980,6 +1983,9 @@ async function main() {
   });
 
   await seedR36(prisma, businesses);
+  await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
+    seedR37(tx, businesses.lvp),
+  );
 
   console.warn(
     `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, intake agreements, a signed Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request, sample audit events and Firm Sign (LVP: on, with a sent request; Firm B: off, one draft).`,

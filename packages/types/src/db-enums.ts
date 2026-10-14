@@ -478,6 +478,7 @@ export type IntakeFormStatus = z.infer<typeof IntakeFormStatus>;
 
 /** docs/PROJECT-DRAFT-v2.md, Intake forms. */
 export const IntakeStatus = z.enum([
+  'DRAFT',
   'SENT',
   'IN_PROGRESS',
   'SUBMITTED',
@@ -497,6 +498,11 @@ export const LeadStatus = z.enum([
   'CONVERTED',
   'DECLINED',
   'EXPIRED',
+  'CONTACTED',
+  'IN_FOLLOW_UP',
+  'APPOINTMENT_SCHEDULED',
+  'QUALIFIED',
+  'LOST',
 ]);
 export type LeadStatus = z.infer<typeof LeadStatus>;
 
@@ -1326,3 +1332,192 @@ export const PermissionCapability = z.enum([
   'EXPORT',
 ]);
 export type PermissionCapability = z.infer<typeof PermissionCapability>;
+
+/** How an intake is delivered to its recipient. PORTAL only for a client's intake (CHECK). */
+export const IntakeDelivery = z.enum(['EMAIL', 'SMS', 'PORTAL']);
+export type IntakeDelivery = z.infer<typeof IntakeDelivery>;
+
+/** Where a document is in review. "Signed" is not stored: Firm Sign's records say it. */
+export const DocumentReviewStatus = z.enum([
+  'NEEDS_REVIEW',
+  'IN_REVIEW',
+  'VERIFIED',
+  'REPLACEMENT_REQUESTED',
+  'COMPLETED',
+]);
+export type DocumentReviewStatus = z.infer<typeof DocumentReviewStatus>;
+
+/** CLIENT folders hold a client's documents; FIRM folders are the firm's own (never shared). */
+export const DocumentFolderScope = z.enum(['CLIENT', 'FIRM']);
+export type DocumentFolderScope = z.infer<typeof DocumentFolderScope>;
+
+/** Folder colours, mapped to packages/ui tokens by the screens (no hex values here). */
+export const FolderColor = z.enum(['BLUE', 'GREEN', 'YELLOW', 'ORANGE', 'PINK', 'PURPLE', 'GRAY']);
+export type FolderColor = z.infer<typeof FolderColor>;
+
+/** A folder's default for "Make visible to client" on that client's own new documents. Never a grant to all clients. */
+export const FolderClientAccess = z.enum(['NONE', 'VIEW', 'VIEW_UPLOAD']);
+export type FolderClientAccess = z.infer<typeof FolderClientAccess>;
+
+export const DocumentRequestRecipient = z.enum(['CLIENT', 'MEMBER']);
+export type DocumentRequestRecipient = z.infer<typeof DocumentRequestRecipient>;
+
+/** DRAFT is saved but not sent (the portal never shows it); OPEN is with the recipient; SUBMITTED means the client pressed "Submit for review"; COMPLETED and CANCELLED are final. "Outstanding", "Partially received", "Ready for review", "Overdue" and "Expired" are computed from the items, dueOn and expiresAt, not stored. */
+export const DocumentRequestPacketStatus = z.enum([
+  'DRAFT',
+  'OPEN',
+  'SUBMITTED',
+  'COMPLETED',
+  'CANCELLED',
+]);
+export type DocumentRequestPacketStatus = z.infer<typeof DocumentRequestPacketStatus>;
+
+export const DocumentShareRecipient = z.enum(['CLIENT', 'MEMBER']);
+export type DocumentShareRecipient = z.infer<typeof DocumentShareRecipient>;
+
+/** Where a return is in the firm's own workflow (Tax Returns list and workspace). The client sees the five-value TaxReturnStatus, which the database derives from this. */
+export const TaxReturnWorkflowStatus = z.enum([
+  'IN_PREPARATION',
+  'WAITING_ON_CLIENT',
+  'READY_FOR_REVIEW',
+  'READY_FOR_SIGNATURE',
+  'READY_TO_FILE',
+  'TRANSMITTED',
+  'ACCEPTED',
+  'REJECTED',
+  'CLOSED',
+]);
+export type TaxReturnWorkflowStatus = z.infer<typeof TaxReturnWorkflowStatus>;
+
+export const TaxpayerFilingStatus = z.enum([
+  'SINGLE',
+  'MARRIED_FILING_JOINTLY',
+  'MARRIED_FILING_SEPARATELY',
+  'HEAD_OF_HOUSEHOLD',
+  'QUALIFYING_SURVIVING_SPOUSE',
+]);
+export type TaxpayerFilingStatus = z.infer<typeof TaxpayerFilingStatus>;
+
+/** A quarterly estimate's own progress (Overdue is computed: past dueOn and not PAID). */
+export const TaxEstimateStatus = z.enum([
+  'NOT_STARTED',
+  'CALCULATED',
+  'SENT_TO_CLIENT',
+  'SCHEDULED',
+  'PAID',
+]);
+export type TaxEstimateStatus = z.infer<typeof TaxEstimateStatus>;
+
+export const TaxFilingMethod = z.enum(['EFILE', 'PAPER']);
+export type TaxFilingMethod = z.infer<typeof TaxFilingMethod>;
+
+/** One jurisdiction's filing state. For EFILE it follows the newest attempt (the database sets it); PAPER_FILED is for paper filings only. */
+export const TaxJurisdictionStatus = z.enum([
+  'NOT_FILED',
+  'TRANSMITTED',
+  'ACCEPTED',
+  'REJECTED',
+  'PAPER_FILED',
+]);
+export type TaxJurisdictionStatus = z.infer<typeof TaxJurisdictionStatus>;
+
+export const TaxAmountStatus = z.enum(['ESTIMATED', 'FINAL']);
+export type TaxAmountStatus = z.infer<typeof TaxAmountStatus>;
+
+export const TaxAckStatus = z.enum(['PENDING', 'ACCEPTED', 'REJECTED']);
+export type TaxAckStatus = z.infer<typeof TaxAckStatus>;
+
+export const TaxApprovalStatus = z.enum(['PENDING', 'APPROVED', 'RETURNED', 'INVALIDATED']);
+export type TaxApprovalStatus = z.infer<typeof TaxApprovalStatus>;
+
+export const TaxChecklistSection = z.enum(['PREPARATION', 'REVIEW', 'VALIDATION']);
+export type TaxChecklistSection = z.infer<typeof TaxChecklistSection>;
+
+/** OPEN and DONE are for the preparation and review lists; VALID, INFO, WARNING and ERROR for the final validation. */
+export const TaxCheckResult = z.enum(['OPEN', 'DONE', 'VALID', 'INFO', 'WARNING', 'ERROR']);
+export type TaxCheckResult = z.infer<typeof TaxCheckResult>;
+
+export const TaxAuthorizationKind = z.enum(['FEDERAL_EFILE', 'STATE_EFILE', 'CLIENT_CONSENT']);
+export type TaxAuthorizationKind = z.infer<typeof TaxAuthorizationKind>;
+
+/** What a file is in a return's folder: the draft, the signature form, the filed return, the acknowledgment, a voucher, proof of payment or an extension form. Files stay ordinary documents of the client; this adds the role. The filed return and acknowledgment links are never removed. */
+export const TaxReturnDocumentKind = z.enum([
+  'DRAFT_RETURN',
+  'SIGNATURE_FORM',
+  'FILED_RETURN',
+  'ACKNOWLEDGMENT',
+  'VOUCHER',
+  'PAYMENT_PROOF',
+  'EXTENSION',
+]);
+export type TaxReturnDocumentKind = z.infer<typeof TaxReturnDocumentKind>;
+
+/** Calendar colours: token names the screens map to packages/ui (no hex values here). */
+export const CalendarColor = z.enum(['BLUE', 'GREEN', 'AMBER', 'RED', 'PURPLE', 'GRAY']);
+export type CalendarColor = z.infer<typeof CalendarColor>;
+
+export const ReminderChannel = z.enum(['EMAIL', 'SMS', 'PORTAL']);
+export type ReminderChannel = z.infer<typeof ReminderChannel>;
+
+export const BlockedTimeKind = z.enum(['BLOCKED', 'TIME_OFF']);
+export type BlockedTimeKind = z.infer<typeof BlockedTimeKind>;
+
+export const RecurrenceFrequency = z.enum(['DAILY', 'WEEKLY', 'MONTHLY']);
+export type RecurrenceFrequency = z.infer<typeof RecurrenceFrequency>;
+
+export const ClientStatus = z.enum([
+  'NEW',
+  'PENDING_DOCUMENTS',
+  'IN_PROGRESS',
+  'ACTIVE',
+  'ON_HOLD',
+  'INACTIVE',
+]);
+export type ClientStatus = z.infer<typeof ClientStatus>;
+
+/** Not drawn in the designs (only the filter's name): High, Medium, Low as on tasks. To confirm. */
+export const ClientPriority = z.enum(['HIGH', 'MEDIUM', 'LOW']);
+export type ClientPriority = z.infer<typeof ClientPriority>;
+
+/** Where a lead came from (the list's source filter). Begin Online leads are BEGIN_ONLINE. */
+export const LeadSource = z.enum([
+  'BEGIN_ONLINE',
+  'WEBSITE_FORM',
+  'FACEBOOK_AD',
+  'INSTAGRAM',
+  'GOOGLE_AD',
+  'REFERRAL',
+  'OTHER',
+]);
+export type LeadSource = z.infer<typeof LeadSource>;
+
+/** Set by hand, as on the designs (Hot, Warm, Cold); there is no score. */
+export const LeadPriority = z.enum(['HOT', 'WARM', 'COLD']);
+export type LeadPriority = z.infer<typeof LeadPriority>;
+
+export const LeadActionType = z.enum([
+  'CALL',
+  'EMAIL',
+  'APPOINTMENT',
+  'SEND_DOCUMENTS',
+  'FOLLOW_UP',
+]);
+export type LeadActionType = z.infer<typeof LeadActionType>;
+
+export const LeadActivityKind = z.enum([
+  'CREATED',
+  'STATUS_CHANGED',
+  'FORM_SUBMITTED',
+  'EMAIL_SENT',
+  'SMS_SENT',
+  'CALL',
+  'MEETING',
+  'NOTE',
+  'FOLLOW_UP',
+  'FOLLOW_UP_COMPLETED',
+  'APPOINTMENT_SCHEDULED',
+  'TAG_ADDED',
+  'ASSIGNED',
+  'CONVERTED',
+]);
+export type LeadActivityKind = z.infer<typeof LeadActivityKind>;

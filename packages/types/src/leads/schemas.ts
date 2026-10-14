@@ -24,7 +24,14 @@ export const LeadId = z.uuid();
 export const LeadUploadId = z.uuid();
 
 /** The statuses the firm sees: a lead the visitor sent, and what the firm did with it. */
-export const ReviewedLeadStatus = LeadStatus.exclude(['DRAFT', 'EXPIRED']);
+// The statuses of Begin Online's review. The pipeline statuses added in R37 (contacted, in
+// follow-up, appointment scheduled, qualified, lost) join here with the Leads API and screens.
+export const ReviewedLeadStatus = LeadStatus.extract([
+  'SUBMITTED',
+  'IN_REVIEW',
+  'CONVERTED',
+  'DECLINED',
+]);
 export type ReviewedLeadStatus = z.infer<typeof ReviewedLeadStatus>;
 
 /** One row of the leads inbox. */

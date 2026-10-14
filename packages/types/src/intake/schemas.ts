@@ -181,6 +181,7 @@ export const INTAKE_EDITABLE_STATUSES = ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTIO
 
 /** What the client sees for each status (the firm accepts before it shows "Completed"). */
 export const INTAKE_STATUS_LABELS = {
+  DRAFT: 'Draft',
   SENT: 'Not Started',
   IN_PROGRESS: 'In Progress',
   SUBMITTED: 'Submitted',

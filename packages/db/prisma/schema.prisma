@@ -647,6 +647,8 @@ enum IntakeFormStatus {
 
 /// docs/PROJECT-DRAFT-v2.md, Intake forms.
 enum IntakeStatus {
+  /// R37: send setup saved but not sent (no sent_at, never shown to the recipient).
+  DRAFT
   SENT
   IN_PROGRESS
   SUBMITTED
@@ -668,6 +670,14 @@ enum LeadStatus {
   DECLINED
   /// The draft ran out (Lead.draftExpiresAt) before it was sent.
   EXPIRED
+  /// R37 (Leads module): the pipeline staff work after the lead came in (SUBMITTED is "New
+  /// Lead", DECLINED is "Not Qualified"; IN_REVIEW stays for old rows).
+  CONTACTED
+  IN_FOLLOW_UP
+  APPOINTMENT_SCHEDULED
+  QUALIFIED
+  /// Lost, or no response.
+  LOST
 }
 
 /// Groups notifications for preferences. ACCOUNT (security) notices ignore preferences.
@@ -842,10 +852,18 @@ model Business {
   departments          Department[]
 
   // R38 work modules.
-  taskTypes           TaskType[]
-  complianceSettings  ComplianceSettings[]
-  automationSettings  AutomationSettings[]
-  bookkeepingSettings BookkeepingSettings[]
+  taskTypes                TaskType[]
+  complianceSettings       ComplianceSettings[]
+  automationSettings       AutomationSettings[]
+  bookkeepingSettings      BookkeepingSettings[]
+  intakeSettings           IntakeSettings?
+  intakeTemplates          IntakeTemplate[]
+  documentFolders          DocumentFolder[]
+  firmOffices              FirmOffice[]
+  appointmentSettings      AppointmentSettings?
+  tags                     Tag[]
+  documentRequestTemplates DocumentRequestTemplate[]
+  documentSettings         DocumentSettings?
 
   @@map("businesses")
 }
@@ -1005,6 +1023,44 @@ model Membership {
   permissionsChanged     MemberPermission[] @relation("MemberPermissionChangedBy")
   rolePermissionsChanged RolePermission[]
 
+  // R37 back-relations (no columns on memberships).
+  intakesAssigned           Intake[]                  @relation("IntakeAssignedTo")
+  intakesCompleted          Intake[]                  @relation("IntakeCompletedBy")
+  intakeSettingsOwner       IntakeSettings[]          @relation("IntakeSettingsOwner")
+  intakeSettingsFollowUp    IntakeSettings[]          @relation("IntakeSettingsFollowUp")
+  intakeTemplatesCreated    IntakeTemplate[]          @relation("IntakeTemplateCreatedBy")
+  intakeTemplatesAssigned   IntakeTemplate[]          @relation("IntakeTemplateAssignedTo")
+  documentsReviewer         Document[]                @relation("DocumentReviewer")
+  documentsReviewedBy       Document[]                @relation("DocumentReviewedBy")
+  requestPacketsAssigned    DocumentRequestPacket[]   @relation("PacketAssignedTo")
+  requestPacketsRequested   DocumentRequestPacket[]   @relation("PacketRequestedBy")
+  requestPacketsForMember   DocumentRequestPacket[]   @relation("PacketRecipientMember")
+  requestTemplatesOwned     DocumentRequestTemplate[] @relation("RequestTemplateOwner")
+  documentSharesToMember    DocumentShare[]           @relation("ShareToMember")
+  documentSharesGranted     DocumentShare[]           @relation("ShareGrantedBy")
+  documentSharesRevoked     DocumentShare[]           @relation("ShareRevokedBy")
+  documentSettingsReviewer  DocumentSettings[]        @relation("DocumentSettingsReviewer")
+  taxReturnsPrepared        TaxReturn[]               @relation("TaxReturnPreparer")
+  taxReturnsReviewed        TaxReturn[]               @relation("TaxReturnReviewer")
+  taxReturnsValidated       TaxReturn[]               @relation("TaxReturnValidator")
+  taxReturnsUpdated         TaxReturn[]               @relation("TaxReturnUpdatedBy")
+  taxFilingAttemptsRecorded TaxReturnFilingAttempt[]  @relation("TaxAttemptRecordedBy")
+  taxApprovalsAssigned      TaxReturnApproval[]       @relation("TaxApprovalAssignedTo")
+  taxApprovalsDecided       TaxReturnApproval[]       @relation("TaxApprovalDecidedBy")
+  taxChecklistAcknowledged  TaxReturnChecklistItem[]  @relation("TaxChecklistAcknowledgedBy")
+  taxChecklistUpdated       TaxReturnChecklistItem[]  @relation("TaxChecklistUpdatedBy")
+  taxDocumentsAdded         TaxReturnDocument[]       @relation("TaxDocumentAddedBy")
+  clientsUpdated            Client[]                  @relation("ClientUpdatedBy")
+  tagsCreated               Tag[]                     @relation("TagCreatedBy")
+  clientTagsAdded           ClientTag[]               @relation("ClientTagAddedBy")
+  leadsAssigned             Lead[]                    @relation("LeadAssignedTo")
+  leadsArchived             Lead[]                    @relation("LeadArchivedBy")
+  leadsUpdated              Lead[]                    @relation("LeadUpdatedBy")
+  leadTagsAdded             LeadTag[]                 @relation("LeadTagAddedBy")
+  leadActivities            LeadActivity[]            @relation("LeadActivityActor")
+  availabilityOverrides     AvailabilityOverride[]    @relation("OverrideStaff")
+  appointmentSeriesCreated  AppointmentSeries[]       @relation("SeriesCreatedBy")
+
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
   @@unique([businessId, id])
@@ -1045,6 +1101,8 @@ model ClientAccount {
   esignRecipients          EsignRecipient[]
   authorizedPaymentMethods ClientPaymentMethod[]
   portalActivity           ClientPortalActivity[]
+
+  documentShares DocumentShare[]
 
   @@unique([businessId, email])
   // Target of client-owned rows (private notes).
@@ -1101,6 +1159,8 @@ model AuditLog {
   business Business? @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
   @@index([businessId, createdAt])
+  // R37: a record's history (an intake's, a document's, a return's) and a settings page's changes.
+  @@index([businessId, entityType, entityId, createdAt])
   @@map("audit_logs")
 }
 
@@ -1302,8 +1362,27 @@ model Client {
   /// Staff member responsible for the client; must be a member of the same firm.
   assignedUserId String?           @map("assigned_user_id") @db.Uuid
   archivedAt     DateTime?         @map("archived_at") @db.Timestamptz(3)
-  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  // R37 (Clients module): list filters, the 360 header and the dates the list sorts by.
+  /// Shown as "CL-" + number: given by the database, per firm, from 10001, in order; never changes.
+  clientNumber    Int             @default(0) @map("client_number")
+  /// What the firm says about the relationship; separate from archiving (Inactive stays listed).
+  status          ClientStatus    @default(NEW)
+  priority        ClientPriority?
+  /// Where the client came from: a code from the shared list the API checks (up to 50 characters).
+  source          String?
+  /// The campaign or detail, e.g. "Facebook Ad / Back Taxes" (up to 200).
+  sourceDetail    String?         @map("source_detail")
+  /// Client since: editable (clients brought over from before Firmivra); empty means the
+  /// creation date. Not in the future.
+  clientSince     DateTime?       @map("client_since") @db.Date
+  /// The newest thing that happened for the client; set by the API, and the database only lets
+  /// it move forward.
+  lastActivityAt  DateTime?       @map("last_activity_at") @db.Timestamptz(3)
+  /// Who made the last change; the status history row's author.
+  updatedByUserId String?         @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business                       Business                        @relation(fields: [businessId], references: [id])
   assignedMember                 Membership?                     @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
@@ -1343,11 +1422,19 @@ model Client {
   commRecipients  CommunicationRecipient[]
   payrollClients  PayrollClient[]
   advisoryRecords AdvisoryClient[]
+  updatedBy       Membership?                  @relation("ClientUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  tags            ClientTag[]
+  statusHistory   ClientStatusHistory[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
+  @@unique([businessId, clientNumber])
   @@index([businessId, displayName])
   @@index([businessId, assignedUserId])
+  @@index([businessId, status])
+  @@index([businessId, lastActivityAt(sort: Desc)])
+  @@index([businessId, source])
+  @@index([businessId, priority])
   @@map("clients")
 }
 
@@ -1385,12 +1472,17 @@ model ClientProfile {
   referralSource         String?        @map("referral_source")
   /// Anything else the client wants the firm to know. Not the client's private notes.
   additionalInfo         String?        @map("additional_info")
+  // R37 (Clients module): the profile's county. Email and SMS consent live in communication_consents (R39).
+  /// The client's county (the list's optional "City or County" filter).
+  county                 String?
   createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   client Client @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
 
   @@unique([businessId, clientId])
+  @@index([businessId, state])
+  @@index([businessId, entityType])
   @@map("client_profiles")
 }
 
@@ -1502,6 +1594,10 @@ model Service {
 
   // R39
   advisoryServices AdvisoryWorkstream[]
+  leadServices     LeadService[]
+  intakeTemplates  IntakeTemplate[]
+  appointments     Appointment[]
+  appointmentTypes AppointmentType[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -1550,6 +1646,7 @@ model Engagement {
   reports                EngagementReport[]
   documents              Document[]
   documentRequests       DocumentRequest[]
+  documentRequestPackets DocumentRequestPacket[]
   intakes                Intake[]
   leads                  Lead[]
   appointments           Appointment[]
@@ -1729,9 +1826,10 @@ model DocumentCategory {
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business  Business          @relation(fields: [businessId], references: [id])
-  documents Document[]
-  requests  DocumentRequest[]
+  business             Business                      @relation(fields: [businessId], references: [id])
+  documents            Document[]
+  requests             DocumentRequest[]
+  requestTemplateItems DocumentRequestTemplateItem[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -1801,6 +1899,39 @@ model Document {
   complianceDeadlineDocuments ComplianceDeadlineDocument[]
   bookkeepingReconciliations  BookkeepingReconciliation[]
   taxPlanDocuments            TaxPlanDocument[]
+  // R37 (Documents module): folder, details, review, validity, versions, archive and trash.
+  /// Organisation only, never access. A FIRM folder takes no client-visible document.
+  folderId                    String?                      @map("folder_id") @db.Uuid
+  /// One line, up to 500 characters.
+  description                 String?
+  /// Up to 20, each 1 to 40 characters, none twice (ignoring case).
+  tags                        String[]                     @default([])
+  /// Null: no review needed. VERIFIED and COMPLETED carry who and when (CHECK).
+  reviewStatus                DocumentReviewStatus?        @map("review_status")
+  reviewerUserId              String?                      @map("reviewer_user_id") @db.Uuid
+  reviewedAt                  DateTime?                    @map("reviewed_at") @db.Timestamptz(3)
+  reviewedByUserId            String?                      @map("reviewed_by_user_id") @db.Uuid
+  /// When the document itself stops being valid (a license, an ID). Not retention: nothing is
+  /// deleted by it.
+  expiresOn                   DateTime?                    @map("expires_on") @db.Date
+  /// The upload's "Notify client" choice, kept for the moment the scan result arrives.
+  notifyClient                Boolean                      @default(false) @map("notify_client")
+  // R37: versions. A replacement of this document has the same client, engagement and
+  // direction and is numbered after it (a chain); set on insert only. The old one is marked
+  // superseded by the database once the replacement is CLEAN.
+  replacesId                  String?                      @map("replaces_id") @db.Uuid
+  versionNo                   Int                          @default(1) @map("version_no")
+  supersededAt                DateTime?                    @map("superseded_at") @db.Timestamptz(3)
+  archivedAt                  DateTime?                    @map("archived_at") @db.Timestamptz(3)
+  /// Reversible; the purge stays under the retention and legal-hold delete rules.
+  trashedAt                   DateTime?                    @map("trashed_at") @db.Timestamptz(3)
+  folder                      DocumentFolder?              @relation(fields: [businessId, folderId], references: [businessId, id], onDelete: Restrict)
+  reviewer                    Membership?                  @relation("DocumentReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
+  reviewedBy                  Membership?                  @relation("DocumentReviewedBy", fields: [businessId, reviewedByUserId], references: [businessId, userId], onDelete: Restrict)
+  documentShares              DocumentShare[]
+  taxReturnApprovals          TaxReturnApproval[]
+  taxReturnAuthorizations     TaxReturnAuthorization[]
+  taxReturnDocuments          TaxReturnDocument[]
 
   // Target of message attachments.
   @@unique([businessId, id])
@@ -1808,10 +1939,19 @@ model Document {
   @@unique([businessId, leadUploadId])
   // Lets reports require that their document belongs to the same engagement.
   @@unique([businessId, engagementId, id])
+  @@unique([businessId, replacesId])
+  // R37: the firm-wide library, its filters and the duplicate warning.
   @@index([businessId, clientId, createdAt])
   @@index([businessId, requestId])
   @@index([businessId, intakeId])
   @@index([businessId, esignRequestId])
+  @@index([businessId, createdAt])
+  @@index([businessId, folderId])
+  @@index([businessId, reviewStatus])
+  @@index([businessId, reviewerUserId])
+  @@index([businessId, categoryId])
+  @@index([businessId, clientId, sha256])
+  @@index([businessId, expiresOn])
   @@map("documents")
 }
 
@@ -1836,13 +1976,22 @@ model DocumentRequest {
   createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement Engagement        @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  category   DocumentCategory? @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  // R37: a row is one checklist item. Items of a request (packet) are edited while it is a DRAFT.
+  /// The request this item belongs to; null for a single request made on its own.
+  packetId  String? @map("packet_id") @db.Uuid
+  /// Optional items do not count toward "x of y required received".
+  required  Boolean @default(true)
+  sortOrder Int     @default(0) @map("sort_order")
+
+  engagement Engagement             @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category   DocumentCategory?      @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  packet     DocumentRequestPacket? @relation(fields: [businessId, engagementId, packetId], references: [businessId, engagementId, id], onDelete: Restrict)
   documents  Document[]
 
   // Lets documents require that the request they answer belongs to the same engagement.
   @@unique([businessId, engagementId, id])
   @@index([businessId, clientId, status])
+  @@index([businessId, packetId, sortOrder])
   @@map("document_requests")
 }
 
@@ -1866,10 +2015,17 @@ model IntakeForm {
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  service Service  @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  intakes Intake[]
+  /// R37: the template (the firm's reusable form) this is a version of. The database fills it
+  /// with the service's default template when an insert leaves it empty; it never changes
+  /// after the first publish.
+  templateId String? @map("template_id") @db.Uuid
 
-  @@unique([businessId, serviceId, version])
+  service  Service         @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  template IntakeTemplate? @relation(fields: [businessId, templateId, serviceId], references: [businessId, id, serviceId], onDelete: Restrict)
+  intakes  Intake[]
+
+  // R37: versions are numbered per template (a service can have several templates).
+  @@unique([businessId, templateId, version])
   @@unique([businessId, id])
   @@map("intake_forms")
 }
@@ -1895,16 +2051,48 @@ model Intake {
   /// Set by the database (its clock) whenever correctionNote is set or changed; cleared with it.
   correctionRequestedAt DateTime? @map("correction_requested_at") @db.Timestamptz(3)
 
-  form        IntakeForm         @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict)
-  engagement  Engagement?        @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
-  lead        Lead?              @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
-  signatures  IntakeSignature[]
-  submissions IntakeSubmission[]
-  documents   Document[]
+  // R37 (Intake Forms module): send setup, dates, assignee, secure link for leads.
+  /// First send, set by the database when the intake leaves DRAFT; a resend never changes it.
+  sentAt               DateTime?       @map("sent_at") @db.Timestamptz(3)
+  /// After sentAt, and not before dueOn. The API extends it; a sweep sets EXPIRED from it.
+  expiresAt            DateTime?       @map("expires_at") @db.Timestamptz(3)
+  assignedUserId       String?         @map("assigned_user_id") @db.Uuid
+  deliveryChannel      IntakeDelivery? @map("delivery_channel")
+  /// Up to 200 characters. Names the email subject; no email copy is stored.
+  messageSubject       String?         @map("message_subject")
+  /// Up to 500 characters.
+  messageBody          String?         @map("message_body")
+  remindersEnabled     Boolean         @default(true) @map("reminders_enabled")
+  allowSaveResume      Boolean         @default(true) @map("allow_save_resume")
+  /// Moved forward by the database on every change of the row (the API also sets it on opens).
+  lastActivityAt       DateTime        @default(now()) @map("last_activity_at") @db.Timestamptz(3)
+  /// Set by the database while the status is COMPLETED, cleared when it leaves COMPLETED.
+  completedAt          DateTime?       @map("completed_at") @db.Timestamptz(3)
+  completedByUserId    String?         @map("completed_by_user_id") @db.Uuid
+  /// Lead recipients only: SHA-256 of the secure link's token, with its expiry (both or neither).
+  accessTokenHash      String?         @unique @map("access_token_hash")
+  accessTokenExpiresAt DateTime?       @map("access_token_expires_at") @db.Timestamptz(3)
+  /// "Auto-generate submission ID": a per-firm number the database gives when the firm's
+  /// intake settings turn it on.
+  referenceNumber      Int?            @map("reference_number")
+
+  assignedMember Membership?        @relation("IntakeAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  completedBy    Membership?        @relation("IntakeCompletedBy", fields: [businessId, completedByUserId], references: [businessId, userId], onDelete: Restrict)
+  form           IntakeForm         @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict)
+  engagement     Engagement?        @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  lead           Lead?              @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  signatures     IntakeSignature[]
+  submissions    IntakeSubmission[]
+  documents      Document[]
 
   @@unique([businessId, id])
+  @@unique([businessId, referenceNumber])
   @@index([businessId, engagementId])
   @@index([businessId, leadId])
+  @@index([businessId, status, sentAt])
+  @@index([businessId, assignedUserId, status])
+  @@index([businessId, formId])
+  @@index([businessId, lastActivityAt])
   @@map("intakes")
 }
 
@@ -1945,31 +2133,58 @@ model IntakeSubmission {
 /// The resume link stores only the token's SHA-256 and lasts at most 30 days. createdAt is the
 /// database's clock; neither the draft nor its link outlives createdAt + 90 days.
 model Lead {
-  id               String     @id @default(uuid(7)) @db.Uuid
-  businessId       String     @map("business_id") @db.Uuid
-  serviceId        String     @map("service_id") @db.Uuid
-  status           LeadStatus @default(DRAFT)
-  firstName        String     @map("first_name")
-  lastName         String     @map("last_name")
-  email            String
-  phone            String?
+  id                      String          @id @default(uuid(7)) @db.Uuid
+  businessId              String          @map("business_id") @db.Uuid
+  serviceId               String          @map("service_id") @db.Uuid
+  status                  LeadStatus      @default(DRAFT)
+  firstName               String          @map("first_name")
+  lastName                String          @map("last_name")
+  email                   String
+  phone                   String?
   /// The year the firm prepares (2000 to 2100), fixed at the draft's start: set once, while a
   /// draft, then never changed.
-  taxYear          Int?       @map("tax_year")
+  taxYear                 Int?            @map("tax_year")
   /// When the draft runs out. Required while DRAFT (on insert the database fills 30 days from
   /// now); a renewal is at most 30 days from then; kept as the lead leaves DRAFT, and frozen.
   /// An expired draft is not renewed and only becomes EXPIRED; no lead goes back to DRAFT.
-  draftExpiresAt   DateTime?  @map("draft_expires_at") @db.Timestamptz(3)
-  resumeTokenHash  String?    @unique @map("resume_token_hash")
-  resumeExpiresAt  DateTime?  @map("resume_expires_at") @db.Timestamptz(3)
-  submittedAt      DateTime?  @map("submitted_at") @db.Timestamptz(3)
-  clientId         String?    @map("client_id") @db.Uuid
-  engagementId     String?    @map("engagement_id") @db.Uuid
-  reviewedByUserId String?    @map("reviewed_by_user_id") @db.Uuid
-  reviewedAt       DateTime?  @map("reviewed_at") @db.Timestamptz(3)
-  declineReason    String?    @map("decline_reason")
-  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  draftExpiresAt          DateTime?       @map("draft_expires_at") @db.Timestamptz(3)
+  resumeTokenHash         String?         @unique @map("resume_token_hash")
+  resumeExpiresAt         DateTime?       @map("resume_expires_at") @db.Timestamptz(3)
+  submittedAt             DateTime?       @map("submitted_at") @db.Timestamptz(3)
+  clientId                String?         @map("client_id") @db.Uuid
+  engagementId            String?         @map("engagement_id") @db.Uuid
+  reviewedByUserId        String?         @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt              DateTime?       @map("reviewed_at") @db.Timestamptz(3)
+  declineReason           String?         @map("decline_reason")
+  // R37 (Leads module): the list, profile and convert screens.
+  /// Shown as "LD-" + number: given by the database, per firm, from 10001, in order; never changes.
+  number                  Int             @default(0)
+  businessName            String?         @map("business_name")
+  addressLine1            String?         @map("address_line1")
+  addressLine2            String?         @map("address_line2")
+  city                    String?
+  state                   String?
+  postalCode              String?         @map("postal_code")
+  preferredContactMethods ContactMethod[] @default([]) @map("preferred_contact_methods")
+  /// "Evenings (after 5 PM)": free text, up to 100 characters.
+  bestTimeToContact       String?         @map("best_time_to_contact")
+  source                  LeadSource      @default(OTHER)
+  /// The campaign or landing page ("Back Taxes Campaign"), up to 200 characters.
+  sourceDetail            String?         @map("source_detail")
+  priority                LeadPriority?
+  assignedUserId          String?         @map("assigned_user_id") @db.Uuid
+  /// The next follow-up: type and time together, with an optional note; none once the lead is
+  /// closed (converted, declined, lost or expired).
+  nextActionType          LeadActionType? @map("next_action_type")
+  nextActionAt            DateTime?       @map("next_action_at") @db.Timestamptz(3)
+  nextActionNote          String?         @map("next_action_note")
+  /// Hidden from lists, never deleted.
+  archivedAt              DateTime?       @map("archived_at") @db.Timestamptz(3)
+  archivedByUserId        String?         @map("archived_by_user_id") @db.Uuid
+  /// Who made the last change; the activity row's author.
+  updatedByUserId         String?         @map("updated_by_user_id") @db.Uuid
+  createdAt               DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   service            Service                    @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
   engagement         Engagement?                @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -1983,10 +2198,21 @@ model Lead {
   commConsents   CommunicationConsent[]
   commAudience   CommunicationAudienceEntry[]
   commRecipients CommunicationRecipient[]
+  assignedMember Membership?                  @relation("LeadAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  archivedBy     Membership?                  @relation("LeadArchivedBy", fields: [businessId, archivedByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy      Membership?                  @relation("LeadUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  services       LeadService[]
+  tags           LeadTag[]
+  activities     LeadActivity[]
 
   @@unique([businessId, id])
+  @@unique([businessId, number])
   @@index([businessId, status, createdAt])
   @@index([businessId, email])
+  @@index([businessId, assignedUserId, status])
+  @@index([businessId, source])
+  @@index([businessId, nextActionAt])
+  @@index([businessId, createdAt])
   @@map("leads")
 }
 
@@ -2111,6 +2337,23 @@ model AppointmentType {
   /// the start).
   cancelCutoffHours Int @default(24) @map("cancel_cutoff_hours")
 
+  // R37: shown in Manage Appointment Types.
+  /// Up to 500 characters.
+  description         String?
+  /// The service this type is for (optional).
+  serviceId           String?        @map("service_id") @db.Uuid
+  /// The default colour of its appointments.
+  color               CalendarColor?
+  /// Reminders new appointments of this type start with: [{ channel, offsetMinutes }], at most 10.
+  /// Minutes kept free before and after (0 to 240); copied onto each appointment.
+  bufferBeforeMinutes Int            @default(0) @map("buffer_before_minutes")
+  bufferAfterMinutes  Int            @default(0) @map("buffer_after_minutes")
+  /// Clients book at least this long ahead (minutes, up to 30 days) and at most this far (days).
+  minNoticeMinutes    Int            @default(0) @map("min_notice_minutes")
+  maxAdvanceDays      Int?           @map("max_advance_days")
+  reminderDefaults    Json           @default("[]") @map("reminder_defaults")
+
+  service      Service?      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
   business     Business      @relation(fields: [businessId], references: [id])
   appointments Appointment[]
 
@@ -2140,16 +2383,18 @@ model WorkingHours {
 /// Time a staff member is not available (holiday, training), or the whole firm when userId is
 /// null. An appointment cannot overlap it.
 model BlockedTime {
-  id              String   @id @default(uuid(7)) @db.Uuid
-  businessId      String   @map("business_id") @db.Uuid
-  userId          String?  @map("user_id") @db.Uuid
-  startsAt        DateTime @map("starts_at") @db.Timestamptz(3)
-  endsAt          DateTime @map("ends_at") @db.Timestamptz(3)
+  id              String          @id @default(uuid(7)) @db.Uuid
+  businessId      String          @map("business_id") @db.Uuid
+  userId          String?         @map("user_id") @db.Uuid
+  startsAt        DateTime        @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime        @map("ends_at") @db.Timestamptz(3)
   /// Internal; never shown to clients.
   reason          String?
-  createdByUserId String?  @map("created_by_user_id") @db.Uuid
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdByUserId String?         @map("created_by_user_id") @db.Uuid
+  /// Time off is shown apart from other blocked time.
+  kind            BlockedTimeKind @default(BLOCKED)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   member Membership? @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
 
@@ -2188,13 +2433,50 @@ model Appointment {
   createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client     Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  staff      Membership       @relation(fields: [businessId, staffUserId], references: [businessId, userId], onDelete: Restrict)
-  type       AppointmentType? @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  // R37 (Appointments module): the related service, notes, colour, confirmation and booking key.
+  // Internal meetings and leads' appointments (client optional) wait for the API: see the PR.
+  /// The related service (the screens' Service column).
+  serviceId           String?        @map("service_id") @db.Uuid
+  /// An IANA name; empty means the firm's time zone (business_settings.timezone).
+  timeZone            String?        @map("time_zone")
+  /// A day-long entry: may run past 12 hours (up to 25, for a daylight saving day).
+  allDay              Boolean        @default(false) @map("all_day")
+  /// Empty means the type's colour. A token name; the screens map it to packages/ui.
+  color               CalendarColor?
+  /// Staff only, never shown to clients, never in notices or the audit log. Up to 5,000.
+  internalNotes       String?        @map("internal_notes")
+  /// Shown to the client in the portal and in notices. Up to 2,000.
+  clientInstructions  String?        @map("client_instructions")
+  /// Empty while SCHEDULED means "Pending"; set means "Confirmed".
+  confirmedAt         DateTime?      @map("confirmed_at") @db.Timestamptz(3)
+  /// A retry of the same booking returns the first one; unique per firm.
+  idempotencyKey      String?        @map("idempotency_key") @db.Uuid
+  /// Where in the firm (in-person appointments only), and the room, which cannot be double booked.
+  officeId            String?        @map("office_id") @db.Uuid
+  roomId              String?        @map("room_id") @db.Uuid
+  /// One of a repeating series; every occurrence is a normal appointment of its own.
+  seriesId            String?        @map("series_id") @db.Uuid
+  /// Minutes kept free around it for the staff member (copied from the type when booked).
+  bufferBeforeMinutes Int            @default(0) @map("buffer_before_minutes")
+  bufferAfterMinutes  Int            @default(0) @map("buffer_after_minutes")
 
+  client     Client                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?           @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  staff      Membership            @relation(fields: [businessId, staffUserId], references: [businessId, userId], onDelete: Restrict)
+  service    Service?              @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  office     FirmOffice?           @relation(fields: [businessId, officeId], references: [businessId, id], onDelete: Restrict)
+  room       FirmRoom?             @relation(fields: [businessId, officeId, roomId], references: [businessId, officeId, id], onDelete: Restrict)
+  reminders  AppointmentReminder[]
+  series     AppointmentSeries?    @relation(fields: [businessId, seriesId], references: [businessId, id], onDelete: Restrict)
+  type       AppointmentType?      @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, idempotencyKey])
+  // Target of the reminders' same-firm foreign key.
+  @@unique([businessId, id])
+  @@index([businessId, seriesId])
   @@index([businessId, staffUserId, startsAt])
   @@index([businessId, clientId, startsAt])
+  @@index([businessId, startsAt])
   @@map("appointments")
 }
 
@@ -2768,12 +3050,62 @@ model TaxReturn {
   createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  // R37 (Tax Returns module): the firm's workflow, people, dates and amendments. `status` stays
+  // what the client sees and follows workflowStatus (the database keeps the two together).
+  workflowStatus         TaxReturnWorkflowStatus @default(IN_PREPARATION) @map("workflow_status")
+  /// Why the last move was made; required when a return moves back a step.
+  statusReason           String?                 @map("status_reason")
+  preparerUserId         String?                 @map("preparer_user_id") @db.Uuid
+  reviewerUserId         String?                 @map("reviewer_user_id") @db.Uuid
+  /// Individual returns only.
+  filingStatus           TaxpayerFilingStatus?   @map("filing_status")
+  /// The filing deadline (or the estimate's due date); an extension never moves it.
+  dueOn                  DateTime?               @map("due_on") @db.Date
+  /// The filed return this one amends (the same client's), with the reason.
+  amendsReturnId         String?                 @map("amends_return_id") @db.Uuid
+  amendReason            String?                 @map("amend_reason")
+  /// Quarterly estimates only: the amount in cents, its status and when it was paid.
+  estimateAmountCents    Int?                    @map("estimate_amount_cents")
+  estimateStatus         TaxEstimateStatus?      @map("estimate_status")
+  estimatePaidOn         DateTime?               @map("estimate_paid_on") @db.Date
+  /// The manual final validation (there is no tax software here): when and by whom.
+  finalValidatedAt       DateTime?               @map("final_validated_at") @db.Timestamptz(3)
+  finalValidatedByUserId String?                 @map("final_validated_by_user_id") @db.Uuid
+  importSource           String?                 @map("import_source")
+  importedAt             DateTime?               @map("imported_at") @db.Timestamptz(3)
+  /// Hidden from lists, never deleted.
+  archivedAt             DateTime?               @map("archived_at") @db.Timestamptz(3)
+  /// Who made the last change; the history row's author.
+  updatedByUserId        String?                 @map("updated_by_user_id") @db.Uuid
+
+  preparer       Membership?              @relation("TaxReturnPreparer", fields: [businessId, preparerUserId], references: [businessId, userId], onDelete: Restrict)
+  reviewer       Membership?              @relation("TaxReturnReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
+  finalValidator Membership?              @relation("TaxReturnValidator", fields: [businessId, finalValidatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy      Membership?              @relation("TaxReturnUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  amends         TaxReturn?               @relation("TaxReturnAmends", fields: [businessId, clientId, amendsReturnId], references: [businessId, clientId, id], onDelete: Restrict)
+  amendedBy      TaxReturn[]              @relation("TaxReturnAmends")
+  history        TaxReturnHistory[]
+  filings        TaxReturnFiling[]
+  approvals      TaxReturnApproval[]
+  checklist      TaxReturnChecklistItem[]
+  authorizations TaxReturnAuthorization[]
+  documents      TaxReturnDocument[]
+
   client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   document   Document?   @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
 
+  // R37: target of the amendment and child-table keys; the list's filters and sorts.
+  @@unique([businessId, clientId, id])
+  @@unique([businessId, id])
   @@index([businessId, clientId, taxYear])
   @@index([businessId, documentId])
+  @@index([businessId, taxYear, workflowStatus])
+  @@index([businessId, preparerUserId, workflowStatus])
+  @@index([businessId, reviewerUserId])
+  @@index([businessId, updatedAt])
+  @@index([businessId, dueOn])
+  @@index([businessId, amendsReturnId])
   @@map("tax_returns")
 }
 
@@ -3264,19 +3596,19 @@ model EsignRequest {
   templateId             String?            @map("template_id") @db.Uuid
   templateVersion        Int?               @map("template_version")
 
-  client              Client?               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement          Engagement?           @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  sender              Membership            @relation("EsignRequestSender", fields: [businessId, senderUserId], references: [businessId, userId], onDelete: Restrict)
-  voidedBy            Membership?           @relation("EsignRequestVoidedBy", fields: [businessId, voidedByUserId], references: [businessId, userId], onDelete: Restrict)
-  replaces            EsignRequest?         @relation("EsignReplaces", fields: [businessId, replacesRequestId], references: [businessId, id], onDelete: Restrict)
-  replacedOf          EsignRequest?         @relation("EsignReplaces")
-  replacedBy          EsignRequest?         @relation("EsignReplacedBy", fields: [businessId, replacedByRequestId], references: [businessId, id], onDelete: Restrict)
-  replacedByOf        EsignRequest?         @relation("EsignReplacedBy")
-  finalDocument       Document?             @relation("EsignFinalDocument", fields: [businessId, finalDocumentId], references: [businessId, id], onDelete: Restrict)
-  certificateDocument Document?             @relation("EsignCertificateDocument", fields: [businessId, certificateDocumentId], references: [businessId, id], onDelete: Restrict)
-  template            EsignTemplate?        @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
-  templateVersionRow  EsignTemplateVersion? @relation("EsignRequestTemplateVersion", fields: [businessId, templateId, templateVersion], references: [businessId, templateId, version], onDelete: Restrict)
-  filedDocuments      Document[]            @relation("EsignFiledDocuments")
+  client              Client?                  @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement          Engagement?              @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  sender              Membership               @relation("EsignRequestSender", fields: [businessId, senderUserId], references: [businessId, userId], onDelete: Restrict)
+  voidedBy            Membership?              @relation("EsignRequestVoidedBy", fields: [businessId, voidedByUserId], references: [businessId, userId], onDelete: Restrict)
+  replaces            EsignRequest?            @relation("EsignReplaces", fields: [businessId, replacesRequestId], references: [businessId, id], onDelete: Restrict)
+  replacedOf          EsignRequest?            @relation("EsignReplaces")
+  replacedBy          EsignRequest?            @relation("EsignReplacedBy", fields: [businessId, replacedByRequestId], references: [businessId, id], onDelete: Restrict)
+  replacedByOf        EsignRequest?            @relation("EsignReplacedBy")
+  finalDocument       Document?                @relation("EsignFinalDocument", fields: [businessId, finalDocumentId], references: [businessId, id], onDelete: Restrict)
+  certificateDocument Document?                @relation("EsignCertificateDocument", fields: [businessId, certificateDocumentId], references: [businessId, id], onDelete: Restrict)
+  template            EsignTemplate?           @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  templateVersionRow  EsignTemplateVersion?    @relation("EsignRequestTemplateVersion", fields: [businessId, templateId, templateVersion], references: [businessId, templateId, version], onDelete: Restrict)
+  filedDocuments      Document[]               @relation("EsignFiledDocuments")
   documents           EsignDocument[]
   recipients          EsignRecipient[]
   fields              EsignField[]
@@ -3286,6 +3618,7 @@ model EsignRequest {
   links               EsignSigningLink[]
   uploads             EsignPendingUpload[]
   attachments         EsignAttachment[]
+  taxAuthorizations   TaxReturnAuthorization[]
 
   @@unique([businessId, id])
   @@unique([businessId, replacesRequestId])
@@ -8429,4 +8762,997 @@ model TaxOpportunityEvent {
 
   @@index([businessId, opportunityId, createdAt])
   @@map("tax_opportunity_events")
+}
+
+// =====================================================================================
+// R37 (Rasel, Oct 14): gaps for Intake Forms, Documents, Tax Returns, Appointments, Clients
+// and Leads, found against Octavia's designs and guides (docs/mockups/firm-workspace/*).
+// Columns on existing models are marked "R37" where they sit; new enums and tables are here.
+// =====================================================================================
+
+/// How an intake is delivered to its recipient. PORTAL only for a client's intake (CHECK).
+enum IntakeDelivery {
+  EMAIL
+  SMS
+  PORTAL
+}
+
+/// The firm's Intake Forms settings page, one row per firm (created by the API on first read;
+/// the defaults here are what "Reset defaults" restores). Automation toggles default off: the
+/// mockup's "On" switches are not approvals (guide).
+model IntakeSettings {
+  businessId              String   @id @map("business_id") @db.Uuid
+  // General
+  defaultExpiryDays       Int      @default(14) @map("default_expiry_days")
+  allowSaveResume         Boolean  @default(true) @map("allow_save_resume")
+  requireSignature        Boolean  @default(true) @map("require_signature")
+  autoSubmissionId        Boolean  @default(false) @map("auto_submission_id")
+  defaultOwnerUserId      String?  @map("default_owner_user_id") @db.Uuid
+  // Client experience
+  showProgressBar         Boolean  @default(true) @map("show_progress_bar")
+  thankYouMessage         String?  @map("thank_you_message")
+  redirectAfterCompletion Boolean  @default(false) @map("redirect_after_completion")
+  /// https only; required while redirectAfterCompletion is on.
+  redirectUrl             String?  @map("redirect_url")
+  // Notifications
+  sendClientConfirmation  Boolean  @default(true) @map("send_client_confirmation")
+  notifyAssignedStaff     Boolean  @default(true) @map("notify_assigned_staff")
+  remindersEnabled        Boolean  @default(true) @map("reminders_enabled")
+  firstReminderDays       Int      @default(3) @map("first_reminder_days")
+  finalReminderDays       Int      @default(7) @map("final_reminder_days")
+  expiryAlertHours        Int      @default(24) @map("expiry_alert_hours")
+  // Automation (all off)
+  autoCreateClient        Boolean  @default(false) @map("auto_create_client")
+  autoCreateFollowUpTask  Boolean  @default(false) @map("auto_create_follow_up_task")
+  routeByService          Boolean  @default(false) @map("route_by_service")
+  followUpOwnerUserId     String?  @map("follow_up_owner_user_id") @db.Uuid
+  // Branding and security
+  useFirmBranding         Boolean  @default(true) @map("use_firm_branding")
+  /// A subset of the platform's allowed upload types; checked by the API against UPLOAD_LIMITS.
+  acceptedFileTypes       String[] @default(["application/pdf", "image/jpeg", "image/png"]) @map("accepted_file_types")
+  /// 1 to 10: the platform's cap is 10 MB (the mockup's 20 MB is refused).
+  maxFileSizeMb           Int      @default(10) @map("max_file_size_mb")
+  consentRequired         Boolean  @default(true) @map("consent_required")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business      Business    @relation(fields: [businessId], references: [id])
+  defaultOwner  Membership? @relation("IntakeSettingsOwner", fields: [businessId, defaultOwnerUserId], references: [businessId, userId], onDelete: Restrict)
+  followUpOwner Membership? @relation("IntakeSettingsFollowUp", fields: [businessId, followUpOwnerUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@map("intake_settings")
+}
+
+/// A reusable intake form a firm keeps (Form Templates screen, "Create new intake form"). A
+/// service can have several. The versions are IntakeForm rows, numbered per template and
+/// unchangeable once published. One live template per service is the default: the form Begin
+/// Online and "send for an engagement" use. Archived, never deleted.
+model IntakeTemplate {
+  id                    String    @id @default(uuid(7)) @db.Uuid
+  businessId            String    @map("business_id") @db.Uuid
+  /// The category tab (Personal Tax, Bookkeeping...): one of the firm's services.
+  serviceId             String    @map("service_id") @db.Uuid
+  /// At most one live (unarchived) default per service.
+  serviceDefault        Boolean   @default(false) @map("service_default")
+  /// Staff-only authoring notes, never sent to recipients; up to 500 characters.
+  internalNotes         String?   @map("internal_notes")
+  /// Pre-fills "Assign to" when the template is sent; a member of the firm.
+  defaultAssignedUserId String?   @map("default_assigned_user_id") @db.Uuid
+  /// Null: made by Firmivra or by the database for a service's first form.
+  createdByUserId       String?   @map("created_by_user_id") @db.Uuid
+  archivedAt            DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business        Business     @relation(fields: [businessId], references: [id])
+  service         Service      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  defaultAssignee Membership?  @relation("IntakeTemplateAssignedTo", fields: [businessId, defaultAssignedUserId], references: [businessId, userId], onDelete: Restrict)
+  createdBy       Membership?  @relation("IntakeTemplateCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  forms           IntakeForm[]
+
+  @@unique([businessId, id])
+  // Target of the versions' same-service foreign key.
+  @@unique([businessId, id, serviceId])
+  @@index([businessId, serviceId, archivedAt])
+  @@map("intake_templates")
+}
+
+/// Where a document is in review. "Signed" is not stored: Firm Sign's records say it.
+enum DocumentReviewStatus {
+  NEEDS_REVIEW
+  IN_REVIEW
+  VERIFIED
+  REPLACEMENT_REQUESTED
+  COMPLETED
+}
+
+/// CLIENT folders hold a client's documents; FIRM folders are the firm's own (never shared).
+enum DocumentFolderScope {
+  CLIENT
+  FIRM
+}
+
+/// Folder colours, mapped to packages/ui tokens by the screens (no hex values here).
+enum FolderColor {
+  BLUE
+  GREEN
+  YELLOW
+  ORANGE
+  PINK
+  PURPLE
+  GRAY
+}
+
+/// A folder's default for "Make visible to client" on that client's own new documents. Never a
+/// grant to all clients.
+enum FolderClientAccess {
+  NONE
+  VIEW
+  VIEW_UPLOAD
+}
+
+/// The folder tree of the document library (Settings > Folders & Categories). Document types
+/// stay in DocumentCategory. Archived, deleted only while empty and without subfolders (API).
+model DocumentFolder {
+  id                  String              @id @default(uuid(7)) @db.Uuid
+  businessId          String              @map("business_id") @db.Uuid
+  /// One line, 1 to 80 characters; unique among live folders of the same parent.
+  name                String
+  description         String?
+  parentId            String?             @map("parent_id") @db.Uuid
+  /// The same as the parent's; fixed.
+  scope               DocumentFolderScope @default(CLIENT)
+  color               FolderColor         @default(BLUE)
+  sortOrder           Int                 @default(0) @map("sort_order")
+  requireExpiryDate   Boolean             @default(false) @map("require_expiry_date")
+  remindBeforeExpiry  Boolean             @default(false) @map("remind_before_expiry")
+  allowClientUploads  Boolean             @default(false) @map("allow_client_uploads")
+  notifyStaffOnUpload Boolean             @default(false) @map("notify_staff_on_upload")
+  defaultClientAccess FolderClientAccess  @default(NONE) @map("default_client_access")
+  archivedAt          DateTime?           @map("archived_at") @db.Timestamptz(3)
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business         @relation(fields: [businessId], references: [id])
+  parent    DocumentFolder?  @relation("FolderTree", fields: [businessId, parentId], references: [businessId, id], onDelete: Restrict)
+  children  DocumentFolder[] @relation("FolderTree")
+  documents Document[]
+
+  @@unique([businessId, id])
+  @@index([businessId, parentId, sortOrder])
+  @@map("document_folders")
+}
+
+enum DocumentRequestRecipient {
+  /// The client's portal logins (the household).
+  CLIENT
+  /// A member of the firm (an internal request, e.g. "send me the signed copy").
+  MEMBER
+}
+
+/// DRAFT is saved but not sent (the portal never shows it); OPEN is with the recipient;
+/// SUBMITTED means the client pressed "Submit for review"; COMPLETED and CANCELLED are final.
+/// "Outstanding", "Partially received", "Ready for review", "Overdue" and "Expired" are computed
+/// from the items, dueOn and expiresAt, not stored.
+enum DocumentRequestPacketStatus {
+  DRAFT
+  OPEN
+  SUBMITTED
+  COMPLETED
+  CANCELLED
+}
+
+/// A document request as the screens show it ("Request #DR-0024"): a title, a due date, a
+/// message and a checklist of items. Each item is a DocumentRequest row (packet_id), so the
+/// accept, reject and "I don't have this" rules stay as they are. Never deleted: a draft that
+/// is dropped is CANCELLED. After it is sent only the due date, assignee, reminder, expiry and
+/// the closing facts change.
+model DocumentRequestPacket {
+  id                  String                      @id @default(uuid(7)) @db.Uuid
+  businessId          String                      @map("business_id") @db.Uuid
+  clientId            String                      @map("client_id") @db.Uuid
+  engagementId        String                      @map("engagement_id") @db.Uuid
+  /// "#DR-" + number: given by the database, per firm, in order; never changes.
+  number              Int                         @default(0)
+  recipientKind       DocumentRequestRecipient    @default(CLIENT) @map("recipient_kind")
+  /// A member of the firm; only for recipientKind MEMBER.
+  recipientUserId     String?                     @map("recipient_user_id") @db.Uuid
+  /// The request type it was made from (a snapshot: later edits of the type change nothing here).
+  templateId          String?                     @map("template_id") @db.Uuid
+  title               String
+  /// Required to send.
+  dueOn               DateTime?                   @map("due_on") @db.Date
+  status              DocumentRequestPacketStatus @default(DRAFT)
+  /// Variables ({Client Name}, {Due Date}) are resolved when it is sent. Emails and SMS carry
+  /// a prompt to sign in, never the documents' names.
+  messageSubject      String?                     @map("message_subject")
+  messageBody         String?                     @map("message_body")
+  notifyEmail         Boolean                     @default(true) @map("notify_email")
+  notifyPortal        Boolean                     @default(true) @map("notify_portal")
+  notifySms           Boolean                     @default(false) @map("notify_sms")
+  /// Days before the due date; null = no reminder. Stops when COMPLETED or CANCELLED.
+  reminderDaysBefore  Int?                        @map("reminder_days_before")
+  allowMultipleFiles  Boolean                     @default(true) @map("allow_multiple_files")
+  allowClientComments Boolean                     @default(true) @map("allow_client_comments")
+  /// After the due date; separate from it.
+  expiresAt           DateTime?                   @map("expires_at") @db.Timestamptz(3)
+  assignedUserId      String?                     @map("assigned_user_id") @db.Uuid
+  requestedByUserId   String?                     @map("requested_by_user_id") @db.Uuid
+  /// Set by the database when the status reaches them.
+  sentAt              DateTime?                   @map("sent_at") @db.Timestamptz(3)
+  submittedAt         DateTime?                   @map("submitted_at") @db.Timestamptz(3)
+  completedAt         DateTime?                   @map("completed_at") @db.Timestamptz(3)
+  cancelledAt         DateTime?                   @map("cancelled_at") @db.Timestamptz(3)
+  createdAt           DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement      Engagement               @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  recipientMember Membership?              @relation("PacketRecipientMember", fields: [businessId, recipientUserId], references: [businessId, userId], onDelete: Restrict)
+  template        DocumentRequestTemplate? @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  assignedMember  Membership?              @relation("PacketAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  requestedBy     Membership?              @relation("PacketRequestedBy", fields: [businessId, requestedByUserId], references: [businessId, userId], onDelete: Restrict)
+  items           DocumentRequest[]
+
+  @@unique([businessId, number])
+  // Target of the items' same-engagement foreign key.
+  @@unique([businessId, engagementId, id])
+  @@unique([businessId, id])
+  @@index([businessId, status, dueOn])
+  @@index([businessId, clientId])
+  @@index([businessId, assignedUserId, status])
+  @@index([businessId, templateId])
+  @@index([businessId, createdAt])
+  @@map("document_request_packets")
+}
+
+/// A request type the firm reuses ("Personal Tax Intake", 6 documents): firm-wide, or a
+/// member's own saved list (ownerUserId). Archived, never deleted.
+model DocumentRequestTemplate {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  businessId  String    @map("business_id") @db.Uuid
+  name        String
+  description String?
+  /// Null: the whole firm's. Set: that member's own "saved list".
+  ownerUserId String?   @map("owner_user_id") @db.Uuid
+  sortOrder   Int       @default(0) @map("sort_order")
+  archivedAt  DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business                      @relation(fields: [businessId], references: [id])
+  owner    Membership?                   @relation("RequestTemplateOwner", fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
+  items    DocumentRequestTemplateItem[]
+  packets  DocumentRequestPacket[]
+
+  @@unique([businessId, id])
+  @@map("document_request_templates")
+}
+
+model DocumentRequestTemplateItem {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  templateId  String   @map("template_id") @db.Uuid
+  title       String
+  description String?
+  required    Boolean  @default(true)
+  categoryId  String?  @map("category_id") @db.Uuid
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  template DocumentRequestTemplate @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  category DocumentCategory?       @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, templateId, sortOrder])
+  @@map("document_request_template_items")
+}
+
+enum DocumentShareRecipient {
+  /// A portal login of the document's own client.
+  CLIENT
+  /// A member of the firm (read access beyond the usual assigned-staff rule).
+  MEMBER
+}
+
+/// Access to one document for one person, with its own permissions and expiry ("Share" screen).
+/// Viewing is implied by any grant.
+/// A grant adds access, never removes it: the firm's owners, admins and the client's assigned
+/// staff, and a client's household for a document shared with the client, keep theirs. Grants to
+/// a client are for documents the client may see (not INTERNAL). Revoked once, never deleted.
+/// There is no public link and no external recipient.
+model DocumentShare {
+  id              String                 @id @default(uuid(7)) @db.Uuid
+  businessId      String                 @map("business_id") @db.Uuid
+  documentId      String                 @map("document_id") @db.Uuid
+  recipientKind   DocumentShareRecipient @map("recipient_kind")
+  /// recipientKind CLIENT: a login of the document's client.
+  clientAccountId String?                @map("client_account_id") @db.Uuid
+  /// recipientKind MEMBER.
+  memberUserId    String?                @map("member_user_id") @db.Uuid
+  canDownload     Boolean                @default(true) @map("can_download")
+  /// May add a new version (never overwrite).
+  canUpload       Boolean                @default(false) @map("can_upload")
+  /// A permission only: the signing itself is Firm Sign's.
+  canSign         Boolean                @default(false) @map("can_sign")
+  expiresAt       DateTime?              @map("expires_at") @db.Timestamptz(3)
+  grantedByUserId String                 @map("granted_by_user_id") @db.Uuid
+  revokedAt       DateTime?              @map("revoked_at") @db.Timestamptz(3)
+  revokedByUserId String?                @map("revoked_by_user_id") @db.Uuid
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  document      Document       @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+  clientAccount ClientAccount? @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  member        Membership?    @relation("ShareToMember", fields: [businessId, memberUserId], references: [businessId, userId], onDelete: Restrict)
+  grantedBy     Membership     @relation("ShareGrantedBy", fields: [businessId, grantedByUserId], references: [businessId, userId], onDelete: Restrict)
+  revokedBy     Membership?    @relation("ShareRevokedBy", fields: [businessId, revokedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, documentId])
+  @@index([businessId, clientAccountId])
+  @@index([businessId, memberUserId])
+  @@map("document_shares")
+}
+
+/// The firm's Documents settings (Expiration & Reminders, File Settings, General), one row per
+/// firm, created by the API on first read. Null means "none" or "the platform's limit"; no
+/// value comes from the mockups.
+model DocumentSettings {
+  businessId                 String   @id @map("business_id") @db.Uuid
+  /// Default reminder for new requests, days before the due date (1 to 30).
+  requestReminderDaysBefore  Int?     @map("request_reminder_days_before")
+  /// Default expiry for new requests, days after sending (1 to 365).
+  requestExpiryDays          Int?     @map("request_expiry_days")
+  /// Remind staff this many days before a document's own expiry date (1 to 365).
+  documentExpiryReminderDays Int?     @map("document_expiry_reminder_days")
+  /// Default expiry for new shares, days (1 to 365).
+  shareExpiryDays            Int?     @map("share_expiry_days")
+  /// Narrows the platform's 10 MB; 1 to 10485760.
+  uploadMaxBytes             Int?     @map("upload_max_bytes")
+  /// A subset of the platform's upload types; empty means all of them.
+  uploadTypes                String[] @default([]) @map("upload_types")
+  defaultReviewerUserId      String?  @map("default_reviewer_user_id") @db.Uuid
+  createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business        Business    @relation(fields: [businessId], references: [id])
+  defaultReviewer Membership? @relation("DocumentSettingsReviewer", fields: [businessId, defaultReviewerUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@map("document_settings")
+}
+
+/// Where a return is in the firm's own workflow (Tax Returns list and workspace). The client
+/// sees the five-value TaxReturnStatus, which the database derives from this.
+enum TaxReturnWorkflowStatus {
+  IN_PREPARATION
+  /// A side state: entered and left from any step without a reason.
+  WAITING_ON_CLIENT
+  READY_FOR_REVIEW
+  READY_FOR_SIGNATURE
+  READY_TO_FILE
+  /// The firm recorded that the return was sent (status tracking only; nothing is transmitted).
+  TRANSMITTED
+  ACCEPTED
+  REJECTED
+  CLOSED
+}
+
+enum TaxpayerFilingStatus {
+  SINGLE
+  MARRIED_FILING_JOINTLY
+  MARRIED_FILING_SEPARATELY
+  HEAD_OF_HOUSEHOLD
+  QUALIFYING_SURVIVING_SPOUSE
+}
+
+/// A quarterly estimate's own progress (Overdue is computed: past dueOn and not PAID).
+enum TaxEstimateStatus {
+  NOT_STARTED
+  CALCULATED
+  SENT_TO_CLIENT
+  SCHEDULED
+  PAID
+}
+
+/// Every change of a return's workflow status, preparer or reviewer, written by the database
+/// (status log, assignment history, the reasons for moving back, and the "vs last month" counts).
+model TaxReturnHistory {
+  id              String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  businessId      String                  @map("business_id") @db.Uuid
+  taxReturnId     String                  @map("tax_return_id") @db.Uuid
+  workflowStatus  TaxReturnWorkflowStatus @map("workflow_status")
+  preparerUserId  String?                 @map("preparer_user_id") @db.Uuid
+  reviewerUserId  String?                 @map("reviewer_user_id") @db.Uuid
+  reason          String?
+  changedByUserId String?                 @map("changed_by_user_id") @db.Uuid
+  /// The time of the change itself (not of its transaction's start).
+  changedAt       DateTime                @default(dbgenerated("clock_timestamp()")) @map("changed_at") @db.Timestamptz(3)
+  /// The order the rows were written in: the newest is the current state.
+  seq             BigInt                  @default(autoincrement())
+
+  // A return that was never filed can be deleted, and takes its history with it.
+  taxReturn TaxReturn @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([businessId, taxReturnId, seq])
+  @@index([businessId, changedAt])
+  @@map("tax_return_history")
+}
+
+enum TaxFilingMethod {
+  EFILE
+  /// Filed on paper: never shown as e-filed.
+  PAPER
+}
+
+/// One jurisdiction's filing state. For EFILE it follows the newest attempt (the database sets
+/// it); PAPER_FILED is for paper filings only.
+enum TaxJurisdictionStatus {
+  NOT_FILED
+  TRANSMITTED
+  ACCEPTED
+  REJECTED
+  PAPER_FILED
+}
+
+enum TaxAmountStatus {
+  ESTIMATED
+  FINAL
+}
+
+enum TaxAckStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+/// One jurisdiction of a return: the federal return ("US") and each state ("GA"): how it is
+/// filed, where it stands, the refund or amount due the firm expects. Extensions are the compliance deadline's (R38). Status
+/// tracking only: the firm records what its tax software did.
+model TaxReturnFiling {
+  id                    String                @id @default(uuid(7)) @db.Uuid
+  businessId            String                @map("business_id") @db.Uuid
+  taxReturnId           String                @map("tax_return_id") @db.Uuid
+  /// "US" for federal, or a two-letter state code.
+  jurisdiction          String
+  filingMethod          TaxFilingMethod       @default(EFILE) @map("filing_method")
+  /// Closing the return waits for the required jurisdictions only.
+  required              Boolean               @default(true)
+  status                TaxJurisdictionStatus @default(NOT_FILED)
+  paperFiledOn          DateTime?             @map("paper_filed_on") @db.Date
+  /// In cents. At most one of the two is above zero; the amount's status says estimate or final.
+  refundCents           Int?                  @map("refund_cents")
+  amountDueCents        Int?                  @map("amount_due_cents")
+  amountStatus          TaxAmountStatus?      @map("amount_status")
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  taxReturn TaxReturn                @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  attempts  TaxReturnFilingAttempt[]
+
+  @@unique([businessId, taxReturnId, jurisdiction])
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@map("tax_return_filings")
+}
+
+/// One recorded transmission of a filing and what came back. Entered by staff from their tax
+/// software ("Recorded by", never "sent by Firmivra"); never deleted, and a rejection stays when
+/// the next attempt is made.
+model TaxReturnFilingAttempt {
+  id                String       @id @default(uuid(7)) @db.Uuid
+  businessId        String       @map("business_id") @db.Uuid
+  filingId          String       @map("filing_id") @db.Uuid
+  /// The submission id as the software or agency gave it.
+  submissionId      String       @map("submission_id")
+  transmittedAt     DateTime     @map("transmitted_at") @db.Timestamptz(3)
+  ackStatus         TaxAckStatus @default(PENDING) @map("ack_status")
+  acknowledgedAt    DateTime?    @map("acknowledged_at") @db.Timestamptz(3)
+  rejectCode        String?      @map("reject_code")
+  rejectDescription String?      @map("reject_description")
+  correctiveAction  String?      @map("corrective_action")
+  recordedByUserId  String       @map("recorded_by_user_id") @db.Uuid
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  filing     TaxReturnFiling @relation(fields: [businessId, filingId], references: [businessId, id], onDelete: Cascade)
+  recordedBy Membership      @relation("TaxAttemptRecordedBy", fields: [businessId, recordedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, filingId, submissionId])
+  @@index([businessId, filingId, transmittedAt])
+  @@index([businessId, ackStatus, transmittedAt])
+  @@map("tax_return_filing_attempts")
+}
+
+enum TaxApprovalStatus {
+  PENDING
+  APPROVED
+  /// Sent back to the preparer, with the reviewer's note.
+  RETURNED
+  /// A decided approval a material change cancelled; a new PENDING step replaces it.
+  INVALIDATED
+}
+
+/// A required review step of a return ("Preparer Review", "Final Review / Approval"). A decided
+/// step never changes, except to INVALIDATED; never deleted. Approving a return is the firm's
+/// own act: this records who and when.
+model TaxReturnApproval {
+  id                 String            @id @default(uuid(7)) @db.Uuid
+  businessId         String            @map("business_id") @db.Uuid
+  taxReturnId        String            @map("tax_return_id") @db.Uuid
+  /// The step's name, one line, up to 100 characters.
+  step               String
+  sortOrder          Int               @map("sort_order")
+  assignedUserId     String?           @map("assigned_user_id") @db.Uuid
+  status             TaxApprovalStatus @default(PENDING)
+  decidedAt          DateTime?         @map("decided_at") @db.Timestamptz(3)
+  decidedByUserId    String?           @map("decided_by_user_id") @db.Uuid
+  /// The draft that was reviewed.
+  approvedDocumentId String?           @map("approved_document_id") @db.Uuid
+  /// The reviewer's note; required when RETURNED.
+  note               String?
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  taxReturn        TaxReturn   @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  assignedMember   Membership? @relation("TaxApprovalAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  decidedBy        Membership? @relation("TaxApprovalDecidedBy", fields: [businessId, decidedByUserId], references: [businessId, userId], onDelete: Restrict)
+  approvedDocument Document?   @relation(fields: [businessId, approvedDocumentId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, taxReturnId, sortOrder])
+  @@index([businessId, assignedUserId, status])
+  @@map("tax_return_approvals")
+}
+
+enum TaxChecklistSection {
+  /// The preparer's own list.
+  PREPARATION
+  /// The reviewer's list.
+  REVIEW
+  /// The manual final validation (there is no tax software here): what the firm checked.
+  VALIDATION
+}
+
+/// OPEN and DONE are for the preparation and review lists; VALID, INFO, WARNING and ERROR for
+/// the final validation.
+enum TaxCheckResult {
+  OPEN
+  DONE
+  VALID
+  INFO
+  WARNING
+  ERROR
+}
+
+/// One line of a return's preparation or review checklist, or one result of its final
+/// validation. The counts on the screen (errors, warnings, informational) are computed.
+model TaxReturnChecklistItem {
+  id                   String              @id @default(uuid(7)) @db.Uuid
+  businessId           String              @map("business_id") @db.Uuid
+  taxReturnId          String              @map("tax_return_id") @db.Uuid
+  section              TaxChecklistSection
+  /// One line, up to 200 characters.
+  label                String
+  sortOrder            Int                 @default(0) @map("sort_order")
+  result               TaxCheckResult      @default(OPEN)
+  note                 String?
+  /// A WARNING is acknowledged by someone before the return is ready to file.
+  acknowledgedAt       DateTime?           @map("acknowledged_at") @db.Timestamptz(3)
+  acknowledgedByUserId String?             @map("acknowledged_by_user_id") @db.Uuid
+  updatedByUserId      String?             @map("updated_by_user_id") @db.Uuid
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  taxReturn      TaxReturn   @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  acknowledgedBy Membership? @relation("TaxChecklistAcknowledgedBy", fields: [businessId, acknowledgedByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy      Membership? @relation("TaxChecklistUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, taxReturnId, section, sortOrder])
+  @@map("tax_return_checklist_items")
+}
+
+enum TaxAuthorizationKind {
+  /// The client's e-file authorization for the federal return (Form 8879 and its variants).
+  FEDERAL_EFILE
+  /// A state's e-file authorization.
+  STATE_EFILE
+  /// The client's consent or engagement for the return.
+  CLIENT_CONSENT
+}
+
+/// One signature line of a return (Client Signatures on the review screen): which authorization,
+/// whether it is required, and where it is signed: a Firm Sign request (whose status is the
+/// status), or a wet signature the firm recorded (signedOn and the signed copy). Not a second
+/// signing flow.
+model TaxReturnAuthorization {
+  id             String               @id @default(uuid(7)) @db.Uuid
+  businessId     String               @map("business_id") @db.Uuid
+  taxReturnId    String               @map("tax_return_id") @db.Uuid
+  kind           TaxAuthorizationKind
+  /// Two-letter state code; only for STATE_EFILE.
+  jurisdiction   String?
+  required       Boolean              @default(true)
+  /// The Firm Sign request sent for this line (the client's own); a resend moves it to the
+  /// replacing request.
+  esignRequestId String?              @map("esign_request_id") @db.Uuid
+  /// A signature recorded outside Firm Sign, with the signed copy; set together.
+  signedOn       DateTime?            @map("signed_on") @db.Date
+  documentId     String?              @map("document_id") @db.Uuid
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  taxReturn    TaxReturn     @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  esignRequest EsignRequest? @relation(fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
+  document     Document?     @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, taxReturnId])
+  @@index([businessId, esignRequestId])
+  @@map("tax_return_authorizations")
+}
+
+/// What a file is in a return's folder: the draft, the signature form, the filed return, the
+/// acknowledgment, a voucher, proof of payment or an extension form. Files stay ordinary
+/// documents of the client; this adds the role. The filed return and acknowledgment links are
+/// never removed.
+enum TaxReturnDocumentKind {
+  DRAFT_RETURN
+  SIGNATURE_FORM
+  FILED_RETURN
+  ACKNOWLEDGMENT
+  VOUCHER
+  PAYMENT_PROOF
+  EXTENSION
+}
+
+model TaxReturnDocument {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  businessId      String                @map("business_id") @db.Uuid
+  taxReturnId     String                @map("tax_return_id") @db.Uuid
+  documentId      String                @map("document_id") @db.Uuid
+  kind            TaxReturnDocumentKind
+  /// "US" or a state code, when the file belongs to one jurisdiction.
+  jurisdiction    String?
+  createdByUserId String?               @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  taxReturn TaxReturn   @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  document  Document    @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+  createdBy Membership? @relation("TaxDocumentAddedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, taxReturnId, documentId])
+  @@index([businessId, taxReturnId, kind, createdAt])
+  @@index([businessId, documentId])
+  @@map("tax_return_documents")
+}
+
+/// Calendar colours: token names the screens map to packages/ui (no hex values here).
+enum CalendarColor {
+  BLUE
+  GREEN
+  AMBER
+  RED
+  PURPLE
+  GRAY
+}
+
+enum ReminderChannel {
+  EMAIL
+  SMS
+  PORTAL
+}
+
+/// One reminder an appointment will send ("email, 1 day before"). The database keeps dueAt
+/// (the start minus the offset) and clears sentAt when the appointment is rescheduled, so the new
+/// time gets its own reminder. It replaces appointments.reminder_sent_at once the sender uses it.
+model AppointmentReminder {
+  id            String          @id @default(uuid(7)) @db.Uuid
+  businessId    String          @map("business_id") @db.Uuid
+  appointmentId String          @map("appointment_id") @db.Uuid
+  channel       ReminderChannel
+  /// Minutes before the start: 0 (at the start) to 43,200 (30 days). 1 week = 10,080.
+  offsetMinutes Int             @map("offset_minutes")
+  dueAt         DateTime        @default(now()) @map("due_at") @db.Timestamptz(3)
+  sentAt        DateTime?       @map("sent_at") @db.Timestamptz(3)
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  appointment Appointment @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, appointmentId, channel, offsetMinutes])
+  @@index([businessId, dueAt])
+  @@map("appointment_reminders")
+}
+
+/// A place the firm meets clients (Schedule Appointment's Office / Branch). Archived, never
+/// deleted once appointments use it.
+model FirmOffice {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  businessId   String    @map("business_id") @db.Uuid
+  name         String
+  addressLine1 String?   @map("address_line1")
+  city         String?
+  state        String?
+  postalCode   String?   @map("postal_code")
+  /// At most one live main office per firm.
+  isMain       Boolean   @default(false) @map("is_main")
+  sortOrder    Int       @default(0) @map("sort_order")
+  archivedAt   DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business     Business      @relation(fields: [businessId], references: [id])
+  rooms        FirmRoom[]
+  appointments Appointment[]
+
+  @@unique([businessId, id])
+  @@map("firm_offices")
+}
+
+/// A room of an office ("Conference Room 1"). Two live appointments never share a room at once.
+model FirmRoom {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  officeId   String    @map("office_id") @db.Uuid
+  name       String
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  office       FirmOffice    @relation(fields: [businessId, officeId], references: [businessId, id], onDelete: Restrict)
+  appointments Appointment[]
+
+  @@unique([businessId, officeId, id])
+  @@unique([businessId, officeId, name])
+  @@map("firm_rooms")
+}
+
+enum BlockedTimeKind {
+  BLOCKED
+  TIME_OFF
+}
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+/// How a repeating appointment repeats. The API makes one appointment per occurrence (at most 52)
+/// that each carry seriesId, so double-booking, reminders and cancelling work on each as usual.
+model AppointmentSeries {
+  id              String              @id @default(uuid(7)) @db.Uuid
+  businessId      String              @map("business_id") @db.Uuid
+  frequency       RecurrenceFrequency
+  /// Every N days, weeks or months (1 to 12).
+  intervalCount   Int                 @default(1) @map("interval_count")
+  /// WEEKLY: the weekdays (0 = Sunday), each once.
+  byWeekdays      Int[]               @default([]) @map("by_weekdays")
+  /// It ends on a date, or after a number of occurrences: exactly one of the two.
+  untilDate       DateTime?           @map("until_date") @db.Date
+  occurrenceCount Int?                @map("occurrence_count")
+  /// The zone the repeat is worked out in (an IANA name); fixed.
+  timeZone        String              @map("time_zone")
+  createdByUserId String?             @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  createdBy    Membership?   @relation("SeriesCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  appointments Appointment[]
+
+  @@unique([businessId, id])
+  @@map("appointment_series")
+}
+
+/// A one-day change to a staff member's weekly working hours: no hours that day (startsAt and
+/// endsAt empty), or different hours. Times of day in the firm's time zone.
+model AvailabilityOverride {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  date            DateTime  @db.Date
+  startsAt        DateTime? @map("starts_at") @db.Time(0)
+  endsAt          DateTime? @map("ends_at") @db.Time(0)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  staff Membership @relation("OverrideStaff", fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, userId, date])
+  @@map("availability_overrides")
+}
+
+/// The firm's Appointments settings: booking limits and buffers every type starts from, and the
+/// master email that gets a copy of appointment notices. Empty means none.
+model AppointmentSettings {
+  businessId              String   @id @map("business_id") @db.Uuid
+  defaultBufferMinutes    Int      @default(0) @map("default_buffer_minutes")
+  bookingMinNoticeMinutes Int      @default(0) @map("booking_min_notice_minutes")
+  bookingMaxAdvanceDays   Int?     @map("booking_max_advance_days")
+  /// A copy of confirmations, changes and cancellations goes here.
+  copyEmail               String?  @map("copy_email")
+  copyEnabled             Boolean  @default(true) @map("copy_enabled")
+  copyReminders           Boolean  @default(false) @map("copy_reminders")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("appointment_settings")
+}
+
+enum ClientStatus {
+  NEW
+  PENDING_DOCUMENTS
+  IN_PROGRESS
+  ACTIVE
+  ON_HOLD
+  /// Still in the directory (the Inactive tab); archiving is separate and hides the client.
+  INACTIVE
+}
+
+/// Not drawn in the designs (only the filter's name): High, Medium, Low as on tasks. To confirm.
+enum ClientPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+/// Every change of a client's status, written by the database (the Activity timeline, and the
+/// "vs last month" counts on the list's cards).
+model ClientStatusHistory {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  businessId      String       @map("business_id") @db.Uuid
+  clientId        String       @map("client_id") @db.Uuid
+  status          ClientStatus
+  changedByUserId String?      @map("changed_by_user_id") @db.Uuid
+  /// The time of the change itself (not of its transaction's start).
+  changedAt       DateTime     @default(dbgenerated("clock_timestamp()")) @map("changed_at") @db.Timestamptz(3)
+  /// The order the rows were written in: the newest is the current state.
+  seq             BigInt       @default(autoincrement())
+
+  client Client @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, clientId, seq])
+  @@index([businessId, changedAt])
+  @@map("client_status_history")
+}
+
+/// A label the firm defines (Back Taxes, W-2, Investments) for its clients (and, later, leads).
+/// Owners and admins create and archive them; staff apply existing ones. Archived, never deleted.
+model Tag {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  /// One line, 1 to 50 characters; unique among live tags of the firm, ignoring case.
+  name            String
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business    @relation(fields: [businessId], references: [id])
+  createdBy Membership? @relation("TagCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  clients   ClientTag[]
+  leads     LeadTag[]
+
+  @@unique([businessId, id])
+  @@map("tags")
+}
+
+/// A tag on a client. Removing a tag deletes its row (the audit log keeps who and when).
+model ClientTag {
+  businessId    String   @map("business_id") @db.Uuid
+  clientId      String   @map("client_id") @db.Uuid
+  tagId         String   @map("tag_id") @db.Uuid
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  client  Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  tag     Tag         @relation(fields: [businessId, tagId], references: [businessId, id], onDelete: Restrict)
+  addedBy Membership? @relation("ClientTagAddedBy", fields: [businessId, addedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@id([clientId, tagId])
+  @@index([businessId, tagId])
+  @@map("client_tags")
+}
+
+/// Where a lead came from (the list's source filter). Begin Online leads are BEGIN_ONLINE.
+enum LeadSource {
+  BEGIN_ONLINE
+  WEBSITE_FORM
+  FACEBOOK_AD
+  INSTAGRAM
+  GOOGLE_AD
+  REFERRAL
+  OTHER
+}
+
+/// Set by hand, as on the designs (Hot, Warm, Cold); there is no score.
+enum LeadPriority {
+  HOT
+  WARM
+  COLD
+}
+
+enum LeadActionType {
+  CALL
+  EMAIL
+  APPOINTMENT
+  SEND_DOCUMENTS
+  FOLLOW_UP
+}
+
+/// A service a lead is interested in (the list can show several). The lead's own service
+/// (Lead.serviceId, the Begin Online service) is kept as it is; this adds the others.
+model LeadService {
+  businessId String   @map("business_id") @db.Uuid
+  leadId     String   @map("lead_id") @db.Uuid
+  serviceId  String   @map("service_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  lead    Lead    @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  service Service @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([leadId, serviceId])
+  @@index([businessId, serviceId])
+  @@map("lead_services")
+}
+
+/// A tag on a lead, from the same catalog as the clients' tags, so tags carry over when the
+/// lead becomes a client.
+model LeadTag {
+  businessId    String   @map("business_id") @db.Uuid
+  leadId        String   @map("lead_id") @db.Uuid
+  tagId         String   @map("tag_id") @db.Uuid
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  lead    Lead        @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  tag     Tag         @relation(fields: [businessId, tagId], references: [businessId, id], onDelete: Restrict)
+  addedBy Membership? @relation("LeadTagAddedBy", fields: [businessId, addedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@id([leadId, tagId])
+  @@index([businessId, tagId])
+  @@map("lead_tags")
+}
+
+enum LeadActivityKind {
+  CREATED
+  STATUS_CHANGED
+  FORM_SUBMITTED
+  EMAIL_SENT
+  SMS_SENT
+  CALL
+  MEETING
+  NOTE
+  FOLLOW_UP
+  FOLLOW_UP_COMPLETED
+  APPOINTMENT_SCHEDULED
+  TAG_ADDED
+  ASSIGNED
+  CONVERTED
+}
+
+/// A lead's timeline (Recent Activity, the Activity and Notes tabs): what happened, by whom
+/// (empty actor = "System" or the visitor), and when. The database writes CREATED, STATUS_CHANGED
+/// and ASSIGNED; the API logs calls, meetings, notes, follow-ups and sent messages (never the
+/// message text). Last contact is the newest email, SMS, call, meeting or appointment row.
+/// Append-only.
+model LeadActivity {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  businessId  String           @map("business_id") @db.Uuid
+  leadId      String           @map("lead_id") @db.Uuid
+  kind        LeadActivityKind
+  actorUserId String?          @map("actor_user_id") @db.Uuid
+  /// When it happened; a logged call may be backdated, never set ahead.
+  occurredAt  DateTime         @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  /// One line, up to 200 characters: an email's subject, a tag's name.
+  summary     String?
+  /// A note or the notes of a call, up to 5,000 characters; required for a NOTE.
+  body        String?
+  /// STATUS_CHANGED only: the new status.
+  status      LeadStatus?
+  /// Safe values only (ids, the action type); never message content.
+  metadata    Json             @default("{}")
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  lead  Lead        @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  actor Membership? @relation("LeadActivityActor", fields: [businessId, actorUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, leadId, occurredAt])
+  @@index([businessId, kind, occurredAt])
+  @@map("lead_activities")
 }
