@@ -66,6 +66,12 @@ export const SEED_R38_IDS = {
   bkReport1: id(42),
   bkReport2: id(43),
   bkReport3: id(44),
+  strategy1: id(45),
+  strategy2: id(46),
+  plan: id(47),
+  planStrategy1: id(48),
+  planStrategy2: id(49),
+  planStrategy3: id(50),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -375,6 +381,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
   await seedBookkeepingConnection(tx, c);
   await seedBookkeepingPeriods(tx, c);
   await seedBookkeepingReports(tx, c);
+  await seedTaxPlanning(tx, c);
 }
 
 /** The IRS 2027 calendar, published: an entry with a date, and one that needs checking. */
@@ -883,4 +890,96 @@ async function seedBookkeepingReports(tx: TxClient, c: WorkSeedContext) {
       });
     }
   }
+}
+
+/** Two library strategies and a 2027 plan for the client with three strategies (one custom). */
+async function seedTaxPlanning(tx: TxClient, c: WorkSeedContext) {
+  const { businessId } = c;
+  const strategy = (
+    n: 'strategy1' | 'strategy2',
+    name: string,
+    category: 'RETIREMENT' | 'DEDUCTIONS',
+    priority: 'HIGH' | 'MEDIUM',
+  ) =>
+    tx.taxPlanningStrategy.upsert({
+      where: { id: SEED_R38_IDS[n] },
+      update: {},
+      create: {
+        id: SEED_R38_IDS[n],
+        businessId,
+        name,
+        category,
+        defaultPriority: priority,
+        description: 'Sample strategy for demonstration.',
+        eligibility: { requires: ['earnedIncome'] },
+        requiredInputs: ['agi', 'retirementContributions'],
+        requiredDocuments: ['Most recent pay stubs'],
+        implementationChecklist: [{ label: 'Confirm the contribution limit' }],
+        createdByUserId: c.ownerId,
+      },
+    });
+  await strategy('strategy1', 'Maximize retirement contributions', 'RETIREMENT', 'HIGH');
+  await strategy('strategy2', 'Evaluate HSA contributions', 'DEDUCTIONS', 'MEDIUM');
+  await tx.taxPlan.upsert({
+    where: { id: SEED_R38_IDS.plan },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.plan,
+      businessId,
+      clientId: c.clientId,
+      name: '2027 Tax Strategy Plan',
+      planYear: 2027,
+      filingStatus: 'SINGLE',
+      entityType: 'INDIVIDUAL',
+      status: 'IN_PROGRESS',
+      goals: ['REDUCE_TAXABLE_INCOME', 'INCREASE_RETIREMENT_SAVINGS'],
+      assignedUserId: c.staffId,
+      targetCompletionOn: new Date('2026-12-15'),
+      nextDiscussionOn: new Date('2026-11-05'),
+      createdByUserId: c.ownerId,
+    },
+  });
+  const planStrategy = (
+    n: 'planStrategy1' | 'planStrategy2' | 'planStrategy3',
+    data: Record<string, unknown>,
+  ) =>
+    tx.taxPlanStrategy.upsert({
+      where: { id: SEED_R38_IDS[n] },
+      update: {},
+      create: {
+        id: SEED_R38_IDS[n],
+        businessId,
+        planId: SEED_R38_IDS.plan,
+        ...data,
+      } as Parameters<typeof tx.taxPlanStrategy.create>[0]['data'],
+    });
+  await planStrategy('planStrategy1', {
+    strategyId: SEED_R38_IDS.strategy1,
+    displayName: 'Maximize retirement contributions',
+    priority: 'HIGH',
+    status: 'ACCEPTED',
+    estimatedSavingsCents: 650000,
+    estimateDataYear: 2025,
+    estimateCalculatedAt: new Date('2026-10-02T12:00:00Z'),
+    assumptions: 'Based on 2025 income and the 2026 401(k) limit.',
+    position: 0,
+  });
+  await planStrategy('planStrategy2', {
+    strategyId: SEED_R38_IDS.strategy2,
+    displayName: 'Evaluate HSA contributions',
+    priority: 'MEDIUM',
+    estimatedSavingsCents: 120000,
+    estimateDataYear: 2025,
+    overrideSavingsCents: 100000,
+    overrideReason: 'Client expects lower eligible contributions',
+    overrideByUserId: c.ownerId,
+    position: 1,
+  });
+  await planStrategy('planStrategy3', {
+    customName: 'Prepay 2027 property tax',
+    customCategory: 'TIMING',
+    displayName: 'Prepay 2027 property tax',
+    priority: 'LOW',
+    position: 2,
+  });
 }

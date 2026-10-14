@@ -440,6 +440,64 @@ enum AccountingBasis {
   ACCRUAL
 }
 
+enum TaxPlanType {
+  COMPREHENSIVE
+  FOCUSED
+}
+
+/// Where a planning plan stands (the Recent Planning Clients status). Needs Review in the
+/// screens is READY_FOR_REVIEW.
+enum TaxPlanStatus {
+  DRAFT
+  SCHEDULED
+  IN_PROGRESS
+  AWAITING_CLIENT
+  READY_FOR_REVIEW
+  IMPLEMENTED
+  CLOSED
+}
+
+enum PlanningGoal {
+  REDUCE_TAXABLE_INCOME
+  INCREASE_RETIREMENT_SAVINGS
+  PURCHASE_HOME
+  START_BUSINESS
+  BUY_EQUIPMENT_VEHICLE
+  MINIMIZE_SELF_EMPLOYMENT_TAX
+  PLAN_EDUCATION_EXPENSES
+  BUILD_LONG_TERM_WEALTH
+  PREPARE_LIFE_CHANGES
+  OTHER
+}
+
+enum TaxFilingStatus {
+  SINGLE
+  MARRIED_FILING_JOINTLY
+  MARRIED_FILING_SEPARATELY
+  HEAD_OF_HOUSEHOLD
+  QUALIFYING_SURVIVING_SPOUSE
+}
+
+enum StrategyCategory {
+  RETIREMENT
+  DEDUCTIONS
+  BUSINESS
+  CREDITS
+  ENTITY
+  TIMING
+  INVESTMENT
+  ESTATE_OTHER
+}
+
+/// A strategy in a plan: proposed, accepted by the client, being carried out, done, or declined.
+enum PlanStrategyStatus {
+  PROPOSED
+  ACCEPTED
+  IN_PROGRESS
+  IMPLEMENTED
+  DECLINED
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -827,6 +885,7 @@ model Membership {
   complianceRecurrences ComplianceRecurrence[]
   automationRules       AutomationRule[]
   bookkeepingProfiles   BookkeepingProfile[]
+  taxPlans              TaxPlan[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1120,6 +1179,7 @@ model Client {
   complianceDeadlines            ComplianceDeadline[]
   complianceApplicabilityRecords ComplianceApplicabilityRecord[]
   automationRuns                 AutomationRun[]
+  taxPlans                       TaxPlan[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -1306,6 +1366,7 @@ model Engagement {
   bookkeepingAccounts    BookkeepingAccount[]
   bookkeepingPeriods     BookkeepingPeriod[]
   bookkeepingReports     BookkeepingReport[]
+  taxPlans               TaxPlan[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -4443,4 +4504,118 @@ model BookkeepingReport {
   @@index([businessId, engagementId, status])
   @@index([businessId, status, dueOn])
   @@map("bookkeeping_reports")
+}
+
+/// The firm's strategy library (Strategies & Recommendations): a named strategy with its category,
+/// default priority, eligibility criteria, the inputs and documents it needs and an implementation
+/// checklist. A strategy that plans or opportunities used is made inactive or archived, never
+/// deleted, and its name can change without rewriting history (snapshots keep the name used).
+/// `eligibility` is the criteria object the screening reads; `implementationChecklist` an array of
+/// {label}.
+model TaxPlanningStrategy {
+  id                      String           @id @default(uuid(7)) @db.Uuid
+  businessId              String           @map("business_id") @db.Uuid
+  name                    String
+  category                StrategyCategory
+  description             String?
+  defaultPriority         TaskPriority     @default(MEDIUM) @map("default_priority")
+  eligibility             Json             @default("{}")
+  requiredInputs          String[]         @default([]) @map("required_inputs")
+  requiredDocuments       String[]         @default([]) @map("required_documents")
+  implementationChecklist Json             @default("[]") @map("implementation_checklist")
+  active                  Boolean          @default(true)
+  archivedAt              DateTime?        @map("archived_at") @db.Timestamptz(3)
+  createdByUserId         String?          @map("created_by_user_id") @db.Uuid
+  createdAt               DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  planStrategies TaxPlanStrategy[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, name])
+  @@index([businessId, category, active])
+  @@map("tax_planning_strategies")
+}
+
+/// A client's planning plan (Create / Edit Planning Plan, stages 1 and 3 to 5): the client, year,
+/// filing status, entity, type, goals, notes (internal, and a separate client-facing note), who is
+/// assigned, the target date and the next client discussion. Optionally inside the client's Tax
+/// Planning engagement. Its strategies are TaxPlanStrategy rows. Archived, never deleted.
+model TaxPlan {
+  id                 String           @id @default(uuid(7)) @db.Uuid
+  businessId         String           @map("business_id") @db.Uuid
+  clientId           String           @map("client_id") @db.Uuid
+  engagementId       String?          @map("engagement_id") @db.Uuid
+  name               String
+  planYear           Int              @map("plan_year")
+  /// Null for a business-only plan.
+  filingStatus       TaxFilingStatus? @map("filing_status")
+  /// The client's entity or tax classification code, as on its record.
+  entityType         String?          @map("entity_type")
+  planType           TaxPlanType      @default(COMPREHENSIVE) @map("plan_type")
+  status             TaxPlanStatus    @default(DRAFT)
+  goals              PlanningGoal[]   @default([])
+  /// The client's own goal, with OTHER.
+  otherGoal          String?          @map("other_goal")
+  /// Staff only.
+  notes              String?
+  /// Shown to the client only when set.
+  clientNotes        String?          @map("client_notes")
+  assignedUserId     String?          @map("assigned_user_id") @db.Uuid
+  targetCompletionOn DateTime?        @map("target_completion_on") @db.Date
+  nextDiscussionOn   DateTime?        @map("next_discussion_on") @db.Date
+  createdByUserId    String?          @map("created_by_user_id") @db.Uuid
+  archivedAt         DateTime?        @map("archived_at") @db.Timestamptz(3)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client         Client            @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement     Engagement?       @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember Membership?       @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  strategies     TaxPlanStrategy[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@index([businessId, clientId, planYear])
+  @@index([businessId, assignedUserId, status])
+  @@map("tax_plans")
+}
+
+/// A strategy in a plan: from the library (strategyId) or a custom one for this client
+/// (customName and customCategory). priority, the estimated savings with the year of the data it
+/// used, an authorized override (with its reason) and the assumptions are kept on the row, so a
+/// later change to the library never rewrites a plan. Estimates are estimates, never guarantees;
+/// null means unavailable and is never invented.
+model TaxPlanStrategy {
+  id                    String             @id @default(uuid(7)) @db.Uuid
+  businessId            String             @map("business_id") @db.Uuid
+  planId                String             @map("plan_id") @db.Uuid
+  strategyId            String?            @map("strategy_id") @db.Uuid
+  customName            String?            @map("custom_name")
+  customCategory        StrategyCategory?  @map("custom_category")
+  /// The name and category as the plan shows them (a copy of the library's when it was added).
+  displayName           String             @map("display_name")
+  selected              Boolean            @default(true)
+  priority              TaskPriority       @default(MEDIUM)
+  status                PlanStrategyStatus @default(PROPOSED)
+  estimatedSavingsCents Int?               @map("estimated_savings_cents")
+  /// The tax year of the data the estimate used, and when it was calculated.
+  estimateDataYear      Int?               @map("estimate_data_year")
+  estimateCalculatedAt  DateTime?          @map("estimate_calculated_at") @db.Timestamptz(3)
+  overrideSavingsCents  Int?               @map("override_savings_cents")
+  overrideReason        String?            @map("override_reason")
+  overrideByUserId      String?            @map("override_by_user_id") @db.Uuid
+  assumptions           String?
+  implementedOn         DateTime?          @map("implemented_on") @db.Date
+  position              Int                @default(0)
+  createdAt             DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  plan     TaxPlan              @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Cascade)
+  strategy TaxPlanningStrategy? @relation(fields: [businessId, strategyId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([businessId, planId, strategyId])
+  @@index([businessId, planId, position])
+  @@map("tax_plan_strategies")
 }

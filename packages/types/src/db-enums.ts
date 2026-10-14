@@ -320,6 +320,66 @@ export type ReportReviewStatus = z.infer<typeof ReportReviewStatus>;
 export const AccountingBasis = z.enum(['CASH', 'ACCRUAL']);
 export type AccountingBasis = z.infer<typeof AccountingBasis>;
 
+export const TaxPlanType = z.enum(['COMPREHENSIVE', 'FOCUSED']);
+export type TaxPlanType = z.infer<typeof TaxPlanType>;
+
+/** Where a planning plan stands (the Recent Planning Clients status). Needs Review in the screens is READY_FOR_REVIEW. */
+export const TaxPlanStatus = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'IN_PROGRESS',
+  'AWAITING_CLIENT',
+  'READY_FOR_REVIEW',
+  'IMPLEMENTED',
+  'CLOSED',
+]);
+export type TaxPlanStatus = z.infer<typeof TaxPlanStatus>;
+
+export const PlanningGoal = z.enum([
+  'REDUCE_TAXABLE_INCOME',
+  'INCREASE_RETIREMENT_SAVINGS',
+  'PURCHASE_HOME',
+  'START_BUSINESS',
+  'BUY_EQUIPMENT_VEHICLE',
+  'MINIMIZE_SELF_EMPLOYMENT_TAX',
+  'PLAN_EDUCATION_EXPENSES',
+  'BUILD_LONG_TERM_WEALTH',
+  'PREPARE_LIFE_CHANGES',
+  'OTHER',
+]);
+export type PlanningGoal = z.infer<typeof PlanningGoal>;
+
+export const TaxFilingStatus = z.enum([
+  'SINGLE',
+  'MARRIED_FILING_JOINTLY',
+  'MARRIED_FILING_SEPARATELY',
+  'HEAD_OF_HOUSEHOLD',
+  'QUALIFYING_SURVIVING_SPOUSE',
+]);
+export type TaxFilingStatus = z.infer<typeof TaxFilingStatus>;
+
+export const StrategyCategory = z.enum([
+  'RETIREMENT',
+  'DEDUCTIONS',
+  'BUSINESS',
+  'CREDITS',
+  'ENTITY',
+  'TIMING',
+  'INVESTMENT',
+  'ESTATE_OTHER',
+]);
+export type StrategyCategory = z.infer<typeof StrategyCategory>;
+
+/** A strategy in a plan: proposed, accepted by the client, being carried out, done, or declined. */
+export const PlanStrategyStatus = z.enum([
+  'PROPOSED',
+  'ACCEPTED',
+  'IN_PROGRESS',
+  'IMPLEMENTED',
+  'DECLINED',
+]);
+export type PlanStrategyStatus = z.infer<typeof PlanStrategyStatus>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;
