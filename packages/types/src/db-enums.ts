@@ -446,3 +446,10 @@ export type MessageTemplateStatus = z.infer<typeof MessageTemplateStatus>;
 /** FIRM: shared with the firm's staff; PERSONAL: only its owner uses it. */
 export const MessageTemplateScope = z.enum(['FIRM', 'PERSONAL']);
 export type MessageTemplateScope = z.infer<typeof MessageTemplateScope>;
+
+/** A channel a contact can consent to (the portal is the client's own login, so it has none). */
+export const ConsentChannel = z.enum(['EMAIL', 'SMS']);
+export type ConsentChannel = z.infer<typeof ConsentChannel>;
+
+export const ConsentStatus = z.enum(['OPTED_IN', 'OPTED_OUT']);
+export type ConsentStatus = z.infer<typeof ConsentStatus>;

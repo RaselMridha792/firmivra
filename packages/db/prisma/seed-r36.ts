@@ -277,5 +277,26 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
         body: 'Hi {{first_name}}, a reminder about your appointment on {{appointment_date}}.',
       },
     });
+
+    // Messages settings, the owner's signature and the client's email consent.
+    await tx.messageSettings.upsert({
+      where: { businessId: businesses.lvp },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        senderName: 'LVP Accounting & Taxes',
+        signature: 'Best regards,\nLVP Accounting & Taxes',
+      },
+    });
+    await tx.messageSignature.upsert({
+      where: { businessId_userId: { businessId: businesses.lvp, userId: SEED_USERS.lvpOwner.id } },
+      update: {},
+      create: { ...lvp, userId: SEED_USERS.lvpOwner.id, body: 'Best regards,\nThe LVP owner' },
+    });
+    if ((await tx.contactConsent.count({ where: { clientId } })) === 0) {
+      await tx.contactConsent.create({
+        data: { ...lvp, clientId, channel: 'EMAIL', status: 'OPTED_IN', source: 'portal_sign_up' },
+      });
+    }
   });
 }

@@ -354,6 +354,7 @@ model Business {
   servicePackages      ServicePackage[]
   promotions           Promotion[]
   messageTemplates     MessageTemplate[]
+  messageSettings      MessageSettings?
 
   @@map("businesses")
 }
@@ -471,6 +472,10 @@ model Membership {
   threadMutes             MessageThreadMute[]
   messageTemplatesOwned   MessageTemplate[]      @relation("MessageTemplateOwner")
   messageTemplatesCreated MessageTemplate[]      @relation("MessageTemplateCreator")
+  messageSignature        MessageSignature?
+  messageSettingsAssignee MessageSettings[]      @relation("MessageSettingsAssignee")
+  messageSettingsChanged  MessageSettings[]      @relation("MessageSettingsChangedBy")
+  consentsRecorded        ContactConsent[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -764,6 +769,7 @@ model Client {
   recurringInvoices    RecurringInvoice[]
   paymentMethods       ClientPaymentMethod[]
   promotionRedemptions PromotionRedemption[]
+  consents             ContactConsent[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -1334,6 +1340,7 @@ model Lead {
   intakes    Intake[]
   signatures IntakeSignature[]
   uploads    LeadUpload[]
+  consents   ContactConsent[]
 
   @@unique([businessId, id])
   @@index([businessId, status, createdAt])
@@ -3760,4 +3767,95 @@ model MessageTemplate {
   @@unique([businessId, id])
   @@index([businessId, status])
   @@map("message_templates")
+}
+
+/// A channel a contact can consent to (the portal is the client's own login, so it has none).
+enum ConsentChannel {
+  EMAIL
+  SMS
+}
+
+enum ConsentStatus {
+  OPTED_IN
+  OPTED_OUT
+}
+
+/// The firm's Messages settings, one row per firm; no row means the column defaults. Provider
+/// connections and credentials are in Integrations, never here.
+model MessageSettings {
+  businessId             String    @id @map("business_id") @db.Uuid
+  portalEnabled          Boolean   @default(true) @map("portal_enabled")
+  emailEnabled           Boolean   @default(true) @map("email_enabled")
+  smsEnabled             Boolean   @default(false) @map("sms_enabled")
+  /// The display name messages come from by default; the sending address is verified elsewhere.
+  senderName             String?   @map("sender_name")
+  /// The firm's default signature, up to 1000 characters; a member's own is `message_signatures`.
+  signature              String?
+  notifyUnread           Boolean   @default(true) @map("notify_unread")
+  notifyAssignment       Boolean   @default(true) @map("notify_assignment")
+  notifyReply            Boolean   @default(true) @map("notify_reply")
+  notifyFailure          Boolean   @default(true) @map("notify_failure")
+  notifyBulkComplete     Boolean   @default(true) @map("notify_bulk_complete")
+  /// Who a new conversation goes to when nobody is named.
+  defaultAssigneeUserId  String?   @map("default_assignee_user_id") @db.Uuid
+  readReceiptsEnabled    Boolean   @default(false) @map("read_receipts_enabled")
+  /// Archive threads after this many months of silence; empty keeps them open.
+  retentionMonths        Int?      @map("retention_months")
+  attachmentMaxMb        Int       @default(10) @map("attachment_max_mb")
+  /// File types clients and staff may attach (extensions, lower case, from the approved list).
+  allowedAttachmentTypes String[]  @default(["pdf", "doc", "docx", "jpg", "png"]) @map("allowed_attachment_types")
+  /// No SMS or client alerts between these times of day, in the firm's time zone (both or neither).
+  quietHoursStart        DateTime? @map("quiet_hours_start") @db.Time(0)
+  quietHoursEnd          DateTime? @map("quiet_hours_end") @db.Time(0)
+  /// A bulk send to more recipients than this needs an explicit confirmation.
+  bulkConfirmThreshold   Int       @default(100) @map("bulk_confirm_threshold")
+  bulkRequiresManager    Boolean   @default(true) @map("bulk_requires_manager")
+  updatedByUserId        String?   @map("updated_by_user_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business        Business    @relation(fields: [businessId], references: [id])
+  defaultAssignee Membership? @relation("MessageSettingsAssignee", fields: [businessId, defaultAssigneeUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy       Membership? @relation("MessageSettingsChangedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@map("message_settings")
+}
+
+/// A member's own message signature, used on their messages instead of the firm's.
+model MessageSignature {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  body       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, userId])
+  @@map("message_signatures")
+}
+
+/// Whether a client or a lead may be messaged by email or text (marketing consent and opt-outs).
+/// One current row per contact and channel; no row means no consent recorded. An OPTED_OUT contact is
+/// never sent bulk messages on that channel. The history of changes is in the audit log.
+model ContactConsent {
+  id               String         @id @default(uuid(7)) @db.Uuid
+  businessId       String         @map("business_id") @db.Uuid
+  clientId         String?        @map("client_id") @db.Uuid
+  leadId           String?        @map("lead_id") @db.Uuid
+  channel          ConsentChannel
+  status           ConsentStatus
+  /// How it was given or withdrawn: a code such as `portal_sign_up`, `staff` or `unsubscribe_link`.
+  source           String
+  recordedByUserId String?        @map("recorded_by_user_id") @db.Uuid
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client?     @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  lead       Lead?       @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  recordedBy Membership? @relation(fields: [businessId, recordedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, channel, status])
+  @@map("contact_consents")
 }
