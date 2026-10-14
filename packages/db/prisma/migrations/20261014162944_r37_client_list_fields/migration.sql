@@ -1,9 +1,9 @@
 -- R37 (Rasel, Oct 14), Clients: the list (filters, cards, sorting) and the 360 header need a
 -- client number ("CL-10024"), a status, a priority, a source, a client-since date and a
 -- last-activity time on the client, and a history of status changes. The database gives each
--- client the firm's next number (from 10001, in order), keeps last_activity_at moving forward
--- (documents, requests, appointments and tax returns touch it; the API adds messages, invoices,
--- payments, notes and tasks, which belong to other modules), and records every status change.
+-- client the firm's next number (from 10001, in order), keeps last_activity_at from ever moving
+-- back (the API sets it: a trigger on documents or requests would update the client row inside
+-- the booking and upload transactions that already lock it), and records every status change.
 -- Existing clients are numbered in the order they were made and are ACTIVE (INACTIVE when
 -- archived). Tags and the contact opt-ins are the next migration.
 
@@ -158,25 +158,3 @@ $$;
 CREATE TRIGGER clients_status_history
   AFTER INSERT OR UPDATE ON clients
   FOR EACH ROW EXECUTE FUNCTION clients_status_history();
-
--- Documents, requests, appointments and tax returns of a client touch its last activity. (Messages,
--- invoices, payments, notes and tasks belong to other modules: the API sets it for those.)
-CREATE FUNCTION clients_touch_activity() RETURNS trigger
-  LANGUAGE plpgsql
-  AS $$
-BEGIN
-  UPDATE clients SET last_activity_at = clock_timestamp()
-   WHERE business_id = NEW.business_id AND id = NEW.client_id
-     AND (last_activity_at IS NULL OR last_activity_at < clock_timestamp());
-  RETURN NULL;
-END
-$$;
-
-CREATE TRIGGER documents_client_activity AFTER INSERT ON documents
-  FOR EACH ROW EXECUTE FUNCTION clients_touch_activity();
-CREATE TRIGGER document_requests_client_activity AFTER INSERT OR UPDATE OF status ON document_requests
-  FOR EACH ROW EXECUTE FUNCTION clients_touch_activity();
-CREATE TRIGGER appointments_client_activity AFTER INSERT OR UPDATE OF status, starts_at ON appointments
-  FOR EACH ROW EXECUTE FUNCTION clients_touch_activity();
-CREATE TRIGGER tax_returns_client_activity AFTER INSERT OR UPDATE OF workflow_status ON tax_returns
-  FOR EACH ROW EXECUTE FUNCTION clients_touch_activity();
