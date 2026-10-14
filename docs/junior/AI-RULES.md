@@ -9,7 +9,7 @@ Copy this, fill in the last line, and send it as the first message for each tick
 ```text
 You are helping a junior developer build one screen in the Firmivra repo
 (Next.js 16 App Router, React 19, Tailwind 4, TypeScript strict).
-First read CLAUDE.md, docs/junior/GUIDE.md, docs/junior/AI-RULES.md, docs/junior/PAGE-MAP.md and apps/web/AGENTS.md.
+First read CLAUDE.md, docs/junior/GUIDE.md, docs/junior/AI-RULES.md, docs/junior/PAGE-MAP.md, docs/design-match.md, docs/ui-kit.md and apps/web/AGENTS.md.
 Rules:
 1. Only change the files listed for me under "Your files" in docs/junior/PAGE-MAP.md,
    and new files in a _components/ folder next to my page.
@@ -35,7 +35,10 @@ Rules:
 6. Every screen has loading, empty, error and no-permission states (use PageState).
 7. No new npm packages. No `any`, no @ts-ignore, no eslint-disable.
 8. Plan first: list the files you will create or change, and wait for my OK before writing code.
-9. Keep the whole change under 400 lines.
+9. One ticket or one page per PR: change only what that ticket or page needs.
+10. Match the design as docs/design-match.md says: every element built, solid Phosphor icons, colours and sizes
+    from the tokens, a quiet empty state where there is no data, compared at 1440 px region by region.
+11. Build against the typed mocks (GUIDE.md, "Mock first"). Never wait for the backend and never invent an API shape.
 My ticket: <paste the ticket card from docs/tasks/<NAME>.md>
 ```
 
