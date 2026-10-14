@@ -15,6 +15,7 @@ export function Widget<T>({
   empty,
   isEmpty,
   className = '',
+  navy = false,
   children,
 }: {
   title: string;
@@ -24,20 +25,24 @@ export function Widget<T>({
   empty: string;
   isEmpty: (data: T) => boolean;
   className?: string;
+  /** The design's filled navy title bar (Upcoming Appointments). */
+  navy?: boolean;
   children: (data: T) => ReactNode;
 }) {
   return (
     <section
       aria-label={title}
       data-testid="dashboard-widget"
-      className={`flex flex-col gap-3 rounded-xl bg-surface p-5 shadow-md ${className}`}
+      className={`flex min-w-0 flex-col gap-3 rounded-xl bg-surface p-5 shadow-md ${className}`}
     >
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xl font-bold text-heading">{title}</h2>
+      <div
+        className={`flex items-center justify-between gap-3 ${navy ? '-mx-5 -mt-5 rounded-t-xl bg-navigation px-5 py-3 text-on-action' : 'text-heading'}`}
+      >
+        <h2 className="text-xl font-bold">{title}</h2>
         {link ? (
           <Link
             href={link.href}
-            className="flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-medium text-link"
+            className={`flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-medium ${navy ? '' : 'text-link'}`}
           >
             {link.label}
             <ArrowRight aria-hidden className="size-4" />
