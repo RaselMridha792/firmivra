@@ -34,6 +34,7 @@ import { SignedIn, useMe } from '../../../components/signed-in';
 import { api } from '../../../lib/api';
 import { COMPANY } from '../../../lib/company';
 import { portalAuth } from '../../../lib/auth';
+import { findModule, moduleHref } from '../../../lib/firm-modules';
 import { useApiQuery } from '../../../lib/query';
 import { claimCache } from '../../../lib/session';
 
@@ -44,19 +45,49 @@ const solid =
   (Glyph: Icon): NavItem['icon'] =>
   (props) => <Glyph weight="fill" {...props} />;
 
+const link = (label: string, glyph: Icon, href: string, managers?: true) => ({
+  label,
+  icon: solid(glyph),
+  href,
+  ...(managers && { managers }),
+});
+// A module that is not built opens the shared module page (src/lib/firm-modules.ts).
+const mod = (slug: string): NavItem & { managers?: true } => {
+  const m = findModule(slug);
+  if (!m) throw new Error(`Unknown module: ${slug}`);
+  return link(m.label, m.icon, moduleHref(slug));
+};
+
+/** Octavia's order (docs/mockups/firm-workspace/dashboard); the four extras keep their place. */
 const items: (NavItem & { managers?: true })[] = [
-  { label: 'Dashboard', icon: solid(House), href: '/' },
-  { label: 'Clients', icon: solid(Users), href: '/clients' },
-  { label: 'Sign-ups', icon: solid(UserPlus), href: '/sign-ups', managers: true },
-  { label: 'Leads', icon: solid(Target), href: '/leads' },
-  { label: 'Appointments', icon: solid(CalendarDots), href: '/calendar' },
-  { label: 'Messages', icon: solid(ChatCircleDots), href: '/messages' },
-  { label: 'Invoices & Payments', icon: solid(Receipt), href: '/invoices' },
-  { label: 'Workspaces', icon: solid(Briefcase), href: '/workspaces' },
-  { label: 'Firm Sign', icon: solid(Signature), href: '/firm-sign' },
-  { label: 'Audit log', icon: solid(ClipboardText), href: '/audit-log', managers: true },
-  { label: 'Staff Management', icon: solid(UserGear), href: '/team', managers: true },
-  { label: 'Settings', icon: solid(GearSix), href: '/settings', managers: true },
+  link('Dashboard', House, '/'),
+  link('Clients', Users, '/clients'),
+  link('Sign-ups', UserPlus, '/sign-ups', true),
+  link('Leads', Target, '/leads'),
+  link('Appointments', CalendarDots, '/calendar'),
+  mod('intake-forms'),
+  mod('documents'),
+  mod('client-portal'),
+  mod('tax-returns'),
+  mod('bookkeeping'),
+  mod('payroll'),
+  mod('tax-planning'),
+  mod('business-advisory'),
+  link('Invoices & Payments', Receipt, '/invoices'),
+  link('Messages', ChatCircleDots, '/messages'),
+  mod('communications'),
+  mod('tasks'),
+  mod('automations'),
+  mod('compliance'),
+  mod('reports'),
+  mod('templates'),
+  mod('services-pricing'),
+  link('Workspaces', Briefcase, '/workspaces'),
+  link('Firm Sign', Signature, '/firm-sign'),
+  link('Audit log', ClipboardText, '/audit-log', true),
+  link('Staff Management', UserGear, '/team', true),
+  mod('integrations'),
+  link('Settings', GearSix, '/settings', true),
 ];
 
 /** The "+ New" menu: where each new thing is created (all of them are pages that exist). */

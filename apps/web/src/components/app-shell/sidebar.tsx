@@ -35,7 +35,10 @@ export function Sidebar({
   const pathname = usePathname();
   const { me, signOut } = useMe();
   return (
-    <nav aria-label="Main" className="flex h-full w-72 flex-col bg-brand-900 text-white">
+    <nav
+      aria-label="Main"
+      className={`flex h-full flex-col bg-brand-900 text-white ${brand ? 'w-60' : 'w-72'}`}
+    >
       {brand ? (
         <div className="px-6 pb-4 pt-6">
           <span
@@ -75,27 +78,31 @@ export function Sidebar({
         {sections.map((items, i) => (
           <ul
             key={items[0]?.label ?? 'group'}
-            className={`flex flex-col gap-0.5 ${i > 0 ? 'relative mt-2 pt-4 before:absolute before:inset-x-6 before:top-0 before:border-t before:border-platform-navy-raised' : ''}`}
+            className={`flex flex-col ${brand ? 'gap-px' : 'gap-0.5'} ${i > 0 ? 'relative mt-2 pt-4 before:absolute before:inset-x-6 before:top-0 before:border-t before:border-platform-navy-raised' : ''}`}
           >
             {items.map((item) => {
               const Icon = item.icon;
               const body = (
                 <>
-                  <Icon aria-hidden className="size-6 shrink-0" />
-                  <span className="min-w-0 flex-1 whitespace-nowrap">{item.label}</span>
+                  <Icon aria-hidden className={`shrink-0 ${brand ? 'size-5' : 'size-6'}`} />
+                  <span className={`min-w-0 flex-1 ${brand ? '' : 'whitespace-nowrap'}`}>
+                    {item.label}
+                  </span>
                   {item.soon ? (
                     <span className="shrink-0 rounded-pill bg-platform-navy-raised px-2 py-0.5 text-xs text-brand-100">
                       Soon
                     </span>
                   ) : null}
                   {item.badge ? (
-                    <span className="min-w-8 shrink-0 rounded-pill bg-brand-500 px-2 py-0.5 text-center text-xs font-semibold">
+                    <span
+                      className={`min-w-8 shrink-0 rounded-pill px-2 py-0.5 text-center text-xs font-semibold ${brand ? 'bg-danger' : 'bg-brand-500'}`}
+                    >
                       {item.badge}
                     </span>
                   ) : null}
                 </>
               );
-              const row = `flex items-center gap-2.5 py-3 text-base ${brand ? 'px-3' : 'px-6'}`;
+              const row = `flex items-center gap-2.5 ${brand ? 'px-3 py-1.5 text-sm' : 'px-6 py-3 text-base'}`;
               if (!item.href) {
                 return (
                   <li key={item.label} aria-disabled="true" className={`${row} text-brand-100`}>

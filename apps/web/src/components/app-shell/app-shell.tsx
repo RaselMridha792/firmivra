@@ -71,7 +71,9 @@ export function AppShell({
         </div>
       ) : null}
 
-      <div className="flex min-h-screen flex-col md:pl-72 md:[&>header]:pr-4">
+      <div
+        className={`flex min-h-screen flex-col md:[&>header]:pr-4 ${brand ? 'md:pl-60' : 'md:pl-72'}`}
+      >
         <Header
           search={search}
           greeting={greeting}
