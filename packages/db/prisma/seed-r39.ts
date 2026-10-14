@@ -532,4 +532,33 @@ async function seedAdvisory(tx: TxClient, businessId: string) {
       startedOn: new Date('2026-07-08'),
     },
   });
+  const plan = await tx.advisoryPlan.create({
+    data: {
+      businessId,
+      advisoryClientId: advisory.id,
+      name: '2026 Business Growth Plan',
+      targetYear: 2026,
+      planType: 'growth',
+      status: 'IN_PROGRESS',
+      step: 5,
+      currentVersion: 1,
+      profile: {
+        businessName: 'Sample Construction LLC',
+        entityType: 'LLC',
+        yearsInBusiness: '5+',
+      },
+      finalizedAt: new Date(),
+      createdByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
+  await tx.advisoryPlanVersion.create({
+    data: {
+      businessId,
+      planId: plan.id,
+      versionNo: 1,
+      content: { goals: ['Increase annual revenue by 25%'] },
+      sourceDataAsOf: new Date('2026-09-28'),
+      createdByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
 }

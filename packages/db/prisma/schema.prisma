@@ -4351,6 +4351,7 @@ model AdvisoryClient {
   client      Client               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement  Engagement?          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   workstreams AdvisoryWorkstream[]
+  plans       AdvisoryPlan[]
 
   @@unique([businessId, id])
   @@unique([businessId, clientId])
@@ -4399,4 +4400,82 @@ model AdvisorySettings {
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("advisory_settings")
+}
+
+// ---------- Business Advisory: plans ----------
+
+enum AdvisoryPlanStatus {
+  DRAFT
+  IN_REVIEW
+  FINALIZED
+  SENT
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+}
+
+/// A business plan for an advisory client (the five-step Create/Edit Business Plan): its working
+/// copy. Steps 1 to 3 live in three JSON documents the API validates with zod from
+/// packages/types: `profile` (business identity, address, contacts, team, products and
+/// services; the EIN is never here, only on the client's profile, masked), `assessment` (the
+/// qualitative parts: sales, market, operations, strengths and challenges) and `strategy`
+/// (goals and areas). The numbers, goals, milestones,
+/// recommendations and action items are their own tables. Finalizing or sending adds an
+/// immutable advisory_plan_versions row. Archived, never deleted.
+model AdvisoryPlan {
+  id               String             @id @default(uuid(7)) @db.Uuid
+  businessId       String             @map("business_id") @db.Uuid
+  advisoryClientId String             @map("advisory_client_id") @db.Uuid
+  name             String
+  targetYear       Int                @map("target_year")
+  /// "growth", "startup", "funding"...: the firm's own plan types.
+  planType         String?            @map("plan_type")
+  status           AdvisoryPlanStatus @default(DRAFT)
+  /// The wizard step the author is on, 1 to 5.
+  step             Int                @default(1)
+  /// The newest finalized version; 0 until the first.
+  currentVersion   Int                @default(0) @map("current_version")
+  profile          Json               @default("{}")
+  assessment       Json               @default("{}")
+  strategy         Json               @default("{}")
+  finalizedAt      DateTime?          @map("finalized_at") @db.Timestamptz(3)
+  sentAt           DateTime?          @map("sent_at") @db.Timestamptz(3)
+  sentByUserId     String?            @map("sent_by_user_id") @db.Uuid
+  createdByUserId  String             @map("created_by_user_id") @db.Uuid
+  updatedByUserId  String?            @map("updated_by_user_id") @db.Uuid
+  archivedAt       DateTime?          @map("archived_at") @db.Timestamptz(3)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  advisoryClient AdvisoryClient        @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
+  versions       AdvisoryPlanVersion[]
+
+  @@unique([businessId, id])
+  @@index([businessId, advisoryClientId, targetYear])
+  @@index([businessId, status])
+  @@map("advisory_plans")
+}
+
+/// The record of a finalized or sent plan: everything the plan said at that moment (profile,
+/// assessment, strategy, goals, recommendations, service workstreams, financial assumptions),
+/// the date of the source data, and, once delivered, when, how and by whom. Insert-only except
+/// that the delivery facts are set once. A later edit of the plan never changes a version.
+model AdvisoryPlanVersion {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  planId            String    @map("plan_id") @db.Uuid
+  versionNo         Int       @map("version_no")
+  content           Json
+  sourceDataAsOf    DateTime? @map("source_data_as_of") @db.Date
+  createdByUserId   String    @map("created_by_user_id") @db.Uuid
+  deliveredAt       DateTime? @map("delivered_at") @db.Timestamptz(3)
+  /// "portal", "email" or "download".
+  deliveredChannel  String?   @map("delivered_channel")
+  deliveredByUserId String?   @map("delivered_by_user_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  plan AdvisoryPlan @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([planId, versionNo])
+  @@map("advisory_plan_versions")
 }

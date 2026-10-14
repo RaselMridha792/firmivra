@@ -644,3 +644,14 @@ export type AdvisoryServiceStatus = z.infer<typeof AdvisoryServiceStatus>;
 /** A client has one PRIMARY service focus (exactly one, in SQL) and any number of ADDITIONAL ones. */
 export const AdvisoryServiceRole = z.enum(['PRIMARY', 'ADDITIONAL']);
 export type AdvisoryServiceRole = z.infer<typeof AdvisoryServiceRole>;
+
+export const AdvisoryPlanStatus = z.enum([
+  'DRAFT',
+  'IN_REVIEW',
+  'FINALIZED',
+  'SENT',
+  'IN_PROGRESS',
+  'COMPLETED',
+  'ARCHIVED',
+]);
+export type AdvisoryPlanStatus = z.infer<typeof AdvisoryPlanStatus>;
