@@ -8,6 +8,9 @@ Components in `packages/ui` that Octavia's firm workspace designs (`docs/mockups
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `Table`      | `rows`, `columns`, `rowKey`, `caption`, `dense`, `selection`, `rowActions`, `server`, `noun`, `pageSizes`, `loading`, `emptyTitle`, `emptyText`, `emptyAction` | clients, leads, invoices, documents, staff, tax returns, tasks, payroll, bookkeeping, settings |
 | `Pagination` | `page`, `onPage`, `pageCount` (or `hasNext` for cursor paging), `summary`, `pageSize`, `pageSizes`, `onPageSize`                                               | every list's footer (`Table` already includes it)                                              |
+| `FilterBar`  | `children` (search, selects), `more` (`FilterGroup`s for "More Filters"), `onApply`, `onClear`, `onReset`; with `SearchField`, `FilterGroup`, `FilterChip`     | clients, leads, invoices, documents, tax returns, tasks, payroll, bookkeeping                  |
+| `BulkBar`    | `count`, `noun`, `actions` (`label`, `icon`, `onClick`, `danger`), `children`                                                                                  | clients, leads                                                                                 |
+| `IconButton` | `icon`, `label` (accessible name), `tone`, `weight`                                                                                                            | row actions in clients, leads, appointments                                                    |
 
 ## Navigation and overlays
 
@@ -29,3 +32,11 @@ Components in `packages/ui` that Octavia's firm workspace designs (`docs/mockups
 | `AvatarGroup` | `people`, `max`, `size`; "+n" for the rest                                                                               | tasks, communications                                                                  |
 | `Toggle`      | `checked`, `onChange`, `label`, any button attribute                                                                     | document and automation settings, notification options                                 |
 | `PageHeader`  | `title`, `subtitle`, `icon`, `above` (breadcrumb or back link), `actions`                                                | every module page                                                                      |
+
+## Dates and forms
+
+| Component         | Props in one line                                                                                                                                           | Used by                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `DateRangePicker` | `label`, `value` (`from`, `to` as `YYYY-MM-DD`), `onChange`                                                                                                 | "Last Activity" and "Due Date / Deadline" filters, reports, compliance            |
+| `FormSection`     | `step` or `icon`, `title`, `subtitle`, `columns`, `children` (a two-column grid of fields)                                                                  | staff create and edit, create task, create invoice, document request, intake form |
+| `FormField`       | `label`, `htmlFor`, `required`, `hint`, `error`, `counter`, `children` (any control); `Input`, `Select`, `Textarea` already carry their own label and error | custom controls: dates, tags, pickers                                             |

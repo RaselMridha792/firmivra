@@ -8,13 +8,24 @@ import { useMe } from '../signed-in';
 import firmivraLogoWhite from './firmivra-logo-white.png';
 import { initials, isActive, type NavSections } from './types';
 
-/** The firm's own look in the firm workspace: its logo on top, its motto at the bottom. */
+/** The firm's own look in the firm workspace: its logo on top, its slogan and motto at the bottom. */
 export interface FirmBrand {
   name: string;
+  /** The logo for dark backgrounds. */
   logoUrl: string | null;
-  /** The motto's words, for example ["Plans", "People"]; none when the firm has not set one. */
-  motto: readonly string[];
+  /** Gold script under the menu, for example "More Than Taxes. We Build Futures."; none when empty. */
+  slogan: string | null;
+  /** Small capitals under the slogan, words split by "|"; none when empty. */
+  motto: string | null;
 }
+
+/** Each sentence of the slogan on its own line, as the design sets it. */
+const sentences = (text: string) => text.split(/(?<=[.!?])\s+/);
+const words = (text: string) =>
+  text
+    .split('|')
+    .map((w) => w.trim())
+    .filter(Boolean);
 
 /** Navy sidebar: logo, menu groups, the signed-in user and Log out. */
 export function Sidebar({
@@ -40,7 +51,7 @@ export function Sidebar({
       className={`flex h-full flex-col bg-brand-900 text-white ${brand ? 'w-60' : 'w-72'}`}
     >
       {brand ? (
-        <div className="px-6 pb-4 pt-6">
+        <div className="shrink-0 px-5 pb-5 pt-4">
           <span
             data-testid="firm-name"
             className={brand.logoUrl ? 'sr-only' : 'block text-xl font-semibold'}
@@ -52,9 +63,9 @@ export function Sidebar({
               unoptimized
               src={brand.logoUrl}
               alt=""
-              width={176}
-              height={56}
-              className="block h-14 w-auto max-w-full object-contain object-left"
+              width={200}
+              height={100}
+              className="block h-auto max-h-[100px] w-full object-contain object-left"
             />
           ) : null}
         </div>
@@ -74,17 +85,23 @@ export function Sidebar({
         </div>
       )}
 
-      <div data-testid="sidebar-menu" className="flex flex-1 flex-col gap-2 overflow-y-auto">
+      <div
+        data-testid="sidebar-menu"
+        className={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto ${brand ? 'py-1' : ''}`}
+      >
         {sections.map((items, i) => (
           <ul
             key={items[0]?.label ?? 'group'}
-            className={`flex flex-col ${brand ? 'gap-px' : 'gap-0.5'} ${i > 0 ? 'relative mt-2 pt-4 before:absolute before:inset-x-6 before:top-0 before:border-t before:border-platform-navy-raised' : ''}`}
+            className={`flex flex-col ${brand ? '' : 'gap-0.5'} ${i > 0 ? 'relative mt-2 pt-4 before:absolute before:inset-x-6 before:top-0 before:border-t before:border-platform-navy-raised' : ''}`}
           >
             {items.map((item) => {
               const Icon = item.icon;
               const body = (
                 <>
-                  <Icon aria-hidden className={`shrink-0 ${brand ? 'size-5' : 'size-6'}`} />
+                  <Icon
+                    aria-hidden
+                    className={`shrink-0 ${brand ? 'size-[21px] -my-0.5' : 'size-6'}`}
+                  />
                   <span className={`min-w-0 flex-1 ${brand ? '' : 'whitespace-nowrap'}`}>
                     {item.label}
                   </span>
@@ -102,17 +119,21 @@ export function Sidebar({
                   ) : null}
                 </>
               );
-              const row = `flex items-center gap-2.5 ${brand ? 'px-3 py-1.5 text-sm' : 'px-6 py-3 text-base'}`;
+              const row = `flex items-center ${brand ? 'gap-5.75 px-3.5 py-2.5 text-[13.5px] leading-[17px]' : 'gap-2.5 px-6 py-3 text-base'}`;
               if (!item.href) {
                 return (
-                  <li key={item.label} aria-disabled="true" className={`${row} text-brand-100`}>
+                  <li
+                    key={item.label}
+                    aria-disabled="true"
+                    className={`${row} text-brand-100 ${brand ? '-my-0.5' : ''}`}
+                  >
                     {body}
                   </li>
                 );
               }
               const active = isActive(pathname, item.href);
               return (
-                <li key={item.label}>
+                <li key={item.label} className={brand ? '-my-0.5' : undefined}>
                   <Link
                     href={item.href}
                     onClick={onNavigate}
@@ -120,8 +141,8 @@ export function Sidebar({
                     className={
                       row +
                       (brand
-                        ? ' mx-3 rounded-control ' +
-                          (active ? 'bg-action font-semibold' : 'hover:bg-navigation-hover')
+                        ? ' ml-3 mr-3.5 rounded-control ' +
+                          (active ? 'bg-nav-active font-semibold' : 'hover:bg-navigation-hover')
                         : ' mr-3 rounded-r-control border-l-4 ' +
                           (active
                             ? 'border-info bg-navigation-hover font-semibold'
@@ -138,13 +159,36 @@ export function Sidebar({
       </div>
 
       {brand ? (
-        brand.motto.length ? (
-          <p
-            data-testid="firm-motto"
-            className="mx-6 border-t border-platform-navy-raised pb-8 pt-5 font-display text-xl italic"
-          >
-            {brand.motto.join(' · ')}
-          </p>
+        brand.slogan || brand.motto ? (
+          <div className="mx-4 flex shrink-0 flex-col items-center gap-2 border-t border-brand-100/75 pb-4 pt-3">
+            {brand.slogan ? (
+              <p
+                data-testid="firm-slogan"
+                className="max-w-38 -rotate-12 text-center font-script text-[32px] leading-[0.82] text-gold-light"
+              >
+                {sentences(brand.slogan).map((line) => (
+                  <span key={line} className="block">
+                    {line}
+                  </span>
+                ))}
+              </p>
+            ) : null}
+            {brand.motto ? (
+              <p
+                data-testid="firm-motto"
+                className="text-center text-[11px] font-semibold uppercase tracking-wide text-brand-100"
+              >
+                {words(brand.motto).flatMap((word, i) => [
+                  i > 0 ? (
+                    <span key={`bar-${word}`} aria-hidden className="mx-2 text-gold-light">
+                      |
+                    </span>
+                  ) : null,
+                  word,
+                ])}
+              </p>
+            ) : null}
+          </div>
         ) : null
       ) : (
         <div className="mx-6 flex flex-col gap-4 border-t border-platform-navy-raised pb-10 pt-5">
