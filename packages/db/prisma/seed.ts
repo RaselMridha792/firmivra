@@ -34,6 +34,7 @@ import {
   SEED_ESIGN_IDS,
   SAMPLE_ESIGN_CONSENT,
 } from './seed-data.js';
+import { seedR37 } from './seed-r37.js';
 
 config({ path: '../../.env', quiet: true });
 
@@ -1746,6 +1747,10 @@ async function main() {
     });
     await seedEsignDraft(tx, businesses.testFirmB);
   });
+
+  await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
+    seedR37(tx, businesses.lvp),
+  );
 
   console.warn(
     `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, intake agreements, a signed Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request, sample audit events and Firm Sign (LVP: on, with a sent request; Firm B: off, one draft).`,

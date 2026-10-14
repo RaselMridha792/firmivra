@@ -166,6 +166,8 @@ enum IntakeFormStatus {
 
 /// docs/PROJECT-DRAFT-v2.md, Intake forms.
 enum IntakeStatus {
+  /// R37: send setup saved but not sent (no sent_at, never shown to the recipient).
+  DRAFT
   SENT
   IN_PROGRESS
   SUBMITTED
@@ -341,6 +343,7 @@ model Business {
   stripeAccount        StripeAccount?
   platformOwnerInvites PlatformOwnerInvite[]
   esignSettings        EsignSettings?
+  intakeSettings       IntakeSettings?
 
   @@map("businesses")
 }
@@ -446,6 +449,12 @@ model Membership {
   esignKioskLock        EsignKioskLock?        @relation("EsignKioskLock")
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
 
+  // R37 back-relations (no columns on memberships).
+  intakesAssigned        Intake[]         @relation("IntakeAssignedTo")
+  intakesCompleted       Intake[]         @relation("IntakeCompletedBy")
+  intakeSettingsOwner    IntakeSettings[] @relation("IntakeSettingsOwner")
+  intakeSettingsFollowUp IntakeSettings[] @relation("IntakeSettingsFollowUp")
+
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
   @@unique([businessId, id])
@@ -540,6 +549,8 @@ model AuditLog {
   business Business? @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
   @@index([businessId, createdAt])
+  // R37: a record's history (an intake's, a document's, a return's) and a settings page's changes.
+  @@index([businessId, entityType, entityId, createdAt])
   @@map("audit_logs")
 }
 
@@ -1186,16 +1197,48 @@ model Intake {
   /// Set by the database (its clock) whenever correctionNote is set or changed; cleared with it.
   correctionRequestedAt DateTime? @map("correction_requested_at") @db.Timestamptz(3)
 
-  form        IntakeForm         @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict)
-  engagement  Engagement?        @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
-  lead        Lead?              @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
-  signatures  IntakeSignature[]
-  submissions IntakeSubmission[]
-  documents   Document[]
+  // R37 (Intake Forms module): send setup, dates, assignee, secure link for leads.
+  /// First send, set by the database when the intake leaves DRAFT; a resend never changes it.
+  sentAt               DateTime?       @map("sent_at") @db.Timestamptz(3)
+  /// After sentAt, and not before dueOn. The API extends it; a sweep sets EXPIRED from it.
+  expiresAt            DateTime?       @map("expires_at") @db.Timestamptz(3)
+  assignedUserId       String?         @map("assigned_user_id") @db.Uuid
+  deliveryChannel      IntakeDelivery? @map("delivery_channel")
+  /// Up to 200 characters. Names the email subject; no email copy is stored.
+  messageSubject       String?         @map("message_subject")
+  /// Up to 500 characters.
+  messageBody          String?         @map("message_body")
+  remindersEnabled     Boolean         @default(true) @map("reminders_enabled")
+  allowSaveResume      Boolean         @default(true) @map("allow_save_resume")
+  /// Moved forward by the database on every change of the row (the API also sets it on opens).
+  lastActivityAt       DateTime        @default(now()) @map("last_activity_at") @db.Timestamptz(3)
+  /// Set by the database while the status is COMPLETED, cleared when it leaves COMPLETED.
+  completedAt          DateTime?       @map("completed_at") @db.Timestamptz(3)
+  completedByUserId    String?         @map("completed_by_user_id") @db.Uuid
+  /// Lead recipients only: SHA-256 of the secure link's token, with its expiry (both or neither).
+  accessTokenHash      String?         @unique @map("access_token_hash")
+  accessTokenExpiresAt DateTime?       @map("access_token_expires_at") @db.Timestamptz(3)
+  /// "Auto-generate submission ID": a per-firm number the database gives when the firm's
+  /// intake settings turn it on.
+  referenceNumber      Int?            @map("reference_number")
+
+  assignedMember Membership?        @relation("IntakeAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  completedBy    Membership?        @relation("IntakeCompletedBy", fields: [businessId, completedByUserId], references: [businessId, userId], onDelete: Restrict)
+  form           IntakeForm         @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict)
+  engagement     Engagement?        @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  lead           Lead?              @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  signatures     IntakeSignature[]
+  submissions    IntakeSubmission[]
+  documents      Document[]
 
   @@unique([businessId, id])
+  @@unique([businessId, referenceNumber])
   @@index([businessId, engagementId])
   @@index([businessId, leadId])
+  @@index([businessId, status, sentAt])
+  @@index([businessId, assignedUserId, status])
+  @@index([businessId, formId])
+  @@index([businessId, lastActivityAt])
   @@map("intakes")
 }
 
@@ -2872,4 +2915,63 @@ model EsignBulkItem {
   @@unique([batchId, clientId])
   @@index([businessId, state])
   @@map("esign_bulk_items")
+}
+
+// =====================================================================================
+// R37 (Rasel, Oct 14): gaps for Intake Forms, Documents, Tax Returns, Appointments, Clients
+// and Leads, found against Octavia's designs and guides (docs/mockups/firm-workspace/*).
+// Columns on existing models are marked "R37" where they sit; new enums and tables are here.
+// =====================================================================================
+
+/// How an intake is delivered to its recipient. PORTAL only for a client's intake (CHECK).
+enum IntakeDelivery {
+  EMAIL
+  SMS
+  PORTAL
+}
+
+/// The firm's Intake Forms settings page, one row per firm (created by the API on first read;
+/// the defaults here are what "Reset defaults" restores). Automation toggles default off: the
+/// mockup's "On" switches are not approvals (guide).
+model IntakeSettings {
+  businessId              String   @id @map("business_id") @db.Uuid
+  // General
+  defaultExpiryDays       Int      @default(14) @map("default_expiry_days")
+  allowSaveResume         Boolean  @default(true) @map("allow_save_resume")
+  requireSignature        Boolean  @default(true) @map("require_signature")
+  autoSubmissionId        Boolean  @default(false) @map("auto_submission_id")
+  defaultOwnerUserId      String?  @map("default_owner_user_id") @db.Uuid
+  // Client experience
+  showProgressBar         Boolean  @default(true) @map("show_progress_bar")
+  thankYouMessage         String?  @map("thank_you_message")
+  redirectAfterCompletion Boolean  @default(false) @map("redirect_after_completion")
+  /// https only; required while redirectAfterCompletion is on.
+  redirectUrl             String?  @map("redirect_url")
+  // Notifications
+  sendClientConfirmation  Boolean  @default(true) @map("send_client_confirmation")
+  notifyAssignedStaff     Boolean  @default(true) @map("notify_assigned_staff")
+  remindersEnabled        Boolean  @default(true) @map("reminders_enabled")
+  firstReminderDays       Int      @default(3) @map("first_reminder_days")
+  finalReminderDays       Int      @default(7) @map("final_reminder_days")
+  expiryAlertHours        Int      @default(24) @map("expiry_alert_hours")
+  // Automation (all off)
+  autoCreateClient        Boolean  @default(false) @map("auto_create_client")
+  autoCreateFollowUpTask  Boolean  @default(false) @map("auto_create_follow_up_task")
+  routeByService          Boolean  @default(false) @map("route_by_service")
+  followUpOwnerUserId     String?  @map("follow_up_owner_user_id") @db.Uuid
+  // Branding and security
+  useFirmBranding         Boolean  @default(true) @map("use_firm_branding")
+  /// A subset of the platform's allowed upload types; checked by the API against UPLOAD_LIMITS.
+  acceptedFileTypes       String[] @default(["application/pdf", "image/jpeg", "image/png"]) @map("accepted_file_types")
+  /// 1 to 10: the platform's cap is 10 MB (the mockup's 20 MB is refused).
+  maxFileSizeMb           Int      @default(10) @map("max_file_size_mb")
+  consentRequired         Boolean  @default(true) @map("consent_required")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business      Business    @relation(fields: [businessId], references: [id])
+  defaultOwner  Membership? @relation("IntakeSettingsOwner", fields: [businessId, defaultOwnerUserId], references: [businessId, userId], onDelete: Restrict)
+  followUpOwner Membership? @relation("IntakeSettingsFollowUp", fields: [businessId, followUpOwnerUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@map("intake_settings")
 }

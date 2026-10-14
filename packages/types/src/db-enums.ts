@@ -101,6 +101,7 @@ export type IntakeFormStatus = z.infer<typeof IntakeFormStatus>;
 
 /** docs/PROJECT-DRAFT-v2.md, Intake forms. */
 export const IntakeStatus = z.enum([
+  'DRAFT',
   'SENT',
   'IN_PROGRESS',
   'SUBMITTED',
@@ -349,3 +350,7 @@ export type EsignEmailStatus = z.infer<typeof EsignEmailStatus>;
 /** An upload started and not confirmed: a request's file, or a signer's attachment. */
 export const EsignUploadKind = z.enum(['DOCUMENT', 'ATTACHMENT']);
 export type EsignUploadKind = z.infer<typeof EsignUploadKind>;
+
+/** How an intake is delivered to its recipient. PORTAL only for a client's intake (CHECK). */
+export const IntakeDelivery = z.enum(['EMAIL', 'SMS', 'PORTAL']);
+export type IntakeDelivery = z.infer<typeof IntakeDelivery>;
