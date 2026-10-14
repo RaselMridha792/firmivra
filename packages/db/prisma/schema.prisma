@@ -452,14 +452,17 @@ model Membership {
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
 
   // R37 back-relations (no columns on memberships).
-  intakesAssigned         Intake[]         @relation("IntakeAssignedTo")
-  intakesCompleted        Intake[]         @relation("IntakeCompletedBy")
-  intakeSettingsOwner     IntakeSettings[] @relation("IntakeSettingsOwner")
-  intakeSettingsFollowUp  IntakeSettings[] @relation("IntakeSettingsFollowUp")
-  intakeTemplatesCreated  IntakeTemplate[] @relation("IntakeTemplateCreatedBy")
-  intakeTemplatesAssigned IntakeTemplate[] @relation("IntakeTemplateAssignedTo")
-  documentsReviewer       Document[]       @relation("DocumentReviewer")
-  documentsReviewedBy     Document[]       @relation("DocumentReviewedBy")
+  intakesAssigned         Intake[]                @relation("IntakeAssignedTo")
+  intakesCompleted        Intake[]                @relation("IntakeCompletedBy")
+  intakeSettingsOwner     IntakeSettings[]        @relation("IntakeSettingsOwner")
+  intakeSettingsFollowUp  IntakeSettings[]        @relation("IntakeSettingsFollowUp")
+  intakeTemplatesCreated  IntakeTemplate[]        @relation("IntakeTemplateCreatedBy")
+  intakeTemplatesAssigned IntakeTemplate[]        @relation("IntakeTemplateAssignedTo")
+  documentsReviewer       Document[]              @relation("DocumentReviewer")
+  documentsReviewedBy     Document[]              @relation("DocumentReviewedBy")
+  requestPacketsAssigned  DocumentRequestPacket[] @relation("PacketAssignedTo")
+  requestPacketsRequested DocumentRequestPacket[] @relation("PacketRequestedBy")
+  requestPacketsForMember DocumentRequestPacket[] @relation("PacketRecipientMember")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -910,23 +913,24 @@ model Engagement {
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client           Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  service          Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  assignedMember   Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  statusHistory    EngagementStatusHistory[]
-  tasks            Task[]
-  notes            Note[]
-  reports          EngagementReport[]
-  documents        Document[]
-  documentRequests DocumentRequest[]
-  intakes          Intake[]
-  leads            Lead[]
-  appointments     Appointment[]
-  messageThreads   MessageThread[]
-  invoices         Invoice[]
-  taxReturns       TaxReturn[]
-  esignRequests    EsignRequest[]
-  esignBulkItems   EsignBulkItem[]
+  client                 Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  service                Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember         Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  statusHistory          EngagementStatusHistory[]
+  tasks                  Task[]
+  notes                  Note[]
+  reports                EngagementReport[]
+  documents              Document[]
+  documentRequests       DocumentRequest[]
+  documentRequestPackets DocumentRequestPacket[]
+  intakes                Intake[]
+  leads                  Lead[]
+  appointments           Appointment[]
+  messageThreads         MessageThread[]
+  invoices               Invoice[]
+  taxReturns             TaxReturn[]
+  esignRequests          EsignRequest[]
+  esignBulkItems         EsignBulkItem[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -1178,13 +1182,22 @@ model DocumentRequest {
   createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement Engagement        @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  category   DocumentCategory? @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  // R37: a row is one checklist item. Items of a request (packet) are edited while it is a DRAFT.
+  /// The request this item belongs to; null for a single request made on its own.
+  packetId  String? @map("packet_id") @db.Uuid
+  /// Optional items do not count toward "x of y required received".
+  required  Boolean @default(true)
+  sortOrder Int     @default(0) @map("sort_order")
+
+  engagement Engagement             @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category   DocumentCategory?      @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  packet     DocumentRequestPacket? @relation(fields: [businessId, engagementId, packetId], references: [businessId, engagementId, id], onDelete: Restrict)
   documents  Document[]
 
   // Lets documents require that the request they answer belongs to the same engagement.
   @@unique([businessId, engagementId, id])
   @@index([businessId, clientId, status])
+  @@index([businessId, packetId, sortOrder])
   @@map("document_requests")
 }
 
@@ -3121,4 +3134,84 @@ model DocumentFolder {
   @@unique([businessId, id])
   @@index([businessId, parentId, sortOrder])
   @@map("document_folders")
+}
+
+enum DocumentRequestRecipient {
+  /// The client's portal logins (the household).
+  CLIENT
+  /// A member of the firm (an internal request, e.g. "send me the signed copy").
+  MEMBER
+}
+
+/// DRAFT is saved but not sent (the portal never shows it); OPEN is with the recipient;
+/// SUBMITTED means the client pressed "Submit for review"; COMPLETED and CANCELLED are final.
+/// "Outstanding", "Partially received", "Ready for review", "Overdue" and "Expired" are computed
+/// from the items, dueOn and expiresAt, not stored.
+enum DocumentRequestPacketStatus {
+  DRAFT
+  OPEN
+  SUBMITTED
+  COMPLETED
+  CANCELLED
+}
+
+/// A document request as the screens show it ("Request #DR-0024"): a title, a due date, a
+/// message and a checklist of items. Each item is a DocumentRequest row (packet_id), so the
+/// accept, reject and "I don't have this" rules stay as they are. Never deleted: a draft that
+/// is dropped is CANCELLED. After it is sent only the due date, assignee, reminder, expiry and
+/// the closing facts change.
+model DocumentRequestPacket {
+  id                  String                      @id @default(uuid(7)) @db.Uuid
+  businessId          String                      @map("business_id") @db.Uuid
+  clientId            String                      @map("client_id") @db.Uuid
+  engagementId        String                      @map("engagement_id") @db.Uuid
+  /// "#DR-" + number: given by the database, per firm, in order; never changes.
+  number              Int                         @default(0)
+  recipientKind       DocumentRequestRecipient    @default(CLIENT) @map("recipient_kind")
+  /// A member of the firm; only for recipientKind MEMBER.
+  recipientUserId     String?                     @map("recipient_user_id") @db.Uuid
+  /// The request type it was made from (a snapshot: later edits of the type change nothing here).
+  templateId          String?                     @map("template_id") @db.Uuid
+  title               String
+  /// Required to send.
+  dueOn               DateTime?                   @map("due_on") @db.Date
+  status              DocumentRequestPacketStatus @default(DRAFT)
+  /// Variables ({Client Name}, {Due Date}) are resolved when it is sent. Emails and SMS carry
+  /// a prompt to sign in, never the documents' names.
+  messageSubject      String?                     @map("message_subject")
+  messageBody         String?                     @map("message_body")
+  notifyEmail         Boolean                     @default(true) @map("notify_email")
+  notifyPortal        Boolean                     @default(true) @map("notify_portal")
+  notifySms           Boolean                     @default(false) @map("notify_sms")
+  /// Days before the due date; null = no reminder. Stops when COMPLETED or CANCELLED.
+  reminderDaysBefore  Int?                        @map("reminder_days_before")
+  allowMultipleFiles  Boolean                     @default(true) @map("allow_multiple_files")
+  allowClientComments Boolean                     @default(true) @map("allow_client_comments")
+  /// After the due date; separate from it.
+  expiresAt           DateTime?                   @map("expires_at") @db.Timestamptz(3)
+  assignedUserId      String?                     @map("assigned_user_id") @db.Uuid
+  requestedByUserId   String?                     @map("requested_by_user_id") @db.Uuid
+  /// Set by the database when the status reaches them.
+  sentAt              DateTime?                   @map("sent_at") @db.Timestamptz(3)
+  submittedAt         DateTime?                   @map("submitted_at") @db.Timestamptz(3)
+  completedAt         DateTime?                   @map("completed_at") @db.Timestamptz(3)
+  cancelledAt         DateTime?                   @map("cancelled_at") @db.Timestamptz(3)
+  createdAt           DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement      Engagement        @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  recipientMember Membership?       @relation("PacketRecipientMember", fields: [businessId, recipientUserId], references: [businessId, userId], onDelete: Restrict)
+  assignedMember  Membership?       @relation("PacketAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  requestedBy     Membership?       @relation("PacketRequestedBy", fields: [businessId, requestedByUserId], references: [businessId, userId], onDelete: Restrict)
+  items           DocumentRequest[]
+
+  @@unique([businessId, number])
+  // Target of the items' same-engagement foreign key.
+  @@unique([businessId, engagementId, id])
+  @@unique([businessId, id])
+  @@index([businessId, status, dueOn])
+  @@index([businessId, clientId])
+  @@index([businessId, assignedUserId, status])
+  @@index([businessId, createdAt])
+  @@map("document_request_packets")
 }

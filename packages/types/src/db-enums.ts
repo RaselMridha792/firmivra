@@ -376,3 +376,16 @@ export type FolderColor = z.infer<typeof FolderColor>;
 /** A folder's default for "Make visible to client" on that client's own new documents. Never a grant to all clients. */
 export const FolderClientAccess = z.enum(['NONE', 'VIEW', 'VIEW_UPLOAD']);
 export type FolderClientAccess = z.infer<typeof FolderClientAccess>;
+
+export const DocumentRequestRecipient = z.enum(['CLIENT', 'MEMBER']);
+export type DocumentRequestRecipient = z.infer<typeof DocumentRequestRecipient>;
+
+/** DRAFT is saved but not sent (the portal never shows it); OPEN is with the recipient; SUBMITTED means the client pressed "Submit for review"; COMPLETED and CANCELLED are final. "Outstanding", "Partially received", "Ready for review", "Overdue" and "Expired" are computed from the items, dueOn and expiresAt, not stored. */
+export const DocumentRequestPacketStatus = z.enum([
+  'DRAFT',
+  'OPEN',
+  'SUBMITTED',
+  'COMPLETED',
+  'CANCELLED',
+]);
+export type DocumentRequestPacketStatus = z.infer<typeof DocumentRequestPacketStatus>;

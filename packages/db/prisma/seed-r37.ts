@@ -2,7 +2,13 @@
 // Tax Returns, Appointments, Clients and Leads (LVP only). One function, called once by seed.ts;
 // safe to run again (fixed ids, upserts or create-once). No real client data.
 import type { TxClient } from '../src/client.js';
-import { SEED_DOCUMENT_IDS, SEED_INTAKE_IDS, SEED_USERS, SEED_WORK_IDS } from './seed-data.js';
+import {
+  SEED_CLIENT_IDS,
+  SEED_DOCUMENT_IDS,
+  SEED_INTAKE_IDS,
+  SEED_USERS,
+  SEED_WORK_IDS,
+} from './seed-data.js';
 
 /** Fixed ids of the R37 rows (RFC 9562 UUIDs, variant 8). */
 const ID = {
@@ -11,6 +17,7 @@ const ID = {
   folderClientDocs: '00000000-0000-4a37-8000-000000000011',
   folderPersonalTax: '00000000-0000-4a37-8000-000000000012',
   folderFirmInternal: '00000000-0000-4a37-8000-000000000013',
+  requestPacket: '00000000-0000-4a37-8000-000000000024',
 } as const;
 
 /** Intake Forms: the firm's settings, a draft send, and the send setup of the seeded intake. */
@@ -132,8 +139,43 @@ async function seedDocumentLibrary(tx: TxClient, businessId: string) {
   });
 }
 
+/** Documents: the seeded tax requests grouped as one sent request. */
+async function seedDocumentRequests(tx: TxClient, businessId: string) {
+  // Items join a request while it is a draft; then it is sent.
+  if (await tx.documentRequestPacket.findUnique({ where: { id: ID.requestPacket } })) return;
+  await tx.documentRequestPacket.create({
+    data: {
+      id: ID.requestPacket,
+      businessId,
+      clientId: SEED_CLIENT_IDS.lvp,
+      engagementId: SEED_WORK_IDS.lvpTax,
+      title: '2025 Personal Tax documents',
+      dueOn: new Date('2026-10-31'),
+      messageSubject: 'Documents for your 2025 return',
+      messageBody: 'Hello, please upload the documents below before October 31.',
+      reminderDaysBefore: 3,
+      assignedUserId: SEED_USERS.lvpStaff.id,
+      requestedByUserId: SEED_USERS.lvpStaff.id,
+    },
+  });
+  for (const [id, sortOrder] of [
+    [SEED_DOCUMENT_IDS.w2Request, 1],
+    [SEED_DOCUMENT_IDS.interestRequest, 2],
+  ] as const) {
+    await tx.documentRequest.update({
+      where: { id },
+      data: { packetId: ID.requestPacket, sortOrder },
+    });
+  }
+  await tx.documentRequestPacket.update({
+    where: { id: ID.requestPacket },
+    data: { status: 'OPEN' },
+  });
+}
+
 export async function seedR37(tx: TxClient, businessId: string) {
   await seedIntakeSend(tx, businessId);
   await seedIntakeTemplates(tx, businessId);
   await seedDocumentLibrary(tx, businessId);
+  await seedDocumentRequests(tx, businessId);
 }
