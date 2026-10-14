@@ -589,6 +589,11 @@ model BusinessSettings {
   timezone            String    @default("America/New_York")
   /// S3 key under the firm's prefix.
   logoKey             String?   @map("logo_key")
+  /// S3 key of the logo for light backgrounds (footer, portal, emails); `logo_key` is for dark ones.
+  logoLightKey        String?   @map("logo_light_key")
+  /// Sidebar bottom: the slogan (gold script) and the motto (small capitals), plain text, 80 characters at most.
+  sidebarSlogan       String?   @map("sidebar_slogan")
+  sidebarMotto        String?   @map("sidebar_motto")
   /// `#rrggbb`, themes the firm's client portal.
   brandColor          String?   @map("brand_color")
   /// Optional second colour (`#rrggbb`) for the portal; the API uses a default when empty.
