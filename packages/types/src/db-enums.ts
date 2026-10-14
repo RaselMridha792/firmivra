@@ -388,6 +388,35 @@ export type PlanInputKind = z.infer<typeof PlanInputKind>;
 export const PlanVersionEvent = z.enum(['FINALIZED', 'GENERATED', 'SENT']);
 export type PlanVersionEvent = z.infer<typeof PlanVersionEvent>;
 
+/** An opportunity's review state. NEW is identified and not reviewed; ADDED_TO_PLAN, IMPLEMENTED and CLOSED need a review; NOT_APPLICABLE and DISMISSED need a reason and can be reopened. */
+export const OpportunityStatus = z.enum([
+  'NEW',
+  'UNDER_REVIEW',
+  'ADDED_TO_PLAN',
+  'ASSIGNED',
+  'DISCUSSION_SCHEDULED',
+  'NEEDS_DOCUMENTS',
+  'NOT_APPLICABLE',
+  'DISMISSED',
+  'IMPLEMENTED',
+  'CLOSED',
+]);
+export type OpportunityStatus = z.infer<typeof OpportunityStatus>;
+
+export const OpportunitySource = z.enum(['SYSTEM', 'STAFF', 'IMPORTED', 'MANUAL']);
+export type OpportunitySource = z.infer<typeof OpportunitySource>;
+
+export const OpportunityEventKind = z.enum([
+  'SCREENED',
+  'STATUS',
+  'ASSIGNED',
+  'DISCUSSION',
+  'DOCUMENTS',
+  'PLAN',
+  'NOTE',
+]);
+export type OpportunityEventKind = z.infer<typeof OpportunityEventKind>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;

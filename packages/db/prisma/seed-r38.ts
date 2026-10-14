@@ -77,6 +77,10 @@ export const SEED_R38_IDS = {
   planVersion: id(53),
   planDocument: id(54),
   scenario: id(55),
+  opportunity1: id(56),
+  opportunity2: id(57),
+  opportunityEvent1: id(58),
+  opportunityEvent2: id(59),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -388,6 +392,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
   await seedBookkeepingReports(tx, c);
   await seedTaxPlanning(tx, c);
   await seedTaxPlanDetails(tx, c);
+  await seedOpportunities(tx, c);
 }
 
 /** The IRS 2027 calendar, published: an entry with a date, and one that needs checking. */
@@ -1079,6 +1084,96 @@ async function seedTaxPlanDetails(tx: TxClient, c: WorkSeedContext) {
       assumptions: 'Based on the 2027 contribution limit as entered.',
       savedToPlanAt: new Date('2026-10-03T10:00:00Z'),
       createdByUserId: c.staffId,
+    },
+  });
+}
+
+/** One opportunity added to the plan after review, one new and unreviewed, with their history. */
+async function seedOpportunities(tx: TxClient, c: WorkSeedContext) {
+  const { businessId } = c;
+  const base = {
+    businessId,
+    clientId: c.clientId,
+    taxYear: 2027,
+    source: 'SYSTEM' as const,
+    ruleId: 'retirement.room_to_contribute',
+    lastEvaluatedAt: new Date('2026-10-02T12:00:00Z'),
+    estimateBasis: 'Based on 2026 income and the contribution limit.',
+    createdByUserId: c.ownerId,
+  };
+  await tx.taxOpportunity.upsert({
+    where: { id: SEED_R38_IDS.opportunity1 },
+    update: {},
+    create: {
+      ...base,
+      id: SEED_R38_IDS.opportunity1,
+      strategyId: SEED_R38_IDS.strategy1,
+      name: 'Maximize retirement contributions',
+      category: 'RETIREMENT',
+      priority: 'HIGH',
+      description: 'Increase contributions to retirement accounts to reduce taxable income.',
+      status: 'ADDED_TO_PLAN',
+      whyExplanation: 'There is room to increase contributions to eligible retirement accounts.',
+      clientDataUsed: [
+        { label: 'Adjusted gross income', amountCents: 14230000 },
+        { label: 'Filing status', text: 'Single' },
+      ],
+      estimatedSavingsCents: 650000,
+      suggestedActionCents: 2300000,
+      newTaxableIncomeCents: 11930000,
+      effectiveRateBeforeBp: 1800,
+      effectiveRateAfterBp: 1600,
+      recommendedActions: [
+        'Increase 401(k) contribution to the limit',
+        'Review the employer match',
+      ],
+      eligibility: [{ text: 'Client has earned income from employment', met: true }],
+      documentsNeeded: [{ label: 'Most recent pay stubs', received: true }],
+      assignedUserId: c.staffId,
+      planId: SEED_R38_IDS.plan,
+      planStrategyId: SEED_R38_IDS.planStrategy1,
+      reviewedAt: new Date('2026-10-02T13:00:00Z'),
+      reviewedByUserId: c.ownerId,
+    },
+  });
+  await tx.taxOpportunity.upsert({
+    where: { id: SEED_R38_IDS.opportunity2 },
+    update: {},
+    create: {
+      ...base,
+      id: SEED_R38_IDS.opportunity2,
+      strategyId: SEED_R38_IDS.strategy2,
+      name: 'Evaluate HSA contributions',
+      category: 'DEDUCTIONS',
+      priority: 'MEDIUM',
+      dataComplete: false,
+      missingData: ['health plan type'],
+      whyExplanation: 'The health plan type is not on file, so eligibility is not confirmed.',
+    },
+  });
+  await tx.taxOpportunityEvent.upsert({
+    where: { id: SEED_R38_IDS.opportunityEvent1 },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.opportunityEvent1,
+      businessId,
+      opportunityId: SEED_R38_IDS.opportunity1,
+      kind: 'SCREENED',
+      details: { ruleId: 'retirement.room_to_contribute' },
+    },
+  });
+  await tx.taxOpportunityEvent.upsert({
+    where: { id: SEED_R38_IDS.opportunityEvent2 },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.opportunityEvent2,
+      businessId,
+      opportunityId: SEED_R38_IDS.opportunity1,
+      kind: 'STATUS',
+      fromStatus: 'UNDER_REVIEW',
+      toStatus: 'ADDED_TO_PLAN',
+      reason: 'Reviewed with the client',
+      actorUserId: c.ownerId,
     },
   });
 }

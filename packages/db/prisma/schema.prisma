@@ -513,6 +513,38 @@ enum PlanVersionEvent {
   SENT
 }
 
+/// An opportunity's review state. NEW is identified and not reviewed; ADDED_TO_PLAN, IMPLEMENTED
+/// and CLOSED need a review; NOT_APPLICABLE and DISMISSED need a reason and can be reopened.
+enum OpportunityStatus {
+  NEW
+  UNDER_REVIEW
+  ADDED_TO_PLAN
+  ASSIGNED
+  DISCUSSION_SCHEDULED
+  NEEDS_DOCUMENTS
+  NOT_APPLICABLE
+  DISMISSED
+  IMPLEMENTED
+  CLOSED
+}
+
+enum OpportunitySource {
+  SYSTEM
+  STAFF
+  IMPORTED
+  MANUAL
+}
+
+enum OpportunityEventKind {
+  SCREENED
+  STATUS
+  ASSIGNED
+  DISCUSSION
+  DOCUMENTS
+  PLAN
+  NOTE
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -901,6 +933,7 @@ model Membership {
   automationRules       AutomationRule[]
   bookkeepingProfiles   BookkeepingProfile[]
   taxPlans              TaxPlan[]
+  taxOpportunities      TaxOpportunity[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1196,6 +1229,7 @@ model Client {
   automationRuns                 AutomationRun[]
   taxPlans                       TaxPlan[]
   taxSavingsScenarios            TaxSavingsScenario[]
+  taxOpportunities               TaxOpportunity[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -4546,7 +4580,8 @@ model TaxPlanningStrategy {
   createdAt               DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt               DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  planStrategies TaxPlanStrategy[]
+  planStrategies   TaxPlanStrategy[]
+  taxOpportunities TaxOpportunity[]
 
   @@unique([businessId, id])
   @@unique([businessId, name])
@@ -4594,6 +4629,7 @@ model TaxPlan {
   taxPlanVersions     TaxPlanVersion[]
   taxPlanDocuments    TaxPlanDocument[]
   taxSavingsScenarios TaxSavingsScenario[]
+  taxOpportunities    TaxOpportunity[]
 
   @@unique([businessId, id])
   @@index([businessId, status])
@@ -4635,6 +4671,7 @@ model TaxPlanStrategy {
   plan             TaxPlan              @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Cascade)
   strategy         TaxPlanningStrategy? @relation(fields: [businessId, strategyId], references: [businessId, id], onDelete: Restrict)
   taxPlanDocuments TaxPlanDocument[]
+  taxOpportunities TaxOpportunity[]
 
   @@unique([businessId, id])
   @@unique([businessId, planId, strategyId])
@@ -4743,4 +4780,92 @@ model TaxSavingsScenario {
   @@index([businessId, clientId])
   @@index([businessId, planId])
   @@map("tax_savings_scenarios")
+}
+
+/// A planning opportunity for a client (the Opportunity queue and Planning Opportunity Details):
+/// identified by a screening rule or by staff, with why, the data it used (and its tax year and
+/// as-of date), the estimated saving and its basis, the impact, numbered recommended actions, the
+/// eligibility checks and the documents needed. It is not a recommendation until staff review it.
+/// Not applicable and dismissed need a reason and can be suppressed until a date. A client has one
+/// open opportunity per library strategy and year. Never deleted; its history is TaxOpportunityEvent.
+/// Json fields: clientDataUsed [{label, amountCents | text}], recommendedActions [text],
+/// eligibility [{text, met}], documentsNeeded [{label, received}].
+model TaxOpportunity {
+  id                    String            @id @default(uuid(7)) @db.Uuid
+  businessId            String            @map("business_id") @db.Uuid
+  clientId              String            @map("client_id") @db.Uuid
+  strategyId            String?           @map("strategy_id") @db.Uuid
+  name                  String
+  category              StrategyCategory
+  priority              TaskPriority      @default(MEDIUM)
+  description           String?
+  taxYear               Int               @map("tax_year")
+  status                OpportunityStatus @default(NEW)
+  source                OpportunitySource
+  /// The screening rule that found it, and its plain-language explanation.
+  ruleId                String?           @map("rule_id")
+  whyExplanation        String?           @map("why_explanation")
+  /// False when the data was too thin to be sure; missingData says what was missing.
+  dataComplete          Boolean           @default(true) @map("data_complete")
+  missingData           String[]          @default([]) @map("missing_data")
+  lastEvaluatedAt       DateTime?         @map("last_evaluated_at") @db.Timestamptz(3)
+  clientDataUsed        Json              @default("[]") @map("client_data_used")
+  estimatedSavingsCents Int?              @map("estimated_savings_cents")
+  /// "Based on current year data", with the assumptions behind the estimate.
+  estimateBasis         String?           @map("estimate_basis")
+  suggestedActionCents  Int?              @map("suggested_action_cents")
+  newTaxableIncomeCents Int?              @map("new_taxable_income_cents")
+  /// Effective tax rates in basis points (1800 = 18%), before and after.
+  effectiveRateBeforeBp Int?              @map("effective_rate_before_bp")
+  effectiveRateAfterBp  Int?              @map("effective_rate_after_bp")
+  recommendedActions    Json              @default("[]") @map("recommended_actions")
+  eligibility           Json              @default("[]")
+  documentsNeeded       Json              @default("[]") @map("documents_needed")
+  assignedUserId        String?           @map("assigned_user_id") @db.Uuid
+  planId                String?           @map("plan_id") @db.Uuid
+  planStrategyId        String?           @map("plan_strategy_id") @db.Uuid
+  discussionOn          DateTime?         @map("discussion_on") @db.Date
+  reviewedAt            DateTime?         @map("reviewed_at") @db.Timestamptz(3)
+  reviewedByUserId      String?           @map("reviewed_by_user_id") @db.Uuid
+  dispositionReason     String?           @map("disposition_reason")
+  /// Screening leaves a not applicable or dismissed opportunity alone until this date.
+  suppressedUntil       DateTime?         @map("suppressed_until") @db.Date
+  implementedOn         DateTime?         @map("implemented_on") @db.Date
+  createdByUserId       String?           @map("created_by_user_id") @db.Uuid
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client         Client                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  strategy       TaxPlanningStrategy?  @relation(fields: [businessId, strategyId], references: [businessId, id], onDelete: Restrict)
+  assignedMember Membership?           @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  plan           TaxPlan?              @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  planStrategy   TaxPlanStrategy?      @relation(fields: [businessId, planStrategyId], references: [businessId, id], onDelete: Restrict)
+  events         TaxOpportunityEvent[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status, priority])
+  @@index([businessId, clientId, taxYear])
+  @@index([businessId, strategyId, status])
+  @@map("tax_opportunities")
+}
+
+/// The history of an opportunity: screenings, status changes with their reasons, assignment,
+/// scheduled discussions, document checklist changes and plan links. Insert-only; `reason` and
+/// `details` hold short text and ids, never client figures beyond what the opportunity shows.
+model TaxOpportunityEvent {
+  id            String               @id @default(uuid(7)) @db.Uuid
+  businessId    String               @map("business_id") @db.Uuid
+  opportunityId String               @map("opportunity_id") @db.Uuid
+  kind          OpportunityEventKind
+  fromStatus    OpportunityStatus?   @map("from_status")
+  toStatus      OpportunityStatus?   @map("to_status")
+  reason        String?
+  details       Json                 @default("{}")
+  actorUserId   String?              @map("actor_user_id") @db.Uuid
+  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunity TaxOpportunity @relation(fields: [businessId, opportunityId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, opportunityId, createdAt])
+  @@map("tax_opportunity_events")
 }
