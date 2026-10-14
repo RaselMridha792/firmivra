@@ -51,7 +51,7 @@ export function Sidebar({
       className={`flex h-full flex-col bg-brand-900 text-white ${brand ? 'w-60' : 'w-72'}`}
     >
       {brand ? (
-        <div className="px-8 pb-5 pt-4">
+        <div className="shrink-0 px-8 pb-5 pt-4">
           <span
             data-testid="firm-name"
             className={brand.logoUrl ? 'sr-only' : 'block text-xl font-semibold'}
@@ -87,7 +87,7 @@ export function Sidebar({
 
       <div
         data-testid="sidebar-menu"
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
+        className={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto ${brand ? 'py-1' : ''}`}
       >
         {sections.map((items, i) => (
           <ul
@@ -98,7 +98,10 @@ export function Sidebar({
               const Icon = item.icon;
               const body = (
                 <>
-                  <Icon aria-hidden className={`shrink-0 ${brand ? 'size-5' : 'size-6'}`} />
+                  <Icon
+                    aria-hidden
+                    className={`shrink-0 ${brand ? 'size-[21px] -my-0.5' : 'size-6'}`}
+                  />
                   <span className={`min-w-0 flex-1 ${brand ? '' : 'whitespace-nowrap'}`}>
                     {item.label}
                   </span>
@@ -116,17 +119,21 @@ export function Sidebar({
                   ) : null}
                 </>
               );
-              const row = `flex items-center ${brand ? 'gap-6 px-3 py-0 text-[15px] leading-5' : 'gap-2.5 px-6 py-3 text-base'}`;
+              const row = `flex items-center ${brand ? 'gap-5.75 px-3.5 py-2.5 text-[13.5px] leading-[17px]' : 'gap-2.5 px-6 py-3 text-base'}`;
               if (!item.href) {
                 return (
-                  <li key={item.label} aria-disabled="true" className={`${row} text-brand-100`}>
+                  <li
+                    key={item.label}
+                    aria-disabled="true"
+                    className={`${row} text-brand-100 ${brand ? '-my-0.5' : ''}`}
+                  >
                     {body}
                   </li>
                 );
               }
               const active = isActive(pathname, item.href);
               return (
-                <li key={item.label}>
+                <li key={item.label} className={brand ? '-my-0.5' : undefined}>
                   <Link
                     href={item.href}
                     onClick={onNavigate}
@@ -134,7 +141,7 @@ export function Sidebar({
                     className={
                       row +
                       (brand
-                        ? ' ml-3 mr-4 rounded-control ' +
+                        ? ' ml-3 mr-3.5 rounded-control ' +
                           (active ? 'bg-nav-active font-semibold' : 'hover:bg-navigation-hover')
                         : ' mr-3 rounded-r-control border-l-4 ' +
                           (active
@@ -153,7 +160,7 @@ export function Sidebar({
 
       {brand ? (
         brand.slogan || brand.motto ? (
-          <div className="mx-4 flex flex-col items-center gap-2 border-t border-brand-100/75 pb-4 pt-3">
+          <div className="mx-4 flex shrink-0 flex-col items-center gap-2 border-t border-brand-100/75 pb-4 pt-3">
             {brand.slogan ? (
               <p
                 data-testid="firm-slogan"

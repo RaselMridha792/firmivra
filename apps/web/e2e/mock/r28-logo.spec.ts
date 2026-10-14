@@ -62,16 +62,35 @@ test('the shell shows the dark logo, the slogan and motto, and the light logo in
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(app('/'));
   const sidebar = page.getByRole('navigation', { name: 'Main' });
+  expect((await sidebar.boundingBox())?.width).toBe(240);
   const logo = sidebar.locator('img');
   await expect(logo).toBeVisible();
   const box = await logo.boundingBox();
   expect(box?.height).toBe(70);
   expect(box?.width).toBeGreaterThan(150);
-  await expect(page.getByTestId('firm-slogan')).toContainText('More Than');
+  const slogan = page.getByTestId('firm-slogan');
+  await expect(slogan).toContainText('More Than');
   await expect(page.getByTestId('firm-motto')).toHaveText('PEOPLE|PLANS|PROSPERITY');
-  // At 900 px high every item fits: the menu does not scroll.
+
+  // The design's rows: a 37 px pill every 33 px, whatever the window height.
+  const links = sidebar.getByTestId('sidebar-menu').getByRole('link');
+  const first = await links.nth(0).boundingBox();
+  const second = await links.nth(1).boundingBox();
+  const third = await links.nth(2).boundingBox();
+  expect(first?.height).toBe(37);
+  expect((third?.y ?? 0) - (second?.y ?? 0)).toBe(33);
+  expect((second?.y ?? 0) - (first?.y ?? 0)).toBe(33);
+
+  // A short window scrolls the menu inside; the logo and the slogan block stay in place.
   const menu = page.getByTestId('sidebar-menu');
-  expect(await menu.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+  expect(await menu.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  const slogan0 = await slogan.boundingBox();
+  await menu.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  expect(await logo.boundingBox()).toEqual(box);
+  expect(await slogan.boundingBox()).toEqual(slogan0);
+  expect((slogan0?.y ?? 0) + (slogan0?.height ?? 0)).toBeLessThanOrEqual(900);
+  await expect(links.last()).toBeInViewport();
+
   const footer = page.getByRole('contentinfo');
   await expect(footer.getByRole('img', { name: 'LVP Accounting & Taxes' })).toBeVisible();
   await expect(footer.getByRole('link')).toHaveText(['Support']);
