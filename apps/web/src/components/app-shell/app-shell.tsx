@@ -72,7 +72,7 @@ export function AppShell({
       ) : null}
 
       <div
-        className={`flex min-h-screen flex-col md:[&>header]:pr-4 ${brand ? 'md:pl-60' : 'md:pl-72'}`}
+        className={`flex min-h-screen flex-col md:[&>header]:pr-4 ${brand ? 'md:pl-61.5' : 'md:pl-72'}`}
       >
         <Header
           search={search}
