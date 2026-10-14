@@ -348,6 +348,7 @@ model Business {
   documentFolders          DocumentFolder[]
   firmOffices              FirmOffice[]
   appointmentSettings      AppointmentSettings?
+  tags                     Tag[]
   documentRequestTemplates DocumentRequestTemplate[]
   documentSettings         DocumentSettings[]
 
@@ -483,6 +484,8 @@ model Membership {
   taxChecklistUpdated       TaxReturnChecklistItem[]  @relation("TaxChecklistUpdatedBy")
   taxDocumentsAdded         TaxReturnDocument[]       @relation("TaxDocumentAddedBy")
   clientsUpdated            Client[]                  @relation("ClientUpdatedBy")
+  tagsCreated               Tag[]                     @relation("TagCreatedBy")
+  clientTagsAdded           ClientTag[]               @relation("ClientTagAddedBy")
   availabilityOverrides     AvailabilityOverride[]    @relation("OverrideStaff")
   appointmentSeriesCreated  AppointmentSeries[]       @relation("SeriesCreatedBy")
 
@@ -784,6 +787,7 @@ model Client {
 
   business         Business                 @relation(fields: [businessId], references: [id])
   updatedBy        Membership?              @relation("ClientUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  tags             ClientTag[]
   statusHistory    ClientStatusHistory[]
   assignedMember   Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
   profile          ClientProfile?
@@ -846,12 +850,21 @@ model ClientProfile {
   referralSource         String?        @map("referral_source")
   /// Anything else the client wants the firm to know. Not the client's private notes.
   additionalInfo         String?        @map("additional_info")
+  // R37 (Clients module): contact consent, shown on the 360 profile and collected on Add Client.
+  emailOptIn             Boolean        @default(true) @map("email_opt_in")
+  smsOptIn               Boolean        @default(false) @map("sms_opt_in")
+  /// When SMS consent was given: set and cleared by the database with smsOptIn.
+  smsOptInAt             DateTime?      @map("sms_opt_in_at") @db.Timestamptz(3)
+  /// The client's county (the list's optional "City or County" filter).
+  county                 String?
   createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   client Client @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
 
   @@unique([businessId, clientId])
+  @@index([businessId, state])
+  @@index([businessId, entityType])
   @@map("client_profiles")
 }
 
@@ -4005,4 +4018,41 @@ model ClientStatusHistory {
   @@index([businessId, clientId, seq])
   @@index([businessId, changedAt])
   @@map("client_status_history")
+}
+
+/// A label the firm defines (Back Taxes, W-2, Investments) for its clients (and, later, leads).
+/// Owners and admins create and archive them; staff apply existing ones. Archived, never deleted.
+model Tag {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  /// One line, 1 to 50 characters; unique among live tags of the firm, ignoring case.
+  name            String
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business    @relation(fields: [businessId], references: [id])
+  createdBy Membership? @relation("TagCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  clients   ClientTag[]
+
+  @@unique([businessId, id])
+  @@map("tags")
+}
+
+/// A tag on a client. Removing a tag deletes its row (the audit log keeps who and when).
+model ClientTag {
+  businessId    String   @map("business_id") @db.Uuid
+  clientId      String   @map("client_id") @db.Uuid
+  tagId         String   @map("tag_id") @db.Uuid
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  client  Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  tag     Tag         @relation(fields: [businessId, tagId], references: [businessId, id], onDelete: Restrict)
+  addedBy Membership? @relation("ClientTagAddedBy", fields: [businessId, addedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@id([clientId, tagId])
+  @@index([businessId, tagId])
+  @@map("client_tags")
 }

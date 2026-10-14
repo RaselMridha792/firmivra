@@ -42,6 +42,8 @@ const ID = {
   reminderSms: '00000000-0000-4a37-8000-000000000074',
   series: '00000000-0000-4a37-8000-000000000075',
   override: '00000000-0000-4a37-8000-000000000076',
+  tagBackTaxes: '00000000-0000-4a37-8000-000000000081',
+  tagW2: '00000000-0000-4a37-8000-000000000082',
   requestPacket: '00000000-0000-4a37-8000-000000000024',
 } as const;
 
@@ -469,7 +471,7 @@ async function seedAppointmentDetails(tx: TxClient, businessId: string) {
 }
 
 /** Clients: the LVP client as an active, referred client. */
-async function seedClientFields(tx: TxClient) {
+async function seedClientFields(tx: TxClient, businessId: string) {
   await tx.client.update({
     where: { id: SEED_CLIENT_IDS.lvp },
     data: {
@@ -481,6 +483,30 @@ async function seedClientFields(tx: TxClient) {
       updatedByUserId: SEED_USERS.lvpOwner.id,
     },
   });
+  await tx.clientProfile.update({
+    where: { clientId: SEED_CLIENT_IDS.lvp },
+    data: { emailOptIn: true, smsOptIn: true, county: 'Gwinnett' },
+  });
+  for (const [id, name] of [
+    [ID.tagBackTaxes, 'Back Taxes'],
+    [ID.tagW2, 'W-2'],
+  ] as const) {
+    await tx.tag.upsert({
+      where: { id },
+      update: {},
+      create: { id, businessId, name, createdByUserId: SEED_USERS.lvpOwner.id },
+    });
+    await tx.clientTag.upsert({
+      where: { clientId_tagId: { clientId: SEED_CLIENT_IDS.lvp, tagId: id } },
+      update: {},
+      create: {
+        businessId,
+        clientId: SEED_CLIENT_IDS.lvp,
+        tagId: id,
+        addedByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+  }
 }
 
 export async function seedR37(tx: TxClient, businessId: string) {
@@ -491,5 +517,5 @@ export async function seedR37(tx: TxClient, businessId: string) {
   await seedDocumentShares(tx, businessId);
   await seedTaxReturnWorkflow(tx, businessId);
   await seedAppointmentDetails(tx, businessId);
-  await seedClientFields(tx);
+  await seedClientFields(tx, businessId);
 }
