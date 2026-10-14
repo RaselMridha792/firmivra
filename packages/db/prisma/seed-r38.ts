@@ -41,6 +41,9 @@ export const SEED_R38_IDS = {
   rule: id(19),
   record: id(20),
   complianceLog: id(21),
+  automationRule: id(22),
+  automationVersion: id(23),
+  automationTemplate: id(24),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -344,6 +347,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
     where: { id: c.taskId },
     data: { deadlineId: SEED_R38_IDS.deadline1, templateId: SEED_R38_IDS.template },
   });
+  await seedAutomations(tx, c);
 }
 
 /** The IRS 2027 calendar, published: an entry with a date, and one that needs checking. */
@@ -397,4 +401,76 @@ async function seedCalendar(tx: TxClient, businessId: string) {
       },
     });
   }
+}
+
+/** An active rule with its first version, and a template. */
+async function seedAutomations(tx: TxClient, c: WorkSeedContext) {
+  const { businessId } = c;
+  const definition = {
+    trigger: {
+      module: 'COMPLIANCE_DEADLINES',
+      event: 'deadline.approaching',
+      timing: 'BEFORE',
+      offsetValue: 14,
+      offsetUnit: 'DAY',
+    },
+    matchMode: 'ALL',
+    conditions: [{ field: 'client.type', operator: 'is', value: 'BUSINESS' }],
+    actions: [
+      { id: 'a1', type: 'create_task', config: { templateId: SEED_R38_IDS.template } },
+      {
+        id: 'a2',
+        type: 'send_email',
+        config: { template: 'Estimated Tax Reminder' },
+        delayMinutes: 0,
+      },
+    ],
+    settings: { preventDuplicatesDays: 7, logAll: true, notifyOnFailure: true },
+  };
+  if (!(await tx.automationRule.findUnique({ where: { id: SEED_R38_IDS.automationRule } }))) {
+    await tx.automationRule.create({
+      data: {
+        id: SEED_R38_IDS.automationRule,
+        businessId,
+        name: 'Client reminder, 14 days before estimated tax',
+        category: 'COMPLIANCE_DEADLINES',
+        priority: 'HIGH',
+        ownerUserId: c.ownerId,
+        createdByUserId: c.ownerId,
+      },
+    });
+    await tx.automationRuleVersion.create({
+      data: {
+        id: SEED_R38_IDS.automationVersion,
+        businessId,
+        ruleId: SEED_R38_IDS.automationRule,
+        version: 1,
+        triggerModule: 'COMPLIANCE_DEADLINES',
+        triggerEvent: 'deadline.approaching',
+        timing: 'BEFORE',
+        offsetValue: 14,
+        offsetUnit: 'DAY',
+        conditions: definition.conditions,
+        actions: definition.actions,
+        settings: definition.settings,
+        createdByUserId: c.ownerId,
+      },
+    });
+    await tx.automationRule.update({
+      where: { id: SEED_R38_IDS.automationRule },
+      data: { status: 'ACTIVE', currentVersionId: SEED_R38_IDS.automationVersion },
+    });
+  }
+  await tx.automationTemplate.upsert({
+    where: { id: SEED_R38_IDS.automationTemplate },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.automationTemplate,
+      businessId,
+      name: 'Estimated tax payment workflow',
+      category: 'COMPLIANCE_DEADLINES',
+      definition,
+      createdByUserId: c.ownerId,
+    },
+  });
 }

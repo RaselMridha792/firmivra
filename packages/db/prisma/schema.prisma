@@ -246,6 +246,53 @@ enum LogOutcome {
   SKIPPED
 }
 
+/// The modules automations start from and act on (a rule's trigger category and rule category).
+enum AutomationModule {
+  CLIENTS
+  LEADS
+  APPOINTMENTS
+  INTAKE_FORMS
+  DOCUMENTS
+  TAX_RETURNS
+  BOOKKEEPING
+  PAYROLL
+  TAX_PLANNING
+  BUSINESS_ADVISORY
+  INVOICES_PAYMENTS
+  COMMUNICATIONS
+  TASKS
+  COMPLIANCE_DEADLINES
+  STAFF_MANAGEMENT
+  INTEGRATIONS
+  CUSTOM
+}
+
+/// DRAFT is saved but never runs; ACTIVE runs; PAUSED stops new runs; ARCHIVED is kept for its history.
+enum AutomationStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum AutomationTiming {
+  IMMEDIATE
+  BEFORE
+  AFTER
+  SCHEDULED
+}
+
+enum OffsetUnit {
+  MINUTE
+  HOUR
+  DAY
+}
+
+enum MatchMode {
+  ALL
+  ANY
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -629,6 +676,7 @@ model Membership {
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
   complianceDeadlines   ComplianceDeadline[]
   complianceRecurrences ComplianceRecurrence[]
+  automationRules       AutomationRule[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -3699,4 +3747,89 @@ model ComplianceSettings {
   business Business @relation(fields: [businessId], references: [id])
 
   @@map("compliance_settings")
+}
+
+/// An automation rule (the Rules table and the Create Rule builder). The rule is the identity
+/// and the switch (name, category, priority, owner, status); what it does lives in immutable
+/// versions, and a run records the version it used. Archived, never deleted, once it has run.
+model AutomationRule {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  businessId       String           @map("business_id") @db.Uuid
+  name             String
+  description      String?
+  category         AutomationModule
+  priority         TaskPriority     @default(MEDIUM)
+  status           AutomationStatus @default(DRAFT)
+  ownerUserId      String?          @map("owner_user_id") @db.Uuid
+  /// The version new runs use; set once a version exists (an ACTIVE rule has one).
+  currentVersionId String?          @map("current_version_id") @db.Uuid
+  /// Deactivates the rule on this date.
+  expiresOn        DateTime?        @map("expires_on") @db.Date
+  lastRunAt        DateTime?        @map("last_run_at") @db.Timestamptz(3)
+  createdByUserId  String?          @map("created_by_user_id") @db.Uuid
+  archivedAt       DateTime?        @map("archived_at") @db.Timestamptz(3)
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  owner          Membership?             @relation(fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
+  currentVersion AutomationRuleVersion?  @relation("AutomationCurrentVersion", fields: [businessId, currentVersionId], references: [businessId, id], onDelete: Restrict)
+  versions       AutomationRuleVersion[] @relation("AutomationRuleVersions")
+
+  @@unique([businessId, id])
+  @@unique([businessId, currentVersionId])
+  @@index([businessId, status])
+  @@index([businessId, category])
+  @@map("automation_rules")
+}
+
+/// One saved configuration of a rule, never changed afterwards: trigger (module, event code,
+/// timing and offset), conditions (match ALL or ANY of {field, operator, value} rows) and ordered
+/// actions ({id, type, config, delayMinutes}), and settings ({preventDuplicatesDays, logAll,
+/// notifyOnFailure, addToCalendar, quietHours, safetyThreshold}). triggerEvent is a code such as
+/// "deadline.approaching", checked by the API against the module's events.
+model AutomationRuleVersion {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  businessId      String           @map("business_id") @db.Uuid
+  ruleId          String           @map("rule_id") @db.Uuid
+  version         Int
+  triggerModule   AutomationModule @map("trigger_module")
+  triggerEvent    String           @map("trigger_event")
+  timing          AutomationTiming @default(IMMEDIATE)
+  offsetValue     Int?             @map("offset_value")
+  offsetUnit      OffsetUnit?      @map("offset_unit")
+  matchMode       MatchMode        @default(ALL) @map("match_mode")
+  conditions      Json             @default("[]")
+  actions         Json
+  settings        Json             @default("{}")
+  createdByUserId String?          @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rule      AutomationRule  @relation("AutomationRuleVersions", fields: [businessId, ruleId], references: [businessId, id], onDelete: Restrict)
+  currentOf AutomationRule? @relation("AutomationCurrentVersion")
+
+  @@unique([businessId, id])
+  @@unique([businessId, ruleId, version])
+  @@map("automation_rule_versions")
+}
+
+/// A reusable rule setup (Popular Automation Templates, Save as Template, Import Templates):
+/// `definition` has the same shape as a version's trigger, conditions, actions and settings, with
+/// merge variables instead of client data, and never a secret or token. Using one makes a DRAFT
+/// rule for review. Archived, not deleted.
+model AutomationTemplate {
+  id                   String           @id @default(uuid(7)) @db.Uuid
+  businessId           String           @map("business_id") @db.Uuid
+  name                 String
+  description          String?
+  category             AutomationModule
+  definition           Json
+  /// Integrations the template needs to be connected, by code (the Integrations module's).
+  requiredIntegrations String[]         @default([]) @map("required_integrations")
+  createdByUserId      String?          @map("created_by_user_id") @db.Uuid
+  archivedAt           DateTime?        @map("archived_at") @db.Timestamptz(3)
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([businessId, name])
+  @@map("automation_templates")
 }

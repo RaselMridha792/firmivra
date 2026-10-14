@@ -171,6 +171,41 @@ export type ComplianceLogKind = z.infer<typeof ComplianceLogKind>;
 export const LogOutcome = z.enum(['SUCCESS', 'FAILED', 'SKIPPED']);
 export type LogOutcome = z.infer<typeof LogOutcome>;
 
+/** The modules automations start from and act on (a rule's trigger category and rule category). */
+export const AutomationModule = z.enum([
+  'CLIENTS',
+  'LEADS',
+  'APPOINTMENTS',
+  'INTAKE_FORMS',
+  'DOCUMENTS',
+  'TAX_RETURNS',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'TAX_PLANNING',
+  'BUSINESS_ADVISORY',
+  'INVOICES_PAYMENTS',
+  'COMMUNICATIONS',
+  'TASKS',
+  'COMPLIANCE_DEADLINES',
+  'STAFF_MANAGEMENT',
+  'INTEGRATIONS',
+  'CUSTOM',
+]);
+export type AutomationModule = z.infer<typeof AutomationModule>;
+
+/** DRAFT is saved but never runs; ACTIVE runs; PAUSED stops new runs; ARCHIVED is kept for its history. */
+export const AutomationStatus = z.enum(['DRAFT', 'ACTIVE', 'PAUSED', 'ARCHIVED']);
+export type AutomationStatus = z.infer<typeof AutomationStatus>;
+
+export const AutomationTiming = z.enum(['IMMEDIATE', 'BEFORE', 'AFTER', 'SCHEDULED']);
+export type AutomationTiming = z.infer<typeof AutomationTiming>;
+
+export const OffsetUnit = z.enum(['MINUTE', 'HOUR', 'DAY']);
+export type OffsetUnit = z.infer<typeof OffsetUnit>;
+
+export const MatchMode = z.enum(['ALL', 'ANY']);
+export type MatchMode = z.infer<typeof MatchMode>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;
