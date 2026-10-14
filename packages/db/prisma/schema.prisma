@@ -736,11 +736,12 @@ model Client {
   esignBulkItems   EsignBulkItem[]
 
   // R39
-  segmentMembers CommunicationSegmentMember[]
-  commConsents   CommunicationConsent[]
-  commAudience   CommunicationAudienceEntry[]
-  commRecipients CommunicationRecipient[]
-  payrollClients PayrollClient[]
+  segmentMembers  CommunicationSegmentMember[]
+  commConsents    CommunicationConsent[]
+  commAudience    CommunicationAudienceEntry[]
+  commRecipients  CommunicationRecipient[]
+  payrollClients  PayrollClient[]
+  advisoryRecords AdvisoryClient[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -863,6 +864,9 @@ model Service {
   agreements  FirmAgreement[]
   leads       Lead[]
 
+  // R39
+  advisoryServices AdvisoryWorkstream[]
+
   @@unique([businessId, name])
   @@unique([businessId, id])
   @@map("services")
@@ -918,7 +922,8 @@ model Engagement {
   esignBulkItems   EsignBulkItem[]
 
   // R39
-  payrollClient PayrollClient?
+  payrollClient  PayrollClient?
+  advisoryClient AdvisoryClient?
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -4288,4 +4293,110 @@ model PayrollYearEnd {
 
   @@unique([payrollClientId, taxYear])
   @@map("payroll_year_ends")
+}
+
+// ---------- Business Advisory: clients, services and settings ----------
+
+enum AdvisoryClientStatus {
+  IN_PROGRESS
+  SCHEDULED
+  NEEDS_REVIEW
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum AdvisoryServiceStatus {
+  INTERESTED
+  PROPOSED
+  ACCEPTED
+  IN_PROGRESS
+  AWAITING_CLIENT
+  COMPLETED
+  DECLINED
+  ON_HOLD
+}
+
+/// A client has one PRIMARY service focus (exactly one, in SQL) and any number of ADDITIONAL ones.
+enum AdvisoryServiceRole {
+  PRIMARY
+  ADDITIONAL
+}
+
+/// A client in the advisory program. The BUSINESS_DEVELOPMENT engagement (optional, one per
+/// client) carries the meetings (appointments), tasks, notes and documents; this row adds the
+/// advisory workflow: status, advisor, the business stage, and the Business Health Score with the
+/// factors and time it was calculated at (the formula lives in advisory_settings, never an
+/// opaque score). Archived, never deleted.
+model AdvisoryClient {
+  id               String               @id @default(uuid(7)) @db.Uuid
+  businessId       String               @map("business_id") @db.Uuid
+  clientId         String               @map("client_id") @db.Uuid
+  engagementId     String?              @map("engagement_id") @db.Uuid
+  status           AdvisoryClientStatus @default(IN_PROGRESS)
+  advisorUserId    String?              @map("advisor_user_id") @db.Uuid
+  industry         String?
+  /// "idea", "startup", "growth", "established"...: the firm's own words.
+  businessStage    String?              @map("business_stage")
+  /// 0 to 100, from the formula in advisory_settings; null until calculated.
+  healthScore      Int?                 @map("health_score")
+  /// What went into the score, by factor: [{ factor, weight, value }].
+  healthFactors    Json                 @default("[]") @map("health_factors")
+  healthComputedAt DateTime?            @map("health_computed_at") @db.Timestamptz(3)
+  since            DateTime?            @db.Date
+  archivedAt       DateTime?            @map("archived_at") @db.Timestamptz(3)
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client      Client               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement  Engagement?          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  workstreams AdvisoryWorkstream[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, clientId])
+  @@unique([businessId, engagementId])
+  @@unique([businessId, clientId, engagementId])
+  @@index([businessId, status])
+  @@index([businessId, advisorUserId])
+  @@map("advisory_clients")
+}
+
+/// One service for an advisory client (business formation, EIN support, business planning,
+/// branding, website, banking readiness, funding, financial analysis, growth, operations,
+/// marketing and sales, staffing...) from the firm's own Services & Pricing catalog, with its
+/// status and package. Regulated specialist needs are tracked as referral or project steps.
+model AdvisoryWorkstream {
+  id               String                @id @default(uuid(7)) @db.Uuid
+  businessId       String                @map("business_id") @db.Uuid
+  advisoryClientId String                @map("advisory_client_id") @db.Uuid
+  serviceId        String                @map("service_id") @db.Uuid
+  role             AdvisoryServiceRole   @default(ADDITIONAL)
+  status           AdvisoryServiceStatus @default(INTERESTED)
+  packageName      String?               @map("package_name")
+  startedOn        DateTime?             @map("started_on") @db.Date
+  completedOn      DateTime?             @map("completed_on") @db.Date
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  advisoryClient AdvisoryClient @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
+  service        Service        @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([advisoryClientId, serviceId])
+  @@index([businessId, status])
+  @@map("advisory_workstreams")
+}
+
+/// One row per firm: how the Business Health Score is calculated (factor weights, so the score
+/// is explainable and configurable) and when financial figures count as stale.
+model AdvisorySettings {
+  businessId          String   @id @map("business_id") @db.Uuid
+  healthFormula       Json     @default("[]") @map("health_formula")
+  staleFinancialsDays Int      @default(120) @map("stale_financials_days")
+  defaultAdvisorId    String?  @map("default_advisor_id") @db.Uuid
+  updatedByUserId     String?  @map("updated_by_user_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("advisory_settings")
 }

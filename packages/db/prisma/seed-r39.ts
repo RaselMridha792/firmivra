@@ -12,6 +12,7 @@ export async function seedR39(tx: TxClient, businessId: string) {
   await seedCommunications(tx, businessId);
   await seedReports(tx, businessId);
   await seedPayroll(tx, businessId);
+  await seedAdvisory(tx, businessId);
 }
 
 async function seedTemplates(tx: TxClient, businessId: string) {
@@ -469,6 +470,66 @@ async function seedPayroll(tx: TxClient, businessId: string) {
       taxYear: 2025,
       status: 'IN_PROGRESS',
       items: { worker_review: 'done', w2_w3: 'pending' },
+    },
+  });
+}
+
+async function seedAdvisory(tx: TxClient, businessId: string) {
+  await tx.advisorySettings.upsert({
+    where: { businessId },
+    update: {},
+    create: {
+      businessId,
+      healthFormula: [
+        { factor: 'goals_on_track', weight: 40 },
+        { factor: 'profit_margin', weight: 30 },
+        { factor: 'open_tasks_overdue', weight: 30 },
+      ],
+    },
+  });
+  const service = await tx.service.findFirstOrThrow({
+    where: { businessId, kind: 'BUSINESS_DEVELOPMENT' },
+  });
+  const client = await tx.client.findFirstOrThrow({ where: { businessId } });
+  if (
+    await tx.advisoryClient.findUnique({
+      where: { businessId_clientId: { businessId, clientId: client.id } },
+    })
+  )
+    return;
+  let engagement = await tx.engagement.findFirst({
+    where: { businessId, clientId: client.id, serviceId: service.id },
+  });
+  engagement ??= await tx.engagement.create({
+    data: {
+      businessId,
+      clientId: client.id,
+      serviceId: service.id,
+      title: '2026 Business Advisory',
+    },
+  });
+  const advisory = await tx.advisoryClient.create({
+    data: {
+      businessId,
+      clientId: client.id,
+      engagementId: engagement.id,
+      advisorUserId: SEED_USERS.lvpOwner.id,
+      industry: 'Construction',
+      businessStage: 'growth',
+      healthScore: 82,
+      healthComputedAt: new Date(),
+      healthFactors: [{ factor: 'goals_on_track', weight: 40, value: 80 }],
+      since: new Date('2026-07-08'),
+    },
+  });
+  await tx.advisoryWorkstream.create({
+    data: {
+      businessId,
+      advisoryClientId: advisory.id,
+      serviceId: service.id,
+      role: 'PRIMARY',
+      status: 'IN_PROGRESS',
+      startedOn: new Date('2026-07-08'),
     },
   });
 }

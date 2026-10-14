@@ -618,3 +618,29 @@ export const PayrollYearEndStatus = z.enum([
   'ARCHIVED',
 ]);
 export type PayrollYearEndStatus = z.infer<typeof PayrollYearEndStatus>;
+
+export const AdvisoryClientStatus = z.enum([
+  'IN_PROGRESS',
+  'SCHEDULED',
+  'NEEDS_REVIEW',
+  'ON_HOLD',
+  'COMPLETED',
+  'ARCHIVED',
+]);
+export type AdvisoryClientStatus = z.infer<typeof AdvisoryClientStatus>;
+
+export const AdvisoryServiceStatus = z.enum([
+  'INTERESTED',
+  'PROPOSED',
+  'ACCEPTED',
+  'IN_PROGRESS',
+  'AWAITING_CLIENT',
+  'COMPLETED',
+  'DECLINED',
+  'ON_HOLD',
+]);
+export type AdvisoryServiceStatus = z.infer<typeof AdvisoryServiceStatus>;
+
+/** A client has one PRIMARY service focus (exactly one, in SQL) and any number of ADDITIONAL ones. */
+export const AdvisoryServiceRole = z.enum(['PRIMARY', 'ADDITIONAL']);
+export type AdvisoryServiceRole = z.infer<typeof AdvisoryServiceRole>;
