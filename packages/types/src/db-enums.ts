@@ -456,3 +456,30 @@ export const AudienceEntryKind = z.enum([
   'EXCLUDE_LEAD',
 ]);
 export type AudienceEntryKind = z.infer<typeof AudienceEntryKind>;
+
+/** Where one recipient stands, in Firmivra's own words (provider states are normalized to these). */
+export const CommunicationRecipientStatus = z.enum([
+  'QUEUED',
+  'SENT',
+  'DELIVERED',
+  'OPENED',
+  'CLICKED',
+  'BOUNCED',
+  'UNSUBSCRIBED',
+  'FAILED',
+  'NOT_SENT',
+]);
+export type CommunicationRecipientStatus = z.infer<typeof CommunicationRecipientStatus>;
+
+export const CommunicationEventType = z.enum([
+  'QUEUED',
+  'SENT',
+  'DELIVERED',
+  'OPENED',
+  'CLICKED',
+  'BOUNCED',
+  'COMPLAINED',
+  'UNSUBSCRIBED',
+  'FAILED',
+]);
+export type CommunicationEventType = z.infer<typeof CommunicationEventType>;

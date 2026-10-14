@@ -211,6 +211,27 @@ async function seedCommunications(tx: TxClient, businessId: string) {
       finalCount: 1,
     },
   });
+  const client = await tx.client.findFirstOrThrow({ where: { businessId } });
+  const recipient = await tx.communicationRecipient.create({
+    data: {
+      businessId,
+      communicationId: sent.id,
+      clientId: client.id,
+      addressMask: 'c***@example.test',
+      status: 'OPENED',
+      sentAt: new Date(),
+      openCount: 1,
+    },
+  });
+  await tx.communicationEvent.create({
+    data: {
+      businessId,
+      communicationId: sent.id,
+      recipientId: recipient.id,
+      type: 'OPENED',
+      occurredAt: new Date(),
+    },
+  });
   await tx.communication.update({
     where: { id: sent.id },
     data: { status: 'SENT', sentAt: new Date() },

@@ -739,6 +739,7 @@ model Client {
   segmentMembers CommunicationSegmentMember[]
   commConsents   CommunicationConsent[]
   commAudience   CommunicationAudienceEntry[]
+  commRecipients CommunicationRecipient[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -1277,6 +1278,7 @@ model Lead {
   segmentMembers CommunicationSegmentMember[]
   commConsents   CommunicationConsent[]
   commAudience   CommunicationAudienceEntry[]
+  commRecipients CommunicationRecipient[]
 
   @@unique([businessId, id])
   @@index([businessId, status, createdAt])
@@ -3445,6 +3447,8 @@ model Communication {
   source     Communication?               @relation("CommunicationSource", fields: [businessId, sourceCommunicationId], references: [businessId, id], onDelete: Restrict)
   derived    Communication[]              @relation("CommunicationSource")
   audience   CommunicationAudienceEntry[]
+  recipients CommunicationRecipient[]
+  events     CommunicationEvent[]
 
   @@unique([businessId, id])
   @@unique([businessId, idempotencyKey])
@@ -3479,4 +3483,92 @@ model CommunicationAudienceEntry {
   @@unique([communicationId, kind, leadId])
   @@index([businessId, segmentId])
   @@map("communication_audience_entries")
+}
+
+// ---------- Communications: recipients and delivery events ----------
+
+/// Where one recipient stands, in Firmivra's own words (provider states are normalized to these).
+enum CommunicationRecipientStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  UNSUBSCRIBED
+  FAILED
+  /// Left out at send time (invalid address, suppressed...); failureCode says why.
+  NOT_SENT
+}
+
+enum CommunicationEventType {
+  QUEUED
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  COMPLAINED
+  UNSUBSCRIBED
+  FAILED
+}
+
+/// One person a campaign was sent to: the recipient snapshot taken when sending started (one
+/// client or one lead, once per campaign). No address or number is stored in full, only a masked
+/// form for the results table. Only the delivery status and engagement figures change after
+/// insert. Test sends are not recipients.
+model CommunicationRecipient {
+  id                String                       @id @default(uuid(7)) @db.Uuid
+  businessId        String                       @map("business_id") @db.Uuid
+  communicationId   String                       @map("communication_id") @db.Uuid
+  clientId          String?                      @map("client_id") @db.Uuid
+  leadId            String?                      @map("lead_id") @db.Uuid
+  status            CommunicationRecipientStatus @default(QUEUED)
+  /// "j***@example.com" or "***-***-1234".
+  addressMask       String                       @map("address_mask")
+  providerMessageId String?                      @map("provider_message_id")
+  failureCode       String?                      @map("failure_code")
+  sentAt            DateTime?                    @map("sent_at") @db.Timestamptz(3)
+  deliveredAt       DateTime?                    @map("delivered_at") @db.Timestamptz(3)
+  firstOpenedAt     DateTime?                    @map("first_opened_at") @db.Timestamptz(3)
+  openCount         Int                          @default(0) @map("open_count")
+  firstClickedAt    DateTime?                    @map("first_clicked_at") @db.Timestamptz(3)
+  clickCount        Int                          @default(0) @map("click_count")
+  unsubscribedAt    DateTime?                    @map("unsubscribed_at") @db.Timestamptz(3)
+  createdAt         DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  communication Communication        @relation(fields: [businessId, communicationId], references: [businessId, id], onDelete: Restrict)
+  client        Client?              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  lead          Lead?                @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  events        CommunicationEvent[]
+
+  @@unique([businessId, id])
+  @@unique([communicationId, clientId])
+  @@unique([communicationId, leadId])
+  @@index([businessId, communicationId, status])
+  @@map("communication_recipients")
+}
+
+/// Insert-only: one normalized provider or system event of a sent campaign (the Activity tab and
+/// the daily engagement chart). `providerEventId` makes a repeated webhook delivery a no-op.
+/// `detailCode` is a short code, never message content.
+model CommunicationEvent {
+  id              String                 @id @default(uuid(7)) @db.Uuid
+  businessId      String                 @map("business_id") @db.Uuid
+  communicationId String                 @map("communication_id") @db.Uuid
+  recipientId     String?                @map("recipient_id") @db.Uuid
+  type            CommunicationEventType
+  occurredAt      DateTime               @map("occurred_at") @db.Timestamptz(3)
+  providerEventId String?                @map("provider_event_id")
+  detailCode      String?                @map("detail_code")
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  communication Communication           @relation(fields: [businessId, communicationId], references: [businessId, id], onDelete: Restrict)
+  recipient     CommunicationRecipient? @relation(fields: [businessId, recipientId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([communicationId, providerEventId])
+  @@index([businessId, communicationId, occurredAt])
+  @@index([businessId, recipientId])
+  @@map("communication_events")
 }
