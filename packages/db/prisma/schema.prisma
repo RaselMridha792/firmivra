@@ -341,6 +341,7 @@ model Business {
   stripeAccount        StripeAccount?
   platformOwnerInvites PlatformOwnerInvite[]
   esignSettings        EsignSettings?
+  invoiceTaxRates      InvoiceTaxRate[]
 
   @@map("businesses")
 }
@@ -424,6 +425,7 @@ model Membership {
   blockedTimes        BlockedTime[]
   appointments        Appointment[]
   invoicesCreated     Invoice[]
+  invoicesAssigned    Invoice[]              @relation("InvoiceAssignedTo")
   contentCreated      ContentItem[]
   agreementsCreated   FirmAgreement[]
   agreementFiles      FirmAgreementFile[]
@@ -850,11 +852,12 @@ model Service {
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business    Business        @relation(fields: [businessId], references: [id])
-  engagements Engagement[]
-  intakeForms IntakeForm[]
-  agreements  FirmAgreement[]
-  leads       Lead[]
+  business     Business        @relation(fields: [businessId], references: [id])
+  engagements  Engagement[]
+  intakeForms  IntakeForm[]
+  agreements   FirmAgreement[]
+  leads        Lead[]
+  invoiceLines InvoiceLine[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -1620,9 +1623,26 @@ model Invoice {
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  // R36 (Invoices and Payments, r36_invoice_core): see the marked section at the end of the file.
+  /// The staff member responsible for the invoice.
+  assignedUserId       String?             @map("assigned_user_id") @db.Uuid
+  /// A code such as `net_14` or `due_on_receipt`; the firm's own terms are codes too.
+  paymentTerms         String?             @map("payment_terms")
+  /// PERCENT: `discount_percent` is what the firm typed and the API sets `discount_cents` from it.
+  discountType         InvoiceDiscountType @default(FIXED) @map("discount_type")
+  discountPercent      Decimal?            @map("discount_percent") @db.Decimal(5, 2)
+  /// Tax, kept by the database: the rate is copied from `tax_rate_id` while the invoice is a draft
+  /// or scheduled, and tax is that rate on the taxable lines (after the discount's share).
+  taxRateId            String?             @map("tax_rate_id") @db.Uuid
+  taxRateBps           Int                 @default(0) @map("tax_rate_bps")
+  taxableSubtotalCents Int                 @default(0) @map("taxable_subtotal_cents")
+  taxCents             Int                 @default(0) @map("tax_cents")
+
   client          Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement      Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   createdBy       Membership?      @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  assignedTo      Membership?      @relation("InvoiceAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  taxRate         InvoiceTaxRate?  @relation(fields: [businessId, taxRateId], references: [businessId, id], onDelete: Restrict)
   lines           InvoiceLine[]
   payments        Payment[]
   offlinePayments OfflinePayment[]
@@ -1631,6 +1651,7 @@ model Invoice {
   @@unique([businessId, id])
   @@index([businessId, clientId, status])
   @@index([businessId, status, dueOn])
+  @@index([businessId, assignedUserId])
   @@map("invoices")
 }
 
@@ -1648,9 +1669,17 @@ model InvoiceLine {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  invoice Invoice @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  // R36: the catalog service the line came from (null: a custom one-time line), the name it had
+  // then (a later rename or price change never rewrites an invoice) and its tax treatment.
+  serviceId String? @map("service_id") @db.Uuid
+  itemName  String? @map("item_name")
+  taxable   Boolean @default(false)
+
+  invoice Invoice  @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  service Service? @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
 
   @@index([businessId, invoiceId])
+  @@index([businessId, serviceId])
   @@map("invoice_lines")
 }
 
@@ -2872,4 +2901,36 @@ model EsignBulkItem {
   @@unique([batchId, clientId])
   @@index([businessId, state])
   @@map("esign_bulk_items")
+}
+
+// ---------- R36: money and portal modules (Invoices and Payments, Services and Pricing, Messages,
+// Client portal tab, Company profile and branding). Rasel's request, Oct 14. Every table below is a
+// firm table: business_id, same-firm foreign keys, forced RLS with the business policy. Money is in
+// integer cents. Stripe stays the only payment provider. ----------
+
+/// Percentage or a fixed amount. PERCENT keeps what the firm typed in `discount_percent`.
+enum InvoiceDiscountType {
+  PERCENT
+  FIXED
+}
+
+/// A tax rate the firm configures (never hard-coded): an invoice copies the rate it uses.
+/// Archived, not deleted, once used. One live default per firm (SQL-only partial unique index).
+model InvoiceTaxRate {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  name       String
+  /// Basis points: 800 is 8.00%, at most 10000.
+  rateBps    Int       @map("rate_bps")
+  isDefault  Boolean   @default(false) @map("is_default")
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business  @relation(fields: [businessId], references: [id])
+  invoices Invoice[]
+
+  @@unique([businessId, name])
+  @@unique([businessId, id])
+  @@map("invoice_tax_rates")
 }

@@ -349,3 +349,7 @@ export type EsignEmailStatus = z.infer<typeof EsignEmailStatus>;
 /** An upload started and not confirmed: a request's file, or a signer's attachment. */
 export const EsignUploadKind = z.enum(['DOCUMENT', 'ATTACHMENT']);
 export type EsignUploadKind = z.infer<typeof EsignUploadKind>;
+
+/** Percentage or a fixed amount. PERCENT keeps what the firm typed in `discount_percent`. */
+export const InvoiceDiscountType = z.enum(['PERCENT', 'FIXED']);
+export type InvoiceDiscountType = z.infer<typeof InvoiceDiscountType>;
