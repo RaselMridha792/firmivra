@@ -53,6 +53,21 @@ const EMPTY: Form = {
 /** A blank optional amount is $0; anything else must be a number, which the contract then checks. */
 const amount = (text: string): number => (text.trim() === '' ? 0 : Number(text.replace(/,/g, '')));
 
+const inputFor = (form: Form) => ({
+  filingStatus: form.filingStatus,
+  annualIncome: amount(form.annualIncome),
+  adjustments: amount(form.adjustments),
+  deductionType: form.deductionType,
+  itemizedDeductions: amount(form.itemizedDeductions),
+  taxpayer: { age65OrOlder: form.age65, blind: form.blind },
+  ...(form.filingStatus === 'MARRIED_JOINT'
+    ? { spouse: { age65OrOlder: form.spouseAge65, blind: form.spouseBlind } }
+    : {}),
+  mfsSpouseItemizes: form.filingStatus === 'MARRIED_SEPARATE' && form.mfsSpouseItemizes,
+});
+
+const initialResult = () => estimateTaxBracket(TaxBracketInput.parse(inputFor(EMPTY)));
+
 const NOTICES = {
   MFS_STANDARD_NOT_ALLOWED:
     'Your spouse itemizes, so the standard deduction is $0 for you. Choose Itemized Deduction and enter your estimate.',
@@ -82,33 +97,24 @@ export function TaxBracketScreen({ publicPage = false }: { publicPage?: boolean 
 
 function Calculator({ disclaimer }: { disclaimer: string }) {
   const [form, setForm] = useState<Form>(EMPTY);
-  const [result, setResult] = useState<TaxBracketResult | null>(null);
+  const [result, setResult] = useState<TaxBracketResult>(initialResult);
+  const [hasCalculated, setHasCalculated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof Form>(key: K, value: Form[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
-    setResult(null);
   };
   const married = form.filingStatus === 'MARRIED_JOINT';
   const standard = taxYearConstants(CURRENT_TAX_YEAR).standardDeductionCents[form.filingStatus];
 
   function calculate() {
-    const parsed = TaxBracketInput.safeParse({
-      filingStatus: form.filingStatus,
-      annualIncome: amount(form.annualIncome),
-      adjustments: amount(form.adjustments),
-      deductionType: form.deductionType,
-      itemizedDeductions: amount(form.itemizedDeductions),
-      taxpayer: { age65OrOlder: form.age65, blind: form.blind },
-      ...(married ? { spouse: { age65OrOlder: form.spouseAge65, blind: form.spouseBlind } } : {}),
-      mfsSpouseItemizes: form.filingStatus === 'MARRIED_SEPARATE' && form.mfsSpouseItemizes,
-    });
+    const parsed = TaxBracketInput.safeParse(inputFor(form));
     if (!parsed.success) {
-      setResult(null);
       setError('Enter amounts as positive numbers with at most 2 decimals, for example 75000.');
       return;
     }
     setError(null);
     setResult(estimateTaxBracket(parsed.data));
+    setHasCalculated(true);
   }
 
   return (
@@ -162,12 +168,14 @@ function Calculator({ disclaimer }: { disclaimer: string }) {
             <Radio
               name="deduction"
               label="Standard Deduction"
+              className="[&>input]:accent-navigation"
               checked={form.deductionType === 'STANDARD'}
               onChange={() => set('deductionType', 'STANDARD')}
             />
             <Radio
               name="deduction"
               label="Itemized Deduction"
+              className="[&>input]:accent-navigation"
               checked={form.deductionType === 'ITEMIZED'}
               onChange={() => set('deductionType', 'ITEMIZED')}
             />
@@ -222,13 +230,17 @@ function Calculator({ disclaimer }: { disclaimer: string }) {
             ) : null}
           </fieldset>
           <div className="flex flex-wrap gap-3">
-            <Button type="submit">Calculate My {CURRENT_TAX_YEAR} Federal Tax</Button>
+            <Button type="submit" variant="dark">
+              Calculate My {CURRENT_TAX_YEAR} Federal Tax
+            </Button>
             <Button
               type="button"
               variant="secondary"
+              className="border-navigation! text-navigation! hover:bg-navigation! hover:text-on-action!"
               onClick={() => {
                 setForm(EMPTY);
-                setResult(null);
+                setResult(initialResult());
+                setHasCalculated(false);
                 setError(null);
               }}
             >
@@ -238,14 +250,15 @@ function Calculator({ disclaimer }: { disclaimer: string }) {
         </form>
       </Card>
       <div className="flex flex-col gap-6">
-        {result ? <Results result={result} /> : <BracketChart form={form} />}
+        <Results result={result} showBreakdown={hasCalculated} />
+        {!hasCalculated ? <BracketChart form={form} /> : null}
         <p className="text-sm text-text">{disclaimer}</p>
       </div>
     </div>
   );
 }
 
-function Results({ result }: { result: TaxBracketResult }) {
+function Results({ result, showBreakdown }: { result: TaxBracketResult; showBreakdown: boolean }) {
   const rows: [string, string][] = [
     ['Annual Income', formatCents(result.annualIncome)],
     [
@@ -285,31 +298,33 @@ function Results({ result }: { result: TaxBracketResult }) {
           when your complete federal income-tax return is prepared.
         </p>
       </Card>
-      <Card title="How your tax is calculated">
-        <table className="w-full text-left text-sm">
-          <caption className="sr-only">Tax by bracket</caption>
-          <thead>
-            <tr>
-              <th scope="col">Taxable income in this bracket</th>
-              <th scope="col">Rate</th>
-              <th scope="col" className="text-right">
-                Tax
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.slices.map((s) => (
-              <tr key={s.from}>
-                <td>
-                  {formatCents(s.from)} – {s.to === null ? 'and up' : formatCents(s.to)}
-                </td>
-                <td>{formatRate(s.rate)}</td>
-                <td className="text-right">{formatCents(s.tax)}</td>
+      {showBreakdown ? (
+        <Card title="How your tax is calculated">
+          <table className="w-full text-left text-sm">
+            <caption className="sr-only">Tax by bracket</caption>
+            <thead>
+              <tr>
+                <th scope="col">Taxable income in this bracket</th>
+                <th scope="col">Rate</th>
+                <th scope="col" className="text-right">
+                  Tax
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
+            </thead>
+            <tbody>
+              {result.slices.map((s) => (
+                <tr key={s.from}>
+                  <td>
+                    {formatCents(s.from)} – {s.to === null ? 'and up' : formatCents(s.to)}
+                  </td>
+                  <td>{formatRate(s.rate)}</td>
+                  <td className="text-right">{formatCents(s.tax)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      ) : null}
     </>
   );
 }
