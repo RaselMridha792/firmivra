@@ -169,7 +169,7 @@ export const PaymentProcessor = z.enum(['STRIPE']);
 export type PaymentProcessor = z.infer<typeof PaymentProcessor>;
 
 /** How an offline payment arrived. Card and bank payments through Stripe are Payment rows, never these. */
-export const OfflinePaymentMethod = z.enum(['CHECK', 'CASH']);
+export const OfflinePaymentMethod = z.enum(['CHECK', 'CASH', 'ACH', 'CARD', 'OTHER']);
 export type OfflinePaymentMethod = z.infer<typeof OfflinePaymentMethod>;
 
 /** Content editor records shown in the portal (Business Documents, Resources & Services). */

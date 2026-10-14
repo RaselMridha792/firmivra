@@ -1,18 +1,23 @@
 // R36 seed rows (money and portal modules), called from seed.ts. Synthetic sample setup only:
 // the firm's own tax rates, templates and settings, never real client data. Safe to run again.
 import { runInScope, type createPrismaClient } from '../src/client.js';
-import { SEED_BILLING_IDS, SEED_USERS } from './seed-data.js';
+import { SEED_BILLING_IDS, SEED_DOCUMENT_IDS, SEED_USERS } from './seed-data.js';
 
 type Prisma = ReturnType<typeof createPrismaClient>;
 
 export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFirmB: string }) {
-  // Invoices and Payments: a sample tax rate, the standard invoice template and the default payment settings.
+  // Invoices and Payments: a sample tax rate, the standard invoice template, a deposit account and the default payment settings.
   for (const businessId of [businesses.lvp, businesses.testFirmB]) {
     await runInScope(prisma, { kind: 'business', businessId }, async (tx) => {
       await tx.invoiceTaxRate.upsert({
         where: { businessId_name: { businessId, name: 'Sample sales tax' } },
         update: {},
         create: { businessId, name: 'Sample sales tax', rateBps: 800, isDefault: true },
+      });
+      await tx.depositAccount.upsert({
+        where: { businessId_name: { businessId, name: 'Operating Bank Account' } },
+        update: {},
+        create: { businessId, name: 'Operating Bank Account', isDefault: true },
       });
       await tx.paymentSettings.upsert({
         where: { businessId },
@@ -33,7 +38,7 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
     });
   }
 
-  // The open invoice (INV-1001's sample): viewed by the client, a sent event and a note.
+  // The open invoice (INV-1001's sample): viewed by the client, a sent event, a note and a sent file.
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, async (tx) => {
     const lvp = { businessId: businesses.lvp };
     const invoiceId = SEED_BILLING_IDS.openInvoice;
@@ -53,5 +58,20 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
         ],
       });
     }
+    const documentId = SEED_DOCUMENT_IDS.return2024;
+    const doc = await tx.document.findUniqueOrThrow({ where: { id: documentId } });
+    if (doc.scanStatus === 'PENDING') {
+      await tx.document.update({
+        where: { id: documentId },
+        data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+      });
+    }
+    await tx.invoiceAttachment.upsert({
+      where: {
+        businessId_invoiceId_documentId: { businessId: businesses.lvp, invoiceId, documentId },
+      },
+      update: {},
+      create: { ...lvp, invoiceId, documentId, addedByUserId: SEED_USERS.lvpOwner.id },
+    });
   });
 }
