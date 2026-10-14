@@ -425,3 +425,31 @@ export const TaxEstimateStatus = z.enum([
   'PAID',
 ]);
 export type TaxEstimateStatus = z.infer<typeof TaxEstimateStatus>;
+
+export const TaxFilingMethod = z.enum(['EFILE', 'PAPER']);
+export type TaxFilingMethod = z.infer<typeof TaxFilingMethod>;
+
+/** One jurisdiction's filing state. For EFILE it follows the newest attempt (the database sets it); PAPER_FILED is for paper filings only. */
+export const TaxJurisdictionStatus = z.enum([
+  'NOT_FILED',
+  'TRANSMITTED',
+  'ACCEPTED',
+  'REJECTED',
+  'PAPER_FILED',
+]);
+export type TaxJurisdictionStatus = z.infer<typeof TaxJurisdictionStatus>;
+
+export const TaxAmountStatus = z.enum(['ESTIMATED', 'FINAL']);
+export type TaxAmountStatus = z.infer<typeof TaxAmountStatus>;
+
+export const TaxExtensionStatus = z.enum([
+  'NOT_FILED',
+  'PREPARED',
+  'FILED',
+  'ACCEPTED',
+  'REJECTED',
+]);
+export type TaxExtensionStatus = z.infer<typeof TaxExtensionStatus>;
+
+export const TaxAckStatus = z.enum(['PENDING', 'ACCEPTED', 'REJECTED']);
+export type TaxAckStatus = z.infer<typeof TaxAckStatus>;

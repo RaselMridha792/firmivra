@@ -23,6 +23,10 @@ const ID = {
   requestTypeItem2: '00000000-0000-4a37-8000-000000000023',
   shareClient: '00000000-0000-4a37-8000-000000000031',
   shareMember: '00000000-0000-4a37-8000-000000000032',
+  filing2025Federal: '00000000-0000-4a37-8000-000000000041',
+  filing2025State: '00000000-0000-4a37-8000-000000000042',
+  filing2024Federal: '00000000-0000-4a37-8000-000000000043',
+  attempt2024: '00000000-0000-4a37-8000-000000000044',
   requestPacket: '00000000-0000-4a37-8000-000000000024',
 } as const;
 
@@ -245,7 +249,7 @@ async function seedDocumentShares(tx: TxClient, businessId: string) {
 }
 
 /** Tax Returns: the 2025 return in review with its people, filing status and deadline. */
-async function seedTaxReturnWorkflow(tx: TxClient) {
+async function seedTaxReturnWorkflow(tx: TxClient, businessId: string) {
   await tx.taxReturn.update({
     where: { id: SEED_TAX_RETURN_IDS.lvp2025 },
     data: {
@@ -257,6 +261,40 @@ async function seedTaxReturnWorkflow(tx: TxClient) {
       updatedByUserId: SEED_USERS.lvpStaff.id,
     },
   });
+  // The 2025 return's two jurisdictions, expected amounts only; the accepted 2024 federal return
+  // with the one recorded transmission and its acknowledgment.
+  const filing = (id: string, taxReturnId: string, jurisdiction: string, data = {}) =>
+    tx.taxReturnFiling.upsert({
+      where: { id },
+      update: {},
+      create: { id, businessId, taxReturnId, jurisdiction, ...data },
+    });
+  await filing(ID.filing2025Federal, SEED_TAX_RETURN_IDS.lvp2025, 'US', {
+    refundCents: 284_200,
+    amountStatus: 'ESTIMATED',
+  });
+  await filing(ID.filing2025State, SEED_TAX_RETURN_IDS.lvp2025, 'GA', {
+    refundCents: 31_600,
+    amountStatus: 'ESTIMATED',
+  });
+  await filing(ID.filing2024Federal, SEED_TAX_RETURN_IDS.lvp2024, 'US', {
+    refundCents: 120_000,
+    amountStatus: 'FINAL',
+  });
+  if (!(await tx.taxReturnFilingAttempt.findUnique({ where: { id: ID.attempt2024 } }))) {
+    await tx.taxReturnFilingAttempt.create({
+      data: {
+        id: ID.attempt2024,
+        businessId,
+        filingId: ID.filing2024Federal,
+        submissionId: 'SUB-2024-0001',
+        transmittedAt: new Date('2025-04-12T14:00:00Z'),
+        ackStatus: 'ACCEPTED',
+        acknowledgedAt: new Date('2025-04-12T18:30:00Z'),
+        recordedByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+  }
 }
 
 export async function seedR37(tx: TxClient, businessId: string) {
@@ -265,5 +303,5 @@ export async function seedR37(tx: TxClient, businessId: string) {
   await seedDocumentLibrary(tx, businessId);
   await seedDocumentRequests(tx, businessId);
   await seedDocumentShares(tx, businessId);
-  await seedTaxReturnWorkflow(tx);
+  await seedTaxReturnWorkflow(tx, businessId);
 }

@@ -454,26 +454,27 @@ model Membership {
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
 
   // R37 back-relations (no columns on memberships).
-  intakesAssigned          Intake[]                  @relation("IntakeAssignedTo")
-  intakesCompleted         Intake[]                  @relation("IntakeCompletedBy")
-  intakeSettingsOwner      IntakeSettings[]          @relation("IntakeSettingsOwner")
-  intakeSettingsFollowUp   IntakeSettings[]          @relation("IntakeSettingsFollowUp")
-  intakeTemplatesCreated   IntakeTemplate[]          @relation("IntakeTemplateCreatedBy")
-  intakeTemplatesAssigned  IntakeTemplate[]          @relation("IntakeTemplateAssignedTo")
-  documentsReviewer        Document[]                @relation("DocumentReviewer")
-  documentsReviewedBy      Document[]                @relation("DocumentReviewedBy")
-  requestPacketsAssigned   DocumentRequestPacket[]   @relation("PacketAssignedTo")
-  requestPacketsRequested  DocumentRequestPacket[]   @relation("PacketRequestedBy")
-  requestPacketsForMember  DocumentRequestPacket[]   @relation("PacketRecipientMember")
-  requestTemplatesOwned    DocumentRequestTemplate[] @relation("RequestTemplateOwner")
-  documentSharesToMember   DocumentShare[]           @relation("ShareToMember")
-  documentSharesGranted    DocumentShare[]           @relation("ShareGrantedBy")
-  documentSharesRevoked    DocumentShare[]           @relation("ShareRevokedBy")
-  documentSettingsReviewer DocumentSettings[]        @relation("DocumentSettingsReviewer")
-  taxReturnsPrepared       TaxReturn[]               @relation("TaxReturnPreparer")
-  taxReturnsReviewed       TaxReturn[]               @relation("TaxReturnReviewer")
-  taxReturnsValidated      TaxReturn[]               @relation("TaxReturnValidator")
-  taxReturnsUpdated        TaxReturn[]               @relation("TaxReturnUpdatedBy")
+  intakesAssigned           Intake[]                  @relation("IntakeAssignedTo")
+  intakesCompleted          Intake[]                  @relation("IntakeCompletedBy")
+  intakeSettingsOwner       IntakeSettings[]          @relation("IntakeSettingsOwner")
+  intakeSettingsFollowUp    IntakeSettings[]          @relation("IntakeSettingsFollowUp")
+  intakeTemplatesCreated    IntakeTemplate[]          @relation("IntakeTemplateCreatedBy")
+  intakeTemplatesAssigned   IntakeTemplate[]          @relation("IntakeTemplateAssignedTo")
+  documentsReviewer         Document[]                @relation("DocumentReviewer")
+  documentsReviewedBy       Document[]                @relation("DocumentReviewedBy")
+  requestPacketsAssigned    DocumentRequestPacket[]   @relation("PacketAssignedTo")
+  requestPacketsRequested   DocumentRequestPacket[]   @relation("PacketRequestedBy")
+  requestPacketsForMember   DocumentRequestPacket[]   @relation("PacketRecipientMember")
+  requestTemplatesOwned     DocumentRequestTemplate[] @relation("RequestTemplateOwner")
+  documentSharesToMember    DocumentShare[]           @relation("ShareToMember")
+  documentSharesGranted     DocumentShare[]           @relation("ShareGrantedBy")
+  documentSharesRevoked     DocumentShare[]           @relation("ShareRevokedBy")
+  documentSettingsReviewer  DocumentSettings[]        @relation("DocumentSettingsReviewer")
+  taxReturnsPrepared        TaxReturn[]               @relation("TaxReturnPreparer")
+  taxReturnsReviewed        TaxReturn[]               @relation("TaxReturnReviewer")
+  taxReturnsValidated       TaxReturn[]               @relation("TaxReturnValidator")
+  taxReturnsUpdated         TaxReturn[]               @relation("TaxReturnUpdatedBy")
+  taxFilingAttemptsRecorded TaxReturnFilingAttempt[]  @relation("TaxAttemptRecordedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -2137,6 +2138,7 @@ model TaxReturn {
   amends         TaxReturn?         @relation("TaxReturnAmends", fields: [businessId, clientId, amendsReturnId], references: [businessId, clientId, id], onDelete: Restrict)
   amendedBy      TaxReturn[]        @relation("TaxReturnAmends")
   history        TaxReturnHistory[]
+  filings        TaxReturnFiling[]
 
   client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -3454,4 +3456,100 @@ model TaxReturnHistory {
   @@index([businessId, taxReturnId, seq])
   @@index([businessId, changedAt])
   @@map("tax_return_history")
+}
+
+enum TaxFilingMethod {
+  EFILE
+  /// Filed on paper: never shown as e-filed.
+  PAPER
+}
+
+/// One jurisdiction's filing state. For EFILE it follows the newest attempt (the database sets
+/// it); PAPER_FILED is for paper filings only.
+enum TaxJurisdictionStatus {
+  NOT_FILED
+  TRANSMITTED
+  ACCEPTED
+  REJECTED
+  PAPER_FILED
+}
+
+enum TaxAmountStatus {
+  ESTIMATED
+  FINAL
+}
+
+enum TaxExtensionStatus {
+  NOT_FILED
+  PREPARED
+  FILED
+  ACCEPTED
+  REJECTED
+}
+
+enum TaxAckStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+/// One jurisdiction of a return: the federal return ("US") and each state ("GA"): how it is
+/// filed, where it stands, the refund or amount due the firm expects, and its extension. Status
+/// tracking only: the firm records what its tax software did.
+model TaxReturnFiling {
+  id                    String                @id @default(uuid(7)) @db.Uuid
+  businessId            String                @map("business_id") @db.Uuid
+  taxReturnId           String                @map("tax_return_id") @db.Uuid
+  /// "US" for federal, or a two-letter state code.
+  jurisdiction          String
+  filingMethod          TaxFilingMethod       @default(EFILE) @map("filing_method")
+  /// Closing the return waits for the required jurisdictions only.
+  required              Boolean               @default(true)
+  status                TaxJurisdictionStatus @default(NOT_FILED)
+  paperFiledOn          DateTime?             @map("paper_filed_on") @db.Date
+  /// In cents. At most one of the two is above zero; the amount's status says estimate or final.
+  refundCents           Int?                  @map("refund_cents")
+  amountDueCents        Int?                  @map("amount_due_cents")
+  amountStatus          TaxAmountStatus?      @map("amount_status")
+  extensionStatus       TaxExtensionStatus    @default(NOT_FILED) @map("extension_status")
+  /// The extended deadline; the return's dueOn stays the original.
+  extendedDueOn         DateTime?             @map("extended_due_on") @db.Date
+  extensionConfirmation String?               @map("extension_confirmation")
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  taxReturn TaxReturn                @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  attempts  TaxReturnFilingAttempt[]
+
+  @@unique([businessId, taxReturnId, jurisdiction])
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@map("tax_return_filings")
+}
+
+/// One recorded transmission of a filing and what came back. Entered by staff from their tax
+/// software ("Recorded by", never "sent by Firmivra"); never deleted, and a rejection stays when
+/// the next attempt is made.
+model TaxReturnFilingAttempt {
+  id                String       @id @default(uuid(7)) @db.Uuid
+  businessId        String       @map("business_id") @db.Uuid
+  filingId          String       @map("filing_id") @db.Uuid
+  /// The submission id as the software or agency gave it.
+  submissionId      String       @map("submission_id")
+  transmittedAt     DateTime     @map("transmitted_at") @db.Timestamptz(3)
+  ackStatus         TaxAckStatus @default(PENDING) @map("ack_status")
+  acknowledgedAt    DateTime?    @map("acknowledged_at") @db.Timestamptz(3)
+  rejectCode        String?      @map("reject_code")
+  rejectDescription String?      @map("reject_description")
+  correctiveAction  String?      @map("corrective_action")
+  recordedByUserId  String       @map("recorded_by_user_id") @db.Uuid
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  filing     TaxReturnFiling @relation(fields: [businessId, filingId], references: [businessId, id], onDelete: Cascade)
+  recordedBy Membership      @relation("TaxAttemptRecordedBy", fields: [businessId, recordedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, filingId, submissionId])
+  @@index([businessId, filingId, transmittedAt])
+  @@index([businessId, ackStatus, transmittedAt])
+  @@map("tax_return_filing_attempts")
 }
