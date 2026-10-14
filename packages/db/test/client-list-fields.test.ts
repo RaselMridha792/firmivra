@@ -143,61 +143,9 @@ describe('source, priority and client since', () => {
 });
 
 describe('last activity', () => {
-  it('moves forward with a client’s documents, requests, appointments and tax returns, never back', async () => {
+  it('is set by the API and only moves forward, never back or cleared', async () => {
     const c = await newClient();
     expect(c.lastActivityAt).toBeNull();
-    const { engagement } = await runInScope(
-      owner,
-      { kind: 'business', businessId: ids.firmA },
-      async (tx) => ({
-        engagement: await tx.engagement.create({
-          data: { businessId: ids.firmA, clientId: c.id, serviceId: ids.service, title: '2025' },
-        }),
-      }),
-    );
-    const stamps: Date[] = [];
-    const touched = async () => {
-      const at = (await fresh(c.id)).lastActivityAt;
-      expect(at).not.toBeNull();
-      stamps.push(at!);
-    };
-    await A().documentRequest.create({
-      data: { businessId: ids.firmA, clientId: c.id, engagementId: engagement.id, title: 'W-2' },
-    });
-    await touched();
-    await A().document.create({
-      data: {
-        businessId: ids.firmA,
-        clientId: c.id,
-        engagementId: engagement.id,
-        direction: 'INTERNAL',
-        fileName: 'a.pdf',
-        contentType: 'application/pdf',
-        sizeBytes: 1,
-        sha256: 'e'.repeat(64),
-        s3Key: `tenant/${ids.firmA}/documents/${randomUUID()}`,
-      },
-    });
-    await touched();
-    await A().taxReturn.create({
-      data: { businessId: ids.firmA, clientId: c.id, taxYear: 2025, filingType: 'INDIVIDUAL' },
-    });
-    await touched();
-    await A().appointment.create({
-      data: {
-        businessId: ids.firmA,
-        clientId: c.id,
-        staffUserId: ids.staffA,
-        locationKind: 'PHONE',
-        startsAt: new Date('2034-01-01T10:00:00Z'),
-        endsAt: new Date('2034-01-01T11:00:00Z'),
-      },
-    });
-    await touched();
-    expect(stamps.map((d) => d.getTime())).toEqual(
-      [...stamps].map((d) => d.getTime()).sort((a, b) => a - b),
-    );
-    // A caller can move it forward, but not back or clear it.
     const later = days(1);
     await A().client.update({ where: { id: c.id }, data: { lastActivityAt: later } });
     expect((await fresh(c.id)).lastActivityAt).toEqual(later);
@@ -205,5 +153,8 @@ describe('last activity', () => {
     expect((await fresh(c.id)).lastActivityAt).toEqual(later);
     await A().client.update({ where: { id: c.id }, data: { lastActivityAt: null } });
     expect((await fresh(c.id)).lastActivityAt).toEqual(later);
+    const newer = days(2);
+    await A().client.update({ where: { id: c.id }, data: { lastActivityAt: newer } });
+    expect((await fresh(c.id)).lastActivityAt).toEqual(newer);
   });
 });

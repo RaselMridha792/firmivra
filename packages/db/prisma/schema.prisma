@@ -777,8 +777,8 @@ model Client {
   /// Client since: editable (clients brought over from before Firmivra); empty means the
   /// creation date. Not in the future.
   clientSince     DateTime?       @map("client_since") @db.Date
-  /// The newest of the client's documents, appointments, returns and requests, kept by the
-  /// database; the API adds messages, invoices, payments, notes and tasks. Only moves forward.
+  /// The newest thing that happened for the client; set by the API, and the database only lets
+  /// it move forward.
   lastActivityAt  DateTime?       @map("last_activity_at") @db.Timestamptz(3)
   /// Who made the last change; the status history row's author.
   updatedByUserId String?         @map("updated_by_user_id") @db.Uuid
