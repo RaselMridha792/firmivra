@@ -117,7 +117,7 @@ async function seedIntegrations(tx: TxClient, businessId: string) {
 
 async function seedIntegrationRequest(tx: TxClient, businessId: string) {
   const providerName = 'Sample Books';
-  if (await tx.integrationRequest.findFirst({ where: { providerName } })) return;
+  if (await tx.integrationRequest.findFirst({ where: { businessId, providerName } })) return;
   await tx.integrationRequest.create({
     data: {
       businessId,
