@@ -265,20 +265,7 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
       update: {},
       create: { ...lvp, threadId: SEED_MESSAGE_IDS.w2Thread, userId: SEED_USERS.lvpOwner.id },
     });
-    await tx.messageTemplate.upsert({
-      where: { businessId_name: { businessId: businesses.lvp, name: 'Appointment reminder' } },
-      update: {},
-      create: {
-        ...lvp,
-        name: 'Appointment reminder',
-        category: 'Appointments',
-        channels: ['PORTAL', 'EMAIL'],
-        subject: 'Your upcoming appointment',
-        body: 'Hi {{first_name}}, a reminder about your appointment on {{appointment_date}}.',
-      },
-    });
-
-    // Messages settings, the owner's signature and the client's email consent.
+    // Messages settings, the owner's signature. (Templates and consents are R39's.)
     await tx.messageSettings.upsert({
       where: { businessId: businesses.lvp },
       update: {},
@@ -293,11 +280,6 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
       update: {},
       create: { ...lvp, userId: SEED_USERS.lvpOwner.id, body: 'Best regards,\nThe LVP owner' },
     });
-    if ((await tx.contactConsent.count({ where: { clientId } })) === 0) {
-      await tx.contactConsent.create({
-        data: { ...lvp, clientId, channel: 'EMAIL', status: 'OPTED_IN', source: 'portal_sign_up' },
-      });
-    }
 
     // A reminder to the client through the portal, scheduled for later.
     if ((await tx.outboundMessage.count({ where: { subject: 'Appointment reminder' } })) === 0) {

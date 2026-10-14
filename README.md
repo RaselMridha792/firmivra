@@ -77,7 +77,7 @@ Notes:
 ## How we work
 
 1. Branch from `main`: `<name>/FIR-<issue>-short-name`.
-2. Open a small PR into `main` (under 400 lines) using the template; your pair pre-reviews.
+2. Open a PR into `main` (one ticket or one page per PR) using the template; your pair pre-reviews.
 3. CI must pass. Only Rasel approves and merges.
 4. A merge to `main` deploys to dev. Production deploys from a `v*` release tag after approval.
 

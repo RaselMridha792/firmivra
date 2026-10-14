@@ -1,17 +1,25 @@
 'use client';
 
-import { ApiRequestError, type BusinessSummary, type MembershipRole } from '@firmivra/types';
+import {
+  ApiRequestError,
+  type BusinessSummary,
+  FIRM_ROLE_LABELS,
+  type MembershipRole,
+} from '@firmivra/types';
 import { Button } from '@firmivra/ui';
 import {
   Briefcase,
   CalendarDots,
   ChatCircleDots,
   ClipboardText,
+  Files,
+  FileText,
   GearSix,
   House,
   type Icon,
   Receipt,
   Signature,
+  Tag,
   Target,
   UserGear,
   UserPlus,
@@ -65,8 +73,8 @@ const items: (NavItem & { managers?: true })[] = [
   link('Sign-ups', UserPlus, '/sign-ups', true),
   link('Leads', Target, '/leads'),
   link('Appointments', CalendarDots, '/calendar'),
-  mod('intake-forms'),
-  mod('documents'),
+  link('Intake Forms', FileText, '/intake-forms'),
+  link('Documents', Files, '/documents'),
   mod('client-portal'),
   mod('tax-returns'),
   mod('bookkeeping'),
@@ -81,7 +89,7 @@ const items: (NavItem & { managers?: true })[] = [
   mod('compliance'),
   mod('reports'),
   mod('templates'),
-  mod('services-pricing'),
+  link('Services & Pricing', Tag, '/services-pricing'),
   link('Workspaces', Briefcase, '/workspaces'),
   link('Firm Sign', Signature, '/firm-sign'),
   link('Audit log', ClipboardText, '/audit-log', true),
@@ -104,12 +112,6 @@ const FIRM_ERRORS: Record<string, string> = {
   BUSINESS_REQUIRED:
     "Your account belongs to more than one firm, and choosing a firm isn't available yet.",
   NOT_FOUND: "Your account isn't a member of a firm on this site.",
-};
-
-const ROLE_LABEL: Record<MembershipRole, string> = {
-  OWNER: 'Owner',
-  ADMIN: 'Admin',
-  STAFF: 'Staff',
 };
 
 /** Every firm workspace page with the sidebar: the sign-in check, the firm, then the shell. */
@@ -218,7 +220,7 @@ function FirmShell({
           .filter((i) => manager || !i.managers)
           .map((i) => (i.href === '/messages' && badge ? { ...i, badge } : i)),
       ]}
-      roleLabel={role ? ROLE_LABEL[role] : 'Staff'}
+      roleLabel={role ? FIRM_ROLE_LABELS[role] : 'Staff'}
       brand={{
         name: firm.name,
         logoUrl: branding?.logoUrl ?? null,

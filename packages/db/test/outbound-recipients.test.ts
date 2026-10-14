@@ -231,7 +231,7 @@ describe('recipients', () => {
   });
 
   it('a bulk send never goes to a contact who opted out of the channel; a direct message can', async () => {
-    await firmA().contactConsent.create({
+    await firmA().communicationConsent.create({
       data: {
         ...A(),
         clientId: ids.otherClient,

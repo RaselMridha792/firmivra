@@ -37,7 +37,7 @@ Target merge windows in brackets (Dhaka).
 ## Rules
 
 - CLAUDE.md's hard rules. Every API PR carries a cross-firm 404, a cross-client 404 and, for signer routes, wrong-slug, expired and used token tests.
-- PRs from fresh `main` or stacked on my one open PR; under 400 changed lines of code (contracts exempt, one at a time); at most 2 open non-contract PRs; `/code-review high` first. Merge `main`, never rebase or force-push. Branches `rasel/R13-api-<name>`, titles `<type>: <what> (R13)`.
+- PRs from fresh `main` or stacked on my one open PR; one ticket or one page per PR (contracts one at a time); at most 2 open non-contract PRs; `/code-review high` first. Merge `main`, never rebase or force-push. Branches `rasel/R13-api-<name>`, titles `<type>: <what> (R13)`.
 
 ## Decisions in contract 1
 

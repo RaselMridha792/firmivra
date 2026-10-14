@@ -8,6 +8,7 @@ import {
   type ActivationCheckResponse,
   type MfaSetupResponse,
   PASSWORD_RULES,
+  FIRM_ROLE_LABELS,
 } from '@firmivra/types';
 import { AuthFrame, Button, Input } from '@firmivra/ui';
 import { ArrowRight, Check, Circle, Eye, EyeOff, LoaderCircle, LockKeyhole } from 'lucide-react';
@@ -33,7 +34,6 @@ const resolver: Resolver<Values> = async (values, context, options) => {
 
 /** Unknown, used, expired or missing links get one answer that never says who has an account. */
 const LINK_ERRORS = ['INVITE_INVALID', 'INVITE_EXPIRED', 'VALIDATION_FAILED'];
-const ROLES = { OWNER: 'Owner', ADMIN: 'Admin', STAFF: 'Staff' } as const;
 /** Button's classes with the screen's main-button look (auth-submit), for a link. */
 const SUBMIT_LINK =
   'auth-submit inline-flex items-center justify-center gap-2 px-4 py-2 font-medium text-on-action focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
@@ -327,7 +327,7 @@ function Invitation({ invite }: { invite: ActivationCheckResponse }) {
       </p>
       <p className="text-muted">
         You are invited to join <strong className="text-text">{invite.business.name}</strong> as{' '}
-        {ROLES[invite.role]}.
+        {FIRM_ROLE_LABELS[invite.role]}.
       </p>
       <p className="break-words text-sm text-muted">
         Sign-in email: <strong className="text-text">{invite.email}</strong>

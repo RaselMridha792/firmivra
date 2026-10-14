@@ -1,5 +1,5 @@
-// R36 (Messages, r36_message_workspace): the inbox's thread state (owner, archived), mute, tags and
-// the message templates. Runs as the app role under RLS.
+// R36 (Messages, r36_message_workspace): the inbox's thread state (owner, archived), mute and tags.
+// Runs as the app role under RLS.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
@@ -25,17 +25,6 @@ const firmB = () => db.forBusiness(f.firmB);
 const thread = (data: Record<string, unknown> = {}) =>
   firmA().messageThread.create({
     data: { ...A(), clientId: f.client, subject: `Thread ${++count}`, ...data },
-  });
-const template = (data: Record<string, unknown> = {}) =>
-  firmA().messageTemplate.create({
-    data: {
-      ...A(),
-      name: `Template ${++count}`,
-      channels: ['EMAIL'],
-      subject: 'Your upcoming appointment',
-      body: 'Hi {{first_name}}, a reminder about {{appointment_date}}.',
-      ...data,
-    },
   });
 
 beforeAll(async () => {
@@ -174,58 +163,11 @@ describe('tags', () => {
   });
 });
 
-describe('message templates', () => {
-  it('fit one or more channels, once each, with a name and a body', async () => {
-    await expect(template({ channels: ['PORTAL', 'EMAIL', 'SMS'] })).resolves.toBeTruthy();
-    await expect(template({ channels: [] })).rejects.toThrow(/check constraint/i);
-    await expect(template({ channels: ['SMS', 'SMS'] })).rejects.toThrow(/check constraint/i);
-    await expect(template({ name: ' ' })).rejects.toThrow(/check constraint/i);
-    await expect(template({ body: ' ' })).rejects.toThrow(/check constraint/i);
-    await expect(template({ body: 'x'.repeat(5001) })).rejects.toThrow(/check constraint/i);
-    await expect(template({ subject: 'x'.repeat(201) })).rejects.toThrow(/check constraint/i);
-    await expect(template({ category: 'x'.repeat(61) })).rejects.toThrow(/check constraint/i);
-  });
-
-  it("are the firm's or one member's own, and name a service of this firm", async () => {
-    await expect(template({ scope: 'PERSONAL' })).rejects.toThrow(/check constraint/i);
-    await expect(template({ ownerUserId: u.staff })).rejects.toThrow(/check constraint/i);
-    await expect(template({ scope: 'PERSONAL', ownerUserId: u.staff })).resolves.toBeTruthy();
-    await expect(template({ scope: 'PERSONAL', ownerUserId: randomUUID() })).rejects.toThrow(
-      /foreign key/i,
-    );
-    const theirs = await runInScope(owner, { kind: 'business', businessId: f.firmB }, (tx) =>
-      tx.service.create({ data: { businessId: f.firmB, kind: 'OTHER', name: `B ${f.run}` } }),
-    );
-    await expect(template({ serviceId: theirs.id })).rejects.toThrow(/foreign key/i);
-    const mine = await firmA().service.create({
-      data: { ...A(), kind: 'OTHER', name: `A ${f.run}` },
-    });
-    await expect(template({ serviceId: mine.id, createdByUserId: u.staff })).resolves.toBeTruthy();
-  });
-
-  it('are archived, never deleted, with unique names per firm', async () => {
-    const t = await template({ name: `Std ${f.run}` });
-    await expect(template({ name: `Std ${f.run}` })).rejects.toThrow(/unique/i);
-    await expect(
-      firmA().messageTemplate.update({ where: { id: t.id }, data: { status: 'ARCHIVED' } }),
-    ).resolves.toMatchObject({ status: 'ARCHIVED' });
-    await expect(firmA().messageTemplate.deleteMany({ where: { id: t.id } })).rejects.toThrow(
-      /permission denied/i,
-    );
-    await expect(
-      firmB().messageTemplate.create({
-        data: { businessId: f.firmB, name: `Std ${f.run}`, channels: ['PORTAL'], body: 'b' },
-      }),
-    ).resolves.toBeTruthy();
-  });
-});
-
 describe('isolation between firms', () => {
-  it('mutes, tags and templates are invisible to another firm; threads cannot be crossed', async () => {
+  it('mutes and tags are invisible to another firm; threads cannot be crossed', async () => {
     const t = await thread();
     await firmA().messageThreadMute.create({ data: { ...A(), threadId: t.id, userId: u.staff } });
     await firmA().messageThreadTag.create({ data: { ...A(), threadId: t.id, tag: 'a' } });
-    await template();
     await runInScope(owner, { kind: 'business', businessId: f.firmB }, async (tx) => {
       const client = await tx.client.create({ data: { businessId: f.firmB, displayName: 'B' } });
       const bt = await tx.messageThread.create({
@@ -234,14 +176,8 @@ describe('isolation between firms', () => {
       await tx.messageThreadTag.create({
         data: { businessId: f.firmB, threadId: bt.id, tag: 'b' },
       });
-      await tx.messageTemplate.create({
-        data: { businessId: f.firmB, name: `B iso ${f.run}`, channels: ['PORTAL'], body: 'b' },
-      });
     });
-    await expectInvisibleToOtherFirm(app, f.firmA, f.firmB, [
-      'message_thread_tags',
-      'message_templates',
-    ]);
+    await expectInvisibleToOtherFirm(app, f.firmA, f.firmB, ['message_thread_tags']);
     const seen = await runInScope(app, { kind: 'business', businessId: f.firmB }, (tx) =>
       tx.$queryRawUnsafe<{ n: number }[]>('SELECT count(*)::int AS n FROM message_thread_mutes'),
     );
@@ -251,10 +187,5 @@ describe('isolation between firms', () => {
         data: { businessId: f.firmB, threadId: t.id, tag: 'sneaky' },
       }),
     ).rejects.toThrow(/foreign key/i);
-    await expect(
-      firmB().messageTemplate.create({
-        data: { ...A(), name: 'Sneaky', channels: ['PORTAL'], body: 's' },
-      }),
-    ).rejects.toThrow(/row-level security/i);
   });
 });

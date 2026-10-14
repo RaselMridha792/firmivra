@@ -138,9 +138,15 @@ describe('outbound messages', () => {
     await expect(bulk({ audience: 'BOTH' })).resolves.toBeTruthy();
   });
 
-  it("use the firm's own template, author and owner", async () => {
+  it("use the firm's own (R39) template, author and owner", async () => {
     const theirs = await firmB().messageTemplate.create({
-      data: { businessId: f.firmB, name: `B ${f.run}`, channels: ['PORTAL'], body: 'b' },
+      data: {
+        businessId: f.firmB,
+        kind: 'EMAIL',
+        name: `B ${f.run}`,
+        body: 'b',
+        ownerUserId: staff,
+      },
     });
     await expect(message({ templateId: theirs.id })).rejects.toThrow(/foreign key/i);
     await expect(message({ createdByUserId: randomUUID() })).rejects.toThrow(/foreign key/i);

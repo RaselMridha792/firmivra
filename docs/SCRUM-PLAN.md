@@ -47,7 +47,7 @@ Every sprint runs the same 2-week loop: plan on day 1, build with a daily stand-
 1. **Backlog:** Rasel writes the story from Project Draft v2 and links the mockup screen.
 2. **Ready:** it meets the Definition of Ready below and has a story-point estimate.
 3. **In progress:** the developer creates a branch from the latest `main`, named `<name>/FIR-123-short-name` (for example `fahad/FIR-42-login-screen`), and pushes to it as often as they like.
-4. **Pull request:** small PR (aim under 400 changed lines) from that branch into `main`. CI must pass: lint, type check, unit tests, build.
+4. **Pull request:** PR (one ticket or one page per PR) from that branch into `main`. CI must pass: lint, type check, unit tests, build.
 5. **Pre-review:** the other developer on the same side reads it and leaves comments.
 6. **Review and merge:** Rasel reviews, runs it locally if needed, and squash-merges into `main`. Only Rasel can merge.
 7. **Deploy:** the merge to `main` deploys to dev.firmivra.com automatically through CI/CD.
@@ -213,7 +213,7 @@ This is the heaviest sprint. If Sprint 2's velocity shows we are behind, the cal
 | Risk | Impact | What we do |
 | --- | --- | --- |
 | Data leaks between businesses | Critical | Row-level security in PostgreSQL, tenant guard in the API, isolation tests in CI from Sprint 1 |
-| Rasel is the only reviewer and the only owner of database and infra | High | Peer pre-review before Rasel, PRs under 400 lines, two fixed review slots a day, schema and infra requests filed a sprint ahead |
+| Rasel is the only reviewer and the only owner of database and infra | High | Peer pre-review before Rasel, one ticket or one page per PR, two fixed review slots a day, schema and infra requests filed a sprint ahead |
 | Scope grew but the date stayed fixed | High | Track velocity from Sprint 1; if behind after Sprint 2, move the calculator and resource dashboards after beta first |
 | Screens drift from Octavia's mockups | High | Design system first; frontend PRs include a screenshot next to the mockup |
 | New screens have no mockups yet | High | Ask Octavia in Sprint 0; otherwise Fahad designs them from the design system and Octavia approves in the sprint demo |

@@ -1,6 +1,6 @@
 import { Controller, Get, Module } from '@nestjs/common';
 import type { DashboardSummary } from '@firmivra/types';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { actorOf } from '../workspaces/common.js';
 import { WorkspacesModule } from '../workspaces/workspaces.module.js';
@@ -11,6 +11,7 @@ import { DashboardService } from './dashboard.service.js';
  * Staff. The firm comes from TenantGuard; Staff get the numbers of their assigned clients.
  */
 @Controller('business/dashboard')
+@Access('DASHBOARD')
 @Roles(...FIRM_STAFF)
 export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
