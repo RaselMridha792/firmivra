@@ -10,8 +10,10 @@ export {
   type Column,
   type TableProps,
   type TableSort,
+  type TableSelection,
   type TableServerControl,
 } from './table';
+export { Pagination, type PaginationProps } from './pagination';
 export { DateRangePicker, type DateRange, type DateRangePickerProps } from './date-range-picker';
 export { FormField, FormSection } from './form-section';
 export { Modal } from './modal';

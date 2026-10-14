@@ -8,6 +8,9 @@ Components in `packages/ui` that Octavia's firm workspace designs (`docs/mockups
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `Table`      | `rows`, `columns`, `rowKey`, `caption`, `dense`, `selection`, `rowActions`, `server`, `noun`, `pageSizes`, `loading`, `emptyTitle`, `emptyText`, `emptyAction` | clients, leads, invoices, documents, staff, tax returns, tasks, payroll, bookkeeping, settings |
 | `Pagination` | `page`, `onPage`, `pageCount` (or `hasNext` for cursor paging), `summary`, `pageSize`, `pageSizes`, `onPageSize`                                               | every list's footer (`Table` already includes it)                                              |
+| `FilterBar`  | `children` (search, selects), `more` (`FilterGroup`s for "More Filters"), `onApply`, `onClear`, `onReset`; with `SearchField`, `FilterGroup`, `FilterChip`     | clients, leads, invoices, documents, tax returns, tasks, payroll, bookkeeping                  |
+| `BulkBar`    | `count`, `noun`, `actions` (`label`, `icon`, `onClick`, `danger`), `children`                                                                                  | clients, leads                                                                                 |
+| `IconButton` | `icon`, `label` (accessible name), `tone`, `weight`                                                                                                            | row actions in clients, leads, appointments                                                    |
 
 ## Navigation and overlays
 
