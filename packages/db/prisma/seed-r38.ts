@@ -44,6 +44,12 @@ export const SEED_R38_IDS = {
   automationRule: id(22),
   automationVersion: id(23),
   automationTemplate: id(24),
+  run1: id(25),
+  run2: id(26),
+  exec1: id(27),
+  exec2: id(28),
+  exec3: id(29),
+  automationSettings: id(30),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -348,6 +354,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
     data: { deadlineId: SEED_R38_IDS.deadline1, templateId: SEED_R38_IDS.template },
   });
   await seedAutomations(tx, c);
+  await seedAutomationRuns(tx, c);
 }
 
 /** The IRS 2027 calendar, published: an entry with a date, and one that needs checking. */
@@ -472,5 +479,94 @@ async function seedAutomations(tx: TxClient, c: WorkSeedContext) {
       definition,
       createdByUserId: c.ownerId,
     },
+  });
+}
+
+/** A successful run (task created, email sent), a failed one (invalid address) and the settings. */
+async function seedAutomationRuns(tx: TxClient, c: WorkSeedContext) {
+  const { businessId } = c;
+  const run = (n: 'run1' | 'run2', data: Record<string, unknown>) =>
+    tx.automationRun.upsert({
+      where: { id: SEED_R38_IDS[n] },
+      update: {},
+      create: {
+        id: SEED_R38_IDS[n],
+        businessId,
+        ruleId: SEED_R38_IDS.automationRule,
+        ruleVersionId: SEED_R38_IDS.automationVersion,
+        sourceModule: 'COMPLIANCE_DEADLINES',
+        clientId: c.clientId,
+        recordKind: 'deadline',
+        recordId: SEED_R38_IDS.deadline1,
+        correlationId: SEED_R38_IDS[n],
+        ...data,
+      } as Parameters<typeof tx.automationRun.create>[0]['data'],
+    });
+  await run('run1', {
+    status: 'SUCCESS',
+    sourceEventKey: 'deadline.approaching:2027-01-01',
+    startedAt: new Date('2026-10-01T09:00:00Z'),
+    finishedAt: new Date('2026-10-01T09:00:08Z'),
+    durationMs: 8000,
+  });
+  await run('run2', {
+    status: 'FAILED',
+    sourceEventKey: 'deadline.approaching:2027-01-02',
+    startedAt: new Date('2026-10-02T09:00:00Z'),
+    finishedAt: new Date('2026-10-02T09:00:04Z'),
+    durationMs: 4000,
+    errorCode: 'EMAIL_UNDELIVERABLE',
+    message: 'The email address is not valid.',
+  });
+  const exec = (
+    n: 'exec1' | 'exec2' | 'exec3',
+    runKey: 'run1' | 'run2',
+    data: Record<string, unknown>,
+  ) =>
+    tx.automationActionExecution.upsert({
+      where: { id: SEED_R38_IDS[n] },
+      update: {},
+      create: {
+        id: SEED_R38_IDS[n],
+        businessId,
+        runId: SEED_R38_IDS[runKey],
+        startedAt: new Date('2026-10-01T09:00:01Z'),
+        finishedAt: new Date('2026-10-01T09:00:03Z'),
+        ...data,
+      } as Parameters<typeof tx.automationActionExecution.create>[0]['data'],
+    });
+  await exec('exec1', 'run1', {
+    actionKey: 'a1',
+    position: 0,
+    actionType: 'create_task',
+    status: 'SUCCESS',
+    attempts: 1,
+    idempotencyKey: `${SEED_R38_IDS.run1}:a1`,
+    resultKind: 'task',
+    resultId: c.taskId,
+  });
+  await exec('exec2', 'run1', {
+    actionKey: 'a2',
+    position: 1,
+    actionType: 'send_email',
+    status: 'SUCCESS',
+    attempts: 1,
+    idempotencyKey: `${SEED_R38_IDS.run1}:a2`,
+  });
+  await exec('exec3', 'run2', {
+    actionKey: 'a2',
+    position: 1,
+    actionType: 'send_email',
+    status: 'FAILED',
+    attempts: 1,
+    retryable: false,
+    errorCode: 'EMAIL_UNDELIVERABLE',
+    detail: 'Invalid email address',
+    idempotencyKey: `${SEED_R38_IDS.run2}:a2`,
+  });
+  await tx.automationSettings.upsert({
+    where: { businessId },
+    update: {},
+    create: { businessId, failureAlertUserIds: [c.ownerId] },
   });
 }

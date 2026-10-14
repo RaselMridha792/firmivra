@@ -206,6 +206,20 @@ export type OffsetUnit = z.infer<typeof OffsetUnit>;
 export const MatchMode = z.enum(['ALL', 'ANY']);
 export type MatchMode = z.infer<typeof MatchMode>;
 
+/** PENDING waits to start (or for a scheduled action), RUNNING is in progress; the rest end the run: PARTIAL_SUCCESS means some actions worked and others failed. */
+export const AutomationRunStatus = z.enum([
+  'PENDING',
+  'RUNNING',
+  'SUCCESS',
+  'PARTIAL_SUCCESS',
+  'FAILED',
+  'SKIPPED',
+]);
+export type AutomationRunStatus = z.infer<typeof AutomationRunStatus>;
+
+export const ActionExecutionStatus = z.enum(['PENDING', 'RUNNING', 'SUCCESS', 'FAILED', 'SKIPPED']);
+export type ActionExecutionStatus = z.infer<typeof ActionExecutionStatus>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;

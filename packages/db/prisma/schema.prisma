@@ -293,6 +293,25 @@ enum MatchMode {
   ANY
 }
 
+/// PENDING waits to start (or for a scheduled action), RUNNING is in progress; the rest end the
+/// run: PARTIAL_SUCCESS means some actions worked and others failed.
+enum AutomationRunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL_SUCCESS
+  FAILED
+  SKIPPED
+}
+
+enum ActionExecutionStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -566,6 +585,7 @@ model Business {
   // R38 work modules.
   taskTypes          TaskType[]
   complianceSettings ComplianceSettings[]
+  automationSettings AutomationSettings[]
 
   @@map("businesses")
 }
@@ -969,6 +989,7 @@ model Client {
   taskSeries                     TaskSeries[]
   complianceDeadlines            ComplianceDeadline[]
   complianceApplicabilityRecords ComplianceApplicabilityRecord[]
+  automationRuns                 AutomationRun[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -3774,6 +3795,7 @@ model AutomationRule {
   owner          Membership?             @relation(fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
   currentVersion AutomationRuleVersion?  @relation("AutomationCurrentVersion", fields: [businessId, currentVersionId], references: [businessId, id], onDelete: Restrict)
   versions       AutomationRuleVersion[] @relation("AutomationRuleVersions")
+  automationRuns AutomationRun[]
 
   @@unique([businessId, id])
   @@unique([businessId, currentVersionId])
@@ -3804,8 +3826,9 @@ model AutomationRuleVersion {
   createdByUserId String?          @map("created_by_user_id") @db.Uuid
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  rule      AutomationRule  @relation("AutomationRuleVersions", fields: [businessId, ruleId], references: [businessId, id], onDelete: Restrict)
-  currentOf AutomationRule? @relation("AutomationCurrentVersion")
+  rule           AutomationRule  @relation("AutomationRuleVersions", fields: [businessId, ruleId], references: [businessId, id], onDelete: Restrict)
+  currentOf      AutomationRule? @relation("AutomationCurrentVersion")
+  automationRuns AutomationRun[]
 
   @@unique([businessId, id])
   @@unique([businessId, ruleId, version])
@@ -3832,4 +3855,111 @@ model AutomationTemplate {
 
   @@unique([businessId, name])
   @@map("automation_templates")
+}
+
+/// One execution of a rule version for one source event and record (Automation Logs). The id is
+/// the stable run id. sourceEventKey makes it idempotent: the same event for the same rule never
+/// starts a second run. correlationId and depth follow a chain of runs started by runs (loop
+/// protection). A dry run (Test / Preview) has no side effects. A manual re-run retries only the
+/// failed actions of this run (rerun* record who, why and how many times). Never deleted.
+model AutomationRun {
+  id                String              @id @default(uuid(7)) @db.Uuid
+  businessId        String              @map("business_id") @db.Uuid
+  ruleId            String              @map("rule_id") @db.Uuid
+  ruleVersionId     String              @map("rule_version_id") @db.Uuid
+  status            AutomationRunStatus @default(PENDING)
+  dryRun            Boolean             @default(false) @map("dry_run")
+  sourceModule      AutomationModule    @map("source_module")
+  sourceEventKey    String              @map("source_event_key")
+  /// The client the record belongs to, when it has one.
+  clientId          String?             @map("client_id") @db.Uuid
+  /// The record that triggered the run (its kind, e.g. "deadline", and id), kept as ids only.
+  recordKind        String?             @map("record_kind")
+  recordId          String?             @map("record_id") @db.Uuid
+  correlationId     String              @map("correlation_id") @db.Uuid
+  depth             Int                 @default(0)
+  parentRunId       String?             @map("parent_run_id") @db.Uuid
+  startedAt         DateTime?           @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?           @map("finished_at") @db.Timestamptz(3)
+  durationMs        Int?                @map("duration_ms")
+  /// A safe code and short message for a failed or skipped run: never client data or tokens.
+  errorCode         String?             @map("error_code")
+  message           String?
+  rerunCount        Int                 @default(0) @map("rerun_count")
+  lastRerunAt       DateTime?           @map("last_rerun_at") @db.Timestamptz(3)
+  lastRerunByUserId String?             @map("last_rerun_by_user_id") @db.Uuid
+  lastRerunReason   String?             @map("last_rerun_reason")
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rule        AutomationRule              @relation(fields: [businessId, ruleId], references: [businessId, id], onDelete: Restrict)
+  ruleVersion AutomationRuleVersion       @relation(fields: [businessId, ruleVersionId], references: [businessId, id], onDelete: Restrict)
+  client      Client?                     @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  parentRun   AutomationRun?              @relation("AutomationRunChain", fields: [businessId, parentRunId], references: [businessId, id], onDelete: Restrict)
+  childRuns   AutomationRun[]             @relation("AutomationRunChain")
+  executions  AutomationActionExecution[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, ruleId, sourceEventKey])
+  @@index([businessId, createdAt])
+  @@index([businessId, status, createdAt])
+  @@index([businessId, ruleId, createdAt])
+  @@index([businessId, clientId])
+  @@map("automation_runs")
+}
+
+/// One action of a run, in the rule version's order. idempotencyKey (unique per firm) makes a
+/// retry or a duplicate event safe: an action that SUCCEEDED is never run again (the database
+/// refuses to move it back). A delayed action waits PENDING until scheduledFor. resultKind and
+/// resultId name what it made (a task, a message), as ids only.
+model AutomationActionExecution {
+  id             String                @id @default(uuid(7)) @db.Uuid
+  businessId     String                @map("business_id") @db.Uuid
+  runId          String                @map("run_id") @db.Uuid
+  /// The action's id inside the rule version.
+  actionKey      String                @map("action_key")
+  position       Int
+  actionType     String                @map("action_type")
+  status         ActionExecutionStatus @default(PENDING)
+  idempotencyKey String                @map("idempotency_key")
+  scheduledFor   DateTime?             @map("scheduled_for") @db.Timestamptz(3)
+  attempts       Int                   @default(0)
+  /// False for a failure a retry cannot fix (an invalid address): shown as an actionable failure.
+  retryable      Boolean               @default(true)
+  errorCode      String?               @map("error_code")
+  detail         String?
+  resultKind     String?               @map("result_kind")
+  resultId       String?               @map("result_id") @db.Uuid
+  startedAt      DateTime?             @map("started_at") @db.Timestamptz(3)
+  finishedAt     DateTime?             @map("finished_at") @db.Timestamptz(3)
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  run AutomationRun @relation(fields: [businessId, runId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, runId, actionKey])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, status, scheduledFor])
+  @@map("automation_action_executions")
+}
+
+/// A firm's Automation settings: quiet hours for client messages, the default duplicate window,
+/// loop depth and safety threshold for new rules, who is told when a rule fails, the minutes each
+/// action is counted as saving (the Time Saved figure) and how long logs are kept. One row per firm.
+model AutomationSettings {
+  businessId            String    @id @map("business_id") @db.Uuid
+  quietStart            DateTime? @map("quiet_start") @db.Time(0)
+  quietEnd              DateTime? @map("quiet_end") @db.Time(0)
+  defaultDedupeDays     Int       @default(7) @map("default_dedupe_days")
+  maxDepth              Int       @default(3) @map("max_depth")
+  safetyThreshold       Int       @default(500) @map("safety_threshold")
+  failureAlertUserIds   String[]  @default([]) @map("failure_alert_user_ids") @db.Uuid
+  minutesSavedPerAction Int       @default(5) @map("minutes_saved_per_action")
+  logRetentionDays      Int       @default(365) @map("log_retention_days")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("automation_settings")
 }
