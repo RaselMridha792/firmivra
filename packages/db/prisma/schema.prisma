@@ -350,6 +350,7 @@ model Business {
   invoiceTemplates     InvoiceTemplate[]
   paymentSettings      PaymentSettings?
   depositAccounts      DepositAccount[]
+  serviceCategories    ServiceCategory[]
 
   @@map("businesses")
 }
@@ -461,6 +462,7 @@ model Membership {
   invoiceAttachments    InvoiceAttachment[]
   recurringAssigned     RecurringInvoice[]     @relation("RecurringAssignedTo")
   recurringCreated      RecurringInvoice[]     @relation("RecurringCreatedBy")
+  servicesUpdated       Service[]              @relation("ServiceUpdatedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -869,6 +871,26 @@ model Service {
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  // R36 (Services and Pricing, r36_service_catalog): the catalog screens' fields. `description` is
+  // the short description; a service made before R36 is ACTIVE with a custom quote.
+  categoryId             String?            @map("category_id") @db.Uuid
+  status                 ServiceStatus      @default(ACTIVE)
+  pricingType            ServicePricingType @default(CUSTOM_QUOTE) @map("pricing_type")
+  basePriceCents         Int?               @map("base_price_cents")
+  /// RECURRING needs one other than ONE_TIME; `billing_interval` stays the engagement default.
+  billingFrequency       BillingFrequency?  @map("billing_frequency")
+  taxable                Boolean            @default(false)
+  requiresClientApproval Boolean            @default(false) @map("requires_client_approval")
+  /// Client-facing, sanitized by the API, up to 1000 characters.
+  fullDescription        String?            @map("full_description")
+  /// A design-system icon name, never a URL.
+  iconKey                String?            @map("icon_key")
+  /// Staff only, up to 500 characters; never on a client page or an invoice.
+  internalNotes          String?            @map("internal_notes")
+  /// Shown to clients (portal and website) when ACTIVE; staff permission is separate.
+  clientVisible          Boolean            @default(false) @map("client_visible")
+  updatedByUserId        String?            @map("updated_by_user_id") @db.Uuid
+
   business       Business               @relation(fields: [businessId], references: [id])
   engagements    Engagement[]
   intakeForms    IntakeForm[]
@@ -876,9 +898,14 @@ model Service {
   leads          Lead[]
   invoiceLines   InvoiceLine[]
   recurringLines RecurringInvoiceLine[]
+  category       ServiceCategory?       @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  updatedBy      Membership?            @relation("ServiceUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  inclusions     ServiceInclusion[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
+  @@index([businessId, status])
+  @@index([businessId, categoryId])
   @@map("services")
 }
 
@@ -3325,4 +3352,65 @@ model ClientPaymentMethod {
   @@unique([businessId, id])
   @@index([businessId, clientId, status])
   @@map("client_payment_methods")
+}
+
+/// DRAFT is not sold yet; ACTIVE is selectable for new sales; INACTIVE keeps its history but is not
+/// offered. Archiving (`archived_at`) hides a service from both lists and keeps every record.
+enum ServiceStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum ServicePricingType {
+  FIXED
+  STARTING_AT
+  HOURLY
+  CUSTOM_QUOTE
+  RECURRING
+}
+
+enum ServiceInclusionKind {
+  INCLUDED
+  NOT_INCLUDED
+}
+
+/// A group of services and packages ("Tax Preparation", "Advisory"). Deactivated (`archived_at`),
+/// not deleted, while services use it; an unused one may be deleted.
+model ServiceCategory {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  businessId  String    @map("business_id") @db.Uuid
+  name        String
+  description String?
+  iconKey     String?   @map("icon_key")
+  /// `#rrggbb`.
+  color       String?
+  sortOrder   Int       @default(0) @map("sort_order")
+  archivedAt  DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business  @relation(fields: [businessId], references: [id])
+  services Service[]
+
+  @@unique([businessId, name])
+  @@unique([businessId, id])
+  @@map("service_categories")
+}
+
+/// One line of a service's "What's Included" or "Not Included" list, in order.
+model ServiceInclusion {
+  id         String               @id @default(uuid(7)) @db.Uuid
+  businessId String               @map("business_id") @db.Uuid
+  serviceId  String               @map("service_id") @db.Uuid
+  kind       ServiceInclusionKind
+  text       String
+  sortOrder  Int                  @default(0) @map("sort_order")
+  createdAt  DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  service Service @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, serviceId, kind, sortOrder])
+  @@map("service_inclusions")
 }

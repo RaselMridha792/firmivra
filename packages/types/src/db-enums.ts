@@ -405,3 +405,19 @@ export type InvoiceDelivery = z.infer<typeof InvoiceDelivery>;
 
 export const PaymentMethodStatus = z.enum(['ACTIVE', 'REMOVED']);
 export type PaymentMethodStatus = z.infer<typeof PaymentMethodStatus>;
+
+/** DRAFT is not sold yet; ACTIVE is selectable for new sales; INACTIVE keeps its history but is not offered. Archiving (`archived_at`) hides a service from both lists and keeps every record. */
+export const ServiceStatus = z.enum(['DRAFT', 'ACTIVE', 'INACTIVE']);
+export type ServiceStatus = z.infer<typeof ServiceStatus>;
+
+export const ServicePricingType = z.enum([
+  'FIXED',
+  'STARTING_AT',
+  'HOURLY',
+  'CUSTOM_QUOTE',
+  'RECURRING',
+]);
+export type ServicePricingType = z.infer<typeof ServicePricingType>;
+
+export const ServiceInclusionKind = z.enum(['INCLUDED', 'NOT_INCLUDED']);
+export type ServiceInclusionKind = z.infer<typeof ServiceInclusionKind>;

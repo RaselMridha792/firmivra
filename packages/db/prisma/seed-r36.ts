@@ -124,5 +124,52 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
         authorizedAt: new Date('2026-10-01T12:00:00Z'),
       },
     });
+
+    // The catalog: categories, and sample prices (the designs' sample figures, not real prices) on
+    // LVP's seeded services, each with what it includes.
+    const categories = new Map<string, string>();
+    for (const [sortOrder, name] of ['Tax Preparation', 'Bookkeeping', 'Advisory'].entries()) {
+      const row = await tx.serviceCategory.upsert({
+        where: { businessId_name: { businessId: businesses.lvp, name } },
+        update: {},
+        create: { ...lvp, name, sortOrder },
+      });
+      categories.set(name, row.id);
+    }
+    const catalog = [
+      ['Annual Tax', 'Tax Preparation', 'FIXED', 29000, null],
+      ['Quarterly Tax', 'Tax Preparation', 'RECURRING', 15000, 'QUARTERLY'],
+      ['Bookkeeping', 'Bookkeeping', 'RECURRING', 19900, 'MONTHLY'],
+    ] as const;
+    for (const [name, category, pricingType, basePriceCents, billingFrequency] of catalog) {
+      const service = await tx.service.findUnique({
+        where: { businessId_name: { businessId: businesses.lvp, name } },
+      });
+      if (!service || service.categoryId) continue;
+      await tx.service.update({
+        where: { id: service.id },
+        data: {
+          categoryId: categories.get(category),
+          pricingType,
+          basePriceCents,
+          billingFrequency,
+          taxable: true,
+          clientVisible: true,
+          fullDescription: `Sample description of ${name}.`,
+        },
+      });
+      await tx.serviceInclusion.createMany({
+        data: [
+          { ...lvp, serviceId: service.id, kind: 'INCLUDED', text: 'Review of your documents' },
+          {
+            ...lvp,
+            serviceId: service.id,
+            kind: 'NOT_INCLUDED',
+            text: 'Audit representation',
+            sortOrder: 1,
+          },
+        ],
+      });
+    }
   });
 }
