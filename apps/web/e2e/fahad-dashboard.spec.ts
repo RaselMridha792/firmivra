@@ -1,26 +1,18 @@
 import { expect, test } from '@playwright/test';
 
 const base = `http://app.localhost:${process.env['WEB_PORT'] ?? '3000'}`;
-const queues = [
-  'New clients',
-  'Missing documents',
-  'Preparation',
-  'Review',
-  'Signature',
-  'Payment',
-  'Filing',
-  'Completed',
-];
 const menu = [
   'Dashboard',
   'Clients',
   'Sign-ups',
   'Leads',
+  'Appointments',
   'Messages',
-  'Calendar',
-  'Invoices',
+  'Invoices & Payments',
   'Workspaces',
-  'Team',
+  'Firm Sign',
+  'Audit log',
+  'Staff Management',
   'Settings',
 ];
 
@@ -34,11 +26,8 @@ for (const width of [1536, 375]) {
         .getByRole('button', { name: `LVP ${role} (${role}@lvp.test)`, exact: true })
         .click();
       await expect(page.getByTestId('firm-name')).toHaveText('LVP Accounting & Taxes');
-      await expect(page.getByTestId('work-queue')).toHaveCount(8);
-      for (const title of queues) {
-        await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
-      }
-      await expect(page.getByText('No items in this queue yet.', { exact: true })).toHaveCount(8);
+      await expect(page.getByTestId('page-title')).toContainText('Welcome back');
+      await expect(page.getByTestId('kpi-card').first()).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
@@ -47,9 +36,11 @@ for (const width of [1536, 375]) {
       const expected =
         role === 'owner'
           ? menu
-          : menu.filter((name) => !['Sign-ups', 'Team', 'Settings'].includes(name));
+          : menu.filter(
+              (name) => !['Sign-ups', 'Audit log', 'Staff Management', 'Settings'].includes(name),
+            );
       await expect(nav.getByRole('link')).toHaveText(expected);
-      for (const name of ['Sign-ups', 'Team', 'Settings']) {
+      for (const name of ['Sign-ups', 'Audit log', 'Staff Management', 'Settings']) {
         await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(
           role === 'owner' ? 1 : 0,
         );
