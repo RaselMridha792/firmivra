@@ -273,4 +273,35 @@ async function seedReports(tx: TxClient, businessId: string) {
   const link = { businessId, definitionId: report.id };
   await tx.reportFavorite.create({ data: { ...link, userId: ownerUserId } });
   await tx.reportShare.create({ data: { ...link, userId: SEED_USERS.lvpStaff.id } });
+  const schedule = await tx.reportSchedule.create({
+    data: {
+      businessId,
+      definitionId: report.id,
+      name: 'Weekly revenue report',
+      frequency: 'WEEKLY',
+      weekday: 1,
+      runTime: new Date('1970-01-01T08:00:00Z'),
+      timezone: 'America/New_York',
+      datePreset: 'previous_week',
+      formats: ['PDF'],
+      ownerUserId,
+    },
+  });
+  await tx.reportScheduleRecipient.create({
+    data: { businessId, scheduleId: schedule.id, userId: SEED_USERS.lvpOwner.id },
+  });
+  const now = new Date();
+  await tx.reportRun.create({
+    data: {
+      businessId,
+      definitionId: report.id,
+      scheduleId: schedule.id,
+      kind: 'SCHEDULED',
+      status: 'SUCCEEDED',
+      format: 'PDF',
+      rowCount: 10,
+      startedAt: now,
+      finishedAt: now,
+    },
+  });
 }

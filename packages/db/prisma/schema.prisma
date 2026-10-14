@@ -3649,6 +3649,8 @@ model ReportDefinition {
 
   shares    ReportShare[]
   favorites ReportFavorite[]
+  schedules ReportSchedule[]
+  runs      ReportRun[]
 
   @@unique([businessId, id])
   @@index([businessId, category])
@@ -3697,4 +3699,127 @@ model ReportSettings {
   updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("report_settings")
+}
+
+// ---------- Reports: schedules and run history ----------
+
+enum ReportFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum ReportFormat {
+  PDF
+  XLSX
+  CSV
+}
+
+/// VIEW: opened on screen (Recent Reports). EXPORT: a download. SCHEDULED: made by a schedule.
+/// SNAPSHOT: a saved copy of the numbers at that moment.
+enum ReportRunKind {
+  VIEW
+  EXPORT
+  SCHEDULED
+  SNAPSHOT
+}
+
+enum ReportRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// A recurring run of a saved report (`definitionId`) or of a built-in quick report (`systemKey`),
+/// in the firm's time zone. `nextRunAt` is what the scheduler job reads.
+model ReportSchedule {
+  id                  String           @id @default(uuid(7)) @db.Uuid
+  businessId          String           @map("business_id") @db.Uuid
+  definitionId        String?          @map("definition_id") @db.Uuid
+  systemKey           String?          @map("system_key")
+  name                String
+  frequency           ReportFrequency
+  /// WEEKLY: 0 = Sunday to 6.
+  weekday             Int?
+  /// MONTHLY, QUARTERLY (the first month of each quarter) and ANNUAL: 1 to 31 (the API clamps to the month's last day).
+  dayOfMonth          Int?             @map("day_of_month")
+  monthOfYear         Int?             @map("month_of_year")
+  runTime             DateTime         @map("run_time") @db.Time(0)
+  timezone            String
+  /// The date range each run uses, a rolling preset such as "previous_month".
+  datePreset          String           @map("date_preset")
+  formats             ReportFormat[]
+  deliverEmail        Boolean          @default(true) @map("deliver_email")
+  deliverInApp        Boolean          @default(false) @map("deliver_in_app")
+  active              Boolean          @default(true)
+  /// "Delete Schedule": stops future runs, keeps the schedule for the runs that point at it.
+  deletedAt           DateTime?        @map("deleted_at") @db.Timestamptz(3)
+  nextRunAt           DateTime?        @map("next_run_at") @db.Timestamptz(3)
+  lastRunAt           DateTime?        @map("last_run_at") @db.Timestamptz(3)
+  lastStatus          ReportRunStatus? @map("last_status")
+  consecutiveFailures Int              @default(0) @map("consecutive_failures")
+  ownerUserId         String           @map("owner_user_id") @db.Uuid
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  definition ReportDefinition?         @relation(fields: [businessId, definitionId], references: [businessId, id], onDelete: Restrict)
+  recipients ReportScheduleRecipient[]
+  runs       ReportRun[]
+
+  @@unique([businessId, id])
+  @@index([businessId, active, nextRunAt])
+  @@map("report_schedules")
+}
+
+/// Who gets a scheduled report: a firm member, or an outside email the firm approved.
+model ReportScheduleRecipient {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  scheduleId String   @map("schedule_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  email      String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  schedule ReportSchedule @relation(fields: [businessId, scheduleId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([scheduleId, userId])
+  @@unique([scheduleId, email])
+  @@map("report_schedule_recipients")
+}
+
+/// One view, export, scheduled run or snapshot (the Recent Reports list and the audit of exports).
+/// `definitionSnapshot` keeps the settings it ran with, so a later edit never changes what it was.
+/// The file, if any, is an S3 key under the firm's prefix. Finished runs never change.
+/// `sensitive` marks an export of financial or client data (also written to the audit log).
+model ReportRun {
+  id                 String          @id @default(uuid(7)) @db.Uuid
+  businessId         String          @map("business_id") @db.Uuid
+  definitionId       String?         @map("definition_id") @db.Uuid
+  systemKey          String?         @map("system_key")
+  scheduleId         String?         @map("schedule_id") @db.Uuid
+  kind               ReportRunKind
+  status             ReportRunStatus @default(QUEUED)
+  requestedByUserId  String?         @map("requested_by_user_id") @db.Uuid
+  format             ReportFormat?
+  rangeFrom          DateTime?       @map("range_from") @db.Date
+  rangeTo            DateTime?       @map("range_to") @db.Date
+  definitionSnapshot Json            @default("{}") @map("definition_snapshot")
+  s3Key              String?         @unique @map("s3_key")
+  rowCount           Int?            @map("row_count")
+  sensitive          Boolean         @default(false)
+  errorCode          String?         @map("error_code")
+  startedAt          DateTime?       @map("started_at") @db.Timestamptz(3)
+  finishedAt         DateTime?       @map("finished_at") @db.Timestamptz(3)
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  definition ReportDefinition? @relation(fields: [businessId, definitionId], references: [businessId, id], onDelete: Restrict)
+  schedule   ReportSchedule?   @relation(fields: [businessId, scheduleId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, createdAt])
+  @@index([businessId, definitionId])
+  @@index([businessId, scheduleId])
+  @@map("report_runs")
 }

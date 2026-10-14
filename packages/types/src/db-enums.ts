@@ -507,3 +507,16 @@ export type ReportDateRule = z.infer<typeof ReportDateRule>;
 /** Which money "Total Revenue" means in every report, KPI card and export of the firm. */
 export const RevenueBasis = z.enum(['COLLECTED', 'INVOICED']);
 export type RevenueBasis = z.infer<typeof RevenueBasis>;
+
+export const ReportFrequency = z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL']);
+export type ReportFrequency = z.infer<typeof ReportFrequency>;
+
+export const ReportFormat = z.enum(['PDF', 'XLSX', 'CSV']);
+export type ReportFormat = z.infer<typeof ReportFormat>;
+
+/** VIEW: opened on screen (Recent Reports). EXPORT: a download. SCHEDULED: made by a schedule. SNAPSHOT: a saved copy of the numbers at that moment. */
+export const ReportRunKind = z.enum(['VIEW', 'EXPORT', 'SCHEDULED', 'SNAPSHOT']);
+export type ReportRunKind = z.infer<typeof ReportRunKind>;
+
+export const ReportRunStatus = z.enum(['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED']);
+export type ReportRunStatus = z.infer<typeof ReportRunStatus>;
