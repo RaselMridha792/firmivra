@@ -49,6 +49,10 @@
   --color-purple-soft: #f1ebfe;
   /* R27: the firm dashboard mockup's gold (welcome name, + New, amber tiles), orange and light-blue stage colours. */
   --color-gold: #d38a00;
+  /* R33: the firm sidebar's slogan and the bars in its motto, measured from the dashboard design. */
+  --color-gold-light: #daac3c;
+  /* R33: the open page's pill in the firm sidebar, measured from the dashboard design. */
+  --color-nav-active: #0069fe;
   --color-orange: #f26a21;
   --color-sky: #4da3ff;
   /* R40: the firm workspace tables' header band, and their row lines and control borders. */
@@ -73,6 +77,8 @@
   /* R25: mockup faces (Nunito Sans, Playfair Display) loaded by apps/web; old stacks stay as fallbacks. */
   --font-sans: var(--font-face-sans, Arial), Helvetica, sans-serif;
   --font-display: var(--font-face-display, Georgia), 'Times New Roman', serif;
+  /* R33: the firm sidebar's slogan (Satisfy, loaded by apps/web). */
+  --font-script: var(--font-face-script, 'Brush Script MT'), cursive;
   --tracking-eyebrow: 0.12em;
   /* R25: the wide tagline under the Firmivra wordmark ("SUPER ADMIN PORTAL"). */
   --tracking-brand: 0.22em;
