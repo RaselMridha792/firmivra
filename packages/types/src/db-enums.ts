@@ -485,3 +485,9 @@ export type CalendarColor = z.infer<typeof CalendarColor>;
 
 export const ReminderChannel = z.enum(['EMAIL', 'SMS', 'PORTAL']);
 export type ReminderChannel = z.infer<typeof ReminderChannel>;
+
+export const BlockedTimeKind = z.enum(['BLOCKED', 'TIME_OFF']);
+export type BlockedTimeKind = z.infer<typeof BlockedTimeKind>;
+
+export const RecurrenceFrequency = z.enum(['DAILY', 'WEEKLY', 'MONTHLY']);
+export type RecurrenceFrequency = z.infer<typeof RecurrenceFrequency>;

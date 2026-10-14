@@ -40,6 +40,8 @@ const ID = {
   roomConference: '00000000-0000-4a37-8000-000000000072',
   reminderEmail: '00000000-0000-4a37-8000-000000000073',
   reminderSms: '00000000-0000-4a37-8000-000000000074',
+  series: '00000000-0000-4a37-8000-000000000075',
+  override: '00000000-0000-4a37-8000-000000000076',
   requestPacket: '00000000-0000-4a37-8000-000000000024',
 } as const;
 
@@ -411,6 +413,41 @@ async function seedAppointmentDetails(tx: TxClient, businessId: string) {
       businessId,
       officeId: ID.officeMain,
       name: 'Conference Room 1',
+    },
+  });
+  // A weekly series (record only), a day off for the staff member, and the firm's settings.
+  await tx.appointmentSeries.upsert({
+    where: { id: ID.series },
+    update: {},
+    create: {
+      id: ID.series,
+      businessId,
+      frequency: 'WEEKLY',
+      byWeekdays: [2],
+      occurrenceCount: 8,
+      timeZone: 'America/New_York',
+      createdByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
+  await tx.availabilityOverride.upsert({
+    where: { id: ID.override },
+    update: {},
+    create: {
+      id: ID.override,
+      businessId,
+      userId: SEED_USERS.lvpStaff.id,
+      date: new Date('2026-12-24'),
+    },
+  });
+  await tx.appointmentSettings.upsert({
+    where: { businessId },
+    update: {},
+    create: {
+      businessId,
+      defaultBufferMinutes: 10,
+      bookingMinNoticeMinutes: 1440,
+      bookingMaxAdvanceDays: 90,
+      copyEmail: 'hello@lvp.test',
     },
   });
   for (const [id, channel, offsetMinutes] of [
