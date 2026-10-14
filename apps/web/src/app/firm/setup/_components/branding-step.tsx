@@ -13,6 +13,8 @@ export const brandingValues = (firm: FirmSettings) => ({
   portalName: firm.portalName ?? '',
   primaryColor: firm.primaryColor ?? '',
   accentColor: firm.accentColor ?? '',
+  sidebarSlogan: firm.sidebarSlogan ?? '',
+  sidebarMotto: firm.sidebarMotto ?? '',
 });
 
 /** Step 1: portal name, logo and colours, with a live preview. Every firm starts with Firmivra's. */
@@ -43,10 +45,29 @@ export function BrandingFields({ form, firm }: { form: StepForm; firm: FirmSetti
         <ColorField form={form} name="primaryColor" label="Primary colour" />
         <ColorField form={form} name="accentColor" label="Accent colour" />
       </div>
-      <LogoField firm={firm} />
+      <LogoField firm={firm} variant="dark" label="Logo for dark backgrounds (sidebar)" />
+      <LogoField
+        firm={firm}
+        variant="light"
+        label="Logo for light backgrounds (footer, portal, emails)"
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Input
+          label="Sidebar slogan"
+          maxLength={80}
+          error={form.formState.errors.sidebarSlogan?.message}
+          {...form.register('sidebarSlogan')}
+        />
+        <Input
+          label="Sidebar motto (words split by |)"
+          maxLength={80}
+          error={form.formState.errors.sidebarMotto?.message}
+          {...form.register('sidebarMotto')}
+        />
+      </div>
       <BrandPreview
         name={portalName || defaultName}
-        logoUrl={firm.logoUrl}
+        logoUrl={firm.logoLightUrl}
         primary={primary}
         accent={accent}
         header={firm.portalHeader}
