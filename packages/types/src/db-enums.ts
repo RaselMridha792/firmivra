@@ -79,6 +79,39 @@ export type TaskProgress = z.infer<typeof TaskProgress>;
 export const TaskPriority = z.enum(['LOW', 'MEDIUM', 'HIGH']);
 export type TaskPriority = z.infer<typeof TaskPriority>;
 
+/** What a compliance deadline is for (the Deadline Types chart and filter). */
+export const DeadlineType = z.enum([
+  'TAX_FILING',
+  'ESTIMATED_TAX',
+  'ELECTION',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'SALES_TAX',
+  'STATE_FILING',
+  'ANNUAL_REPORT',
+  'LICENSE_PERMIT',
+  'ADVISORY',
+  'OTHER',
+]);
+export type DeadlineType = z.infer<typeof DeadlineType>;
+
+export const DeadlineSource = z.enum(['GOVERNMENT', 'FIRM', 'CLIENT_SPECIFIC', 'IMPORTED']);
+export type DeadlineSource = z.infer<typeof DeadlineSource>;
+
+/** Due Soon and Overdue are never stored: they are derived from the due date, the firm's Due Soon threshold and the status (an incomplete deadline past its due date is overdue). */
+export const DeadlineStatus = z.enum([
+  'UPCOMING',
+  'IN_PROGRESS',
+  'WAITING_ON_CLIENT',
+  'COMPLETED',
+  'NOT_APPLICABLE',
+  'CANCELLED',
+]);
+export type DeadlineStatus = z.infer<typeof DeadlineStatus>;
+
+export const JurisdictionLevel = z.enum(['FEDERAL', 'STATE', 'LOCAL', 'INTERNAL']);
+export type JurisdictionLevel = z.infer<typeof JurisdictionLevel>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;

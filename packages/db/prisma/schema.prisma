@@ -135,6 +135,46 @@ enum TaskPriority {
   HIGH
 }
 
+/// What a compliance deadline is for (the Deadline Types chart and filter).
+enum DeadlineType {
+  TAX_FILING
+  ESTIMATED_TAX
+  ELECTION
+  BOOKKEEPING
+  PAYROLL
+  SALES_TAX
+  STATE_FILING
+  ANNUAL_REPORT
+  LICENSE_PERMIT
+  ADVISORY
+  OTHER
+}
+
+enum DeadlineSource {
+  GOVERNMENT
+  FIRM
+  CLIENT_SPECIFIC
+  IMPORTED
+}
+
+/// Due Soon and Overdue are never stored: they are derived from the due date, the firm's Due Soon
+/// threshold and the status (an incomplete deadline past its due date is overdue).
+enum DeadlineStatus {
+  UPCOMING
+  IN_PROGRESS
+  WAITING_ON_CLIENT
+  COMPLETED
+  NOT_APPLICABLE
+  CANCELLED
+}
+
+enum JurisdictionLevel {
+  FEDERAL
+  STATE
+  LOCAL
+  INTERNAL
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -514,6 +554,7 @@ model Membership {
   esignUploads          EsignPendingUpload[]   @relation("EsignUploadMember")
   esignKioskLock        EsignKioskLock?        @relation("EsignKioskLock")
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
+  complianceDeadlines   ComplianceDeadline[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -788,22 +829,23 @@ model Client {
   createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business         Business                 @relation(fields: [businessId], references: [id])
-  assignedMember   Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  profile          ClientProfile?
-  accounts         ClientAccount[]
-  taxStatuses      ClientTaxStatus[]
-  taxStatusHistory ClientTaxStatusHistory[]
-  engagements      Engagement[]
-  tasks            Task[]
-  notes            Note[]
-  appointments     Appointment[]
-  messageThreads   MessageThread[]
-  invoices         Invoice[]
-  taxReturns       TaxReturn[]
-  esignRequests    EsignRequest[]
-  esignBulkItems   EsignBulkItem[]
-  taskSeries       TaskSeries[]
+  business            Business                 @relation(fields: [businessId], references: [id])
+  assignedMember      Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  profile             ClientProfile?
+  accounts            ClientAccount[]
+  taxStatuses         ClientTaxStatus[]
+  taxStatusHistory    ClientTaxStatusHistory[]
+  engagements         Engagement[]
+  tasks               Task[]
+  notes               Note[]
+  appointments        Appointment[]
+  messageThreads      MessageThread[]
+  invoices            Invoice[]
+  taxReturns          TaxReturn[]
+  esignRequests       EsignRequest[]
+  esignBulkItems      EsignBulkItem[]
+  taskSeries          TaskSeries[]
+  complianceDeadlines ComplianceDeadline[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -965,24 +1007,25 @@ model Engagement {
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client           Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  service          Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  assignedMember   Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  statusHistory    EngagementStatusHistory[]
-  tasks            Task[]
-  taskSeries       TaskSeries[]
-  notes            Note[]
-  reports          EngagementReport[]
-  documents        Document[]
-  documentRequests DocumentRequest[]
-  intakes          Intake[]
-  leads            Lead[]
-  appointments     Appointment[]
-  messageThreads   MessageThread[]
-  invoices         Invoice[]
-  taxReturns       TaxReturn[]
-  esignRequests    EsignRequest[]
-  esignBulkItems   EsignBulkItem[]
+  client              Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  service             Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember      Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  statusHistory       EngagementStatusHistory[]
+  tasks               Task[]
+  taskSeries          TaskSeries[]
+  notes               Note[]
+  reports             EngagementReport[]
+  documents           Document[]
+  documentRequests    DocumentRequest[]
+  intakes             Intake[]
+  leads               Lead[]
+  appointments        Appointment[]
+  messageThreads      MessageThread[]
+  invoices            Invoice[]
+  taxReturns          TaxReturn[]
+  esignRequests       EsignRequest[]
+  esignBulkItems      EsignBulkItem[]
+  complianceDeadlines ComplianceDeadline[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -1047,6 +1090,10 @@ model Task {
   dependsOnTaskId   String?      @map("depends_on_task_id") @db.Uuid
   completedByUserId String?      @map("completed_by_user_id") @db.Uuid
   archivedAt        DateTime?    @map("archived_at") @db.Timestamptz(3)
+  /// The compliance deadline this task works on (the deadline stays the source of truth).
+  deadlineId        String?      @map("deadline_id") @db.Uuid
+  /// The template the task was made from; with deadlineId at most one task per pair (SQL only).
+  templateId        String?      @map("template_id") @db.Uuid
 
   client             Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement         Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -1060,6 +1107,8 @@ model Task {
   taskReminders      TaskReminder[]
   taskAttachments    TaskAttachment[]
   taskOccurrence     TaskOccurrence?
+  deadline           ComplianceDeadline? @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
+  template           TaskTemplate?       @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
 
   @@unique([businessId, id])
   @@index([businessId, clientId])
@@ -1067,6 +1116,7 @@ model Task {
   @@index([businessId, assignedUserId, status])
   @@index([businessId, status, dueOn])
   @@index([businessId, dependsOnTaskId])
+  @@index([businessId, deadlineId])
   @@map("tasks")
 }
 
@@ -3113,10 +3163,13 @@ model TaskTemplate {
   createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  type           TaskType?   @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
-  service        Service?    @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  assignedMember Membership? @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  type                TaskType?            @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  service             Service?             @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember      Membership?          @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  tasks               Task[]
+  complianceDeadlines ComplianceDeadline[]
 
+  @@unique([businessId, id])
   @@unique([businessId, name])
   @@map("task_templates")
 }
@@ -3202,4 +3255,95 @@ model TaskOccurrence {
   @@unique([businessId, taskId])
   @@index([businessId, state, dueOn])
   @@map("task_occurrences")
+}
+
+/// A compliance obligation of one client with a due date (Compliance & Deadlines). It is the
+/// source of truth for the obligation and its date; Tasks is the work. A government deadline
+/// keeps the rule's date (statutoryDueOn) apart from the date the firm works to (dueOn), and a
+/// firm override needs a reason (dueOverridden, dueOverrideReason). The extension is tracked
+/// apart from the payment date, which an extension never moves. Overdue and Due Soon are derived
+/// (see DeadlineStatus). Archived, never deleted.
+model ComplianceDeadline {
+  id                  String             @id @default(uuid(7)) @db.Uuid
+  businessId          String             @map("business_id") @db.Uuid
+  clientId            String             @map("client_id") @db.Uuid
+  engagementId        String?            @map("engagement_id") @db.Uuid
+  name                String
+  type                DeadlineType
+  source              DeadlineSource     @default(FIRM)
+  description         String?
+  /// Staff only.
+  internalNotes       String?            @map("internal_notes")
+  /// Shown to the client when clientVisible.
+  clientNotes         String?            @map("client_notes")
+  /// Federal tax classification or entity code, e.g. "LLC_MULTI_MEMBER" (the client's, when set).
+  entityType          String?            @map("entity_type")
+  taxYear             Int?               @map("tax_year")
+  /// e.g. "Q3 (Jul-Sep)", "Annual".
+  filingPeriod        String?            @map("filing_period")
+  relatedForm         String?            @map("related_form")
+  /// The authority: "IRS", "GA DOR", "GA SOS", a county.
+  agency              String?
+  jurisdiction        JurisdictionLevel?
+  /// Two-letter state code, for state and local deadlines.
+  state               String?
+  statutoryDueOn      DateTime?          @map("statutory_due_on") @db.Date
+  dueOn               DateTime           @map("due_on") @db.Date
+  /// Time of day, in the firm's timezone; the end of the day when null.
+  dueTime             DateTime?          @map("due_time") @db.Time(0)
+  dueOverridden       Boolean            @default(false) @map("due_overridden")
+  dueOverrideReason   String?            @map("due_override_reason")
+  extensionFiledOn    DateTime?          @map("extension_filed_on") @db.Date
+  extendedDueOn       DateTime?          @map("extended_due_on") @db.Date
+  /// The payment date, kept separate: an extension to file is not an extension to pay.
+  paymentDueOn        DateTime?          @map("payment_due_on") @db.Date
+  priority            TaskPriority       @default(MEDIUM)
+  status              DeadlineStatus     @default(UPCOMING)
+  assignedUserId      String?            @map("assigned_user_id") @db.Uuid
+  clientVisible       Boolean            @default(false) @map("client_visible")
+  /// Make a task from taskTemplateId when the deadline is created (once: see tasks.template_id).
+  createTask          Boolean            @default(false) @map("create_task")
+  taskTemplateId      String?            @map("task_template_id") @db.Uuid
+  completedAt         DateTime?          @map("completed_at") @db.Timestamptz(3)
+  completedByUserId   String?            @map("completed_by_user_id") @db.Uuid
+  /// Completion evidence: when it was filed or paid, and the confirmation number.
+  filedOn             DateTime?          @map("filed_on") @db.Date
+  confirmationNumber  String?            @map("confirmation_number")
+  notApplicableReason String?            @map("not_applicable_reason")
+  createdByUserId     String?            @map("created_by_user_id") @db.Uuid
+  archivedAt          DateTime?          @map("archived_at") @db.Timestamptz(3)
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client         Client                       @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement     Engagement?                  @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember Membership?                  @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  taskTemplate   TaskTemplate?                @relation(fields: [businessId, taskTemplateId], references: [businessId, id], onDelete: Restrict)
+  reminders      ComplianceDeadlineReminder[]
+  tasks          Task[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status, dueOn])
+  @@index([businessId, clientId, dueOn])
+  @@index([businessId, assignedUserId, status])
+  @@index([businessId, type])
+  @@map("compliance_deadlines")
+}
+
+/// A reminder rule of a deadline: daysBefore the due date (0 = the due day), in-app and by email
+/// or SMS. lastFiredFor is the due date it last fired for, so a retry never sends it twice.
+model ComplianceDeadlineReminder {
+  id           String            @id @default(uuid(7)) @db.Uuid
+  businessId   String            @map("business_id") @db.Uuid
+  deadlineId   String            @map("deadline_id") @db.Uuid
+  daysBefore   Int               @map("days_before")
+  inApp        Boolean           @default(true) @map("in_app")
+  channels     DeliveryChannel[] @default([])
+  lastFiredFor DateTime?         @map("last_fired_for") @db.Date
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  deadline ComplianceDeadline @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, deadlineId, daysBefore])
+  @@map("compliance_deadline_reminders")
 }

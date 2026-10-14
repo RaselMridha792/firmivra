@@ -30,6 +30,9 @@ export const SEED_R38_IDS = {
   series: id(8),
   occurrence1: id(9),
   occurrence2: id(10),
+  deadline1: id(11),
+  deadline2: id(12),
+  deadlineReminder: id(13),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -162,5 +165,61 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
       scheduledOn: new Date('2027-01-15'),
       dueOn: new Date('2027-01-15'),
     },
+  });
+
+  // Compliance: two deadlines of the client, a reminder, a task.
+  const deadline = (n: 'deadline1' | 'deadline2', data: Record<string, unknown>) =>
+    tx.complianceDeadline.upsert({
+      where: { id: SEED_R38_IDS[n] },
+      update: {},
+      create: {
+        id: SEED_R38_IDS[n],
+        businessId,
+        clientId: c.clientId,
+        assignedUserId: c.staffId,
+        createdByUserId: c.ownerId,
+        ...data,
+      } as Parameters<typeof tx.complianceDeadline.create>[0]['data'],
+    });
+  await deadline('deadline1', {
+    name: 'Q4 Estimated Tax Payment',
+    type: 'ESTIMATED_TAX',
+    source: 'GOVERNMENT',
+    agency: 'IRS',
+    jurisdiction: 'FEDERAL',
+    relatedForm: 'Form 1040-ES',
+    taxYear: 2026,
+    filingPeriod: 'Q4',
+    statutoryDueOn: new Date('2027-01-15'),
+    dueOn: new Date('2027-01-15'),
+    priority: 'HIGH',
+    createTask: true,
+    taskTemplateId: SEED_R38_IDS.template,
+    clientNotes: 'Your fourth-quarter estimated payment is due January 15.',
+  });
+  await deadline('deadline2', {
+    name: 'Georgia annual registration',
+    type: 'ANNUAL_REPORT',
+    source: 'GOVERNMENT',
+    agency: 'GA SOS',
+    jurisdiction: 'STATE',
+    state: 'GA',
+    statutoryDueOn: new Date('2027-04-01'),
+    dueOn: new Date('2027-04-01'),
+  });
+  await tx.complianceDeadlineReminder.upsert({
+    where: { id: SEED_R38_IDS.deadlineReminder },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.deadlineReminder,
+      businessId,
+      deadlineId: SEED_R38_IDS.deadline1,
+      daysBefore: 14,
+      channels: ['EMAIL'],
+    },
+  });
+  await tx.task.update({
+    where: { id: c.taskId },
+    data: { deadlineId: SEED_R38_IDS.deadline1, templateId: SEED_R38_IDS.template },
   });
 }
