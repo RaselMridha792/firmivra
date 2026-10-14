@@ -173,7 +173,7 @@ function Calculator({
           {money('businessIncome', 'Gross Business Income (if self-employed)')}
           {money('businessExpenses', 'Business Expenses')}
           {money('otherIncome', 'Other Taxable Income')}
-          <fieldset className="flex flex-col">
+          <fieldset className="flex flex-row flex-wrap gap-x-6">
             <legend className="text-sm font-medium text-text">Deduction Method</legend>
             <Radio
               name="deduction"
