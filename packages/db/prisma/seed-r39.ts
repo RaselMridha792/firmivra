@@ -561,4 +561,27 @@ async function seedAdvisory(tx: TxClient, businessId: string) {
       createdByUserId: SEED_USERS.lvpOwner.id,
     },
   });
+  const goal = await tx.advisoryGoal.create({
+    data: {
+      businessId,
+      advisoryClientId: advisory.id,
+      planId: plan.id,
+      title: 'Increase annual revenue by 25%',
+      area: 'revenue_growth',
+      targetDate: new Date('2026-12-31'),
+      status: 'IN_PROGRESS',
+      progressPercent: 60,
+      ownerUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
+  await tx.advisoryMilestone.create({
+    data: {
+      businessId,
+      goalId: goal.id,
+      title: 'Launch commercial bidding',
+      targetDate: new Date('2026-10-31'),
+      status: 'IN_PROGRESS',
+      progressPercent: 40,
+    },
+  });
 }

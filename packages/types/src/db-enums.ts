@@ -655,3 +655,15 @@ export const AdvisoryPlanStatus = z.enum([
   'ARCHIVED',
 ]);
 export type AdvisoryPlanStatus = z.infer<typeof AdvisoryPlanStatus>;
+
+export const AdvisoryGoalStatus = z.enum([
+  'NOT_STARTED',
+  'PLANNING',
+  'IN_PROGRESS',
+  'ON_TRACK',
+  'AT_RISK',
+  'OVERDUE',
+  'COMPLETED',
+  'CANCELLED',
+]);
+export type AdvisoryGoalStatus = z.infer<typeof AdvisoryGoalStatus>;

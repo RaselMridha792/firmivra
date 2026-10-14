@@ -4352,6 +4352,7 @@ model AdvisoryClient {
   engagement  Engagement?          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   workstreams AdvisoryWorkstream[]
   plans       AdvisoryPlan[]
+  goals       AdvisoryGoal[]
 
   @@unique([businessId, id])
   @@unique([businessId, clientId])
@@ -4381,6 +4382,7 @@ model AdvisoryWorkstream {
 
   advisoryClient AdvisoryClient @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
   service        Service        @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  goals          AdvisoryGoal[]
 
   @@unique([businessId, id])
   @@unique([advisoryClientId, serviceId])
@@ -4449,6 +4451,7 @@ model AdvisoryPlan {
 
   advisoryClient AdvisoryClient        @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
   versions       AdvisoryPlanVersion[]
+  goals          AdvisoryGoal[]
 
   @@unique([businessId, id])
   @@index([businessId, advisoryClientId, targetYear])
@@ -4478,4 +4481,71 @@ model AdvisoryPlanVersion {
 
   @@unique([planId, versionNo])
   @@map("advisory_plan_versions")
+}
+
+// ---------- Business Advisory: goals and milestones ----------
+
+enum AdvisoryGoalStatus {
+  NOT_STARTED
+  PLANNING
+  IN_PROGRESS
+  ON_TRACK
+  AT_RISK
+  OVERDUE
+  COMPLETED
+  CANCELLED
+}
+
+/// A business goal of an advisory client ("Increase annual revenue by 25%"), optionally part of a
+/// plan and linked to one of the client's service workstreams. `area` is the firm's own grouping
+/// (revenue growth, profitability, funding, expansion, staffing, operations, marketing and sales,
+/// business setup, financial management). Progress is 0 to 100. Archived, never deleted.
+model AdvisoryGoal {
+  id               String             @id @default(uuid(7)) @db.Uuid
+  businessId       String             @map("business_id") @db.Uuid
+  advisoryClientId String             @map("advisory_client_id") @db.Uuid
+  planId           String?            @map("plan_id") @db.Uuid
+  workstreamId     String?            @map("workstream_id") @db.Uuid
+  title            String
+  description      String?
+  area             String?
+  targetDate       DateTime?          @map("target_date") @db.Date
+  status           AdvisoryGoalStatus @default(NOT_STARTED)
+  progressPercent  Int                @default(0) @map("progress_percent")
+  ownerUserId      String?            @map("owner_user_id") @db.Uuid
+  completedAt      DateTime?          @map("completed_at") @db.Timestamptz(3)
+  archivedAt       DateTime?          @map("archived_at") @db.Timestamptz(3)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  advisoryClient AdvisoryClient      @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
+  plan           AdvisoryPlan?       @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  workstream     AdvisoryWorkstream? @relation(fields: [businessId, workstreamId], references: [businessId, id], onDelete: Restrict)
+  milestones     AdvisoryMilestone[]
+
+  @@unique([businessId, id])
+  @@index([businessId, advisoryClientId, status])
+  @@index([businessId, targetDate])
+  @@map("advisory_goals")
+}
+
+/// A step toward a goal, with its owner, target date, status and progress.
+model AdvisoryMilestone {
+  id              String             @id @default(uuid(7)) @db.Uuid
+  businessId      String             @map("business_id") @db.Uuid
+  goalId          String             @map("goal_id") @db.Uuid
+  title           String
+  targetDate      DateTime?          @map("target_date") @db.Date
+  status          AdvisoryGoalStatus @default(NOT_STARTED)
+  progressPercent Int                @default(0) @map("progress_percent")
+  ownerUserId     String?            @map("owner_user_id") @db.Uuid
+  sortOrder       Int                @default(0) @map("sort_order")
+  completedAt     DateTime?          @map("completed_at") @db.Timestamptz(3)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  goal AdvisoryGoal @relation(fields: [businessId, goalId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, goalId, sortOrder])
+  @@map("advisory_milestones")
 }
