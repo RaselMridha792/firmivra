@@ -10,6 +10,7 @@ import {
   UpdateInvoiceRequest,
 } from '@firmivra/types';
 import {
+  Access,
   CurrentAuth,
   CurrentTenant,
   FIRM_MANAGERS,
@@ -17,7 +18,11 @@ import {
   Roles,
 } from '../../auth/decorators.js';
 import type { ClientsActor } from '../../clients/clients.service.js';
-import type { AuthContext, TenantContext } from '../../common/request-context.js';
+import {
+  type AuthContext,
+  legacyFirmRole,
+  type TenantContext,
+} from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { NotificationsModule } from '../../notifications/notifications.controller.js';
 import { InvoiceJobs } from './invoice-jobs.js';
@@ -32,7 +37,7 @@ const SendInvoiceRequest = z.strictObject({});
 
 export function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
   if (tenant.kind !== 'staff') throw new Error('firm routes are for firm members');
-  return { userId: auth.userId, role: tenant.role };
+  return { userId: auth.userId, role: legacyFirmRole(tenant.role) };
 }
 
 /**
@@ -40,6 +45,7 @@ export function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor 
  * Owner and Admin; the role guard refuses Staff (403) before the body is read.
  */
 @Controller('business/invoices')
+@Access('INVOICES_PAYMENTS')
 @Roles(...FIRM_STAFF)
 export class InvoicesController {
   constructor(private readonly invoices: InvoicesService) {}

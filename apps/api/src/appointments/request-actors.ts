@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AuthContext, TenantContext } from '../common/request-context.js';
+import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import type { FirmActor } from './calendar-data.js';
 
@@ -9,7 +9,7 @@ export function firmActor(
   tenant: TenantContext | undefined,
 ): FirmActor {
   if (!auth || tenant?.kind !== 'staff') throw new Error('appointment routes are for firm members');
-  return { userId: auth.userId, role: tenant.role };
+  return { userId: auth.userId, role: legacyFirmRole(tenant.role) };
 }
 
 /** The signed-in client login on a portal route: from the session, never the URL. */

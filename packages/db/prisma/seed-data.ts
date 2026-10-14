@@ -429,3 +429,12 @@ export const SEED_ESIGN_IDS = {
 /** The e-signature consent text's synthetic v1. Never a firm's real consent text. */
 export const SAMPLE_ESIGN_CONSENT =
   'Sample consent for local development: I agree to sign these documents electronically and to receive them electronically.';
+
+/** Fixed ids of the seeded LVP department and team (staff management), for re-seeding. */
+export const SEED_STAFF_GROUP_IDS = {
+  department: '00000000-0000-4000-8000-0000000000d1',
+  team: '00000000-0000-4000-8000-0000000000d2',
+  draft: '00000000-0000-4000-8000-0000000000d3',
+  document: '00000000-0000-4000-8000-0000000000d4',
+  session: '00000000-0000-4000-8000-0000000000d5',
+} as const;

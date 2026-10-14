@@ -11,7 +11,7 @@ import {
   SetMeetingLinkRequest,
   SetWorkingHoursRequest,
 } from '@firmivra/types';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { BlocksQuery, CreateBlockBody, idParam } from './appointments.input.js';
@@ -23,6 +23,7 @@ import { firmActor } from './request-actors.js';
  * member's week and link; Owner and Admin set anyone's, Staff their own (403 otherwise).
  */
 @Controller('business/availability')
+@Access('APPOINTMENTS')
 @Roles(...FIRM_STAFF)
 export class AvailabilityController {
   constructor(private readonly availability: AvailabilityService) {}
@@ -70,6 +71,7 @@ export class AvailabilityController {
  * Staff only themselves (403 otherwise). A block over a scheduled appointment is 409.
  */
 @Controller('business/blocked-times')
+@Access('APPOINTMENTS')
 @Roles(...FIRM_STAFF)
 export class BlockedTimesController {
   constructor(private readonly availability: AvailabilityService) {}

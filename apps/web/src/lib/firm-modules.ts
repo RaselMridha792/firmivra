@@ -8,14 +8,12 @@ import {
   CheckSquare,
   CurrencyDollar,
   Envelope,
-  FileText,
   Globe,
   IdentificationCard,
   Layout,
   PaperPlaneTilt,
   PuzzlePiece,
   ShieldCheck,
-  Tag,
   UploadSimple,
 } from '@phosphor-icons/react/ssr';
 import type { Icon } from '@phosphor-icons/react';
@@ -33,7 +31,6 @@ export interface FirmModule {
  * (`firmMenu` in the firm layout) to the real page.
  */
 export const FIRM_MODULES: readonly FirmModule[] = [
-  { slug: 'intake-forms', label: 'Intake Forms', icon: FileText },
   // R34: the Documents page itself is built. Its two unbuilt sub-flows (Upload Document /
   // Quick Upload, and Document Requests / Create Document Request) still open these.
   { slug: 'document-upload', label: 'Upload Document', icon: UploadSimple },
@@ -50,7 +47,6 @@ export const FIRM_MODULES: readonly FirmModule[] = [
   { slug: 'compliance', label: 'Compliance & Deadlines', icon: ShieldCheck },
   { slug: 'reports', label: 'Reports', icon: ChartLineUp },
   { slug: 'templates', label: 'Templates', icon: Layout },
-  { slug: 'services-pricing', label: 'Services & Pricing', icon: Tag },
   { slug: 'integrations', label: 'Integrations', icon: PuzzlePiece },
 ];
 

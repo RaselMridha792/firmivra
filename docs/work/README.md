@@ -25,7 +25,7 @@ Firmivra Phase 1 ships in 15 days: Oct 4 to Oct 18, 2026. Rasel builds the compl
    `You are workstream R2. Read CLAUDE.md, docs/work/README.md and docs/work/R2-staff-auth.md only. Continue from the first unchecked step. Ask before anything that creates, deletes or deploys.`
 3. The session reads ONLY: `CLAUDE.md`, this README, its own `Rn-*.md`, and the files its `Rn` file links. It does not explore the whole repo.
 4. After each step: tick the step in its `Rn` file, add one line to its Progress log (date, what was done, commit), commit. This keeps context small: when the context gets big, run `/clear` and send the same first message again; the session resumes from the log.
-5. One PR per finished step or pair of steps, titled as a Conventional Commit with the stream at the end: `<type>: <what> (R2)`, for example `feat: staff sign-in with MFA (R2)`. The squash commit on `main` takes the PR title. PRs stay under 400 changed lines of code; tests may take a PR to about 600 (this README wins over CLAUDE.md on PR size) where possible.
+5. One PR per finished step or pair of steps, titled as a Conventional Commit with the stream at the end: `<type>: <what> (R2)`, for example `feat: staff sign-in with MFA (R2)`. The squash commit on `main` takes the PR title. One ticket or one page per PR (this README wins over CLAUDE.md on PR scope).
 6. Before opening a PR: `git fetch origin && git merge origin/main`, then `pnpm lint && pnpm typecheck && pnpm test`. Merge, never rebase: `main` takes squash merges only, so a rebase would replay commits that are already merged and then need a force-push. Never force-push. After a PR is squash-merged, merge `origin/main` into the branch the same way and continue.
 
 ## Limits

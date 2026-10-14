@@ -33,13 +33,19 @@ import {
   type UploadTicket,
 } from '@firmivra/types';
 import {
+  Access,
   CurrentAuth,
   CurrentTenant,
   FIRM_MANAGERS,
   FIRM_STAFF,
   Roles,
 } from '../auth/decorators.js';
-import { type AuthContext, requestContext, type TenantContext } from '../common/request-context.js';
+import {
+  type AuthContext,
+  legacyFirmRole,
+  requestContext,
+  type TenantContext,
+} from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { DocumentsModule } from '../storage/documents.controller.js';
@@ -64,7 +70,7 @@ const submitPipe = new ZodValidationPipe(
 
 function staff(auth: AuthContext, tenant: TenantContext): IntakeReach & { kind: 'staff' } {
   if (tenant.kind !== 'staff') throw new Error('firm routes are for firm members');
-  return { kind: 'staff', actor: { userId: auth.userId, role: tenant.role } };
+  return { kind: 'staff', actor: { userId: auth.userId, role: legacyFirmRole(tenant.role) } };
 }
 
 /**
@@ -187,6 +193,7 @@ export class MyIntakesController {
 
 /** A client's intakes, and sending one for an engagement (firm). */
 @Controller('business')
+@Access('INTAKE_FORMS')
 @Roles(...FIRM_STAFF)
 export class ClientIntakesController {
   constructor(private readonly intakes: IntakesService) {}
@@ -216,6 +223,7 @@ export class ClientIntakesController {
 
 /** One intake, as the firm reviews it. */
 @Controller('business/intakes')
+@Access('INTAKE_FORMS')
 @Roles(...FIRM_STAFF)
 export class IntakesController {
   constructor(private readonly intakes: IntakesService) {}

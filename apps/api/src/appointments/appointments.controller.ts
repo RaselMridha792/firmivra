@@ -7,7 +7,7 @@ import {
   type AppointmentList,
   type SlotList,
 } from '@firmivra/types';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import {
@@ -30,6 +30,7 @@ const idPipe = new ZodValidationPipe(idParam(AppointmentId));
  * for anything else about those). The firm comes from TenantGuard.
  */
 @Controller('business/appointments')
+@Access('APPOINTMENTS')
 @Roles(...FIRM_STAFF)
 export class AppointmentsController {
   constructor(private readonly appointments: AppointmentsService) {}

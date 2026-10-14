@@ -9,9 +9,10 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import type { Database } from '@firmivra/db';
+import { capabilityOfMethod, isGridFirmRole, roleCan } from '@firmivra/types';
 import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
-import { isPublic, rolesFor } from './decorators.js';
+import { accessFor, isPublic, rolesFor } from './decorators.js';
 
 const forbidden = () =>
   new ForbiddenException({ code: 'FORBIDDEN', message: 'You do not have access to this action' });
@@ -38,6 +39,17 @@ export class RolesGuard implements CanActivate {
     const req = ctx.switchToHttp().getRequest<Request>();
     if (roles.includes('AUTHENTICATED') && req.auth) return true;
     if (req.tenant && roles.includes(req.tenant.role)) return true;
+    if (
+      req.tenant?.kind === 'staff' &&
+      isGridFirmRole(req.tenant.role) &&
+      roles.includes('STAFF')
+    ) {
+      // Manager, Bookkeeper, Tax Preparer, Client Support, Read Only: the permission grid decides,
+      // and only for routes Staff may use and that name their module (@Access).
+      const access = accessFor(this.reflector, ctx);
+      const capability = access?.capability ?? capabilityOfMethod(req.method);
+      if (access && capability && roleCan(req.tenant.role, access.module, capability)) return true;
+    }
     if (roles.includes('SUPER_ADMIN') && req.auth?.pool === 'ADMIN') {
       const admin = await this.db
         .forPlatform()
