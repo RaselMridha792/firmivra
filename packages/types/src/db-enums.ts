@@ -478,3 +478,7 @@ export const TaxReturnDocumentKind = z.enum([
   'EXTENSION',
 ]);
 export type TaxReturnDocumentKind = z.infer<typeof TaxReturnDocumentKind>;
+
+/** Calendar colours: token names the screens map to packages/ui (no hex values here). */
+export const CalendarColor = z.enum(['BLUE', 'GREEN', 'AMBER', 'RED', 'PURPLE', 'GRAY']);
+export type CalendarColor = z.infer<typeof CalendarColor>;

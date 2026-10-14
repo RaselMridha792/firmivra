@@ -889,12 +889,14 @@ model Service {
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business        Business         @relation(fields: [businessId], references: [id])
-  engagements     Engagement[]
-  intakeForms     IntakeForm[]
-  intakeTemplates IntakeTemplate[]
-  agreements      FirmAgreement[]
-  leads           Lead[]
+  business         Business          @relation(fields: [businessId], references: [id])
+  engagements      Engagement[]
+  intakeForms      IntakeForm[]
+  intakeTemplates  IntakeTemplate[]
+  appointments     Appointment[]
+  appointmentTypes AppointmentType[]
+  agreements       FirmAgreement[]
+  leads            Lead[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -1529,6 +1531,15 @@ model AppointmentType {
   /// the start).
   cancelCutoffHours Int @default(24) @map("cancel_cutoff_hours")
 
+  // R37: shown in Manage Appointment Types.
+  /// Up to 500 characters.
+  description String?
+  /// The service this type is for (optional).
+  serviceId   String?        @map("service_id") @db.Uuid
+  /// The default colour of its appointments.
+  color       CalendarColor?
+
+  service      Service?      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
   business     Business      @relation(fields: [businessId], references: [id])
   appointments Appointment[]
 
@@ -1606,13 +1617,35 @@ model Appointment {
   createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  // R37 (Appointments module): the related service, notes, colour, confirmation and booking key.
+  // Internal meetings and leads' appointments (client optional) wait for the API: see the PR.
+  /// The related service (the screens' Service column).
+  serviceId          String?        @map("service_id") @db.Uuid
+  /// An IANA name; empty means the firm's time zone (business_settings.timezone).
+  timeZone           String?        @map("time_zone")
+  /// A day-long entry: may run past 12 hours (up to 25, for a daylight saving day).
+  allDay             Boolean        @default(false) @map("all_day")
+  /// Empty means the type's colour. A token name; the screens map it to packages/ui.
+  color              CalendarColor?
+  /// Staff only, never shown to clients, never in notices or the audit log. Up to 5,000.
+  internalNotes      String?        @map("internal_notes")
+  /// Shown to the client in the portal and in notices. Up to 2,000.
+  clientInstructions String?        @map("client_instructions")
+  /// Empty while SCHEDULED means "Pending"; set means "Confirmed".
+  confirmedAt        DateTime?      @map("confirmed_at") @db.Timestamptz(3)
+  /// A retry of the same booking returns the first one; unique per firm.
+  idempotencyKey     String?        @map("idempotency_key") @db.Uuid
+
   client     Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   staff      Membership       @relation(fields: [businessId, staffUserId], references: [businessId, userId], onDelete: Restrict)
+  service    Service?         @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
   type       AppointmentType? @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
 
+  @@unique([businessId, idempotencyKey])
   @@index([businessId, staffUserId, startsAt])
   @@index([businessId, clientId, startsAt])
+  @@index([businessId, startsAt])
   @@map("appointments")
 }
 
@@ -3725,4 +3758,14 @@ model TaxReturnDocument {
   @@index([businessId, taxReturnId, kind, createdAt])
   @@index([businessId, documentId])
   @@map("tax_return_documents")
+}
+
+/// Calendar colours: token names the screens map to packages/ui (no hex values here).
+enum CalendarColor {
+  BLUE
+  GREEN
+  AMBER
+  RED
+  PURPLE
+  GRAY
 }

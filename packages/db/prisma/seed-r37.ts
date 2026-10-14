@@ -3,6 +3,7 @@
 // safe to run again (fixed ids, upserts or create-once). No real client data.
 import type { TxClient } from '../src/client.js';
 import {
+  SEED_CALENDAR_IDS,
   SEED_CLIENT_IDS,
   SEED_DOCUMENT_IDS,
   SEED_INTAKE_IDS,
@@ -370,6 +371,21 @@ async function seedTaxReturnWorkflow(tx: TxClient, businessId: string) {
   }
 }
 
+/** Appointments: the seeded consultation, confirmed, with notes, colour and its service. */
+async function seedAppointmentDetails(tx: TxClient, businessId: string) {
+  const service = await tx.service.findFirstOrThrow({ where: { businessId, name: 'Annual Tax' } });
+  await tx.appointment.update({
+    where: { id: SEED_CALENDAR_IDS.appointment },
+    data: {
+      serviceId: service.id,
+      color: 'BLUE',
+      confirmedAt: new Date('2026-10-12T15:00:00Z'),
+      clientInstructions: "Bring last year's return and your W-2s.",
+      internalNotes: 'Client asked about the home office deduction.',
+    },
+  });
+}
+
 export async function seedR37(tx: TxClient, businessId: string) {
   await seedIntakeSend(tx, businessId);
   await seedIntakeTemplates(tx, businessId);
@@ -377,4 +393,5 @@ export async function seedR37(tx: TxClient, businessId: string) {
   await seedDocumentRequests(tx, businessId);
   await seedDocumentShares(tx, businessId);
   await seedTaxReturnWorkflow(tx, businessId);
+  await seedAppointmentDetails(tx, businessId);
 }
