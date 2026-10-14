@@ -479,6 +479,7 @@ model Membership {
   taxApprovalsDecided       TaxReturnApproval[]       @relation("TaxApprovalDecidedBy")
   taxChecklistAcknowledged  TaxReturnChecklistItem[]  @relation("TaxChecklistAcknowledgedBy")
   taxChecklistUpdated       TaxReturnChecklistItem[]  @relation("TaxChecklistUpdatedBy")
+  taxDocumentsAdded         TaxReturnDocument[]       @relation("TaxDocumentAddedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1153,19 +1154,21 @@ model Document {
   reviewer   Membership?     @relation("DocumentReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
   reviewedBy Membership?     @relation("DocumentReviewedBy", fields: [businessId, reviewedByUserId], references: [businessId, userId], onDelete: Restrict)
 
-  esignRequest       EsignRequest?       @relation("EsignFiledDocuments", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
-  esignFinalOf       EsignRequest?       @relation("EsignFinalDocument")
-  esignCertificateOf EsignRequest?       @relation("EsignCertificateDocument")
-  engagement         Engagement          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  category           DocumentCategory?   @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
-  request            DocumentRequest?    @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
-  leadUpload         LeadUpload?         @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
-  intake             Intake?             @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
-  reports            EngagementReport[]
-  messageAttachments MessageAttachment[]
-  taxReturns         TaxReturn[]
-  documentShares     DocumentShare[]
-  taxReturnApprovals TaxReturnApproval[]
+  esignRequest            EsignRequest?            @relation("EsignFiledDocuments", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
+  esignFinalOf            EsignRequest?            @relation("EsignFinalDocument")
+  esignCertificateOf      EsignRequest?            @relation("EsignCertificateDocument")
+  engagement              Engagement               @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category                DocumentCategory?        @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  request                 DocumentRequest?         @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
+  leadUpload              LeadUpload?              @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
+  intake                  Intake?                  @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+  reports                 EngagementReport[]
+  messageAttachments      MessageAttachment[]
+  taxReturns              TaxReturn[]
+  documentShares          DocumentShare[]
+  taxReturnApprovals      TaxReturnApproval[]
+  taxReturnAuthorizations TaxReturnAuthorization[]
+  taxReturnDocuments      TaxReturnDocument[]
 
   // Target of message attachments.
   @@unique([businessId, id])
@@ -2146,6 +2149,8 @@ model TaxReturn {
   filings        TaxReturnFiling[]
   approvals      TaxReturnApproval[]
   checklist      TaxReturnChecklistItem[]
+  authorizations TaxReturnAuthorization[]
+  documents      TaxReturnDocument[]
 
   client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -2652,19 +2657,19 @@ model EsignRequest {
   templateId             String?            @map("template_id") @db.Uuid
   templateVersion        Int?               @map("template_version")
 
-  client              Client?               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement          Engagement?           @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  sender              Membership            @relation("EsignRequestSender", fields: [businessId, senderUserId], references: [businessId, userId], onDelete: Restrict)
-  voidedBy            Membership?           @relation("EsignRequestVoidedBy", fields: [businessId, voidedByUserId], references: [businessId, userId], onDelete: Restrict)
-  replaces            EsignRequest?         @relation("EsignReplaces", fields: [businessId, replacesRequestId], references: [businessId, id], onDelete: Restrict)
-  replacedOf          EsignRequest?         @relation("EsignReplaces")
-  replacedBy          EsignRequest?         @relation("EsignReplacedBy", fields: [businessId, replacedByRequestId], references: [businessId, id], onDelete: Restrict)
-  replacedByOf        EsignRequest?         @relation("EsignReplacedBy")
-  finalDocument       Document?             @relation("EsignFinalDocument", fields: [businessId, finalDocumentId], references: [businessId, id], onDelete: Restrict)
-  certificateDocument Document?             @relation("EsignCertificateDocument", fields: [businessId, certificateDocumentId], references: [businessId, id], onDelete: Restrict)
-  template            EsignTemplate?        @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
-  templateVersionRow  EsignTemplateVersion? @relation("EsignRequestTemplateVersion", fields: [businessId, templateId, templateVersion], references: [businessId, templateId, version], onDelete: Restrict)
-  filedDocuments      Document[]            @relation("EsignFiledDocuments")
+  client              Client?                  @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement          Engagement?              @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  sender              Membership               @relation("EsignRequestSender", fields: [businessId, senderUserId], references: [businessId, userId], onDelete: Restrict)
+  voidedBy            Membership?              @relation("EsignRequestVoidedBy", fields: [businessId, voidedByUserId], references: [businessId, userId], onDelete: Restrict)
+  replaces            EsignRequest?            @relation("EsignReplaces", fields: [businessId, replacesRequestId], references: [businessId, id], onDelete: Restrict)
+  replacedOf          EsignRequest?            @relation("EsignReplaces")
+  replacedBy          EsignRequest?            @relation("EsignReplacedBy", fields: [businessId, replacedByRequestId], references: [businessId, id], onDelete: Restrict)
+  replacedByOf        EsignRequest?            @relation("EsignReplacedBy")
+  finalDocument       Document?                @relation("EsignFinalDocument", fields: [businessId, finalDocumentId], references: [businessId, id], onDelete: Restrict)
+  certificateDocument Document?                @relation("EsignCertificateDocument", fields: [businessId, certificateDocumentId], references: [businessId, id], onDelete: Restrict)
+  template            EsignTemplate?           @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  templateVersionRow  EsignTemplateVersion?    @relation("EsignRequestTemplateVersion", fields: [businessId, templateId, templateVersion], references: [businessId, templateId, version], onDelete: Restrict)
+  filedDocuments      Document[]               @relation("EsignFiledDocuments")
   documents           EsignDocument[]
   recipients          EsignRecipient[]
   fields              EsignField[]
@@ -2674,6 +2679,7 @@ model EsignRequest {
   links               EsignSigningLink[]
   uploads             EsignPendingUpload[]
   attachments         EsignAttachment[]
+  taxAuthorizations   TaxReturnAuthorization[]
 
   @@unique([businessId, id])
   @@unique([businessId, replacesRequestId])
@@ -3645,4 +3651,78 @@ model TaxReturnChecklistItem {
 
   @@index([businessId, taxReturnId, section, sortOrder])
   @@map("tax_return_checklist_items")
+}
+
+enum TaxAuthorizationKind {
+  /// The client's e-file authorization for the federal return (Form 8879 and its variants).
+  FEDERAL_EFILE
+  /// A state's e-file authorization.
+  STATE_EFILE
+  /// The client's consent or engagement for the return.
+  CLIENT_CONSENT
+}
+
+/// One signature line of a return (Client Signatures on the review screen): which authorization,
+/// whether it is required, and where it is signed: a Firm Sign request (whose status is the
+/// status), or a wet signature the firm recorded (signedOn and the signed copy). Not a second
+/// signing flow.
+model TaxReturnAuthorization {
+  id             String               @id @default(uuid(7)) @db.Uuid
+  businessId     String               @map("business_id") @db.Uuid
+  taxReturnId    String               @map("tax_return_id") @db.Uuid
+  kind           TaxAuthorizationKind
+  /// Two-letter state code; only for STATE_EFILE.
+  jurisdiction   String?
+  required       Boolean              @default(true)
+  /// The Firm Sign request sent for this line (the client's own); a resend moves it to the
+  /// replacing request.
+  esignRequestId String?              @map("esign_request_id") @db.Uuid
+  /// A signature recorded outside Firm Sign, with the signed copy; set together.
+  signedOn       DateTime?            @map("signed_on") @db.Date
+  documentId     String?              @map("document_id") @db.Uuid
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  taxReturn    TaxReturn     @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  esignRequest EsignRequest? @relation(fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
+  document     Document?     @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, taxReturnId])
+  @@index([businessId, esignRequestId])
+  @@map("tax_return_authorizations")
+}
+
+/// What a file is in a return's folder: the draft, the signature form, the filed return, the
+/// acknowledgment, a voucher, proof of payment or an extension form. Files stay ordinary
+/// documents of the client; this adds the role. The filed return and acknowledgment links are
+/// never removed.
+enum TaxReturnDocumentKind {
+  DRAFT_RETURN
+  SIGNATURE_FORM
+  FILED_RETURN
+  ACKNOWLEDGMENT
+  VOUCHER
+  PAYMENT_PROOF
+  EXTENSION
+}
+
+model TaxReturnDocument {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  businessId      String                @map("business_id") @db.Uuid
+  taxReturnId     String                @map("tax_return_id") @db.Uuid
+  documentId      String                @map("document_id") @db.Uuid
+  kind            TaxReturnDocumentKind
+  /// "US" or a state code, when the file belongs to one jurisdiction.
+  jurisdiction    String?
+  createdByUserId String?               @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  taxReturn TaxReturn   @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  document  Document    @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+  createdBy Membership? @relation("TaxDocumentAddedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, taxReturnId, documentId])
+  @@index([businessId, taxReturnId, kind, createdAt])
+  @@index([businessId, documentId])
+  @@map("tax_return_documents")
 }

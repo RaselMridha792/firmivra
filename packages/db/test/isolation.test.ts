@@ -483,6 +483,8 @@ describe('no scope set', () => {
     expect(await unscopedApp.taxReturnFiling.findMany()).toEqual([]);
     expect(await unscopedApp.taxReturnFilingAttempt.findMany()).toEqual([]);
     expect(await unscopedApp.taxReturnApproval.findMany()).toEqual([]);
+    expect(await unscopedApp.taxReturnAuthorization.findMany()).toEqual([]);
+    expect(await unscopedApp.taxReturnDocument.findMany()).toEqual([]);
     expect(await unscopedApp.taxReturnChecklistItem.findMany()).toEqual([]);
     expect(await unscopedApp.taxStatus.findMany()).toEqual([]);
     expect(await unscopedApp.invite.findMany()).toEqual([]);

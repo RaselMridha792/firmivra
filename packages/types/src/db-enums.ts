@@ -463,3 +463,18 @@ export type TaxChecklistSection = z.infer<typeof TaxChecklistSection>;
 /** OPEN and DONE are for the preparation and review lists; VALID, INFO, WARNING and ERROR for the final validation. */
 export const TaxCheckResult = z.enum(['OPEN', 'DONE', 'VALID', 'INFO', 'WARNING', 'ERROR']);
 export type TaxCheckResult = z.infer<typeof TaxCheckResult>;
+
+export const TaxAuthorizationKind = z.enum(['FEDERAL_EFILE', 'STATE_EFILE', 'CLIENT_CONSENT']);
+export type TaxAuthorizationKind = z.infer<typeof TaxAuthorizationKind>;
+
+/** What a file is in a return's folder: the draft, the signature form, the filed return, the acknowledgment, a voucher, proof of payment or an extension form. Files stay ordinary documents of the client; this adds the role. The filed return and acknowledgment links are never removed. */
+export const TaxReturnDocumentKind = z.enum([
+  'DRAFT_RETURN',
+  'SIGNATURE_FORM',
+  'FILED_RETURN',
+  'ACKNOWLEDGMENT',
+  'VOUCHER',
+  'PAYMENT_PROOF',
+  'EXTENSION',
+]);
+export type TaxReturnDocumentKind = z.infer<typeof TaxReturnDocumentKind>;

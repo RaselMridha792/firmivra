@@ -32,6 +32,9 @@ const ID = {
   checkPrep: '00000000-0000-4a37-8000-000000000053',
   checkValid: '00000000-0000-4a37-8000-000000000054',
   checkWarning: '00000000-0000-4a37-8000-000000000055',
+  authFederal: '00000000-0000-4a37-8000-000000000056',
+  authState: '00000000-0000-4a37-8000-000000000057',
+  returnFile: '00000000-0000-4a37-8000-000000000058',
   requestPacket: '00000000-0000-4a37-8000-000000000024',
 } as const;
 
@@ -327,6 +330,30 @@ async function seedTaxReturnWorkflow(tx: TxClient, businessId: string) {
       create: { id, businessId, taxReturnId, section, label, result, sortOrder },
     });
   }
+  // Signature lines of the 2025 return (nothing sent yet), and the filed 2024 return's file.
+  for (const [id, kind, jurisdiction] of [
+    [ID.authFederal, 'FEDERAL_EFILE', null],
+    [ID.authState, 'STATE_EFILE', 'GA'],
+  ] as const) {
+    await tx.taxReturnAuthorization.upsert({
+      where: { id },
+      update: {},
+      create: { id, businessId, taxReturnId, kind, jurisdiction },
+    });
+  }
+  await tx.taxReturnDocument.upsert({
+    where: { id: ID.returnFile },
+    update: {},
+    create: {
+      id: ID.returnFile,
+      businessId,
+      taxReturnId: SEED_TAX_RETURN_IDS.lvp2024,
+      documentId: SEED_DOCUMENT_IDS.return2024,
+      kind: 'FILED_RETURN',
+      jurisdiction: 'US',
+      createdByUserId: SEED_USERS.lvpStaff.id,
+    },
+  });
   if (!(await tx.taxReturnFilingAttempt.findUnique({ where: { id: ID.attempt2024 } }))) {
     await tx.taxReturnFilingAttempt.create({
       data: {
