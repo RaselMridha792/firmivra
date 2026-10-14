@@ -408,6 +408,38 @@ enum FiguresSource {
   IMPORTED
 }
 
+enum BookkeepingReportType {
+  PROFIT_LOSS
+  BALANCE_SHEET
+  CASH_FLOW
+  GENERAL_LEDGER
+  TRIAL_BALANCE
+  TRANSACTION_DETAIL
+  UNCATEGORIZED
+  RECONCILIATION
+  QUARTERLY_REVIEW
+  YEAR_TO_DATE_SUMMARY
+  BOOKKEEPING_STATUS
+  MISSING_DOCUMENTS
+  /// A report the firm names itself (customName).
+  CUSTOM
+}
+
+/// The work and review of one report: not started, being prepared, in review, approved, delivered
+/// to the client (which freezes it).
+enum ReportReviewStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  IN_REVIEW
+  APPROVED
+  DELIVERED
+}
+
+enum AccountingBasis {
+  CASH
+  ACCRUAL
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -1273,6 +1305,7 @@ model Engagement {
   bookkeepingConnections BookkeepingConnection[]
   bookkeepingAccounts    BookkeepingAccount[]
   bookkeepingPeriods     BookkeepingPeriod[]
+  bookkeepingReports     BookkeepingReport[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -1409,8 +1442,9 @@ model EngagementReport {
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement Engagement @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
-  document   Document?  @relation(fields: [businessId, engagementId, documentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  engagement        Engagement         @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  document          Document?          @relation(fields: [businessId, engagementId, documentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  bookkeepingReport BookkeepingReport?
 
   @@index([businessId, engagementId, status])
   @@map("engagement_reports")
@@ -4291,9 +4325,10 @@ model BookkeepingPeriod {
   createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement      Engagement                  @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
-  closeItems      BookkeepingCloseItem[]
-  reconciliations BookkeepingReconciliation[]
+  engagement         Engagement                  @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  closeItems         BookkeepingCloseItem[]
+  reconciliations    BookkeepingReconciliation[]
+  bookkeepingReports BookkeepingReport[]
 
   @@unique([businessId, id])
   @@unique([businessId, engagementId, periodStart, periodEnd])
@@ -4366,4 +4401,46 @@ model BookkeepingReconciliation {
   @@unique([businessId, periodId, accountId])
   @@index([businessId, status])
   @@map("bookkeeping_reconciliations")
+}
+
+/// The preparation, review and delivery of one bookkeeping report for a client and period
+/// (Upcoming Reports, Reports tab, report review). The report the client sees is the existing
+/// engagement report it points at (engagementReportId), published through that workflow; this row
+/// is the work around it: due date, who generated, reviewed and delivered it, and when.
+/// DELIVERED needs a published report of the same client and freezes the row. One row per client,
+/// type and period (custom reports per name). Never deleted.
+model BookkeepingReport {
+  id                 String                @id @default(uuid(7)) @db.Uuid
+  businessId         String                @map("business_id") @db.Uuid
+  engagementId       String                @map("engagement_id") @db.Uuid
+  /// The close period it belongs to; null for a quarterly or yearly report across periods.
+  periodId           String?               @map("period_id") @db.Uuid
+  reportType         BookkeepingReportType @map("report_type")
+  customName         String?               @map("custom_name")
+  /// "September 2026", "Q3 2026", "2026".
+  periodLabel        String                @map("period_label")
+  basis              AccountingBasis?
+  dueOn              DateTime?             @map("due_on") @db.Date
+  status             ReportReviewStatus    @default(NOT_STARTED)
+  generatedAt        DateTime?             @map("generated_at") @db.Timestamptz(3)
+  generatedByUserId  String?               @map("generated_by_user_id") @db.Uuid
+  reviewedAt         DateTime?             @map("reviewed_at") @db.Timestamptz(3)
+  reviewedByUserId   String?               @map("reviewed_by_user_id") @db.Uuid
+  reviewNote         String?               @map("review_note")
+  deliveredAt        DateTime?             @map("delivered_at") @db.Timestamptz(3)
+  deliveredByUserId  String?               @map("delivered_by_user_id") @db.Uuid
+  /// The published engagement report the client sees.
+  engagementReportId String?               @map("engagement_report_id") @db.Uuid
+  createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement       Engagement         @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  period           BookkeepingPeriod? @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
+  engagementReport EngagementReport?  @relation(fields: [engagementReportId], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([engagementReportId])
+  @@index([businessId, engagementId, status])
+  @@index([businessId, status, dueOn])
+  @@map("bookkeeping_reports")
 }

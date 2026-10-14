@@ -15,6 +15,8 @@ export interface WorkSeedContext {
   bookkeepingServiceId: string;
   /// A seeded document of the client.
   documentId: string;
+  /// The client's published bookkeeping report (an engagement report).
+  reportId: string;
 }
 
 /** Stable ids: 00000000-0000-4000-d<module>-<n>. */
@@ -61,6 +63,9 @@ export const SEED_R38_IDS = {
   bkPeriodSep: id(39),
   bkRecon1: id(40),
   bkRecon2: id(41),
+  bkReport1: id(42),
+  bkReport2: id(43),
+  bkReport3: id(44),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -369,6 +374,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
   await seedBookkeeping(tx, c);
   await seedBookkeepingConnection(tx, c);
   await seedBookkeepingPeriods(tx, c);
+  await seedBookkeepingReports(tx, c);
 }
 
 /** The IRS 2027 calendar, published: an entry with a date, and one that needs checking. */
@@ -817,4 +823,64 @@ async function seedBookkeepingPeriods(tx: TxClient, c: WorkSeedContext) {
       exceptionsCount: 2,
     },
   });
+}
+
+/** September's P&L in progress, Q3's balance sheet not started, August's reconciliation delivered. */
+async function seedBookkeepingReports(tx: TxClient, c: WorkSeedContext) {
+  const { businessId } = c;
+  const base = { businessId, engagementId: c.bookkeepingEngagementId };
+  const generated = { generatedAt: new Date('2026-10-02T12:00:00Z'), generatedByUserId: c.staffId };
+  await tx.bookkeepingReport.upsert({
+    where: { id: SEED_R38_IDS.bkReport1 },
+    update: {},
+    create: {
+      ...base,
+      id: SEED_R38_IDS.bkReport1,
+      periodId: SEED_R38_IDS.bkPeriodSep,
+      reportType: 'PROFIT_LOSS',
+      periodLabel: 'September 2026',
+      basis: 'ACCRUAL',
+      dueOn: new Date('2026-10-15'),
+      status: 'IN_PROGRESS',
+    },
+  });
+  await tx.bookkeepingReport.upsert({
+    where: { id: SEED_R38_IDS.bkReport2 },
+    update: {},
+    create: {
+      ...base,
+      id: SEED_R38_IDS.bkReport2,
+      reportType: 'BALANCE_SHEET',
+      periodLabel: 'Q3 2026',
+      dueOn: new Date('2026-10-20'),
+    },
+  });
+  if (!(await tx.bookkeepingReport.findUnique({ where: { id: SEED_R38_IDS.bkReport3 } }))) {
+    await tx.bookkeepingReport.create({
+      data: {
+        ...base,
+        id: SEED_R38_IDS.bkReport3,
+        periodId: SEED_R38_IDS.bkPeriodAug,
+        reportType: 'RECONCILIATION',
+        periodLabel: 'August 2026',
+        dueOn: new Date('2026-09-15'),
+        engagementReportId: c.reportId,
+      },
+    });
+    const steps = [
+      ['IN_PROGRESS', {}],
+      ['IN_REVIEW', generated],
+      ['APPROVED', { reviewedAt: new Date('2026-10-02T14:00:00Z'), reviewedByUserId: c.ownerId }],
+      [
+        'DELIVERED',
+        { deliveredAt: new Date('2026-10-03T09:00:00Z'), deliveredByUserId: c.ownerId },
+      ],
+    ] as const;
+    for (const [status, data] of steps) {
+      await tx.bookkeepingReport.update({
+        where: { id: SEED_R38_IDS.bkReport3 },
+        data: { status, ...data },
+      });
+    }
+  }
 }

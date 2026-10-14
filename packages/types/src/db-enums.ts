@@ -290,6 +290,36 @@ export type ReconciliationStatus = z.infer<typeof ReconciliationStatus>;
 export const FiguresSource = z.enum(['MANUAL', 'IMPORTED']);
 export type FiguresSource = z.infer<typeof FiguresSource>;
 
+export const BookkeepingReportType = z.enum([
+  'PROFIT_LOSS',
+  'BALANCE_SHEET',
+  'CASH_FLOW',
+  'GENERAL_LEDGER',
+  'TRIAL_BALANCE',
+  'TRANSACTION_DETAIL',
+  'UNCATEGORIZED',
+  'RECONCILIATION',
+  'QUARTERLY_REVIEW',
+  'YEAR_TO_DATE_SUMMARY',
+  'BOOKKEEPING_STATUS',
+  'MISSING_DOCUMENTS',
+  'CUSTOM',
+]);
+export type BookkeepingReportType = z.infer<typeof BookkeepingReportType>;
+
+/** The work and review of one report: not started, being prepared, in review, approved, delivered to the client (which freezes it). */
+export const ReportReviewStatus = z.enum([
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'IN_REVIEW',
+  'APPROVED',
+  'DELIVERED',
+]);
+export type ReportReviewStatus = z.infer<typeof ReportReviewStatus>;
+
+export const AccountingBasis = z.enum(['CASH', 'ACCRUAL']);
+export type AccountingBasis = z.infer<typeof AccountingBasis>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;
