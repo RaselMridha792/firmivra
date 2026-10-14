@@ -461,6 +461,11 @@ model Membership {
   teamMemberships   TeamMember[]
   departments       MemberDepartment[]
 
+  staffProfile      StaffProfile?          @relation("StaffProfileMember")
+  staffSupervised   StaffProfile[]         @relation("StaffSupervisor")
+  staffNotesWritten StaffProfile[]         @relation("StaffNotesUpdatedBy")
+  staffSecurity     StaffSecuritySettings?
+
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
   @@unique([businessId, id])
@@ -2981,4 +2986,133 @@ model MemberDepartment {
   @@id([membershipId, departmentId])
   @@index([businessId, departmentId])
   @@map("member_departments")
+}
+
+// ---------- Staff details, access and security (R35, migration r35_staff_details) ----------
+// What Create/Edit Staff and Staff Account Access & Security keep about a member, beyond the
+// membership itself (role, status, job title, meeting link) and the person's login (name, email,
+// phone: one user row across firms). One row per member in each table, created when the member
+// is added or when the first field is saved. Firm tables with forced RLS.
+
+enum StaffEmploymentType {
+  W2
+  FORM_1099
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  TEMPORARY
+  SEASONAL
+  INTERN
+  OTHER
+}
+
+/// The "User Access Level" on Create Staff. It labels the member's authority; what they can do
+/// comes from the role and its permissions, never from this field alone.
+enum StaffAccessLevel {
+  STANDARD_USER
+  MANAGER
+  ADMINISTRATOR
+}
+
+enum StaffAuthMethod {
+  AUTHENTICATOR_APP
+  SMS
+  EMAIL
+  BACKUP_CODES
+}
+
+/// Where a member may sign in from: anywhere, only the listed IP addresses or networks, or only
+/// the listed countries (approximate, from the viewer's IP; telemetry, not proof of location).
+enum StaffAccessLocation {
+  ANYWHERE
+  ALLOWED_IPS
+  ALLOWED_COUNTRIES
+}
+
+
+
+/// Employment, assignment and internal-note details of one member. Dates are calendar dates
+/// (no time); `time_zone` is an IANA name.
+model StaffProfile {
+  membershipId      String               @map("membership_id") @db.Uuid
+  businessId        String               @map("business_id") @db.Uuid
+  employmentType    StaffEmploymentType? @map("employment_type")
+  /// Company-defined or custom ("Full-Time", "Mon-Thu"), up to 80 characters.
+  workSchedule      String?              @map("work_schedule")
+  /// The office or branch, up to 100 characters.
+  office            String?
+  hireDate          DateTime?            @map("hire_date") @db.Date
+  endDate           DateTime?            @map("end_date") @db.Date
+  supervisorId      String?              @map("supervisor_membership_id") @db.Uuid
+  timeZone          String?              @map("time_zone")
+  /// Unique per firm, ignoring case (SQL-only partial index).
+  employeeId        String?              @map("employee_id")
+  /// A service code (like `TAX_PREPARATION`): the member's main specialty.
+  primarySpecialty  String?              @map("primary_specialty")
+  /// Service codes that limit the member to those areas of work; empty means no limit.
+  serviceAreas      String[]             @default([]) @map("service_areas")
+  /// Clients or tasks the member can carry at once (1 to 10,000); null means no limit.
+  maxWorkload       Int?                 @map("max_workload")
+  acceptsNewClients Boolean              @default(true) @map("accepts_new_clients")
+  accessLevel       StaffAccessLevel     @default(STANDARD_USER) @map("access_level")
+  /// The member signs in from this date (inclusive, in their time zone) and not before.
+  accessStartsOn    DateTime?            @map("access_starts_on") @db.Date
+  /// Internal notes for Owners and Admins, up to 500 characters.
+  notes             String?
+  notesUpdatedAt    DateTime?            @map("notes_updated_at") @db.Timestamptz(3)
+  notesUpdatedById  String?              @map("notes_updated_by_membership_id") @db.Uuid
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member         Membership  @relation("StaffProfileMember", fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+  supervisor     Membership? @relation("StaffSupervisor", fields: [businessId, supervisorId], references: [businessId, id], onDelete: Restrict)
+  notesUpdatedBy Membership? @relation("StaffNotesUpdatedBy", fields: [businessId, notesUpdatedById], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, membershipId])
+  @@index([businessId, supervisorId])
+  @@map("staff_profiles")
+}
+
+/// A member's sign-in rules and security notices. Two-factor sign-in is always required for
+/// staff (the staff user pool), so there is no column for it. The API enforces `autoLogoutMinutes`,
+/// the concurrent-session limit and the location rule on every request or sign-in.
+model StaffSecuritySettings {
+  membershipId            String              @map("membership_id") @db.Uuid
+  businessId              String              @map("business_id") @db.Uuid
+  requirePasswordChange   Boolean             @default(true) @map("require_password_change")
+  passwordChangedAt       DateTime?           @map("password_changed_at") @db.Timestamptz(3)
+  /// Set by the API at each sign-in; the directory's "Last Login".
+  lastLoginAt             DateTime?           @map("last_login_at") @db.Timestamptz(3)
+  allowedAuthMethods      StaffAuthMethod[]   @default([AUTHENTICATOR_APP, BACKUP_CODES]) @map("allowed_auth_methods")
+  accessLocation          StaffAccessLocation @default(ANYWHERE) @map("access_location")
+  /// IP addresses or networks (like `203.0.113.7` or `203.0.113.0/24`), at most 20; used when
+  /// `accessLocation` is ALLOWED_IPS.
+  allowedIps              String[]            @default([]) @map("allowed_ips")
+  /// ISO 3166 two-letter codes, at most 50; used when `accessLocation` is ALLOWED_COUNTRIES.
+  allowedCountries        String[]            @default([]) @map("allowed_countries")
+  restrictDevices         Boolean             @default(false) @map("restrict_devices")
+  /// Sign out after this many idle minutes (5 to 480); null means the firm's default.
+  autoLogoutMinutes       Int?                @map("auto_logout_minutes")
+  /// The account turns inactive on this date (inclusive); the API deactivates it then.
+  disableOn               DateTime?           @map("disable_on") @db.Date
+  maxConcurrentSessions   Int                 @default(1) @map("max_concurrent_sessions")
+  signOutOtherSessions    Boolean             @default(false) @map("sign_out_other_sessions")
+  allowTrustedDevices     Boolean             @default(false) @map("allow_trusted_devices")
+  recoveryEmail           String?             @map("recovery_email")
+  recoveryEmailVerifiedAt DateTime?           @map("recovery_email_verified_at") @db.Timestamptz(3)
+  notifyNewDeviceLogin    Boolean             @default(true) @map("notify_new_device_login")
+  notifyFailedLogins      Boolean             @default(true) @map("notify_failed_logins")
+  notifyPasswordChanges   Boolean             @default(true) @map("notify_password_changes")
+  notifySecurityAlerts    Boolean             @default(true) @map("notify_security_alerts")
+  notifyLockouts          Boolean             @default(true) @map("notify_lockouts")
+  /// When and why the account was locked (status LOCKED); both cleared on unlock.
+  lockedAt                DateTime?           @map("locked_at") @db.Timestamptz(3)
+  lockedReason            String?             @map("locked_reason")
+  createdAt               DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, membershipId])
+  @@map("staff_security_settings")
 }

@@ -1542,6 +1542,55 @@ async function main() {
     });
   });
 
+  // Staff details and security for LVP's two members.
+  await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, async (tx) => {
+    const members = await tx.membership.findMany({
+      where: { userId: { in: [SEED_USERS.lvpOwner.id, SEED_USERS.lvpStaff.id] } },
+      select: { id: true, userId: true },
+    });
+    const ownerId = members.find((m) => m.userId === SEED_USERS.lvpOwner.id)!.id;
+    const staffId = members.find((m) => m.userId === SEED_USERS.lvpStaff.id)!.id;
+    const businessId = businesses.lvp;
+    for (const [membershipId, profile] of [
+      [
+        ownerId,
+        {
+          employmentType: 'W2',
+          office: 'Main office',
+          accessLevel: 'ADMINISTRATOR',
+          supervisorId: null,
+          timeZone: 'America/New_York',
+          employeeId: 'EMP001',
+          serviceAreas: [],
+          maxWorkload: null,
+        },
+      ],
+      [
+        staffId,
+        {
+          employmentType: 'FULL_TIME',
+          office: 'Main office',
+          supervisorId: ownerId,
+          timeZone: 'America/New_York',
+          employeeId: 'EMP002',
+          serviceAreas: ['TAX_PREPARATION'],
+          maxWorkload: 50,
+        },
+      ],
+    ] as const) {
+      await tx.staffProfile.upsert({
+        where: { businessId_membershipId: { businessId, membershipId } },
+        update: {},
+        create: { businessId, membershipId, ...profile, serviceAreas: [...profile.serviceAreas] },
+      });
+      await tx.staffSecuritySettings.upsert({
+        where: { businessId_membershipId: { businessId, membershipId } },
+        update: {},
+        create: { businessId, membershipId, autoLogoutMinutes: 30 },
+      });
+    }
+  });
+
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
     seedEsign(tx, businesses.lvp),
   );

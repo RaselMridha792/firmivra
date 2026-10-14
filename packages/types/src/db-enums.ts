@@ -367,3 +367,27 @@ export type StaffGroupStatus = z.infer<typeof StaffGroupStatus>;
 /** A member's place in a team: their one primary team, their one backup team, or a member. */
 export const TeamMemberKind = z.enum(['PRIMARY', 'BACKUP', 'MEMBER']);
 export type TeamMemberKind = z.infer<typeof TeamMemberKind>;
+
+export const StaffEmploymentType = z.enum([
+  'W2',
+  'FORM_1099',
+  'FULL_TIME',
+  'PART_TIME',
+  'CONTRACT',
+  'TEMPORARY',
+  'SEASONAL',
+  'INTERN',
+  'OTHER',
+]);
+export type StaffEmploymentType = z.infer<typeof StaffEmploymentType>;
+
+/** The "User Access Level" on Create Staff. It labels the member's authority; what they can do comes from the role and its permissions, never from this field alone. */
+export const StaffAccessLevel = z.enum(['STANDARD_USER', 'MANAGER', 'ADMINISTRATOR']);
+export type StaffAccessLevel = z.infer<typeof StaffAccessLevel>;
+
+export const StaffAuthMethod = z.enum(['AUTHENTICATOR_APP', 'SMS', 'EMAIL', 'BACKUP_CODES']);
+export type StaffAuthMethod = z.infer<typeof StaffAuthMethod>;
+
+/** Where a member may sign in from: anywhere, only the listed IP addresses or networks, or only the listed countries (approximate, from the viewer's IP; telemetry, not proof of location). */
+export const StaffAccessLocation = z.enum(['ANYWHERE', 'ALLOWED_IPS', 'ALLOWED_COUNTRIES']);
+export type StaffAccessLocation = z.infer<typeof StaffAccessLocation>;
