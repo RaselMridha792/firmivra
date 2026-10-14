@@ -67,3 +67,8 @@ export {
 } from './schemas.js';
 // Documents exports only the type, with the same six values: the root takes the database enum.
 export { DocumentRequestStatus } from './schemas.js';
+// The R42 contracts (settings/branding.ts, appointments/scheduling.ts) define their own copies of
+// these database enums (R36, R37): the root takes the generated values. SidebarStyle,
+// SidebarPosition and ReminderChannel have the same values; the scheduling form's
+// RecurrenceFrequency adds NONE and CUSTOM, which the contract's own schemas keep using.
+export { RecurrenceFrequency, ReminderChannel, SidebarPosition, SidebarStyle } from './schemas.js';
