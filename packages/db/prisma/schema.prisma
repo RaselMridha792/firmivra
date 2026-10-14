@@ -344,6 +344,7 @@ model Business {
   platformOwnerInvites PlatformOwnerInvite[]
   esignSettings        EsignSettings?
   intakeSettings       IntakeSettings?
+  intakeTemplates      IntakeTemplate[]
 
   @@map("businesses")
 }
@@ -450,10 +451,12 @@ model Membership {
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
 
   // R37 back-relations (no columns on memberships).
-  intakesAssigned        Intake[]         @relation("IntakeAssignedTo")
-  intakesCompleted       Intake[]         @relation("IntakeCompletedBy")
-  intakeSettingsOwner    IntakeSettings[] @relation("IntakeSettingsOwner")
-  intakeSettingsFollowUp IntakeSettings[] @relation("IntakeSettingsFollowUp")
+  intakesAssigned         Intake[]         @relation("IntakeAssignedTo")
+  intakesCompleted        Intake[]         @relation("IntakeCompletedBy")
+  intakeSettingsOwner     IntakeSettings[] @relation("IntakeSettingsOwner")
+  intakeSettingsFollowUp  IntakeSettings[] @relation("IntakeSettingsFollowUp")
+  intakeTemplatesCreated  IntakeTemplate[] @relation("IntakeTemplateCreatedBy")
+  intakeTemplatesAssigned IntakeTemplate[] @relation("IntakeTemplateAssignedTo")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -861,11 +864,12 @@ model Service {
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business    Business        @relation(fields: [businessId], references: [id])
-  engagements Engagement[]
-  intakeForms IntakeForm[]
-  agreements  FirmAgreement[]
-  leads       Lead[]
+  business        Business         @relation(fields: [businessId], references: [id])
+  engagements     Engagement[]
+  intakeForms     IntakeForm[]
+  intakeTemplates IntakeTemplate[]
+  agreements      FirmAgreement[]
+  leads           Lead[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -1168,10 +1172,17 @@ model IntakeForm {
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  service Service  @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  intakes Intake[]
+  /// R37: the template (the firm's reusable form) this is a version of. The database fills it
+  /// with the service's default template when an insert leaves it empty; it never changes
+  /// after the first publish.
+  templateId String? @map("template_id") @db.Uuid
 
-  @@unique([businessId, serviceId, version])
+  service  Service         @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  template IntakeTemplate? @relation(fields: [businessId, templateId, serviceId], references: [businessId, id, serviceId], onDelete: Restrict)
+  intakes  Intake[]
+
+  // R37: versions are numbered per template (a service can have several templates).
+  @@unique([businessId, templateId, version])
   @@unique([businessId, id])
   @@map("intake_forms")
 }
@@ -2974,4 +2985,38 @@ model IntakeSettings {
   followUpOwner Membership? @relation("IntakeSettingsFollowUp", fields: [businessId, followUpOwnerUserId], references: [businessId, userId], onDelete: Restrict)
 
   @@map("intake_settings")
+}
+
+/// A reusable intake form a firm keeps (Form Templates screen, "Create new intake form"). A
+/// service can have several. The versions are IntakeForm rows, numbered per template and
+/// unchangeable once published. One live template per service is the default: the form Begin
+/// Online and "send for an engagement" use. Archived, never deleted.
+model IntakeTemplate {
+  id                    String    @id @default(uuid(7)) @db.Uuid
+  businessId            String    @map("business_id") @db.Uuid
+  /// The category tab (Personal Tax, Bookkeeping...): one of the firm's services.
+  serviceId             String    @map("service_id") @db.Uuid
+  /// At most one live (unarchived) default per service.
+  serviceDefault        Boolean   @default(false) @map("service_default")
+  /// Staff-only authoring notes, never sent to recipients; up to 500 characters.
+  internalNotes         String?   @map("internal_notes")
+  /// Pre-fills "Assign to" when the template is sent; a member of the firm.
+  defaultAssignedUserId String?   @map("default_assigned_user_id") @db.Uuid
+  /// Null: made by Firmivra or by the database for a service's first form.
+  createdByUserId       String?   @map("created_by_user_id") @db.Uuid
+  archivedAt            DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business        Business     @relation(fields: [businessId], references: [id])
+  service         Service      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  defaultAssignee Membership?  @relation("IntakeTemplateAssignedTo", fields: [businessId, defaultAssignedUserId], references: [businessId, userId], onDelete: Restrict)
+  createdBy       Membership?  @relation("IntakeTemplateCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  forms           IntakeForm[]
+
+  @@unique([businessId, id])
+  // Target of the versions' same-service foreign key.
+  @@unique([businessId, id, serviceId])
+  @@index([businessId, serviceId, archivedAt])
+  @@map("intake_templates")
 }
