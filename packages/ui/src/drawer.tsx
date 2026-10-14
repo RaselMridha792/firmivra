@@ -33,10 +33,12 @@ export function Drawer({ open, title, subtitle, footer, children, onClose }: Dra
       aria-labelledby={titleId}
       onCancel={onClose}
       onClick={(event) => event.target === event.currentTarget && onClose()}
-      className="ml-auto h-full max-h-full w-full max-w-md bg-transparent p-0 text-text"
+      className="ui-drawer ml-auto h-full max-h-full w-full max-w-md bg-transparent p-0 text-text"
     >
       <div className="flex h-full flex-col bg-surface shadow-lg">
-        <div className="flex items-start justify-between gap-4 border-b border-divider p-5">
+        <div
+          className={`flex justify-between gap-4 border-b border-divider p-5 ${subtitle ? 'items-start' : 'items-center'}`}
+        >
           <div>
             <h2 id={titleId} className="text-xl font-bold text-heading">
               {title}

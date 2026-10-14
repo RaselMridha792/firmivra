@@ -41,7 +41,9 @@ export function Modal({ open, title, subtitle, footer, children, onClose }: Moda
       }}
       className="ui-dialog m-auto overflow-auto rounded-xl border border-border bg-surface p-6 text-text shadow-lg"
     >
-      <div className="mb-6 flex items-start justify-between gap-4">
+      <div
+        className={`mb-6 flex justify-between gap-4 ${subtitle ? 'items-start' : 'items-center'}`}
+      >
         <div>
           <h2 id={titleId} className="text-2xl font-bold text-heading">
             {title}
