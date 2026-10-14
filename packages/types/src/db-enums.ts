@@ -435,3 +435,14 @@ export type PromotionEligibility = z.infer<typeof PromotionEligibility>;
 /** DRAFT is not live; ACTIVE is live inside its dates ("Scheduled" before `starts_at` and "Expired" after `ends_at` are worked out from the dates); INACTIVE was ended by the firm. */
 export const PromotionStatus = z.enum(['DRAFT', 'ACTIVE', 'INACTIVE']);
 export type PromotionStatus = z.infer<typeof PromotionStatus>;
+
+/** Where a message goes: the client portal, email or a text message. */
+export const MessageChannel = z.enum(['PORTAL', 'EMAIL', 'SMS']);
+export type MessageChannel = z.infer<typeof MessageChannel>;
+
+export const MessageTemplateStatus = z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']);
+export type MessageTemplateStatus = z.infer<typeof MessageTemplateStatus>;
+
+/** FIRM: shared with the firm's staff; PERSONAL: only its owner uses it. */
+export const MessageTemplateScope = z.enum(['FIRM', 'PERSONAL']);
+export type MessageTemplateScope = z.infer<typeof MessageTemplateScope>;

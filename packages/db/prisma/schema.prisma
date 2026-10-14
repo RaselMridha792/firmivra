@@ -353,6 +353,7 @@ model Business {
   serviceCategories    ServiceCategory[]
   servicePackages      ServicePackage[]
   promotions           Promotion[]
+  messageTemplates     MessageTemplate[]
 
   @@map("businesses")
 }
@@ -450,22 +451,26 @@ model Membership {
   offlinePaymentsVoided   OfflinePayment[] @relation("OfflinePaymentVoidedBy")
 
   // Firm Sign.
-  esignConsentPublished EsignConsentVersion[]  @relation("EsignConsentPublishedBy")
-  esignRole             EsignMemberRole?       @relation("EsignMemberRole")
-  esignTemplates        EsignTemplate[]        @relation("EsignTemplateOwner")
-  esignTemplateVersions EsignTemplateVersion[] @relation("EsignTemplateVersionSavedBy")
-  esignRequestsSent     EsignRequest[]         @relation("EsignRequestSender")
-  esignRequestsVoided   EsignRequest[]         @relation("EsignRequestVoidedBy")
-  esignRecipients       EsignRecipient[]       @relation("EsignRecipientStaff")
-  esignEmails           EsignEmail[]           @relation("EsignEmailMember")
-  esignUploads          EsignPendingUpload[]   @relation("EsignUploadMember")
-  esignKioskLock        EsignKioskLock?        @relation("EsignKioskLock")
-  esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
-  invoiceAttachments    InvoiceAttachment[]
-  recurringAssigned     RecurringInvoice[]     @relation("RecurringAssignedTo")
-  recurringCreated      RecurringInvoice[]     @relation("RecurringCreatedBy")
-  servicesUpdated       Service[]              @relation("ServiceUpdatedBy")
-  packagesUpdated       ServicePackage[]       @relation("PackageUpdatedBy")
+  esignConsentPublished   EsignConsentVersion[]  @relation("EsignConsentPublishedBy")
+  esignRole               EsignMemberRole?       @relation("EsignMemberRole")
+  esignTemplates          EsignTemplate[]        @relation("EsignTemplateOwner")
+  esignTemplateVersions   EsignTemplateVersion[] @relation("EsignTemplateVersionSavedBy")
+  esignRequestsSent       EsignRequest[]         @relation("EsignRequestSender")
+  esignRequestsVoided     EsignRequest[]         @relation("EsignRequestVoidedBy")
+  esignRecipients         EsignRecipient[]       @relation("EsignRecipientStaff")
+  esignEmails             EsignEmail[]           @relation("EsignEmailMember")
+  esignUploads            EsignPendingUpload[]   @relation("EsignUploadMember")
+  esignKioskLock          EsignKioskLock?        @relation("EsignKioskLock")
+  esignBulkBatches        EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
+  invoiceAttachments      InvoiceAttachment[]
+  recurringAssigned       RecurringInvoice[]     @relation("RecurringAssignedTo")
+  recurringCreated        RecurringInvoice[]     @relation("RecurringCreatedBy")
+  servicesUpdated         Service[]              @relation("ServiceUpdatedBy")
+  packagesUpdated         ServicePackage[]       @relation("PackageUpdatedBy")
+  threadsAssigned         MessageThread[]        @relation("MessageThreadAssignedTo")
+  threadMutes             MessageThreadMute[]
+  messageTemplatesOwned   MessageTemplate[]      @relation("MessageTemplateOwner")
+  messageTemplatesCreated MessageTemplate[]      @relation("MessageTemplateCreator")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -912,6 +917,7 @@ model Service {
   linkedAddOns     ServiceAddOn[]         @relation("ServiceAddOnLinked")
   packageItems     ServicePackageItem[]
   promotionTargets PromotionTarget[]
+  messageTemplates MessageTemplate[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -1562,12 +1568,22 @@ model MessageThread {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  /// R36 (Messages, r36_message_workspace): the staff member who owns the thread, and when it was
+  /// archived (out of the active inbox, history kept; null: active).
+  assignedUserId String?   @map("assigned_user_id") @db.Uuid
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz(3)
+
+  client     Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   messages   Message[]
+  assignedTo Membership?         @relation("MessageThreadAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  mutes      MessageThreadMute[]
+  tags       MessageThreadTag[]
 
   @@unique([businessId, id])
   @@index([businessId, clientId, lastMessageAt])
+  @@index([businessId, assignedUserId])
+  @@index([businessId, archivedAt])
   @@map("message_threads")
 }
 
@@ -3662,4 +3678,86 @@ model PromotionRedemption {
   @@index([businessId, invoiceId])
   @@index([businessId, clientId])
   @@map("promotion_redemptions")
+}
+
+/// Where a message goes: the client portal, email or a text message.
+enum MessageChannel {
+  PORTAL
+  EMAIL
+  SMS
+}
+
+enum MessageTemplateStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+/// FIRM: shared with the firm's staff; PERSONAL: only its owner uses it.
+enum MessageTemplateScope {
+  FIRM
+  PERSONAL
+}
+
+/// A staff member silences internal alerts for one thread (Mute Conversation): messages still
+/// arrive and the thread stays visible. `muted_until` empty is until unmuted. Unmuting deletes it.
+model MessageThreadMute {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  threadId   String    @map("thread_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  mutedUntil DateTime? @map("muted_until") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  thread MessageThread @relation(fields: [businessId, threadId], references: [businessId, id], onDelete: Restrict)
+  member Membership    @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([threadId, userId])
+  @@index([businessId, userId])
+  @@map("message_thread_mutes")
+}
+
+/// A searchable tag on a thread; unique per thread ignoring case (SQL-only index).
+model MessageThreadTag {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  threadId   String   @map("thread_id") @db.Uuid
+  tag        String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  thread MessageThread @relation(fields: [businessId, threadId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, threadId])
+  @@index([businessId, tag])
+  @@map("message_thread_tags")
+}
+
+/// A reusable message (Message Templates): channels it fits, a subject for email, a body with merge
+/// fields (the API checks the approved list). Archived, not deleted. Sample data only in previews.
+model MessageTemplate {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  businessId      String                @map("business_id") @db.Uuid
+  name            String
+  category        String?
+  serviceId       String?               @map("service_id") @db.Uuid
+  channels        MessageChannel[]
+  subject         String?
+  body            String
+  status          MessageTemplateStatus @default(ACTIVE)
+  scope           MessageTemplateScope  @default(FIRM)
+  /// The owner of a PERSONAL template.
+  ownerUserId     String?               @map("owner_user_id") @db.Uuid
+  createdByUserId String?               @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business    @relation(fields: [businessId], references: [id])
+  service   Service?    @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  owner     Membership? @relation("MessageTemplateOwner", fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
+  createdBy Membership? @relation("MessageTemplateCreator", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, name])
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@map("message_templates")
 }

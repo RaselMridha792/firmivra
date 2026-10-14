@@ -5,6 +5,7 @@ import {
   SEED_BILLING_IDS,
   SEED_CLIENT_IDS,
   SEED_DOCUMENT_IDS,
+  SEED_MESSAGE_IDS,
   SEED_STRIPE_ACCOUNT_ID,
   SEED_USERS,
   SEED_WORK_IDS,
@@ -243,5 +244,38 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
         },
       });
     }
+
+    // Messages: an owner and a tag on the welcome thread, a mute on the W-2 thread, and a template.
+    await tx.messageThread.update({
+      where: { id: SEED_MESSAGE_IDS.welcomeThread },
+      data: { assignedUserId: SEED_USERS.lvpStaff.id },
+    });
+    if (
+      (await tx.messageThreadTag.count({ where: { threadId: SEED_MESSAGE_IDS.welcomeThread } })) ===
+      0
+    ) {
+      await tx.messageThreadTag.create({
+        data: { ...lvp, threadId: SEED_MESSAGE_IDS.welcomeThread, tag: 'New client' },
+      });
+    }
+    await tx.messageThreadMute.upsert({
+      where: {
+        threadId_userId: { threadId: SEED_MESSAGE_IDS.w2Thread, userId: SEED_USERS.lvpOwner.id },
+      },
+      update: {},
+      create: { ...lvp, threadId: SEED_MESSAGE_IDS.w2Thread, userId: SEED_USERS.lvpOwner.id },
+    });
+    await tx.messageTemplate.upsert({
+      where: { businessId_name: { businessId: businesses.lvp, name: 'Appointment reminder' } },
+      update: {},
+      create: {
+        ...lvp,
+        name: 'Appointment reminder',
+        category: 'Appointments',
+        channels: ['PORTAL', 'EMAIL'],
+        subject: 'Your upcoming appointment',
+        body: 'Hi {{first_name}}, a reminder about your appointment on {{appointment_date}}.',
+      },
+    });
   });
 }
