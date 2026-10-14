@@ -3901,6 +3901,9 @@ model PayrollClient {
   activities PayrollActivity[]
   workers    PayrollWorker[]
   runs       PayrollRun[]
+  filings    PayrollFiling[]
+  reports    PayrollReport[]
+  yearEnds   PayrollYearEnd[]
 
   @@unique([businessId, id])
   @@unique([businessId, engagementId])
@@ -4089,6 +4092,7 @@ model PayrollRun {
   payrollClient PayrollClient     @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
   lines         PayrollRunLine[]
   issues        PayrollRunIssue[]
+  reports       PayrollReport[]
 
   @@unique([businessId, id])
   @@unique([payrollClientId, periodStart, periodEnd])
@@ -4160,4 +4164,128 @@ model PayrollRunIssue {
 
   @@index([businessId, runId, severity])
   @@map("payroll_run_issues")
+}
+
+// ---------- Payroll: filings, reports and year-end ----------
+
+/// Only what the provider or an import confirmed. A Firmivra task being done never makes a filing
+/// FILED or PAID.
+enum PayrollFilingStatus {
+  UPCOMING
+  IN_PROGRESS
+  FILED
+  PAID
+  FAILED
+  NEEDS_ATTENTION
+  UNKNOWN
+}
+
+enum PayrollPaymentStatus {
+  SCHEDULED
+  PAID
+  FAILED
+  UNKNOWN
+}
+
+enum PayrollReportKind {
+  REGISTER
+  EARNINGS
+  DEDUCTIONS
+  EMPLOYER_TAX
+  TAX_FILING
+  JOURNAL
+  LABOR
+  W2_W3
+  FORM_1099
+  OTHER
+}
+
+enum PayrollYearEndStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  RECONCILED
+  DELIVERED
+  ARCHIVED
+}
+
+/// Federal, state and local payroll filing and payment visibility for a payroll client: forms
+/// (941, 940, W-2, W-3, state withholding...) with period, due date and status. Shown only as
+/// the provider or an import confirmed it; FILED and PAID need that confirmation and its source.
+model PayrollFiling {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  businessId      String               @map("business_id") @db.Uuid
+  payrollClientId String               @map("payroll_client_id") @db.Uuid
+  form            String
+  /// "federal", or a state or locality code.
+  jurisdiction    String
+  periodStart     DateTime             @map("period_start") @db.Date
+  periodEnd       DateTime             @map("period_end") @db.Date
+  dueOn           DateTime?            @map("due_on") @db.Date
+  status          PayrollFilingStatus  @default(UNKNOWN)
+  paymentStatus   PayrollPaymentStatus @default(UNKNOWN) @map("payment_status")
+  /// The agency or provider reference, when there is one.
+  confirmationRef String?              @map("confirmation_ref")
+  /// "provider" or "import".
+  source          String?
+  sourceSyncedAt  DateTime?            @map("source_synced_at") @db.Timestamptz(3)
+  confirmedAt     DateTime?            @map("confirmed_at") @db.Timestamptz(3)
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  payrollClient PayrollClient @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([payrollClientId, form, jurisdiction, periodStart, periodEnd])
+  @@index([businessId, payrollClientId, dueOn])
+  @@map("payroll_filings")
+}
+
+/// A payroll report the provider supplied or the firm pulled or imported (register, earnings,
+/// deductions, employer tax, journal, W-2/W-3...) for a period or one run. Insert-only: a new
+/// pull is a new version, so earlier versions stay. The file, if any, is a vault document of the
+/// same firm (`documentId`; checked by the database, so it cannot point at another firm's file).
+model PayrollReport {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  businessId        String            @map("business_id") @db.Uuid
+  payrollClientId   String            @map("payroll_client_id") @db.Uuid
+  runId             String?           @map("run_id") @db.Uuid
+  kind              PayrollReportKind
+  periodStart       DateTime          @map("period_start") @db.Date
+  periodEnd         DateTime          @map("period_end") @db.Date
+  version           Int               @default(1)
+  documentId        String?           @map("document_id") @db.Uuid
+  /// "provider" or "import".
+  source            String
+  pulledAt          DateTime          @default(now()) @map("pulled_at") @db.Timestamptz(3)
+  requestedByUserId String?           @map("requested_by_user_id") @db.Uuid
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  payrollClient PayrollClient @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
+  run           PayrollRun?   @relation(fields: [businessId, runId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([payrollClientId, kind, periodStart, periodEnd, version])
+  @@index([businessId, payrollClientId, kind])
+  @@map("payroll_reports")
+}
+
+/// A client's year-end payroll workflow for one tax year: worker review, missing information,
+/// W-2/W-3, 1099, reconciliation, client delivery. `items` maps each step to its state. Statutory
+/// dates stay in Compliance & Deadlines. Archived, never deleted, so year-end versions stay.
+model PayrollYearEnd {
+  id                String               @id @default(uuid(7)) @db.Uuid
+  businessId        String               @map("business_id") @db.Uuid
+  payrollClientId   String               @map("payroll_client_id") @db.Uuid
+  taxYear           Int                  @map("tax_year")
+  status            PayrollYearEndStatus @default(NOT_STARTED)
+  items             Json                 @default("{}")
+  exceptionsNote    String?              @map("exceptions_note")
+  reconciledAt      DateTime?            @map("reconciled_at") @db.Timestamptz(3)
+  deliveredAt       DateTime?            @map("delivered_at") @db.Timestamptz(3)
+  deliveredByUserId String?              @map("delivered_by_user_id") @db.Uuid
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  payrollClient PayrollClient @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([payrollClientId, taxYear])
+  @@map("payroll_year_ends")
 }

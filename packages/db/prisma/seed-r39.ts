@@ -439,4 +439,36 @@ async function seedPayroll(tx: TxClient, businessId: string) {
       message: 'Two workers have overtime hours. Review for accuracy.',
     },
   });
+  await tx.payrollFiling.create({
+    data: {
+      ...link,
+      form: '941',
+      jurisdiction: 'federal',
+      periodStart: new Date('2026-04-01'),
+      periodEnd: new Date('2026-06-30'),
+      dueOn: new Date('2026-07-31'),
+      status: 'FILED',
+      paymentStatus: 'PAID',
+      source: 'import',
+      sourceSyncedAt: new Date(),
+      confirmedAt: new Date(),
+    },
+  });
+  await tx.payrollReport.create({
+    data: {
+      ...link,
+      kind: 'REGISTER',
+      periodStart: new Date('2026-08-16'),
+      periodEnd: new Date('2026-08-31'),
+      source: 'import',
+    },
+  });
+  await tx.payrollYearEnd.create({
+    data: {
+      ...link,
+      taxYear: 2025,
+      status: 'IN_PROGRESS',
+      items: { worker_review: 'done', w2_w3: 'pending' },
+    },
+  });
 }

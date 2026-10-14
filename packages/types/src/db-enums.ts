@@ -580,3 +580,41 @@ export type PayrollLineStatus = z.infer<typeof PayrollLineStatus>;
 
 export const PayrollIssueSeverity = z.enum(['INFO', 'WARNING', 'ERROR']);
 export type PayrollIssueSeverity = z.infer<typeof PayrollIssueSeverity>;
+
+/** Only what the provider or an import confirmed. A Firmivra task being done never makes a filing FILED or PAID. */
+export const PayrollFilingStatus = z.enum([
+  'UPCOMING',
+  'IN_PROGRESS',
+  'FILED',
+  'PAID',
+  'FAILED',
+  'NEEDS_ATTENTION',
+  'UNKNOWN',
+]);
+export type PayrollFilingStatus = z.infer<typeof PayrollFilingStatus>;
+
+export const PayrollPaymentStatus = z.enum(['SCHEDULED', 'PAID', 'FAILED', 'UNKNOWN']);
+export type PayrollPaymentStatus = z.infer<typeof PayrollPaymentStatus>;
+
+export const PayrollReportKind = z.enum([
+  'REGISTER',
+  'EARNINGS',
+  'DEDUCTIONS',
+  'EMPLOYER_TAX',
+  'TAX_FILING',
+  'JOURNAL',
+  'LABOR',
+  'W2_W3',
+  'FORM_1099',
+  'OTHER',
+]);
+export type PayrollReportKind = z.infer<typeof PayrollReportKind>;
+
+export const PayrollYearEndStatus = z.enum([
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'RECONCILED',
+  'DELIVERED',
+  'ARCHIVED',
+]);
+export type PayrollYearEndStatus = z.infer<typeof PayrollYearEndStatus>;
