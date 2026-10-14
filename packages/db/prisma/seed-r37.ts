@@ -44,6 +44,8 @@ const ID = {
   override: '00000000-0000-4a37-8000-000000000076',
   tagBackTaxes: '00000000-0000-4a37-8000-000000000081',
   tagW2: '00000000-0000-4a37-8000-000000000082',
+  activityCall: '00000000-0000-4a37-8000-000000000091',
+  activityNote: '00000000-0000-4a37-8000-000000000092',
   requestPacket: '00000000-0000-4a37-8000-000000000024',
 } as const;
 
@@ -509,6 +511,59 @@ async function seedClientFields(tx: TxClient, businessId: string) {
   }
 }
 
+/** Leads: Begin Online's lead with a source, owner, follow-up, a second service and a tag. */
+async function seedLeadFields(tx: TxClient, businessId: string) {
+  await tx.lead.update({
+    where: { id: SEED_INTAKE_IDS.lead },
+    data: {
+      source: 'BEGIN_ONLINE',
+      priority: 'WARM',
+      assignedUserId: SEED_USERS.lvpStaff.id,
+      preferredContactMethods: ['EMAIL', 'PHONE'],
+      bestTimeToContact: 'Evenings (after 5 PM)',
+      nextActionType: 'CALL',
+      nextActionAt: new Date('2026-12-01T15:00:00Z'),
+      nextActionNote: 'Ask about the 2025 bookkeeping backlog',
+      updatedByUserId: SEED_USERS.lvpStaff.id,
+    },
+  });
+  const payroll = await tx.service.findFirstOrThrow({ where: { businessId, name: 'Payroll' } });
+  // The timeline: the database wrote CREATED; a logged call and a note.
+  for (const [id, kind, summary, body] of [
+    [ID.activityCall, 'CALL', 'Intro call', null],
+    [ID.activityNote, 'NOTE', null, 'Prefers evening calls; has two years of unfiled bookkeeping.'],
+  ] as const) {
+    if (!(await tx.leadActivity.findUnique({ where: { id } }))) {
+      await tx.leadActivity.create({
+        data: {
+          id,
+          businessId,
+          leadId: SEED_INTAKE_IDS.lead,
+          kind,
+          summary,
+          body,
+          actorUserId: SEED_USERS.lvpStaff.id,
+        },
+      });
+    }
+  }
+  await tx.leadService.upsert({
+    where: { leadId_serviceId: { leadId: SEED_INTAKE_IDS.lead, serviceId: payroll.id } },
+    update: {},
+    create: { businessId, leadId: SEED_INTAKE_IDS.lead, serviceId: payroll.id },
+  });
+  await tx.leadTag.upsert({
+    where: { leadId_tagId: { leadId: SEED_INTAKE_IDS.lead, tagId: ID.tagBackTaxes } },
+    update: {},
+    create: {
+      businessId,
+      leadId: SEED_INTAKE_IDS.lead,
+      tagId: ID.tagBackTaxes,
+      addedByUserId: SEED_USERS.lvpStaff.id,
+    },
+  });
+}
+
 export async function seedR37(tx: TxClient, businessId: string) {
   await seedIntakeSend(tx, businessId);
   await seedIntakeTemplates(tx, businessId);
@@ -518,4 +573,5 @@ export async function seedR37(tx: TxClient, businessId: string) {
   await seedTaxReturnWorkflow(tx, businessId);
   await seedAppointmentDetails(tx, businessId);
   await seedClientFields(tx, businessId);
+  await seedLeadFields(tx, businessId);
 }

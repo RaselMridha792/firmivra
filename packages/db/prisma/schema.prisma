@@ -189,6 +189,14 @@ enum LeadStatus {
   DECLINED
   /// The draft ran out (Lead.draftExpiresAt) before it was sent.
   EXPIRED
+  /// R37 (Leads module): the pipeline staff work after the lead came in (SUBMITTED is "New
+  /// Lead", DECLINED is "Not Qualified"; IN_REVIEW stays for old rows).
+  CONTACTED
+  IN_FOLLOW_UP
+  APPOINTMENT_SCHEDULED
+  QUALIFIED
+  /// Lost, or no response.
+  LOST
 }
 
 /// Groups notifications for preferences. ACCOUNT (security) notices ignore preferences.
@@ -486,6 +494,11 @@ model Membership {
   clientsUpdated            Client[]                  @relation("ClientUpdatedBy")
   tagsCreated               Tag[]                     @relation("TagCreatedBy")
   clientTagsAdded           ClientTag[]               @relation("ClientTagAddedBy")
+  leadsAssigned             Lead[]                    @relation("LeadAssignedTo")
+  leadsArchived             Lead[]                    @relation("LeadArchivedBy")
+  leadsUpdated              Lead[]                    @relation("LeadUpdatedBy")
+  leadTagsAdded             LeadTag[]                 @relation("LeadTagAddedBy")
+  leadActivities            LeadActivity[]            @relation("LeadActivityActor")
   availabilityOverrides     AvailabilityOverride[]    @relation("OverrideStaff")
   appointmentSeriesCreated  AppointmentSeries[]       @relation("SeriesCreatedBy")
 
@@ -936,6 +949,7 @@ model Service {
   business         Business          @relation(fields: [businessId], references: [id])
   engagements      Engagement[]
   intakeForms      IntakeForm[]
+  leadServices     LeadService[]
   intakeTemplates  IntakeTemplate[]
   appointments     Appointment[]
   appointmentTypes AppointmentType[]
@@ -1416,41 +1430,79 @@ model IntakeSubmission {
 /// The resume link stores only the token's SHA-256 and lasts at most 30 days. createdAt is the
 /// database's clock; neither the draft nor its link outlives createdAt + 90 days.
 model Lead {
-  id               String     @id @default(uuid(7)) @db.Uuid
-  businessId       String     @map("business_id") @db.Uuid
-  serviceId        String     @map("service_id") @db.Uuid
-  status           LeadStatus @default(DRAFT)
-  firstName        String     @map("first_name")
-  lastName         String     @map("last_name")
-  email            String
-  phone            String?
+  id                      String          @id @default(uuid(7)) @db.Uuid
+  businessId              String          @map("business_id") @db.Uuid
+  serviceId               String          @map("service_id") @db.Uuid
+  status                  LeadStatus      @default(DRAFT)
+  firstName               String          @map("first_name")
+  lastName                String          @map("last_name")
+  email                   String
+  phone                   String?
   /// The year the firm prepares (2000 to 2100), fixed at the draft's start: set once, while a
   /// draft, then never changed.
-  taxYear          Int?       @map("tax_year")
+  taxYear                 Int?            @map("tax_year")
   /// When the draft runs out. Required while DRAFT (on insert the database fills 30 days from
   /// now); a renewal is at most 30 days from then; kept as the lead leaves DRAFT, and frozen.
   /// An expired draft is not renewed and only becomes EXPIRED; no lead goes back to DRAFT.
-  draftExpiresAt   DateTime?  @map("draft_expires_at") @db.Timestamptz(3)
-  resumeTokenHash  String?    @unique @map("resume_token_hash")
-  resumeExpiresAt  DateTime?  @map("resume_expires_at") @db.Timestamptz(3)
-  submittedAt      DateTime?  @map("submitted_at") @db.Timestamptz(3)
-  clientId         String?    @map("client_id") @db.Uuid
-  engagementId     String?    @map("engagement_id") @db.Uuid
-  reviewedByUserId String?    @map("reviewed_by_user_id") @db.Uuid
-  reviewedAt       DateTime?  @map("reviewed_at") @db.Timestamptz(3)
-  declineReason    String?    @map("decline_reason")
-  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  draftExpiresAt          DateTime?       @map("draft_expires_at") @db.Timestamptz(3)
+  resumeTokenHash         String?         @unique @map("resume_token_hash")
+  resumeExpiresAt         DateTime?       @map("resume_expires_at") @db.Timestamptz(3)
+  submittedAt             DateTime?       @map("submitted_at") @db.Timestamptz(3)
+  clientId                String?         @map("client_id") @db.Uuid
+  engagementId            String?         @map("engagement_id") @db.Uuid
+  reviewedByUserId        String?         @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt              DateTime?       @map("reviewed_at") @db.Timestamptz(3)
+  declineReason           String?         @map("decline_reason")
+  // R37 (Leads module): the list, profile and convert screens.
+  /// Shown as "LD-" + number: given by the database, per firm, from 10001, in order; never changes.
+  number                  Int             @default(0)
+  businessName            String?         @map("business_name")
+  addressLine1            String?         @map("address_line1")
+  addressLine2            String?         @map("address_line2")
+  city                    String?
+  state                   String?
+  postalCode              String?         @map("postal_code")
+  preferredContactMethods ContactMethod[] @default([]) @map("preferred_contact_methods")
+  /// "Evenings (after 5 PM)": free text, up to 100 characters.
+  bestTimeToContact       String?         @map("best_time_to_contact")
+  source                  LeadSource      @default(OTHER)
+  /// The campaign or landing page ("Back Taxes Campaign"), up to 200 characters.
+  sourceDetail            String?         @map("source_detail")
+  priority                LeadPriority?
+  assignedUserId          String?         @map("assigned_user_id") @db.Uuid
+  /// The next follow-up: type and time together, with an optional note; none once the lead is
+  /// closed (converted, declined, lost or expired).
+  nextActionType          LeadActionType? @map("next_action_type")
+  nextActionAt            DateTime?       @map("next_action_at") @db.Timestamptz(3)
+  nextActionNote          String?         @map("next_action_note")
+  /// Hidden from lists, never deleted.
+  archivedAt              DateTime?       @map("archived_at") @db.Timestamptz(3)
+  archivedByUserId        String?         @map("archived_by_user_id") @db.Uuid
+  /// Who made the last change; the activity row's author.
+  updatedByUserId         String?         @map("updated_by_user_id") @db.Uuid
+  createdAt               DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  service    Service           @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  engagement Engagement?       @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  intakes    Intake[]
-  signatures IntakeSignature[]
-  uploads    LeadUpload[]
+  assignedMember Membership?       @relation("LeadAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  archivedBy     Membership?       @relation("LeadArchivedBy", fields: [businessId, archivedByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy      Membership?       @relation("LeadUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  services       LeadService[]
+  tags           LeadTag[]
+  activities     LeadActivity[]
+  service        Service           @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  engagement     Engagement?       @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  intakes        Intake[]
+  signatures     IntakeSignature[]
+  uploads        LeadUpload[]
 
   @@unique([businessId, id])
+  @@unique([businessId, number])
   @@index([businessId, status, createdAt])
   @@index([businessId, email])
+  @@index([businessId, assignedUserId, status])
+  @@index([businessId, source])
+  @@index([businessId, nextActionAt])
+  @@index([businessId, createdAt])
   @@map("leads")
 }
 
@@ -4035,6 +4087,7 @@ model Tag {
   business  Business    @relation(fields: [businessId], references: [id])
   createdBy Membership? @relation("TagCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
   clients   ClientTag[]
+  leads     LeadTag[]
 
   @@unique([businessId, id])
   @@map("tags")
@@ -4055,4 +4108,112 @@ model ClientTag {
   @@id([clientId, tagId])
   @@index([businessId, tagId])
   @@map("client_tags")
+}
+
+/// Where a lead came from (the list's source filter). Begin Online leads are BEGIN_ONLINE.
+enum LeadSource {
+  BEGIN_ONLINE
+  WEBSITE_FORM
+  FACEBOOK_AD
+  INSTAGRAM
+  GOOGLE_AD
+  REFERRAL
+  OTHER
+}
+
+/// Set by hand, as on the designs (Hot, Warm, Cold); there is no score.
+enum LeadPriority {
+  HOT
+  WARM
+  COLD
+}
+
+enum LeadActionType {
+  CALL
+  EMAIL
+  APPOINTMENT
+  SEND_DOCUMENTS
+  FOLLOW_UP
+}
+
+/// A service a lead is interested in (the list can show several). The lead's own service
+/// (Lead.serviceId, the Begin Online service) is kept as it is; this adds the others.
+model LeadService {
+  businessId String   @map("business_id") @db.Uuid
+  leadId     String   @map("lead_id") @db.Uuid
+  serviceId  String   @map("service_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  lead    Lead    @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  service Service @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([leadId, serviceId])
+  @@index([businessId, serviceId])
+  @@map("lead_services")
+}
+
+/// A tag on a lead, from the same catalog as the clients' tags, so tags carry over when the
+/// lead becomes a client.
+model LeadTag {
+  businessId    String   @map("business_id") @db.Uuid
+  leadId        String   @map("lead_id") @db.Uuid
+  tagId         String   @map("tag_id") @db.Uuid
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  lead    Lead        @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  tag     Tag         @relation(fields: [businessId, tagId], references: [businessId, id], onDelete: Restrict)
+  addedBy Membership? @relation("LeadTagAddedBy", fields: [businessId, addedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@id([leadId, tagId])
+  @@index([businessId, tagId])
+  @@map("lead_tags")
+}
+
+enum LeadActivityKind {
+  CREATED
+  STATUS_CHANGED
+  FORM_SUBMITTED
+  EMAIL_SENT
+  SMS_SENT
+  CALL
+  MEETING
+  NOTE
+  FOLLOW_UP
+  FOLLOW_UP_COMPLETED
+  APPOINTMENT_SCHEDULED
+  TAG_ADDED
+  ASSIGNED
+  CONVERTED
+}
+
+/// A lead's timeline (Recent Activity, the Activity and Notes tabs): what happened, by whom
+/// (empty actor = "System" or the visitor), and when. The database writes CREATED, STATUS_CHANGED
+/// and ASSIGNED; the API logs calls, meetings, notes, follow-ups and sent messages (never the
+/// message text). Last contact is the newest email, SMS, call, meeting or appointment row.
+/// Append-only.
+model LeadActivity {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  businessId  String           @map("business_id") @db.Uuid
+  leadId      String           @map("lead_id") @db.Uuid
+  kind        LeadActivityKind
+  actorUserId String?          @map("actor_user_id") @db.Uuid
+  /// When it happened; a logged call may be backdated, never set ahead.
+  occurredAt  DateTime         @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  /// One line, up to 200 characters: an email's subject, a tag's name.
+  summary     String?
+  /// A note or the notes of a call, up to 5,000 characters; required for a NOTE.
+  body        String?
+  /// STATUS_CHANGED only: the new status.
+  status      LeadStatus?
+  /// Safe values only (ids, the action type); never message content.
+  metadata    Json             @default("{}")
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  lead  Lead        @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  actor Membership? @relation("LeadActivityActor", fields: [businessId, actorUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, leadId, occurredAt])
+  @@index([businessId, kind, occurredAt])
+  @@map("lead_activities")
 }

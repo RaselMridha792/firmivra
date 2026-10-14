@@ -84,7 +84,7 @@ describe('row-level security coverage', () => {
                    ('engagement_status_history', 'DELETE'),
                    ('document_requests', 'DELETE'),
                    ('intakes', 'DELETE'), ('intake_submissions', 'DELETE'),
-                   ('leads', 'DELETE'),
+                   ('leads', 'DELETE'), ('lead_activities', 'UPDATE'), ('lead_activities', 'DELETE'),
                    ('notifications', 'DELETE'), ('notification_deliveries', 'DELETE'),
                    ('appointments', 'DELETE'),
                    ('message_threads', 'DELETE'), ('messages', 'DELETE'),

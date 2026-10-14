@@ -509,6 +509,9 @@ describe('no scope set', () => {
     expect(await unscopedApp.intakeSubmission.findMany()).toEqual([]);
     expect(await unscopedApp.lead.findMany()).toEqual([]);
     expect(await unscopedApp.leadUpload.findMany()).toEqual([]);
+    expect(await unscopedApp.leadService.findMany()).toEqual([]);
+    expect(await unscopedApp.leadTag.findMany()).toEqual([]);
+    expect(await unscopedApp.leadActivity.findMany()).toEqual([]);
     expect(await unscopedApp.notification.findMany()).toEqual([]);
     expect(await unscopedApp.notificationDelivery.findMany()).toEqual([]);
     expect(await unscopedApp.notificationPreference.findMany()).toEqual([]);

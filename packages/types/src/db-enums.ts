@@ -121,6 +121,11 @@ export const LeadStatus = z.enum([
   'CONVERTED',
   'DECLINED',
   'EXPIRED',
+  'CONTACTED',
+  'IN_FOLLOW_UP',
+  'APPOINTMENT_SCHEDULED',
+  'QUALIFIED',
+  'LOST',
 ]);
 export type LeadStatus = z.infer<typeof LeadStatus>;
 
@@ -505,3 +510,46 @@ export type ClientStatus = z.infer<typeof ClientStatus>;
 /** Not drawn in the designs (only the filter's name): High, Medium, Low as on tasks. To confirm. */
 export const ClientPriority = z.enum(['HIGH', 'MEDIUM', 'LOW']);
 export type ClientPriority = z.infer<typeof ClientPriority>;
+
+/** Where a lead came from (the list's source filter). Begin Online leads are BEGIN_ONLINE. */
+export const LeadSource = z.enum([
+  'BEGIN_ONLINE',
+  'WEBSITE_FORM',
+  'FACEBOOK_AD',
+  'INSTAGRAM',
+  'GOOGLE_AD',
+  'REFERRAL',
+  'OTHER',
+]);
+export type LeadSource = z.infer<typeof LeadSource>;
+
+/** Set by hand, as on the designs (Hot, Warm, Cold); there is no score. */
+export const LeadPriority = z.enum(['HOT', 'WARM', 'COLD']);
+export type LeadPriority = z.infer<typeof LeadPriority>;
+
+export const LeadActionType = z.enum([
+  'CALL',
+  'EMAIL',
+  'APPOINTMENT',
+  'SEND_DOCUMENTS',
+  'FOLLOW_UP',
+]);
+export type LeadActionType = z.infer<typeof LeadActionType>;
+
+export const LeadActivityKind = z.enum([
+  'CREATED',
+  'STATUS_CHANGED',
+  'FORM_SUBMITTED',
+  'EMAIL_SENT',
+  'SMS_SENT',
+  'CALL',
+  'MEETING',
+  'NOTE',
+  'FOLLOW_UP',
+  'FOLLOW_UP_COMPLETED',
+  'APPOINTMENT_SCHEDULED',
+  'TAG_ADDED',
+  'ASSIGNED',
+  'CONVERTED',
+]);
+export type LeadActivityKind = z.infer<typeof LeadActivityKind>;
