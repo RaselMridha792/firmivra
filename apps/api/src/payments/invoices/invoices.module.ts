@@ -17,7 +17,11 @@ import {
   Roles,
 } from '../../auth/decorators.js';
 import type { ClientsActor } from '../../clients/clients.service.js';
-import type { AuthContext, TenantContext } from '../../common/request-context.js';
+import {
+  type AuthContext,
+  legacyFirmRole,
+  type TenantContext,
+} from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { NotificationsModule } from '../../notifications/notifications.controller.js';
 import { InvoiceJobs } from './invoice-jobs.js';
@@ -32,7 +36,7 @@ const SendInvoiceRequest = z.strictObject({});
 
 export function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
   if (tenant.kind !== 'staff') throw new Error('firm routes are for firm members');
-  return { userId: auth.userId, role: tenant.role };
+  return { userId: auth.userId, role: legacyFirmRole(tenant.role) };
 }
 
 /**

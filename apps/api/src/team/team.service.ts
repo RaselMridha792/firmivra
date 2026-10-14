@@ -12,7 +12,7 @@ import {
   type Prisma,
   type TxClient,
 } from '@firmivra/db';
-import type { MembershipRole, TeamMember } from '@firmivra/types';
+import { FIRM_ROLE_ORDER, type MembershipRole, type TeamMember } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { InvitesService, lockStaffInvites } from '../auth/invites.service.js';
 import { DATABASE } from '../database/database.module.js';
@@ -22,8 +22,6 @@ export interface TeamActor {
   userId: string;
   role: MembershipRole;
 }
-
-const ROLE_ORDER: Record<MembershipRole, number> = { OWNER: 0, ADMIN: 1, STAFF: 2 };
 
 const memberSelect = {
   id: true,
@@ -127,7 +125,9 @@ export function byRoleThenName(
   a: { role: MembershipRole; user: { name: string } },
   b: { role: MembershipRole; user: { name: string } },
 ): number {
-  return ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.user.name.localeCompare(b.user.name);
+  return (
+    FIRM_ROLE_ORDER[a.role] - FIRM_ROLE_ORDER[b.role] || a.user.name.localeCompare(b.user.name)
+  );
 }
 
 /** Admins manage Staff only; nobody acts on themselves. */

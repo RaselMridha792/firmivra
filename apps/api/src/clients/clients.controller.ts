@@ -28,7 +28,7 @@ import {
   FIRM_STAFF,
   Roles,
 } from '../auth/decorators.js';
-import type { AuthContext, TenantContext } from '../common/request-context.js';
+import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { type ClientsActor, ClientsService } from './clients.service.js';
@@ -43,7 +43,7 @@ const idPipe = new ZodValidationPipe(ClientId);
 /** The signed-in member as the clients service needs them. Firm roles only (see @Roles). */
 function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
   if (tenant.kind !== 'staff') throw new Error('clients routes are for firm members');
-  return { userId: auth.userId, role: tenant.role };
+  return { userId: auth.userId, role: legacyFirmRole(tenant.role) };
 }
 
 /**

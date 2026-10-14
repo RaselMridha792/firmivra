@@ -128,7 +128,8 @@ export type ResetPasswordRequest = z.input<typeof ResetPasswordRequest>;
 
 // ---------- Invites and activation (firm site) ----------
 /** Roles an invite can give. Owners are invited by the platform when Super Admin approves the firm. */
-export const InviteRole = MembershipRole.exclude(['OWNER']);
+// Only these two until the role rules open the other staff roles (R35).
+export const InviteRole = z.enum(['ADMIN', 'STAFF']);
 export type InviteRole = z.infer<typeof InviteRole>;
 
 /**

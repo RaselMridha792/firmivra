@@ -27,7 +27,7 @@ import {
 } from '@firmivra/types';
 import { AuditService } from '../../audit/audit.service.js';
 import { BUSINESS_MODULES, type BusinessModules } from '../../common/modules/requires-module.js';
-import type { TenantRole } from '../../common/request-context.js';
+import type { LegacyFirmRole } from '../../common/request-context.js';
 import {
   CODE_HASHER,
   type CodeHasher,
@@ -52,7 +52,7 @@ import {
  */
 export interface EsignActor {
   userId: string;
-  role: Exclude<TenantRole, 'CLIENT'> | 'MANAGER' | 'VIEWER';
+  role: LegacyFirmRole | 'MANAGER' | 'VIEWER';
 }
 
 /** A Firm Sign refusal: 409 with the words users see (ESIGN_ERRORS). */

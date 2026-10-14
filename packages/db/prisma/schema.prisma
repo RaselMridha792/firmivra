@@ -29,15 +29,23 @@ enum IdentityPool {
   ADMIN
 }
 
+/// The firm's eight staff roles (R35). What each may do is in packages/types (team/roles.ts).
 enum MembershipRole {
   OWNER
   ADMIN
+  MANAGER
   STAFF
+  BOOKKEEPER
+  TAX_PREPARER
+  CLIENT_SUPPORT
+  READ_ONLY
 }
 
+/// LOCKED (R35): blocked for now and kept as a member; only ACTIVE members get into the firm.
 enum MembershipStatus {
   INVITED
   ACTIVE
+  LOCKED
   DEACTIVATED
 }
 

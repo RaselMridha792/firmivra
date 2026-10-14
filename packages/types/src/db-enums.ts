@@ -9,10 +9,21 @@ export type BusinessStatus = z.infer<typeof BusinessStatus>;
 export const IdentityPool = z.enum(['STAFF', 'CLIENT', 'ADMIN']);
 export type IdentityPool = z.infer<typeof IdentityPool>;
 
-export const MembershipRole = z.enum(['OWNER', 'ADMIN', 'STAFF']);
+/** The firm's eight staff roles (R35). What each may do is in packages/types (team/roles.ts). */
+export const MembershipRole = z.enum([
+  'OWNER',
+  'ADMIN',
+  'MANAGER',
+  'STAFF',
+  'BOOKKEEPER',
+  'TAX_PREPARER',
+  'CLIENT_SUPPORT',
+  'READ_ONLY',
+]);
 export type MembershipRole = z.infer<typeof MembershipRole>;
 
-export const MembershipStatus = z.enum(['INVITED', 'ACTIVE', 'DEACTIVATED']);
+/** LOCKED (R35): blocked for now and kept as a member; only ACTIVE members get into the firm. */
+export const MembershipStatus = z.enum(['INVITED', 'ACTIVE', 'LOCKED', 'DEACTIVATED']);
 export type MembershipStatus = z.infer<typeof MembershipStatus>;
 
 export const ClientAccountStatus = z.enum([

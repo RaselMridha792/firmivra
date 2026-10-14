@@ -39,7 +39,12 @@ import {
   FIRM_STAFF,
   Roles,
 } from '../auth/decorators.js';
-import { type AuthContext, requestContext, type TenantContext } from '../common/request-context.js';
+import {
+  type AuthContext,
+  legacyFirmRole,
+  requestContext,
+  type TenantContext,
+} from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { DocumentsModule } from '../storage/documents.controller.js';
@@ -64,7 +69,7 @@ const submitPipe = new ZodValidationPipe(
 
 function staff(auth: AuthContext, tenant: TenantContext): IntakeReach & { kind: 'staff' } {
   if (tenant.kind !== 'staff') throw new Error('firm routes are for firm members');
-  return { kind: 'staff', actor: { userId: auth.userId, role: tenant.role } };
+  return { kind: 'staff', actor: { userId: auth.userId, role: legacyFirmRole(tenant.role) } };
 }
 
 /**

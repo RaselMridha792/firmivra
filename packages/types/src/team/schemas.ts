@@ -11,7 +11,7 @@ import { MembershipRole } from '../schemas.js';
 //   never grants a role its inviter could not; only the platform invites (and resends to) Owners.
 // - Nobody changes their own role or deactivates themselves; a firm always keeps an active Owner.
 
-export const TeamMemberStatus = z.enum(['INVITED', 'ACTIVE', 'DEACTIVATED']);
+export const TeamMemberStatus = z.enum(['INVITED', 'ACTIVE', 'LOCKED', 'DEACTIVATED']);
 export type TeamMemberStatus = z.infer<typeof TeamMemberStatus>;
 
 /** A membership id in a path: anything else gets 400 VALIDATION_FAILED. */
@@ -42,7 +42,8 @@ export const ListTeamResponse = z.object({ items: z.array(TeamMember) });
 export type ListTeamResponse = z.infer<typeof ListTeamResponse>;
 
 /** PATCH /business/team/{id}: Owners only, for ACTIVE members (409 NOT_ACTIVE otherwise). */
-export const ChangeTeamRoleRequest = z.strictObject({ role: MembershipRole });
+// Only these three until the role rules open the other staff roles (R35).
+export const ChangeTeamRoleRequest = z.strictObject({ role: z.enum(['OWNER', 'ADMIN', 'STAFF']) });
 export type ChangeTeamRoleRequest = z.input<typeof ChangeTeamRoleRequest>;
 
 /** Stable `error.code` values of this module, besides the generic ones in ApiError. */

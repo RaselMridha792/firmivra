@@ -20,7 +20,7 @@ import {
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import { poolSecrets } from '../auth/sealed.js';
-import type { AuthContext, TenantContext } from '../common/request-context.js';
+import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -43,7 +43,7 @@ const requestPipe = new ZodValidationPipe(DocumentRequestId);
 /** The signed-in member as the documents services need them. Firm roles only (see @Roles). */
 function actorOf(auth: AuthContext, tenant: TenantContext): FirmActor {
   if (tenant.kind !== 'staff') throw new Error('documents routes are for firm members');
-  return { userId: auth.userId, role: tenant.role };
+  return { userId: auth.userId, role: legacyFirmRole(tenant.role) };
 }
 
 /**

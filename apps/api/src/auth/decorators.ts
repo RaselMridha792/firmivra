@@ -1,7 +1,7 @@
 import { createParamDecorator, type ExecutionContext, SetMetadata } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import type { BusinessStatus } from '@firmivra/types';
+import { FIRM_ROLES, type BusinessStatus } from '@firmivra/types';
 import type { AuthContext, TenantContext, TenantRole } from '../common/request-context.js';
 
 /**
@@ -10,7 +10,7 @@ import type { AuthContext, TenantContext, TenantRole } from '../common/request-c
  * - AUTHENTICATED: any signed-in user, no firm (for example GET /me).
  */
 export type Role = TenantRole | 'SUPER_ADMIN' | 'AUTHENTICATED';
-export const TENANT_ROLES: readonly TenantRole[] = ['OWNER', 'ADMIN', 'STAFF', 'CLIENT'];
+export const TENANT_ROLES: readonly TenantRole[] = [...FIRM_ROLES, 'CLIENT'];
 
 /** Everyone who works at the firm: `@Roles(...FIRM_STAFF)`. */
 export const FIRM_STAFF = ['OWNER', 'ADMIN', 'STAFF'] as const satisfies readonly Role[];
