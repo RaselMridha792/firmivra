@@ -4,7 +4,7 @@ Written by R42 (Oct 15) so Tumit builds the screens on typed mocks while the API
 
 - Schemas: `packages/types/src/staff/schemas.ts` (staff), `staff/departments.ts` (Teams & Departments), `staff/roles.ts` (roles and the permission grid, shared with Settings > Users & Roles).
 - Clients: `createStaffClient` (`api.staff`), `createDepartmentsClient` (`api.departments`), `createRolesClient` (`api.roles`) in `staff/client.ts`.
-- Mocks: `apps/web/src/mocks/staff.ts` (`NEXT_PUBLIC_API_MOCK=staff,departments,roles`; `NEXT_PUBLIC_API_MOCK_EMPTY=staff` for the empty states). One store behind all three.
+- Mocks: `apps/web/src/mocks/staff-management.ts` (`NEXT_PUBLIC_API_MOCK=staff,departments,roles`; `NEXT_PUBLIC_API_MOCK_EMPTY=staff` for the empty states). One store behind all three.
 - Paths are under `/api/v1`. The firm is the signed-in firm (tenant guard); no path, query or body carries a business id. Every change writes `AuditService.log` (never a password, token, MFA secret or pay value). Every route is `@Access('STAFF_MANAGEMENT')`: Owner and Admin change; Manager reads where the grid gives view. The target must be a role in `ROLES_MANAGED_BY[actor]`; nobody changes themselves (409 `CANNOT_CHANGE_SELF`).
 - Error codes: `TeamErrorCode` (existing) plus `StaffErrorCode`, `DepartmentErrorCode`.
 

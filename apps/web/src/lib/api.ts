@@ -102,8 +102,8 @@ import {
   createSettingsOverviewMock,
   createUsersMock,
 } from '../mocks/settings-admin';
-import { createSchedulingMock } from '../mocks/scheduling';
-import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff';
+import { createSchedulingMock } from '../mocks/appointments-scheduling';
+import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createTasksMock } from '../mocks/tasks';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';

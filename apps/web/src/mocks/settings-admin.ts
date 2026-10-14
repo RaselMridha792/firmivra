@@ -15,11 +15,11 @@ import {
   type UsersClient,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
-import { addInvitedMember, listStaffRows, staffCounts } from './staff';
+import { addInvitedMember, listStaffRows, staffCounts } from './staff-management';
 
 /**
  * Mock data for `api.settingsOverview`, `api.branding` and `api.users` (R42 contract, Settings).
- * Synthetic data only. Users & Roles reads the same members as `api.staff` (mocks/staff.ts), so an
+ * Synthetic data only. Users & Roles reads the same members as `api.staff` (mocks/staff-management.ts), so an
  * invite shows in both. STAFF gets 403 FORBIDDEN, like the API. `empty: true`
  * (NEXT_PUBLIC_API_MOCK_EMPTY=settingsOverview,branding,users) gives no activity, default
  * branding and only the signed-in owner.
