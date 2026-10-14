@@ -23,7 +23,7 @@ import {
   SetNoteReminderRequest,
   UpdateInternalNoteRequest,
 } from '@firmivra/types';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { accountOf, actorOf } from './messages.controller.js';
@@ -34,6 +34,7 @@ const idPipe = new ZodValidationPipe(InternalNoteId);
 
 /** A client's internal notes (R20 step 4): firm only, never in the portal. */
 @Controller('business/clients/:id/notes')
+@Access('MESSAGES')
 @Roles(...FIRM_STAFF)
 export class ClientNotesController {
   constructor(private readonly notes: NotesService) {}
@@ -70,6 +71,7 @@ export class ClientNotesController {
 
 /** One internal note: the author, the Owner and Admins change it. */
 @Controller('business/notes')
+@Access('MESSAGES')
 @Roles(...FIRM_STAFF)
 export class NotesController {
   constructor(private readonly notes: NotesService) {}

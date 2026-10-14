@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { RequiresModule } from '../../common/modules/requires-module.js';
-import type { TenantContext } from '../../common/request-context.js';
+import { legacyFirmRole, type TenantContext } from '../../common/request-context.js';
 import { ESIGN_REPOSITORY, type EsignRepository } from '../requests/esign.repository.js';
 import type { EsignActor } from '../requests/requests.service.js';
 import type { EsignStaffRole } from './extras.repository.js';
@@ -17,7 +17,7 @@ import type { EsignStaffRole } from './extras.repository.js';
 const staffRoleOf = new WeakMap<TenantContext, EsignStaffRole>();
 /** The caller's Firm Sign role: what EsignRoleGuard found, else the firm role. */
 export const esignRoleOf = (tenant: TenantContext & { kind: 'staff' }): EsignActor['role'] =>
-  staffRoleOf.get(tenant) ?? tenant.role;
+  staffRoleOf.get(tenant) ?? legacyFirmRole(tenant.role);
 
 /**
  * Runs after ModuleGuard on every Firm Sign route: a Staff caller's stored Firm Sign role

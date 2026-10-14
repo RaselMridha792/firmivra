@@ -29,15 +29,23 @@ enum IdentityPool {
   ADMIN
 }
 
+/// The firm's eight staff roles (R35). What each may do is in packages/types (team/roles.ts).
 enum MembershipRole {
   OWNER
   ADMIN
+  MANAGER
   STAFF
+  BOOKKEEPER
+  TAX_PREPARER
+  CLIENT_SUPPORT
+  READ_ONLY
 }
 
+/// LOCKED (R35): blocked for now and kept as a member; only ACTIVE members get into the firm.
 enum MembershipStatus {
   INVITED
   ACTIVE
+  LOCKED
   DEACTIVATED
 }
 
@@ -115,6 +123,479 @@ enum TaskStatus {
   OPEN
   DONE
   CANCELLED
+}
+
+/// Where an OPEN task stands (the Tasks screens' Not Started, Pending, In Progress, Waiting,
+/// Blocked). status stays the lifecycle: DONE shows as Completed, and overdue is never stored but
+/// derived from an incomplete task past its due date (R38).
+enum TaskProgress {
+  NOT_STARTED
+  PENDING
+  IN_PROGRESS
+  /// Waiting on the client.
+  WAITING
+  BLOCKED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+/// What a compliance deadline is for (the Deadline Types chart and filter).
+enum DeadlineType {
+  TAX_FILING
+  ESTIMATED_TAX
+  ELECTION
+  BOOKKEEPING
+  PAYROLL
+  SALES_TAX
+  STATE_FILING
+  ANNUAL_REPORT
+  LICENSE_PERMIT
+  ADVISORY
+  OTHER
+}
+
+enum DeadlineSource {
+  GOVERNMENT
+  FIRM
+  CLIENT_SPECIFIC
+  IMPORTED
+}
+
+/// Due Soon and Overdue are never stored: they are derived from the due date, the firm's Due Soon
+/// threshold and the status (an incomplete deadline past its due date is overdue).
+enum DeadlineStatus {
+  UPCOMING
+  IN_PROGRESS
+  WAITING_ON_CLIENT
+  COMPLETED
+  NOT_APPLICABLE
+  CANCELLED
+}
+
+enum JurisdictionLevel {
+  FEDERAL
+  STATE
+  LOCAL
+  INTERNAL
+}
+
+/// A family of official calendars (a firm keeps its own library of them).
+enum CalendarFamily {
+  IRS_GENERAL
+  IRS_EMPLOYER
+  STATE_INCOME_FRANCHISE
+  SECRETARY_OF_STATE
+  SALES_USE_TAX
+  PAYROLL_WITHHOLDING
+  LOCAL_BUSINESS_LICENSE
+  PROFESSIONAL_LICENSE
+  FIRM_INTERNAL
+}
+
+/// DRAFT (imported), VERIFIED (checked against the source), PUBLISHED (in use: at most one per
+/// family, authority and year), SUPERSEDED (a later version replaced it; kept for rollback and
+/// comparison), ARCHIVED.
+enum CalendarStatus {
+  DRAFT
+  VERIFIED
+  PUBLISHED
+  SUPERSEDED
+  ARCHIVED
+}
+
+/// How a calendar entry gives its date. NEEDS_VERIFICATION has no date: a date is never invented.
+enum CalendarRuleKind {
+  FIXED_DATE
+  FORMULA
+  NEEDS_VERIFICATION
+}
+
+/// How often a recurring deadline repeats; AUTHORITY_DEFINED follows the authority's own calendar.
+enum DeadlineFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  CUSTOM
+  AUTHORITY_DEFINED
+}
+
+/// What a matching applicability rule does: APPLY makes the deadline, SUGGEST only suggests it
+/// until staff confirm it (imported government dates are never assigned to everyone).
+enum ApplicabilityOutcome {
+  APPLY
+  SUGGEST
+}
+
+enum ApplicabilityDecision {
+  SUGGESTED
+  NEEDS_REVIEW
+  CONFIRMED
+  DISMISSED
+}
+
+/// What a compliance log row records.
+enum ComplianceLogKind {
+  IMPORT
+  VERIFY
+  PUBLISH
+  ROLLBACK
+  GENERATE
+  OVERRIDE
+  ERROR
+}
+
+enum LogOutcome {
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
+/// The modules automations start from and act on (a rule's trigger category and rule category).
+enum AutomationModule {
+  CLIENTS
+  LEADS
+  APPOINTMENTS
+  INTAKE_FORMS
+  DOCUMENTS
+  TAX_RETURNS
+  BOOKKEEPING
+  PAYROLL
+  TAX_PLANNING
+  BUSINESS_ADVISORY
+  INVOICES_PAYMENTS
+  COMMUNICATIONS
+  TASKS
+  COMPLIANCE_DEADLINES
+  STAFF_MANAGEMENT
+  INTEGRATIONS
+  CUSTOM
+}
+
+/// DRAFT is saved but never runs; ACTIVE runs; PAUSED stops new runs; ARCHIVED is kept for its history.
+enum AutomationStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum AutomationTiming {
+  IMMEDIATE
+  BEFORE
+  AFTER
+  SCHEDULED
+}
+
+enum OffsetUnit {
+  MINUTE
+  HOUR
+  DAY
+}
+
+enum MatchMode {
+  ALL
+  ANY
+}
+
+/// PENDING waits to start (or for a scheduled action), RUNNING is in progress; the rest end the
+/// run: PARTIAL_SUCCESS means some actions worked and others failed.
+enum AutomationRunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL_SUCCESS
+  FAILED
+  SKIPPED
+}
+
+enum ActionExecutionStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
+/// A bookkeeping client's workflow status (the Bookkeeping status tabs). Set by staff (MANUAL) or
+/// by the firm's status rules from due dates, missing documents and sync problems (AUTOMATIC).
+enum BookkeepingStatus {
+  ON_TRACK
+  NEEDS_ATTENTION
+  MISSING_DOCUMENTS
+  OVERDUE
+  NOT_STARTED
+}
+
+enum StatusSource {
+  MANUAL
+  AUTOMATIC
+}
+
+enum ReportCadence {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  CUSTOM
+}
+
+enum BookkeepingActivityKind {
+  STATUS_CHANGE
+  ASSIGNMENT
+  PLAN_CHANGE
+  PAUSE
+  RESUME
+  ARCHIVE
+  SYNC
+  DOCUMENT_REQUEST
+  REPORT
+  CLOSE
+  RECONCILIATION
+  CONTACT
+  NOTE
+  OTHER
+}
+
+enum ConnectionStatus {
+  CONNECTED
+  /// The provider's authorization ran out: reconnect.
+  EXPIRED
+  ERROR
+  DISCONNECTED
+}
+
+enum SyncTrigger {
+  INITIAL
+  MANUAL
+  SCHEDULED
+}
+
+enum SyncOutcome {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum BookkeepingAccountType {
+  BANK
+  CREDIT_CARD
+  LOAN
+  OTHER
+}
+
+enum BookkeepingPeriodKind {
+  MONTH
+  QUARTER
+  YEAR
+  CUSTOM
+}
+
+/// A period's close: work in progress, then review, approval and close (which locks it). Reports
+/// and client delivery are steps of the close checklist, not statuses.
+enum BookkeepingPeriodStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  READY_FOR_REVIEW
+  APPROVED
+  CLOSED
+}
+
+enum ReconciliationStatus {
+  IN_PROGRESS
+  READY_FOR_REVIEW
+  APPROVED
+  REOPENED
+}
+
+enum FiguresSource {
+  MANUAL
+  IMPORTED
+}
+
+enum BookkeepingReportType {
+  PROFIT_LOSS
+  BALANCE_SHEET
+  CASH_FLOW
+  GENERAL_LEDGER
+  TRIAL_BALANCE
+  TRANSACTION_DETAIL
+  UNCATEGORIZED
+  RECONCILIATION
+  QUARTERLY_REVIEW
+  YEAR_TO_DATE_SUMMARY
+  BOOKKEEPING_STATUS
+  MISSING_DOCUMENTS
+  /// A report the firm names itself (customName).
+  CUSTOM
+}
+
+/// The work and review of one report: not started, being prepared, in review, approved, delivered
+/// to the client (which freezes it).
+enum ReportReviewStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  IN_REVIEW
+  APPROVED
+  DELIVERED
+}
+
+enum AccountingBasis {
+  CASH
+  ACCRUAL
+}
+
+enum TaxPlanType {
+  COMPREHENSIVE
+  FOCUSED
+}
+
+/// Where a planning plan stands (the Recent Planning Clients status). Needs Review in the
+/// screens is READY_FOR_REVIEW.
+enum TaxPlanStatus {
+  DRAFT
+  SCHEDULED
+  IN_PROGRESS
+  AWAITING_CLIENT
+  READY_FOR_REVIEW
+  IMPLEMENTED
+  CLOSED
+}
+
+enum PlanningGoal {
+  REDUCE_TAXABLE_INCOME
+  INCREASE_RETIREMENT_SAVINGS
+  PURCHASE_HOME
+  START_BUSINESS
+  BUY_EQUIPMENT_VEHICLE
+  MINIMIZE_SELF_EMPLOYMENT_TAX
+  PLAN_EDUCATION_EXPENSES
+  BUILD_LONG_TERM_WEALTH
+  PREPARE_LIFE_CHANGES
+  OTHER
+}
+
+enum TaxFilingStatus {
+  SINGLE
+  MARRIED_FILING_JOINTLY
+  MARRIED_FILING_SEPARATELY
+  HEAD_OF_HOUSEHOLD
+  QUALIFYING_SURVIVING_SPOUSE
+}
+
+enum StrategyCategory {
+  RETIREMENT
+  DEDUCTIONS
+  BUSINESS
+  CREDITS
+  ENTITY
+  TIMING
+  INVESTMENT
+  ESTATE_OTHER
+}
+
+/// A strategy in a plan: proposed, accepted by the client, being carried out, done, or declined.
+enum PlanStrategyStatus {
+  PROPOSED
+  ACCEPTED
+  IN_PROGRESS
+  IMPLEMENTED
+  DECLINED
+}
+
+/// What a planning input is: a prior year's figure, a projection for the plan year, or a manual
+/// adjustment (which needs a note).
+enum PlanInputKind {
+  HISTORICAL
+  PROJECTED
+  ADJUSTMENT
+}
+
+/// Why a plan snapshot was kept: when it was finalized, generated as a document or sent.
+enum PlanVersionEvent {
+  FINALIZED
+  GENERATED
+  SENT
+}
+
+/// An opportunity's review state. NEW is identified and not reviewed; ADDED_TO_PLAN, IMPLEMENTED
+/// and CLOSED need a review; NOT_APPLICABLE and DISMISSED need a reason and can be reopened.
+enum OpportunityStatus {
+  NEW
+  UNDER_REVIEW
+  ADDED_TO_PLAN
+  ASSIGNED
+  DISCUSSION_SCHEDULED
+  NEEDS_DOCUMENTS
+  NOT_APPLICABLE
+  DISMISSED
+  IMPLEMENTED
+  CLOSED
+}
+
+enum OpportunitySource {
+  SYSTEM
+  STAFF
+  IMPORTED
+  MANUAL
+}
+
+enum OpportunityEventKind {
+  SCREENED
+  STATUS
+  ASSIGNED
+  DISCUSSION
+  DOCUMENTS
+  PLAN
+  NOTE
+}
+
+/// How a template or recurring series picks the assignee of a new task.
+enum TaskAssignmentRule {
+  UNASSIGNED
+  SPECIFIC_USER
+  /// The client's current team (the client's assigned member) when the task is created.
+  CLIENT_TEAM
+}
+
+enum RecurrenceUnit {
+  DAY
+  WEEK
+  MONTH
+  QUARTER
+  YEAR
+}
+
+enum RecurrenceEnd {
+  NEVER
+  AFTER_COUNT
+  ON_DATE
+}
+
+/// Move a date that falls on a weekend or holiday.
+enum HolidayRule {
+  NONE
+  NEXT_BUSINESS_DAY
+  PREVIOUS_BUSINESS_DAY
+}
+
+/// Also the status of a recurring compliance deadline (ComplianceRecurrence).
+enum TaskSeriesStatus {
+  ACTIVE
+  PAUSED
+  /// Stopped: no more tasks are made, the tasks made so far stay.
+  ENDED
+  ARCHIVED
+}
+
+enum TaskOccurrenceState {
+  SCHEDULED
+  GENERATED
+  SKIPPED
+  FAILED
 }
 
 /// Bookkeeping: REPORT, RECONCILIATION. Tax Planning: ESTIMATE, PROJECTION.
@@ -341,6 +822,13 @@ model Business {
   stripeAccount        StripeAccount?
   platformOwnerInvites PlatformOwnerInvite[]
   esignSettings        EsignSettings?
+  departments          Department[]
+
+  // R38 work modules.
+  taskTypes           TaskType[]
+  complianceSettings  ComplianceSettings[]
+  automationSettings  AutomationSettings[]
+  bookkeepingSettings BookkeepingSettings[]
 
   @@map("businesses")
 }
@@ -420,6 +908,10 @@ model Membership {
   assignedClients     Client[]
   assignedEngagements Engagement[]
   assignedTasks       Task[]
+  taskCollaborations  TaskAssignee[]
+  checklistAssigned   TaskChecklistItem[]
+  taskTemplates       TaskTemplate[]
+  taskSeries          TaskSeries[]
   workingHours        WorkingHours[]
   blockedTimes        BlockedTime[]
   appointments        Appointment[]
@@ -445,6 +937,33 @@ model Membership {
   esignUploads          EsignPendingUpload[]   @relation("EsignUploadMember")
   esignKioskLock        EsignKioskLock?        @relation("EsignKioskLock")
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
+  complianceDeadlines   ComplianceDeadline[]
+  complianceRecurrences ComplianceRecurrence[]
+  automationRules       AutomationRule[]
+  bookkeepingProfiles   BookkeepingProfile[]
+  taxPlans              TaxPlan[]
+  taxOpportunities      TaxOpportunity[]
+
+  // Staff management (R35).
+  departmentsHeaded Department[]       @relation("DepartmentHead")
+  teamsLed          Team[]             @relation("TeamLead")
+  teamMemberships   TeamMember[]
+  departments       MemberDepartment[]
+
+  staffProfile      StaffProfile?          @relation("StaffProfileMember")
+  staffSupervised   StaffProfile[]         @relation("StaffSupervisor")
+  staffNotesWritten StaffProfile[]         @relation("StaffNotesUpdatedBy")
+  staffSecurity     StaffSecuritySettings?
+  staffCompensation StaffCompensation?
+  staffDrafts       StaffDraft[]
+
+  staffDocuments         StaffDocument[] @relation("StaffDocumentOwner")
+  staffDocumentsUploaded StaffDocument[] @relation("StaffDocumentUploader")
+  staffSessions          StaffSession[]
+
+  permissionsSet         MemberPermission[] @relation("MemberPermissionSubject")
+  permissionsChanged     MemberPermission[] @relation("MemberPermissionChangedBy")
+  rolePermissionsChanged RolePermission[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -719,21 +1238,28 @@ model Client {
   createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business         Business                 @relation(fields: [businessId], references: [id])
-  assignedMember   Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  profile          ClientProfile?
-  accounts         ClientAccount[]
-  taxStatuses      ClientTaxStatus[]
-  taxStatusHistory ClientTaxStatusHistory[]
-  engagements      Engagement[]
-  tasks            Task[]
-  notes            Note[]
-  appointments     Appointment[]
-  messageThreads   MessageThread[]
-  invoices         Invoice[]
-  taxReturns       TaxReturn[]
-  esignRequests    EsignRequest[]
-  esignBulkItems   EsignBulkItem[]
+  business                       Business                        @relation(fields: [businessId], references: [id])
+  assignedMember                 Membership?                     @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  profile                        ClientProfile?
+  accounts                       ClientAccount[]
+  taxStatuses                    ClientTaxStatus[]
+  taxStatusHistory               ClientTaxStatusHistory[]
+  engagements                    Engagement[]
+  tasks                          Task[]
+  notes                          Note[]
+  appointments                   Appointment[]
+  messageThreads                 MessageThread[]
+  invoices                       Invoice[]
+  taxReturns                     TaxReturn[]
+  esignRequests                  EsignRequest[]
+  esignBulkItems                 EsignBulkItem[]
+  taskSeries                     TaskSeries[]
+  complianceDeadlines            ComplianceDeadline[]
+  complianceApplicabilityRecords ComplianceApplicabilityRecord[]
+  automationRuns                 AutomationRun[]
+  taxPlans                       TaxPlan[]
+  taxSavingsScenarios            TaxSavingsScenario[]
+  taxOpportunities               TaxOpportunity[]
 
   // R39
   segmentMembers  CommunicationSegmentMember[]
@@ -858,11 +1384,14 @@ model Service {
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business    Business        @relation(fields: [businessId], references: [id])
-  engagements Engagement[]
-  intakeForms IntakeForm[]
-  agreements  FirmAgreement[]
-  leads       Lead[]
+  business      Business        @relation(fields: [businessId], references: [id])
+  engagements   Engagement[]
+  intakeForms   IntakeForm[]
+  agreements    FirmAgreement[]
+  leads         Lead[]
+  tasks         Task[]
+  taskTemplates TaskTemplate[]
+  taskSeries    TaskSeries[]
 
   // R39
   advisoryServices AdvisoryWorkstream[]
@@ -903,23 +1432,32 @@ model Engagement {
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client           Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  service          Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  assignedMember   Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  statusHistory    EngagementStatusHistory[]
-  tasks            Task[]
-  notes            Note[]
-  reports          EngagementReport[]
-  documents        Document[]
-  documentRequests DocumentRequest[]
-  intakes          Intake[]
-  leads            Lead[]
-  appointments     Appointment[]
-  messageThreads   MessageThread[]
-  invoices         Invoice[]
-  taxReturns       TaxReturn[]
-  esignRequests    EsignRequest[]
-  esignBulkItems   EsignBulkItem[]
+  client                 Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  service                Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember         Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  statusHistory          EngagementStatusHistory[]
+  tasks                  Task[]
+  taskSeries             TaskSeries[]
+  notes                  Note[]
+  reports                EngagementReport[]
+  documents              Document[]
+  documentRequests       DocumentRequest[]
+  intakes                Intake[]
+  leads                  Lead[]
+  appointments           Appointment[]
+  messageThreads         MessageThread[]
+  invoices               Invoice[]
+  taxReturns             TaxReturn[]
+  esignRequests          EsignRequest[]
+  esignBulkItems         EsignBulkItem[]
+  complianceDeadlines    ComplianceDeadline[]
+  bookkeepingProfile     BookkeepingProfile?
+  bookkeepingActivities  BookkeepingActivity[]
+  bookkeepingConnections BookkeepingConnection[]
+  bookkeepingAccounts    BookkeepingAccount[]
+  bookkeepingPeriods     BookkeepingPeriod[]
+  bookkeepingReports     BookkeepingReport[]
+  taxPlans               TaxPlan[]
 
   // R39
   payrollClient  PayrollClient?
@@ -968,13 +1506,53 @@ model Task {
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client         Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement     Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  assignedMember Membership? @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  // R38 (Tasks module): the columns below belong to the Tasks screens (see the R38 section).
+  priority          TaskPriority @default(MEDIUM)
+  progress          TaskProgress @default(PENDING)
+  typeId            String?      @map("type_id") @db.Uuid
+  /// The firm's service this work belongs to (Services & Pricing), optional.
+  serviceId         String?      @map("service_id") @db.Uuid
+  startOn           DateTime?    @map("start_on") @db.Date
+  /// Time of day the task is due, in the firm's timezone; only with dueOn, never with allDay.
+  dueTime           DateTime?    @map("due_time") @db.Time(0)
+  allDay            Boolean      @default(true) @map("all_day")
+  /// The client's portal shows the task (approved fields only) while this is true.
+  clientVisible     Boolean      @default(false) @map("client_visible")
+  /// Staff only, never shown to the client.
+  internalNotes     String?      @map("internal_notes")
+  /// Why the task is BLOCKED; its prerequisite (dependsOnTaskId) is the other reason.
+  blockedReason     String?      @map("blocked_reason")
+  /// The one task that must be completed first. The database refuses a cycle.
+  dependsOnTaskId   String?      @map("depends_on_task_id") @db.Uuid
+  completedByUserId String?      @map("completed_by_user_id") @db.Uuid
+  archivedAt        DateTime?    @map("archived_at") @db.Timestamptz(3)
+  /// The compliance deadline this task works on (the deadline stays the source of truth).
+  deadlineId        String?      @map("deadline_id") @db.Uuid
+  /// The template the task was made from; with deadlineId at most one task per pair (SQL only).
+  templateId        String?      @map("template_id") @db.Uuid
 
+  client             Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement         Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember     Membership?         @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  type               TaskType?           @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  service            Service?            @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  dependsOn          Task?               @relation("TaskDependency", fields: [businessId, dependsOnTaskId], references: [businessId, id], onDelete: Restrict)
+  dependents         Task[]              @relation("TaskDependency")
+  assignees          TaskAssignee[]
+  taskChecklistItems TaskChecklistItem[]
+  taskReminders      TaskReminder[]
+  taskAttachments    TaskAttachment[]
+  taskOccurrence     TaskOccurrence?
+  deadline           ComplianceDeadline? @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
+  template           TaskTemplate?       @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, id])
   @@index([businessId, clientId])
   @@index([businessId, engagementId])
   @@index([businessId, assignedUserId, status])
+  @@index([businessId, status, dueOn])
+  @@index([businessId, dependsOnTaskId])
+  @@index([businessId, deadlineId])
   @@map("tasks")
 }
 
@@ -1020,8 +1598,9 @@ model EngagementReport {
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement Engagement @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
-  document   Document?  @relation(fields: [businessId, engagementId, documentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  engagement        Engagement         @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  document          Document?          @relation(fields: [businessId, engagementId, documentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  bookkeepingReport BookkeepingReport?
 
   @@index([businessId, engagementId, status])
   @@map("engagement_reports")
@@ -1096,17 +1675,21 @@ model Document {
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  esignRequest       EsignRequest?       @relation("EsignFiledDocuments", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
-  esignFinalOf       EsignRequest?       @relation("EsignFinalDocument")
-  esignCertificateOf EsignRequest?       @relation("EsignCertificateDocument")
-  engagement         Engagement          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  category           DocumentCategory?   @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
-  request            DocumentRequest?    @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
-  leadUpload         LeadUpload?         @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
-  intake             Intake?             @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
-  reports            EngagementReport[]
-  messageAttachments MessageAttachment[]
-  taxReturns         TaxReturn[]
+  esignRequest                EsignRequest?                @relation("EsignFiledDocuments", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
+  esignFinalOf                EsignRequest?                @relation("EsignFinalDocument")
+  esignCertificateOf          EsignRequest?                @relation("EsignCertificateDocument")
+  engagement                  Engagement                   @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category                    DocumentCategory?            @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  request                     DocumentRequest?             @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
+  leadUpload                  LeadUpload?                  @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
+  intake                      Intake?                      @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+  reports                     EngagementReport[]
+  messageAttachments          MessageAttachment[]
+  taxReturns                  TaxReturn[]
+  taskAttachments             TaskAttachment[]
+  complianceDeadlineDocuments ComplianceDeadlineDocument[]
+  bookkeepingReconciliations  BookkeepingReconciliation[]
+  taxPlanDocuments            TaxPlanDocument[]
 
   // Target of message attachments.
   @@unique([businessId, id])
@@ -4703,4 +5286,1878 @@ model AdvisoryFinancialSnapshot {
 
   @@index([businessId, advisoryClientId, periodEnd])
   @@map("advisory_financial_snapshots")
+}
+
+// ---------- Staff management (R35, migration r35_staff_roles_teams) ----------
+// Departments, teams and who is in them, for Staff Management and Settings > Users & Roles
+// (docs/mockups/firm-workspace/staff-management). Every table is a firm table with forced RLS.
+// Departments and teams are never deleted: INACTIVE or ARCHIVED instead, so history stays.
+
+enum StaffGroupStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+/// A member's place in a team: their one primary team, their one backup team, or a member.
+enum TeamMemberKind {
+  PRIMARY
+  BACKUP
+  MEMBER
+}
+
+/// A department (Tax, Bookkeeping, Payroll...). Names are unique per firm among those not
+/// archived, case-insensitively (SQL-only partial index).
+model Department {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  businessId       String           @map("business_id") @db.Uuid
+  name             String
+  description      String?
+  headMembershipId String?          @map("head_membership_id") @db.Uuid
+  status           StaffGroupStatus @default(ACTIVE)
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business           @relation(fields: [businessId], references: [id])
+  head     Membership?        @relation("DepartmentHead", fields: [businessId, headMembershipId], references: [businessId, id], onDelete: Restrict)
+  teams    Team[]
+  members  MemberDepartment[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@map("departments")
+}
+
+/// A team inside one department. Names are unique per firm among those not archived,
+/// case-insensitively (SQL-only partial index).
+model Team {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  businessId       String           @map("business_id") @db.Uuid
+  departmentId     String           @map("department_id") @db.Uuid
+  name             String
+  description      String?
+  leadMembershipId String?          @map("lead_membership_id") @db.Uuid
+  status           StaffGroupStatus @default(ACTIVE)
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  department Department   @relation(fields: [businessId, departmentId], references: [businessId, id], onDelete: Restrict)
+  lead       Membership?  @relation("TeamLead", fields: [businessId, leadMembershipId], references: [businessId, id], onDelete: Restrict)
+  members    TeamMember[]
+
+  @@unique([businessId, id])
+  @@index([businessId, departmentId])
+  @@map("teams")
+}
+
+/// A member of a team. A member has at most one PRIMARY and one BACKUP team (SQL-only partial
+/// indexes); added only to an ACTIVE team.
+model TeamMember {
+  businessId   String         @map("business_id") @db.Uuid
+  teamId       String         @map("team_id") @db.Uuid
+  membershipId String         @map("membership_id") @db.Uuid
+  kind         TeamMemberKind @default(MEMBER)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  team       Team       @relation(fields: [businessId, teamId], references: [businessId, id], onDelete: Restrict)
+  membership Membership @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([teamId, membershipId])
+  @@index([businessId, membershipId])
+  @@map("team_members")
+}
+
+/// A member's department (Department(s) on Create Staff); added only to an ACTIVE department.
+model MemberDepartment {
+  businessId   String   @map("business_id") @db.Uuid
+  membershipId String   @map("membership_id") @db.Uuid
+  departmentId String   @map("department_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  membership Membership @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+  department Department @relation(fields: [businessId, departmentId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([membershipId, departmentId])
+  @@index([businessId, departmentId])
+  @@map("member_departments")
+}
+
+// ---------- Staff details, access and security (R35, migration r35_staff_details) ----------
+// What Create/Edit Staff and Staff Account Access & Security keep about a member, beyond the
+// membership itself (role, status, job title, meeting link) and the person's login (name, email,
+// phone: one user row across firms). One row per member in each table, created when the member
+// is added or when the first field is saved. Firm tables with forced RLS. Compensation is also
+// walled off in the database: only the acting Owner or Admin reads or writes it.
+
+enum StaffEmploymentType {
+  W2
+  FORM_1099
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  TEMPORARY
+  SEASONAL
+  INTERN
+  OTHER
+}
+
+/// The "User Access Level" on Create Staff. It labels the member's authority; what they can do
+/// comes from the role and its permissions, never from this field alone.
+enum StaffAccessLevel {
+  STANDARD_USER
+  MANAGER
+  ADMINISTRATOR
+}
+
+enum StaffAuthMethod {
+  AUTHENTICATOR_APP
+  SMS
+  EMAIL
+  BACKUP_CODES
+}
+
+/// Where a member may sign in from: anywhere, only the listed IP addresses or networks, or only
+/// the listed countries (approximate, from the viewer's IP; telemetry, not proof of location).
+enum StaffAccessLocation {
+  ANYWHERE
+  ALLOWED_IPS
+  ALLOWED_COUNTRIES
+}
+
+enum StaffPayType {
+  SALARY
+  HOURLY
+  COMMISSION
+  PER_PROJECT
+  OTHER
+}
+
+enum StaffPayFrequency {
+  WEEKLY
+  BIWEEKLY
+  SEMIMONTHLY
+  MONTHLY
+  ANNUALLY
+}
+
+/// Employment, assignment and internal-note details of one member. Dates are calendar dates
+/// (no time); `time_zone` is an IANA name.
+model StaffProfile {
+  membershipId      String               @map("membership_id") @db.Uuid
+  businessId        String               @map("business_id") @db.Uuid
+  employmentType    StaffEmploymentType? @map("employment_type")
+  /// Company-defined or custom ("Full-Time", "Mon-Thu"), up to 80 characters.
+  workSchedule      String?              @map("work_schedule")
+  /// The office or branch, up to 100 characters.
+  office            String?
+  hireDate          DateTime?            @map("hire_date") @db.Date
+  endDate           DateTime?            @map("end_date") @db.Date
+  supervisorId      String?              @map("supervisor_membership_id") @db.Uuid
+  timeZone          String?              @map("time_zone")
+  /// Unique per firm, ignoring case (SQL-only partial index).
+  employeeId        String?              @map("employee_id")
+  /// A service code (like `TAX_PREPARATION`): the member's main specialty.
+  primarySpecialty  String?              @map("primary_specialty")
+  /// Service codes that limit the member to those areas of work; empty means no limit.
+  serviceAreas      String[]             @default([]) @map("service_areas")
+  /// Clients or tasks the member can carry at once (1 to 10,000); null means no limit.
+  maxWorkload       Int?                 @map("max_workload")
+  acceptsNewClients Boolean              @default(true) @map("accepts_new_clients")
+  accessLevel       StaffAccessLevel     @default(STANDARD_USER) @map("access_level")
+  /// The member signs in from this date (inclusive, in their time zone) and not before.
+  accessStartsOn    DateTime?            @map("access_starts_on") @db.Date
+  /// Internal notes for Owners and Admins, up to 500 characters.
+  notes             String?
+  notesUpdatedAt    DateTime?            @map("notes_updated_at") @db.Timestamptz(3)
+  notesUpdatedById  String?              @map("notes_updated_by_membership_id") @db.Uuid
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member         Membership  @relation("StaffProfileMember", fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+  supervisor     Membership? @relation("StaffSupervisor", fields: [businessId, supervisorId], references: [businessId, id], onDelete: Restrict)
+  notesUpdatedBy Membership? @relation("StaffNotesUpdatedBy", fields: [businessId, notesUpdatedById], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, membershipId])
+  @@index([businessId, supervisorId])
+  @@map("staff_profiles")
+}
+
+/// A member's sign-in rules and security notices. Two-factor sign-in is always required for
+/// staff (the staff user pool), so there is no column for it. The API enforces `autoLogoutMinutes`,
+/// the concurrent-session limit and the location rule on every request or sign-in.
+model StaffSecuritySettings {
+  membershipId            String              @map("membership_id") @db.Uuid
+  businessId              String              @map("business_id") @db.Uuid
+  requirePasswordChange   Boolean             @default(true) @map("require_password_change")
+  passwordChangedAt       DateTime?           @map("password_changed_at") @db.Timestamptz(3)
+  /// Set by the API at each sign-in; the directory's "Last Login".
+  lastLoginAt             DateTime?           @map("last_login_at") @db.Timestamptz(3)
+  allowedAuthMethods      StaffAuthMethod[]   @default([AUTHENTICATOR_APP, BACKUP_CODES]) @map("allowed_auth_methods")
+  accessLocation          StaffAccessLocation @default(ANYWHERE) @map("access_location")
+  /// IP addresses or networks (like `203.0.113.7` or `203.0.113.0/24`), at most 20; used when
+  /// `accessLocation` is ALLOWED_IPS.
+  allowedIps              String[]            @default([]) @map("allowed_ips")
+  /// ISO 3166 two-letter codes, at most 50; used when `accessLocation` is ALLOWED_COUNTRIES.
+  allowedCountries        String[]            @default([]) @map("allowed_countries")
+  restrictDevices         Boolean             @default(false) @map("restrict_devices")
+  /// Sign out after this many idle minutes (5 to 480); null means the firm's default.
+  autoLogoutMinutes       Int?                @map("auto_logout_minutes")
+  /// The account turns inactive on this date (inclusive); the API deactivates it then.
+  disableOn               DateTime?           @map("disable_on") @db.Date
+  maxConcurrentSessions   Int                 @default(1) @map("max_concurrent_sessions")
+  signOutOtherSessions    Boolean             @default(false) @map("sign_out_other_sessions")
+  allowTrustedDevices     Boolean             @default(false) @map("allow_trusted_devices")
+  recoveryEmail           String?             @map("recovery_email")
+  recoveryEmailVerifiedAt DateTime?           @map("recovery_email_verified_at") @db.Timestamptz(3)
+  notifyNewDeviceLogin    Boolean             @default(true) @map("notify_new_device_login")
+  notifyFailedLogins      Boolean             @default(true) @map("notify_failed_logins")
+  notifyPasswordChanges   Boolean             @default(true) @map("notify_password_changes")
+  notifySecurityAlerts    Boolean             @default(true) @map("notify_security_alerts")
+  notifyLockouts          Boolean             @default(true) @map("notify_lockouts")
+  /// When and why the account was locked (status LOCKED); both cleared on unlock.
+  lockedAt                DateTime?           @map("locked_at") @db.Timestamptz(3)
+  lockedReason            String?             @map("locked_reason")
+  createdAt               DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, membershipId])
+  @@map("staff_security_settings")
+}
+
+/// Pay details: HR data, restricted. The database shows these rows only to the acting Owner or
+/// Admin (the session's actor), so a bug in a route or a role list cannot expose them. Never
+/// logged, never in an audit entry's metadata (audit that it changed, not the values).
+model StaffCompensation {
+  membershipId String             @map("membership_id") @db.Uuid
+  businessId   String             @map("business_id") @db.Uuid
+  payType      StaffPayType?      @map("pay_type")
+  /// The rate or salary in cents of USD (0 to 100,000,000.00).
+  rateCents    BigInt?            @map("rate_cents")
+  payFrequency StaffPayFrequency? @map("pay_frequency")
+  /// A short description of a commission arrangement, up to 200 characters.
+  commission   String?
+  /// The payroll system's id for the member, up to 40 characters.
+  payrollId    String?            @map("payroll_id")
+  updatedAt    DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, membershipId])
+  @@map("staff_compensation")
+}
+
+/// A Create Staff form saved with "Save as Draft": no account, no invitation, no access. It
+/// holds what was typed so far (`data`, at most 20,000 characters; the database refuses
+/// password, token or secret keys) and the step the person was on (1 to 4). Deleted once the
+/// staff member is created or the draft is discarded.
+model StaffDraft {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  createdById String   @map("created_by_membership_id") @db.Uuid
+  step        Int      @default(1)
+  data        Json
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy Membership @relation(fields: [businessId, createdById], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, updatedAt])
+  @@map("staff_drafts")
+}
+
+// ---------- Staff documents and sessions (R35, migration r35_staff_documents_sessions) ----------
+// HR files kept for a member, and the member's signed-in sessions. Firm tables with forced RLS.
+// Documents are also walled off in the database: only the acting Owner or Admin reads or writes
+// them (they hold W-4 and direct deposit forms). Login history needs no table: it is the audit
+// log's `auth.signed_in` and `auth.sign_in_failed` rows.
+
+enum StaffDocumentType {
+  EMPLOYMENT_AGREEMENT
+  CONTRACTOR_AGREEMENT
+  W4
+  DIRECT_DEPOSIT
+  NDA
+  CREDENTIAL_LICENSE
+  TRAINING_ACKNOWLEDGMENT
+  OTHER
+}
+
+/// A file kept for a staff member. The object is in the firm's private prefix
+/// (`tenant/<business_id>/staff/<membership_id>/...`), served only through short-lived signed
+/// links, scanned before anyone downloads it (PENDING until the scanner sets the result once).
+/// Replacing a file adds a new row and archives the old one; nothing is deleted (retention).
+model StaffDocument {
+  id           String            @id @default(uuid(7)) @db.Uuid
+  businessId   String            @map("business_id") @db.Uuid
+  membershipId String            @map("membership_id") @db.Uuid
+  type         StaffDocumentType
+  fileName     String            @map("file_name")
+  /// PDF, JPEG, PNG, DOC or DOCX only (database CHECK).
+  contentType  String            @map("content_type")
+  /// 1 byte to 10 MB.
+  sizeBytes    Int               @map("size_bytes")
+  /// Hex SHA-256 of the file.
+  sha256       String
+  s3Key        String            @unique @map("s3_key")
+  scanStatus   ScanStatus        @default(PENDING) @map("scan_status")
+  scannedAt    DateTime?         @map("scanned_at") @db.Timestamptz(3)
+  uploadedById String?           @map("uploaded_by_membership_id") @db.Uuid
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  archivedAt   DateTime?         @map("archived_at") @db.Timestamptz(3)
+
+  member     Membership  @relation("StaffDocumentOwner", fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+  uploadedBy Membership? @relation("StaffDocumentUploader", fields: [businessId, uploadedById], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, membershipId, createdAt])
+  @@map("staff_documents")
+}
+
+/// One signed-in browser or device of a member (Active Sessions). `tokenHash` is the hex SHA-256
+/// of an identifier the API derives from the session's refresh token, never the token. Device
+/// and place are telemetry from the request (user agent and IP), not proof of who or where.
+/// "Sign out" sets `revokedAt` and revokes the Cognito refresh token; the concurrent-session
+/// limit counts rows with no `revokedAt` seen in the last 7 days (the refresh token's life).
+model StaffSession {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  businessId   String    @map("business_id") @db.Uuid
+  membershipId String    @map("membership_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  /// A label like "Chrome on macOS", up to 100 characters.
+  device       String
+  ip           String?
+  /// Approximate place from the IP, up to 100 characters; null when unknown.
+  place        String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastActiveAt DateTime  @default(now()) @map("last_active_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, membershipId, revokedAt])
+  @@map("staff_sessions")
+}
+
+// ---------- Permission matrix overrides (R35, migration r35_permission_overrides) ----------
+// The module and capability grid of Settings > Users & Roles and Create Staff step 2. The
+// defaults of each role are code (packages/types team/permissions.ts); these tables hold only
+// what a firm changed from them: a role's row differs from its default, and a member's row
+// differs from their role's (after the firm's role changes). A row says granted or taken away.
+// "Reset to Default" deletes the rows. The Owner's permissions cannot be changed, and the API
+// refuses a change that would give someone what its author cannot grant, or an Edit with no View.
+
+enum PermissionModule {
+  DASHBOARD
+  CLIENTS
+  LEADS
+  APPOINTMENTS
+  INTAKE_FORMS
+  DOCUMENTS
+  CLIENT_PORTAL
+  TASKS
+  TAX_RETURNS
+  BOOKKEEPING
+  PAYROLL
+  TAX_PLANNING
+  BUSINESS_ADVISORY
+  INVOICES_PAYMENTS
+  MESSAGES
+  COMMUNICATIONS
+  AUTOMATIONS
+  COMPLIANCE
+  REPORTS
+  TEMPLATES
+  SERVICES_PRICING
+  STAFF_MANAGEMENT
+  INTEGRATIONS
+  SETTINGS
+}
+
+/// What a person may do in a module. "Full Access" is all of them (not stored). The Users &
+/// Roles grid's "Admin" column is MANAGE: configuration and access of the module.
+enum PermissionCapability {
+  VIEW
+  CREATE
+  EDIT
+  DELETE
+  APPROVE
+  MANAGE
+  EXPORT
+}
+
+/// A firm's change to one capability of one role. Never for the OWNER role (database CHECK).
+model RolePermission {
+  businessId  String               @map("business_id") @db.Uuid
+  role        MembershipRole
+  module      PermissionModule
+  capability  PermissionCapability
+  granted     Boolean
+  updatedById String?              @map("updated_by_membership_id") @db.Uuid
+  updatedAt   DateTime             @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy Membership? @relation(fields: [businessId, updatedById], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, role, module, capability])
+  @@map("role_permissions")
+}
+
+/// A firm's change to one capability of one member, on top of their role's.
+model MemberPermission {
+  businessId   String               @map("business_id") @db.Uuid
+  membershipId String               @map("membership_id") @db.Uuid
+  module       PermissionModule
+  capability   PermissionCapability
+  granted      Boolean
+  updatedById  String?              @map("updated_by_membership_id") @db.Uuid
+  updatedAt    DateTime             @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  member    Membership  @relation("MemberPermissionSubject", fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+  updatedBy Membership? @relation("MemberPermissionChangedBy", fields: [businessId, updatedById], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, membershipId, module, capability])
+  @@map("member_permissions")
+}
+
+// ---------- R38: work modules (Rasel, Oct 14) ----------
+// The database for Bookkeeping, Tax Planning, Tasks, Compliance & Deadlines and Automations
+// (docs/mockups/firm-workspace/<module>/source). Firm tables with forced RLS, one migration per
+// group (r38_*). Rows that say who acted keep a plain user id, as tasks.created_by_user_id does;
+// assignees are same-firm members through a foreign key.
+
+/// A firm-configured task category ("Business Advisory", "Bookkeeping"). Archived, not deleted.
+model TaskType {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  name       String
+  sortOrder  Int       @default(0) @map("sort_order")
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business       @relation(fields: [businessId], references: [id])
+  tasks     Task[]
+  templates TaskTemplate[]
+  series    TaskSeries[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, name])
+  @@map("task_types")
+}
+
+/// An additional assignee (collaborator) of a task. Being one never gives access to the client.
+model TaskAssignee {
+  businessId String   @map("business_id") @db.Uuid
+  taskId     String   @map("task_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task   Task       @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Cascade)
+  member Membership @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@id([taskId, userId])
+  @@index([businessId, userId])
+  @@map("task_assignees")
+}
+
+/// One step of a task's checklist (ordered). A required item must be completed before the task
+/// can be (database rule). An item may be assigned to a member without giving them the client.
+model TaskChecklistItem {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  taskId            String    @map("task_id") @db.Uuid
+  label             String
+  /// Display order within the task; the API renumbers on a move (not unique, so a move is one update).
+  position          Int
+  required          Boolean   @default(false)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(3)
+  completedByUserId String?   @map("completed_by_user_id") @db.Uuid
+  assignedUserId    String?   @map("assigned_user_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task           Task        @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Cascade)
+  assignedMember Membership? @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, taskId, position])
+  @@map("task_checklist_items")
+}
+
+/// A reminder rule of a task: daysBefore the due date (0 = the due day) at timeOfDay (the firm's
+/// timezone; the API's default when null), in-app and by email or SMS. lastFiredFor is the due
+/// date the reminder last fired for, so a retry never sends it twice.
+model TaskReminder {
+  id           String            @id @default(uuid(7)) @db.Uuid
+  businessId   String            @map("business_id") @db.Uuid
+  taskId       String            @map("task_id") @db.Uuid
+  daysBefore   Int               @map("days_before")
+  timeOfDay    DateTime?         @map("time_of_day") @db.Time(0)
+  inApp        Boolean           @default(true) @map("in_app")
+  channels     DeliveryChannel[] @default([])
+  lastFiredFor DateTime?         @map("last_fired_for") @db.Date
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, taskId, daysBefore, timeOfDay])
+  @@map("task_reminders")
+}
+
+/// A document attached to a task: one of the task's client's documents. The client sees it in
+/// the portal only when the task is client-visible AND this row is approved (clientVisible), and
+/// never when the document is INTERNAL.
+model TaskAttachment {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  taskId        String   @map("task_id") @db.Uuid
+  documentId    String   @map("document_id") @db.Uuid
+  clientVisible Boolean  @default(false) @map("client_visible")
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task     Task     @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Cascade)
+  document Document @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, taskId, documentId])
+  @@index([businessId, documentId])
+  @@map("task_attachments")
+}
+
+/// A reusable task: what a new task starts with (name, instructions, type, service, priority,
+/// assignment rule, due date relative to creation, checklist, reminders, visibility). checklist
+/// is an array of {label, required}; reminders an array of {daysBefore, timeOfDay, inApp,
+/// channels}; recurrence, when set, is a saved recurring setup (the series' recurrence columns
+/// as JSON). Archived, not deleted.
+model TaskTemplate {
+  id                   String             @id @default(uuid(7)) @db.Uuid
+  businessId           String             @map("business_id") @db.Uuid
+  name                 String
+  description          String?
+  typeId               String?            @map("type_id") @db.Uuid
+  serviceId            String?            @map("service_id") @db.Uuid
+  priority             TaskPriority       @default(MEDIUM)
+  assignmentRule       TaskAssignmentRule @default(UNASSIGNED) @map("assignment_rule")
+  assignedUserId       String?            @map("assigned_user_id") @db.Uuid
+  /// The due date is this many days after the task is created.
+  dueOffsetDays        Int?               @map("due_offset_days")
+  clientVisibleDefault Boolean            @default(false) @map("client_visible_default")
+  checklist            Json               @default("[]")
+  reminders            Json               @default("[]")
+  recurrence           Json?
+  createdByUserId      String?            @map("created_by_user_id") @db.Uuid
+  archivedAt           DateTime?          @map("archived_at") @db.Timestamptz(3)
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  type                  TaskType?              @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  service               Service?               @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember        Membership?            @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  tasks                 Task[]
+  complianceDeadlines   ComplianceDeadline[]
+  complianceRecurrences ComplianceRecurrence[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, name])
+  @@map("task_templates")
+}
+
+/// A recurring task definition (the Set Up Recurring Task screen). Each due date makes one task
+/// from a snapshot of these defaults (see TaskOccurrence); a later edit never rewrites tasks
+/// already made. `pattern` holds the repeat-on choice: {weekdays: [0-6]} for weekly, {monthly:
+/// "DAY_OF_MONTH"} or {monthly: "NTH_WEEKDAY", nth: 1-5, weekday: 0-6} for monthly.
+model TaskSeries {
+  id                  String             @id @default(uuid(7)) @db.Uuid
+  businessId          String             @map("business_id") @db.Uuid
+  clientId            String             @map("client_id") @db.Uuid
+  engagementId        String?            @map("engagement_id") @db.Uuid
+  serviceId           String?            @map("service_id") @db.Uuid
+  typeId              String?            @map("type_id") @db.Uuid
+  title               String
+  details             String?
+  priority            TaskPriority       @default(MEDIUM)
+  assignmentRule      TaskAssignmentRule @default(UNASSIGNED) @map("assignment_rule")
+  assignedUserId      String?            @map("assigned_user_id") @db.Uuid
+  /// Collaborators of every task made; each must be a member of the firm (checked by the database).
+  extraAssigneeIds    String[]           @default([]) @map("extra_assignee_ids") @db.Uuid
+  interval            Int                @default(1)
+  unit                RecurrenceUnit
+  pattern             Json               @default("{}")
+  startOn             DateTime           @map("start_on") @db.Date
+  endMode             RecurrenceEnd      @default(NEVER) @map("end_mode")
+  endAfterCount       Int?               @map("end_after_count")
+  endOn               DateTime?          @map("end_on") @db.Date
+  holidayRule         HolidayRule        @default(NEXT_BUSINESS_DAY) @map("holiday_rule")
+  /// Make each task at the start of its period instead of leadDays before its due date.
+  createAtPeriodStart Boolean            @default(false) @map("create_at_period_start")
+  leadDays            Int?               @map("lead_days")
+  linkTaxCalendar     Boolean            @default(false) @map("link_tax_calendar")
+  dueTime             DateTime?          @map("due_time") @db.Time(0)
+  clientVisible       Boolean            @default(false) @map("client_visible")
+  notifyClient        Boolean            @default(false) @map("notify_client")
+  checklist           Json               @default("[]")
+  reminders           Json               @default("[]")
+  status              TaskSeriesStatus   @default(ACTIVE)
+  pausedAt            DateTime?          @map("paused_at") @db.Timestamptz(3)
+  endedAt             DateTime?          @map("ended_at") @db.Timestamptz(3)
+  createdByUserId     String?            @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client         Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement     Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  service        Service?         @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  type           TaskType?        @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  assignedMember Membership?      @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  occurrences    TaskOccurrence[]
+
+  @@unique([businessId, id])
+  @@index([businessId, clientId])
+  @@index([businessId, status])
+  @@map("task_series")
+}
+
+/// One due date of a series. The unique (series, scheduledOn) makes generation idempotent: a
+/// retry finds the row instead of making a second task. scheduledOn is the unadjusted date,
+/// dueOn the one after the holiday rule. A GENERATED row points at its task; SKIPPED has a reason.
+model TaskOccurrence {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  businessId  String              @map("business_id") @db.Uuid
+  seriesId    String              @map("series_id") @db.Uuid
+  scheduledOn DateTime            @map("scheduled_on") @db.Date
+  dueOn       DateTime            @map("due_on") @db.Date
+  state       TaskOccurrenceState @default(SCHEDULED)
+  taskId      String?             @map("task_id") @db.Uuid
+  skipReason  String?             @map("skip_reason")
+  /// A safe code for the last failure (never a message with client data), and the tries so far.
+  failureCode String?             @map("failure_code")
+  attempts    Int                 @default(0)
+  generatedAt DateTime?           @map("generated_at") @db.Timestamptz(3)
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  series TaskSeries @relation(fields: [businessId, seriesId], references: [businessId, id], onDelete: Restrict)
+  task   Task?      @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, seriesId, scheduledOn])
+  @@unique([businessId, taskId])
+  @@index([businessId, state, dueOn])
+  @@map("task_occurrences")
+}
+
+/// A compliance obligation of one client with a due date (Compliance & Deadlines). It is the
+/// source of truth for the obligation and its date; Tasks is the work. A government deadline
+/// keeps the rule's date (statutoryDueOn) apart from the date the firm works to (dueOn), and a
+/// firm override needs a reason (dueOverridden, dueOverrideReason). The extension is tracked
+/// apart from the payment date, which an extension never moves. Overdue and Due Soon are derived
+/// (see DeadlineStatus). Archived, never deleted.
+model ComplianceDeadline {
+  id                  String             @id @default(uuid(7)) @db.Uuid
+  businessId          String             @map("business_id") @db.Uuid
+  clientId            String             @map("client_id") @db.Uuid
+  engagementId        String?            @map("engagement_id") @db.Uuid
+  name                String
+  type                DeadlineType
+  source              DeadlineSource     @default(FIRM)
+  description         String?
+  /// Staff only.
+  internalNotes       String?            @map("internal_notes")
+  /// Shown to the client when clientVisible.
+  clientNotes         String?            @map("client_notes")
+  /// Federal tax classification or entity code, e.g. "LLC_MULTI_MEMBER" (the client's, when set).
+  entityType          String?            @map("entity_type")
+  taxYear             Int?               @map("tax_year")
+  /// e.g. "Q3 (Jul-Sep)", "Annual".
+  filingPeriod        String?            @map("filing_period")
+  relatedForm         String?            @map("related_form")
+  /// The authority: "IRS", "GA DOR", "GA SOS", a county.
+  agency              String?
+  jurisdiction        JurisdictionLevel?
+  /// Two-letter state code, for state and local deadlines.
+  state               String?
+  statutoryDueOn      DateTime?          @map("statutory_due_on") @db.Date
+  dueOn               DateTime           @map("due_on") @db.Date
+  /// Time of day, in the firm's timezone; the end of the day when null.
+  dueTime             DateTime?          @map("due_time") @db.Time(0)
+  dueOverridden       Boolean            @default(false) @map("due_overridden")
+  dueOverrideReason   String?            @map("due_override_reason")
+  extensionFiledOn    DateTime?          @map("extension_filed_on") @db.Date
+  extendedDueOn       DateTime?          @map("extended_due_on") @db.Date
+  /// The payment date, kept separate: an extension to file is not an extension to pay.
+  paymentDueOn        DateTime?          @map("payment_due_on") @db.Date
+  priority            TaskPriority       @default(MEDIUM)
+  status              DeadlineStatus     @default(UPCOMING)
+  assignedUserId      String?            @map("assigned_user_id") @db.Uuid
+  clientVisible       Boolean            @default(false) @map("client_visible")
+  /// Make a task from taskTemplateId when the deadline is created (once: see tasks.template_id).
+  createTask          Boolean            @default(false) @map("create_task")
+  taskTemplateId      String?            @map("task_template_id") @db.Uuid
+  completedAt         DateTime?          @map("completed_at") @db.Timestamptz(3)
+  completedByUserId   String?            @map("completed_by_user_id") @db.Uuid
+  /// Completion evidence: when it was filed or paid, and the confirmation number.
+  filedOn             DateTime?          @map("filed_on") @db.Date
+  confirmationNumber  String?            @map("confirmation_number")
+  notApplicableReason String?            @map("not_applicable_reason")
+  /// The library entry that made this deadline, and why it applies to the client (rule and
+  /// calendar version): at most one deadline per client, entry and due date (SQL only).
+  calendarEntryId     String?            @map("calendar_entry_id") @db.Uuid
+  applicabilityReason String?            @map("applicability_reason")
+  /// The recurring definition that made it (with calendarEntryId when it came from the library).
+  recurrenceId        String?            @map("recurrence_id") @db.Uuid
+  createdByUserId     String?            @map("created_by_user_id") @db.Uuid
+  archivedAt          DateTime?          @map("archived_at") @db.Timestamptz(3)
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client                        Client                         @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement                    Engagement?                    @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember                Membership?                    @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  taskTemplate                  TaskTemplate?                  @relation(fields: [businessId, taskTemplateId], references: [businessId, id], onDelete: Restrict)
+  calendarEntry                 ComplianceCalendarEntry?       @relation(fields: [businessId, calendarEntryId], references: [businessId, id], onDelete: Restrict)
+  recurrence                    ComplianceRecurrence?          @relation(fields: [businessId, recurrenceId], references: [businessId, id], onDelete: Restrict)
+  reminders                     ComplianceDeadlineReminder[]
+  documents                     ComplianceDeadlineDocument[]
+  links                         ComplianceDeadlineLink[]       @relation("DeadlineLinks")
+  linkedFrom                    ComplianceDeadlineLink[]       @relation("DeadlineLinked")
+  tasks                         Task[]
+  complianceApplicabilityRecord ComplianceApplicabilityRecord?
+  complianceLogs                ComplianceLog[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status, dueOn])
+  @@index([businessId, clientId, dueOn])
+  @@index([businessId, assignedUserId, status])
+  @@index([businessId, type])
+  @@map("compliance_deadlines")
+}
+
+/// A reminder rule of a deadline: daysBefore the due date (0 = the due day), in-app and by email
+/// or SMS. lastFiredFor is the due date it last fired for, so a retry never sends it twice.
+model ComplianceDeadlineReminder {
+  id           String            @id @default(uuid(7)) @db.Uuid
+  businessId   String            @map("business_id") @db.Uuid
+  deadlineId   String            @map("deadline_id") @db.Uuid
+  daysBefore   Int               @map("days_before")
+  inApp        Boolean           @default(true) @map("in_app")
+  channels     DeliveryChannel[] @default([])
+  lastFiredFor DateTime?         @map("last_fired_for") @db.Date
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  deadline ComplianceDeadline @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, deadlineId, daysBefore])
+  @@map("compliance_deadline_reminders")
+}
+
+/// A document attached to a deadline: one of the deadline client's documents.
+model ComplianceDeadlineDocument {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  deadlineId    String   @map("deadline_id") @db.Uuid
+  documentId    String   @map("document_id") @db.Uuid
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  deadline ComplianceDeadline @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Cascade)
+  document Document           @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, deadlineId, documentId])
+  @@index([businessId, documentId])
+  @@map("compliance_deadline_documents")
+}
+
+/// "Related deadlines": a link from one deadline to another of the same client.
+model ComplianceDeadlineLink {
+  businessId        String   @map("business_id") @db.Uuid
+  deadlineId        String   @map("deadline_id") @db.Uuid
+  relatedDeadlineId String   @map("related_deadline_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  deadline        ComplianceDeadline @relation("DeadlineLinks", fields: [businessId, deadlineId], references: [businessId, id], onDelete: Cascade)
+  relatedDeadline ComplianceDeadline @relation("DeadlineLinked", fields: [businessId, relatedDeadlineId], references: [businessId, id], onDelete: Cascade)
+
+  @@id([deadlineId, relatedDeadlineId])
+  @@index([businessId, relatedDeadlineId])
+  @@map("compliance_deadline_links")
+}
+
+/// One version of an official calendar in the firm's library: an authority and jurisdiction for
+/// one effective year, with its source and when it was retrieved and last verified. Importing
+/// makes a DRAFT; publishing supersedes the previous PUBLISHED version, which stays for rollback.
+/// A failed import never touches the published one.
+model ComplianceCalendar {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  businessId        String            @map("business_id") @db.Uuid
+  family            CalendarFamily
+  /// "IRS", "Georgia Secretary of State".
+  authority         String
+  jurisdiction      JurisdictionLevel
+  state             String?
+  effectiveYear     Int               @map("effective_year")
+  /// 1, 2, 3... per family, authority, state and year.
+  version           Int               @default(1)
+  name              String
+  /// The official page the dates come from.
+  sourceUrl         String            @map("source_url")
+  retrievedAt       DateTime?         @map("retrieved_at") @db.Timestamptz(3)
+  verifiedAt        DateTime?         @map("verified_at") @db.Timestamptz(3)
+  status            CalendarStatus    @default(DRAFT)
+  publishedAt       DateTime?         @map("published_at") @db.Timestamptz(3)
+  publishedByUserId String?           @map("published_by_user_id") @db.Uuid
+  createdByUserId   String?           @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  entries        ComplianceCalendarEntry[]
+  complianceLogs ComplianceLog[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, family, authority, state, effectiveYear, version])
+  @@index([businessId, status])
+  @@map("compliance_calendars")
+}
+
+/// A deadline of a calendar version: a fixed date for the year, or a formula (for example the
+/// 15th day of the 3rd month after year end, in `rule`), with the form it belongs to.
+model ComplianceCalendarEntry {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  businessId  String           @map("business_id") @db.Uuid
+  calendarId  String           @map("calendar_id") @db.Uuid
+  name        String
+  type        DeadlineType
+  form        String?
+  description String?
+  ruleKind    CalendarRuleKind @map("rule_kind")
+  dueOn       DateTime?        @map("due_on") @db.Date
+  rule        Json?
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  calendar                     ComplianceCalendar            @relation(fields: [businessId, calendarId], references: [businessId, id], onDelete: Restrict)
+  deadlines                    ComplianceDeadline[]
+  complianceRecurrences        ComplianceRecurrence[]
+  complianceApplicabilityRules ComplianceApplicabilityRule[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, calendarId, name, dueOn])
+  @@index([businessId, calendarId])
+  @@map("compliance_calendar_entries")
+}
+
+/// A recurring deadline definition, or a template of one (isTemplate: the Quick Templates and
+/// "Use Existing Template"; a template never makes deadlines). Made from scratch or from a
+/// library entry. The unadjusted statutory date is kept on each deadline, so the holiday rule
+/// never loses it. `repeatRule` holds the repeat-on choice (a day of the month, an nth weekday, a
+/// quarter rule); `reminders` an array of {daysBefore, inApp, channels}.
+model ComplianceRecurrence {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  businessId        String             @map("business_id") @db.Uuid
+  name              String
+  type              DeadlineType
+  description       String?
+  agency            String?
+  relatedForm       String?            @map("related_form")
+  jurisdiction      JurisdictionLevel?
+  state             String?
+  calendarEntryId   String?            @map("calendar_entry_id") @db.Uuid
+  frequency         DeadlineFrequency
+  /// Every N months (or days) for CUSTOM.
+  interval          Int?
+  repeatRule        Json               @default("{}") @map("repeat_rule")
+  startOn           DateTime?          @map("start_on") @db.Date
+  endMode           RecurrenceEnd      @default(NEVER) @map("end_mode")
+  endAfterCount     Int?               @map("end_after_count")
+  endOn             DateTime?          @map("end_on") @db.Date
+  holidayRule       HolidayRule        @default(NEXT_BUSINESS_DAY) @map("holiday_rule")
+  isTemplate        Boolean            @default(false) @map("is_template")
+  createTask        Boolean            @default(false) @map("create_task")
+  taskTemplateId    String?            @map("task_template_id") @db.Uuid
+  assignedUserId    String?            @map("assigned_user_id") @db.Uuid
+  clientVisible     Boolean            @default(false) @map("client_visible")
+  remindClient      Boolean            @default(false) @map("remind_client")
+  addToTaxCalendar  Boolean            @default(true) @map("add_to_tax_calendar")
+  notifyTeam        Boolean            @default(false) @map("notify_team")
+  reminders         Json               @default("[]")
+  sendPastDueNotice Boolean            @default(false) @map("send_past_due_notice")
+  escalateToManager Boolean            @default(false) @map("escalate_to_manager")
+  status            TaskSeriesStatus   @default(ACTIVE)
+  pausedAt          DateTime?          @map("paused_at") @db.Timestamptz(3)
+  endedAt           DateTime?          @map("ended_at") @db.Timestamptz(3)
+  createdByUserId   String?            @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  calendarEntry  ComplianceCalendarEntry?      @relation(fields: [businessId, calendarEntryId], references: [businessId, id], onDelete: Restrict)
+  taskTemplate   TaskTemplate?                 @relation(fields: [businessId, taskTemplateId], references: [businessId, id], onDelete: Restrict)
+  assignedMember Membership?                   @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  deadlines      ComplianceDeadline[]
+  rules          ComplianceApplicabilityRule[]
+  complianceLogs ComplianceLog[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, name, isTemplate])
+  @@index([businessId, status])
+  @@map("compliance_recurrences")
+}
+
+/// Which clients get (or are only suggested) a library entry's or a recurrence's deadline:
+/// federal tax classification and entity codes, states, services, statuses that exclude, and
+/// anything else in `criteria` (election, fiscal year end, payroll or sales tax registration).
+/// `version` goes up on every change, so a decision records the version that made it.
+model ComplianceApplicabilityRule {
+  id                          String               @id @default(uuid(7)) @db.Uuid
+  businessId                  String               @map("business_id") @db.Uuid
+  name                        String
+  calendarEntryId             String?              @map("calendar_entry_id") @db.Uuid
+  recurrenceId                String?              @map("recurrence_id") @db.Uuid
+  outcome                     ApplicabilityOutcome @default(SUGGEST)
+  entityTypes                 String[]             @default([]) @map("entity_types")
+  states                      String[]             @default([])
+  services                    ServiceKind[]        @default([])
+  /// Clients with one of these statuses (tax-exempt, dissolved, closed, not registered) never match.
+  excludeStatuses             String[]             @default([]) @map("exclude_statuses")
+  /// Only clients whose prior-year tax liability is above this, in cents.
+  priorYearLiabilityOverCents Int?                 @map("prior_year_liability_over_cents")
+  criteria                    Json                 @default("{}")
+  active                      Boolean              @default(true)
+  version                     Int                  @default(1)
+  createdByUserId             String?              @map("created_by_user_id") @db.Uuid
+  createdAt                   DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                   DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  calendarEntry ComplianceCalendarEntry?        @relation(fields: [businessId, calendarEntryId], references: [businessId, id], onDelete: Restrict)
+  recurrence    ComplianceRecurrence?           @relation(fields: [businessId, recurrenceId], references: [businessId, id], onDelete: Restrict)
+  decisions     ComplianceApplicabilityRecord[]
+
+  @@unique([businessId, id])
+  @@index([businessId, calendarEntryId])
+  @@index([businessId, recurrenceId])
+  @@map("compliance_applicability_rules")
+}
+
+/// What a rule decided for one client and due date: suggested, needing review (data missing, so
+/// nothing is generated silently), confirmed by staff (the deadline it made) or dismissed with a
+/// reason. A change of the client's classification re-evaluates without touching old records.
+model ComplianceApplicabilityRecord {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  businessId      String                @map("business_id") @db.Uuid
+  clientId        String                @map("client_id") @db.Uuid
+  ruleId          String                @map("rule_id") @db.Uuid
+  ruleVersion     Int                   @map("rule_version")
+  dueOn           DateTime              @map("due_on") @db.Date
+  decision        ApplicabilityDecision
+  /// Why it applies (or why it needs review or was dismissed), with the rule and calendar version.
+  reason          String
+  deadlineId      String?               @map("deadline_id") @db.Uuid
+  decidedByUserId String?               @map("decided_by_user_id") @db.Uuid
+  decidedAt       DateTime?             @map("decided_at") @db.Timestamptz(3)
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client   Client                      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  rule     ComplianceApplicabilityRule @relation(fields: [businessId, ruleId], references: [businessId, id], onDelete: Restrict)
+  deadline ComplianceDeadline?         @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, clientId, ruleId, dueOn])
+  @@unique([businessId, deadlineId])
+  @@index([businessId, decision])
+  @@map("compliance_applicability_records")
+}
+
+/// Compliance logs (Frame 3 "Logs"): calendar imports, verification, publish and rollback,
+/// deadline generation, due-date overrides and errors. Append-only. `message` is a short safe
+/// text and `details` ids and counts only: never client data, tokens or file contents.
+model ComplianceLog {
+  id           String            @id @default(uuid(7)) @db.Uuid
+  businessId   String            @map("business_id") @db.Uuid
+  kind         ComplianceLogKind
+  outcome      LogOutcome
+  calendarId   String?           @map("calendar_id") @db.Uuid
+  deadlineId   String?           @map("deadline_id") @db.Uuid
+  recurrenceId String?           @map("recurrence_id") @db.Uuid
+  message      String?
+  details      Json              @default("{}")
+  actorUserId  String?           @map("actor_user_id") @db.Uuid
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  calendar   ComplianceCalendar?   @relation(fields: [businessId, calendarId], references: [businessId, id], onDelete: Restrict)
+  deadline   ComplianceDeadline?   @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
+  recurrence ComplianceRecurrence? @relation(fields: [businessId, recurrenceId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, createdAt])
+  @@index([businessId, kind, outcome])
+  @@map("compliance_logs")
+}
+
+/// A firm's Compliance settings (the Settings button): the Due Soon and At Risk thresholds, how
+/// old a calendar may get before it shows a stale warning, default reminders for new deadlines,
+/// past-due and manager escalation, and a default task template per deadline type
+/// (`taskTemplates`: {DEADLINE_TYPE: task template id}, checked by the API). One row per firm.
+model ComplianceSettings {
+  businessId        String   @id @map("business_id") @db.Uuid
+  dueSoonDays       Int      @default(14) @map("due_soon_days")
+  /// A high-priority deadline this close to its date puts the client at risk.
+  atRiskDays        Int      @default(7) @map("at_risk_days")
+  staleCalendarDays Int      @default(90) @map("stale_calendar_days")
+  defaultReminders  Json     @default("[]") @map("default_reminders")
+  sendPastDueNotice Boolean  @default(false) @map("send_past_due_notice")
+  escalateToManager Boolean  @default(false) @map("escalate_to_manager")
+  escalateAfterDays Int      @default(3) @map("escalate_after_days")
+  taskTemplates     Json     @default("{}") @map("task_templates")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("compliance_settings")
+}
+
+/// An automation rule (the Rules table and the Create Rule builder). The rule is the identity
+/// and the switch (name, category, priority, owner, status); what it does lives in immutable
+/// versions, and a run records the version it used. Archived, never deleted, once it has run.
+model AutomationRule {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  businessId       String           @map("business_id") @db.Uuid
+  name             String
+  description      String?
+  category         AutomationModule
+  priority         TaskPriority     @default(MEDIUM)
+  status           AutomationStatus @default(DRAFT)
+  ownerUserId      String?          @map("owner_user_id") @db.Uuid
+  /// The version new runs use; set once a version exists (an ACTIVE rule has one).
+  currentVersionId String?          @map("current_version_id") @db.Uuid
+  /// Deactivates the rule on this date.
+  expiresOn        DateTime?        @map("expires_on") @db.Date
+  lastRunAt        DateTime?        @map("last_run_at") @db.Timestamptz(3)
+  createdByUserId  String?          @map("created_by_user_id") @db.Uuid
+  archivedAt       DateTime?        @map("archived_at") @db.Timestamptz(3)
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  owner          Membership?             @relation(fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
+  currentVersion AutomationRuleVersion?  @relation("AutomationCurrentVersion", fields: [businessId, currentVersionId], references: [businessId, id], onDelete: Restrict)
+  versions       AutomationRuleVersion[] @relation("AutomationRuleVersions")
+  automationRuns AutomationRun[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, currentVersionId])
+  @@index([businessId, status])
+  @@index([businessId, category])
+  @@map("automation_rules")
+}
+
+/// One saved configuration of a rule, never changed afterwards: trigger (module, event code,
+/// timing and offset), conditions (match ALL or ANY of {field, operator, value} rows) and ordered
+/// actions ({id, type, config, delayMinutes}), and settings ({preventDuplicatesDays, logAll,
+/// notifyOnFailure, addToCalendar, quietHours, safetyThreshold}). triggerEvent is a code such as
+/// "deadline.approaching", checked by the API against the module's events.
+model AutomationRuleVersion {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  businessId      String           @map("business_id") @db.Uuid
+  ruleId          String           @map("rule_id") @db.Uuid
+  version         Int
+  triggerModule   AutomationModule @map("trigger_module")
+  triggerEvent    String           @map("trigger_event")
+  timing          AutomationTiming @default(IMMEDIATE)
+  offsetValue     Int?             @map("offset_value")
+  offsetUnit      OffsetUnit?      @map("offset_unit")
+  matchMode       MatchMode        @default(ALL) @map("match_mode")
+  conditions      Json             @default("[]")
+  actions         Json
+  settings        Json             @default("{}")
+  createdByUserId String?          @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rule           AutomationRule  @relation("AutomationRuleVersions", fields: [businessId, ruleId], references: [businessId, id], onDelete: Restrict)
+  currentOf      AutomationRule? @relation("AutomationCurrentVersion")
+  automationRuns AutomationRun[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, ruleId, version])
+  @@map("automation_rule_versions")
+}
+
+/// A reusable rule setup (Popular Automation Templates, Save as Template, Import Templates):
+/// `definition` has the same shape as a version's trigger, conditions, actions and settings, with
+/// merge variables instead of client data, and never a secret or token. Using one makes a DRAFT
+/// rule for review. Archived, not deleted.
+model AutomationTemplate {
+  id                   String           @id @default(uuid(7)) @db.Uuid
+  businessId           String           @map("business_id") @db.Uuid
+  name                 String
+  description          String?
+  category             AutomationModule
+  definition           Json
+  /// Integrations the template needs to be connected, by code (the Integrations module's).
+  requiredIntegrations String[]         @default([]) @map("required_integrations")
+  createdByUserId      String?          @map("created_by_user_id") @db.Uuid
+  archivedAt           DateTime?        @map("archived_at") @db.Timestamptz(3)
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([businessId, name])
+  @@map("automation_templates")
+}
+
+/// One execution of a rule version for one source event and record (Automation Logs). The id is
+/// the stable run id. sourceEventKey makes it idempotent: the same event for the same rule never
+/// starts a second run. correlationId and depth follow a chain of runs started by runs (loop
+/// protection). A dry run (Test / Preview) has no side effects. A manual re-run retries only the
+/// failed actions of this run (rerun* record who, why and how many times). Never deleted.
+model AutomationRun {
+  id                String              @id @default(uuid(7)) @db.Uuid
+  businessId        String              @map("business_id") @db.Uuid
+  ruleId            String              @map("rule_id") @db.Uuid
+  ruleVersionId     String              @map("rule_version_id") @db.Uuid
+  status            AutomationRunStatus @default(PENDING)
+  dryRun            Boolean             @default(false) @map("dry_run")
+  sourceModule      AutomationModule    @map("source_module")
+  sourceEventKey    String              @map("source_event_key")
+  /// The client the record belongs to, when it has one.
+  clientId          String?             @map("client_id") @db.Uuid
+  /// The record that triggered the run (its kind, e.g. "deadline", and id), kept as ids only.
+  recordKind        String?             @map("record_kind")
+  recordId          String?             @map("record_id") @db.Uuid
+  correlationId     String              @map("correlation_id") @db.Uuid
+  depth             Int                 @default(0)
+  parentRunId       String?             @map("parent_run_id") @db.Uuid
+  startedAt         DateTime?           @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?           @map("finished_at") @db.Timestamptz(3)
+  durationMs        Int?                @map("duration_ms")
+  /// A safe code and short message for a failed or skipped run: never client data or tokens.
+  errorCode         String?             @map("error_code")
+  message           String?
+  rerunCount        Int                 @default(0) @map("rerun_count")
+  lastRerunAt       DateTime?           @map("last_rerun_at") @db.Timestamptz(3)
+  lastRerunByUserId String?             @map("last_rerun_by_user_id") @db.Uuid
+  lastRerunReason   String?             @map("last_rerun_reason")
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rule        AutomationRule              @relation(fields: [businessId, ruleId], references: [businessId, id], onDelete: Restrict)
+  ruleVersion AutomationRuleVersion       @relation(fields: [businessId, ruleVersionId], references: [businessId, id], onDelete: Restrict)
+  client      Client?                     @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  parentRun   AutomationRun?              @relation("AutomationRunChain", fields: [businessId, parentRunId], references: [businessId, id], onDelete: Restrict)
+  childRuns   AutomationRun[]             @relation("AutomationRunChain")
+  executions  AutomationActionExecution[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, ruleId, sourceEventKey])
+  @@index([businessId, createdAt])
+  @@index([businessId, status, createdAt])
+  @@index([businessId, ruleId, createdAt])
+  @@index([businessId, clientId])
+  @@map("automation_runs")
+}
+
+/// One action of a run, in the rule version's order. idempotencyKey (unique per firm) makes a
+/// retry or a duplicate event safe: an action that SUCCEEDED is never run again (the database
+/// refuses to move it back). A delayed action waits PENDING until scheduledFor. resultKind and
+/// resultId name what it made (a task, a message), as ids only.
+model AutomationActionExecution {
+  id             String                @id @default(uuid(7)) @db.Uuid
+  businessId     String                @map("business_id") @db.Uuid
+  runId          String                @map("run_id") @db.Uuid
+  /// The action's id inside the rule version.
+  actionKey      String                @map("action_key")
+  position       Int
+  actionType     String                @map("action_type")
+  status         ActionExecutionStatus @default(PENDING)
+  idempotencyKey String                @map("idempotency_key")
+  scheduledFor   DateTime?             @map("scheduled_for") @db.Timestamptz(3)
+  attempts       Int                   @default(0)
+  /// False for a failure a retry cannot fix (an invalid address): shown as an actionable failure.
+  retryable      Boolean               @default(true)
+  errorCode      String?               @map("error_code")
+  detail         String?
+  resultKind     String?               @map("result_kind")
+  resultId       String?               @map("result_id") @db.Uuid
+  startedAt      DateTime?             @map("started_at") @db.Timestamptz(3)
+  finishedAt     DateTime?             @map("finished_at") @db.Timestamptz(3)
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  run AutomationRun @relation(fields: [businessId, runId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, runId, actionKey])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, status, scheduledFor])
+  @@map("automation_action_executions")
+}
+
+/// A firm's Automation settings: quiet hours for client messages, the default duplicate window,
+/// loop depth and safety threshold for new rules, who is told when a rule fails, the minutes each
+/// action is counted as saving (the Time Saved figure) and how long logs are kept. One row per firm.
+model AutomationSettings {
+  businessId            String    @id @map("business_id") @db.Uuid
+  quietStart            DateTime? @map("quiet_start") @db.Time(0)
+  quietEnd              DateTime? @map("quiet_end") @db.Time(0)
+  defaultDedupeDays     Int       @default(7) @map("default_dedupe_days")
+  maxDepth              Int       @default(3) @map("max_depth")
+  safetyThreshold       Int       @default(500) @map("safety_threshold")
+  failureAlertUserIds   String[]  @default([]) @map("failure_alert_user_ids") @db.Uuid
+  minutesSavedPerAction Int       @default(5) @map("minutes_saved_per_action")
+  logRetentionDays      Int       @default(365) @map("log_retention_days")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("automation_settings")
+}
+
+/// A firm's Bookkeeping settings (the Bookkeeping Settings button): the defaults new bookkeeping
+/// clients start with. The Json fields are arrays or objects the API validates: statusRules
+/// {missingDocumentsAfterDays, overdueAfterDays...}, reminderDefaults [{daysBefore, channels}],
+/// reportSchedule [{report, cadence, dueDay, delivery}], documentChecklist [{label, cadence}] and
+/// closeChecklist [{key, label, required}] (what a new period's checklist is made from). One row per firm.
+model BookkeepingSettings {
+  businessId          String        @id @map("business_id") @db.Uuid
+  defaultCadence      ReportCadence @default(MONTHLY) @map("default_cadence")
+  /// The day of the month after a period when it should be closed.
+  closeTargetDay      Int           @default(10) @map("close_target_day")
+  /// Reports due within this many days are "upcoming".
+  upcomingReportDays  Int           @default(14) @map("upcoming_report_days")
+  /// A sync older than this shows a stale warning.
+  staleSyncHours      Int           @default(48) @map("stale_sync_hours")
+  /// A reconciliation may be approved when its difference is within this.
+  reconToleranceCents Int           @default(0) @map("recon_tolerance_cents")
+  statusRules         Json          @default("{}") @map("status_rules")
+  reminderDefaults    Json          @default("[]") @map("reminder_defaults")
+  reportSchedule      Json          @default("[]") @map("report_schedule")
+  documentChecklist   Json          @default("[]") @map("document_checklist")
+  closeChecklist      Json          @default("[]") @map("close_checklist")
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("bookkeeping_settings")
+}
+
+/// What Bookkeeping adds to a client's Bookkeeping engagement (the engagement is the enrolment:
+/// its package is the plan, its assigned member the responsible bookkeeper, its status the
+/// service's). One row per engagement, only for the Bookkeeping service. Holds the cadence and
+/// next report date, the workflow status with the exact reason, the reviewer, pause and archive,
+/// and the client's own settings. Never deleted. Figures from an accounting system are not here:
+/// there is no ledger sync yet.
+model BookkeepingProfile {
+  id                  String            @id @default(uuid(7)) @db.Uuid
+  businessId          String            @map("business_id") @db.Uuid
+  engagementId        String            @map("engagement_id") @db.Uuid
+  cadence             ReportCadence     @default(MONTHLY)
+  /// Months between reports for CUSTOM.
+  cadenceMonths       Int?              @map("cadence_months")
+  closeTargetDay      Int?              @map("close_target_day")
+  /// The next report's due date, kept current by the API from the cadence and the last period.
+  nextReportDueOn     DateTime?         @map("next_report_due_on") @db.Date
+  status              BookkeepingStatus @default(NOT_STARTED)
+  statusSource        StatusSource      @default(AUTOMATIC) @map("status_source")
+  /// Why: "3 documents outstanding", "Sync failed Oct 12".
+  statusReason        String?           @map("status_reason")
+  statusChangedAt     DateTime          @default(now()) @map("status_changed_at") @db.Timestamptz(3)
+  reviewerUserId      String?           @map("reviewer_user_id") @db.Uuid
+  pausedAt            DateTime?         @map("paused_at") @db.Timestamptz(3)
+  pauseReason         String?           @map("pause_reason")
+  archivedAt          DateTime?         @map("archived_at") @db.Timestamptz(3)
+  /// What the client portal shows by default: {reports, tasks, documents, notes} booleans.
+  portalDefaults      Json              @default("{}") @map("portal_defaults")
+  /// Client overrides of the firm's settings; null uses the firm's.
+  reportSchedule      Json?             @map("report_schedule")
+  documentChecklist   Json?             @map("document_checklist")
+  categorizationRules Json              @default("[]") @map("categorization_rules")
+  /// Alerts on or off: {missingDocuments, staleSync, overdueClose, failedIntegration}.
+  alerts              Json              @default("{}")
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement Engagement  @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  reviewer   Membership? @relation(fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId])
+  @@index([businessId, status])
+  @@index([businessId, nextReportDueOn])
+  @@map("bookkeeping_profiles")
+}
+
+/// The bookkeeping activity history of an engagement (the View Activity action and the
+/// Activity tab): status changes, syncs, document requests, reports, close steps, logged calls.
+/// Append-only; `summary` is a short safe line, `details` ids and old and new values only.
+model BookkeepingActivity {
+  id           String                  @id @default(uuid(7)) @db.Uuid
+  businessId   String                  @map("business_id") @db.Uuid
+  engagementId String                  @map("engagement_id") @db.Uuid
+  kind         BookkeepingActivityKind
+  summary      String
+  details      Json                    @default("{}")
+  actorUserId  String?                 @map("actor_user_id") @db.Uuid
+  createdAt    DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  engagement Engagement @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, engagementId, createdAt])
+  @@map("bookkeeping_activity")
+}
+
+/// A client's link to an accounting system (QuickBooks Online, Xero, FreshBooks, Zoho Books...):
+/// `provider` is a code, never an enum, so providers stay modular. credentialRef names where the
+/// provider's tokens are kept (the secret store); a token is never stored in this table or shown
+/// to staff. One live connection per provider company and per client and provider; disconnecting
+/// keeps the row and its history and reconnecting reuses it. A failed sync never clears
+/// lastSuccessfulSyncAt: it only moves forward.
+model BookkeepingConnection {
+  id                   String           @id @default(uuid(7)) @db.Uuid
+  businessId           String           @map("business_id") @db.Uuid
+  engagementId         String           @map("engagement_id") @db.Uuid
+  provider             String
+  /// The company's id at the provider (a realm id, an organisation id).
+  providerCompanyId    String           @map("provider_company_id")
+  companyName          String?          @map("company_name")
+  status               ConnectionStatus @default(CONNECTED)
+  credentialRef        String?          @map("credential_ref")
+  lastSyncAt           DateTime?        @map("last_sync_at") @db.Timestamptz(3)
+  lastSuccessfulSyncAt DateTime?        @map("last_successful_sync_at") @db.Timestamptz(3)
+  /// A safe code for the latest failure (EXPIRED_TOKEN, RATE_LIMITED), cleared by a good sync.
+  lastErrorCode        String?          @map("last_error_code")
+  connectedByUserId    String?          @map("connected_by_user_id") @db.Uuid
+  connectedAt          DateTime         @default(now()) @map("connected_at") @db.Timestamptz(3)
+  disconnectedAt       DateTime?        @map("disconnected_at") @db.Timestamptz(3)
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement Engagement           @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  syncRuns   BookkeepingSyncRun[]
+  accounts   BookkeepingAccount[]
+
+  @@unique([businessId, id])
+  @@index([businessId, engagementId])
+  @@index([businessId, status])
+  @@map("bookkeeping_connections")
+}
+
+/// One sync of a connection (View Sync Details): how it started, how it ended, a safe error code
+/// and short message, and counts of what it brought in. Updated once when it finishes; never deleted.
+model BookkeepingSyncRun {
+  id                String      @id @default(uuid(7)) @db.Uuid
+  businessId        String      @map("business_id") @db.Uuid
+  connectionId      String      @map("connection_id") @db.Uuid
+  trigger           SyncTrigger
+  outcome           SyncOutcome @default(RUNNING)
+  startedAt         DateTime    @default(now()) @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?   @map("finished_at") @db.Timestamptz(3)
+  errorCode         String?     @map("error_code")
+  message           String?
+  /// Counts only, e.g. {accounts: 4, categories: 87}.
+  counts            Json        @default("{}")
+  requestedByUserId String?     @map("requested_by_user_id") @db.Uuid
+
+  connection BookkeepingConnection @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, connectionId, startedAt])
+  @@map("bookkeeping_sync_runs")
+}
+
+/// A bank or credit card account of a bookkeeping client (the Bank & Credit Card Accounts card):
+/// synced from a connection or added by hand. Only the last digits are kept (mask), never a full
+/// account number. The balance is shown with its date; a credit card balance is negative. The
+/// accounts marked `reconcile` are the ones a period's reconciliation needs.
+model BookkeepingAccount {
+  id              String                 @id @default(uuid(7)) @db.Uuid
+  businessId      String                 @map("business_id") @db.Uuid
+  engagementId    String                 @map("engagement_id") @db.Uuid
+  connectionId    String?                @map("connection_id") @db.Uuid
+  name            String
+  type            BookkeepingAccountType
+  institution     String?
+  /// The last 2 to 4 characters of the account number.
+  mask            String?
+  /// The account's id at the provider; unique per client and provider connection.
+  sourceAccountId String?                @map("source_account_id")
+  currency        String                 @default("usd")
+  balanceCents    Int?                   @map("balance_cents")
+  balanceAsOf     DateTime?              @map("balance_as_of") @db.Timestamptz(3)
+  status          ConnectionStatus       @default(CONNECTED)
+  reconcile       Boolean                @default(true)
+  archivedAt      DateTime?              @map("archived_at") @db.Timestamptz(3)
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement                 Engagement                  @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  connection                 BookkeepingConnection?      @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
+  bookkeepingReconciliations BookkeepingReconciliation[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, connectionId, sourceAccountId])
+  @@index([businessId, engagementId])
+  @@map("bookkeeping_accounts")
+}
+
+/// One reporting period of a bookkeeping client (a month, a quarter): its close workflow and,
+/// when known, its income and expense totals. status goes NOT_STARTED, IN_PROGRESS,
+/// READY_FOR_REVIEW, APPROVED, CLOSED; CLOSED locks the period (and its checklist and
+/// reconciliations) until it is reopened with a reason, which raises closeVersion. The totals,
+/// and the uncategorized count, are null until entered or imported: an unavailable value is never
+/// invented. Never deleted.
+model BookkeepingPeriod {
+  id                 String                  @id @default(uuid(7)) @db.Uuid
+  businessId         String                  @map("business_id") @db.Uuid
+  engagementId       String                  @map("engagement_id") @db.Uuid
+  kind               BookkeepingPeriodKind   @default(MONTH)
+  periodStart        DateTime                @map("period_start") @db.Date
+  periodEnd          DateTime                @map("period_end") @db.Date
+  /// "September 2026", "Q3 2026".
+  label              String
+  status             BookkeepingPeriodStatus @default(NOT_STARTED)
+  closeByOn          DateTime?               @map("close_by_on") @db.Date
+  readyForReviewAt   DateTime?               @map("ready_for_review_at") @db.Timestamptz(3)
+  readyForReviewBy   String?                 @map("ready_for_review_by") @db.Uuid
+  approvedAt         DateTime?               @map("approved_at") @db.Timestamptz(3)
+  approvedBy         String?                 @map("approved_by") @db.Uuid
+  closedAt           DateTime?               @map("closed_at") @db.Timestamptz(3)
+  closedBy           String?                 @map("closed_by") @db.Uuid
+  /// Raised by one each time a closed period is reopened.
+  closeVersion       Int                     @default(1) @map("close_version")
+  reopenedAt         DateTime?               @map("reopened_at") @db.Timestamptz(3)
+  reopenedBy         String?                 @map("reopened_by") @db.Uuid
+  reopenReason       String?                 @map("reopen_reason")
+  incomeCents        Int?                    @map("income_cents")
+  expensesCents      Int?                    @map("expenses_cents")
+  figuresSource      FiguresSource?          @map("figures_source")
+  figuresAsOf        DateTime?               @map("figures_as_of") @db.Timestamptz(3)
+  uncategorizedCount Int?                    @map("uncategorized_count")
+  createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement         Engagement                  @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  closeItems         BookkeepingCloseItem[]
+  reconciliations    BookkeepingReconciliation[]
+  bookkeepingReports BookkeepingReport[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, periodStart, periodEnd])
+  @@index([businessId, status, closeByOn])
+  @@map("bookkeeping_periods")
+}
+
+/// A step of a period's close checklist (categorization, reconciliations, refunds, settlements,
+/// documents, adjustments, P&L, balance sheet, open items, reports, reviewer approval, client
+/// delivery), made from the firm's closeChecklist. A required step must be done before the period
+/// closes. Locked while the period is CLOSED.
+model BookkeepingCloseItem {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  periodId          String    @map("period_id") @db.Uuid
+  itemKey           String    @map("item_key")
+  label             String
+  required          Boolean   @default(true)
+  position          Int
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(3)
+  completedByUserId String?   @map("completed_by_user_id") @db.Uuid
+  note              String?
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  period BookkeepingPeriod @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, periodId, itemKey])
+  @@index([businessId, periodId, position])
+  @@map("bookkeeping_close_items")
+}
+
+/// The reconciliation of one account for one period: the statement's beginning and ending
+/// balances, what has been cleared, the difference (ending minus cleared, which the database
+/// checks) and the open exceptions. It can be approved only when the difference is within the
+/// tolerance; a reopen needs a reason. Saving progress is just updating the row. The statement is
+/// a document of the same client, kept as a record: it cannot be deleted while a reconciliation
+/// uses it. Locked while the period is CLOSED.
+model BookkeepingReconciliation {
+  id                    String               @id @default(uuid(7)) @db.Uuid
+  businessId            String               @map("business_id") @db.Uuid
+  periodId              String               @map("period_id") @db.Uuid
+  accountId             String               @map("account_id") @db.Uuid
+  statementStart        DateTime             @map("statement_start") @db.Date
+  statementEnd          DateTime             @map("statement_end") @db.Date
+  beginningBalanceCents Int                  @map("beginning_balance_cents")
+  endingBalanceCents    Int                  @map("ending_balance_cents")
+  clearedBalanceCents   Int                  @default(0) @map("cleared_balance_cents")
+  clearedCount          Int                  @default(0) @map("cleared_count")
+  /// ending minus cleared; zero when reconciled.
+  differenceCents       Int                  @map("difference_cents")
+  toleranceCents        Int                  @default(0) @map("tolerance_cents")
+  /// Open exceptions: unmatched, duplicate, refund and settlement items.
+  exceptionsCount       Int                  @default(0) @map("exceptions_count")
+  statementDocumentId   String?              @map("statement_document_id") @db.Uuid
+  status                ReconciliationStatus @default(IN_PROGRESS)
+  readyForReviewAt      DateTime?            @map("ready_for_review_at") @db.Timestamptz(3)
+  approvedAt            DateTime?            @map("approved_at") @db.Timestamptz(3)
+  approvedBy            String?              @map("approved_by") @db.Uuid
+  reopenedAt            DateTime?            @map("reopened_at") @db.Timestamptz(3)
+  reopenedBy            String?              @map("reopened_by") @db.Uuid
+  reopenReason          String?              @map("reopen_reason")
+  createdAt             DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  period    BookkeepingPeriod  @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
+  account   BookkeepingAccount @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict)
+  statement Document?          @relation(fields: [businessId, statementDocumentId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, periodId, accountId])
+  @@index([businessId, status])
+  @@map("bookkeeping_reconciliations")
+}
+
+/// The preparation, review and delivery of one bookkeeping report for a client and period
+/// (Upcoming Reports, Reports tab, report review). The report the client sees is the existing
+/// engagement report it points at (engagementReportId), published through that workflow; this row
+/// is the work around it: due date, who generated, reviewed and delivered it, and when.
+/// DELIVERED needs a published report of the same client and freezes the row. One row per client,
+/// type and period (custom reports per name). Never deleted.
+model BookkeepingReport {
+  id                 String                @id @default(uuid(7)) @db.Uuid
+  businessId         String                @map("business_id") @db.Uuid
+  engagementId       String                @map("engagement_id") @db.Uuid
+  /// The close period it belongs to; null for a quarterly or yearly report across periods.
+  periodId           String?               @map("period_id") @db.Uuid
+  reportType         BookkeepingReportType @map("report_type")
+  customName         String?               @map("custom_name")
+  /// "September 2026", "Q3 2026", "2026".
+  periodLabel        String                @map("period_label")
+  basis              AccountingBasis?
+  dueOn              DateTime?             @map("due_on") @db.Date
+  status             ReportReviewStatus    @default(NOT_STARTED)
+  generatedAt        DateTime?             @map("generated_at") @db.Timestamptz(3)
+  generatedByUserId  String?               @map("generated_by_user_id") @db.Uuid
+  reviewedAt         DateTime?             @map("reviewed_at") @db.Timestamptz(3)
+  reviewedByUserId   String?               @map("reviewed_by_user_id") @db.Uuid
+  reviewNote         String?               @map("review_note")
+  deliveredAt        DateTime?             @map("delivered_at") @db.Timestamptz(3)
+  deliveredByUserId  String?               @map("delivered_by_user_id") @db.Uuid
+  /// The published engagement report the client sees.
+  engagementReportId String?               @map("engagement_report_id") @db.Uuid
+  createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement       Engagement         @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  period           BookkeepingPeriod? @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
+  engagementReport EngagementReport?  @relation(fields: [engagementReportId], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([engagementReportId])
+  @@index([businessId, engagementId, status])
+  @@index([businessId, status, dueOn])
+  @@map("bookkeeping_reports")
+}
+
+/// The firm's strategy library (Strategies & Recommendations): a named strategy with its category,
+/// default priority, eligibility criteria, the inputs and documents it needs and an implementation
+/// checklist. A strategy that plans or opportunities used is made inactive or archived, never
+/// deleted, and its name can change without rewriting history (snapshots keep the name used).
+/// `eligibility` is the criteria object the screening reads; `implementationChecklist` an array of
+/// {label}.
+model TaxPlanningStrategy {
+  id                      String           @id @default(uuid(7)) @db.Uuid
+  businessId              String           @map("business_id") @db.Uuid
+  name                    String
+  category                StrategyCategory
+  description             String?
+  defaultPriority         TaskPriority     @default(MEDIUM) @map("default_priority")
+  eligibility             Json             @default("{}")
+  requiredInputs          String[]         @default([]) @map("required_inputs")
+  requiredDocuments       String[]         @default([]) @map("required_documents")
+  implementationChecklist Json             @default("[]") @map("implementation_checklist")
+  active                  Boolean          @default(true)
+  archivedAt              DateTime?        @map("archived_at") @db.Timestamptz(3)
+  createdByUserId         String?          @map("created_by_user_id") @db.Uuid
+  createdAt               DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  planStrategies   TaxPlanStrategy[]
+  taxOpportunities TaxOpportunity[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, name])
+  @@index([businessId, category, active])
+  @@map("tax_planning_strategies")
+}
+
+/// A client's planning plan (Create / Edit Planning Plan, stages 1 and 3 to 5): the client, year,
+/// filing status, entity, type, goals, notes (internal, and a separate client-facing note), who is
+/// assigned, the target date and the next client discussion. Optionally inside the client's Tax
+/// Planning engagement. Its strategies are TaxPlanStrategy rows. Archived, never deleted.
+model TaxPlan {
+  id                 String           @id @default(uuid(7)) @db.Uuid
+  businessId         String           @map("business_id") @db.Uuid
+  clientId           String           @map("client_id") @db.Uuid
+  engagementId       String?          @map("engagement_id") @db.Uuid
+  name               String
+  planYear           Int              @map("plan_year")
+  /// Null for a business-only plan.
+  filingStatus       TaxFilingStatus? @map("filing_status")
+  /// The client's entity or tax classification code, as on its record.
+  entityType         String?          @map("entity_type")
+  planType           TaxPlanType      @default(COMPREHENSIVE) @map("plan_type")
+  status             TaxPlanStatus    @default(DRAFT)
+  goals              PlanningGoal[]   @default([])
+  /// The client's own goal, with OTHER.
+  otherGoal          String?          @map("other_goal")
+  /// Staff only.
+  notes              String?
+  /// Shown to the client only when set.
+  clientNotes        String?          @map("client_notes")
+  assignedUserId     String?          @map("assigned_user_id") @db.Uuid
+  targetCompletionOn DateTime?        @map("target_completion_on") @db.Date
+  nextDiscussionOn   DateTime?        @map("next_discussion_on") @db.Date
+  createdByUserId    String?          @map("created_by_user_id") @db.Uuid
+  archivedAt         DateTime?        @map("archived_at") @db.Timestamptz(3)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client              Client               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement          Engagement?          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember      Membership?          @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  strategies          TaxPlanStrategy[]
+  taxPlanInputs       TaxPlanInput[]
+  taxPlanVersions     TaxPlanVersion[]
+  taxPlanDocuments    TaxPlanDocument[]
+  taxSavingsScenarios TaxSavingsScenario[]
+  taxOpportunities    TaxOpportunity[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@index([businessId, clientId, planYear])
+  @@index([businessId, assignedUserId, status])
+  @@map("tax_plans")
+}
+
+/// A strategy in a plan: from the library (strategyId) or a custom one for this client
+/// (customName and customCategory). priority, the estimated savings with the year of the data it
+/// used, an authorized override (with its reason) and the assumptions are kept on the row, so a
+/// later change to the library never rewrites a plan. Estimates are estimates, never guarantees;
+/// null means unavailable and is never invented.
+model TaxPlanStrategy {
+  id                    String             @id @default(uuid(7)) @db.Uuid
+  businessId            String             @map("business_id") @db.Uuid
+  planId                String             @map("plan_id") @db.Uuid
+  strategyId            String?            @map("strategy_id") @db.Uuid
+  customName            String?            @map("custom_name")
+  customCategory        StrategyCategory?  @map("custom_category")
+  /// The name and category as the plan shows them (a copy of the library's when it was added).
+  displayName           String             @map("display_name")
+  selected              Boolean            @default(true)
+  priority              TaskPriority       @default(MEDIUM)
+  status                PlanStrategyStatus @default(PROPOSED)
+  estimatedSavingsCents Int?               @map("estimated_savings_cents")
+  /// The tax year of the data the estimate used, and when it was calculated.
+  estimateDataYear      Int?               @map("estimate_data_year")
+  estimateCalculatedAt  DateTime?          @map("estimate_calculated_at") @db.Timestamptz(3)
+  overrideSavingsCents  Int?               @map("override_savings_cents")
+  overrideReason        String?            @map("override_reason")
+  overrideByUserId      String?            @map("override_by_user_id") @db.Uuid
+  assumptions           String?
+  implementedOn         DateTime?          @map("implemented_on") @db.Date
+  position              Int                @default(0)
+  createdAt             DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  plan             TaxPlan              @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Cascade)
+  strategy         TaxPlanningStrategy? @relation(fields: [businessId, strategyId], references: [businessId, id], onDelete: Restrict)
+  taxPlanDocuments TaxPlanDocument[]
+  taxOpportunities TaxOpportunity[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, planId, strategyId])
+  @@index([businessId, planId, position])
+  @@map("tax_plan_strategies")
+}
+
+/// A figure a plan is built on (Create / Edit Planning Plan, Financial Overview): the key (agi,
+/// w2_income, self_employment_income, retirement_contributions...), what kind it is, its tax year,
+/// the amount or text, where it came from and when. Historical and projected figures are never
+/// mixed up, a manual adjustment says why, and a missing figure has no row: nothing is invented.
+model TaxPlanInput {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  businessId      String        @map("business_id") @db.Uuid
+  planId          String        @map("plan_id") @db.Uuid
+  key             String
+  kind            PlanInputKind
+  taxYear         Int           @map("tax_year")
+  amountCents     Int?          @map("amount_cents")
+  textValue       String?       @map("text_value")
+  /// "Tax return 2025", "Client estimate", "Manual entry".
+  source          String
+  asOf            DateTime?     @map("as_of") @db.Timestamptz(3)
+  note            String?
+  enteredByUserId String?       @map("entered_by_user_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  plan TaxPlan @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, planId, key, kind, taxYear])
+  @@map("tax_plan_inputs")
+}
+
+/// A snapshot of a plan kept when it is finalized, generated or sent: the strategies chosen with
+/// their names, priorities, estimates, overrides and assumptions, the inputs and when each came
+/// from, all as they were. Insert-only: later edits make a new version and never rewrite what
+/// was delivered.
+model TaxPlanVersion {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  businessId      String           @map("business_id") @db.Uuid
+  planId          String           @map("plan_id") @db.Uuid
+  version         Int
+  event           PlanVersionEvent
+  taxYear         Int              @map("tax_year")
+  snapshot        Json
+  /// The newest source figure in the snapshot, to show how fresh the data was.
+  sourceDataAsOf  DateTime?        @map("source_data_as_of") @db.Timestamptz(3)
+  createdByUserId String?          @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  plan TaxPlan @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, planId, version])
+  @@map("tax_plan_versions")
+}
+
+/// A document attached to a plan (the upload box), with its type and, optionally, the plan
+/// strategy it supports. One of the plan client's documents.
+model TaxPlanDocument {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  businessId     String   @map("business_id") @db.Uuid
+  planId         String   @map("plan_id") @db.Uuid
+  documentId     String   @map("document_id") @db.Uuid
+  planStrategyId String?  @map("plan_strategy_id") @db.Uuid
+  category       String?
+  addedByUserId  String?  @map("added_by_user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  plan         TaxPlan          @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  document     Document         @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Cascade)
+  planStrategy TaxPlanStrategy? @relation(fields: [businessId, planStrategyId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, planId, documentId])
+  @@index([businessId, documentId])
+  @@map("tax_plan_documents")
+}
+
+/// A Tax Savings Calculator scenario: for a client or standalone, a tax year, the baseline and
+/// strategy inputs, the baseline and modeled tax and their difference (checked), and the
+/// assumptions. Saved to a plan (planId) it becomes a snapshot that never changes. An estimate,
+/// never a guarantee; an unavailable result is null.
+model TaxSavingsScenario {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  businessId       String           @map("business_id") @db.Uuid
+  clientId         String?          @map("client_id") @db.Uuid
+  planId           String?          @map("plan_id") @db.Uuid
+  name             String?
+  taxYear          Int              @map("tax_year")
+  filingStatus     TaxFilingStatus? @map("filing_status")
+  baselineInputs   Json             @default("{}") @map("baseline_inputs")
+  strategyInputs   Json             @default("{}") @map("strategy_inputs")
+  baselineTaxCents Int?             @map("baseline_tax_cents")
+  modeledTaxCents  Int?             @map("modeled_tax_cents")
+  /// Baseline minus modeled; the projected saving.
+  differenceCents  Int?             @map("difference_cents")
+  assumptions      String?
+  savedToPlanAt    DateTime?        @map("saved_to_plan_at") @db.Timestamptz(3)
+  createdByUserId  String?          @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client Client?  @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  plan   TaxPlan? @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, clientId])
+  @@index([businessId, planId])
+  @@map("tax_savings_scenarios")
+}
+
+/// A planning opportunity for a client (the Opportunity queue and Planning Opportunity Details):
+/// identified by a screening rule or by staff, with why, the data it used (and its tax year and
+/// as-of date), the estimated saving and its basis, the impact, numbered recommended actions, the
+/// eligibility checks and the documents needed. It is not a recommendation until staff review it.
+/// Not applicable and dismissed need a reason and can be suppressed until a date. A client has one
+/// open opportunity per library strategy and year. Never deleted; its history is TaxOpportunityEvent.
+/// Json fields: clientDataUsed [{label, amountCents | text}], recommendedActions [text],
+/// eligibility [{text, met}], documentsNeeded [{label, received}].
+model TaxOpportunity {
+  id                    String            @id @default(uuid(7)) @db.Uuid
+  businessId            String            @map("business_id") @db.Uuid
+  clientId              String            @map("client_id") @db.Uuid
+  strategyId            String?           @map("strategy_id") @db.Uuid
+  name                  String
+  category              StrategyCategory
+  priority              TaskPriority      @default(MEDIUM)
+  description           String?
+  taxYear               Int               @map("tax_year")
+  status                OpportunityStatus @default(NEW)
+  source                OpportunitySource
+  /// The screening rule that found it, and its plain-language explanation.
+  ruleId                String?           @map("rule_id")
+  whyExplanation        String?           @map("why_explanation")
+  /// False when the data was too thin to be sure; missingData says what was missing.
+  dataComplete          Boolean           @default(true) @map("data_complete")
+  missingData           String[]          @default([]) @map("missing_data")
+  lastEvaluatedAt       DateTime?         @map("last_evaluated_at") @db.Timestamptz(3)
+  clientDataUsed        Json              @default("[]") @map("client_data_used")
+  estimatedSavingsCents Int?              @map("estimated_savings_cents")
+  /// "Based on current year data", with the assumptions behind the estimate.
+  estimateBasis         String?           @map("estimate_basis")
+  suggestedActionCents  Int?              @map("suggested_action_cents")
+  newTaxableIncomeCents Int?              @map("new_taxable_income_cents")
+  /// Effective tax rates in basis points (1800 = 18%), before and after.
+  effectiveRateBeforeBp Int?              @map("effective_rate_before_bp")
+  effectiveRateAfterBp  Int?              @map("effective_rate_after_bp")
+  recommendedActions    Json              @default("[]") @map("recommended_actions")
+  eligibility           Json              @default("[]")
+  documentsNeeded       Json              @default("[]") @map("documents_needed")
+  assignedUserId        String?           @map("assigned_user_id") @db.Uuid
+  planId                String?           @map("plan_id") @db.Uuid
+  planStrategyId        String?           @map("plan_strategy_id") @db.Uuid
+  discussionOn          DateTime?         @map("discussion_on") @db.Date
+  reviewedAt            DateTime?         @map("reviewed_at") @db.Timestamptz(3)
+  reviewedByUserId      String?           @map("reviewed_by_user_id") @db.Uuid
+  dispositionReason     String?           @map("disposition_reason")
+  /// Screening leaves a not applicable or dismissed opportunity alone until this date.
+  suppressedUntil       DateTime?         @map("suppressed_until") @db.Date
+  implementedOn         DateTime?         @map("implemented_on") @db.Date
+  createdByUserId       String?           @map("created_by_user_id") @db.Uuid
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client         Client                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  strategy       TaxPlanningStrategy?  @relation(fields: [businessId, strategyId], references: [businessId, id], onDelete: Restrict)
+  assignedMember Membership?           @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  plan           TaxPlan?              @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  planStrategy   TaxPlanStrategy?      @relation(fields: [businessId, planStrategyId], references: [businessId, id], onDelete: Restrict)
+  events         TaxOpportunityEvent[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status, priority])
+  @@index([businessId, clientId, taxYear])
+  @@index([businessId, strategyId, status])
+  @@map("tax_opportunities")
+}
+
+/// The history of an opportunity: screenings, status changes with their reasons, assignment,
+/// scheduled discussions, document checklist changes and plan links. Insert-only; `reason` and
+/// `details` hold short text and ids, never client figures beyond what the opportunity shows.
+model TaxOpportunityEvent {
+  id            String               @id @default(uuid(7)) @db.Uuid
+  businessId    String               @map("business_id") @db.Uuid
+  opportunityId String               @map("opportunity_id") @db.Uuid
+  kind          OpportunityEventKind
+  fromStatus    OpportunityStatus?   @map("from_status")
+  toStatus      OpportunityStatus?   @map("to_status")
+  reason        String?
+  details       Json                 @default("{}")
+  actorUserId   String?              @map("actor_user_id") @db.Uuid
+  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunity TaxOpportunity @relation(fields: [businessId, opportunityId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, opportunityId, createdAt])
+  @@map("tax_opportunity_events")
 }

@@ -24,5 +24,5 @@ Closes #
 - [ ] No changes to `packages/db/prisma`, `infra/` or `.github/workflows/` (or a linked, approved schema/infra issue)
 - [ ] No secrets and no real client data
 - [ ] `pnpm lint`, `pnpm typecheck` and `pnpm test` pass locally
-- [ ] Under 400 changed lines
+- [ ] One ticket or one page in this PR
 - [ ] Pre-reviewed by my pair
