@@ -491,3 +491,17 @@ export type BlockedTimeKind = z.infer<typeof BlockedTimeKind>;
 
 export const RecurrenceFrequency = z.enum(['DAILY', 'WEEKLY', 'MONTHLY']);
 export type RecurrenceFrequency = z.infer<typeof RecurrenceFrequency>;
+
+export const ClientStatus = z.enum([
+  'NEW',
+  'PENDING_DOCUMENTS',
+  'IN_PROGRESS',
+  'ACTIVE',
+  'ON_HOLD',
+  'INACTIVE',
+]);
+export type ClientStatus = z.infer<typeof ClientStatus>;
+
+/** Not drawn in the designs (only the filter's name): High, Medium, Low as on tasks. To confirm. */
+export const ClientPriority = z.enum(['HIGH', 'MEDIUM', 'LOW']);
+export type ClientPriority = z.infer<typeof ClientPriority>;

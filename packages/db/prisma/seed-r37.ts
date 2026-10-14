@@ -468,6 +468,21 @@ async function seedAppointmentDetails(tx: TxClient, businessId: string) {
   }
 }
 
+/** Clients: the LVP client as an active, referred client. */
+async function seedClientFields(tx: TxClient) {
+  await tx.client.update({
+    where: { id: SEED_CLIENT_IDS.lvp },
+    data: {
+      status: 'ACTIVE',
+      priority: 'MEDIUM',
+      source: 'REFERRAL',
+      sourceDetail: 'Referred by a current client',
+      clientSince: new Date('2024-01-12'),
+      updatedByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
+}
+
 export async function seedR37(tx: TxClient, businessId: string) {
   await seedIntakeSend(tx, businessId);
   await seedIntakeTemplates(tx, businessId);
@@ -476,4 +491,5 @@ export async function seedR37(tx: TxClient, businessId: string) {
   await seedDocumentShares(tx, businessId);
   await seedTaxReturnWorkflow(tx, businessId);
   await seedAppointmentDetails(tx, businessId);
+  await seedClientFields(tx);
 }

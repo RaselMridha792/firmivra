@@ -490,6 +490,7 @@ describe('no scope set', () => {
     expect(await unscopedApp.invite.findMany()).toEqual([]);
     expect(await unscopedApp.client.findMany()).toEqual([]);
     expect(await unscopedApp.clientProfile.findMany()).toEqual([]);
+    expect(await unscopedApp.clientStatusHistory.findMany()).toEqual([]);
     expect(await unscopedApp.clientTaxStatus.findMany()).toEqual([]);
     expect(await unscopedApp.clientTaxStatusHistory.findMany()).toEqual([]);
     expect(await unscopedApp.service.findMany()).toEqual([]);

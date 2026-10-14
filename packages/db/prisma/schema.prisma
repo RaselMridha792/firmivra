@@ -482,6 +482,7 @@ model Membership {
   taxChecklistAcknowledged  TaxReturnChecklistItem[]  @relation("TaxChecklistAcknowledgedBy")
   taxChecklistUpdated       TaxReturnChecklistItem[]  @relation("TaxChecklistUpdatedBy")
   taxDocumentsAdded         TaxReturnDocument[]       @relation("TaxDocumentAddedBy")
+  clientsUpdated            Client[]                  @relation("ClientUpdatedBy")
   availabilityOverrides     AvailabilityOverride[]    @relation("OverrideStaff")
   appointmentSeriesCreated  AppointmentSeries[]       @relation("SeriesCreatedBy")
 
@@ -759,10 +760,31 @@ model Client {
   /// Staff member responsible for the client; must be a member of the same firm.
   assignedUserId String?           @map("assigned_user_id") @db.Uuid
   archivedAt     DateTime?         @map("archived_at") @db.Timestamptz(3)
-  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  // R37 (Clients module): list filters, the 360 header and the dates the list sorts by.
+  /// Shown as "CL-" + number: given by the database, per firm, from 10001, in order; never changes.
+  clientNumber    Int             @default(0) @map("client_number")
+  /// What the firm says about the relationship; separate from archiving (Inactive stays listed).
+  status          ClientStatus    @default(NEW)
+  priority        ClientPriority?
+  /// Where the client came from: a code from the shared list the API checks (up to 50 characters).
+  source          String?
+  /// The campaign or detail, e.g. "Facebook Ad / Back Taxes" (up to 200).
+  sourceDetail    String?         @map("source_detail")
+  /// Client since: editable (clients brought over from before Firmivra); empty means the
+  /// creation date. Not in the future.
+  clientSince     DateTime?       @map("client_since") @db.Date
+  /// The newest of the client's documents, appointments, returns and requests, kept by the
+  /// database; the API adds messages, invoices, payments, notes and tasks. Only moves forward.
+  lastActivityAt  DateTime?       @map("last_activity_at") @db.Timestamptz(3)
+  /// Who made the last change; the status history row's author.
+  updatedByUserId String?         @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business         Business                 @relation(fields: [businessId], references: [id])
+  updatedBy        Membership?              @relation("ClientUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  statusHistory    ClientStatusHistory[]
   assignedMember   Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
   profile          ClientProfile?
   accounts         ClientAccount[]
@@ -780,8 +802,13 @@ model Client {
 
   @@unique([businessId, id])
   @@unique([businessId, email])
+  @@unique([businessId, clientNumber])
   @@index([businessId, displayName])
   @@index([businessId, assignedUserId])
+  @@index([businessId, status])
+  @@index([businessId, lastActivityAt(sort: Desc)])
+  @@index([businessId, source])
+  @@index([businessId, priority])
   @@map("clients")
 }
 
@@ -3941,4 +3968,41 @@ model AppointmentSettings {
   business Business @relation(fields: [businessId], references: [id])
 
   @@map("appointment_settings")
+}
+
+enum ClientStatus {
+  NEW
+  PENDING_DOCUMENTS
+  IN_PROGRESS
+  ACTIVE
+  ON_HOLD
+  /// Still in the directory (the Inactive tab); archiving is separate and hides the client.
+  INACTIVE
+}
+
+/// Not drawn in the designs (only the filter's name): High, Medium, Low as on tasks. To confirm.
+enum ClientPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+/// Every change of a client's status, written by the database (the Activity timeline, and the
+/// "vs last month" counts on the list's cards).
+model ClientStatusHistory {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  businessId      String       @map("business_id") @db.Uuid
+  clientId        String       @map("client_id") @db.Uuid
+  status          ClientStatus
+  changedByUserId String?      @map("changed_by_user_id") @db.Uuid
+  /// The time of the change itself (not of its transaction's start).
+  changedAt       DateTime     @default(dbgenerated("clock_timestamp()")) @map("changed_at") @db.Timestamptz(3)
+  /// The order the rows were written in: the newest is the current state.
+  seq             BigInt       @default(autoincrement())
+
+  client Client @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, clientId, seq])
+  @@index([businessId, changedAt])
+  @@map("client_status_history")
 }
