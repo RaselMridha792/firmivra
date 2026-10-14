@@ -42,7 +42,7 @@ export type LegalVersion = z.infer<typeof LegalVersion>;
 export const PortalInfo = z.object({
   business: z.object({ slug: z.string(), name: z.string() }),
   branding: z.object({
-    /** Null until R5 serves logos. */
+    /** The firm's logo (GET /portal/{slug}/logo), or null when it has none. */
     logoUrl: z.url().nullable(),
     primaryColor: HexColor,
     accentColor: HexColor,

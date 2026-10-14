@@ -74,7 +74,7 @@ export const FirmSettings = z.object({
   country: z.string(),
   /** IANA time zone, for example America/New_York. */
   timezone: z.string(),
-  /** Null until R5 adds logo upload and signed URLs. */
+  /** The logo's lasting public address (see logo.ts), or null when the firm has none. */
   logoUrl: z.url().nullable(),
   /** Portal colours, `#rrggbb`. Null uses Firmivra's default. */
   primaryColor: z.string().nullable(),

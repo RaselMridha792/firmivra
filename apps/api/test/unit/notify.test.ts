@@ -414,6 +414,7 @@ describe('loadNotifyConfig', () => {
       email: { mode: 'smtp', from: FROM, host: 'localhost', port: 1025 },
       sms: { mode: 'log', unregistered: false },
       linkOrigins: localOrigins,
+      portalOrigin: 'http://portal.localhost:3000',
       jobs: true,
     });
   });
@@ -423,6 +424,7 @@ describe('loadNotifyConfig', () => {
       email: { mode: 'ses', from: { name: null, address: 'no-reply@dev.example.test' } },
       sms: { mode: 'log', unregistered: true },
       linkOrigins: devOrigins,
+      portalOrigin: 'https://portal.dev.example.test',
       jobs: true,
     });
     const registered = loadNotifyConfig({ ...appStack, SMS_ORIGINATION_NUMBER: '+18885550100' });
