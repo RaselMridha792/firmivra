@@ -172,7 +172,10 @@ export function HelpLink({ email }: { email: string }) {
   );
 }
 
-/** The strip under every page: the firm's logo or name on the left, links that exist on the right. */
+/**
+ * The strip under every page: the firm's logo for light backgrounds, or its name, on the left and
+ * the links that have pages on the right (only Support has one so far).
+ */
 export function FirmFooter({
   name,
   logoUrl,
@@ -183,15 +186,15 @@ export function FirmFooter({
   supportEmail: string;
 }) {
   return (
-    <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface px-4 py-4 md:px-6">
+    <footer className="flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-t border-border bg-surface px-4 py-4 md:px-6">
       {logoUrl ? (
         <Image
           unoptimized
           src={logoUrl}
           alt={name}
-          width={140}
+          width={270}
           height={36}
-          className="block h-9 w-auto object-contain object-left"
+          className="block h-9 w-auto max-w-[270px] object-contain object-left"
         />
       ) : (
         <p className="font-semibold text-heading">{name}</p>
