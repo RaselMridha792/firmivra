@@ -21,6 +21,20 @@ export const MOCK_MODULES: readonly string[] = setting
 export const mocked = (module: string): boolean =>
   MOCK_MODULES.includes('all') || MOCK_MODULES.includes(module);
 
+const emptySetting =
+  process.env.NODE_ENV === 'production' ? '' : (process.env.NEXT_PUBLIC_API_MOCK_EMPTY ?? '');
+const EMPTY_MODULES = emptySetting
+  .split(',')
+  .map((m) => m.trim())
+  .filter(Boolean);
+
+/**
+ * True when this module's mock should start with no records, to build the empty state:
+ *   NEXT_PUBLIC_API_MOCK_EMPTY=staff,scheduling   (or `all`). Only mocks that offer `empty` read it.
+ */
+export const mockedEmpty = (module: string): boolean =>
+  EMPTY_MODULES.includes('all') || EMPTY_MODULES.includes(module);
+
 type MockRole = 'OWNER' | 'ADMIN' | 'STAFF';
 const ROLES: readonly MockRole[] = ['OWNER', 'ADMIN', 'STAFF'];
 const role = process.env.NEXT_PUBLIC_API_MOCK_ROLE as MockRole | undefined;

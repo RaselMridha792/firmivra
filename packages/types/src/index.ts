@@ -33,6 +33,7 @@ export * from './esign/index.js';
 export * from './intake/index.js';
 export * from './begin-online/index.js';
 export * from './leads/index.js';
+export * from './services-pricing/index.js';
 export * from './messages/index.js';
 export * from './agreements/index.js';
 export * from './dashboard/index.js';
