@@ -65,6 +65,7 @@ import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
+import { createClientsMock } from '../mocks/clients';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import {
@@ -136,7 +137,11 @@ export const api = {
       ? createClientSignUpsMock({ role: MOCK_ROLE })
       : createClientSignUpsClient(request),
   /** Client records (R10): firm side. */
-  clients: createClientsClient(request),
+  // R34: wired to its existing mock (mocks/clients.ts), which no module had registered yet.
+  clients:
+    dev && mocked('clients')
+      ? createClientsMock({ role: MOCK_ROLE })
+      : createClientsClient(request),
   engagements:
     dev && mocked('engagements')
       ? createEngagementsMock({ role: MOCK_ROLE })

@@ -26,6 +26,7 @@ const workspacePages: [path: string, title: string][] = [
   [`/clients/${id}/messages`, 'Client messages'],
   [`/clients/${id}/invoices`, 'Client invoices'],
   ['/sign-ups', 'Sign-ups'],
+  ['/documents', 'Documents'],
   ['/messages', 'Messages'],
   ['/invoices', 'Invoices'],
   ['/workspaces', 'Workspaces'],
