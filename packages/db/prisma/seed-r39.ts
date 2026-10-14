@@ -8,6 +8,7 @@ export async function seedR39(tx: TxClient, businessId: string) {
   await seedTemplates(tx, businessId);
   await seedIntegrations(tx, businessId);
   await seedIntegrationRequest(tx, businessId);
+  await seedAudiences(tx, businessId);
 }
 
 async function seedTemplates(tx: TxClient, businessId: string) {
@@ -124,6 +125,44 @@ async function seedIntegrationRequest(tx: TxClient, businessId: string) {
       requestedByUserId: SEED_USERS.lvpOwner.id,
       providerName,
       connectTo: 'Invoices and payments',
+    },
+  });
+}
+
+async function seedAudiences(tx: TxClient, businessId: string) {
+  const client = await tx.client.findFirstOrThrow({ where: { businessId } });
+  const ownerUserId = SEED_USERS.lvpOwner.id;
+  const list = await tx.communicationSegment.upsert({
+    where: { businessId_name: { businessId, name: 'Priority clients' } },
+    update: {},
+    create: { businessId, name: 'Priority clients', type: 'STATIC', ownerUserId, memberCount: 1 },
+  });
+  await tx.communicationSegmentMember.upsert({
+    where: { segmentId_clientId: { segmentId: list.id, clientId: client.id } },
+    update: {},
+    create: { businessId, segmentId: list.id, clientId: client.id },
+  });
+  await tx.communicationSegment.upsert({
+    where: { businessId_name: { businessId, name: 'Active clients' } },
+    update: {},
+    create: {
+      businessId,
+      name: 'Active clients',
+      type: 'DYNAMIC',
+      ownerUserId,
+      criteria: { all: [{ field: 'status', is: 'ACTIVE' }] },
+      criteriaSummary: 'Status is Active',
+    },
+  });
+  await tx.communicationConsent.upsert({
+    where: { businessId_clientId_channel: { businessId, clientId: client.id, channel: 'EMAIL' } },
+    update: {},
+    create: {
+      businessId,
+      clientId: client.id,
+      channel: 'EMAIL',
+      status: 'OPTED_IN',
+      source: 'portal',
     },
   });
 }

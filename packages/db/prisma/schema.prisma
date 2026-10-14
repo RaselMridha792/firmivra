@@ -735,6 +735,10 @@ model Client {
   esignRequests    EsignRequest[]
   esignBulkItems   EsignBulkItem[]
 
+  // R39
+  segmentMembers CommunicationSegmentMember[]
+  commConsents   CommunicationConsent[]
+
   @@unique([businessId, id])
   @@unique([businessId, email])
   @@index([businessId, displayName])
@@ -1267,6 +1271,10 @@ model Lead {
   intakes    Intake[]
   signatures IntakeSignature[]
   uploads    LeadUpload[]
+
+  // R39
+  segmentMembers CommunicationSegmentMember[]
+  commConsents   CommunicationConsent[]
 
   @@unique([businessId, id])
   @@index([businessId, status, createdAt])
@@ -3244,4 +3252,108 @@ model IntegrationRequest {
   @@index([businessId, createdAt])
   @@index([status, createdAt])
   @@map("integration_requests")
+}
+
+// ---------- Communications: segments, lists and consent ----------
+
+/// How a campaign goes out. Consent and suppression exist only for EMAIL and SMS.
+enum CommunicationChannel {
+  EMAIL
+  SMS
+  ANNOUNCEMENT
+}
+
+/// DYNAMIC: members come from `criteria` each time. STATIC: members are saved rows.
+enum SegmentType {
+  DYNAMIC
+  STATIC
+}
+
+enum SegmentAudience {
+  CLIENTS
+  LEADS
+  BOTH
+}
+
+/// A contact's standing on one channel. Anything but OPTED_IN keeps them out of campaigns.
+enum ConsentStatus {
+  OPTED_IN
+  OPTED_OUT
+  BOUNCED
+  INVALID
+  COMPLAINED
+}
+
+/// A saved audience: a dynamic segment (AND/OR groups in `criteria`, such as status, service,
+/// tags, tax year, last contact) or a static list. `memberCount` is the last count the API
+/// calculated at `lastRefreshedAt`; a campaign always recounts before it sends. Archived, never
+/// deleted, so a scheduled campaign never loses its audience.
+model CommunicationSegment {
+  id              String          @id @default(uuid(7)) @db.Uuid
+  businessId      String          @map("business_id") @db.Uuid
+  name            String
+  description     String?
+  type            SegmentType
+  audience        SegmentAudience @default(CLIENTS)
+  criteria        Json            @default("{}")
+  criteriaSummary String?         @map("criteria_summary")
+  memberCount     Int             @default(0) @map("member_count")
+  lastRefreshedAt DateTime?       @map("last_refreshed_at") @db.Timestamptz(3)
+  ownerUserId     String          @map("owner_user_id") @db.Uuid
+  archivedAt      DateTime?       @map("archived_at") @db.Timestamptz(3)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  members CommunicationSegmentMember[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, name])
+  @@index([businessId, type])
+  @@map("communication_segments")
+}
+
+/// A saved member of a STATIC list: one client or one lead.
+model CommunicationSegmentMember {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  segmentId  String   @map("segment_id") @db.Uuid
+  clientId   String?  @map("client_id") @db.Uuid
+  leadId     String?  @map("lead_id") @db.Uuid
+  addedAt    DateTime @default(now()) @map("added_at") @db.Timestamptz(3)
+
+  segment CommunicationSegment @relation(fields: [businessId, segmentId], references: [businessId, id], onDelete: Cascade)
+  client  Client?              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  lead    Lead?                @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([segmentId, clientId])
+  @@unique([segmentId, leadId])
+  @@index([businessId, clientId])
+  @@index([businessId, leadId])
+  @@map("communication_segment_members")
+}
+
+/// One contact's current standing on one channel (opt-in, opt-out, bounce, invalid, complaint).
+/// No row: the firm's default applies. The API checks it again right before every send. The
+/// history is in the audit log; `sourceCommunicationId` names the campaign that caused it.
+model CommunicationConsent {
+  id                    String               @id @default(uuid(7)) @db.Uuid
+  businessId            String               @map("business_id") @db.Uuid
+  clientId              String?              @map("client_id") @db.Uuid
+  leadId                String?              @map("lead_id") @db.Uuid
+  channel               CommunicationChannel
+  status                ConsentStatus
+  /// Where it came from: "portal", "unsubscribe_link", "reply_stop", "staff", "provider".
+  source                String
+  sourceCommunicationId String?              @map("source_communication_id") @db.Uuid
+  changedByUserId       String?              @map("changed_by_user_id") @db.Uuid
+  createdAt             DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client Client? @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  lead   Lead?   @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, clientId, channel])
+  @@unique([businessId, leadId, channel])
+  @@index([businessId, channel, status])
+  @@map("communication_consents")
 }

@@ -415,3 +415,18 @@ export const IntegrationRequestStatus = z.enum([
   'DECLINED',
 ]);
 export type IntegrationRequestStatus = z.infer<typeof IntegrationRequestStatus>;
+
+/** How a campaign goes out. Consent and suppression exist only for EMAIL and SMS. */
+export const CommunicationChannel = z.enum(['EMAIL', 'SMS', 'ANNOUNCEMENT']);
+export type CommunicationChannel = z.infer<typeof CommunicationChannel>;
+
+/** DYNAMIC: members come from `criteria` each time. STATIC: members are saved rows. */
+export const SegmentType = z.enum(['DYNAMIC', 'STATIC']);
+export type SegmentType = z.infer<typeof SegmentType>;
+
+export const SegmentAudience = z.enum(['CLIENTS', 'LEADS', 'BOTH']);
+export type SegmentAudience = z.infer<typeof SegmentAudience>;
+
+/** A contact's standing on one channel. Anything but OPTED_IN keeps them out of campaigns. */
+export const ConsentStatus = z.enum(['OPTED_IN', 'OPTED_OUT', 'BOUNCED', 'INVALID', 'COMPLAINED']);
+export type ConsentStatus = z.infer<typeof ConsentStatus>;
