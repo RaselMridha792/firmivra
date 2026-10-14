@@ -10,8 +10,10 @@ export {
   type Column,
   type TableProps,
   type TableSort,
+  type TableSelection,
   type TableServerControl,
 } from './table';
+export { Pagination, type PaginationProps } from './pagination';
 export { FilterBar, FilterChip, FilterGroup, SearchField, type FilterBarProps } from './filter-bar';
 export { BulkBar, type BulkAction } from './bulk-bar';
 export { IconButton, type IconButtonProps } from './icon-button';
