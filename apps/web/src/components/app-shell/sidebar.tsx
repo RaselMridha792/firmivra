@@ -51,7 +51,7 @@ export function Sidebar({
       className={`flex h-full flex-col bg-brand-900 text-white ${brand ? 'w-60' : 'w-72'}`}
     >
       {brand ? (
-        <div className="shrink-0 px-8 pb-5 pt-4">
+        <div className="shrink-0 px-5 pb-5 pt-4">
           <span
             data-testid="firm-name"
             className={brand.logoUrl ? 'sr-only' : 'block text-xl font-semibold'}
@@ -63,9 +63,9 @@ export function Sidebar({
               unoptimized
               src={brand.logoUrl}
               alt=""
-              width={176}
-              height={70}
-              className="block h-[70px] w-full object-contain object-left"
+              width={200}
+              height={100}
+              className="block h-auto max-h-[100px] w-full object-contain object-left"
             />
           ) : null}
         </div>

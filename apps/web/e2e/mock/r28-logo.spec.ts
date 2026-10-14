@@ -65,9 +65,11 @@ test('the shell shows the dark logo, the slogan and motto, and the light logo in
   expect((await sidebar.boundingBox())?.width).toBe(240);
   const logo = sidebar.locator('img');
   await expect(logo).toBeVisible();
+  // The logo fills the inner width (240 px minus 20 px each side), left aligned, up to 100 px high.
   const box = await logo.boundingBox();
-  expect(box?.height).toBe(70);
-  expect(box?.width).toBeGreaterThan(150);
+  expect(box?.x).toBe(20);
+  expect(box?.width).toBe(200);
+  expect(box?.height).toBeLessThanOrEqual(100);
   const slogan = page.getByTestId('firm-slogan');
   await expect(slogan).toContainText('More Than');
   await expect(page.getByTestId('firm-motto')).toHaveText('PEOPLE|PLANS|PROSPERITY');
@@ -95,6 +97,48 @@ test('the shell shows the dark logo, the slogan and motto, and the light logo in
   await expect(footer.getByRole('img', { name: 'LVP Accounting & Taxes' })).toBeVisible();
   await expect(footer.getByRole('link')).toHaveText(['Support']);
 });
+
+// A wide logo, a squarer one and one with transparent padding (a file with empty space around it
+// always looks smaller): the box is as wide as the inner width unless 100 px of height cuts it.
+for (const [name, file] of [
+  ['wide', null],
+  ['squarer', 'logo-square.png'],
+  ['with transparent padding', 'logo-padded.png'],
+] as const) {
+  for (const size of [
+    { width: 1440, height: 1080 },
+    { width: 1280, height: 720 },
+  ]) {
+    test(`the sidebar logo fills the width: ${name} logo at ${size.width}x${size.height}`, async ({
+      page,
+    }) => {
+      if (file) {
+        await page.route(/lvp-logo-dark.*\.png/, (route) =>
+          route.fulfill({ path: new URL(`./assets/${file}`, import.meta.url).pathname }),
+        );
+      }
+      await page.setViewportSize(size);
+      await page.goto(app('/'));
+      const logo = page.getByRole('navigation', { name: 'Main' }).locator('img');
+      await expect(logo).toBeVisible();
+      await expect
+        .poll(() => logo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))
+        .toBe(true);
+      const natural = await logo.evaluate(
+        (img: HTMLImageElement) => img.naturalHeight / img.naturalWidth,
+      );
+      const box = await logo.boundingBox();
+      expect(box?.x).toBe(20);
+      expect(box?.width).toBe(200);
+      // Limited by the width, or by 100 px when the logo is squarer.
+      expect(box?.height).toBeCloseTo(Math.min(100, 200 * natural), 0);
+      // Never more than 16 px above it and 20 px below it, as in the design.
+      const first = await page.getByTestId('sidebar-menu').getByRole('link').first().boundingBox();
+      expect(box?.y).toBe(16);
+      expect((first?.y ?? 0) - ((box?.y ?? 0) + (box?.height ?? 0))).toBeGreaterThanOrEqual(18);
+    });
+  }
+}
 
 test('the setup wizard branding step takes both logos and no longer says "Upload soon"', async ({
   page,
