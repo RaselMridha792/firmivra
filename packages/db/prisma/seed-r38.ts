@@ -50,6 +50,9 @@ export const SEED_R38_IDS = {
   exec2: id(28),
   exec3: id(29),
   automationSettings: id(30),
+  bkProfile: id(31),
+  bkActivity1: id(32),
+  bkActivity2: id(33),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -355,6 +358,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
   });
   await seedAutomations(tx, c);
   await seedAutomationRuns(tx, c);
+  await seedBookkeeping(tx, c);
 }
 
 /** The IRS 2027 calendar, published: an entry with a date, and one that needs checking. */
@@ -569,4 +573,64 @@ async function seedAutomationRuns(tx: TxClient, c: WorkSeedContext) {
     update: {},
     create: { businessId, failureAlertUserIds: [c.ownerId] },
   });
+}
+
+/** Bookkeeping: the firm's settings, the client's profile and two activity lines. */
+async function seedBookkeeping(tx: TxClient, c: WorkSeedContext) {
+  const { businessId } = c;
+  await tx.bookkeepingSettings.upsert({
+    where: { businessId },
+    update: {},
+    create: {
+      businessId,
+      closeChecklist: [
+        { key: 'categorization', label: 'Transactions categorized', required: true },
+        { key: 'reconciliations', label: 'Bank and card accounts reconciled', required: true },
+        { key: 'reports', label: 'Reports generated', required: true },
+        { key: 'approval', label: 'Reviewer approval', required: true },
+        { key: 'delivery', label: 'Delivered to the client', required: false },
+      ],
+      documentChecklist: [{ label: 'Bank statements', cadence: 'MONTHLY' }],
+    },
+  });
+  await tx.bookkeepingProfile.upsert({
+    where: { id: SEED_R38_IDS.bkProfile },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.bkProfile,
+      businessId,
+      engagementId: c.bookkeepingEngagementId,
+      cadence: 'MONTHLY',
+      closeTargetDay: 10,
+      nextReportDueOn: new Date('2026-10-15'),
+      status: 'ON_TRACK',
+      statusSource: 'AUTOMATIC',
+      statusReason: 'No outstanding items',
+      reviewerUserId: c.ownerId,
+      portalDefaults: { reports: true, tasks: false, documents: true, notes: false },
+      alerts: {
+        missingDocuments: true,
+        staleSync: true,
+        overdueClose: true,
+        failedIntegration: true,
+      },
+    },
+  });
+  for (const [n, kind, summary] of [
+    ['bkActivity1', 'STATUS_CHANGE', 'Status set to On Track'],
+    ['bkActivity2', 'REPORT', 'August report delivered'],
+  ] as const) {
+    await tx.bookkeepingActivity.upsert({
+      where: { id: SEED_R38_IDS[n] },
+      update: {},
+      create: {
+        id: SEED_R38_IDS[n],
+        businessId,
+        engagementId: c.bookkeepingEngagementId,
+        kind,
+        summary,
+        actorUserId: c.staffId,
+      },
+    });
+  }
 }

@@ -220,6 +220,40 @@ export type AutomationRunStatus = z.infer<typeof AutomationRunStatus>;
 export const ActionExecutionStatus = z.enum(['PENDING', 'RUNNING', 'SUCCESS', 'FAILED', 'SKIPPED']);
 export type ActionExecutionStatus = z.infer<typeof ActionExecutionStatus>;
 
+/** A bookkeeping client's workflow status (the Bookkeeping status tabs). Set by staff (MANUAL) or by the firm's status rules from due dates, missing documents and sync problems (AUTOMATIC). */
+export const BookkeepingStatus = z.enum([
+  'ON_TRACK',
+  'NEEDS_ATTENTION',
+  'MISSING_DOCUMENTS',
+  'OVERDUE',
+  'NOT_STARTED',
+]);
+export type BookkeepingStatus = z.infer<typeof BookkeepingStatus>;
+
+export const StatusSource = z.enum(['MANUAL', 'AUTOMATIC']);
+export type StatusSource = z.infer<typeof StatusSource>;
+
+export const ReportCadence = z.enum(['MONTHLY', 'QUARTERLY', 'ANNUAL', 'CUSTOM']);
+export type ReportCadence = z.infer<typeof ReportCadence>;
+
+export const BookkeepingActivityKind = z.enum([
+  'STATUS_CHANGE',
+  'ASSIGNMENT',
+  'PLAN_CHANGE',
+  'PAUSE',
+  'RESUME',
+  'ARCHIVE',
+  'SYNC',
+  'DOCUMENT_REQUEST',
+  'REPORT',
+  'CLOSE',
+  'RECONCILIATION',
+  'CONTACT',
+  'NOTE',
+  'OTHER',
+]);
+export type BookkeepingActivityKind = z.infer<typeof BookkeepingActivityKind>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;

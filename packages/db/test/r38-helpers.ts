@@ -76,3 +76,21 @@ export async function failure(p: PromiseLike<unknown>): Promise<string> {
     return error instanceof Error ? error.message : String(error);
   }
 }
+
+/** An engagement of a new service of `kind` for `clientId`, made with the owner role. */
+export async function createEngagement(
+  owner: ReturnType<typeof connect>['owner'],
+  businessId: string,
+  clientId: string,
+  kind: 'BOOKKEEPING' | 'TAX_PLANNING' | 'ANNUAL_TAX' = 'BOOKKEEPING',
+): Promise<string> {
+  return runInScope(owner, { kind: 'business', businessId }, async (tx) => {
+    const service = await tx.service.create({
+      data: { businessId, kind, name: `${kind} ${randomUUID()}` },
+    });
+    const engagement = await tx.engagement.create({
+      data: { businessId, clientId, serviceId: service.id, title: `${kind} (fake)` },
+    });
+    return engagement.id;
+  });
+}

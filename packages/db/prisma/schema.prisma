@@ -312,6 +312,45 @@ enum ActionExecutionStatus {
   SKIPPED
 }
 
+/// A bookkeeping client's workflow status (the Bookkeeping status tabs). Set by staff (MANUAL) or
+/// by the firm's status rules from due dates, missing documents and sync problems (AUTOMATIC).
+enum BookkeepingStatus {
+  ON_TRACK
+  NEEDS_ATTENTION
+  MISSING_DOCUMENTS
+  OVERDUE
+  NOT_STARTED
+}
+
+enum StatusSource {
+  MANUAL
+  AUTOMATIC
+}
+
+enum ReportCadence {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  CUSTOM
+}
+
+enum BookkeepingActivityKind {
+  STATUS_CHANGE
+  ASSIGNMENT
+  PLAN_CHANGE
+  PAUSE
+  RESUME
+  ARCHIVE
+  SYNC
+  DOCUMENT_REQUEST
+  REPORT
+  CLOSE
+  RECONCILIATION
+  CONTACT
+  NOTE
+  OTHER
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -583,9 +622,10 @@ model Business {
   esignSettings        EsignSettings?
 
   // R38 work modules.
-  taskTypes          TaskType[]
-  complianceSettings ComplianceSettings[]
-  automationSettings AutomationSettings[]
+  taskTypes           TaskType[]
+  complianceSettings  ComplianceSettings[]
+  automationSettings  AutomationSettings[]
+  bookkeepingSettings BookkeepingSettings[]
 
   @@map("businesses")
 }
@@ -697,6 +737,7 @@ model Membership {
   complianceDeadlines   ComplianceDeadline[]
   complianceRecurrences ComplianceRecurrence[]
   automationRules       AutomationRule[]
+  bookkeepingProfiles   BookkeepingProfile[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1151,25 +1192,27 @@ model Engagement {
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client              Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  service             Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  assignedMember      Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  statusHistory       EngagementStatusHistory[]
-  tasks               Task[]
-  taskSeries          TaskSeries[]
-  notes               Note[]
-  reports             EngagementReport[]
-  documents           Document[]
-  documentRequests    DocumentRequest[]
-  intakes             Intake[]
-  leads               Lead[]
-  appointments        Appointment[]
-  messageThreads      MessageThread[]
-  invoices            Invoice[]
-  taxReturns          TaxReturn[]
-  esignRequests       EsignRequest[]
-  esignBulkItems      EsignBulkItem[]
-  complianceDeadlines ComplianceDeadline[]
+  client                Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  service               Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember        Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  statusHistory         EngagementStatusHistory[]
+  tasks                 Task[]
+  taskSeries            TaskSeries[]
+  notes                 Note[]
+  reports               EngagementReport[]
+  documents             Document[]
+  documentRequests      DocumentRequest[]
+  intakes               Intake[]
+  leads                 Lead[]
+  appointments          Appointment[]
+  messageThreads        MessageThread[]
+  invoices              Invoice[]
+  taxReturns            TaxReturn[]
+  esignRequests         EsignRequest[]
+  esignBulkItems        EsignBulkItem[]
+  complianceDeadlines   ComplianceDeadline[]
+  bookkeepingProfile    BookkeepingProfile?
+  bookkeepingActivities BookkeepingActivity[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -3962,4 +4005,98 @@ model AutomationSettings {
   business Business @relation(fields: [businessId], references: [id])
 
   @@map("automation_settings")
+}
+
+/// A firm's Bookkeeping settings (the Bookkeeping Settings button): the defaults new bookkeeping
+/// clients start with. The Json fields are arrays or objects the API validates: statusRules
+/// {missingDocumentsAfterDays, overdueAfterDays...}, reminderDefaults [{daysBefore, channels}],
+/// reportSchedule [{report, cadence, dueDay, delivery}], documentChecklist [{label, cadence}] and
+/// closeChecklist [{key, label, required}] (what a new period's checklist is made from). One row per firm.
+model BookkeepingSettings {
+  businessId          String        @id @map("business_id") @db.Uuid
+  defaultCadence      ReportCadence @default(MONTHLY) @map("default_cadence")
+  /// The day of the month after a period when it should be closed.
+  closeTargetDay      Int           @default(10) @map("close_target_day")
+  /// Reports due within this many days are "upcoming".
+  upcomingReportDays  Int           @default(14) @map("upcoming_report_days")
+  /// A sync older than this shows a stale warning.
+  staleSyncHours      Int           @default(48) @map("stale_sync_hours")
+  /// A reconciliation may be approved when its difference is within this.
+  reconToleranceCents Int           @default(0) @map("recon_tolerance_cents")
+  statusRules         Json          @default("{}") @map("status_rules")
+  reminderDefaults    Json          @default("[]") @map("reminder_defaults")
+  reportSchedule      Json          @default("[]") @map("report_schedule")
+  documentChecklist   Json          @default("[]") @map("document_checklist")
+  closeChecklist      Json          @default("[]") @map("close_checklist")
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("bookkeeping_settings")
+}
+
+/// What Bookkeeping adds to a client's Bookkeeping engagement (the engagement is the enrolment:
+/// its package is the plan, its assigned member the responsible bookkeeper, its status the
+/// service's). One row per engagement, only for the Bookkeeping service. Holds the cadence and
+/// next report date, the workflow status with the exact reason, the reviewer, pause and archive,
+/// and the client's own settings. Never deleted. Figures from an accounting system are not here:
+/// there is no ledger sync yet.
+model BookkeepingProfile {
+  id                  String            @id @default(uuid(7)) @db.Uuid
+  businessId          String            @map("business_id") @db.Uuid
+  engagementId        String            @map("engagement_id") @db.Uuid
+  cadence             ReportCadence     @default(MONTHLY)
+  /// Months between reports for CUSTOM.
+  cadenceMonths       Int?              @map("cadence_months")
+  closeTargetDay      Int?              @map("close_target_day")
+  /// The next report's due date, kept current by the API from the cadence and the last period.
+  nextReportDueOn     DateTime?         @map("next_report_due_on") @db.Date
+  status              BookkeepingStatus @default(NOT_STARTED)
+  statusSource        StatusSource      @default(AUTOMATIC) @map("status_source")
+  /// Why: "3 documents outstanding", "Sync failed Oct 12".
+  statusReason        String?           @map("status_reason")
+  statusChangedAt     DateTime          @default(now()) @map("status_changed_at") @db.Timestamptz(3)
+  reviewerUserId      String?           @map("reviewer_user_id") @db.Uuid
+  pausedAt            DateTime?         @map("paused_at") @db.Timestamptz(3)
+  pauseReason         String?           @map("pause_reason")
+  archivedAt          DateTime?         @map("archived_at") @db.Timestamptz(3)
+  /// What the client portal shows by default: {reports, tasks, documents, notes} booleans.
+  portalDefaults      Json              @default("{}") @map("portal_defaults")
+  /// Client overrides of the firm's settings; null uses the firm's.
+  reportSchedule      Json?             @map("report_schedule")
+  documentChecklist   Json?             @map("document_checklist")
+  categorizationRules Json              @default("[]") @map("categorization_rules")
+  /// Alerts on or off: {missingDocuments, staleSync, overdueClose, failedIntegration}.
+  alerts              Json              @default("{}")
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement Engagement  @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  reviewer   Membership? @relation(fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId])
+  @@index([businessId, status])
+  @@index([businessId, nextReportDueOn])
+  @@map("bookkeeping_profiles")
+}
+
+/// The bookkeeping activity history of an engagement (the View Activity action and the
+/// Activity tab): status changes, syncs, document requests, reports, close steps, logged calls.
+/// Append-only; `summary` is a short safe line, `details` ids and old and new values only.
+model BookkeepingActivity {
+  id           String                  @id @default(uuid(7)) @db.Uuid
+  businessId   String                  @map("business_id") @db.Uuid
+  engagementId String                  @map("engagement_id") @db.Uuid
+  kind         BookkeepingActivityKind
+  summary      String
+  details      Json                    @default("{}")
+  actorUserId  String?                 @map("actor_user_id") @db.Uuid
+  createdAt    DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  engagement Engagement @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, engagementId, createdAt])
+  @@map("bookkeeping_activity")
 }
