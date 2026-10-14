@@ -351,6 +351,34 @@ enum BookkeepingActivityKind {
   OTHER
 }
 
+enum ConnectionStatus {
+  CONNECTED
+  /// The provider's authorization ran out: reconnect.
+  EXPIRED
+  ERROR
+  DISCONNECTED
+}
+
+enum SyncTrigger {
+  INITIAL
+  MANUAL
+  SCHEDULED
+}
+
+enum SyncOutcome {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum BookkeepingAccountType {
+  BANK
+  CREDIT_CARD
+  LOAN
+  OTHER
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -1192,27 +1220,29 @@ model Engagement {
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client                Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  service               Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  assignedMember        Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  statusHistory         EngagementStatusHistory[]
-  tasks                 Task[]
-  taskSeries            TaskSeries[]
-  notes                 Note[]
-  reports               EngagementReport[]
-  documents             Document[]
-  documentRequests      DocumentRequest[]
-  intakes               Intake[]
-  leads                 Lead[]
-  appointments          Appointment[]
-  messageThreads        MessageThread[]
-  invoices              Invoice[]
-  taxReturns            TaxReturn[]
-  esignRequests         EsignRequest[]
-  esignBulkItems        EsignBulkItem[]
-  complianceDeadlines   ComplianceDeadline[]
-  bookkeepingProfile    BookkeepingProfile?
-  bookkeepingActivities BookkeepingActivity[]
+  client                 Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  service                Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember         Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  statusHistory          EngagementStatusHistory[]
+  tasks                  Task[]
+  taskSeries             TaskSeries[]
+  notes                  Note[]
+  reports                EngagementReport[]
+  documents              Document[]
+  documentRequests       DocumentRequest[]
+  intakes                Intake[]
+  leads                  Lead[]
+  appointments           Appointment[]
+  messageThreads         MessageThread[]
+  invoices               Invoice[]
+  taxReturns             TaxReturn[]
+  esignRequests          EsignRequest[]
+  esignBulkItems         EsignBulkItem[]
+  complianceDeadlines    ComplianceDeadline[]
+  bookkeepingProfile     BookkeepingProfile?
+  bookkeepingActivities  BookkeepingActivity[]
+  bookkeepingConnections BookkeepingConnection[]
+  bookkeepingAccounts    BookkeepingAccount[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -4099,4 +4129,96 @@ model BookkeepingActivity {
 
   @@index([businessId, engagementId, createdAt])
   @@map("bookkeeping_activity")
+}
+
+/// A client's link to an accounting system (QuickBooks Online, Xero, FreshBooks, Zoho Books...):
+/// `provider` is a code, never an enum, so providers stay modular. credentialRef names where the
+/// provider's tokens are kept (the secret store); a token is never stored in this table or shown
+/// to staff. One live connection per provider company and per client and provider; disconnecting
+/// keeps the row and its history and reconnecting reuses it. A failed sync never clears
+/// lastSuccessfulSyncAt: it only moves forward.
+model BookkeepingConnection {
+  id                   String           @id @default(uuid(7)) @db.Uuid
+  businessId           String           @map("business_id") @db.Uuid
+  engagementId         String           @map("engagement_id") @db.Uuid
+  provider             String
+  /// The company's id at the provider (a realm id, an organisation id).
+  providerCompanyId    String           @map("provider_company_id")
+  companyName          String?          @map("company_name")
+  status               ConnectionStatus @default(CONNECTED)
+  credentialRef        String?          @map("credential_ref")
+  lastSyncAt           DateTime?        @map("last_sync_at") @db.Timestamptz(3)
+  lastSuccessfulSyncAt DateTime?        @map("last_successful_sync_at") @db.Timestamptz(3)
+  /// A safe code for the latest failure (EXPIRED_TOKEN, RATE_LIMITED), cleared by a good sync.
+  lastErrorCode        String?          @map("last_error_code")
+  connectedByUserId    String?          @map("connected_by_user_id") @db.Uuid
+  connectedAt          DateTime         @default(now()) @map("connected_at") @db.Timestamptz(3)
+  disconnectedAt       DateTime?        @map("disconnected_at") @db.Timestamptz(3)
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement Engagement           @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  syncRuns   BookkeepingSyncRun[]
+  accounts   BookkeepingAccount[]
+
+  @@unique([businessId, id])
+  @@index([businessId, engagementId])
+  @@index([businessId, status])
+  @@map("bookkeeping_connections")
+}
+
+/// One sync of a connection (View Sync Details): how it started, how it ended, a safe error code
+/// and short message, and counts of what it brought in. Updated once when it finishes; never deleted.
+model BookkeepingSyncRun {
+  id                String      @id @default(uuid(7)) @db.Uuid
+  businessId        String      @map("business_id") @db.Uuid
+  connectionId      String      @map("connection_id") @db.Uuid
+  trigger           SyncTrigger
+  outcome           SyncOutcome @default(RUNNING)
+  startedAt         DateTime    @default(now()) @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?   @map("finished_at") @db.Timestamptz(3)
+  errorCode         String?     @map("error_code")
+  message           String?
+  /// Counts only, e.g. {accounts: 4, categories: 87}.
+  counts            Json        @default("{}")
+  requestedByUserId String?     @map("requested_by_user_id") @db.Uuid
+
+  connection BookkeepingConnection @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, connectionId, startedAt])
+  @@map("bookkeeping_sync_runs")
+}
+
+/// A bank or credit card account of a bookkeeping client (the Bank & Credit Card Accounts card):
+/// synced from a connection or added by hand. Only the last digits are kept (mask), never a full
+/// account number. The balance is shown with its date; a credit card balance is negative. The
+/// accounts marked `reconcile` are the ones a period's reconciliation needs.
+model BookkeepingAccount {
+  id              String                 @id @default(uuid(7)) @db.Uuid
+  businessId      String                 @map("business_id") @db.Uuid
+  engagementId    String                 @map("engagement_id") @db.Uuid
+  connectionId    String?                @map("connection_id") @db.Uuid
+  name            String
+  type            BookkeepingAccountType
+  institution     String?
+  /// The last 2 to 4 characters of the account number.
+  mask            String?
+  /// The account's id at the provider; unique per client and provider connection.
+  sourceAccountId String?                @map("source_account_id")
+  currency        String                 @default("usd")
+  balanceCents    Int?                   @map("balance_cents")
+  balanceAsOf     DateTime?              @map("balance_as_of") @db.Timestamptz(3)
+  status          ConnectionStatus       @default(CONNECTED)
+  reconcile       Boolean                @default(true)
+  archivedAt      DateTime?              @map("archived_at") @db.Timestamptz(3)
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement Engagement             @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  connection BookkeepingConnection? @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, connectionId, sourceAccountId])
+  @@index([businessId, engagementId])
+  @@map("bookkeeping_accounts")
 }

@@ -53,6 +53,10 @@ export const SEED_R38_IDS = {
   bkProfile: id(31),
   bkActivity1: id(32),
   bkActivity2: id(33),
+  bkConnection: id(34),
+  bkSync: id(35),
+  bkAccount1: id(36),
+  bkAccount2: id(37),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -359,6 +363,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
   await seedAutomations(tx, c);
   await seedAutomationRuns(tx, c);
   await seedBookkeeping(tx, c);
+  await seedBookkeepingConnection(tx, c);
 }
 
 /** The IRS 2027 calendar, published: an entry with a date, and one that needs checking. */
@@ -630,6 +635,65 @@ async function seedBookkeeping(tx: TxClient, c: WorkSeedContext) {
         kind,
         summary,
         actorUserId: c.staffId,
+      },
+    });
+  }
+}
+
+/** A QuickBooks connection with one good sync, a checking account and a credit card. */
+async function seedBookkeepingConnection(tx: TxClient, c: WorkSeedContext) {
+  const { businessId } = c;
+  const syncedAt = new Date('2026-09-28T10:12:00Z');
+  await tx.bookkeepingConnection.upsert({
+    where: { id: SEED_R38_IDS.bkConnection },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.bkConnection,
+      businessId,
+      engagementId: c.bookkeepingEngagementId,
+      provider: 'quickbooks',
+      providerCompanyId: '9130000000000001',
+      companyName: 'Sample Cafe LLC',
+      credentialRef: 'local/seed/quickbooks-sample',
+      lastSyncAt: syncedAt,
+      lastSuccessfulSyncAt: syncedAt,
+      connectedByUserId: c.staffId,
+    },
+  });
+  await tx.bookkeepingSyncRun.upsert({
+    where: { id: SEED_R38_IDS.bkSync },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.bkSync,
+      businessId,
+      connectionId: SEED_R38_IDS.bkConnection,
+      trigger: 'MANUAL',
+      outcome: 'SUCCESS',
+      startedAt: syncedAt,
+      finishedAt: new Date('2026-09-28T10:12:09Z'),
+      counts: { accounts: 2 },
+      requestedByUserId: c.staffId,
+    },
+  });
+  for (const [n, name, type, mask, balanceCents] of [
+    ['bkAccount1', 'Business Checking', 'BANK', '0001', 1245032],
+    ['bkAccount2', 'Business Card', 'CREDIT_CARD', '0002', -234012],
+  ] as const) {
+    await tx.bookkeepingAccount.upsert({
+      where: { id: SEED_R38_IDS[n] },
+      update: {},
+      create: {
+        id: SEED_R38_IDS[n],
+        businessId,
+        engagementId: c.bookkeepingEngagementId,
+        connectionId: SEED_R38_IDS.bkConnection,
+        sourceAccountId: `acct-${mask}`,
+        name,
+        type,
+        institution: 'Sample Bank',
+        mask,
+        balanceCents,
+        balanceAsOf: syncedAt,
       },
     });
   }

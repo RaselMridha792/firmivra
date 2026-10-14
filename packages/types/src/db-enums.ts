@@ -254,6 +254,18 @@ export const BookkeepingActivityKind = z.enum([
 ]);
 export type BookkeepingActivityKind = z.infer<typeof BookkeepingActivityKind>;
 
+export const ConnectionStatus = z.enum(['CONNECTED', 'EXPIRED', 'ERROR', 'DISCONNECTED']);
+export type ConnectionStatus = z.infer<typeof ConnectionStatus>;
+
+export const SyncTrigger = z.enum(['INITIAL', 'MANUAL', 'SCHEDULED']);
+export type SyncTrigger = z.infer<typeof SyncTrigger>;
+
+export const SyncOutcome = z.enum(['RUNNING', 'SUCCESS', 'PARTIAL', 'FAILED']);
+export type SyncOutcome = z.infer<typeof SyncOutcome>;
+
+export const BookkeepingAccountType = z.enum(['BANK', 'CREDIT_CARD', 'LOAN', 'OTHER']);
+export type BookkeepingAccountType = z.infer<typeof BookkeepingAccountType>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;
