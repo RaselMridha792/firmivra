@@ -40,3 +40,5 @@ Components in `packages/ui` that Octavia's firm workspace designs (`docs/mockups
 | `DateRangePicker` | `label`, `value` (`from`, `to` as `YYYY-MM-DD`), `onChange`                                                                                                 | "Last Activity" and "Due Date / Deadline" filters, reports, compliance            |
 | `FormSection`     | `step` or `icon`, `title`, `subtitle`, `columns`, `children` (a two-column grid of fields)                                                                  | staff create and edit, create task, create invoice, document request, intake form |
 | `FormField`       | `label`, `htmlFor`, `required`, `hint`, `error`, `counter`, `children` (any control); `Input`, `Select`, `Textarea` already carry their own label and error | custom controls: dates, tags, pickers                                             |
+
+`Select` and `Input` take `hideLabel` to hide the visible label (it stays as the accessible name), as in filter bars where the design shows only the field.
