@@ -16,8 +16,11 @@ import {
   type PortalInfo,
 } from '@firmivra/types';
 import { Public } from '../auth/decorators.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { hexColor } from '../notify/branding.js';
+import { logoUrl } from '../settings/logo-checks.js';
 
 /** Until the firm sets its own: the navy and gold of the portal mockups. */
 export const DEFAULT_PRIMARY_COLOR = '#1F3A6B';
@@ -36,7 +39,10 @@ const shown = (v: LegalVersion | null): LegalVersion | null =>
  */
 @Injectable()
 export class PortalInfoService {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    @Inject(ENV) private readonly env: Env,
+  ) {}
 
   /** An ACTIVE firm by its portal slug (any letter case), or 404 (also for a slug that can't be one). */
   async activeFirm(firmSlug: string): Promise<{ id: string; slug: string; name: string }> {
@@ -81,6 +87,7 @@ export class PortalInfoService {
       scope.businessSettings.findUnique({
         where: { businessId: firm.id },
         select: {
+          logoKey: true,
           brandColor: true,
           accentColor: true,
           clientSignUpEnabled: true,
@@ -95,7 +102,7 @@ export class PortalInfoService {
     return {
       business: { slug: firm.slug, name: firm.name },
       branding: {
-        logoUrl: null, // R5 serves logos
+        logoUrl: logoUrl(this.env.PORTAL_BASE_URL, firm.slug, settings?.logoKey),
         primaryColor: settings?.brandColor ?? DEFAULT_PRIMARY_COLOR,
         // As the emails do: only a `#rrggbb` value reaches the page's CSS.
         accentColor: hexColor(settings?.accentColor, DEFAULT_ACCENT_COLOR),

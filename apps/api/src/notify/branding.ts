@@ -1,4 +1,5 @@
 import type { Database } from '@firmivra/db';
+import { logoUrl } from '../settings/logo-checks.js';
 import {
   DEFAULT_ACCENT_COLOR,
   DEFAULT_PRIMARY_COLOR,
@@ -69,7 +70,11 @@ const BUSINESS_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
  * NotifyService, which turns it into NotifyDeliveryError without the database's message.
  */
 export class BrandingSource {
-  constructor(private readonly db: Pick<Database, 'forBusiness'>) {}
+  constructor(
+    private readonly db: Pick<Database, 'forBusiness'>,
+    /** The portal site's origin: with it, a firm's logo is an address a mail client can load. */
+    private readonly portalOrigin?: string,
+  ) {}
 
   async load(businessId: string | null): Promise<Branding> {
     if (businessId === null) return FIRMIVRA_BRANDING;
@@ -78,10 +83,10 @@ export class BrandingSource {
     }
     const scope = this.db.forBusiness(businessId);
     const [firm, settings] = await Promise.all([
-      scope.business.findUnique({ where: { id: businessId }, select: { name: true } }),
+      scope.business.findUnique({ where: { id: businessId }, select: { name: true, slug: true } }),
       scope.businessSettings.findUnique({
         where: { businessId },
-        select: { brandColor: true, accentColor: true, timezone: true },
+        select: { brandColor: true, accentColor: true, timezone: true, logoKey: true },
       }),
     ]);
     if (!firm) throw new UnknownFirmError();
@@ -89,9 +94,8 @@ export class BrandingSource {
       name: firm.name,
       primaryColor: hexColor(settings?.brandColor, DEFAULT_PRIMARY_COLOR),
       accentColor: hexColor(settings?.accentColor, DEFAULT_ACCENT_COLOR),
-      // Only an S3 key is stored (logo_key, private); a signed URL would stop working in the
-      // inbox. Logos come once R5 serves them at a lasting address.
-      logoUrl: null,
+      // The lasting public address, not a signed link: it must still work when the mail is opened.
+      logoUrl: this.portalOrigin ? logoUrl(this.portalOrigin, firm.slug, settings?.logoKey) : null,
       timeZone: timeZone(settings?.timezone),
       isFirm: true,
     };
