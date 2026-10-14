@@ -357,3 +357,28 @@ export type InvoiceDiscountType = z.infer<typeof InvoiceDiscountType>;
 /** How a client may pay one invoice. MANUAL is paid outside the system and recorded by the firm. */
 export const InvoicePaymentMethod = z.enum(['CARD', 'ACH', 'MANUAL']);
 export type InvoicePaymentMethod = z.infer<typeof InvoicePaymentMethod>;
+
+/** How a late fee is worked out. */
+export const LateFeeType = z.enum(['PERCENT', 'FIXED']);
+export type LateFeeType = z.infer<typeof LateFeeType>;
+
+/** What an invoice event records: what happened to the invoice, or what staff noted about it. */
+export const InvoiceEventType = z.enum([
+  'CREATED',
+  'SENT',
+  'RESENT',
+  'VIEWED',
+  'REMINDER_SENT',
+  'OVERDUE_REMINDER_SENT',
+  'RECEIPT_SENT',
+  'PAYMENT_LINK_COPIED',
+  'NOTE',
+  'ACTIVITY_LOGGED',
+  'FOLLOW_UP_SCHEDULED',
+  'ARCHIVED',
+  'UNARCHIVED',
+]);
+export type InvoiceEventType = z.infer<typeof InvoiceEventType>;
+
+export const InvoiceActorKind = z.enum(['STAFF', 'CLIENT', 'SYSTEM']);
+export type InvoiceActorKind = z.infer<typeof InvoiceActorKind>;

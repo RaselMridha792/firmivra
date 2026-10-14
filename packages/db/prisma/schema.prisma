@@ -343,6 +343,7 @@ model Business {
   esignSettings        EsignSettings?
   invoiceTaxRates      InvoiceTaxRate[]
   invoiceTemplates     InvoiceTemplate[]
+  paymentSettings      PaymentSettings?
 
   @@map("businesses")
 }
@@ -416,21 +417,25 @@ model Membership {
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business            Business               @relation(fields: [businessId], references: [id])
-  user                User                   @relation(fields: [userId], references: [id])
-  invites             Invite[]
-  assignedClients     Client[]
-  assignedEngagements Engagement[]
-  assignedTasks       Task[]
-  workingHours        WorkingHours[]
-  blockedTimes        BlockedTime[]
-  appointments        Appointment[]
-  invoicesCreated     Invoice[]
-  invoicesAssigned    Invoice[]              @relation("InvoiceAssignedTo")
-  contentCreated      ContentItem[]
-  agreementsCreated   FirmAgreement[]
-  agreementFiles      FirmAgreementFile[]
-  agreementVersions   FirmAgreementVersion[]
+  business                Business               @relation(fields: [businessId], references: [id])
+  user                    User                   @relation(fields: [userId], references: [id])
+  invites                 Invite[]
+  assignedClients         Client[]
+  assignedEngagements     Engagement[]
+  assignedTasks           Task[]
+  workingHours            WorkingHours[]
+  blockedTimes            BlockedTime[]
+  appointments            Appointment[]
+  invoicesCreated         Invoice[]
+  invoicesAssigned        Invoice[]              @relation("InvoiceAssignedTo")
+  paymentSettingsChanged  PaymentSettings[]
+  invoiceEvents           InvoiceEvent[]
+  invoicesArchived        InvoiceTracking[]
+  invoiceAttachmentsAdded InvoiceAttachment[]
+  contentCreated          ContentItem[]
+  agreementsCreated       FirmAgreement[]
+  agreementFiles          FirmAgreementFile[]
+  agreementVersions       FirmAgreementVersion[]
 
   // Offline payments this member recorded or voided.
   offlinePaymentsRecorded OfflinePayment[] @relation("OfflinePaymentRecordedBy")
@@ -1095,6 +1100,7 @@ model Document {
   intake             Intake?             @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
   reports            EngagementReport[]
   messageAttachments MessageAttachment[]
+  invoiceAttachments InvoiceAttachment[]
   taxReturns         TaxReturn[]
 
   // Target of message attachments.
@@ -1650,13 +1656,16 @@ model Invoice {
   paymentMethods          InvoicePaymentMethod[] @default([CARD, ACH, MANUAL]) @map("payment_methods")
   autopay                 Boolean                @default(false)
 
-  client          Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement      Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  createdBy       Membership?      @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
-  assignedTo      Membership?      @relation("InvoiceAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  taxRate         InvoiceTaxRate?  @relation(fields: [businessId, taxRateId], references: [businessId, id], onDelete: Restrict)
-  template        InvoiceTemplate? @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  client          Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement      Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  createdBy       Membership?         @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  assignedTo      Membership?         @relation("InvoiceAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  taxRate         InvoiceTaxRate?     @relation(fields: [businessId, taxRateId], references: [businessId, id], onDelete: Restrict)
+  template        InvoiceTemplate?    @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
   lines           InvoiceLine[]
+  tracking        InvoiceTracking?
+  events          InvoiceEvent[]
+  attachments     InvoiceAttachment[]
   payments        Payment[]
   offlinePayments OfflinePayment[]
 
@@ -2978,4 +2987,144 @@ model InvoiceTemplate {
   @@unique([businessId, name])
   @@unique([businessId, id])
   @@map("invoice_templates")
+}
+
+/// How a late fee is worked out.
+enum LateFeeType {
+  PERCENT
+  FIXED
+}
+
+/// What an invoice event records: what happened to the invoice, or what staff noted about it.
+enum InvoiceEventType {
+  CREATED
+  SENT
+  RESENT
+  VIEWED
+  REMINDER_SENT
+  OVERDUE_REMINDER_SENT
+  RECEIPT_SENT
+  PAYMENT_LINK_COPIED
+  NOTE
+  ACTIVITY_LOGGED
+  FOLLOW_UP_SCHEDULED
+  ARCHIVED
+  UNARCHIVED
+}
+
+enum InvoiceActorKind {
+  STAFF
+  CLIENT
+  SYSTEM
+}
+
+/// The firm's payment settings (Payment Settings screen), one row per firm; no row means the
+/// defaults below. The gateway is the firm's Stripe account (`stripe_accounts`); nothing here is a
+/// credential. Money values are cents.
+model PaymentSettings {
+  businessId              String       @id @map("business_id") @db.Uuid
+  acceptCard              Boolean      @default(true) @map("accept_card")
+  acceptAch               Boolean      @default(true) @map("accept_ach")
+  acceptManual            Boolean      @default(true) @map("accept_manual")
+  autoReceipts            Boolean      @default(true) @map("auto_receipts")
+  sendReminders           Boolean      @default(true) @map("send_reminders")
+  notifyOverdue           Boolean      @default(true) @map("notify_overdue")
+  autoApplyPayments       Boolean      @default(true) @map("auto_apply_payments")
+  /// Shown as "Next invoice: INV-001247"; letters, digits and hyphens, up to 10.
+  invoicePrefix           String       @default("INV-") @map("invoice_prefix")
+  /// A terms code (`net_14`).
+  defaultTerms            String       @default("net_14") @map("default_terms")
+  defaultMemo             String?      @map("default_memo")
+  /// "Due Soon": an open invoice due within this many days.
+  dueSoonDays             Int          @default(14) @map("due_soon_days")
+  reminderDaysBefore      Int          @default(3) @map("reminder_days_before")
+  /// Repeat the overdue reminder every this many days (0: once).
+  overdueReminderDays     Int          @default(7) @map("overdue_reminder_days")
+  retryAttempts           Int          @default(3) @map("retry_attempts")
+  retryIntervalDays       Int          @default(3) @map("retry_interval_days")
+  lateFeeEnabled          Boolean      @default(false) @map("late_fee_enabled")
+  lateFeeType             LateFeeType? @map("late_fee_type")
+  lateFeePercent          Decimal?     @map("late_fee_percent") @db.Decimal(5, 2)
+  lateFeeCents            Int?         @map("late_fee_cents")
+  tippingEnabled          Boolean      @default(false) @map("tipping_enabled")
+  requirePaymentBeforeDue Boolean      @default(false) @map("require_payment_before_due")
+  portalPaymentsEnabled   Boolean      @default(true) @map("portal_payments_enabled")
+  updatedByUserId         String?      @map("updated_by_user_id") @db.Uuid
+  createdAt               DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business    @relation(fields: [businessId], references: [id])
+  updatedBy Membership? @relation(fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@map("payment_settings")
+}
+
+/// What happens around an invoice that is not part of its money, so it can change on a PAID or
+/// canceled invoice too: when the client viewed it (the Viewed tab), reminders, AutoPay retries and
+/// archiving. One row per invoice, made when the first of these happens.
+model InvoiceTracking {
+  invoiceId             String    @id @map("invoice_id") @db.Uuid
+  businessId            String    @map("business_id") @db.Uuid
+  firstViewedAt         DateTime? @map("first_viewed_at") @db.Timestamptz(3)
+  lastViewedAt          DateTime? @map("last_viewed_at") @db.Timestamptz(3)
+  viewCount             Int       @default(0) @map("view_count")
+  lastReminderAt        DateTime? @map("last_reminder_at") @db.Timestamptz(3)
+  reminderCount         Int       @default(0) @map("reminder_count")
+  lastOverdueReminderAt DateTime? @map("last_overdue_reminder_at") @db.Timestamptz(3)
+  autopayAttempts       Int       @default(0) @map("autopay_attempts")
+  lastAutopayAttemptAt  DateTime? @map("last_autopay_attempt_at") @db.Timestamptz(3)
+  /// A short code from the processor, never a message.
+  autopayFailureCode    String?   @map("autopay_failure_code")
+  /// Archived invoices leave the active views; the record stays.
+  archivedAt            DateTime? @map("archived_at") @db.Timestamptz(3)
+  archivedByUserId      String?   @map("archived_by_user_id") @db.Uuid
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  invoice    Invoice     @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  archivedBy Membership? @relation(fields: [businessId, archivedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, invoiceId])
+  @@index([businessId, archivedAt])
+  @@map("invoice_tracking")
+}
+
+/// An invoice's activity timeline ("View Invoice: full invoice and activity"): sends, views,
+/// reminders, receipts, staff notes and logged billing activity. Insert-only; firm-side only
+/// (a client sees none of it). A NOTE or ACTIVITY_LOGGED event has its text.
+model InvoiceEvent {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  businessId  String           @map("business_id") @db.Uuid
+  invoiceId   String           @map("invoice_id") @db.Uuid
+  type        InvoiceEventType
+  actorKind   InvoiceActorKind @default(STAFF) @map("actor_kind")
+  /// The staff member, for STAFF events.
+  actorUserId String?          @map("actor_user_id") @db.Uuid
+  /// Up to 2000 characters; never card or bank details.
+  body        String?
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  invoice Invoice     @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  actor   Membership? @relation(fields: [businessId, actorUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, invoiceId, createdAt])
+  @@map("invoice_events")
+}
+
+/// A vault document sent with the invoice (the client's own, never INTERNAL, scanned clean).
+/// Added and removed until the invoice is PAID or canceled; the document itself stays.
+model InvoiceAttachment {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  invoiceId     String   @map("invoice_id") @db.Uuid
+  documentId    String   @map("document_id") @db.Uuid
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  invoice  Invoice     @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  document Document    @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+  addedBy  Membership? @relation(fields: [businessId, addedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, invoiceId, documentId])
+  @@index([businessId, documentId])
+  @@map("invoice_attachments")
 }
