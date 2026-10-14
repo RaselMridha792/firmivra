@@ -1634,6 +1634,44 @@ async function main() {
           place: 'Atlanta, GA, USA',
         },
       });
+      await tx.rolePermission.upsert({
+        where: {
+          businessId_role_module_capability: {
+            businessId,
+            role: 'BOOKKEEPER',
+            module: 'PAYROLL',
+            capability: 'VIEW',
+          },
+        },
+        update: {},
+        create: {
+          businessId,
+          role: 'BOOKKEEPER',
+          module: 'PAYROLL',
+          capability: 'VIEW',
+          granted: true,
+          updatedById: ownerId,
+        },
+      });
+      await tx.memberPermission.upsert({
+        where: {
+          businessId_membershipId_module_capability: {
+            businessId,
+            membershipId: staffId,
+            module: 'REPORTS',
+            capability: 'EXPORT',
+          },
+        },
+        update: {},
+        create: {
+          businessId,
+          membershipId: staffId,
+          module: 'REPORTS',
+          capability: 'EXPORT',
+          granted: true,
+          updatedById: ownerId,
+        },
+      });
       await tx.staffDraft.upsert({
         where: { id: SEED_STAFF_GROUP_IDS.draft },
         update: {},

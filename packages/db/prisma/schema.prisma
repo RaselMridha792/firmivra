@@ -472,6 +472,10 @@ model Membership {
   staffDocumentsUploaded StaffDocument[] @relation("StaffDocumentUploader")
   staffSessions          StaffSession[]
 
+  permissionsSet         MemberPermission[] @relation("MemberPermissionSubject")
+  permissionsChanged     MemberPermission[] @relation("MemberPermissionChangedBy")
+  rolePermissionsChanged RolePermission[]
+
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
   @@unique([businessId, id])
@@ -3249,4 +3253,84 @@ model StaffSession {
 
   @@index([businessId, membershipId, revokedAt])
   @@map("staff_sessions")
+}
+
+// ---------- Permission matrix overrides (R35, migration r35_permission_overrides) ----------
+// The module and capability grid of Settings > Users & Roles and Create Staff step 2. The
+// defaults of each role are code (packages/types team/permissions.ts); these tables hold only
+// what a firm changed from them: a role's row differs from its default, and a member's row
+// differs from their role's (after the firm's role changes). A row says granted or taken away.
+// "Reset to Default" deletes the rows. The Owner's permissions cannot be changed, and the API
+// refuses a change that would give someone what its author cannot grant, or an Edit with no View.
+
+enum PermissionModule {
+  DASHBOARD
+  CLIENTS
+  LEADS
+  APPOINTMENTS
+  INTAKE_FORMS
+  DOCUMENTS
+  CLIENT_PORTAL
+  TASKS
+  TAX_RETURNS
+  BOOKKEEPING
+  PAYROLL
+  TAX_PLANNING
+  BUSINESS_ADVISORY
+  INVOICES_PAYMENTS
+  MESSAGES
+  COMMUNICATIONS
+  AUTOMATIONS
+  COMPLIANCE
+  REPORTS
+  TEMPLATES
+  SERVICES_PRICING
+  STAFF_MANAGEMENT
+  INTEGRATIONS
+  SETTINGS
+}
+
+/// What a person may do in a module. "Full Access" is all of them (not stored). The Users &
+/// Roles grid's "Admin" column is MANAGE: configuration and access of the module.
+enum PermissionCapability {
+  VIEW
+  CREATE
+  EDIT
+  DELETE
+  APPROVE
+  MANAGE
+  EXPORT
+}
+
+/// A firm's change to one capability of one role. Never for the OWNER role (database CHECK).
+model RolePermission {
+  businessId  String               @map("business_id") @db.Uuid
+  role        MembershipRole
+  module      PermissionModule
+  capability  PermissionCapability
+  granted     Boolean
+  updatedById String?              @map("updated_by_membership_id") @db.Uuid
+  updatedAt   DateTime             @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy Membership? @relation(fields: [businessId, updatedById], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, role, module, capability])
+  @@map("role_permissions")
+}
+
+/// A firm's change to one capability of one member, on top of their role's.
+model MemberPermission {
+  businessId   String               @map("business_id") @db.Uuid
+  membershipId String               @map("membership_id") @db.Uuid
+  module       PermissionModule
+  capability   PermissionCapability
+  granted      Boolean
+  updatedById  String?              @map("updated_by_membership_id") @db.Uuid
+  updatedAt    DateTime             @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  member    Membership  @relation("MemberPermissionSubject", fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+  updatedBy Membership? @relation("MemberPermissionChangedBy", fields: [businessId, updatedById], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, membershipId, module, capability])
+  @@map("member_permissions")
 }

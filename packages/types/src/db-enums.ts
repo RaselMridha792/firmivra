@@ -415,3 +415,43 @@ export const StaffDocumentType = z.enum([
   'OTHER',
 ]);
 export type StaffDocumentType = z.infer<typeof StaffDocumentType>;
+
+export const PermissionModule = z.enum([
+  'DASHBOARD',
+  'CLIENTS',
+  'LEADS',
+  'APPOINTMENTS',
+  'INTAKE_FORMS',
+  'DOCUMENTS',
+  'CLIENT_PORTAL',
+  'TASKS',
+  'TAX_RETURNS',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'TAX_PLANNING',
+  'BUSINESS_ADVISORY',
+  'INVOICES_PAYMENTS',
+  'MESSAGES',
+  'COMMUNICATIONS',
+  'AUTOMATIONS',
+  'COMPLIANCE',
+  'REPORTS',
+  'TEMPLATES',
+  'SERVICES_PRICING',
+  'STAFF_MANAGEMENT',
+  'INTEGRATIONS',
+  'SETTINGS',
+]);
+export type PermissionModule = z.infer<typeof PermissionModule>;
+
+/** What a person may do in a module. "Full Access" is all of them (not stored). The Users & Roles grid's "Admin" column is MANAGE: configuration and access of the module. */
+export const PermissionCapability = z.enum([
+  'VIEW',
+  'CREATE',
+  'EDIT',
+  'DELETE',
+  'APPROVE',
+  'MANAGE',
+  'EXPORT',
+]);
+export type PermissionCapability = z.infer<typeof PermissionCapability>;
