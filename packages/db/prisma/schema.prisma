@@ -229,6 +229,23 @@ enum ApplicabilityDecision {
   DISMISSED
 }
 
+/// What a compliance log row records.
+enum ComplianceLogKind {
+  IMPORT
+  VERIFY
+  PUBLISH
+  ROLLBACK
+  GENERATE
+  OVERRIDE
+  ERROR
+}
+
+enum LogOutcome {
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -500,7 +517,8 @@ model Business {
   esignSettings        EsignSettings?
 
   // R38 work modules.
-  taskTypes TaskType[]
+  taskTypes          TaskType[]
+  complianceSettings ComplianceSettings[]
 
   @@map("businesses")
 }
@@ -3392,6 +3410,7 @@ model ComplianceDeadline {
   linkedFrom                    ComplianceDeadlineLink[]       @relation("DeadlineLinked")
   tasks                         Task[]
   complianceApplicabilityRecord ComplianceApplicabilityRecord?
+  complianceLogs                ComplianceLog[]
 
   @@unique([businessId, id])
   @@index([businessId, status, dueOn])
@@ -3478,7 +3497,8 @@ model ComplianceCalendar {
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  entries ComplianceCalendarEntry[]
+  entries        ComplianceCalendarEntry[]
+  complianceLogs ComplianceLog[]
 
   @@unique([businessId, id])
   @@unique([businessId, family, authority, state, effectiveYear, version])
@@ -3561,6 +3581,7 @@ model ComplianceRecurrence {
   assignedMember Membership?                   @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
   deadlines      ComplianceDeadline[]
   rules          ComplianceApplicabilityRule[]
+  complianceLogs ComplianceLog[]
 
   @@unique([businessId, id])
   @@unique([businessId, name, isTemplate])
@@ -3630,4 +3651,52 @@ model ComplianceApplicabilityRecord {
   @@unique([businessId, deadlineId])
   @@index([businessId, decision])
   @@map("compliance_applicability_records")
+}
+
+/// Compliance logs (Frame 3 "Logs"): calendar imports, verification, publish and rollback,
+/// deadline generation, due-date overrides and errors. Append-only. `message` is a short safe
+/// text and `details` ids and counts only: never client data, tokens or file contents.
+model ComplianceLog {
+  id           String            @id @default(uuid(7)) @db.Uuid
+  businessId   String            @map("business_id") @db.Uuid
+  kind         ComplianceLogKind
+  outcome      LogOutcome
+  calendarId   String?           @map("calendar_id") @db.Uuid
+  deadlineId   String?           @map("deadline_id") @db.Uuid
+  recurrenceId String?           @map("recurrence_id") @db.Uuid
+  message      String?
+  details      Json              @default("{}")
+  actorUserId  String?           @map("actor_user_id") @db.Uuid
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  calendar   ComplianceCalendar?   @relation(fields: [businessId, calendarId], references: [businessId, id], onDelete: Restrict)
+  deadline   ComplianceDeadline?   @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
+  recurrence ComplianceRecurrence? @relation(fields: [businessId, recurrenceId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, createdAt])
+  @@index([businessId, kind, outcome])
+  @@map("compliance_logs")
+}
+
+/// A firm's Compliance settings (the Settings button): the Due Soon and At Risk thresholds, how
+/// old a calendar may get before it shows a stale warning, default reminders for new deadlines,
+/// past-due and manager escalation, and a default task template per deadline type
+/// (`taskTemplates`: {DEADLINE_TYPE: task template id}, checked by the API). One row per firm.
+model ComplianceSettings {
+  businessId        String   @id @map("business_id") @db.Uuid
+  dueSoonDays       Int      @default(14) @map("due_soon_days")
+  /// A high-priority deadline this close to its date puts the client at risk.
+  atRiskDays        Int      @default(7) @map("at_risk_days")
+  staleCalendarDays Int      @default(90) @map("stale_calendar_days")
+  defaultReminders  Json     @default("[]") @map("default_reminders")
+  sendPastDueNotice Boolean  @default(false) @map("send_past_due_notice")
+  escalateToManager Boolean  @default(false) @map("escalate_to_manager")
+  escalateAfterDays Int      @default(3) @map("escalate_after_days")
+  taskTemplates     Json     @default("{}") @map("task_templates")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("compliance_settings")
 }

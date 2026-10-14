@@ -156,6 +156,21 @@ export const ApplicabilityDecision = z.enum([
 ]);
 export type ApplicabilityDecision = z.infer<typeof ApplicabilityDecision>;
 
+/** What a compliance log row records. */
+export const ComplianceLogKind = z.enum([
+  'IMPORT',
+  'VERIFY',
+  'PUBLISH',
+  'ROLLBACK',
+  'GENERATE',
+  'OVERRIDE',
+  'ERROR',
+]);
+export type ComplianceLogKind = z.infer<typeof ComplianceLogKind>;
+
+export const LogOutcome = z.enum(['SUCCESS', 'FAILED', 'SKIPPED']);
+export type LogOutcome = z.infer<typeof LogOutcome>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;

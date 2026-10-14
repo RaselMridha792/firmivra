@@ -40,6 +40,7 @@ export const SEED_R38_IDS = {
   recurrence: id(18),
   rule: id(19),
   record: id(20),
+  complianceLog: id(21),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -315,6 +316,29 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
   await tx.complianceDeadline.update({
     where: { id: SEED_R38_IDS.deadline1 },
     data: { recurrenceId: SEED_R38_IDS.recurrence },
+  });
+  await tx.complianceLog.upsert({
+    where: { id: SEED_R38_IDS.complianceLog },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.complianceLog,
+      businessId,
+      kind: 'PUBLISH',
+      outcome: 'SUCCESS',
+      calendarId: SEED_R38_IDS.calendar,
+      message: 'IRS tax calendar 2027 published',
+      details: { entries: 2 },
+      actorUserId: c.ownerId,
+    },
+  });
+  await tx.complianceSettings.upsert({
+    where: { businessId },
+    update: {},
+    create: {
+      businessId,
+      defaultReminders: [{ daysBefore: 14, inApp: true, channels: ['EMAIL'] }],
+      taskTemplates: { ESTIMATED_TAX: SEED_R38_IDS.template },
+    },
   });
   await tx.task.update({
     where: { id: c.taskId },
