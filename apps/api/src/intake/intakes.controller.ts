@@ -33,6 +33,7 @@ import {
   type UploadTicket,
 } from '@firmivra/types';
 import {
+  Access,
   CurrentAuth,
   CurrentTenant,
   FIRM_MANAGERS,
@@ -192,6 +193,7 @@ export class MyIntakesController {
 
 /** A client's intakes, and sending one for an engagement (firm). */
 @Controller('business')
+@Access('INTAKE_FORMS')
 @Roles(...FIRM_STAFF)
 export class ClientIntakesController {
   constructor(private readonly intakes: IntakesService) {}
@@ -221,6 +223,7 @@ export class ClientIntakesController {
 
 /** One intake, as the firm reviews it. */
 @Controller('business/intakes')
+@Access('INTAKE_FORMS')
 @Roles(...FIRM_STAFF)
 export class IntakesController {
   constructor(private readonly intakes: IntakesService) {}

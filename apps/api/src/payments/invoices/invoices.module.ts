@@ -10,6 +10,7 @@ import {
   UpdateInvoiceRequest,
 } from '@firmivra/types';
 import {
+  Access,
   CurrentAuth,
   CurrentTenant,
   FIRM_MANAGERS,
@@ -44,6 +45,7 @@ export function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor 
  * Owner and Admin; the role guard refuses Staff (403) before the body is read.
  */
 @Controller('business/invoices')
+@Access('INVOICES_PAYMENTS')
 @Roles(...FIRM_STAFF)
 export class InvoicesController {
   constructor(private readonly invoices: InvoicesService) {}

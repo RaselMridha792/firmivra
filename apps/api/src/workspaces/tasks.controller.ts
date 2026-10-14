@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import { type Task, TaskId, type TaskList } from '@firmivra/types';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { actorOf } from './common.js';
@@ -14,6 +14,7 @@ import { TasksService } from './tasks.service.js';
  * tasks. The firm comes from TenantGuard.
  */
 @Controller('business/tasks')
+@Access('TASKS')
 @Roles(...FIRM_STAFF)
 export class TasksController {
   constructor(private readonly tasks: TasksService) {}

@@ -12,7 +12,12 @@ import {
   type Prisma,
   type TxClient,
 } from '@firmivra/db';
-import { FIRM_ROLE_ORDER, type MembershipRole, type TeamMember } from '@firmivra/types';
+import {
+  FIRM_ROLE_ORDER,
+  type MembershipRole,
+  ROLES_MANAGED_BY,
+  type TeamMember,
+} from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { InvitesService, lockStaffInvites } from '../auth/invites.service.js';
 import { DATABASE } from '../database/database.module.js';
@@ -130,12 +135,12 @@ export function byRoleThenName(
   );
 }
 
-/** Admins manage Staff only; nobody acts on themselves. */
+/** Admins manage the roles below Admin only (ROLES_MANAGED_BY); nobody acts on themselves. */
 export function assertManageable(
   actor: TeamActor,
   target: { role: MembershipRole; userId: string },
 ) {
-  if (actor.role === 'ADMIN' && target.role !== 'STAFF') throw forbidden();
+  if (actor.role === 'ADMIN' && !ROLES_MANAGED_BY.ADMIN.includes(target.role)) throw forbidden();
   if (target.userId === actor.userId) {
     throw new ConflictException({
       code: 'CANNOT_CHANGE_SELF',

@@ -1,7 +1,12 @@
 import { createParamDecorator, type ExecutionContext, SetMetadata } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import { FIRM_ROLES, type BusinessStatus } from '@firmivra/types';
+import {
+  type BusinessStatus,
+  FIRM_ROLES,
+  type PermissionCapability,
+  type PermissionModule,
+} from '@firmivra/types';
 import type { AuthContext, TenantContext, TenantRole } from '../common/request-context.js';
 
 /**
@@ -17,7 +22,24 @@ export const FIRM_STAFF = ['OWNER', 'ADMIN', 'STAFF'] as const satisfies readonl
 /** Those who manage the firm (team, settings): `@Roles(...FIRM_MANAGERS)`. */
 export const FIRM_MANAGERS = ['OWNER', 'ADMIN'] as const satisfies readonly Role[];
 
+/**
+ * The permission grid entry a route belongs to (packages/types team/permissions.ts). Owner, Admin
+ * and Staff are let in by `@Roles(...)` as always; Manager, Bookkeeper, Tax Preparer, Client
+ * Support and Read Only get in only where this says their grid allows it. Put it on a controller
+ * for its module (the capability then follows the HTTP method: GET views, POST creates, PUT and
+ * PATCH edit, DELETE deletes) or on a route to name the capability. It opens only routes whose
+ * `@Roles` include STAFF: a route for Owner and Admin alone stays closed to them. A route
+ * without it is closed to the five roles.
+ */
+export interface RouteAccess {
+  module: PermissionModule;
+  capability?: PermissionCapability;
+}
+export const Access = (module: PermissionModule, capability?: PermissionCapability) =>
+  SetMetadata(ACCESS_KEY, { module, capability } satisfies RouteAccess);
+
 const PUBLIC_KEY = 'firmivra:public';
+const ACCESS_KEY = 'firmivra:access';
 const ROLES_KEY = 'firmivra:roles';
 const BUSINESS_STATUSES_KEY = 'firmivra:business-statuses';
 
@@ -54,6 +76,13 @@ export function rolesOfRoute(
 
 export function isPublic(reflector: Reflector, ctx: ExecutionContext): boolean {
   return isPublicRoute(reflector, ctx.getHandler(), ctx.getClass());
+}
+
+export function accessFor(reflector: Reflector, ctx: ExecutionContext): RouteAccess | undefined {
+  return reflector.getAllAndOverride<RouteAccess | undefined>(ACCESS_KEY, [
+    ctx.getHandler(),
+    ctx.getClass(),
+  ]);
 }
 
 export function rolesFor(reflector: Reflector, ctx: ExecutionContext): Role[] | undefined {

@@ -6,6 +6,7 @@ import {
   FIRM_ROLES,
   InviteRole,
   MembershipRole,
+  ROLES_MANAGED_BY,
 } from '../../src/index.js';
 
 describe('the firm roles', () => {
@@ -28,9 +29,25 @@ describe('the firm roles', () => {
     expect(FIRM_ROLES.map((role) => FIRM_ROLE_ORDER[role])).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
   });
 
-  it("keeps the invite and role-change requests at today's roles until the rules open more", () => {
-    expect(InviteRole.options).toEqual(['ADMIN', 'STAFF']);
-    expect(ChangeTeamRoleRequest.safeParse({ role: 'MANAGER' }).success).toBe(false);
-    expect(ChangeTeamRoleRequest.safeParse({ role: 'ADMIN' }).success).toBe(true);
+  it('lets an invite give any role but Owner, and a role change any role', () => {
+    expect(InviteRole.options).toEqual(FIRM_ROLES.filter((role) => role !== 'OWNER'));
+    expect(ChangeTeamRoleRequest.safeParse({ role: 'MANAGER' }).success).toBe(true);
+    expect(InviteRole.safeParse('OWNER').success).toBe(false);
+  });
+
+  it('says who manages which role: nobody gives Owner, nobody manages their own level', () => {
+    for (const managers of Object.values(ROLES_MANAGED_BY)) expect(managers).not.toContain('OWNER');
+    expect(ROLES_MANAGED_BY.ADMIN).not.toContain('ADMIN');
+    expect(ROLES_MANAGED_BY.OWNER).toEqual(FIRM_ROLES.filter((role) => role !== 'OWNER'));
+    for (const role of [
+      'MANAGER',
+      'STAFF',
+      'BOOKKEEPER',
+      'TAX_PREPARER',
+      'CLIENT_SUPPORT',
+      'READ_ONLY',
+    ] as const) {
+      expect(ROLES_MANAGED_BY[role]).toEqual([]);
+    }
   });
 });

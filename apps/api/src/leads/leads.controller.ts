@@ -11,7 +11,7 @@ import {
   type LeadList,
   ListLeadsQuery,
 } from '@firmivra/types';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
@@ -33,6 +33,7 @@ function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
 
 /** The firm's Begin Online leads (R11 step 4): Owner, Admin and Staff. */
 @Controller('business/leads')
+@Access('LEADS')
 @Roles(...FIRM_STAFF)
 export class LeadsController {
   constructor(

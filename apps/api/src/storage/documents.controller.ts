@@ -18,7 +18,7 @@ import {
   RejectDocumentRequestRequest,
   type UploadTicket,
 } from '@firmivra/types';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import { poolSecrets } from '../auth/sealed.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
@@ -53,6 +53,7 @@ function actorOf(auth: AuthContext, tenant: TenantContext): FirmActor {
  * firm comes from TenantGuard.
  */
 @Controller('business')
+@Access('DOCUMENTS')
 @Roles(...FIRM_STAFF)
 export class DocumentsController {
   constructor(

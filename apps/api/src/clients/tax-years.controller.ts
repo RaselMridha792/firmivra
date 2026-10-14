@@ -8,7 +8,7 @@ import {
   SetClientTaxYearRequest,
   TaxYear,
 } from '@firmivra/types';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import type { ClientsActor } from './clients.service.js';
@@ -27,6 +27,7 @@ function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
  * The firm comes from TenantGuard.
  */
 @Controller('business/clients/:id/tax-years')
+@Access('CLIENTS')
 @Roles(...FIRM_STAFF)
 export class ClientTaxYearsController {
   constructor(private readonly years: TaxYearsService) {}

@@ -17,12 +17,13 @@ export type TenantRole = MembershipRole | 'CLIENT';
 export type LegacyFirmRole = 'OWNER' | 'ADMIN' | 'STAFF';
 
 /**
- * The caller's role for a service that scopes by Owner, Admin or Staff. Those routes list only
- * those three roles, so any other role cannot get here; if one ever did, it is refused (403)
- * rather than treated as Admin-like.
+ * The caller's role for a service that scopes data by Owner, Admin or Staff. The five newer
+ * roles (Manager, Bookkeeper, Tax Preparer, Client Support, Read Only) are scoped like Staff:
+ * only the clients assigned to them, the narrowest. A client login never gets here (403).
  */
 export function legacyFirmRole(role: TenantRole): LegacyFirmRole {
   if (role === 'OWNER' || role === 'ADMIN' || role === 'STAFF') return role;
+  if (role !== 'CLIENT') return 'STAFF';
   throw new ForbiddenException({
     code: 'FORBIDDEN',
     message: 'You do not have access to this action',

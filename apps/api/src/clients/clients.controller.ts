@@ -22,6 +22,7 @@ import {
   UpdateClientRequest,
 } from '@firmivra/types';
 import {
+  Access,
   CurrentAuth,
   CurrentTenant,
   FIRM_MANAGERS,
@@ -52,6 +53,7 @@ function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
  * firm comes from TenantGuard. The profile (step 4) keeps SSN, EIN and date of birth encrypted.
  */
 @Controller('business/clients')
+@Access('CLIENTS')
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
 
