@@ -35,6 +35,7 @@ import {
   SEED_ESIGN_IDS,
   SAMPLE_ESIGN_CONSENT,
 } from './seed-data.js';
+import { seedWorkModules } from './seed-r38.js';
 
 config({ path: '../../.env', quiet: true });
 
@@ -1689,6 +1690,29 @@ async function main() {
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
     seedEsign(tx, businesses.lvp),
   );
+
+  // The work modules (Tasks, Compliance, Automations, Bookkeeping, Tax Planning), after the rows
+  // they point at.
+  await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, async (tx) => {
+    const services = await tx.service.findMany({
+      where: { businessId: businesses.lvp },
+      select: { id: true, name: true },
+    });
+    const serviceId = (name: string) => services.find((x) => x.name === name)!.id;
+    await seedWorkModules(tx, {
+      businessId: businesses.lvp,
+      clientId: SEED_CLIENT_IDS.lvp,
+      ownerId: SEED_USERS.lvpOwner.id,
+      staffId: SEED_USERS.lvpStaff.id,
+      taskId: SEED_WORK_IDS.lvpTask,
+      taxEngagementId: SEED_WORK_IDS.lvpTax,
+      bookkeepingEngagementId: SEED_WORK_IDS.lvpBookkeeping,
+      taxServiceId: serviceId('Annual Tax'),
+      bookkeepingServiceId: serviceId('Bookkeeping'),
+      documentId: SEED_DOCUMENT_IDS.interestDocument,
+      reportId: SEED_WORK_IDS.lvpReport,
+    });
+  });
 
   // LVP's firm application (submitted publicly, approved by the Super Admin, then linked to the
   // firm at provisioning), LVP's platform fields, a pending support request, and one platform and
