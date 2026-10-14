@@ -349,3 +349,31 @@ export type EsignEmailStatus = z.infer<typeof EsignEmailStatus>;
 /** An upload started and not confirmed: a request's file, or a signer's attachment. */
 export const EsignUploadKind = z.enum(['DOCUMENT', 'ATTACHMENT']);
 export type EsignUploadKind = z.infer<typeof EsignUploadKind>;
+
+export const MessageTemplateKind = z.enum([
+  'EMAIL',
+  'SMS',
+  'PORTAL_MESSAGE',
+  'DOCUMENT_REQUEST',
+  'INTAKE_ORGANIZER',
+  'ENGAGEMENT_AGREEMENT',
+  'INVOICE_PAYMENT',
+  'APPOINTMENT',
+  'TASK',
+  'TAX_WORKFLOW',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'LEAD_FOLLOW_UP',
+  'CAMPAIGN',
+  'LETTER_NOTICE',
+  'ANNOUNCEMENT',
+]);
+export type MessageTemplateKind = z.infer<typeof MessageTemplateKind>;
+
+/** DRAFT is not offered to automations; ARCHIVED is hidden from pickers but kept for history. */
+export const MessageTemplateStatus = z.enum(['DRAFT', 'ACTIVE', 'ARCHIVED']);
+export type MessageTemplateStatus = z.infer<typeof MessageTemplateStatus>;
+
+/** Who can use a template: its owner only, the whole team, or the people in message_template_shares. */
+export const MessageTemplateAccess = z.enum(['PRIVATE', 'TEAM', 'SELECTED']);
+export type MessageTemplateAccess = z.infer<typeof MessageTemplateAccess>;

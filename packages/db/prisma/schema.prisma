@@ -2873,3 +2873,119 @@ model EsignBulkItem {
   @@index([businessId, state])
   @@map("esign_bulk_items")
 }
+
+// =====================================================================================
+// R39: Communications, Templates, Reports, Integrations, Payroll, Business Advisory.
+// Tenant tables: business_id, forced RLS, same-firm foreign keys. Actor columns
+// (created_by_user_id and the like) are plain ids set by the API from the session.
+
+// ---------- Templates (message templates; Firm Sign templates are esign_templates) ----------
+
+enum MessageTemplateKind {
+  EMAIL
+  SMS
+  PORTAL_MESSAGE
+  DOCUMENT_REQUEST
+  INTAKE_ORGANIZER
+  ENGAGEMENT_AGREEMENT
+  INVOICE_PAYMENT
+  APPOINTMENT
+  TASK
+  TAX_WORKFLOW
+  BOOKKEEPING
+  PAYROLL
+  LEAD_FOLLOW_UP
+  CAMPAIGN
+  LETTER_NOTICE
+  ANNOUNCEMENT
+}
+
+/// DRAFT is not offered to automations; ARCHIVED is hidden from pickers but kept for history.
+enum MessageTemplateStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+/// Who can use a template: its owner only, the whole team, or the people in message_template_shares.
+enum MessageTemplateAccess {
+  PRIVATE
+  TEAM
+  SELECTED
+}
+
+/// A firm's own category inside one template kind ("Tax Season", "Appointments"). Archived, not deleted.
+model TemplateCategory {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  businessId  String              @map("business_id") @db.Uuid
+  kind        MessageTemplateKind
+  name        String
+  description String?
+  sortOrder   Int                 @default(0) @map("sort_order")
+  archivedAt  DateTime?           @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  templates MessageTemplate[]
+
+  @@unique([businessId, kind, name])
+  @@unique([businessId, id])
+  @@map("template_categories")
+}
+
+/// A reusable message or checklist for Communications, Automations, Appointments and the other
+/// modules. `body` and `subject` keep merge fields as `[Client First Name]` tokens; they resolve
+/// at use time. Each save adds a message_template_versions row. `starterKey` marks one of the 48
+/// preloaded templates (unique per firm, so seeding is repeatable). Archived, never deleted.
+model MessageTemplate {
+  id                   String                @id @default(uuid(7)) @db.Uuid
+  businessId           String                @map("business_id") @db.Uuid
+  kind                 MessageTemplateKind
+  categoryId           String?               @map("category_id") @db.Uuid
+  name                 String
+  description          String?
+  subject              String?
+  previewText          String?               @map("preview_text")
+  body                 String
+  status               MessageTemplateStatus @default(DRAFT)
+  access               MessageTemplateAccess @default(TEAM)
+  tags                 String[]              @default([])
+  /// Offered to Automations (only an ACTIVE template with a kind automations support).
+  includeInAutomations Boolean               @default(false) @map("include_in_automations")
+  starterKey           String?               @map("starter_key")
+  /// The newest version number.
+  version              Int                   @default(1)
+  ownerUserId          String                @map("owner_user_id") @db.Uuid
+  updatedByUserId      String?               @map("updated_by_user_id") @db.Uuid
+  archivedAt           DateTime?             @map("archived_at") @db.Timestamptz(3)
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  category TemplateCategory?        @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  versions MessageTemplateVersion[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, starterKey])
+  @@index([businessId, kind, status])
+  @@index([businessId, categoryId])
+  @@index([businessId, ownerUserId])
+  @@map("message_templates")
+}
+
+/// Insert-only snapshot of every save. Sends record the version they used.
+model MessageTemplateVersion {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  templateId    String   @map("template_id") @db.Uuid
+  version       Int
+  name          String
+  subject       String?
+  body          String
+  savedByUserId String   @map("saved_by_user_id") @db.Uuid
+  savedAt       DateTime @default(now()) @map("saved_at") @db.Timestamptz(3)
+
+  template MessageTemplate @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, templateId, version])
+  @@map("message_template_versions")
+}
