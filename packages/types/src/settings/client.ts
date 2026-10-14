@@ -1,7 +1,7 @@
 import { type ApiRequest, parseInput } from '../client.js';
 import { UploadTicket } from '../documents/schemas.js';
 import { LegalDocument, LegalKind } from '../client-auth/schemas.js';
-import { ConfirmLogoUploadRequest, CreateLogoUploadRequest } from './logo.js';
+import { ConfirmLogoUploadRequest, CreateLogoUploadRequest, LogoVariant } from './logo.js';
 import {
   FirmLegalOverview,
   FirmSettings,
@@ -44,9 +44,12 @@ export function createSettingsClient(request: ApiRequest) {
         method: 'POST',
         body: parseInput(ConfirmLogoUploadRequest, body),
       }),
-    /** Removes the logo; the Firmivra logo shows again. Repeating is harmless. */
-    removeLogo: async (): Promise<FirmSettings> =>
-      request(FirmSettings, LOGO, { method: 'DELETE', body: {} }),
+    /** Removes the logo (dark by default); the Firmivra logo shows again. Repeating is harmless. */
+    removeLogo: async (variant: LogoVariant = 'dark'): Promise<FirmSettings> =>
+      request(FirmSettings, `${LOGO}?variant=${parseInput(LogoVariant, variant)}`, {
+        method: 'DELETE',
+        body: {},
+      }),
 
     getSetup: async (): Promise<FirmSetup> => request(FirmSetup, SETUP),
     /** Marks a wizard step done (Next). Save Draft only calls `update`. Repeating is harmless. */

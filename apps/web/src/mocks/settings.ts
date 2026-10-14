@@ -8,6 +8,7 @@ import {
   LegalKind,
   LegalVersionNumber,
   LOGO_ERRORS,
+  LogoVariant,
   parseInput,
   PublishLegalDocumentRequest,
   SetupStep,
@@ -54,6 +55,9 @@ export function settingsFixture(): FirmSettings {
     country: 'US',
     timezone: 'America/New_York',
     logoUrl: null,
+    logoLightUrl: null,
+    sidebarSlogan: null,
+    sidebarMotto: null,
     primaryColor: null,
     accentColor: null,
     portalName: null,
@@ -158,9 +162,9 @@ export function createSettingsMock(
 
     createLogoUpload: async (body) => {
       await allowed();
-      const { sha256 } = parseInput(CreateLogoUploadRequest, body);
+      const { sha256, variant } = parseInput(CreateLogoUploadRequest, body);
       return {
-        uploadToken: `mock-logo-${sha256.slice(0, 8)}`,
+        uploadToken: `mock-logo-${variant}-${sha256.slice(0, 8)}`,
         url: `mock:logo/${sha256.slice(0, 8)}`,
         method: 'PUT',
         headers: {},
@@ -170,15 +174,18 @@ export function createSettingsMock(
     // The mock keeps no file: any confirmed upload shows this picture.
     confirmLogoUpload: async (body) => {
       await allowed();
-      if (!parseInput(ConfirmLogoUploadRequest, body).uploadToken.startsWith('mock-logo-')) {
+      const { uploadToken } = parseInput(ConfirmLogoUploadRequest, body);
+      if (!uploadToken.startsWith('mock-logo-')) {
         throw fail(410, 'UPLOAD_EXPIRED', LOGO_ERRORS.UPLOAD_EXPIRED);
       }
-      settings = { ...settings, logoUrl: MOCK_LOGO, updatedAt: now() };
+      const field = uploadToken.startsWith('mock-logo-light-') ? 'logoLightUrl' : 'logoUrl';
+      settings = { ...settings, [field]: MOCK_LOGO, updatedAt: now() };
       return copySettings();
     },
-    removeLogo: async () => {
+    removeLogo: async (variant = 'dark') => {
       await allowed();
-      settings = { ...settings, logoUrl: null, updatedAt: now() };
+      const field = parseInput(LogoVariant, variant) === 'light' ? 'logoLightUrl' : 'logoUrl';
+      settings = { ...settings, [field]: null, updatedAt: now() };
       return copySettings();
     },
 

@@ -7,6 +7,7 @@ import {
   type CreateLogoUploadRequest,
   LOGO_ERRORS,
   LogoContentType,
+  LogoVariant,
   type UploadTicket,
 } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
@@ -28,6 +29,7 @@ const LogoClaim = z.object({
   businessId: z.uuid(),
   /** Only the person who asked can confirm. */
   userId: z.uuid(),
+  variant: LogoVariant,
   /** tenant/{businessId}/logo/{uuid}.{ext}, chosen by the API. */
   key: z.string(),
   contentType: LogoContentType,
@@ -63,7 +65,14 @@ export class LogoService {
 
   async ticket(businessId: string, userId: string, body: CreateLogoUploadRequest) {
     const key = `tenant/${businessId}/logo/${randomUUID()}.${logoExtension(body.contentType)}`;
-    const claim: LogoClaim = { pool: 'STAFF', businessId, userId, key, ...body };
+    const claim: LogoClaim = {
+      pool: 'STAFF',
+      businessId,
+      userId,
+      key,
+      ...body,
+      variant: body.variant ?? 'dark',
+    };
     const put = await this.s3('presign PUT', () => this.storage.presignUpload(claim));
     const ticket: UploadTicket = {
       uploadToken: await this.tokens.seal(claim, UPLOAD_TOKEN_SECONDS),
@@ -93,29 +102,35 @@ export class LogoService {
       await this.discard(claim.key);
       throw refusal('UPLOAD_MISMATCH', LOGO_ERRORS[problem]);
     }
-    const old = await this.set(businessId, claim.key, 'business.logo_uploaded');
+    const old = await this.set(businessId, claim.variant, claim.key, 'business.logo_uploaded');
     if (old && old !== claim.key) await this.discard(old);
   }
 
-  async remove(businessId: string): Promise<void> {
-    const old = await this.set(businessId, null, 'business.logo_removed');
+  async remove(businessId: string, variant: LogoVariant): Promise<void> {
+    const old = await this.set(businessId, variant, null, 'business.logo_removed');
     if (old) await this.discard(old);
   }
 
   /** The firm's logo for its public address; 404 when it has none. */
-  async stored(businessId: string) {
+  async stored(businessId: string, variant: LogoVariant) {
     const settings = await this.database.forBusiness(businessId).businessSettings.findUnique({
       where: { businessId },
-      select: { logoKey: true },
+      select: { logoKey: true, logoLightKey: true },
     });
-    const key = settings?.logoKey;
+    const key = variant === 'light' ? settings?.logoLightKey : settings?.logoKey;
     const bytes = key ? await this.s3('GET', () => this.storage.read(key)) : null;
     if (!key || !bytes) throw notFound();
     return { bytes, contentType: logoTypeOfKey(key), version: logoIdOf(key) };
   }
 
   /** Sets `logo_key` and audits it in one transaction; returns the key it replaced. */
-  private set(businessId: string, key: string | null, action: string): Promise<string | null> {
+  private set(
+    businessId: string,
+    variant: LogoVariant,
+    key: string | null,
+    action: string,
+  ): Promise<string | null> {
+    const column = variant === 'light' ? 'logoLightKey' : 'logoKey';
     return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       // ON CONFLICT DO NOTHING, as the settings do: two first saves at once must not collide.
       await tx.$executeRaw`
@@ -123,13 +138,19 @@ export class LogoService {
         ON CONFLICT (business_id) DO NOTHING`;
       const row = await tx.businessSettings.findUnique({
         where: { businessId },
-        select: { logoKey: true },
+        select: { logoKey: true, logoLightKey: true },
       });
-      const old = row?.logoKey ?? null;
+      const old = row?.[column] ?? null;
       if (key === null && old === null) return null; // nothing to remove, nothing to audit
-      await tx.businessSettings.update({ where: { businessId }, data: { logoKey: key } });
+      await tx.businessSettings.update({ where: { businessId }, data: { [column]: key } });
       const entity = { type: 'business', id: businessId };
-      await this.audit.logIn(tx, action, entity, { logoId: logoIdOf(key ?? old!) }, { businessId });
+      await this.audit.logIn(
+        tx,
+        action,
+        entity,
+        { logoId: logoIdOf(key ?? old!), variant },
+        { businessId },
+      );
       return old;
     });
   }

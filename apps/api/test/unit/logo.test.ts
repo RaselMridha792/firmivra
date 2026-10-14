@@ -71,6 +71,9 @@ describe('the public address', () => {
     expect(logoUrl('https://portal.firmivra.com/', 'lvp', key)).toBe(
       'https://portal.firmivra.com/api/v1/portal/lvp/logo?v=0b5e',
     );
+    expect(logoUrl('https://portal.firmivra.com', 'lvp', key, 'light')).toBe(
+      'https://portal.firmivra.com/api/v1/portal/lvp/logo?variant=light&v=0b5e',
+    );
     expect(logoUrl('https://portal.firmivra.com', 'lvp', null)).toBeNull();
     expect(logoTypeOfKey(key)).toBe('image/png');
     expect(logoTypeOfKey(`x/y.${logoExtension('image/jpeg')}`)).toBe('image/jpeg');
@@ -84,7 +87,12 @@ describe('emails', () => {
       business: { findUnique: () => Promise.resolve({ name: 'LVP', slug: 'lvp' }) },
       businessSettings: {
         findUnique: () =>
-          Promise.resolve({ brandColor: null, accentColor: null, timezone: null, logoKey }),
+          Promise.resolve({
+            brandColor: null,
+            accentColor: null,
+            timezone: null,
+            logoLightKey: logoKey,
+          }),
       },
     }));
     return new BrandingSource({ forBusiness } as never, portalOrigin).load(
@@ -92,10 +100,10 @@ describe('emails', () => {
     );
   };
 
-  it("carry the firm's lasting logo address, or none", async () => {
+  it("carry the firm's lasting address of the logo for light backgrounds, or none", async () => {
     const key = 'tenant/b1/logo/0b5e.webp';
     expect((await load('https://portal.firmivra.com', key)).logoUrl).toBe(
-      'https://portal.firmivra.com/api/v1/portal/lvp/logo?v=0b5e',
+      'https://portal.firmivra.com/api/v1/portal/lvp/logo?variant=light&v=0b5e',
     );
     expect((await load('https://portal.firmivra.com', null)).logoUrl).toBeNull();
     expect((await load(undefined, key)).logoUrl).toBeNull();
