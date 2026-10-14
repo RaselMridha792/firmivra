@@ -9,10 +9,21 @@ export type BusinessStatus = z.infer<typeof BusinessStatus>;
 export const IdentityPool = z.enum(['STAFF', 'CLIENT', 'ADMIN']);
 export type IdentityPool = z.infer<typeof IdentityPool>;
 
-export const MembershipRole = z.enum(['OWNER', 'ADMIN', 'STAFF']);
+/** The firm's eight staff roles (R35). What each may do is in packages/types (team/roles.ts). */
+export const MembershipRole = z.enum([
+  'OWNER',
+  'ADMIN',
+  'MANAGER',
+  'STAFF',
+  'BOOKKEEPER',
+  'TAX_PREPARER',
+  'CLIENT_SUPPORT',
+  'READ_ONLY',
+]);
 export type MembershipRole = z.infer<typeof MembershipRole>;
 
-export const MembershipStatus = z.enum(['INVITED', 'ACTIVE', 'DEACTIVATED']);
+/** LOCKED (R35): blocked for now and kept as a member; only ACTIVE members get into the firm. */
+export const MembershipStatus = z.enum(['INVITED', 'ACTIVE', 'LOCKED', 'DEACTIVATED']);
 export type MembershipStatus = z.infer<typeof MembershipStatus>;
 
 export const ClientAccountStatus = z.enum([
@@ -715,3 +726,98 @@ export type EsignEmailStatus = z.infer<typeof EsignEmailStatus>;
 /** An upload started and not confirmed: a request's file, or a signer's attachment. */
 export const EsignUploadKind = z.enum(['DOCUMENT', 'ATTACHMENT']);
 export type EsignUploadKind = z.infer<typeof EsignUploadKind>;
+
+export const StaffGroupStatus = z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']);
+export type StaffGroupStatus = z.infer<typeof StaffGroupStatus>;
+
+/** A member's place in a team: their one primary team, their one backup team, or a member. */
+export const TeamMemberKind = z.enum(['PRIMARY', 'BACKUP', 'MEMBER']);
+export type TeamMemberKind = z.infer<typeof TeamMemberKind>;
+
+export const StaffEmploymentType = z.enum([
+  'W2',
+  'FORM_1099',
+  'FULL_TIME',
+  'PART_TIME',
+  'CONTRACT',
+  'TEMPORARY',
+  'SEASONAL',
+  'INTERN',
+  'OTHER',
+]);
+export type StaffEmploymentType = z.infer<typeof StaffEmploymentType>;
+
+/** The "User Access Level" on Create Staff. It labels the member's authority; what they can do comes from the role and its permissions, never from this field alone. */
+export const StaffAccessLevel = z.enum(['STANDARD_USER', 'MANAGER', 'ADMINISTRATOR']);
+export type StaffAccessLevel = z.infer<typeof StaffAccessLevel>;
+
+export const StaffAuthMethod = z.enum(['AUTHENTICATOR_APP', 'SMS', 'EMAIL', 'BACKUP_CODES']);
+export type StaffAuthMethod = z.infer<typeof StaffAuthMethod>;
+
+/** Where a member may sign in from: anywhere, only the listed IP addresses or networks, or only the listed countries (approximate, from the viewer's IP; telemetry, not proof of location). */
+export const StaffAccessLocation = z.enum(['ANYWHERE', 'ALLOWED_IPS', 'ALLOWED_COUNTRIES']);
+export type StaffAccessLocation = z.infer<typeof StaffAccessLocation>;
+
+export const StaffPayType = z.enum(['SALARY', 'HOURLY', 'COMMISSION', 'PER_PROJECT', 'OTHER']);
+export type StaffPayType = z.infer<typeof StaffPayType>;
+
+export const StaffPayFrequency = z.enum([
+  'WEEKLY',
+  'BIWEEKLY',
+  'SEMIMONTHLY',
+  'MONTHLY',
+  'ANNUALLY',
+]);
+export type StaffPayFrequency = z.infer<typeof StaffPayFrequency>;
+
+export const StaffDocumentType = z.enum([
+  'EMPLOYMENT_AGREEMENT',
+  'CONTRACTOR_AGREEMENT',
+  'W4',
+  'DIRECT_DEPOSIT',
+  'NDA',
+  'CREDENTIAL_LICENSE',
+  'TRAINING_ACKNOWLEDGMENT',
+  'OTHER',
+]);
+export type StaffDocumentType = z.infer<typeof StaffDocumentType>;
+
+export const PermissionModule = z.enum([
+  'DASHBOARD',
+  'CLIENTS',
+  'LEADS',
+  'APPOINTMENTS',
+  'INTAKE_FORMS',
+  'DOCUMENTS',
+  'CLIENT_PORTAL',
+  'TASKS',
+  'TAX_RETURNS',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'TAX_PLANNING',
+  'BUSINESS_ADVISORY',
+  'INVOICES_PAYMENTS',
+  'MESSAGES',
+  'COMMUNICATIONS',
+  'AUTOMATIONS',
+  'COMPLIANCE',
+  'REPORTS',
+  'TEMPLATES',
+  'SERVICES_PRICING',
+  'STAFF_MANAGEMENT',
+  'INTEGRATIONS',
+  'SETTINGS',
+]);
+export type PermissionModule = z.infer<typeof PermissionModule>;
+
+/** What a person may do in a module. "Full Access" is all of them (not stored). The Users & Roles grid's "Admin" column is MANAGE: configuration and access of the module. */
+export const PermissionCapability = z.enum([
+  'VIEW',
+  'CREATE',
+  'EDIT',
+  'DELETE',
+  'APPROVE',
+  'MANAGE',
+  'EXPORT',
+]);
+export type PermissionCapability = z.infer<typeof PermissionCapability>;

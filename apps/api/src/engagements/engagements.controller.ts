@@ -12,9 +12,9 @@ import {
   RequestCancellationRequest,
   UpdateEngagementRequest,
 } from '@firmivra/types';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { ClientsActor } from '../clients/clients.service.js';
-import type { AuthContext, TenantContext } from '../common/request-context.js';
+import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { EngagementsService } from './engagements.service.js';
 
@@ -23,11 +23,12 @@ const idPipe = new ZodValidationPipe(EngagementId);
 
 function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
   if (tenant.kind !== 'staff') throw new Error('firm routes are for firm members');
-  return { userId: auth.userId, role: tenant.role };
+  return { userId: auth.userId, role: legacyFirmRole(tenant.role) };
 }
 
 /** A client's engagements (R10 step 6): Owner, Admin and Staff (Staff: their own clients). */
 @Controller('business/clients/:id/engagements')
+@Access('CLIENTS')
 @Roles(...FIRM_STAFF)
 export class ClientEngagementsController {
   constructor(private readonly engagements: EngagementsService) {}
@@ -63,6 +64,7 @@ export class ClientEngagementsController {
 
 /** One engagement and its lifecycle. The firm comes from TenantGuard. */
 @Controller('business/engagements')
+@Access('CLIENTS')
 @Roles(...FIRM_STAFF)
 export class EngagementsController {
   constructor(private readonly engagements: EngagementsService) {}

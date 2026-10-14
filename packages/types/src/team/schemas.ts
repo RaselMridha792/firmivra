@@ -11,7 +11,7 @@ import { MembershipRole } from '../schemas.js';
 //   never grants a role its inviter could not; only the platform invites (and resends to) Owners.
 // - Nobody changes their own role or deactivates themselves; a firm always keeps an active Owner.
 
-export const TeamMemberStatus = z.enum(['INVITED', 'ACTIVE', 'DEACTIVATED']);
+export const TeamMemberStatus = z.enum(['INVITED', 'ACTIVE', 'LOCKED', 'DEACTIVATED']);
 export type TeamMemberStatus = z.infer<typeof TeamMemberStatus>;
 
 /** A membership id in a path: anything else gets 400 VALIDATION_FAILED. */

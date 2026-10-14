@@ -1,6 +1,6 @@
 'use client';
 
-import { CreateInviteRequest, type FirmSettings } from '@firmivra/types';
+import { CreateInviteRequest, FIRM_ROLE_LABELS, type FirmSettings } from '@firmivra/types';
 import { Badge, Button, Card, Input, Select } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { UsersRound } from 'lucide-react';
@@ -15,7 +15,7 @@ import { useApiMutation, useApiQuery } from '../../../../lib/query';
 import { FIRM_SETTINGS, SETUP_ERRORS, TEAM, type StepProps } from './shared';
 import { StepActions, StepTitle } from './step-form';
 
-export const ROLE_LABELS = { OWNER: 'Owner', ADMIN: 'Admin', STAFF: 'Staff' } as const;
+export const ROLE_LABELS = FIRM_ROLE_LABELS;
 
 /** Step 3: who is on the team, and invites. Owners invite Admins or Staff; Admins invite Staff. */
 export function TeamStep({ firm, onBack, onNext }: StepProps & { firm: FirmSettings }) {
