@@ -442,6 +442,7 @@ model Membership {
   assignedEngagements Engagement[]
   assignedTasks       Task[]
   taskCollaborations  TaskAssignee[]
+  checklistAssigned   TaskChecklistItem[]
   workingHours        WorkingHours[]
   blockedTimes        BlockedTime[]
   appointments        Appointment[]
@@ -997,14 +998,17 @@ model Task {
   completedByUserId String?      @map("completed_by_user_id") @db.Uuid
   archivedAt        DateTime?    @map("archived_at") @db.Timestamptz(3)
 
-  client         Client         @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement     Engagement?    @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  assignedMember Membership?    @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  type           TaskType?      @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
-  service        Service?       @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  dependsOn      Task?          @relation("TaskDependency", fields: [businessId, dependsOnTaskId], references: [businessId, id], onDelete: Restrict)
-  dependents     Task[]         @relation("TaskDependency")
-  assignees      TaskAssignee[]
+  client             Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement         Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember     Membership?         @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  type               TaskType?           @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  service            Service?            @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  dependsOn          Task?               @relation("TaskDependency", fields: [businessId, dependsOnTaskId], references: [businessId, id], onDelete: Restrict)
+  dependents         Task[]              @relation("TaskDependency")
+  assignees          TaskAssignee[]
+  taskChecklistItems TaskChecklistItem[]
+  taskReminders      TaskReminder[]
+  taskAttachments    TaskAttachment[]
 
   @@unique([businessId, id])
   @@index([businessId, clientId])
@@ -1144,6 +1148,7 @@ model Document {
   reports            EngagementReport[]
   messageAttachments MessageAttachment[]
   taxReturns         TaxReturn[]
+  taskAttachments    TaskAttachment[]
 
   // Target of message attachments.
   @@unique([businessId, id])
@@ -2963,4 +2968,68 @@ model TaskAssignee {
   @@id([taskId, userId])
   @@index([businessId, userId])
   @@map("task_assignees")
+}
+
+/// One step of a task's checklist (ordered). A required item must be completed before the task
+/// can be (database rule). An item may be assigned to a member without giving them the client.
+model TaskChecklistItem {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  taskId            String    @map("task_id") @db.Uuid
+  label             String
+  /// Display order within the task; the API renumbers on a move (not unique, so a move is one update).
+  position          Int
+  required          Boolean   @default(false)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(3)
+  completedByUserId String?   @map("completed_by_user_id") @db.Uuid
+  assignedUserId    String?   @map("assigned_user_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task           Task        @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Cascade)
+  assignedMember Membership? @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, taskId, position])
+  @@map("task_checklist_items")
+}
+
+/// A reminder rule of a task: daysBefore the due date (0 = the due day) at timeOfDay (the firm's
+/// timezone; the API's default when null), in-app and by email or SMS. lastFiredFor is the due
+/// date the reminder last fired for, so a retry never sends it twice.
+model TaskReminder {
+  id           String            @id @default(uuid(7)) @db.Uuid
+  businessId   String            @map("business_id") @db.Uuid
+  taskId       String            @map("task_id") @db.Uuid
+  daysBefore   Int               @map("days_before")
+  timeOfDay    DateTime?         @map("time_of_day") @db.Time(0)
+  inApp        Boolean           @default(true) @map("in_app")
+  channels     DeliveryChannel[] @default([])
+  lastFiredFor DateTime?         @map("last_fired_for") @db.Date
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, taskId, daysBefore, timeOfDay])
+  @@map("task_reminders")
+}
+
+/// A document attached to a task: one of the task's client's documents. The client sees it in
+/// the portal only when the task is client-visible AND this row is approved (clientVisible), and
+/// never when the document is INTERNAL.
+model TaskAttachment {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  taskId        String   @map("task_id") @db.Uuid
+  documentId    String   @map("document_id") @db.Uuid
+  clientVisible Boolean  @default(false) @map("client_visible")
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task     Task     @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Cascade)
+  document Document @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, taskId, documentId])
+  @@index([businessId, documentId])
+  @@map("task_attachments")
 }

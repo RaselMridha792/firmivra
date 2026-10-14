@@ -13,12 +13,19 @@ export interface WorkSeedContext {
   bookkeepingEngagementId: string;
   taxServiceId: string;
   bookkeepingServiceId: string;
+  /// A seeded document of the client.
+  documentId: string;
 }
 
 /** Stable ids: 00000000-0000-4000-d<module>-<n>. */
 const id = (n: number) => `00000000-0000-4000-d000-${String(n).padStart(12, '0')}`;
 export const SEED_R38_IDS = {
   taskType: id(1),
+  checklist1: id(2),
+  checklist2: id(3),
+  reminder1: id(4),
+  reminder2: id(5),
+  attachment: id(6),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -38,5 +45,53 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
     where: { taskId_userId: { taskId: c.taskId, userId: c.ownerId } },
     update: {},
     create: { businessId, taskId: c.taskId, userId: c.ownerId },
+  });
+
+  // Tasks: checklist, reminders, an attachment.
+  await tx.taskChecklistItem.upsert({
+    where: { id: SEED_R38_IDS.checklist1 },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.checklist1,
+      businessId,
+      taskId: c.taskId,
+      label: 'Compare box 1 with last year',
+      position: 0,
+      required: true,
+    },
+  });
+  await tx.taskChecklistItem.upsert({
+    where: { id: SEED_R38_IDS.checklist2 },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.checklist2,
+      businessId,
+      taskId: c.taskId,
+      label: 'Note any large change for the client',
+      position: 1,
+      assignedUserId: c.staffId,
+    },
+  });
+  await tx.taskReminder.upsert({
+    where: { id: SEED_R38_IDS.reminder1 },
+    update: {},
+    create: { id: SEED_R38_IDS.reminder1, businessId, taskId: c.taskId, daysBefore: 7 },
+  });
+  await tx.taskReminder.upsert({
+    where: { id: SEED_R38_IDS.reminder2 },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.reminder2,
+      businessId,
+      taskId: c.taskId,
+      daysBefore: 0,
+      timeOfDay: new Date('1970-01-01T09:00:00Z'),
+      channels: ['EMAIL'],
+    },
+  });
+  await tx.taskAttachment.upsert({
+    where: { id: SEED_R38_IDS.attachment },
+    update: {},
+    create: { id: SEED_R38_IDS.attachment, businessId, taskId: c.taskId, documentId: c.documentId },
   });
 }
