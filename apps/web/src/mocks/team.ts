@@ -7,6 +7,7 @@ import {
   type TeamClient,
   TeamMember,
   TeamMemberId,
+  FIRM_ROLE_ORDER,
 } from '@firmivra/types';
 
 /**
@@ -110,7 +111,7 @@ export function createTeamMock(
       throw fail(409, 'LAST_ACTIVE_OWNER', 'The firm needs at least one active owner');
     }
   };
-  const order = { OWNER: 0, ADMIN: 1, STAFF: 2 } as const;
+  const order = FIRM_ROLE_ORDER;
   const newInvite = () => {
     const sent = new Date();
     const expires = new Date(sent.getTime() + INVITE_DAYS * 24 * 60 * 60 * 1000);

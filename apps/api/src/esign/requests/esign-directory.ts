@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
+import type { MembershipRole } from '@firmivra/types';
 import { DATABASE } from '../../database/database.module.js';
 
 // The firm data a request refers to (clients, services, portal logins, members), read through
@@ -35,6 +36,14 @@ export interface DirectoryMember {
   jobTitle: string | null;
   active: boolean;
 }
+
+/**
+ * Firm Sign knows three firm roles. The five newer roles count as STAFF here (the narrowest) until
+ * Firm Sign's own roles (Manager, Viewer) are mapped to them: they never reach Firm Sign's routes
+ * today (default deny), so this is only what the directory shows.
+ */
+const firmSignRole = (role: MembershipRole): DirectoryStaff['firmRole'] =>
+  role === 'OWNER' || role === 'ADMIN' ? role : 'STAFF';
 
 /** An active member and their firm role (Firm Sign roles and approvers). */
 export type DirectoryStaff = DirectoryMember & { firmRole: 'OWNER' | 'ADMIN' | 'STAFF' };
@@ -193,7 +202,7 @@ export class PrismaEsignDirectory implements EsignDirectory {
       },
     });
     return rows.map(({ userId, role, jobTitle, user }) => {
-      return { userId, ...user, jobTitle, active: true, firmRole: role };
+      return { userId, ...user, jobTitle, active: true, firmRole: firmSignRole(role) };
     });
   }
 

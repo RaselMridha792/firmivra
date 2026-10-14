@@ -1,7 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { ForbiddenException } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
-import type { IdentityPool } from '@firmivra/types';
+import type { IdentityPool, MembershipRole } from '@firmivra/types';
 
 /** Who is signed in. Set by AuthGuard. */
 export interface AuthContext {
@@ -10,7 +11,24 @@ export interface AuthContext {
   pool: IdentityPool;
 }
 
-export type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF' | 'CLIENT';
+export type TenantRole = MembershipRole | 'CLIENT';
+
+/** The three roles the firm routes written before R35 know how to scope their data for. */
+export type LegacyFirmRole = 'OWNER' | 'ADMIN' | 'STAFF';
+
+/**
+ * The caller's role for a service that scopes data by Owner, Admin or Staff. The five newer
+ * roles (Manager, Bookkeeper, Tax Preparer, Client Support, Read Only) are scoped like Staff:
+ * only the clients assigned to them, the narrowest. A client login never gets here (403).
+ */
+export function legacyFirmRole(role: TenantRole): LegacyFirmRole {
+  if (role === 'OWNER' || role === 'ADMIN' || role === 'STAFF') return role;
+  if (role !== 'CLIENT') return 'STAFF';
+  throw new ForbiddenException({
+    code: 'FORBIDDEN',
+    message: 'You do not have access to this action',
+  });
+}
 
 /** Which firm the request acts in and the caller's role there, from the database. Set by TenantGuard. */
 export type TenantContext =

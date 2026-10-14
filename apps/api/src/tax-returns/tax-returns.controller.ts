@@ -10,9 +10,9 @@ import {
   TaxReturnId,
   UpdateTaxReturnRequest,
 } from '@firmivra/types';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { ClientsActor } from '../clients/clients.service.js';
-import type { AuthContext, TenantContext } from '../common/request-context.js';
+import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { TaxReturnsService } from './tax-returns.service.js';
 
@@ -22,7 +22,7 @@ const idPipe = new ZodValidationPipe(TaxReturnId);
 /** The signed-in member and their role in this firm (TenantGuard). Firm roles only (see @Roles). */
 function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
   if (tenant.kind !== 'staff') throw new Error('firm routes are for firm members');
-  return { userId: auth.userId, role: tenant.role };
+  return { userId: auth.userId, role: legacyFirmRole(tenant.role) };
 }
 
 /**
@@ -30,6 +30,7 @@ function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
  * The firm comes from TenantGuard.
  */
 @Controller('business/clients/:id/tax-returns')
+@Access('TAX_RETURNS')
 @Roles(...FIRM_STAFF)
 export class ClientTaxReturnsController {
   constructor(private readonly returns: TaxReturnsService) {}
@@ -59,6 +60,7 @@ export class ClientTaxReturnsController {
 
 /** One return by its id: change it, or delete it while it was never filed. */
 @Controller('business/tax-returns')
+@Access('TAX_RETURNS')
 @Roles(...FIRM_STAFF)
 export class TaxReturnsController {
   constructor(private readonly returns: TaxReturnsService) {}

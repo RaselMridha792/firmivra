@@ -1,5 +1,3 @@
-import type { MembershipRole } from '@firmivra/types';
-
 /**
  * Mock mode: build a screen before its API is on main. In apps/web/.env.local set
  *   NEXT_PUBLIC_API_MOCK=all              every module that has mocks
@@ -23,11 +21,12 @@ export const MOCK_MODULES: readonly string[] = setting
 export const mocked = (module: string): boolean =>
   MOCK_MODULES.includes('all') || MOCK_MODULES.includes(module);
 
-const ROLES: readonly MembershipRole[] = ['OWNER', 'ADMIN', 'STAFF'];
-const role = process.env.NEXT_PUBLIC_API_MOCK_ROLE as MembershipRole | undefined;
+type MockRole = 'OWNER' | 'ADMIN' | 'STAFF';
+const ROLES: readonly MockRole[] = ['OWNER', 'ADMIN', 'STAFF'];
+const role = process.env.NEXT_PUBLIC_API_MOCK_ROLE as MockRole | undefined;
 
 /** Role of the mock signed-in user: NEXT_PUBLIC_API_MOCK_ROLE if it's a firm role, else OWNER. */
-export const MOCK_ROLE: MembershipRole = role && ROLES.includes(role) ? role : 'OWNER';
+export const MOCK_ROLE: MockRole = role && ROLES.includes(role) ? role : 'OWNER';
 
 /** Waits like a real request, so loading states show in mock mode too. */
 export const mockDelay = (ms = 250) => new Promise<void>((resolve) => setTimeout(resolve, ms));

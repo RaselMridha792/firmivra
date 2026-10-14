@@ -9,6 +9,7 @@ import {
   SEED_BUSINESSES,
   SEED_CLIENT_IDS,
   SEED_INVITE_ID,
+  SEED_STAFF_GROUP_IDS,
   SEED_OWNER_INVITE_ID,
   SEED_SERVICES,
   SEED_TAX_STATUSES,
@@ -702,6 +703,64 @@ async function main() {
         tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
         expiresAt: new Date(Date.now() + 6 * 86_400_000),
         invitedByUserId: SEED_USERS.lvpOwner.id,
+      },
+    });
+
+    // One department headed by the owner, with a team led by the staff member.
+    const lvpMembers = await tx.membership.findMany({
+      where: { userId: { in: [SEED_USERS.lvpOwner.id, SEED_USERS.lvpStaff.id] } },
+      select: { id: true, userId: true },
+    });
+    const memberOf = (userId: string) => lvpMembers.find((m) => m.userId === userId)!.id;
+    await tx.department.upsert({
+      where: { id: SEED_STAFF_GROUP_IDS.department },
+      update: {},
+      create: {
+        id: SEED_STAFF_GROUP_IDS.department,
+        businessId: businesses.lvp,
+        name: 'Tax',
+        description: 'Individual and business tax preparation and planning.',
+        headMembershipId: memberOf(SEED_USERS.lvpOwner.id),
+      },
+    });
+    await tx.team.upsert({
+      where: { id: SEED_STAFF_GROUP_IDS.team },
+      update: {},
+      create: {
+        id: SEED_STAFF_GROUP_IDS.team,
+        businessId: businesses.lvp,
+        departmentId: SEED_STAFF_GROUP_IDS.department,
+        name: 'Individual Tax',
+        leadMembershipId: memberOf(SEED_USERS.lvpStaff.id),
+      },
+    });
+    await tx.teamMember.upsert({
+      where: {
+        teamId_membershipId: {
+          teamId: SEED_STAFF_GROUP_IDS.team,
+          membershipId: memberOf(SEED_USERS.lvpStaff.id),
+        },
+      },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        teamId: SEED_STAFF_GROUP_IDS.team,
+        membershipId: memberOf(SEED_USERS.lvpStaff.id),
+        kind: 'PRIMARY',
+      },
+    });
+    await tx.memberDepartment.upsert({
+      where: {
+        membershipId_departmentId: {
+          membershipId: memberOf(SEED_USERS.lvpStaff.id),
+          departmentId: SEED_STAFF_GROUP_IDS.department,
+        },
+      },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        membershipId: memberOf(SEED_USERS.lvpStaff.id),
+        departmentId: SEED_STAFF_GROUP_IDS.department,
       },
     });
 
@@ -1482,6 +1541,150 @@ async function main() {
       },
     });
   });
+
+  // Staff details and security for LVP's two members, and one saved Create Staff draft. Pay
+  // details are written as the acting owner: the database shows them to no one else.
+  await runInScope(
+    prisma,
+    { kind: 'business', businessId: businesses.lvp, actorUserId: SEED_USERS.lvpOwner.id },
+    async (tx) => {
+      const members = await tx.membership.findMany({
+        where: { userId: { in: [SEED_USERS.lvpOwner.id, SEED_USERS.lvpStaff.id] } },
+        select: { id: true, userId: true },
+      });
+      const ownerId = members.find((m) => m.userId === SEED_USERS.lvpOwner.id)!.id;
+      const staffId = members.find((m) => m.userId === SEED_USERS.lvpStaff.id)!.id;
+      const businessId = businesses.lvp;
+      for (const [membershipId, profile] of [
+        [
+          ownerId,
+          {
+            employmentType: 'W2',
+            office: 'Main office',
+            accessLevel: 'ADMINISTRATOR',
+            supervisorId: null,
+            timeZone: 'America/New_York',
+            employeeId: 'EMP001',
+            serviceAreas: [],
+            maxWorkload: null,
+          },
+        ],
+        [
+          staffId,
+          {
+            employmentType: 'FULL_TIME',
+            office: 'Main office',
+            supervisorId: ownerId,
+            timeZone: 'America/New_York',
+            employeeId: 'EMP002',
+            serviceAreas: ['TAX_PREPARATION'],
+            maxWorkload: 50,
+          },
+        ],
+      ] as const) {
+        await tx.staffProfile.upsert({
+          where: { businessId_membershipId: { businessId, membershipId } },
+          update: {},
+          create: { businessId, membershipId, ...profile, serviceAreas: [...profile.serviceAreas] },
+        });
+        await tx.staffSecuritySettings.upsert({
+          where: { businessId_membershipId: { businessId, membershipId } },
+          update: {},
+          create: { businessId, membershipId, autoLogoutMinutes: 30 },
+        });
+      }
+      await tx.staffCompensation.upsert({
+        where: { businessId_membershipId: { businessId, membershipId: staffId } },
+        update: {},
+        create: {
+          businessId,
+          membershipId: staffId,
+          payType: 'SALARY',
+          rateCents: 6_000_000n,
+          payFrequency: 'MONTHLY',
+          payrollId: 'PR002',
+        },
+      });
+      await tx.staffDocument.upsert({
+        where: { id: SEED_STAFF_GROUP_IDS.document },
+        update: {},
+        create: {
+          id: SEED_STAFF_GROUP_IDS.document,
+          businessId,
+          membershipId: staffId,
+          type: 'EMPLOYMENT_AGREEMENT',
+          fileName: 'seed-employment-agreement.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 1024,
+          sha256: createHash('sha256').update('seed-employment-agreement').digest('hex'),
+          s3Key: `tenant/${businessId}/staff/${staffId}/seed-employment-agreement.pdf`,
+          uploadedById: ownerId,
+        },
+      });
+      await tx.staffSession.upsert({
+        where: { id: SEED_STAFF_GROUP_IDS.session },
+        update: {},
+        create: {
+          id: SEED_STAFF_GROUP_IDS.session,
+          businessId,
+          membershipId: staffId,
+          tokenHash: createHash('sha256').update('seed-staff-session').digest('hex'),
+          device: 'Chrome on macOS',
+          ip: '203.0.113.7',
+          place: 'Atlanta, GA, USA',
+        },
+      });
+      await tx.rolePermission.upsert({
+        where: {
+          businessId_role_module_capability: {
+            businessId,
+            role: 'BOOKKEEPER',
+            module: 'PAYROLL',
+            capability: 'VIEW',
+          },
+        },
+        update: {},
+        create: {
+          businessId,
+          role: 'BOOKKEEPER',
+          module: 'PAYROLL',
+          capability: 'VIEW',
+          granted: true,
+          updatedById: ownerId,
+        },
+      });
+      await tx.memberPermission.upsert({
+        where: {
+          businessId_membershipId_module_capability: {
+            businessId,
+            membershipId: staffId,
+            module: 'REPORTS',
+            capability: 'EXPORT',
+          },
+        },
+        update: {},
+        create: {
+          businessId,
+          membershipId: staffId,
+          module: 'REPORTS',
+          capability: 'EXPORT',
+          granted: true,
+          updatedById: ownerId,
+        },
+      });
+      await tx.staffDraft.upsert({
+        where: { id: SEED_STAFF_GROUP_IDS.draft },
+        update: {},
+        create: {
+          id: SEED_STAFF_GROUP_IDS.draft,
+          businessId,
+          createdById: ownerId,
+          step: 2,
+          data: { firstName: 'Jordan', lastName: 'Example', role: 'BOOKKEEPER' },
+        },
+      });
+    },
+  );
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
     seedEsign(tx, businesses.lvp),
