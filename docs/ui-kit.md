@@ -42,3 +42,5 @@ Components in `packages/ui` that Octavia's firm workspace designs (`docs/mockups
 | `FormField`       | `label`, `htmlFor`, `required`, `hint`, `error`, `counter`, `children` (any control); `Input`, `Select`, `Textarea` already carry their own label and error | custom controls: dates, tags, pickers                                             |
 
 `Select` and `Input` take `hideLabel` to hide the visible label (it stays as the accessible name), as in filter bars where the design shows only the field.
+
+`SearchField` takes `minWidth` to lower its 14rem default floor (a CSS length, e.g. `'8rem'`), for a filter row with several other fields and little room to spare.
