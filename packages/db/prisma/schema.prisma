@@ -4348,11 +4348,13 @@ model AdvisoryClient {
   createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client      Client               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement  Engagement?          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  client      Client                   @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement  Engagement?              @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   workstreams AdvisoryWorkstream[]
   plans       AdvisoryPlan[]
   goals       AdvisoryGoal[]
+  recs        AdvisoryRecommendation[]
+  actions     AdvisoryActionItem[]
 
   @@unique([businessId, id])
   @@unique([businessId, clientId])
@@ -4453,6 +4455,9 @@ model AdvisoryPlan {
   versions       AdvisoryPlanVersion[]
   goals          AdvisoryGoal[]
 
+  recs    AdvisoryRecommendation[]
+  actions AdvisoryActionItem[]
+
   @@unique([businessId, id])
   @@index([businessId, advisoryClientId, targetYear])
   @@index([businessId, status])
@@ -4518,10 +4523,12 @@ model AdvisoryGoal {
   createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  advisoryClient AdvisoryClient      @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
-  plan           AdvisoryPlan?       @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
-  workstream     AdvisoryWorkstream? @relation(fields: [businessId, workstreamId], references: [businessId, id], onDelete: Restrict)
+  advisoryClient AdvisoryClient           @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
+  plan           AdvisoryPlan?            @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  workstream     AdvisoryWorkstream?      @relation(fields: [businessId, workstreamId], references: [businessId, id], onDelete: Restrict)
   milestones     AdvisoryMilestone[]
+  recs           AdvisoryRecommendation[]
+  actions        AdvisoryActionItem[]
 
   @@unique([businessId, id])
   @@index([businessId, advisoryClientId, status])
@@ -4546,6 +4553,107 @@ model AdvisoryMilestone {
 
   goal AdvisoryGoal @relation(fields: [businessId, goalId], references: [businessId, id], onDelete: Restrict)
 
+  actions AdvisoryActionItem[]
+
+  @@unique([businessId, id])
   @@index([businessId, goalId, sortOrder])
   @@map("advisory_milestones")
+}
+
+// ---------- Business Advisory: recommendations and action items ----------
+
+enum AdvisoryRecommendationStatus {
+  PROPOSED
+  ACCEPTED
+  IN_PROGRESS
+  IMPLEMENTED
+  NOT_APPLICABLE
+  DECLINED
+}
+
+enum AdvisoryActionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum AdvisoryPriority {
+  LOW
+  NORMAL
+  HIGH
+}
+
+/// Who an action item is for. Tasks (the `tasks` table) can only name a staff member, but an
+/// advisory action item is often the client's ("Gather 3 vendor quotes") or the firm team's.
+enum AdvisoryAssigneeKind {
+  STAFF
+  CLIENT
+  TEAM
+}
+
+/// An advisor's recommendation (SBA loan, job costing system, Section 179...) with its category,
+/// rationale and expected impact. `impactLabel` is the words shown ("+15% Profit", "Better
+/// Efficiency"); `impactCents` the amount when it is money. Only client-visible ones reach the
+/// client portal or a sent plan. Never deleted.
+model AdvisoryRecommendation {
+  id               String                       @id @default(uuid(7)) @db.Uuid
+  businessId       String                       @map("business_id") @db.Uuid
+  advisoryClientId String                       @map("advisory_client_id") @db.Uuid
+  planId           String?                      @map("plan_id") @db.Uuid
+  goalId           String?                      @map("goal_id") @db.Uuid
+  title            String
+  /// funding, operations, tax_strategy, growth, team_development...
+  category         String?
+  rationale        String?
+  impactLabel      String?                      @map("impact_label")
+  impactCents      Int?                         @map("impact_cents")
+  status           AdvisoryRecommendationStatus @default(PROPOSED)
+  clientVisible    Boolean                      @default(false) @map("client_visible")
+  decidedAt        DateTime?                    @map("decided_at") @db.Timestamptz(3)
+  createdByUserId  String                       @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  advisoryClient AdvisoryClient @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
+  plan           AdvisoryPlan?  @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  goal           AdvisoryGoal?  @relation(fields: [businessId, goalId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, advisoryClientId, status])
+  @@map("advisory_recommendations")
+}
+
+/// Something to do for an advisory client: assigned to a staff member, to the client, or to the
+/// firm team, with a due date, priority and status ("overdue" is a past due date on an open item,
+/// worked out when read). Client-visible items show in the portal. Never deleted.
+model AdvisoryActionItem {
+  id               String               @id @default(uuid(7)) @db.Uuid
+  businessId       String               @map("business_id") @db.Uuid
+  advisoryClientId String               @map("advisory_client_id") @db.Uuid
+  planId           String?              @map("plan_id") @db.Uuid
+  goalId           String?              @map("goal_id") @db.Uuid
+  milestoneId      String?              @map("milestone_id") @db.Uuid
+  title            String
+  details          String?
+  assigneeKind     AdvisoryAssigneeKind @default(STAFF) @map("assignee_kind")
+  /// With STAFF only.
+  assigneeUserId   String?              @map("assignee_user_id") @db.Uuid
+  dueOn            DateTime?            @map("due_on") @db.Date
+  priority         AdvisoryPriority     @default(NORMAL)
+  status           AdvisoryActionStatus @default(NOT_STARTED)
+  clientVisible    Boolean              @default(false) @map("client_visible")
+  completedAt      DateTime?            @map("completed_at") @db.Timestamptz(3)
+  createdByUserId  String               @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  advisoryClient AdvisoryClient     @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
+  plan           AdvisoryPlan?      @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  goal           AdvisoryGoal?      @relation(fields: [businessId, goalId], references: [businessId, id], onDelete: Restrict)
+  milestone      AdvisoryMilestone? @relation(fields: [businessId, milestoneId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, advisoryClientId, status])
+  @@index([businessId, assigneeUserId, status])
+  @@index([businessId, dueOn])
+  @@map("advisory_action_items")
 }

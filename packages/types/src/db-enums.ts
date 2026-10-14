@@ -667,3 +667,23 @@ export const AdvisoryGoalStatus = z.enum([
   'CANCELLED',
 ]);
 export type AdvisoryGoalStatus = z.infer<typeof AdvisoryGoalStatus>;
+
+export const AdvisoryRecommendationStatus = z.enum([
+  'PROPOSED',
+  'ACCEPTED',
+  'IN_PROGRESS',
+  'IMPLEMENTED',
+  'NOT_APPLICABLE',
+  'DECLINED',
+]);
+export type AdvisoryRecommendationStatus = z.infer<typeof AdvisoryRecommendationStatus>;
+
+export const AdvisoryActionStatus = z.enum(['NOT_STARTED', 'IN_PROGRESS', 'DONE', 'CANCELLED']);
+export type AdvisoryActionStatus = z.infer<typeof AdvisoryActionStatus>;
+
+export const AdvisoryPriority = z.enum(['LOW', 'NORMAL', 'HIGH']);
+export type AdvisoryPriority = z.infer<typeof AdvisoryPriority>;
+
+/** Who an action item is for. Tasks (the `tasks` table) can only name a staff member, but an advisory action item is often the client's ("Gather 3 vendor quotes") or the firm team's. */
+export const AdvisoryAssigneeKind = z.enum(['STAFF', 'CLIENT', 'TEAM']);
+export type AdvisoryAssigneeKind = z.infer<typeof AdvisoryAssigneeKind>;

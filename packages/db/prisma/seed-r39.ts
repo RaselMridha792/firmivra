@@ -584,4 +584,46 @@ async function seedAdvisory(tx: TxClient, businessId: string) {
       progressPercent: 40,
     },
   });
+  await tx.advisoryRecommendation.create({
+    data: {
+      businessId,
+      advisoryClientId: advisory.id,
+      planId: plan.id,
+      goalId: goal.id,
+      title: 'Apply for an SBA 7(a) loan',
+      category: 'funding',
+      rationale: 'Funds the planned second location.',
+      impactLabel: '$250,000',
+      impactCents: 25_000_000,
+      status: 'IN_PROGRESS',
+      decidedAt: new Date(),
+      clientVisible: true,
+      createdByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
+  const action = {
+    businessId,
+    advisoryClientId: advisory.id,
+    createdByUserId: SEED_USERS.lvpOwner.id,
+  };
+  await tx.advisoryActionItem.create({
+    data: {
+      ...action,
+      goalId: goal.id,
+      title: 'Prepare the funding application',
+      assigneeUserId: SEED_USERS.lvpOwner.id,
+      dueOn: new Date('2026-10-15'),
+      status: 'IN_PROGRESS',
+    },
+  });
+  await tx.advisoryActionItem.create({
+    data: {
+      ...action,
+      title: 'Gather three vendor quotes',
+      assigneeKind: 'CLIENT',
+      dueOn: new Date('2026-10-10'),
+      priority: 'HIGH',
+      clientVisible: true,
+    },
+  });
 }
