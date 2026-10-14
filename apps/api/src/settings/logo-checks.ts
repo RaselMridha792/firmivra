@@ -1,4 +1,4 @@
-import { LOGO_LIMITS, type LogoContentType } from '@firmivra/types';
+import { LOGO_LIMITS, type LogoContentType, type LogoVariant } from '@firmivra/types';
 
 const starts = (bytes: Uint8Array, at: number, text: number[]) =>
   bytes.length >= at + text.length && text.every((b, i) => bytes[at + i] === b);
@@ -44,7 +44,9 @@ export function logoUrl(
   portalBaseUrl: string,
   slug: string,
   logoKey: string | null | undefined,
+  variant: LogoVariant = 'dark',
 ): string | null {
   if (!logoKey) return null;
-  return `${portalBaseUrl.replace(/\/+$/, '')}/api/v1/portal/${slug}/logo?v=${logoIdOf(logoKey)}`;
+  const query = variant === 'light' ? 'variant=light&' : '';
+  return `${portalBaseUrl.replace(/\/+$/, '')}/api/v1/portal/${slug}/logo?${query}v=${logoIdOf(logoKey)}`;
 }

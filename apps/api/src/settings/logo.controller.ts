@@ -8,6 +8,7 @@ import {
   Param,
   Post,
   Provider,
+  Query,
   Res,
   StreamableFile,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import {
   ConfirmLogoUploadRequest,
   CreateLogoUploadRequest,
   type FirmSettings,
+  LogoVariant,
   type UploadTicket,
 } from '@firmivra/types';
 import {
@@ -40,6 +42,9 @@ import {
 import { poolSecrets } from '../auth/sealed.js';
 import { LogoService, LogoUploadTokens } from './logo.service.js';
 import { SettingsService } from './settings.service.js';
+
+/** `?variant=` of the logo routes: dark when left out. */
+const variantPipe = new ZodValidationPipe(LogoVariant.default('dark'));
 
 /** The firm's logo: Owner and Admin, also while the firm is Pending Setup. */
 @Controller('business/logo')
@@ -72,8 +77,11 @@ export class FirmLogoController {
   }
 
   @Delete()
-  async remove(@CurrentTenant() tenant: TenantContext): Promise<FirmSettings> {
-    await this.logo.remove(tenant.businessId);
+  async remove(
+    @CurrentTenant() tenant: TenantContext,
+    @Query('variant', variantPipe) variant: LogoVariant,
+  ): Promise<FirmSettings> {
+    await this.logo.remove(tenant.businessId, variant);
     return this.settings.get(tenant.businessId);
   }
 }
@@ -93,10 +101,11 @@ export class PortalLogoController {
   @Header('Cache-Control', 'public, max-age=3600')
   async get(
     @Param('firmSlug') firmSlug: string,
+    @Query('variant', variantPipe) variant: LogoVariant,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const firm = await this.portal.activeFirm(firmSlug);
-    const { bytes, contentType, version } = await this.logo.stored(firm.id);
+    const { bytes, contentType, version } = await this.logo.stored(firm.id, variant);
     res.setHeader('ETag', `"${version}"`);
     return new StreamableFile(bytes, { type: contentType, length: bytes.byteLength });
   }

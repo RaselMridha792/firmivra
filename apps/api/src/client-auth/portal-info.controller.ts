@@ -88,6 +88,9 @@ export class PortalInfoService {
         where: { businessId: firm.id },
         select: {
           logoKey: true,
+          logoLightKey: true,
+          sidebarSlogan: true,
+          sidebarMotto: true,
           brandColor: true,
           accentColor: true,
           clientSignUpEnabled: true,
@@ -103,6 +106,9 @@ export class PortalInfoService {
       business: { slug: firm.slug, name: firm.name },
       branding: {
         logoUrl: logoUrl(this.env.PORTAL_BASE_URL, firm.slug, settings?.logoKey),
+        logoLightUrl: logoUrl(this.env.PORTAL_BASE_URL, firm.slug, settings?.logoLightKey, 'light'),
+        sidebarSlogan: settings?.sidebarSlogan ?? null,
+        sidebarMotto: settings?.sidebarMotto ?? null,
         primaryColor: settings?.brandColor ?? DEFAULT_PRIMARY_COLOR,
         // As the emails do: only a `#rrggbb` value reaches the page's CSS.
         accentColor: hexColor(settings?.accentColor, DEFAULT_ACCENT_COLOR),
