@@ -35,6 +35,7 @@ import {
   SEED_ESIGN_IDS,
   SAMPLE_ESIGN_CONSENT,
 } from './seed-data.js';
+import { seedR39 } from './seed-r39.js';
 import { seedWorkModules } from './seed-r38.js';
 
 config({ path: '../../.env', quiet: true });
@@ -1689,6 +1690,9 @@ async function main() {
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
     seedEsign(tx, businesses.lvp),
+  );
+  await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
+    seedR39(tx, businesses.lvp),
   );
 
   // The work modules (Tasks, Compliance, Automations, Bookkeeping, Tax Planning), after the rows
