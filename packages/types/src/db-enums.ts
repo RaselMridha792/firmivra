@@ -266,6 +266,30 @@ export type SyncOutcome = z.infer<typeof SyncOutcome>;
 export const BookkeepingAccountType = z.enum(['BANK', 'CREDIT_CARD', 'LOAN', 'OTHER']);
 export type BookkeepingAccountType = z.infer<typeof BookkeepingAccountType>;
 
+export const BookkeepingPeriodKind = z.enum(['MONTH', 'QUARTER', 'YEAR', 'CUSTOM']);
+export type BookkeepingPeriodKind = z.infer<typeof BookkeepingPeriodKind>;
+
+/** A period's close: work in progress, then review, approval and close (which locks it). Reports and client delivery are steps of the close checklist, not statuses. */
+export const BookkeepingPeriodStatus = z.enum([
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'READY_FOR_REVIEW',
+  'APPROVED',
+  'CLOSED',
+]);
+export type BookkeepingPeriodStatus = z.infer<typeof BookkeepingPeriodStatus>;
+
+export const ReconciliationStatus = z.enum([
+  'IN_PROGRESS',
+  'READY_FOR_REVIEW',
+  'APPROVED',
+  'REOPENED',
+]);
+export type ReconciliationStatus = z.infer<typeof ReconciliationStatus>;
+
+export const FiguresSource = z.enum(['MANUAL', 'IMPORTED']);
+export type FiguresSource = z.infer<typeof FiguresSource>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;

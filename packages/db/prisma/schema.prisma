@@ -379,6 +379,35 @@ enum BookkeepingAccountType {
   OTHER
 }
 
+enum BookkeepingPeriodKind {
+  MONTH
+  QUARTER
+  YEAR
+  CUSTOM
+}
+
+/// A period's close: work in progress, then review, approval and close (which locks it). Reports
+/// and client delivery are steps of the close checklist, not statuses.
+enum BookkeepingPeriodStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  READY_FOR_REVIEW
+  APPROVED
+  CLOSED
+}
+
+enum ReconciliationStatus {
+  IN_PROGRESS
+  READY_FOR_REVIEW
+  APPROVED
+  REOPENED
+}
+
+enum FiguresSource {
+  MANUAL
+  IMPORTED
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -1243,6 +1272,7 @@ model Engagement {
   bookkeepingActivities  BookkeepingActivity[]
   bookkeepingConnections BookkeepingConnection[]
   bookkeepingAccounts    BookkeepingAccount[]
+  bookkeepingPeriods     BookkeepingPeriod[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -1468,6 +1498,7 @@ model Document {
   taxReturns                  TaxReturn[]
   taskAttachments             TaskAttachment[]
   complianceDeadlineDocuments ComplianceDeadlineDocument[]
+  bookkeepingReconciliations  BookkeepingReconciliation[]
 
   // Target of message attachments.
   @@unique([businessId, id])
@@ -4214,11 +4245,125 @@ model BookkeepingAccount {
   createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement Engagement             @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
-  connection BookkeepingConnection? @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
+  engagement                 Engagement                  @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  connection                 BookkeepingConnection?      @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
+  bookkeepingReconciliations BookkeepingReconciliation[]
 
   @@unique([businessId, id])
   @@unique([businessId, engagementId, connectionId, sourceAccountId])
   @@index([businessId, engagementId])
   @@map("bookkeeping_accounts")
+}
+
+/// One reporting period of a bookkeeping client (a month, a quarter): its close workflow and,
+/// when known, its income and expense totals. status goes NOT_STARTED, IN_PROGRESS,
+/// READY_FOR_REVIEW, APPROVED, CLOSED; CLOSED locks the period (and its checklist and
+/// reconciliations) until it is reopened with a reason, which raises closeVersion. The totals,
+/// and the uncategorized count, are null until entered or imported: an unavailable value is never
+/// invented. Never deleted.
+model BookkeepingPeriod {
+  id                 String                  @id @default(uuid(7)) @db.Uuid
+  businessId         String                  @map("business_id") @db.Uuid
+  engagementId       String                  @map("engagement_id") @db.Uuid
+  kind               BookkeepingPeriodKind   @default(MONTH)
+  periodStart        DateTime                @map("period_start") @db.Date
+  periodEnd          DateTime                @map("period_end") @db.Date
+  /// "September 2026", "Q3 2026".
+  label              String
+  status             BookkeepingPeriodStatus @default(NOT_STARTED)
+  closeByOn          DateTime?               @map("close_by_on") @db.Date
+  readyForReviewAt   DateTime?               @map("ready_for_review_at") @db.Timestamptz(3)
+  readyForReviewBy   String?                 @map("ready_for_review_by") @db.Uuid
+  approvedAt         DateTime?               @map("approved_at") @db.Timestamptz(3)
+  approvedBy         String?                 @map("approved_by") @db.Uuid
+  closedAt           DateTime?               @map("closed_at") @db.Timestamptz(3)
+  closedBy           String?                 @map("closed_by") @db.Uuid
+  /// Raised by one each time a closed period is reopened.
+  closeVersion       Int                     @default(1) @map("close_version")
+  reopenedAt         DateTime?               @map("reopened_at") @db.Timestamptz(3)
+  reopenedBy         String?                 @map("reopened_by") @db.Uuid
+  reopenReason       String?                 @map("reopen_reason")
+  incomeCents        Int?                    @map("income_cents")
+  expensesCents      Int?                    @map("expenses_cents")
+  figuresSource      FiguresSource?          @map("figures_source")
+  figuresAsOf        DateTime?               @map("figures_as_of") @db.Timestamptz(3)
+  uncategorizedCount Int?                    @map("uncategorized_count")
+  createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement      Engagement                  @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  closeItems      BookkeepingCloseItem[]
+  reconciliations BookkeepingReconciliation[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, periodStart, periodEnd])
+  @@index([businessId, status, closeByOn])
+  @@map("bookkeeping_periods")
+}
+
+/// A step of a period's close checklist (categorization, reconciliations, refunds, settlements,
+/// documents, adjustments, P&L, balance sheet, open items, reports, reviewer approval, client
+/// delivery), made from the firm's closeChecklist. A required step must be done before the period
+/// closes. Locked while the period is CLOSED.
+model BookkeepingCloseItem {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  periodId          String    @map("period_id") @db.Uuid
+  itemKey           String    @map("item_key")
+  label             String
+  required          Boolean   @default(true)
+  position          Int
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(3)
+  completedByUserId String?   @map("completed_by_user_id") @db.Uuid
+  note              String?
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  period BookkeepingPeriod @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, periodId, itemKey])
+  @@index([businessId, periodId, position])
+  @@map("bookkeeping_close_items")
+}
+
+/// The reconciliation of one account for one period: the statement's beginning and ending
+/// balances, what has been cleared, the difference (ending minus cleared, which the database
+/// checks) and the open exceptions. It can be approved only when the difference is within the
+/// tolerance; a reopen needs a reason. Saving progress is just updating the row. The statement is
+/// a document of the same client, kept as a record: it cannot be deleted while a reconciliation
+/// uses it. Locked while the period is CLOSED.
+model BookkeepingReconciliation {
+  id                    String               @id @default(uuid(7)) @db.Uuid
+  businessId            String               @map("business_id") @db.Uuid
+  periodId              String               @map("period_id") @db.Uuid
+  accountId             String               @map("account_id") @db.Uuid
+  statementStart        DateTime             @map("statement_start") @db.Date
+  statementEnd          DateTime             @map("statement_end") @db.Date
+  beginningBalanceCents Int                  @map("beginning_balance_cents")
+  endingBalanceCents    Int                  @map("ending_balance_cents")
+  clearedBalanceCents   Int                  @default(0) @map("cleared_balance_cents")
+  clearedCount          Int                  @default(0) @map("cleared_count")
+  /// ending minus cleared; zero when reconciled.
+  differenceCents       Int                  @map("difference_cents")
+  toleranceCents        Int                  @default(0) @map("tolerance_cents")
+  /// Open exceptions: unmatched, duplicate, refund and settlement items.
+  exceptionsCount       Int                  @default(0) @map("exceptions_count")
+  statementDocumentId   String?              @map("statement_document_id") @db.Uuid
+  status                ReconciliationStatus @default(IN_PROGRESS)
+  readyForReviewAt      DateTime?            @map("ready_for_review_at") @db.Timestamptz(3)
+  approvedAt            DateTime?            @map("approved_at") @db.Timestamptz(3)
+  approvedBy            String?              @map("approved_by") @db.Uuid
+  reopenedAt            DateTime?            @map("reopened_at") @db.Timestamptz(3)
+  reopenedBy            String?              @map("reopened_by") @db.Uuid
+  reopenReason          String?              @map("reopen_reason")
+  createdAt             DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  period    BookkeepingPeriod  @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
+  account   BookkeepingAccount @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict)
+  statement Document?          @relation(fields: [businessId, statementDocumentId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, periodId, accountId])
+  @@index([businessId, status])
+  @@map("bookkeeping_reconciliations")
 }

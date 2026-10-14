@@ -57,6 +57,10 @@ export const SEED_R38_IDS = {
   bkSync: id(35),
   bkAccount1: id(36),
   bkAccount2: id(37),
+  bkPeriodAug: id(38),
+  bkPeriodSep: id(39),
+  bkRecon1: id(40),
+  bkRecon2: id(41),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -364,6 +368,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
   await seedAutomationRuns(tx, c);
   await seedBookkeeping(tx, c);
   await seedBookkeepingConnection(tx, c);
+  await seedBookkeepingPeriods(tx, c);
 }
 
 /** The IRS 2027 calendar, published: an entry with a date, and one that needs checking. */
@@ -697,4 +702,119 @@ async function seedBookkeepingConnection(tx: TxClient, c: WorkSeedContext) {
       },
     });
   }
+}
+
+const CLOSE_STEPS = [
+  ['categorization', 'Transactions categorized'],
+  ['reconciliations', 'Bank and card accounts reconciled'],
+  ['reports', 'Reports generated'],
+  ['approval', 'Reviewer approval'],
+] as const;
+
+/** August: reconciled, approved and closed. September: in progress, with its checklist. */
+async function seedBookkeepingPeriods(tx: TxClient, c: WorkSeedContext) {
+  const { businessId } = c;
+  const base = { businessId, engagementId: c.bookkeepingEngagementId };
+  const items = (periodId: string, done: boolean) =>
+    tx.bookkeepingCloseItem.createMany({
+      data: CLOSE_STEPS.map(([itemKey, label], position) => ({
+        businessId,
+        periodId,
+        itemKey,
+        label,
+        position,
+        ...(done
+          ? { completedAt: new Date('2026-09-09T15:00:00Z'), completedByUserId: c.staffId }
+          : {}),
+      })),
+    });
+  if (!(await tx.bookkeepingPeriod.findUnique({ where: { id: SEED_R38_IDS.bkPeriodAug } }))) {
+    await tx.bookkeepingPeriod.create({
+      data: {
+        ...base,
+        id: SEED_R38_IDS.bkPeriodAug,
+        label: 'August 2026',
+        periodStart: new Date('2026-08-01'),
+        periodEnd: new Date('2026-08-31'),
+        closeByOn: new Date('2026-09-10'),
+        incomeCents: 2190000,
+        expensesCents: 1500000,
+        figuresSource: 'MANUAL',
+        figuresAsOf: new Date('2026-09-08T12:00:00Z'),
+        uncategorizedCount: 0,
+      },
+    });
+    await items(SEED_R38_IDS.bkPeriodAug, true);
+    await tx.bookkeepingReconciliation.create({
+      data: {
+        id: SEED_R38_IDS.bkRecon1,
+        businessId,
+        periodId: SEED_R38_IDS.bkPeriodAug,
+        accountId: SEED_R38_IDS.bkAccount1,
+        statementStart: new Date('2026-08-01'),
+        statementEnd: new Date('2026-08-31'),
+        beginningBalanceCents: 1100000,
+        endingBalanceCents: 1180000,
+        clearedBalanceCents: 1180000,
+        clearedCount: 42,
+        differenceCents: 0,
+        status: 'APPROVED',
+        readyForReviewAt: new Date('2026-09-09T15:00:00Z'),
+        approvedAt: new Date('2026-09-09T16:00:00Z'),
+        approvedBy: c.ownerId,
+      },
+    });
+    const at = (h: number) => new Date(`2026-09-09T${h}:00:00Z`);
+    const steps = [
+      ['IN_PROGRESS', {}],
+      ['READY_FOR_REVIEW', { readyForReviewAt: at(15), readyForReviewBy: c.staffId }],
+      ['APPROVED', { approvedAt: at(16), approvedBy: c.ownerId }],
+      ['CLOSED', { closedAt: at(17), closedBy: c.ownerId }],
+    ] as const;
+    for (const [status, data] of steps) {
+      await tx.bookkeepingPeriod.update({
+        where: { id: SEED_R38_IDS.bkPeriodAug },
+        data: { status, ...data },
+      });
+    }
+  }
+  await tx.bookkeepingPeriod.upsert({
+    where: { id: SEED_R38_IDS.bkPeriodSep },
+    update: {},
+    create: {
+      ...base,
+      id: SEED_R38_IDS.bkPeriodSep,
+      label: 'September 2026',
+      periodStart: new Date('2026-09-01'),
+      periodEnd: new Date('2026-09-30'),
+      status: 'IN_PROGRESS',
+      closeByOn: new Date('2026-10-10'),
+      incomeCents: 2458000,
+      expensesCents: 1622000,
+      figuresSource: 'MANUAL',
+      figuresAsOf: new Date('2026-09-28T10:12:00Z'),
+      uncategorizedCount: 12,
+    },
+  });
+  if (!(await tx.bookkeepingCloseItem.count({ where: { periodId: SEED_R38_IDS.bkPeriodSep } }))) {
+    await items(SEED_R38_IDS.bkPeriodSep, false);
+  }
+  await tx.bookkeepingReconciliation.upsert({
+    where: { id: SEED_R38_IDS.bkRecon2 },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.bkRecon2,
+      businessId,
+      periodId: SEED_R38_IDS.bkPeriodSep,
+      accountId: SEED_R38_IDS.bkAccount1,
+      statementStart: new Date('2026-09-01'),
+      statementEnd: new Date('2026-09-30'),
+      beginningBalanceCents: 1180000,
+      endingBalanceCents: 1245032,
+      clearedBalanceCents: 1240000,
+      clearedCount: 31,
+      differenceCents: 5032,
+      exceptionsCount: 2,
+    },
+  });
 }
