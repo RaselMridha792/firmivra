@@ -323,29 +323,30 @@ model Business {
   createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  memberships          Membership[]
-  clientAccounts       ClientAccount[]
-  supportAccessGrants  SupportAccessGrant[]
-  auditLogs            AuditLog[]
-  firmApplication      FirmApplication?
-  settings             BusinessSettings?
-  legalDocuments       FirmLegalDocument[]
-  taxStatuses          TaxStatus[]
-  invites              Invite[]
-  clients              Client[]
-  services             Service[]
-  documentCategories   DocumentCategory[]
-  notifications        Notification[]
-  notificationPrefs    NotificationPreference[]
-  appointmentTypes     AppointmentType[]
-  contentItems         ContentItem[]
-  calculators          CalculatorDefinition[]
-  stripeAccount        StripeAccount?
-  platformOwnerInvites PlatformOwnerInvite[]
-  esignSettings        EsignSettings?
-  intakeSettings       IntakeSettings?
-  intakeTemplates      IntakeTemplate[]
-  documentFolders      DocumentFolder[]
+  memberships              Membership[]
+  clientAccounts           ClientAccount[]
+  supportAccessGrants      SupportAccessGrant[]
+  auditLogs                AuditLog[]
+  firmApplication          FirmApplication?
+  settings                 BusinessSettings?
+  legalDocuments           FirmLegalDocument[]
+  taxStatuses              TaxStatus[]
+  invites                  Invite[]
+  clients                  Client[]
+  services                 Service[]
+  documentCategories       DocumentCategory[]
+  notifications            Notification[]
+  notificationPrefs        NotificationPreference[]
+  appointmentTypes         AppointmentType[]
+  contentItems             ContentItem[]
+  calculators              CalculatorDefinition[]
+  stripeAccount            StripeAccount?
+  platformOwnerInvites     PlatformOwnerInvite[]
+  esignSettings            EsignSettings?
+  intakeSettings           IntakeSettings?
+  intakeTemplates          IntakeTemplate[]
+  documentFolders          DocumentFolder[]
+  documentRequestTemplates DocumentRequestTemplate[]
 
   @@map("businesses")
 }
@@ -452,17 +453,18 @@ model Membership {
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
 
   // R37 back-relations (no columns on memberships).
-  intakesAssigned         Intake[]                @relation("IntakeAssignedTo")
-  intakesCompleted        Intake[]                @relation("IntakeCompletedBy")
-  intakeSettingsOwner     IntakeSettings[]        @relation("IntakeSettingsOwner")
-  intakeSettingsFollowUp  IntakeSettings[]        @relation("IntakeSettingsFollowUp")
-  intakeTemplatesCreated  IntakeTemplate[]        @relation("IntakeTemplateCreatedBy")
-  intakeTemplatesAssigned IntakeTemplate[]        @relation("IntakeTemplateAssignedTo")
-  documentsReviewer       Document[]              @relation("DocumentReviewer")
-  documentsReviewedBy     Document[]              @relation("DocumentReviewedBy")
-  requestPacketsAssigned  DocumentRequestPacket[] @relation("PacketAssignedTo")
-  requestPacketsRequested DocumentRequestPacket[] @relation("PacketRequestedBy")
-  requestPacketsForMember DocumentRequestPacket[] @relation("PacketRecipientMember")
+  intakesAssigned         Intake[]                  @relation("IntakeAssignedTo")
+  intakesCompleted        Intake[]                  @relation("IntakeCompletedBy")
+  intakeSettingsOwner     IntakeSettings[]          @relation("IntakeSettingsOwner")
+  intakeSettingsFollowUp  IntakeSettings[]          @relation("IntakeSettingsFollowUp")
+  intakeTemplatesCreated  IntakeTemplate[]          @relation("IntakeTemplateCreatedBy")
+  intakeTemplatesAssigned IntakeTemplate[]          @relation("IntakeTemplateAssignedTo")
+  documentsReviewer       Document[]                @relation("DocumentReviewer")
+  documentsReviewedBy     Document[]                @relation("DocumentReviewedBy")
+  requestPacketsAssigned  DocumentRequestPacket[]   @relation("PacketAssignedTo")
+  requestPacketsRequested DocumentRequestPacket[]   @relation("PacketRequestedBy")
+  requestPacketsForMember DocumentRequestPacket[]   @relation("PacketRecipientMember")
+  requestTemplatesOwned   DocumentRequestTemplate[] @relation("RequestTemplateOwner")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1047,9 +1049,10 @@ model DocumentCategory {
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business  Business          @relation(fields: [businessId], references: [id])
-  documents Document[]
-  requests  DocumentRequest[]
+  business             Business                      @relation(fields: [businessId], references: [id])
+  documents            Document[]
+  requests             DocumentRequest[]
+  requestTemplateItems DocumentRequestTemplateItem[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -1120,6 +1123,12 @@ model Document {
   expiresOn        DateTime?             @map("expires_on") @db.Date
   /// The upload's "Notify client" choice, kept for the moment the scan result arrives.
   notifyClient     Boolean               @default(false) @map("notify_client")
+  // R37: versions. A replacement of this document has the same client, engagement and
+  // direction and is numbered after it (a chain); set on insert only. The old one is marked
+  // superseded by the database once the replacement is CLEAN.
+  replacesId       String?               @map("replaces_id") @db.Uuid
+  versionNo        Int                   @default(1) @map("version_no")
+  supersededAt     DateTime?             @map("superseded_at") @db.Timestamptz(3)
   archivedAt       DateTime?             @map("archived_at") @db.Timestamptz(3)
   /// Reversible; the purge stays under the retention and legal-hold delete rules.
   trashedAt        DateTime?             @map("trashed_at") @db.Timestamptz(3)
@@ -1146,6 +1155,7 @@ model Document {
   @@unique([businessId, leadUploadId])
   // Lets reports require that their document belongs to the same engagement.
   @@unique([businessId, engagementId, id])
+  @@unique([businessId, replacesId])
   // R37: the firm-wide library, its filters and the duplicate warning.
   @@index([businessId, clientId, createdAt])
   @@index([businessId, requestId])
@@ -3199,10 +3209,11 @@ model DocumentRequestPacket {
   createdAt           DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement      Engagement        @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  recipientMember Membership?       @relation("PacketRecipientMember", fields: [businessId, recipientUserId], references: [businessId, userId], onDelete: Restrict)
-  assignedMember  Membership?       @relation("PacketAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  requestedBy     Membership?       @relation("PacketRequestedBy", fields: [businessId, requestedByUserId], references: [businessId, userId], onDelete: Restrict)
+  engagement      Engagement               @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  recipientMember Membership?              @relation("PacketRecipientMember", fields: [businessId, recipientUserId], references: [businessId, userId], onDelete: Restrict)
+  template        DocumentRequestTemplate? @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  assignedMember  Membership?              @relation("PacketAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  requestedBy     Membership?              @relation("PacketRequestedBy", fields: [businessId, requestedByUserId], references: [businessId, userId], onDelete: Restrict)
   items           DocumentRequest[]
 
   @@unique([businessId, number])
@@ -3212,6 +3223,48 @@ model DocumentRequestPacket {
   @@index([businessId, status, dueOn])
   @@index([businessId, clientId])
   @@index([businessId, assignedUserId, status])
+  @@index([businessId, templateId])
   @@index([businessId, createdAt])
   @@map("document_request_packets")
+}
+
+/// A request type the firm reuses ("Personal Tax Intake", 6 documents): firm-wide, or a
+/// member's own saved list (ownerUserId). Archived, never deleted.
+model DocumentRequestTemplate {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  businessId  String    @map("business_id") @db.Uuid
+  name        String
+  description String?
+  /// Null: the whole firm's. Set: that member's own "saved list".
+  ownerUserId String?   @map("owner_user_id") @db.Uuid
+  sortOrder   Int       @default(0) @map("sort_order")
+  archivedAt  DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business                      @relation(fields: [businessId], references: [id])
+  owner    Membership?                   @relation("RequestTemplateOwner", fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
+  items    DocumentRequestTemplateItem[]
+  packets  DocumentRequestPacket[]
+
+  @@unique([businessId, id])
+  @@map("document_request_templates")
+}
+
+model DocumentRequestTemplateItem {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  templateId  String   @map("template_id") @db.Uuid
+  title       String
+  description String?
+  required    Boolean  @default(true)
+  categoryId  String?  @map("category_id") @db.Uuid
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  template DocumentRequestTemplate @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  category DocumentCategory?       @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, templateId, sortOrder])
+  @@map("document_request_template_items")
 }

@@ -17,6 +17,9 @@ const ID = {
   folderClientDocs: '00000000-0000-4a37-8000-000000000011',
   folderPersonalTax: '00000000-0000-4a37-8000-000000000012',
   folderFirmInternal: '00000000-0000-4a37-8000-000000000013',
+  requestType: '00000000-0000-4a37-8000-000000000021',
+  requestTypeItem1: '00000000-0000-4a37-8000-000000000022',
+  requestTypeItem2: '00000000-0000-4a37-8000-000000000023',
   requestPacket: '00000000-0000-4a37-8000-000000000024',
 } as const;
 
@@ -139,8 +142,28 @@ async function seedDocumentLibrary(tx: TxClient, businessId: string) {
   });
 }
 
-/** Documents: the seeded tax requests grouped as one sent request. */
+/** Documents: a request type, and the seeded tax requests grouped as one sent request. */
 async function seedDocumentRequests(tx: TxClient, businessId: string) {
+  await tx.documentRequestTemplate.upsert({
+    where: { id: ID.requestType },
+    update: {},
+    create: {
+      id: ID.requestType,
+      businessId,
+      name: 'Personal Tax Intake',
+      description: 'The usual documents for a personal return',
+    },
+  });
+  for (const [id, title, sortOrder, required] of [
+    [ID.requestTypeItem1, 'W-2 from your employer', 1, true],
+    [ID.requestTypeItem2, 'Photo ID (optional)', 2, false],
+  ] as const) {
+    await tx.documentRequestTemplateItem.upsert({
+      where: { id },
+      update: {},
+      create: { id, businessId, templateId: ID.requestType, title, sortOrder, required },
+    });
+  }
   // Items join a request while it is a draft; then it is sent.
   if (await tx.documentRequestPacket.findUnique({ where: { id: ID.requestPacket } })) return;
   await tx.documentRequestPacket.create({
@@ -149,6 +172,7 @@ async function seedDocumentRequests(tx: TxClient, businessId: string) {
       businessId,
       clientId: SEED_CLIENT_IDS.lvp,
       engagementId: SEED_WORK_IDS.lvpTax,
+      templateId: ID.requestType,
       title: '2025 Personal Tax documents',
       dueOn: new Date('2026-10-31'),
       messageSubject: 'Documents for your 2025 return',
