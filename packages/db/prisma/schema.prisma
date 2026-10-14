@@ -351,6 +351,7 @@ model Business {
   paymentSettings      PaymentSettings?
   depositAccounts      DepositAccount[]
   serviceCategories    ServiceCategory[]
+  servicePackages      ServicePackage[]
 
   @@map("businesses")
 }
@@ -463,6 +464,7 @@ model Membership {
   recurringAssigned     RecurringInvoice[]     @relation("RecurringAssignedTo")
   recurringCreated      RecurringInvoice[]     @relation("RecurringCreatedBy")
   servicesUpdated       Service[]              @relation("ServiceUpdatedBy")
+  packagesUpdated       ServicePackage[]       @relation("PackageUpdatedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -906,6 +908,7 @@ model Service {
   lineItems      ServiceLineItem[]
   addOns         ServiceAddOn[]
   linkedAddOns   ServiceAddOn[]         @relation("ServiceAddOnLinked")
+  packageItems   ServicePackageItem[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -3399,8 +3402,9 @@ model ServiceCategory {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business  @relation(fields: [businessId], references: [id])
+  business Business         @relation(fields: [businessId], references: [id])
   services Service[]
+  packages ServicePackage[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -3467,11 +3471,93 @@ model ServiceAddOn {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  service       Service       @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  linkedService Service?      @relation("ServiceAddOnLinked", fields: [businessId, linkedServiceId], references: [businessId, id], onDelete: Restrict)
+  service       Service               @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  linkedService Service?              @relation("ServiceAddOnLinked", fields: [businessId, linkedServiceId], references: [businessId, id], onDelete: Restrict)
   invoiceLines  InvoiceLine[]
+  packageAddOns ServicePackageAddOn[]
 
   @@unique([businessId, id])
   @@unique([businessId, serviceId, name])
   @@map("service_add_ons")
+}
+
+/// A sellable bundle of catalog services at one price (Package Builder). Its services stay in the
+/// catalog: removing one from a package never deletes it. "Total of selected services" and "client
+/// savings" are worked out from current prices, never stored. The package price and discount are
+/// what the firm decided; a draft may still lack its price. Archived, not deleted, once used.
+model ServicePackage {
+  id                String               @id @default(uuid(7)) @db.Uuid
+  businessId        String               @map("business_id") @db.Uuid
+  name              String
+  categoryId        String?              @map("category_id") @db.Uuid
+  shortDescription  String               @map("short_description")
+  status            ServiceStatus        @default(DRAFT)
+  iconKey           String?              @map("icon_key")
+  packagePriceCents Int?                 @map("package_price_cents")
+  /// An optional display and calculation aid: none, a percentage or a fixed amount off the services' total.
+  discountType      InvoiceDiscountType? @map("discount_type")
+  discountPercent   Decimal?             @map("discount_percent") @db.Decimal(5, 2)
+  discountCents     Int?                 @map("discount_cents")
+  visibleToClients  Boolean              @default(false) @map("visible_to_clients")
+  allowClientAddOns Boolean              @default(false) @map("allow_client_add_ons")
+  displayOnPortal   Boolean              @default(false) @map("display_on_portal")
+  /// Staff only, up to 500 characters.
+  internalNotes     String?              @map("internal_notes")
+  updatedByUserId   String?              @map("updated_by_user_id") @db.Uuid
+  archivedAt        DateTime?            @map("archived_at") @db.Timestamptz(3)
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business              @relation(fields: [businessId], references: [id])
+  category  ServiceCategory?      @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  updatedBy Membership?           @relation("PackageUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  items     ServicePackageItem[]
+  addOns    ServicePackageAddOn[]
+
+  @@unique([businessId, name])
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@map("service_packages")
+}
+
+/// A service in a package. `included` marks it part of the base package (it counts toward the
+/// comparison value); one that is not included is listed but not part of the price.
+model ServicePackageItem {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  packageId  String   @map("package_id") @db.Uuid
+  serviceId  String   @map("service_id") @db.Uuid
+  included   Boolean  @default(true)
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  package ServicePackage @relation(fields: [businessId, packageId], references: [businessId, id], onDelete: Restrict)
+  service Service        @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, packageId, serviceId])
+  @@index([businessId, serviceId])
+  @@map("service_package_items")
+}
+
+/// An optional extra a client may add to a package: one of a service's add-ons (`service_add_on_id`)
+/// or one made for the package. Name and price are the package's own, so later catalog edits do not
+/// change what the package offers.
+model ServicePackageAddOn {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  businessId     String   @map("business_id") @db.Uuid
+  packageId      String   @map("package_id") @db.Uuid
+  serviceAddOnId String?  @map("service_add_on_id") @db.Uuid
+  name           String
+  description    String?
+  priceCents     Int      @map("price_cents")
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  package ServicePackage @relation(fields: [businessId, packageId], references: [businessId, id], onDelete: Restrict)
+  addOn   ServiceAddOn?  @relation(fields: [businessId, serviceAddOnId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, packageId, name])
+  @@map("service_package_add_ons")
 }

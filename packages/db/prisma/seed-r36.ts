@@ -126,7 +126,7 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
     });
 
     // The catalog: categories, and sample prices (the designs' sample figures, not real prices) on
-    // LVP's seeded services, each with what it includes, a line item and an add-on.
+    // LVP's seeded services, each with what it includes a line item, an add-on, and a package of them.
     const categories = new Map<string, string>();
     for (const [sortOrder, name] of ['Tax Preparation', 'Bookkeeping', 'Advisory'].entries()) {
       const row = await tx.serviceCategory.upsert({
@@ -181,6 +181,38 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
           priceCents: 25000,
           clientSelectable: true,
         },
+      });
+    }
+
+    // A package of the two tax services, with the audit add-on.
+    if ((await tx.servicePackage.count({ where: { name: 'Small Business Tax Bundle' } })) === 0) {
+      const taxCategory = categories.get('Tax Preparation');
+      const pkg = await tx.servicePackage.create({
+        data: {
+          ...lvp,
+          name: 'Small Business Tax Bundle',
+          categoryId: taxCategory,
+          shortDescription: 'Annual and quarterly tax services for a growing business.',
+          status: 'ACTIVE',
+          packagePriceCents: 39900,
+          discountType: 'PERCENT',
+          discountPercent: 10,
+          visibleToClients: true,
+          allowClientAddOns: true,
+          displayOnPortal: true,
+        },
+      });
+      const taxServices = await tx.service.findMany({
+        where: { businessId: businesses.lvp, categoryId: taxCategory, status: 'ACTIVE' },
+        orderBy: { name: 'asc' },
+      });
+      for (const [sortOrder, service] of taxServices.entries()) {
+        await tx.servicePackageItem.create({
+          data: { ...lvp, packageId: pkg.id, serviceId: service.id, sortOrder },
+        });
+      }
+      await tx.servicePackageAddOn.create({
+        data: { ...lvp, packageId: pkg.id, name: 'Audit representation', priceCents: 25000 },
       });
     }
   });
