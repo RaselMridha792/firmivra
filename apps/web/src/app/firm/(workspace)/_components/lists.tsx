@@ -1,46 +1,56 @@
 'use client';
 
-import { Badge } from '@firmivra/ui';
+import type { DashboardSummary } from '@firmivra/types';
 import { MapPin, Phone, VideoCamera } from '@phosphor-icons/react';
+import type { UseQueryResult } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../lib/api';
+import { moduleHref } from '../../../../lib/firm-modules';
 import { useApiQuery } from '../../../../lib/query';
 import { LOCATION_LABELS } from '../calendar/_components/shared';
 import { addDays, toInstant } from '../calendar/_components/time';
 import { Widget } from './widget';
 
 const ICONS = { VIDEO: VideoCamera, PHONE: Phone, IN_PERSON: MapPin } as const;
+const BARS = { VIDEO: 'bg-info', PHONE: 'bg-success', IN_PERSON: 'bg-gold' } as const;
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
 
-export function RecentMessages({ timeZone }: { timeZone: string }) {
+export function RecentMessages({ timeZone, today }: { timeZone: string; today: string }) {
   const inbox = useApiQuery(['dashboard', 'messages'], () => api.messages.inbox({ limit: 5 }));
-  const when = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone });
+  const time = new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit' });
+  const date = new Intl.DateTimeFormat('en-US', { timeZone, month: 'short', day: 'numeric' });
+  const when = (at: Date) => (day.format(at) === today ? time : date).format(at);
   return (
     <Widget
       title="Recent Messages"
       query={inbox}
-      link={{ href: '/messages', label: 'View all' }}
+      link={{ href: '/messages', label: 'View All' }}
       isEmpty={(d) => d.items.length === 0}
-      empty="No messages yet. Messages with your clients appear here."
+      empty="No messages yet"
     >
       {(d) => (
-        <ul className="flex flex-col divide-y divide-border">
+        <ul className="flex flex-col">
           {d.items.map((t) => (
             <li key={t.id}>
               <Link
                 href={`/clients/${encodeURIComponent(t.client.id)}/messages`}
-                className="flex items-start gap-3 rounded-control py-2 hover:bg-canvas"
+                className="flex items-center gap-3 rounded-control py-2 hover:bg-canvas"
               >
+                <span
+                  aria-hidden
+                  className="flex size-10 shrink-0 items-center justify-center rounded-full bg-purple-soft font-bold text-purple"
+                >
+                  {initials(t.client.displayName)}
+                </span>
                 <span className="flex min-w-0 flex-1 flex-col">
-                  <span
-                    className={`truncate text-sm text-heading ${t.unreadCount ? 'font-semibold' : ''}`}
-                  >
+                  <span className="truncate text-sm font-semibold text-heading">
                     {t.client.displayName}
                   </span>
                   <span className="truncate text-xs text-muted">
@@ -48,13 +58,55 @@ export function RecentMessages({ timeZone }: { timeZone: string }) {
                   </span>
                 </span>
                 <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-muted">
-                  {when.format(new Date(t.lastMessage?.createdAt ?? t.createdAt))}
+                  {when(new Date(t.lastMessage?.createdAt ?? t.createdAt))}
                   {t.unreadCount ? (
-                    <Badge tone="info">
+                    <span className="flex size-5 items-center justify-center rounded-full bg-danger text-on-action">
                       {t.unreadCount}
                       <span className="sr-only"> unread</span>
-                    </Badge>
+                    </span>
                   ) : null}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Widget>
+  );
+}
+
+export function TasksDue({ summary }: { summary: UseQueryResult<DashboardSummary> }) {
+  const label = (dueOn: string, today: string) =>
+    dueOn < today
+      ? 'Overdue'
+      : dueOn === today
+        ? 'Due Today'
+        : dueOn === addDays(today, 1)
+          ? 'Due Tomorrow'
+          : `Due ${new Date(`${dueOn}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' })}`;
+  return (
+    <Widget
+      title="Tasks Due"
+      query={summary}
+      link={{ href: moduleHref('tasks'), label: 'View All' }}
+      isEmpty={(d) => d.tasksDue.length === 0}
+      empty="No tasks due"
+    >
+      {({ tasksDue, today }) => (
+        <ul className="flex flex-col divide-y divide-border">
+          {tasksDue.map((t) => (
+            <li key={t.id}>
+              <Link
+                href={`/clients/${encodeURIComponent(t.client.id)}`}
+                className="flex items-center gap-3 rounded-control py-3 hover:bg-canvas"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm text-text">
+                  {t.title} – {t.client.displayName}
+                </span>
+                <span
+                  className={`shrink-0 text-xs ${t.dueOn <= today ? 'font-semibold text-danger' : 'text-muted'}`}
+                >
+                  {label(t.dueOn, today)}
                 </span>
               </Link>
             </li>
@@ -70,41 +122,49 @@ export function UpcomingAppointments({ timeZone, today }: { timeZone: string; to
   const list = useApiQuery(['dashboard', 'upcoming', today], () =>
     api.appointments.list({ from: now, to: toInstant(addDays(today, 14), '00:00', timeZone) }),
   );
-  const day = new Intl.DateTimeFormat('en-US', { timeZone, month: 'short', day: 'numeric' });
-  const time = new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit' });
+  const part = (options: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat('en-US', { timeZone, ...options });
+  const [month, day, time] = [
+    part({ month: 'short' }),
+    part({ day: 'numeric' }),
+    part({ hour: 'numeric', minute: '2-digit' }),
+  ];
   return (
     <Widget
       title="Upcoming Appointments"
+      navy
       query={list}
-      link={{ href: '/calendar', label: 'View calendar' }}
+      link={{ href: '/calendar', label: 'View All' }}
       isEmpty={(d) => !d.some((a) => !a.restricted && a.status === 'SCHEDULED')}
-      empty="No appointments in the next two weeks. Open the calendar to book one."
-      className="xl:col-span-2"
+      empty="No upcoming appointments"
     >
       {(items) => (
         <ul className="flex flex-col divide-y divide-border">
           {items
             .flatMap((a) => (!a.restricted && a.status === 'SCHEDULED' ? [a] : []))
             .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
-            .slice(0, 5)
+            .slice(0, 4)
             .map((a) => {
               const Icon = ICONS[a.locationKind];
+              const at = new Date(a.startsAt);
               return (
                 <li key={a.id}>
-                  <Link
-                    href="/calendar"
-                    className="flex items-center gap-3 rounded-control py-2 hover:bg-canvas"
-                  >
-                    <span className="w-16 shrink-0 text-sm font-semibold text-heading">
-                      {day.format(new Date(a.startsAt))}
+                  <Link href="/calendar" className="flex items-center gap-3 py-2 hover:bg-canvas">
+                    <span className="flex w-10 shrink-0 flex-col items-center font-bold leading-tight text-heading">
+                      <span className="text-xs uppercase">{month.format(at)}</span>
+                      <span className="text-xl">{day.format(at)}</span>
                     </span>
-                    <span className="w-20 shrink-0 text-sm text-muted">
-                      {time.format(new Date(a.startsAt))}
-                    </span>
+                    <span
+                      aria-hidden
+                      className={`h-10 w-1.5 shrink-0 rounded-pill ${BARS[a.locationKind]}`}
+                    />
+                    <span className="w-16 shrink-0 text-sm text-muted">{time.format(at)}</span>
                     <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-sm text-heading">{a.client.displayName}</span>
+                      <span className="truncate text-sm text-heading">
+                        {a.type?.name ?? 'Appointment'}
+                      </span>
                       <span className="truncate text-xs text-muted">
-                        {a.type?.name ?? 'Appointment'} · {LOCATION_LABELS[a.locationKind]}
+                        {a.client.displayName} · {LOCATION_LABELS[a.locationKind]}
                       </span>
                     </span>
                     <Icon aria-hidden weight="fill" className="size-6 shrink-0 text-link" />
