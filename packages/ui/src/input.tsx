@@ -4,17 +4,22 @@ import { type InputHTMLAttributes, useId } from 'react';
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
+  /** Hides the label text; it stays as the accessible name (filter bars). */
+  hideLabel?: boolean;
   error?: string;
 }
 
 /** A labelled text input. The label is always visible (WCAG 2.1 AA, docs/PROJECT-DRAFT-v2.md). */
-export function Input({ label, error, id, className = '', ...props }: InputProps) {
+export function Input({ label, hideLabel, error, id, className = '', ...props }: InputProps) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const errorId = `${inputId}-error`;
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={inputId} className="text-sm font-medium text-text">
+      <label
+        htmlFor={inputId}
+        className={`text-sm font-medium text-text ${hideLabel ? 'sr-only' : ''}`}
+      >
         {label}
       </label>
       <input
