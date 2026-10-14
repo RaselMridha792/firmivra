@@ -554,3 +554,17 @@ export type PayrollWorkerStatus = z.infer<typeof PayrollWorkerStatus>;
 
 export const PayrollPayType = z.enum(['HOURLY', 'SALARY', 'COMMISSION']);
 export type PayrollPayType = z.infer<typeof PayrollPayType>;
+
+/** Firmivra's workflow for a run. The provider's own status is kept apart in `providerStatus`. COMPLETED is final. */
+export const PayrollRunStatus = z.enum([
+  'NOT_STARTED',
+  'DRAFT',
+  'IN_PROGRESS',
+  'READY_FOR_REVIEW',
+  'APPROVED',
+  'SUBMITTED',
+  'PROCESSING',
+  'COMPLETED',
+  'NEEDS_ATTENTION',
+]);
+export type PayrollRunStatus = z.infer<typeof PayrollRunStatus>;

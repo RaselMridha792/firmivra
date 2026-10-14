@@ -3900,6 +3900,7 @@ model PayrollClient {
   changes    PayrollClientChange[]
   activities PayrollActivity[]
   workers    PayrollWorker[]
+  runs       PayrollRun[]
 
   @@unique([businessId, id])
   @@unique([businessId, engagementId])
@@ -3962,7 +3963,7 @@ model PayrollSettings {
   @@map("payroll_settings")
 }
 
-// ---------- Payroll: workers ----------
+// ---------- Payroll: workers and runs ----------
 
 enum PayrollWorkerType {
   FULL_TIME
@@ -3981,6 +3982,20 @@ enum PayrollPayType {
   HOURLY
   SALARY
   COMMISSION
+}
+
+/// Firmivra's workflow for a run. The provider's own status is kept apart in `providerStatus`.
+/// COMPLETED is final.
+enum PayrollRunStatus {
+  NOT_STARTED
+  DRAFT
+  IN_PROGRESS
+  READY_FOR_REVIEW
+  APPROVED
+  SUBMITTED
+  PROCESSING
+  COMPLETED
+  NEEDS_ATTENTION
 }
 
 /// An employee or contractor of a payroll client, as the provider or the firm lists them. No SSN,
@@ -4017,4 +4032,63 @@ model PayrollWorker {
   @@unique([payrollClientId, externalId])
   @@index([businessId, payrollClientId, status])
   @@map("payroll_workers")
+}
+
+/// One pay period of one payroll client: the Run Payroll workflow (period, hours, earnings and
+/// deductions, taxes and employer costs, review and approval). Money is in cents and stays empty
+/// until the provider (or the firm, from a provider report) supplies it; Firmivra calculates no
+/// payroll tax. Where the parts are all present the database checks the sums: gross, net,
+/// employer costs and total cost. Approval is Firmivra's; submission is separate and needs the
+/// provider to confirm it. A COMPLETED run never changes. Never deleted.
+model PayrollRun {
+  id                    String           @id @default(uuid(7)) @db.Uuid
+  businessId            String           @map("business_id") @db.Uuid
+  payrollClientId       String           @map("payroll_client_id") @db.Uuid
+  periodStart           DateTime         @map("period_start") @db.Date
+  periodEnd             DateTime         @map("period_end") @db.Date
+  payDate               DateTime         @map("pay_date") @db.Date
+  frequency             PayrollFrequency
+  status                PayrollRunStatus @default(NOT_STARTED)
+  /// The wizard step the preparer is on, 1 to 5.
+  step                  Int              @default(1)
+  includeContractors    Boolean          @default(true) @map("include_contractors")
+  providerRunId         String?          @map("provider_run_id")
+  providerStatus        String?          @map("provider_status")
+  /// "provider" (read from the provider) or "manual".
+  source                String           @default("manual")
+  /// True once the figures below are the provider's confirmed ones.
+  figuresConfirmed      Boolean          @default(false) @map("figures_confirmed")
+  employeeCount         Int?             @map("employee_count")
+  regularPayCents       Int?             @map("regular_pay_cents")
+  overtimePayCents      Int?             @map("overtime_pay_cents")
+  otherEarningsCents    Int?             @map("other_earnings_cents")
+  grossCents            Int?             @map("gross_cents")
+  employeeTaxesCents    Int?             @map("employee_taxes_cents")
+  deductionsCents       Int?             @map("deductions_cents")
+  netCents              Int?             @map("net_cents")
+  employerTaxesCents    Int?             @map("employer_taxes_cents")
+  employerBenefitsCents Int?             @map("employer_benefits_cents")
+  employerCostsCents    Int?             @map("employer_costs_cents")
+  totalCostCents        Int?             @map("total_cost_cents")
+  preparedByUserId      String?          @map("prepared_by_user_id") @db.Uuid
+  readyAt               DateTime?        @map("ready_at") @db.Timestamptz(3)
+  approvedAt            DateTime?        @map("approved_at") @db.Timestamptz(3)
+  approvedByUserId      String?          @map("approved_by_user_id") @db.Uuid
+  submittedAt           DateTime?        @map("submitted_at") @db.Timestamptz(3)
+  submittedByUserId     String?          @map("submitted_by_user_id") @db.Uuid
+  /// The provider's confirmation reference after a submission.
+  providerConfirmation  String?          @map("provider_confirmation")
+  reopenedAt            DateTime?        @map("reopened_at") @db.Timestamptz(3)
+  reopenReason          String?          @map("reopen_reason")
+  completedAt           DateTime?        @map("completed_at") @db.Timestamptz(3)
+  createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  payrollClient PayrollClient @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([payrollClientId, periodStart, periodEnd])
+  @@index([businessId, status, payDate])
+  @@index([businessId, payrollClientId, payDate])
+  @@map("payroll_runs")
 }

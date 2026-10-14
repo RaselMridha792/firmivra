@@ -365,6 +365,44 @@ async function seedPayroll(tx: TxClient, businessId: string) {
       rateCents: 1650,
     },
   });
+  const paid = new Date();
+  await tx.payrollRun.create({
+    data: {
+      ...link,
+      periodStart: new Date('2026-08-16'),
+      periodEnd: new Date('2026-08-31'),
+      payDate: new Date('2026-09-05'),
+      frequency: 'SEMI_MONTHLY',
+      status: 'COMPLETED',
+      step: 5,
+      source: 'provider',
+      figuresConfirmed: true,
+      employeeCount: 25,
+      regularPayCents: 4_200_000,
+      overtimePayCents: 300_000,
+      otherEarningsCents: 120_000,
+      grossCents: 4_620_000,
+      employeeTaxesCents: 689_000,
+      deductionsCents: 315_000,
+      netCents: 3_616_000,
+      readyAt: paid,
+      approvedAt: paid,
+      approvedByUserId: SEED_USERS.lvpOwner.id,
+      submittedAt: paid,
+      completedAt: paid,
+    },
+  });
+  await tx.payrollRun.create({
+    data: {
+      ...link,
+      periodStart: new Date('2026-09-01'),
+      periodEnd: new Date('2026-09-15'),
+      payDate: new Date('2026-09-19'),
+      frequency: 'SEMI_MONTHLY',
+      status: 'IN_PROGRESS',
+      step: 2,
+    },
+  });
   await tx.payrollActivity.create({
     data: {
       ...link,
