@@ -498,6 +498,21 @@ enum PlanStrategyStatus {
   DECLINED
 }
 
+/// What a planning input is: a prior year's figure, a projection for the plan year, or a manual
+/// adjustment (which needs a note).
+enum PlanInputKind {
+  HISTORICAL
+  PROJECTED
+  ADJUSTMENT
+}
+
+/// Why a plan snapshot was kept: when it was finalized, generated as a document or sent.
+enum PlanVersionEvent {
+  FINALIZED
+  GENERATED
+  SENT
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -1180,6 +1195,7 @@ model Client {
   complianceApplicabilityRecords ComplianceApplicabilityRecord[]
   automationRuns                 AutomationRun[]
   taxPlans                       TaxPlan[]
+  taxSavingsScenarios            TaxSavingsScenario[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -1594,6 +1610,7 @@ model Document {
   taskAttachments             TaskAttachment[]
   complianceDeadlineDocuments ComplianceDeadlineDocument[]
   bookkeepingReconciliations  BookkeepingReconciliation[]
+  taxPlanDocuments            TaxPlanDocument[]
 
   // Target of message attachments.
   @@unique([businessId, id])
@@ -4569,10 +4586,14 @@ model TaxPlan {
   createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client         Client            @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement     Engagement?       @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  assignedMember Membership?       @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  strategies     TaxPlanStrategy[]
+  client              Client               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement          Engagement?          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember      Membership?          @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  strategies          TaxPlanStrategy[]
+  taxPlanInputs       TaxPlanInput[]
+  taxPlanVersions     TaxPlanVersion[]
+  taxPlanDocuments    TaxPlanDocument[]
+  taxSavingsScenarios TaxSavingsScenario[]
 
   @@unique([businessId, id])
   @@index([businessId, status])
@@ -4611,11 +4632,115 @@ model TaxPlanStrategy {
   createdAt             DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  plan     TaxPlan              @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Cascade)
-  strategy TaxPlanningStrategy? @relation(fields: [businessId, strategyId], references: [businessId, id], onDelete: Restrict)
+  plan             TaxPlan              @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Cascade)
+  strategy         TaxPlanningStrategy? @relation(fields: [businessId, strategyId], references: [businessId, id], onDelete: Restrict)
+  taxPlanDocuments TaxPlanDocument[]
 
   @@unique([businessId, id])
   @@unique([businessId, planId, strategyId])
   @@index([businessId, planId, position])
   @@map("tax_plan_strategies")
+}
+
+/// A figure a plan is built on (Create / Edit Planning Plan, Financial Overview): the key (agi,
+/// w2_income, self_employment_income, retirement_contributions...), what kind it is, its tax year,
+/// the amount or text, where it came from and when. Historical and projected figures are never
+/// mixed up, a manual adjustment says why, and a missing figure has no row: nothing is invented.
+model TaxPlanInput {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  businessId      String        @map("business_id") @db.Uuid
+  planId          String        @map("plan_id") @db.Uuid
+  key             String
+  kind            PlanInputKind
+  taxYear         Int           @map("tax_year")
+  amountCents     Int?          @map("amount_cents")
+  textValue       String?       @map("text_value")
+  /// "Tax return 2025", "Client estimate", "Manual entry".
+  source          String
+  asOf            DateTime?     @map("as_of") @db.Timestamptz(3)
+  note            String?
+  enteredByUserId String?       @map("entered_by_user_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  plan TaxPlan @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, planId, key, kind, taxYear])
+  @@map("tax_plan_inputs")
+}
+
+/// A snapshot of a plan kept when it is finalized, generated or sent: the strategies chosen with
+/// their names, priorities, estimates, overrides and assumptions, the inputs and when each came
+/// from, all as they were. Insert-only: later edits make a new version and never rewrite what
+/// was delivered.
+model TaxPlanVersion {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  businessId      String           @map("business_id") @db.Uuid
+  planId          String           @map("plan_id") @db.Uuid
+  version         Int
+  event           PlanVersionEvent
+  taxYear         Int              @map("tax_year")
+  snapshot        Json
+  /// The newest source figure in the snapshot, to show how fresh the data was.
+  sourceDataAsOf  DateTime?        @map("source_data_as_of") @db.Timestamptz(3)
+  createdByUserId String?          @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  plan TaxPlan @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, planId, version])
+  @@map("tax_plan_versions")
+}
+
+/// A document attached to a plan (the upload box), with its type and, optionally, the plan
+/// strategy it supports. One of the plan client's documents.
+model TaxPlanDocument {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  businessId     String   @map("business_id") @db.Uuid
+  planId         String   @map("plan_id") @db.Uuid
+  documentId     String   @map("document_id") @db.Uuid
+  planStrategyId String?  @map("plan_strategy_id") @db.Uuid
+  category       String?
+  addedByUserId  String?  @map("added_by_user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  plan         TaxPlan          @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  document     Document         @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Cascade)
+  planStrategy TaxPlanStrategy? @relation(fields: [businessId, planStrategyId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, planId, documentId])
+  @@index([businessId, documentId])
+  @@map("tax_plan_documents")
+}
+
+/// A Tax Savings Calculator scenario: for a client or standalone, a tax year, the baseline and
+/// strategy inputs, the baseline and modeled tax and their difference (checked), and the
+/// assumptions. Saved to a plan (planId) it becomes a snapshot that never changes. An estimate,
+/// never a guarantee; an unavailable result is null.
+model TaxSavingsScenario {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  businessId       String           @map("business_id") @db.Uuid
+  clientId         String?          @map("client_id") @db.Uuid
+  planId           String?          @map("plan_id") @db.Uuid
+  name             String?
+  taxYear          Int              @map("tax_year")
+  filingStatus     TaxFilingStatus? @map("filing_status")
+  baselineInputs   Json             @default("{}") @map("baseline_inputs")
+  strategyInputs   Json             @default("{}") @map("strategy_inputs")
+  baselineTaxCents Int?             @map("baseline_tax_cents")
+  modeledTaxCents  Int?             @map("modeled_tax_cents")
+  /// Baseline minus modeled; the projected saving.
+  differenceCents  Int?             @map("difference_cents")
+  assumptions      String?
+  savedToPlanAt    DateTime?        @map("saved_to_plan_at") @db.Timestamptz(3)
+  createdByUserId  String?          @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client Client?  @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  plan   TaxPlan? @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, clientId])
+  @@index([businessId, planId])
+  @@map("tax_savings_scenarios")
 }

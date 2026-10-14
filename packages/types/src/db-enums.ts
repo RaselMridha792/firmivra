@@ -380,6 +380,14 @@ export const PlanStrategyStatus = z.enum([
 ]);
 export type PlanStrategyStatus = z.infer<typeof PlanStrategyStatus>;
 
+/** What a planning input is: a prior year's figure, a projection for the plan year, or a manual adjustment (which needs a note). */
+export const PlanInputKind = z.enum(['HISTORICAL', 'PROJECTED', 'ADJUSTMENT']);
+export type PlanInputKind = z.infer<typeof PlanInputKind>;
+
+/** Why a plan snapshot was kept: when it was finalized, generated as a document or sent. */
+export const PlanVersionEvent = z.enum(['FINALIZED', 'GENERATED', 'SENT']);
+export type PlanVersionEvent = z.infer<typeof PlanVersionEvent>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;

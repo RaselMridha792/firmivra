@@ -72,6 +72,11 @@ export const SEED_R38_IDS = {
   planStrategy1: id(48),
   planStrategy2: id(49),
   planStrategy3: id(50),
+  planInput1: id(51),
+  planInput2: id(52),
+  planVersion: id(53),
+  planDocument: id(54),
+  scenario: id(55),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -382,6 +387,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
   await seedBookkeepingPeriods(tx, c);
   await seedBookkeepingReports(tx, c);
   await seedTaxPlanning(tx, c);
+  await seedTaxPlanDetails(tx, c);
 }
 
 /** The IRS 2027 calendar, published: an entry with a date, and one that needs checking. */
@@ -981,5 +987,98 @@ async function seedTaxPlanning(tx: TxClient, c: WorkSeedContext) {
     displayName: 'Prepay 2027 property tax',
     priority: 'LOW',
     position: 2,
+  });
+}
+
+/** The plan's figures, a finalized snapshot, a document and a saved calculator scenario. */
+async function seedTaxPlanDetails(tx: TxClient, c: WorkSeedContext) {
+  const { businessId } = c;
+  const plan = { businessId, planId: SEED_R38_IDS.plan };
+  await tx.taxPlanInput.upsert({
+    where: { id: SEED_R38_IDS.planInput1 },
+    update: {},
+    create: {
+      ...plan,
+      id: SEED_R38_IDS.planInput1,
+      key: 'agi',
+      kind: 'HISTORICAL',
+      taxYear: 2026,
+      amountCents: 14230000,
+      source: 'Tax return 2026',
+      asOf: new Date('2026-10-01T12:00:00Z'),
+      enteredByUserId: c.staffId,
+    },
+  });
+  await tx.taxPlanInput.upsert({
+    where: { id: SEED_R38_IDS.planInput2 },
+    update: {},
+    create: {
+      ...plan,
+      id: SEED_R38_IDS.planInput2,
+      key: 'retirement_contributions',
+      kind: 'ADJUSTMENT',
+      taxYear: 2027,
+      amountCents: 200000,
+      source: 'Manual entry',
+      note: 'Client reported a mid-year change',
+      enteredByUserId: c.staffId,
+    },
+  });
+  await tx.taxPlanVersion.upsert({
+    where: { id: SEED_R38_IDS.planVersion },
+    update: {},
+    create: {
+      ...plan,
+      id: SEED_R38_IDS.planVersion,
+      version: 1,
+      event: 'FINALIZED',
+      taxYear: 2027,
+      snapshot: {
+        strategies: [
+          {
+            name: 'Maximize retirement contributions',
+            priority: 'HIGH',
+            estimatedSavingsCents: 650000,
+            dataYear: 2026,
+          },
+        ],
+        assumptions: 'Estimates, not guarantees.',
+      },
+      sourceDataAsOf: new Date('2026-10-01T12:00:00Z'),
+      createdByUserId: c.ownerId,
+    },
+  });
+  await tx.taxPlanDocument.upsert({
+    where: { id: SEED_R38_IDS.planDocument },
+    update: {},
+    create: {
+      ...plan,
+      id: SEED_R38_IDS.planDocument,
+      documentId: c.documentId,
+      planStrategyId: SEED_R38_IDS.planStrategy1,
+      category: 'Income',
+      addedByUserId: c.staffId,
+    },
+  });
+  await tx.taxSavingsScenario.upsert({
+    where: { id: SEED_R38_IDS.scenario },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.scenario,
+      businessId,
+      clientId: c.clientId,
+      planId: SEED_R38_IDS.plan,
+      name: 'Max 401(k) at the limit',
+      taxYear: 2027,
+      filingStatus: 'SINGLE',
+      baselineInputs: { agiCents: 14230000 },
+      strategyInputs: { additionalContributionCents: 2300000 },
+      baselineTaxCents: 2556000,
+      modeledTaxCents: 1906000,
+      differenceCents: 650000,
+      assumptions: 'Based on the 2027 contribution limit as entered.',
+      savedToPlanAt: new Date('2026-10-03T10:00:00Z'),
+      createdByUserId: c.staffId,
+    },
   });
 }
