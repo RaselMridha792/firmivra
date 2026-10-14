@@ -20,6 +20,8 @@ const ID = {
   requestType: '00000000-0000-4a37-8000-000000000021',
   requestTypeItem1: '00000000-0000-4a37-8000-000000000022',
   requestTypeItem2: '00000000-0000-4a37-8000-000000000023',
+  shareClient: '00000000-0000-4a37-8000-000000000031',
+  shareMember: '00000000-0000-4a37-8000-000000000032',
   requestPacket: '00000000-0000-4a37-8000-000000000024',
 } as const;
 
@@ -197,9 +199,54 @@ async function seedDocumentRequests(tx: TxClient, businessId: string) {
   });
 }
 
+/** Documents: the filed return shared with the client's login and with the staff member, and the
+ * firm's document settings. */
+async function seedDocumentShares(tx: TxClient, businessId: string) {
+  const login = await tx.clientAccount.findFirstOrThrow({
+    where: { businessId, userId: SEED_USERS.lvpClient.id },
+  });
+  await tx.documentShare.upsert({
+    where: { id: ID.shareClient },
+    update: {},
+    create: {
+      id: ID.shareClient,
+      businessId,
+      documentId: SEED_DOCUMENT_IDS.return2024,
+      recipientKind: 'CLIENT',
+      clientAccountId: login.id,
+      canUpload: true,
+      grantedByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
+  await tx.documentShare.upsert({
+    where: { id: ID.shareMember },
+    update: {},
+    create: {
+      id: ID.shareMember,
+      businessId,
+      documentId: SEED_DOCUMENT_IDS.return2024,
+      recipientKind: 'MEMBER',
+      memberUserId: SEED_USERS.lvpStaff.id,
+      grantedByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
+  await tx.documentSettings.upsert({
+    where: { businessId },
+    update: {},
+    create: {
+      businessId,
+      requestReminderDaysBefore: 3,
+      shareExpiryDays: 30,
+      uploadTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+      defaultReviewerUserId: SEED_USERS.lvpStaff.id,
+    },
+  });
+}
+
 export async function seedR37(tx: TxClient, businessId: string) {
   await seedIntakeSend(tx, businessId);
   await seedIntakeTemplates(tx, businessId);
   await seedDocumentLibrary(tx, businessId);
   await seedDocumentRequests(tx, businessId);
+  await seedDocumentShares(tx, businessId);
 }

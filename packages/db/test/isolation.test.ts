@@ -529,6 +529,8 @@ describe('no scope set', () => {
     expect(await unscopedApp.intakeTemplate.findMany()).toEqual([]);
     expect(await unscopedApp.documentFolder.findMany()).toEqual([]);
     expect(await unscopedApp.documentRequestPacket.findMany()).toEqual([]);
+    expect(await unscopedApp.documentShare.findMany()).toEqual([]);
+    expect(await unscopedApp.documentSettings.findMany()).toEqual([]);
     expect(await unscopedApp.documentRequestTemplate.findMany()).toEqual([]);
     expect(await unscopedApp.documentRequestTemplateItem.findMany()).toEqual([]);
   });

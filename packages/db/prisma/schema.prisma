@@ -347,6 +347,7 @@ model Business {
   intakeTemplates          IntakeTemplate[]
   documentFolders          DocumentFolder[]
   documentRequestTemplates DocumentRequestTemplate[]
+  documentSettings         DocumentSettings[]
 
   @@map("businesses")
 }
@@ -453,18 +454,22 @@ model Membership {
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
 
   // R37 back-relations (no columns on memberships).
-  intakesAssigned         Intake[]                  @relation("IntakeAssignedTo")
-  intakesCompleted        Intake[]                  @relation("IntakeCompletedBy")
-  intakeSettingsOwner     IntakeSettings[]          @relation("IntakeSettingsOwner")
-  intakeSettingsFollowUp  IntakeSettings[]          @relation("IntakeSettingsFollowUp")
-  intakeTemplatesCreated  IntakeTemplate[]          @relation("IntakeTemplateCreatedBy")
-  intakeTemplatesAssigned IntakeTemplate[]          @relation("IntakeTemplateAssignedTo")
-  documentsReviewer       Document[]                @relation("DocumentReviewer")
-  documentsReviewedBy     Document[]                @relation("DocumentReviewedBy")
-  requestPacketsAssigned  DocumentRequestPacket[]   @relation("PacketAssignedTo")
-  requestPacketsRequested DocumentRequestPacket[]   @relation("PacketRequestedBy")
-  requestPacketsForMember DocumentRequestPacket[]   @relation("PacketRecipientMember")
-  requestTemplatesOwned   DocumentRequestTemplate[] @relation("RequestTemplateOwner")
+  intakesAssigned          Intake[]                  @relation("IntakeAssignedTo")
+  intakesCompleted         Intake[]                  @relation("IntakeCompletedBy")
+  intakeSettingsOwner      IntakeSettings[]          @relation("IntakeSettingsOwner")
+  intakeSettingsFollowUp   IntakeSettings[]          @relation("IntakeSettingsFollowUp")
+  intakeTemplatesCreated   IntakeTemplate[]          @relation("IntakeTemplateCreatedBy")
+  intakeTemplatesAssigned  IntakeTemplate[]          @relation("IntakeTemplateAssignedTo")
+  documentsReviewer        Document[]                @relation("DocumentReviewer")
+  documentsReviewedBy      Document[]                @relation("DocumentReviewedBy")
+  requestPacketsAssigned   DocumentRequestPacket[]   @relation("PacketAssignedTo")
+  requestPacketsRequested  DocumentRequestPacket[]   @relation("PacketRequestedBy")
+  requestPacketsForMember  DocumentRequestPacket[]   @relation("PacketRecipientMember")
+  requestTemplatesOwned    DocumentRequestTemplate[] @relation("RequestTemplateOwner")
+  documentSharesToMember   DocumentShare[]           @relation("ShareToMember")
+  documentSharesGranted    DocumentShare[]           @relation("ShareGrantedBy")
+  documentSharesRevoked    DocumentShare[]           @relation("ShareRevokedBy")
+  documentSettingsReviewer DocumentSettings[]        @relation("DocumentSettingsReviewer")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -504,6 +509,8 @@ model ClientAccount {
   intakeSignatures  IntakeSignature[]
   verificationCodes VerificationCode[]
   esignRecipients   EsignRecipient[]
+
+  documentShares DocumentShare[]
 
   @@unique([businessId, email])
   // Target of client-owned rows (private notes).
@@ -1148,6 +1155,7 @@ model Document {
   reports            EngagementReport[]
   messageAttachments MessageAttachment[]
   taxReturns         TaxReturn[]
+  documentShares     DocumentShare[]
 
   // Target of message attachments.
   @@unique([businessId, id])
@@ -3267,4 +3275,77 @@ model DocumentRequestTemplateItem {
 
   @@index([businessId, templateId, sortOrder])
   @@map("document_request_template_items")
+}
+
+enum DocumentShareRecipient {
+  /// A portal login of the document's own client.
+  CLIENT
+  /// A member of the firm (read access beyond the usual assigned-staff rule).
+  MEMBER
+}
+
+/// Access to one document for one person, with its own permissions and expiry ("Share" screen).
+/// Viewing is implied by any grant.
+/// A grant adds access, never removes it: the firm's owners, admins and the client's assigned
+/// staff, and a client's household for a document shared with the client, keep theirs. Grants to
+/// a client are for documents the client may see (not INTERNAL). Revoked once, never deleted.
+/// There is no public link and no external recipient.
+model DocumentShare {
+  id              String                 @id @default(uuid(7)) @db.Uuid
+  businessId      String                 @map("business_id") @db.Uuid
+  documentId      String                 @map("document_id") @db.Uuid
+  recipientKind   DocumentShareRecipient @map("recipient_kind")
+  /// recipientKind CLIENT: a login of the document's client.
+  clientAccountId String?                @map("client_account_id") @db.Uuid
+  /// recipientKind MEMBER.
+  memberUserId    String?                @map("member_user_id") @db.Uuid
+  canDownload     Boolean                @default(true) @map("can_download")
+  /// May add a new version (never overwrite).
+  canUpload       Boolean                @default(false) @map("can_upload")
+  /// A permission only: the signing itself is Firm Sign's.
+  canSign         Boolean                @default(false) @map("can_sign")
+  expiresAt       DateTime?              @map("expires_at") @db.Timestamptz(3)
+  grantedByUserId String                 @map("granted_by_user_id") @db.Uuid
+  revokedAt       DateTime?              @map("revoked_at") @db.Timestamptz(3)
+  revokedByUserId String?                @map("revoked_by_user_id") @db.Uuid
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  document      Document       @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+  clientAccount ClientAccount? @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  member        Membership?    @relation("ShareToMember", fields: [businessId, memberUserId], references: [businessId, userId], onDelete: Restrict)
+  grantedBy     Membership     @relation("ShareGrantedBy", fields: [businessId, grantedByUserId], references: [businessId, userId], onDelete: Restrict)
+  revokedBy     Membership?    @relation("ShareRevokedBy", fields: [businessId, revokedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, documentId])
+  @@index([businessId, clientAccountId])
+  @@index([businessId, memberUserId])
+  @@map("document_shares")
+}
+
+/// The firm's Documents settings (Expiration & Reminders, File Settings, General), one row per
+/// firm, created by the API on first read. Null means "none" or "the platform's limit"; no
+/// value comes from the mockups.
+model DocumentSettings {
+  businessId                 String   @id @map("business_id") @db.Uuid
+  /// Default reminder for new requests, days before the due date (1 to 30).
+  requestReminderDaysBefore  Int?     @map("request_reminder_days_before")
+  /// Default expiry for new requests, days after sending (1 to 365).
+  requestExpiryDays          Int?     @map("request_expiry_days")
+  /// Remind staff this many days before a document's own expiry date (1 to 365).
+  documentExpiryReminderDays Int?     @map("document_expiry_reminder_days")
+  /// Default expiry for new shares, days (1 to 365).
+  shareExpiryDays            Int?     @map("share_expiry_days")
+  /// Narrows the platform's 10 MB; 1 to 10485760.
+  uploadMaxBytes             Int?     @map("upload_max_bytes")
+  /// A subset of the platform's upload types; empty means all of them.
+  uploadTypes                String[] @default([]) @map("upload_types")
+  defaultReviewerUserId      String?  @map("default_reviewer_user_id") @db.Uuid
+  createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business        Business    @relation(fields: [businessId], references: [id])
+  defaultReviewer Membership? @relation("DocumentSettingsReviewer", fields: [businessId, defaultReviewerUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@map("document_settings")
 }

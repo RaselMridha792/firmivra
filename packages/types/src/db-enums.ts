@@ -389,3 +389,6 @@ export const DocumentRequestPacketStatus = z.enum([
   'CANCELLED',
 ]);
 export type DocumentRequestPacketStatus = z.infer<typeof DocumentRequestPacketStatus>;
+
+export const DocumentShareRecipient = z.enum(['CLIENT', 'MEMBER']);
+export type DocumentShareRecipient = z.infer<typeof DocumentShareRecipient>;
