@@ -7,13 +7,14 @@ import {
   ChartPieSlice,
   CheckSquare,
   CurrencyDollar,
-  Files,
+  Envelope,
   Globe,
   IdentificationCard,
   Layout,
   PaperPlaneTilt,
   PuzzlePiece,
   ShieldCheck,
+  UploadSimple,
 } from '@phosphor-icons/react/ssr';
 import type { Icon } from '@phosphor-icons/react';
 
@@ -30,7 +31,10 @@ export interface FirmModule {
  * (`firmMenu` in the firm layout) to the real page.
  */
 export const FIRM_MODULES: readonly FirmModule[] = [
-  { slug: 'documents', label: 'Documents', icon: Files },
+  // R34: the Documents page itself is built. Its two unbuilt sub-flows (Upload Document /
+  // Quick Upload, and Document Requests / Create Document Request) still open these.
+  { slug: 'document-upload', label: 'Upload Document', icon: UploadSimple },
+  { slug: 'document-requests', label: 'Document Requests', icon: Envelope },
   { slug: 'client-portal', label: 'Client Portal', icon: Globe },
   { slug: 'tax-returns', label: 'Tax Returns', icon: IdentificationCard },
   { slug: 'bookkeeping', label: 'Bookkeeping', icon: Calculator },

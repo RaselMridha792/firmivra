@@ -727,6 +727,353 @@ export type EsignEmailStatus = z.infer<typeof EsignEmailStatus>;
 export const EsignUploadKind = z.enum(['DOCUMENT', 'ATTACHMENT']);
 export type EsignUploadKind = z.infer<typeof EsignUploadKind>;
 
+export const MessageTemplateKind = z.enum([
+  'EMAIL',
+  'SMS',
+  'PORTAL_MESSAGE',
+  'DOCUMENT_REQUEST',
+  'INTAKE_ORGANIZER',
+  'ENGAGEMENT_AGREEMENT',
+  'INVOICE_PAYMENT',
+  'APPOINTMENT',
+  'TASK',
+  'TAX_WORKFLOW',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'LEAD_FOLLOW_UP',
+  'CAMPAIGN',
+  'LETTER_NOTICE',
+  'ANNOUNCEMENT',
+]);
+export type MessageTemplateKind = z.infer<typeof MessageTemplateKind>;
+
+/** DRAFT is not offered to automations; ARCHIVED is hidden from pickers but kept for history. */
+export const MessageTemplateStatus = z.enum(['DRAFT', 'ACTIVE', 'ARCHIVED']);
+export type MessageTemplateStatus = z.infer<typeof MessageTemplateStatus>;
+
+/** Who can use a template: its owner only, the whole team, or the people in message_template_shares. */
+export const MessageTemplateAccess = z.enum(['PRIVATE', 'TEAM', 'SELECTED']);
+export type MessageTemplateAccess = z.infer<typeof MessageTemplateAccess>;
+
+export const IntegrationConnectionStatus = z.enum([
+  'CONNECTED',
+  'SYNCING',
+  'NEEDS_ATTENTION',
+  'PAUSED',
+  'DISCONNECTED',
+]);
+export type IntegrationConnectionStatus = z.infer<typeof IntegrationConnectionStatus>;
+
+/** Live (production) or Test (sandbox) credentials; the two never mix. */
+export const IntegrationEnvironment = z.enum(['LIVE', 'TEST']);
+export type IntegrationEnvironment = z.infer<typeof IntegrationEnvironment>;
+
+export const IntegrationSyncDirection = z.enum(['IMPORT', 'EXPORT', 'TWO_WAY']);
+export type IntegrationSyncDirection = z.infer<typeof IntegrationSyncDirection>;
+
+export const IntegrationSyncMode = z.enum(['AUTO', 'MANUAL']);
+export type IntegrationSyncMode = z.infer<typeof IntegrationSyncMode>;
+
+export const IntegrationSyncRunStatus = z.enum([
+  'QUEUED',
+  'RUNNING',
+  'SUCCEEDED',
+  'FAILED',
+  'PARTIAL',
+]);
+export type IntegrationSyncRunStatus = z.infer<typeof IntegrationSyncRunStatus>;
+
+export const IntegrationRequestStatus = z.enum([
+  'NEW',
+  'REVIEWING',
+  'PLANNED',
+  'IN_DEVELOPMENT',
+  'AVAILABLE',
+  'DECLINED',
+]);
+export type IntegrationRequestStatus = z.infer<typeof IntegrationRequestStatus>;
+
+/** How a campaign goes out. Consent and suppression exist only for EMAIL and SMS. */
+export const CommunicationChannel = z.enum(['EMAIL', 'SMS', 'ANNOUNCEMENT']);
+export type CommunicationChannel = z.infer<typeof CommunicationChannel>;
+
+/** DYNAMIC: members come from `criteria` each time. STATIC: members are saved rows. */
+export const SegmentType = z.enum(['DYNAMIC', 'STATIC']);
+export type SegmentType = z.infer<typeof SegmentType>;
+
+export const SegmentAudience = z.enum(['CLIENTS', 'LEADS', 'BOTH']);
+export type SegmentAudience = z.infer<typeof SegmentAudience>;
+
+/** A contact's standing on one channel. Anything but OPTED_IN keeps them out of campaigns. */
+export const ConsentStatus = z.enum(['OPTED_IN', 'OPTED_OUT', 'BOUNCED', 'INVALID', 'COMPLAINED']);
+export type ConsentStatus = z.infer<typeof ConsentStatus>;
+
+/** DRAFT or SCHEDULED can be edited. SENDING, PAUSED, SENT, FAILED and CANCELLED never change their content. Archiving is `archivedAt`, not a status, so it can be undone. */
+export const CommunicationStatus = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'SENDING',
+  'PAUSED',
+  'SENT',
+  'FAILED',
+  'CANCELLED',
+]);
+export type CommunicationStatus = z.infer<typeof CommunicationStatus>;
+
+/** How a campaign was made from an earlier one (never by changing the earlier one). */
+export const CommunicationSourceKind = z.enum(['DUPLICATE', 'RESEND_FAILED', 'FOLLOW_UP']);
+export type CommunicationSourceKind = z.infer<typeof CommunicationSourceKind>;
+
+/** A segment, one person, or one person left out by hand. */
+export const AudienceEntryKind = z.enum([
+  'SEGMENT',
+  'CLIENT',
+  'LEAD',
+  'EXCLUDE_CLIENT',
+  'EXCLUDE_LEAD',
+]);
+export type AudienceEntryKind = z.infer<typeof AudienceEntryKind>;
+
+/** Where one recipient stands, in Firmivra's own words (provider states are normalized to these). */
+export const CommunicationRecipientStatus = z.enum([
+  'QUEUED',
+  'SENT',
+  'DELIVERED',
+  'OPENED',
+  'CLICKED',
+  'BOUNCED',
+  'UNSUBSCRIBED',
+  'FAILED',
+  'NOT_SENT',
+]);
+export type CommunicationRecipientStatus = z.infer<typeof CommunicationRecipientStatus>;
+
+export const CommunicationEventType = z.enum([
+  'QUEUED',
+  'SENT',
+  'DELIVERED',
+  'OPENED',
+  'CLICKED',
+  'BOUNCED',
+  'COMPLAINED',
+  'UNSUBSCRIBED',
+  'FAILED',
+]);
+export type CommunicationEventType = z.infer<typeof CommunicationEventType>;
+
+export const ReportCategory = z.enum([
+  'FINANCIAL',
+  'CLIENT',
+  'TAX',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'LEADS',
+  'COMMUNICATIONS',
+  'TEAM_PRODUCTIVITY',
+  'ADVISORY',
+]);
+export type ReportCategory = z.infer<typeof ReportCategory>;
+
+export const ReportVisibility = z.enum(['PRIVATE', 'SELECTED', 'COMPANY']);
+export type ReportVisibility = z.infer<typeof ReportVisibility>;
+
+/** A saved report keeps its settings, with either a fixed date range or a rolling one. */
+export const ReportDateRule = z.enum(['FIXED', 'ROLLING']);
+export type ReportDateRule = z.infer<typeof ReportDateRule>;
+
+/** Which money "Total Revenue" means in every report, KPI card and export of the firm. */
+export const RevenueBasis = z.enum(['COLLECTED', 'INVOICED']);
+export type RevenueBasis = z.infer<typeof RevenueBasis>;
+
+export const ReportFrequency = z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL']);
+export type ReportFrequency = z.infer<typeof ReportFrequency>;
+
+export const ReportFormat = z.enum(['PDF', 'XLSX', 'CSV']);
+export type ReportFormat = z.infer<typeof ReportFormat>;
+
+/** VIEW: opened on screen (Recent Reports). EXPORT: a download. SCHEDULED: made by a schedule. SNAPSHOT: a saved copy of the numbers at that moment. */
+export const ReportRunKind = z.enum(['VIEW', 'EXPORT', 'SCHEDULED', 'SNAPSHOT']);
+export type ReportRunKind = z.infer<typeof ReportRunKind>;
+
+export const ReportRunStatus = z.enum(['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED']);
+export type ReportRunStatus = z.infer<typeof ReportRunStatus>;
+
+/** Firmivra's own workflow status for a payroll client, not the provider's. */
+export const PayrollClientStatus = z.enum([
+  'ON_TRACK',
+  'PROCESSING',
+  'ACTION_REQUIRED',
+  'PAST_DUE',
+  'NOT_STARTED',
+  'ON_HOLD',
+  'ARCHIVED',
+]);
+export type PayrollClientStatus = z.infer<typeof PayrollClientStatus>;
+
+export const PayrollFrequency = z.enum(['WEEKLY', 'BIWEEKLY', 'SEMI_MONTHLY', 'MONTHLY']);
+export type PayrollFrequency = z.infer<typeof PayrollFrequency>;
+
+export const PayrollActivityKind = z.enum([
+  'PAYROLL_REVIEW',
+  'CLIENT_CALL',
+  'PROVIDER_ISSUE',
+  'NOTICE_FOLLOW_UP',
+  'DOCUMENT_FOLLOW_UP',
+  'OTHER',
+]);
+export type PayrollActivityKind = z.infer<typeof PayrollActivityKind>;
+
+export const PayrollWorkerType = z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACTOR']);
+export type PayrollWorkerType = z.infer<typeof PayrollWorkerType>;
+
+export const PayrollWorkerStatus = z.enum(['ACTIVE', 'ON_LEAVE', 'INACTIVE', 'PENDING_SETUP']);
+export type PayrollWorkerStatus = z.infer<typeof PayrollWorkerStatus>;
+
+export const PayrollPayType = z.enum(['HOURLY', 'SALARY', 'COMMISSION']);
+export type PayrollPayType = z.infer<typeof PayrollPayType>;
+
+/** Firmivra's workflow for a run. The provider's own status is kept apart in `providerStatus`. COMPLETED is final. */
+export const PayrollRunStatus = z.enum([
+  'NOT_STARTED',
+  'DRAFT',
+  'IN_PROGRESS',
+  'READY_FOR_REVIEW',
+  'APPROVED',
+  'SUBMITTED',
+  'PROCESSING',
+  'COMPLETED',
+  'NEEDS_ATTENTION',
+]);
+export type PayrollRunStatus = z.infer<typeof PayrollRunStatus>;
+
+export const PayrollLineStatus = z.enum([
+  'READY',
+  'WARNING',
+  'ERROR',
+  'PENDING_CHANGE',
+  'EXCLUDED',
+]);
+export type PayrollLineStatus = z.infer<typeof PayrollLineStatus>;
+
+export const PayrollIssueSeverity = z.enum(['INFO', 'WARNING', 'ERROR']);
+export type PayrollIssueSeverity = z.infer<typeof PayrollIssueSeverity>;
+
+/** Only what the provider or an import confirmed. A Firmivra task being done never makes a filing FILED or PAID. */
+export const PayrollFilingStatus = z.enum([
+  'UPCOMING',
+  'IN_PROGRESS',
+  'FILED',
+  'PAID',
+  'FAILED',
+  'NEEDS_ATTENTION',
+  'UNKNOWN',
+]);
+export type PayrollFilingStatus = z.infer<typeof PayrollFilingStatus>;
+
+export const PayrollPaymentStatus = z.enum(['SCHEDULED', 'PAID', 'FAILED', 'UNKNOWN']);
+export type PayrollPaymentStatus = z.infer<typeof PayrollPaymentStatus>;
+
+export const PayrollReportKind = z.enum([
+  'REGISTER',
+  'EARNINGS',
+  'DEDUCTIONS',
+  'EMPLOYER_TAX',
+  'TAX_FILING',
+  'JOURNAL',
+  'LABOR',
+  'W2_W3',
+  'FORM_1099',
+  'OTHER',
+]);
+export type PayrollReportKind = z.infer<typeof PayrollReportKind>;
+
+export const PayrollYearEndStatus = z.enum([
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'RECONCILED',
+  'DELIVERED',
+  'ARCHIVED',
+]);
+export type PayrollYearEndStatus = z.infer<typeof PayrollYearEndStatus>;
+
+export const AdvisoryClientStatus = z.enum([
+  'IN_PROGRESS',
+  'SCHEDULED',
+  'NEEDS_REVIEW',
+  'ON_HOLD',
+  'COMPLETED',
+  'ARCHIVED',
+]);
+export type AdvisoryClientStatus = z.infer<typeof AdvisoryClientStatus>;
+
+export const AdvisoryServiceStatus = z.enum([
+  'INTERESTED',
+  'PROPOSED',
+  'ACCEPTED',
+  'IN_PROGRESS',
+  'AWAITING_CLIENT',
+  'COMPLETED',
+  'DECLINED',
+  'ON_HOLD',
+]);
+export type AdvisoryServiceStatus = z.infer<typeof AdvisoryServiceStatus>;
+
+/** A client has one PRIMARY service focus (exactly one, in SQL) and any number of ADDITIONAL ones. */
+export const AdvisoryServiceRole = z.enum(['PRIMARY', 'ADDITIONAL']);
+export type AdvisoryServiceRole = z.infer<typeof AdvisoryServiceRole>;
+
+export const AdvisoryPlanStatus = z.enum([
+  'DRAFT',
+  'IN_REVIEW',
+  'FINALIZED',
+  'SENT',
+  'IN_PROGRESS',
+  'COMPLETED',
+  'ARCHIVED',
+]);
+export type AdvisoryPlanStatus = z.infer<typeof AdvisoryPlanStatus>;
+
+export const AdvisoryGoalStatus = z.enum([
+  'NOT_STARTED',
+  'PLANNING',
+  'IN_PROGRESS',
+  'ON_TRACK',
+  'AT_RISK',
+  'OVERDUE',
+  'COMPLETED',
+  'CANCELLED',
+]);
+export type AdvisoryGoalStatus = z.infer<typeof AdvisoryGoalStatus>;
+
+export const AdvisoryRecommendationStatus = z.enum([
+  'PROPOSED',
+  'ACCEPTED',
+  'IN_PROGRESS',
+  'IMPLEMENTED',
+  'NOT_APPLICABLE',
+  'DECLINED',
+]);
+export type AdvisoryRecommendationStatus = z.infer<typeof AdvisoryRecommendationStatus>;
+
+export const AdvisoryActionStatus = z.enum(['NOT_STARTED', 'IN_PROGRESS', 'DONE', 'CANCELLED']);
+export type AdvisoryActionStatus = z.infer<typeof AdvisoryActionStatus>;
+
+export const AdvisoryPriority = z.enum(['LOW', 'NORMAL', 'HIGH']);
+export type AdvisoryPriority = z.infer<typeof AdvisoryPriority>;
+
+/** Who an action item is for. Tasks (the `tasks` table) can only name a staff member, but an advisory action item is often the client's ("Gather 3 vendor quotes") or the firm team's. */
+export const AdvisoryAssigneeKind = z.enum(['STAFF', 'CLIENT', 'TEAM']);
+export type AdvisoryAssigneeKind = z.infer<typeof AdvisoryAssigneeKind>;
+
+export const AdvisoryFinancialSource = z.enum([
+  'MANUAL',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'BANK',
+  'UPLOADED',
+]);
+export type AdvisoryFinancialSource = z.infer<typeof AdvisoryFinancialSource>;
+
 export const StaffGroupStatus = z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']);
 export type StaffGroupStatus = z.infer<typeof StaffGroupStatus>;
 
