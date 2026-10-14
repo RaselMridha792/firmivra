@@ -3214,3 +3214,34 @@ model IntegrationSyncRun {
   @@index([businessId, status])
   @@map("integration_sync_runs")
 }
+
+enum IntegrationRequestStatus {
+  NEW
+  REVIEWING
+  PLANNED
+  IN_DEVELOPMENT
+  AVAILABLE
+  DECLINED
+}
+
+/// A firm's request for an integration that is not listed. Super Admin reviews it (status and
+/// internal note) and the requester is told when the status changes.
+model IntegrationRequest {
+  id                String                   @id @default(uuid(7)) @db.Uuid
+  businessId        String                   @map("business_id") @db.Uuid
+  requestedByUserId String                   @map("requested_by_user_id") @db.Uuid
+  providerName      String                   @map("provider_name")
+  websiteUrl        String?                  @map("website_url")
+  category          String?
+  connectTo         String                   @map("connect_to")
+  businessReason    String?                  @map("business_reason")
+  status            IntegrationRequestStatus @default(NEW)
+  internalNote      String?                  @map("internal_note")
+  statusChangedAt   DateTime?                @map("status_changed_at") @db.Timestamptz(3)
+  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([businessId, createdAt])
+  @@index([status, createdAt])
+  @@map("integration_requests")
+}

@@ -7,6 +7,7 @@ import { SEED_USERS } from './seed-data.js';
 export async function seedR39(tx: TxClient, businessId: string) {
   await seedTemplates(tx, businessId);
   await seedIntegrations(tx, businessId);
+  await seedIntegrationRequest(tx, businessId);
 }
 
 async function seedTemplates(tx: TxClient, businessId: string) {
@@ -110,6 +111,19 @@ async function seedIntegrations(tx: TxClient, businessId: string) {
       recordCount: 42,
       startedAt: now,
       finishedAt: now,
+    },
+  });
+}
+
+async function seedIntegrationRequest(tx: TxClient, businessId: string) {
+  const providerName = 'Sample Books';
+  if (await tx.integrationRequest.findFirst({ where: { providerName } })) return;
+  await tx.integrationRequest.create({
+    data: {
+      businessId,
+      requestedByUserId: SEED_USERS.lvpOwner.id,
+      providerName,
+      connectTo: 'Invoices and payments',
     },
   });
 }

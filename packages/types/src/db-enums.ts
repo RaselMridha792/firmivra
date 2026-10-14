@@ -405,3 +405,13 @@ export const IntegrationSyncRunStatus = z.enum([
   'PARTIAL',
 ]);
 export type IntegrationSyncRunStatus = z.infer<typeof IntegrationSyncRunStatus>;
+
+export const IntegrationRequestStatus = z.enum([
+  'NEW',
+  'REVIEWING',
+  'PLANNED',
+  'IN_DEVELOPMENT',
+  'AVAILABLE',
+  'DECLINED',
+]);
+export type IntegrationRequestStatus = z.infer<typeof IntegrationRequestStatus>;
