@@ -22,6 +22,11 @@
   --color-folder-surface: #e7f3ff;
   --color-folder-hover: #d8ebff;
   --color-folder-border: #b9d7f4;
+  /* R34: the Documents page mockup's folder-tab icon (amber, distinct from the selected-row
+     folder-surface tokens above) and its per-file-type icon colours, measured from the design. */
+  --color-folder-icon: #f0ad3c;
+  --color-file-pdf: #e51b35;
+  --color-file-excel: #0f9d58;
   --color-success: #157347;
   --color-success-soft: #dcf4e5;
   --color-warning: #8a5700;
