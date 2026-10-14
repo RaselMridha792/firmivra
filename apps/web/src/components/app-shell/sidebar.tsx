@@ -4,6 +4,7 @@ import { ChevronDown, LogOut } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 import { useMe } from '../signed-in';
 import firmivraLogoWhite from './firmivra-logo-white.png';
 import { initials, isActive, type NavSections } from './types';
@@ -45,10 +46,28 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const { me, signOut } = useMe();
+  // The menu's scrollbar is hidden (it looked wrong next to the navy menu), so a soft fade at its
+  // bottom edge shows while more items are below.
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+  useEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const update = () => setMoreBelow(menu.scrollTop + menu.clientHeight < menu.scrollHeight - 1);
+    update();
+    menu.addEventListener('scroll', update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(menu);
+    for (const child of menu.children) observer.observe(child);
+    return () => {
+      menu.removeEventListener('scroll', update);
+      observer.disconnect();
+    };
+  }, [sections]);
   return (
     <nav
       aria-label="Main"
-      className={`flex h-full flex-col bg-brand-900 text-white ${brand ? 'w-60' : 'w-72'}`}
+      className={`flex h-full flex-col bg-brand-900 text-white ${brand ? 'w-61.5' : 'w-72'}`}
     >
       {brand ? (
         <div className="shrink-0 px-5 pb-5 pt-4">
@@ -85,77 +104,87 @@ export function Sidebar({
         </div>
       )}
 
-      <div
-        data-testid="sidebar-menu"
-        className={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto ${brand ? 'py-1' : ''}`}
-      >
-        {sections.map((items, i) => (
-          <ul
-            key={items[0]?.label ?? 'group'}
-            className={`flex flex-col ${brand ? '' : 'gap-0.5'} ${i > 0 ? 'relative mt-2 pt-4 before:absolute before:inset-x-6 before:top-0 before:border-t before:border-platform-navy-raised' : ''}`}
-          >
-            {items.map((item) => {
-              const Icon = item.icon;
-              const body = (
-                <>
-                  <Icon
-                    aria-hidden
-                    className={`shrink-0 ${brand ? 'size-[21px] -my-0.5' : 'size-6'}`}
-                  />
-                  <span className={`min-w-0 flex-1 ${brand ? '' : 'whitespace-nowrap'}`}>
-                    {item.label}
-                  </span>
-                  {item.soon ? (
-                    <span className="shrink-0 rounded-pill bg-platform-navy-raised px-2 py-0.5 text-xs text-brand-100">
-                      Soon
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={menuRef}
+          data-testid="sidebar-menu"
+          className={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${brand ? 'py-1' : ''}`}
+        >
+          {sections.map((items, i) => (
+            <ul
+              key={items[0]?.label ?? 'group'}
+              className={`flex flex-col ${brand ? '' : 'gap-0.5'} ${i > 0 ? 'relative mt-2 pt-4 before:absolute before:inset-x-6 before:top-0 before:border-t before:border-platform-navy-raised' : ''}`}
+            >
+              {items.map((item) => {
+                const Icon = item.icon;
+                const body = (
+                  <>
+                    <Icon
+                      aria-hidden
+                      className={`shrink-0 ${brand ? 'size-[21px] -my-0.5' : 'size-6'}`}
+                    />
+                    <span className={`min-w-0 flex-1 ${brand ? '' : 'whitespace-nowrap'}`}>
+                      {item.label}
                     </span>
-                  ) : null}
-                  {item.badge ? (
-                    <span
-                      className={`min-w-8 shrink-0 rounded-pill px-2 py-0.5 text-center text-xs font-semibold ${brand ? 'bg-danger' : 'bg-brand-500'}`}
+                    {item.soon ? (
+                      <span className="shrink-0 rounded-pill bg-platform-navy-raised px-2 py-0.5 text-xs text-brand-100">
+                        Soon
+                      </span>
+                    ) : null}
+                    {item.badge ? (
+                      <span
+                        className={`min-w-8 shrink-0 rounded-pill px-2 py-0.5 text-center text-xs font-semibold ${brand ? 'bg-danger' : 'bg-brand-500'}`}
+                      >
+                        {item.badge}
+                      </span>
+                    ) : null}
+                  </>
+                );
+                const row = `flex items-center ${brand ? 'gap-5.75 px-3.5 py-2.5 text-[13.5px] leading-[17px]' : 'gap-2.5 px-6 py-3 text-base'}`;
+                if (!item.href) {
+                  return (
+                    <li
+                      key={item.label}
+                      aria-disabled="true"
+                      className={`${row} text-brand-100 ${brand ? '-my-0.5' : ''}`}
                     >
-                      {item.badge}
-                    </span>
-                  ) : null}
-                </>
-              );
-              const row = `flex items-center ${brand ? 'gap-5.75 px-3.5 py-2.5 text-[13.5px] leading-[17px]' : 'gap-2.5 px-6 py-3 text-base'}`;
-              if (!item.href) {
+                      {body}
+                    </li>
+                  );
+                }
+                const active = isActive(pathname, item.href);
                 return (
-                  <li
-                    key={item.label}
-                    aria-disabled="true"
-                    className={`${row} text-brand-100 ${brand ? '-my-0.5' : ''}`}
-                  >
-                    {body}
+                  <li key={item.label} className={brand ? '-my-0.5' : undefined}>
+                    <Link
+                      href={item.href}
+                      onClick={onNavigate}
+                      aria-current={active ? 'page' : undefined}
+                      className={
+                        row +
+                        (brand
+                          ? ' ml-3 mr-3.5 rounded-control ' +
+                            (active ? 'bg-nav-active font-semibold' : 'hover:bg-navigation-hover')
+                          : ' mr-3 rounded-r-control border-l-4 ' +
+                            (active
+                              ? 'border-info bg-navigation-hover font-semibold'
+                              : 'border-transparent hover:bg-navigation-hover'))
+                      }
+                    >
+                      {body}
+                    </Link>
                   </li>
                 );
-              }
-              const active = isActive(pathname, item.href);
-              return (
-                <li key={item.label} className={brand ? '-my-0.5' : undefined}>
-                  <Link
-                    href={item.href}
-                    onClick={onNavigate}
-                    aria-current={active ? 'page' : undefined}
-                    className={
-                      row +
-                      (brand
-                        ? ' ml-3 mr-3.5 rounded-control ' +
-                          (active ? 'bg-nav-active font-semibold' : 'hover:bg-navigation-hover')
-                        : ' mr-3 rounded-r-control border-l-4 ' +
-                          (active
-                            ? 'border-info bg-navigation-hover font-semibold'
-                            : 'border-transparent hover:bg-navigation-hover'))
-                    }
-                  >
-                    {body}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        ))}
+              })}
+            </ul>
+          ))}
+        </div>
+        {moreBelow ? (
+          <div
+            aria-hidden
+            data-testid="sidebar-menu-fade"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-brand-900 to-transparent"
+          />
+        ) : null}
       </div>
 
       {brand ? (
