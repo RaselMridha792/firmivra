@@ -546,7 +546,7 @@ export const PaymentProcessor = z.enum(['STRIPE']);
 export type PaymentProcessor = z.infer<typeof PaymentProcessor>;
 
 /** How an offline payment arrived. Card and bank payments through Stripe are Payment rows, never these. */
-export const OfflinePaymentMethod = z.enum(['CHECK', 'CASH']);
+export const OfflinePaymentMethod = z.enum(['CHECK', 'CASH', 'ACH', 'CARD', 'OTHER']);
 export type OfflinePaymentMethod = z.infer<typeof OfflinePaymentMethod>;
 
 /** Content editor records shown in the portal (Business Documents, Resources & Services). */
@@ -726,6 +726,164 @@ export type EsignEmailStatus = z.infer<typeof EsignEmailStatus>;
 /** An upload started and not confirmed: a request's file, or a signer's attachment. */
 export const EsignUploadKind = z.enum(['DOCUMENT', 'ATTACHMENT']);
 export type EsignUploadKind = z.infer<typeof EsignUploadKind>;
+
+/** Percentage or a fixed amount. PERCENT keeps what the firm typed in `discount_percent`. */
+export const InvoiceDiscountType = z.enum(['PERCENT', 'FIXED']);
+export type InvoiceDiscountType = z.infer<typeof InvoiceDiscountType>;
+
+/** How a client may pay one invoice. MANUAL is paid outside the system and recorded by the firm. */
+export const InvoicePaymentMethod = z.enum(['CARD', 'ACH', 'MANUAL']);
+export type InvoicePaymentMethod = z.infer<typeof InvoicePaymentMethod>;
+
+/** How a late fee is worked out. */
+export const LateFeeType = z.enum(['PERCENT', 'FIXED']);
+export type LateFeeType = z.infer<typeof LateFeeType>;
+
+/** What an invoice event records: what happened to the invoice, or what staff noted about it. */
+export const InvoiceEventType = z.enum([
+  'CREATED',
+  'SENT',
+  'RESENT',
+  'VIEWED',
+  'REMINDER_SENT',
+  'OVERDUE_REMINDER_SENT',
+  'RECEIPT_SENT',
+  'PAYMENT_LINK_COPIED',
+  'NOTE',
+  'ACTIVITY_LOGGED',
+  'FOLLOW_UP_SCHEDULED',
+  'ARCHIVED',
+  'UNARCHIVED',
+]);
+export type InvoiceEventType = z.infer<typeof InvoiceEventType>;
+
+export const InvoiceActorKind = z.enum(['STAFF', 'CLIENT', 'SYSTEM']);
+export type InvoiceActorKind = z.infer<typeof InvoiceActorKind>;
+
+/** How often a recurring invoice, or a recurring service's billing, comes round. */
+export const BillingFrequency = z.enum([
+  'ONE_TIME',
+  'WEEKLY',
+  'BIWEEKLY',
+  'SEMI_MONTHLY',
+  'MONTHLY',
+  'QUARTERLY',
+  'SEMIANNUAL',
+  'ANNUAL',
+]);
+export type BillingFrequency = z.infer<typeof BillingFrequency>;
+
+/** ACTIVE sends on its schedule (Upcoming when `start_on` is still ahead); PAUSED keeps its place and history; COMPLETED ran out its end rule; ENDED was stopped or archived by the firm. */
+export const RecurringInvoiceStatus = z.enum(['ACTIVE', 'PAUSED', 'COMPLETED', 'ENDED']);
+export type RecurringInvoiceStatus = z.infer<typeof RecurringInvoiceStatus>;
+
+export const InvoiceDelivery = z.enum(['EMAIL', 'PORTAL', 'EMAIL_AND_PORTAL']);
+export type InvoiceDelivery = z.infer<typeof InvoiceDelivery>;
+
+export const PaymentMethodStatus = z.enum(['ACTIVE', 'REMOVED']);
+export type PaymentMethodStatus = z.infer<typeof PaymentMethodStatus>;
+
+/** DRAFT is not sold yet; ACTIVE is selectable for new sales; INACTIVE keeps its history but is not offered. Archiving (`archived_at`) hides a service from both lists and keeps every record. */
+export const ServiceStatus = z.enum(['DRAFT', 'ACTIVE', 'INACTIVE']);
+export type ServiceStatus = z.infer<typeof ServiceStatus>;
+
+export const ServicePricingType = z.enum([
+  'FIXED',
+  'STARTING_AT',
+  'HOURLY',
+  'CUSTOM_QUOTE',
+  'RECURRING',
+]);
+export type ServicePricingType = z.infer<typeof ServicePricingType>;
+
+export const ServiceInclusionKind = z.enum(['INCLUDED', 'NOT_INCLUDED']);
+export type ServiceInclusionKind = z.infer<typeof ServiceInclusionKind>;
+
+export const ServiceLineItemMode = z.enum(['INFORMATIONAL', 'ADDITIVE']);
+export type ServiceLineItemMode = z.infer<typeof ServiceLineItemMode>;
+
+/** What a promotion discounts. */
+export const PromotionAppliesTo = z.enum(['ALL', 'CATEGORIES', 'SERVICES', 'PACKAGES']);
+export type PromotionAppliesTo = z.infer<typeof PromotionAppliesTo>;
+
+export const PromotionEligibility = z.enum(['ALL_CLIENTS', 'NEW_CLIENTS', 'EXISTING_CLIENTS']);
+export type PromotionEligibility = z.infer<typeof PromotionEligibility>;
+
+/** DRAFT is not live; ACTIVE is live inside its dates ("Scheduled" before `starts_at` and "Expired" after `ends_at` are worked out from the dates); INACTIVE was ended by the firm. */
+export const PromotionStatus = z.enum(['DRAFT', 'ACTIVE', 'INACTIVE']);
+export type PromotionStatus = z.infer<typeof PromotionStatus>;
+
+/** Where a message goes: the client portal, email or a text message. */
+export const MessageChannel = z.enum(['PORTAL', 'EMAIL', 'SMS']);
+export type MessageChannel = z.infer<typeof MessageChannel>;
+
+/** DIRECT: one conversation message to chosen recipients (New Message); BULK: a campaign to an audience built from filters (Send Bulk Message). */
+export const OutboundMessageKind = z.enum(['DIRECT', 'BULK']);
+export type OutboundMessageKind = z.infer<typeof OutboundMessageKind>;
+
+/** DRAFT -> SCHEDULED or SENDING -> SENT, PARTIAL or FAILED; DRAFT or SCHEDULED -> CANCELED. The text can change until it is sending; SENT, PARTIAL, FAILED and CANCELED are final. */
+export const OutboundMessageStatus = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'SENDING',
+  'SENT',
+  'PARTIAL',
+  'FAILED',
+  'CANCELED',
+]);
+export type OutboundMessageStatus = z.infer<typeof OutboundMessageStatus>;
+
+export const MessageAudience = z.enum(['CLIENTS', 'LEADS', 'BOTH']);
+export type MessageAudience = z.infer<typeof MessageAudience>;
+
+/** QUEUED -> SENT -> DELIVERED -> READ, or FAILED (retried back to QUEUED, never after SENT), or SKIPPED with the reason (final). A SENT recipient is never sent to again. */
+export const OutboundRecipientStatus = z.enum([
+  'QUEUED',
+  'SENT',
+  'DELIVERED',
+  'READ',
+  'FAILED',
+  'SKIPPED',
+]);
+export type OutboundRecipientStatus = z.infer<typeof OutboundRecipientStatus>;
+
+/** Why a recipient could not receive the message ("Cannot Receive"). */
+export const OutboundExclusion = z.enum([
+  'NO_CONTACT',
+  'NO_CONSENT',
+  'NO_PORTAL_ACCESS',
+  'PROVIDER_UNAVAILABLE',
+  'SUPPRESSED',
+  'NOT_PERMITTED',
+  'MANUALLY_EXCLUDED',
+  'DUPLICATE',
+]);
+export type OutboundExclusion = z.infer<typeof OutboundExclusion>;
+
+/** Part of the firm workspace a client's portal can show. The firm's default and a client's own are both rows of `portal_module_visibility`; a module's visibility never shares every record in it. */
+export const PortalModule = z.enum([
+  'TAX_RETURNS',
+  'DOCUMENTS',
+  'INVOICES_PAYMENTS',
+  'APPOINTMENTS',
+  'INTAKE_FORMS',
+  'TASKS_REQUESTS',
+  'MESSAGES',
+  'REPORTS',
+]);
+export type PortalModule = z.infer<typeof PortalModule>;
+
+export const BrandTheme = z.enum(['LIGHT', 'DARK', 'SYSTEM']);
+export type BrandTheme = z.infer<typeof BrandTheme>;
+
+export const SidebarStyle = z.enum(['SOLID', 'GRADIENT']);
+export type SidebarStyle = z.infer<typeof SidebarStyle>;
+
+export const SidebarPosition = z.enum(['LEFT', 'RIGHT']);
+export type SidebarPosition = z.infer<typeof SidebarPosition>;
+
+export const DateFormat = z.enum(['MDY', 'DMY', 'YMD']);
+export type DateFormat = z.infer<typeof DateFormat>;
 
 export const MessageTemplateKind = z.enum([
   'EMAIL',
