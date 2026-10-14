@@ -121,6 +121,9 @@ function buildFixtures() {
     business: { slug: 'lvp', name: 'LVP Accounting & Taxes' },
     branding: {
       logoUrl: null,
+      logoLightUrl: null,
+      sidebarSlogan: null,
+      sidebarMotto: null,
       primaryColor: '#1F3A6B',
       accentColor: '#C9A227',
       portalName: 'LVP Accounting & Taxes Client Portal',

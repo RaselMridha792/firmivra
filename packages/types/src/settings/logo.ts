@@ -47,13 +47,19 @@ export function logoFileProblem(file: {
   return file.size > LOGO_LIMITS.maxBytes ? 'LOGO_TOO_BIG' : null;
 }
 
+/** dark: the logo for dark backgrounds (the sidebar); light: for light ones (footer, portal, emails). */
+export const LogoVariant = z.enum(['dark', 'light']);
+export type LogoVariant = z.infer<typeof LogoVariant>;
+
 export const CreateLogoUploadRequest = z.object({
+  /** Dark when left out. */
+  variant: LogoVariant.default('dark'),
   contentType: LogoContentType,
   sizeBytes: z.number().int().positive().max(LOGO_LIMITS.maxBytes),
   /** Hex SHA-256 of the file; storage refuses other bytes. */
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
 });
-export type CreateLogoUploadRequest = z.infer<typeof CreateLogoUploadRequest>;
+export type CreateLogoUploadRequest = z.input<typeof CreateLogoUploadRequest>;
 
 export const ConfirmLogoUploadRequest = z.object({ uploadToken: z.string().min(1).max(8192) });
 export type ConfirmLogoUploadRequest = z.infer<typeof ConfirmLogoUploadRequest>;

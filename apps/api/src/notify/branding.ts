@@ -86,7 +86,7 @@ export class BrandingSource {
       scope.business.findUnique({ where: { id: businessId }, select: { name: true, slug: true } }),
       scope.businessSettings.findUnique({
         where: { businessId },
-        select: { brandColor: true, accentColor: true, timezone: true, logoKey: true },
+        select: { brandColor: true, accentColor: true, timezone: true, logoLightKey: true },
       }),
     ]);
     if (!firm) throw new UnknownFirmError();
@@ -94,8 +94,11 @@ export class BrandingSource {
       name: firm.name,
       primaryColor: hexColor(settings?.brandColor, DEFAULT_PRIMARY_COLOR),
       accentColor: hexColor(settings?.accentColor, DEFAULT_ACCENT_COLOR),
-      // The lasting public address, not a signed link: it must still work when the mail is opened.
-      logoUrl: this.portalOrigin ? logoUrl(this.portalOrigin, firm.slug, settings?.logoKey) : null,
+      // The lasting public address of the logo for light backgrounds (mail is light), not a signed
+      // link: it must still work when the mail is opened.
+      logoUrl: this.portalOrigin
+        ? logoUrl(this.portalOrigin, firm.slug, settings?.logoLightKey, 'light')
+        : null,
       timeZone: timeZone(settings?.timezone),
       isFirm: true,
     };

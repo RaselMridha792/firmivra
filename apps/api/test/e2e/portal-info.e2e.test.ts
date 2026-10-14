@@ -90,6 +90,9 @@ describe('GET /portal/{firmSlug}/info', () => {
         business: { slug, name: 'R3 Test Firm' },
         branding: {
           logoUrl: null,
+          logoLightUrl: null,
+          sidebarSlogan: null,
+          sidebarMotto: null,
           primaryColor: '#123456',
           accentColor: '#E8742C',
           portalName: 'R3 Portal',

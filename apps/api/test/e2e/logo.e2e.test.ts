@@ -65,7 +65,7 @@ async function login(email: string): Promise<string> {
 }
 
 async function call(
-  method: 'get' | 'post' | 'delete',
+  method: 'get' | 'post' | 'delete' | 'patch',
   path: string,
   who?: { email: string },
   firm?: string,
@@ -79,9 +79,16 @@ async function call(
   if (firm) req = req.set('x-business-id', firm);
   return method === 'get' ? req : req.send(body);
 }
-const ticketFor = (who: { email: string }, firm: string, file: Buffer, contentType = 'image/png') =>
+const ticketFor = (
+  who: { email: string },
+  firm: string,
+  file: Buffer,
+  contentType = 'image/png',
+  variant = 'dark',
+) =>
   call('post', '/business/logo/uploads', who, firm, {
     contentType,
+    variant,
     sizeBytes: file.length,
     sha256: sha(file),
   });
@@ -95,13 +102,14 @@ async function upload(
   described: Buffer,
   stored = described,
   type = 'image/png',
+  variant = 'dark',
 ) {
-  const ticket = UploadTicket.parse((await ticketFor(who, firm, described, type)).body);
+  const ticket = UploadTicket.parse((await ticketFor(who, firm, described, type, variant)).body);
   storage.put(ticket, stored);
   return confirm(who, firm, ticket.uploadToken);
 }
-const served = (slug: string) =>
-  request(app.getHttpServer()).get(`/api/v1/portal/${slug}/logo`).buffer(true);
+const served = (slug: string, query = '') =>
+  request(app.getHttpServer()).get(`/api/v1/portal/${slug}/logo${query}`).buffer(true);
 const infoOf = async (slug: string) =>
   PortalInfo.parse((await request(app.getHttpServer()).get(`/api/v1/portal/${slug}/info`)).body);
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
@@ -213,7 +221,9 @@ describe('a logo from upload to removal', () => {
     ];
     expect(rows).toHaveLength(3); // two uploads and one removal: the repeat is not audited
     for (const row of rows)
-      expect(JSON.stringify(row.metadata)).toMatch(/^\{"logoId":"[0-9a-f-]{36}"\}$/);
+      expect(JSON.stringify(row.metadata)).toMatch(
+        /^\{"logoId":"[0-9a-f-]{36}","variant":"dark"\}$/,
+      );
   });
 });
 
@@ -264,5 +274,93 @@ describe('one firm never sees or changes another firm logo', () => {
   it('an unknown slug and a suspended firm are the same 404', async () => {
     expect((await served('no-such-firm')).status).toBe(404);
     expect((await served(fx.suspended.slug)).status).toBe(404);
+  });
+});
+
+describe('the logo for light backgrounds', () => {
+  const light = '?variant=light';
+
+  it('is its own logo: uploaded, served, replaced and removed apart from the dark one', async () => {
+    expect((await served(fx.firmA.slug, light)).status).toBe(404);
+    const dark = await upload(ownerA, fx.firmA.id, PNG);
+    const first = FirmSettings.parse(dark.body);
+    expect(first.logoLightUrl).toBeNull();
+    // With only a dark logo there is no light one: 404, never the dark file.
+    expect((await served(fx.firmA.slug, light)).status).toBe(404);
+
+    const res = await upload(ownerA, fx.firmA.id, JPEG, JPEG, 'image/jpeg', 'light');
+    const settings = FirmSettings.parse(res.body);
+    const base = `${env.PORTAL_BASE_URL.replace(/\/+$/, '')}/api/v1/portal/${fx.firmA.slug}/logo`;
+    expect(settings.logoUrl).toBe(first.logoUrl);
+    expect(settings.logoLightUrl).toMatch(new RegExp(`^${base}\\?variant=light&v=[0-9a-f-]{36}$`));
+    const info = (await infoOf(fx.firmA.slug)).branding;
+    expect([info.logoUrl, info.logoLightUrl]).toEqual([settings.logoUrl, settings.logoLightUrl]);
+    const lightRes = await served(fx.firmA.slug, light);
+    expect(lightRes.headers['content-type']).toBe('image/jpeg');
+    expect((lightRes.body as Buffer).equals(JPEG)).toBe(true);
+    expect((await served(fx.firmA.slug)).headers['content-type']).toBe('image/png');
+
+    // Removing one leaves the other.
+    const removed = await call('delete', '/business/logo?variant=light', ownerA, fx.firmA.id);
+    expect(FirmSettings.parse(removed.body)).toMatchObject({ logoLightUrl: null });
+    expect(FirmSettings.parse(removed.body).logoUrl).toBe(first.logoUrl);
+    expect((await served(fx.firmA.slug, light)).status).toBe(404);
+    expect((await served(fx.firmA.slug)).status).toBe(200);
+    await call('delete', '/business/logo', ownerA, fx.firmA.id);
+
+    const rows = await audit(fx.firmA.id, 'business.logo_uploaded');
+    expect(rows.some((r) => JSON.stringify(r.metadata).includes('"variant":"light"'))).toBe(true);
+  });
+
+  it('refuses a variant that is neither dark nor light', async () => {
+    const bad = await ticketFor(ownerA, fx.firmA.id, PNG, 'image/png', 'sepia');
+    expect([bad.status, codeOf(bad)]).toEqual([400, 'VALIDATION_FAILED']);
+    expect((await call('delete', '/business/logo?variant=sepia', ownerA, fx.firmA.id)).status).toBe(
+      400,
+    );
+    expect((await served(fx.firmA.slug, '?variant=sepia')).status).toBe(400);
+  });
+
+  it('is never served for, or removed by, another firm', async () => {
+    const before = storage.keysOf(fx.firmA.id);
+    expect((await upload(ownerA, fx.firmA.id, PNG, PNG, 'image/png', 'light')).status).toBe(200);
+    expect((await served(fx.firmB.slug, '?variant=light')).status).toBe(404);
+    expect((await infoOf(fx.firmB.slug)).branding.logoLightUrl).toBeNull();
+    expect((await call('delete', '/business/logo?variant=light', ownerB, fx.firmA.id)).status).toBe(
+      404,
+    );
+    expect((await served(fx.firmA.slug, '?variant=light')).status).toBe(200);
+    await call('delete', '/business/logo?variant=light', ownerA, fx.firmA.id);
+    expect(storage.keysOf(fx.firmA.id)).toEqual(before); // the light file is deleted
+  });
+});
+
+describe('PATCH /business/settings: the sidebar slogan and motto', () => {
+  const patch = (who: { email: string } | undefined, firm: string, body: object) =>
+    call('patch', '/business/settings', who, firm, body);
+
+  it('are plain text up to 80 characters, for Owner and Admin, and cleared by an empty value', async () => {
+    const text = {
+      sidebarSlogan: 'More Than Taxes. We Build Futures.',
+      sidebarMotto: 'PEOPLE | PLANS | PROSPERITY',
+    };
+    expect((await patch(staffA, fx.firmA.id, text)).status).toBe(403);
+    const saved = FirmSettings.parse((await patch(ownerA, fx.firmA.id, text)).body);
+    expect(saved).toMatchObject(text);
+    expect((await infoOf(fx.firmA.slug)).branding).toMatchObject(text);
+    // Another firm shows none of it.
+    expect((await infoOf(fx.firmB.slug)).branding).toMatchObject({
+      sidebarSlogan: null,
+      sidebarMotto: null,
+    });
+    for (const bad of ['a'.repeat(81), 'two\nlines']) {
+      const res = await patch(ownerA, fx.firmA.id, { sidebarSlogan: bad });
+      expect([res.status, codeOf(res)]).toEqual([400, 'VALIDATION_FAILED']);
+    }
+    expect((await patch(ownerA, fx.firmA.id, { sidebarMotto: 'a'.repeat(80) })).status).toBe(200);
+    const cleared = FirmSettings.parse(
+      (await patch(ownerA, fx.firmA.id, { sidebarSlogan: '', sidebarMotto: '  ' })).body,
+    );
+    expect([cleared.sidebarSlogan, cleared.sidebarMotto]).toEqual([null, null]);
   });
 });
