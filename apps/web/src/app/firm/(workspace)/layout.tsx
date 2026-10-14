@@ -5,6 +5,7 @@ import { Button } from '@firmivra/ui';
 import {
   Briefcase,
   CalendarDays,
+  FileSignature,
   House,
   MessageSquare,
   Receipt,
@@ -19,10 +20,19 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../../../components/app-shell/app-shell';
+import {
+  FirmBell,
+  FirmSearch,
+  HelpLink,
+  NewMenu,
+} from '../../../components/app-shell/firm-controls';
 import type { NavItem } from '../../../components/app-shell/types';
 import { FirmContext } from '../../../components/firm-context';
 import { SignedIn, useMe } from '../../../components/signed-in';
 import { api } from '../../../lib/api';
+import { COMPANY } from '../../../lib/company';
+import { portalAuth } from '../../../lib/auth';
+import { useApiQuery } from '../../../lib/query';
 import { claimCache } from '../../../lib/session';
 
 // The firm's menu (docs/junior/PAGE-MAP.md; Fahad owns this list, F03). Items marked `managers`
@@ -32,13 +42,22 @@ const items: (NavItem & { managers?: true })[] = [
   { label: 'Clients', icon: Users, href: '/clients' },
   { label: 'Sign-ups', icon: UserPlus, href: '/sign-ups', managers: true },
   { label: 'Leads', icon: Target, href: '/leads' },
+  { label: 'Appointments', icon: CalendarDays, href: '/calendar' },
   { label: 'Messages', icon: MessageSquare, href: '/messages' },
-  { label: 'Calendar', icon: CalendarDays, href: '/calendar' },
-  { label: 'Invoices', icon: Receipt, href: '/invoices' },
+  { label: 'Invoices & Payments', icon: Receipt, href: '/invoices' },
   { label: 'Workspaces', icon: Briefcase, href: '/workspaces' },
-  { label: 'Team', icon: UsersRound, href: '/team', managers: true },
+  { label: 'Firm Sign', icon: FileSignature, href: '/firm-sign' },
   { label: 'Audit log', icon: ScrollText, href: '/audit-log', managers: true },
+  { label: 'Staff Management', icon: UsersRound, href: '/team', managers: true },
   { label: 'Settings', icon: Settings, href: '/settings', managers: true },
+];
+
+/** The "+ New" menu: where each new thing is created (all of them are pages that exist). */
+const newLinks = [
+  { label: 'New client', href: '/clients' },
+  { label: 'New appointment', href: '/calendar' },
+  { label: 'New invoice', href: '/invoices', managers: true },
+  { label: 'New message', href: '/messages' },
 ];
 
 /** What a signed-in person sees when the firm can't be opened (GET /business). */
@@ -129,14 +148,60 @@ function FirmArea({ children }: { children: ReactNode }) {
   const role = me.memberships.find((m) => m.business.id === firm.id && m.status === 'ACTIVE')?.role;
   const manager = role === 'OWNER' || role === 'ADMIN';
   return (
-    <AppShell
-      subtitle="Firm workspace"
-      sections={[items.filter((i) => manager || !i.managers)]}
-      roleLabel={role ? ROLE_LABEL[role] : 'Staff'}
-      greeting={<span data-testid="firm-name">{firm.name}</span>}
-    >
+    <FirmShell firm={firm} role={role} manager={manager}>
       {/* Pages read the firm and the role with useFirm() (and <RequireRole>). */}
       <FirmContext value={{ firm, role, refresh }}>{children}</FirmContext>
+    </FirmShell>
+  );
+}
+
+/** The sidebar and header with the firm's own logo, motto and unread count. */
+function FirmShell({
+  firm,
+  role,
+  manager,
+  children,
+}: {
+  firm: BusinessSummary;
+  role: MembershipRole | undefined;
+  manager: boolean;
+  children: ReactNode;
+}) {
+  // The portal's public info is the one place every role can read the firm's logo and motto.
+  const info = useApiQuery(['firm', firm.id, 'branding'], () => portalAuth(firm.slug).info());
+  const unread = useApiQuery(['messages', 'unread-count'], () => api.messages.unreadCount());
+  const logoUrl = info.data?.branding.logoUrl ?? null;
+  // `tagline` joins the portal info contract in its own PR (see the portal's tagline.tsx).
+  const tagline = (info.data?.branding as { tagline?: unknown } | undefined)?.tagline;
+  const motto = typeof tagline === 'string' ? tagline : '';
+  const badge = unread.data?.total;
+  return (
+    <AppShell
+      subtitle="Firm workspace"
+      sections={[
+        items
+          .filter((i) => manager || !i.managers)
+          .map((i) => (i.href === '/messages' && badge ? { ...i, badge } : i)),
+      ]}
+      roleLabel={role ? ROLE_LABEL[role] : 'Staff'}
+      brand={{
+        name: firm.name,
+        logoUrl,
+        motto: motto
+          .split('|')
+          .map((w) => w.trim())
+          .filter(Boolean),
+      }}
+      headerStart={<FirmSearch />}
+      headerActions={
+        <>
+          <NewMenu links={newLinks.filter((l) => manager || !('managers' in l))} />
+          <HelpLink email={COMPANY.supportEmail} />
+        </>
+      }
+      bell={<FirmBell />}
+    >
+      {children}
     </AppShell>
   );
 }

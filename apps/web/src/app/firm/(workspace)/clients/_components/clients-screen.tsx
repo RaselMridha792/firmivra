@@ -113,8 +113,8 @@ function useSettled(value: string, ms = 300) {
  * The firm's clients, newest first, 25 a page. Owner and Admin see every client; Staff see the
  * clients assigned to them (the API decides). Search matches name, email and phone.
  */
-export function ClientsScreen() {
-  const [typed, setTyped] = useState('');
+export function ClientsScreen({ initialSearch = '' }: { initialSearch?: string }) {
+  const [typed, setTyped] = useState(initialSearch);
   const [status, setStatus] = useState<Status>('active');
   // The cursors of the pages after the first, so Previous can step back.
   const [cursors, setCursors] = useState<string[]>([]);
