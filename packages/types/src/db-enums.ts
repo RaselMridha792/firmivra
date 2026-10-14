@@ -430,3 +430,29 @@ export type SegmentAudience = z.infer<typeof SegmentAudience>;
 /** A contact's standing on one channel. Anything but OPTED_IN keeps them out of campaigns. */
 export const ConsentStatus = z.enum(['OPTED_IN', 'OPTED_OUT', 'BOUNCED', 'INVALID', 'COMPLAINED']);
 export type ConsentStatus = z.infer<typeof ConsentStatus>;
+
+/** DRAFT or SCHEDULED can be edited. SENDING, PAUSED, SENT, FAILED and CANCELLED never change their content. Archiving is `archivedAt`, not a status, so it can be undone. */
+export const CommunicationStatus = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'SENDING',
+  'PAUSED',
+  'SENT',
+  'FAILED',
+  'CANCELLED',
+]);
+export type CommunicationStatus = z.infer<typeof CommunicationStatus>;
+
+/** How a campaign was made from an earlier one (never by changing the earlier one). */
+export const CommunicationSourceKind = z.enum(['DUPLICATE', 'RESEND_FAILED', 'FOLLOW_UP']);
+export type CommunicationSourceKind = z.infer<typeof CommunicationSourceKind>;
+
+/** A segment, one person, or one person left out by hand. */
+export const AudienceEntryKind = z.enum([
+  'SEGMENT',
+  'CLIENT',
+  'LEAD',
+  'EXCLUDE_CLIENT',
+  'EXCLUDE_LEAD',
+]);
+export type AudienceEntryKind = z.infer<typeof AudienceEntryKind>;

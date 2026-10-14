@@ -9,6 +9,7 @@ export async function seedR39(tx: TxClient, businessId: string) {
   await seedIntegrations(tx, businessId);
   await seedIntegrationRequest(tx, businessId);
   await seedAudiences(tx, businessId);
+  await seedCommunications(tx, businessId);
 }
 
 async function seedTemplates(tx: TxClient, businessId: string) {
@@ -118,7 +119,7 @@ async function seedIntegrations(tx: TxClient, businessId: string) {
 
 async function seedIntegrationRequest(tx: TxClient, businessId: string) {
   const providerName = 'Sample Books';
-  if (await tx.integrationRequest.findFirst({ where: { providerName } })) return;
+  if (await tx.integrationRequest.findFirst({ where: { businessId, providerName } })) return;
   await tx.integrationRequest.create({
     data: {
       businessId,
@@ -163,6 +164,64 @@ async function seedAudiences(tx: TxClient, businessId: string) {
       channel: 'EMAIL',
       status: 'OPTED_IN',
       source: 'portal',
+    },
+  });
+}
+
+async function seedCommunications(tx: TxClient, businessId: string) {
+  const name = 'Tax season welcome';
+  if (await tx.communication.findFirst({ where: { businessId, name } })) return;
+  const segment = await tx.communicationSegment.findUniqueOrThrow({
+    where: { businessId_name: { businessId, name: 'Priority clients' } },
+  });
+  const template = await tx.messageTemplate.findUniqueOrThrow({
+    where: { businessId_starterKey: { businessId, starterKey: 'tax-organizer-ready' } },
+  });
+  const sent = await tx.communication.create({
+    data: {
+      businessId,
+      channel: 'EMAIL',
+      name,
+      subject: 'Your tax organizer is ready',
+      body: 'Hello, your organizer is ready.',
+      fromName: 'LVP Accounting & Taxes',
+      templateId: template.id,
+      templateVersion: 1,
+      createdByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
+  await tx.communicationAudienceEntry.create({
+    data: {
+      businessId,
+      communicationId: sent.id,
+      kind: 'SEGMENT',
+      segmentId: segment.id,
+      segmentName: segment.name,
+      criteriaSnapshot: {},
+    },
+  });
+  await tx.communication.update({
+    where: { id: sent.id },
+    data: {
+      status: 'SENDING',
+      startedAt: new Date(),
+      selectedCount: 1,
+      autoExcludedCount: 0,
+      manualExcludedCount: 0,
+      finalCount: 1,
+    },
+  });
+  await tx.communication.update({
+    where: { id: sent.id },
+    data: { status: 'SENT', sentAt: new Date() },
+  });
+  await tx.communication.create({
+    data: {
+      businessId,
+      channel: 'SMS',
+      name: 'Appointment reminder draft',
+      body: 'Reminder: your appointment is tomorrow.',
+      createdByUserId: SEED_USERS.lvpOwner.id,
     },
   });
 }

@@ -738,6 +738,7 @@ model Client {
   // R39
   segmentMembers CommunicationSegmentMember[]
   commConsents   CommunicationConsent[]
+  commAudience   CommunicationAudienceEntry[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -1275,6 +1276,7 @@ model Lead {
   // R39
   segmentMembers CommunicationSegmentMember[]
   commConsents   CommunicationConsent[]
+  commAudience   CommunicationAudienceEntry[]
 
   @@unique([businessId, id])
   @@index([businessId, status, createdAt])
@@ -2969,12 +2971,13 @@ model MessageTemplate {
   createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  category    TemplateCategory?           @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
-  versions    MessageTemplateVersion[]
-  attachments MessageTemplateAttachment[]
-  shares      MessageTemplateShare[]
-  favorites   MessageTemplateFavorite[]
-  uses        MessageTemplateUse[]
+  category       TemplateCategory?           @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  versions       MessageTemplateVersion[]
+  attachments    MessageTemplateAttachment[]
+  shares         MessageTemplateShare[]
+  favorites      MessageTemplateFavorite[]
+  uses           MessageTemplateUse[]
+  communications Communication[]
 
   @@unique([businessId, id])
   @@unique([businessId, starterKey])
@@ -3167,8 +3170,9 @@ model IntegrationConnection {
   createdAt         DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  mappings IntegrationFieldMapping[]
-  syncRuns IntegrationSyncRun[]
+  mappings       IntegrationFieldMapping[]
+  syncRuns       IntegrationSyncRun[]
+  communications Communication[]
 
   @@unique([businessId, id])
   @@unique([businessId, provider, environment])
@@ -3305,6 +3309,7 @@ model CommunicationSegment {
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   members CommunicationSegmentMember[]
+  entries CommunicationAudienceEntry[]
 
   @@unique([businessId, id])
   @@unique([businessId, name])
@@ -3356,4 +3361,122 @@ model CommunicationConsent {
   @@unique([businessId, leadId, channel])
   @@index([businessId, channel, status])
   @@map("communication_consents")
+}
+
+// ---------- Communications: campaigns ----------
+
+/// DRAFT or SCHEDULED can be edited. SENDING, PAUSED, SENT, FAILED and CANCELLED never change
+/// their content. Archiving is `archivedAt`, not a status, so it can be undone.
+enum CommunicationStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  PAUSED
+  SENT
+  FAILED
+  CANCELLED
+}
+
+/// How a campaign was made from an earlier one (never by changing the earlier one).
+enum CommunicationSourceKind {
+  DUPLICATE
+  RESEND_FAILED
+  FOLLOW_UP
+}
+
+/// A segment, one person, or one person left out by hand.
+enum AudienceEntryKind {
+  SEGMENT
+  CLIENT
+  LEAD
+  EXCLUDE_CLIENT
+  EXCLUDE_LEAD
+}
+
+/// A bulk email, text or portal announcement, from draft to results. Once it leaves
+/// DRAFT/SCHEDULED its content is a frozen snapshot (subject, body, sender, template and
+/// version used). `idempotencyKey` stops a double send. The counts are the audience snapshot at
+/// send time: selected, left out by the system (`exclusionCounts` by reason: unsubscribed,
+/// invalid, missing channel, duplicate) and by hand, and the final count sent to. `connectionId`
+/// is the email or SMS provider connection (Integrations) it goes out through. Never deleted.
+model Communication {
+  id                    String                   @id @default(uuid(7)) @db.Uuid
+  businessId            String                   @map("business_id") @db.Uuid
+  channel               CommunicationChannel
+  /// Internal campaign name, never sent to recipients.
+  name                  String
+  status                CommunicationStatus      @default(DRAFT)
+  subject               String?
+  previewText           String?                  @map("preview_text")
+  body                  String                   @default("")
+  fromName              String?                  @map("from_name")
+  replyTo               String?                  @map("reply_to")
+  connectionId          String?                  @map("connection_id") @db.Uuid
+  templateId            String?                  @map("template_id") @db.Uuid
+  templateVersion       Int?                     @map("template_version")
+  /// [{ fileName, contentType, sizeBytes, s3Key }], by reference only.
+  attachments           Json                     @default("[]")
+  scheduledFor          DateTime?                @map("scheduled_for") @db.Timestamptz(3)
+  /// The firm's time zone name the schedule was picked in.
+  timezone              String?
+  startedAt             DateTime?                @map("started_at") @db.Timestamptz(3)
+  sentAt                DateTime?                @map("sent_at") @db.Timestamptz(3)
+  cancelledAt           DateTime?                @map("cancelled_at") @db.Timestamptz(3)
+  archivedAt            DateTime?                @map("archived_at") @db.Timestamptz(3)
+  idempotencyKey        String?                  @map("idempotency_key")
+  sourceCommunicationId String?                  @map("source_communication_id") @db.Uuid
+  sourceKind            CommunicationSourceKind? @map("source_kind")
+  selectedCount         Int?                     @map("selected_count")
+  autoExcludedCount     Int?                     @map("auto_excluded_count")
+  manualExcludedCount   Int?                     @map("manual_excluded_count")
+  finalCount            Int?                     @map("final_count")
+  exclusionCounts       Json                     @default("{}") @map("exclusion_counts")
+  /// Announcements: when the portal shows it, and where.
+  publishStartsAt       DateTime?                @map("publish_starts_at") @db.Timestamptz(3)
+  publishEndsAt         DateTime?                @map("publish_ends_at") @db.Timestamptz(3)
+  visibility            String?
+  createdByUserId       String                   @map("created_by_user_id") @db.Uuid
+  updatedByUserId       String?                  @map("updated_by_user_id") @db.Uuid
+  createdAt             DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  template   MessageTemplate?             @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  connection IntegrationConnection?       @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
+  source     Communication?               @relation("CommunicationSource", fields: [businessId, sourceCommunicationId], references: [businessId, id], onDelete: Restrict)
+  derived    Communication[]              @relation("CommunicationSource")
+  audience   CommunicationAudienceEntry[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, status, scheduledFor])
+  @@index([businessId, channel, createdAt])
+  @@index([businessId, archivedAt])
+  @@map("communications")
+}
+
+/// What the sender chose: segments, individuals, and people left out by hand. A segment entry
+/// keeps the segment's name and criteria as they were when the campaign was sent
+/// (`criteriaSnapshot`), so the results stay true if the segment changes later.
+model CommunicationAudienceEntry {
+  id               String            @id @default(uuid(7)) @db.Uuid
+  businessId       String            @map("business_id") @db.Uuid
+  communicationId  String            @map("communication_id") @db.Uuid
+  kind             AudienceEntryKind
+  segmentId        String?           @map("segment_id") @db.Uuid
+  clientId         String?           @map("client_id") @db.Uuid
+  leadId           String?           @map("lead_id") @db.Uuid
+  segmentName      String?           @map("segment_name")
+  criteriaSnapshot Json?             @map("criteria_snapshot")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  communication Communication         @relation(fields: [businessId, communicationId], references: [businessId, id], onDelete: Cascade)
+  segment       CommunicationSegment? @relation(fields: [businessId, segmentId], references: [businessId, id], onDelete: Restrict)
+  client        Client?               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  lead          Lead?                 @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([communicationId, kind, segmentId])
+  @@unique([communicationId, kind, clientId])
+  @@unique([communicationId, kind, leadId])
+  @@index([businessId, segmentId])
+  @@map("communication_audience_entries")
 }
