@@ -126,7 +126,7 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
     });
 
     // The catalog: categories, and sample prices (the designs' sample figures, not real prices) on
-    // LVP's seeded services, each with what it includes.
+    // LVP's seeded services, each with what it includes, a line item and an add-on.
     const categories = new Map<string, string>();
     for (const [sortOrder, name] of ['Tax Preparation', 'Bookkeeping', 'Advisory'].entries()) {
       const row = await tx.serviceCategory.upsert({
@@ -169,6 +169,18 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
             sortOrder: 1,
           },
         ],
+      });
+      await tx.serviceLineItem.create({
+        data: { ...lvp, serviceId: service.id, name: 'Base fee', rateCents: basePriceCents },
+      });
+      await tx.serviceAddOn.create({
+        data: {
+          ...lvp,
+          serviceId: service.id,
+          name: 'Audit representation',
+          priceCents: 25000,
+          clientSelectable: true,
+        },
       });
     }
   });

@@ -421,3 +421,6 @@ export type ServicePricingType = z.infer<typeof ServicePricingType>;
 
 export const ServiceInclusionKind = z.enum(['INCLUDED', 'NOT_INCLUDED']);
 export type ServiceInclusionKind = z.infer<typeof ServiceInclusionKind>;
+
+export const ServiceLineItemMode = z.enum(['INFORMATIONAL', 'ADDITIVE']);
+export type ServiceLineItemMode = z.infer<typeof ServiceLineItemMode>;

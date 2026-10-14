@@ -873,23 +873,25 @@ model Service {
 
   // R36 (Services and Pricing, r36_service_catalog): the catalog screens' fields. `description` is
   // the short description; a service made before R36 is ACTIVE with a custom quote.
-  categoryId             String?            @map("category_id") @db.Uuid
-  status                 ServiceStatus      @default(ACTIVE)
-  pricingType            ServicePricingType @default(CUSTOM_QUOTE) @map("pricing_type")
-  basePriceCents         Int?               @map("base_price_cents")
+  categoryId             String?             @map("category_id") @db.Uuid
+  status                 ServiceStatus       @default(ACTIVE)
+  pricingType            ServicePricingType  @default(CUSTOM_QUOTE) @map("pricing_type")
+  basePriceCents         Int?                @map("base_price_cents")
   /// RECURRING needs one other than ONE_TIME; `billing_interval` stays the engagement default.
-  billingFrequency       BillingFrequency?  @map("billing_frequency")
-  taxable                Boolean            @default(false)
-  requiresClientApproval Boolean            @default(false) @map("requires_client_approval")
+  billingFrequency       BillingFrequency?   @map("billing_frequency")
+  taxable                Boolean             @default(false)
+  requiresClientApproval Boolean             @default(false) @map("requires_client_approval")
   /// Client-facing, sanitized by the API, up to 1000 characters.
-  fullDescription        String?            @map("full_description")
+  fullDescription        String?             @map("full_description")
   /// A design-system icon name, never a URL.
-  iconKey                String?            @map("icon_key")
+  iconKey                String?             @map("icon_key")
   /// Staff only, up to 500 characters; never on a client page or an invoice.
-  internalNotes          String?            @map("internal_notes")
+  internalNotes          String?             @map("internal_notes")
   /// Shown to clients (portal and website) when ACTIVE; staff permission is separate.
-  clientVisible          Boolean            @default(false) @map("client_visible")
-  updatedByUserId        String?            @map("updated_by_user_id") @db.Uuid
+  clientVisible          Boolean             @default(false) @map("client_visible")
+  /// ADDITIVE: the line items add up to the price; INFORMATIONAL: they only describe what the base price covers.
+  lineItemMode           ServiceLineItemMode @default(INFORMATIONAL) @map("line_item_mode")
+  updatedByUserId        String?             @map("updated_by_user_id") @db.Uuid
 
   business       Business               @relation(fields: [businessId], references: [id])
   engagements    Engagement[]
@@ -901,6 +903,9 @@ model Service {
   category       ServiceCategory?       @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
   updatedBy      Membership?            @relation("ServiceUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
   inclusions     ServiceInclusion[]
+  lineItems      ServiceLineItem[]
+  addOns         ServiceAddOn[]
+  linkedAddOns   ServiceAddOn[]         @relation("ServiceAddOnLinked")
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -1739,15 +1744,19 @@ model InvoiceLine {
 
   // R36: the catalog service the line came from (null: a custom one-time line), the name it had
   // then (a later rename or price change never rewrites an invoice) and its tax treatment.
-  serviceId String? @map("service_id") @db.Uuid
-  itemName  String? @map("item_name")
-  taxable   Boolean @default(false)
+  serviceId      String? @map("service_id") @db.Uuid
+  itemName       String? @map("item_name")
+  taxable        Boolean @default(false)
+  /// The add-on of that service the line came from, if it did.
+  serviceAddOnId String? @map("service_add_on_id") @db.Uuid
 
-  invoice Invoice  @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
-  service Service? @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  invoice Invoice       @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  service Service?      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  addOn   ServiceAddOn? @relation(fields: [businessId, serviceAddOnId], references: [businessId, id], onDelete: Restrict)
 
   @@index([businessId, invoiceId])
   @@index([businessId, serviceId])
+  @@index([businessId, serviceAddOnId])
   @@map("invoice_lines")
 }
 
@@ -3413,4 +3422,56 @@ model ServiceInclusion {
 
   @@index([businessId, serviceId, kind, sortOrder])
   @@map("service_inclusions")
+}
+
+enum ServiceLineItemMode {
+  INFORMATIONAL
+  ADDITIVE
+}
+
+/// A component charge of a service (Service Line Items). Total is quantity times rate. With the
+/// service's `line_item_mode` ADDITIVE they add up to the price; INFORMATIONAL ones only describe it.
+model ServiceLineItem {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  serviceId   String   @map("service_id") @db.Uuid
+  name        String
+  description String?
+  quantity    Decimal  @default(1) @db.Decimal(10, 2)
+  rateCents   Int      @map("rate_cents")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  service Service @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, serviceId, sortOrder])
+  @@map("service_line_items")
+}
+
+/// An extra a service offers (Optional Add-Ons): a name, a price, optionally another catalog
+/// service it stands for. `required` ones are always added; `client_selectable` ones the client may
+/// choose; never both. Archived, not deleted, once an invoice used it.
+model ServiceAddOn {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  businessId       String    @map("business_id") @db.Uuid
+  serviceId        String    @map("service_id") @db.Uuid
+  name             String
+  description      String?
+  priceCents       Int       @map("price_cents")
+  linkedServiceId  String?   @map("linked_service_id") @db.Uuid
+  clientSelectable Boolean   @default(false) @map("client_selectable")
+  required         Boolean   @default(false)
+  sortOrder        Int       @default(0) @map("sort_order")
+  archivedAt       DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  service       Service       @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  linkedService Service?      @relation("ServiceAddOnLinked", fields: [businessId, linkedServiceId], references: [businessId, id], onDelete: Restrict)
+  invoiceLines  InvoiceLine[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, serviceId, name])
+  @@map("service_add_ons")
 }
