@@ -37,6 +37,9 @@ export const SEED_R38_IDS = {
   calendar: id(15),
   entry1: id(16),
   entry2: id(17),
+  recurrence: id(18),
+  rule: id(19),
+  record: id(20),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -253,6 +256,65 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
       calendarEntryId: SEED_R38_IDS.entry1,
       applicabilityReason: 'Individual with estimated tax: IRS calendar 2027, version 1',
     },
+  });
+  await tx.complianceRecurrence.upsert({
+    where: { id: SEED_R38_IDS.recurrence },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.recurrence,
+      businessId,
+      name: 'Quarterly estimated tax payment',
+      type: 'ESTIMATED_TAX',
+      agency: 'IRS',
+      jurisdiction: 'FEDERAL',
+      relatedForm: 'Form 1040-ES',
+      calendarEntryId: SEED_R38_IDS.entry1,
+      frequency: 'QUARTERLY',
+      repeatRule: { dayOfMonth: 15 },
+      startOn: new Date('2027-01-15'),
+      createTask: true,
+      taskTemplateId: SEED_R38_IDS.template,
+      assignedUserId: c.staffId,
+      reminders: [{ daysBefore: 14, inApp: true, channels: ['EMAIL'] }],
+      createdByUserId: c.ownerId,
+    },
+  });
+  const rule = await tx.complianceApplicabilityRule.upsert({
+    where: { id: SEED_R38_IDS.rule },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.rule,
+      businessId,
+      name: 'Individuals and sole proprietors with estimated tax',
+      recurrenceId: SEED_R38_IDS.recurrence,
+      outcome: 'SUGGEST',
+      entityTypes: ['INDIVIDUAL', 'SOLE_PROPRIETOR'],
+      services: ['ANNUAL_TAX'],
+      excludeStatuses: ['TAX_EXEMPT', 'CLOSED'],
+      priorYearLiabilityOverCents: 100000,
+      createdByUserId: c.ownerId,
+    },
+  });
+  await tx.complianceApplicabilityRecord.upsert({
+    where: { id: SEED_R38_IDS.record },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.record,
+      businessId,
+      clientId: c.clientId,
+      ruleId: rule.id,
+      ruleVersion: rule.version,
+      dueOn: new Date('2027-01-15'),
+      decision: 'CONFIRMED',
+      reason: 'Individual with estimated tax: IRS calendar 2027, version 1',
+      deadlineId: SEED_R38_IDS.deadline1,
+      decidedByUserId: c.ownerId,
+      decidedAt: new Date('2026-10-02T14:00:00Z'),
+    },
+  });
+  await tx.complianceDeadline.update({
+    where: { id: SEED_R38_IDS.deadline1 },
+    data: { recurrenceId: SEED_R38_IDS.recurrence },
   });
   await tx.task.update({
     where: { id: c.taskId },

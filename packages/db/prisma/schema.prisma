@@ -206,6 +206,29 @@ enum CalendarRuleKind {
   NEEDS_VERIFICATION
 }
 
+/// How often a recurring deadline repeats; AUTHORITY_DEFINED follows the authority's own calendar.
+enum DeadlineFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  CUSTOM
+  AUTHORITY_DEFINED
+}
+
+/// What a matching applicability rule does: APPLY makes the deadline, SUGGEST only suggests it
+/// until staff confirm it (imported government dates are never assigned to everyone).
+enum ApplicabilityOutcome {
+  APPLY
+  SUGGEST
+}
+
+enum ApplicabilityDecision {
+  SUGGESTED
+  NEEDS_REVIEW
+  CONFIRMED
+  DISMISSED
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -235,6 +258,7 @@ enum HolidayRule {
   PREVIOUS_BUSINESS_DAY
 }
 
+/// Also the status of a recurring compliance deadline (ComplianceRecurrence).
 enum TaskSeriesStatus {
   ACTIVE
   PAUSED
@@ -586,6 +610,7 @@ model Membership {
   esignKioskLock        EsignKioskLock?        @relation("EsignKioskLock")
   esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
   complianceDeadlines   ComplianceDeadline[]
+  complianceRecurrences ComplianceRecurrence[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -860,23 +885,24 @@ model Client {
   createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business            Business                 @relation(fields: [businessId], references: [id])
-  assignedMember      Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  profile             ClientProfile?
-  accounts            ClientAccount[]
-  taxStatuses         ClientTaxStatus[]
-  taxStatusHistory    ClientTaxStatusHistory[]
-  engagements         Engagement[]
-  tasks               Task[]
-  notes               Note[]
-  appointments        Appointment[]
-  messageThreads      MessageThread[]
-  invoices            Invoice[]
-  taxReturns          TaxReturn[]
-  esignRequests       EsignRequest[]
-  esignBulkItems      EsignBulkItem[]
-  taskSeries          TaskSeries[]
-  complianceDeadlines ComplianceDeadline[]
+  business                       Business                        @relation(fields: [businessId], references: [id])
+  assignedMember                 Membership?                     @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  profile                        ClientProfile?
+  accounts                       ClientAccount[]
+  taxStatuses                    ClientTaxStatus[]
+  taxStatusHistory               ClientTaxStatusHistory[]
+  engagements                    Engagement[]
+  tasks                          Task[]
+  notes                          Note[]
+  appointments                   Appointment[]
+  messageThreads                 MessageThread[]
+  invoices                       Invoice[]
+  taxReturns                     TaxReturn[]
+  esignRequests                  EsignRequest[]
+  esignBulkItems                 EsignBulkItem[]
+  taskSeries                     TaskSeries[]
+  complianceDeadlines            ComplianceDeadline[]
+  complianceApplicabilityRecords ComplianceApplicabilityRecord[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -3195,11 +3221,12 @@ model TaskTemplate {
   createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  type                TaskType?            @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
-  service             Service?             @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  assignedMember      Membership?          @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  tasks               Task[]
-  complianceDeadlines ComplianceDeadline[]
+  type                  TaskType?              @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  service               Service?               @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember        Membership?            @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  tasks                 Task[]
+  complianceDeadlines   ComplianceDeadline[]
+  complianceRecurrences ComplianceRecurrence[]
 
   @@unique([businessId, id])
   @@unique([businessId, name])
@@ -3346,21 +3373,25 @@ model ComplianceDeadline {
   /// calendar version): at most one deadline per client, entry and due date (SQL only).
   calendarEntryId     String?            @map("calendar_entry_id") @db.Uuid
   applicabilityReason String?            @map("applicability_reason")
+  /// The recurring definition that made it (with calendarEntryId when it came from the library).
+  recurrenceId        String?            @map("recurrence_id") @db.Uuid
   createdByUserId     String?            @map("created_by_user_id") @db.Uuid
   archivedAt          DateTime?          @map("archived_at") @db.Timestamptz(3)
   createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client         Client                       @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement     Engagement?                  @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  assignedMember Membership?                  @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  taskTemplate   TaskTemplate?                @relation(fields: [businessId, taskTemplateId], references: [businessId, id], onDelete: Restrict)
-  calendarEntry  ComplianceCalendarEntry?     @relation(fields: [businessId, calendarEntryId], references: [businessId, id], onDelete: Restrict)
-  reminders      ComplianceDeadlineReminder[]
-  documents      ComplianceDeadlineDocument[]
-  links          ComplianceDeadlineLink[]     @relation("DeadlineLinks")
-  linkedFrom     ComplianceDeadlineLink[]     @relation("DeadlineLinked")
-  tasks          Task[]
+  client                        Client                         @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement                    Engagement?                    @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember                Membership?                    @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  taskTemplate                  TaskTemplate?                  @relation(fields: [businessId, taskTemplateId], references: [businessId, id], onDelete: Restrict)
+  calendarEntry                 ComplianceCalendarEntry?       @relation(fields: [businessId, calendarEntryId], references: [businessId, id], onDelete: Restrict)
+  recurrence                    ComplianceRecurrence?          @relation(fields: [businessId, recurrenceId], references: [businessId, id], onDelete: Restrict)
+  reminders                     ComplianceDeadlineReminder[]
+  documents                     ComplianceDeadlineDocument[]
+  links                         ComplianceDeadlineLink[]       @relation("DeadlineLinks")
+  linkedFrom                    ComplianceDeadlineLink[]       @relation("DeadlineLinked")
+  tasks                         Task[]
+  complianceApplicabilityRecord ComplianceApplicabilityRecord?
 
   @@unique([businessId, id])
   @@index([businessId, status, dueOn])
@@ -3471,11 +3502,132 @@ model ComplianceCalendarEntry {
   createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  calendar  ComplianceCalendar   @relation(fields: [businessId, calendarId], references: [businessId, id], onDelete: Restrict)
-  deadlines ComplianceDeadline[]
+  calendar                     ComplianceCalendar            @relation(fields: [businessId, calendarId], references: [businessId, id], onDelete: Restrict)
+  deadlines                    ComplianceDeadline[]
+  complianceRecurrences        ComplianceRecurrence[]
+  complianceApplicabilityRules ComplianceApplicabilityRule[]
 
   @@unique([businessId, id])
   @@unique([businessId, calendarId, name, dueOn])
   @@index([businessId, calendarId])
   @@map("compliance_calendar_entries")
+}
+
+/// A recurring deadline definition, or a template of one (isTemplate: the Quick Templates and
+/// "Use Existing Template"; a template never makes deadlines). Made from scratch or from a
+/// library entry. The unadjusted statutory date is kept on each deadline, so the holiday rule
+/// never loses it. `repeatRule` holds the repeat-on choice (a day of the month, an nth weekday, a
+/// quarter rule); `reminders` an array of {daysBefore, inApp, channels}.
+model ComplianceRecurrence {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  businessId        String             @map("business_id") @db.Uuid
+  name              String
+  type              DeadlineType
+  description       String?
+  agency            String?
+  relatedForm       String?            @map("related_form")
+  jurisdiction      JurisdictionLevel?
+  state             String?
+  calendarEntryId   String?            @map("calendar_entry_id") @db.Uuid
+  frequency         DeadlineFrequency
+  /// Every N months (or days) for CUSTOM.
+  interval          Int?
+  repeatRule        Json               @default("{}") @map("repeat_rule")
+  startOn           DateTime?          @map("start_on") @db.Date
+  endMode           RecurrenceEnd      @default(NEVER) @map("end_mode")
+  endAfterCount     Int?               @map("end_after_count")
+  endOn             DateTime?          @map("end_on") @db.Date
+  holidayRule       HolidayRule        @default(NEXT_BUSINESS_DAY) @map("holiday_rule")
+  isTemplate        Boolean            @default(false) @map("is_template")
+  createTask        Boolean            @default(false) @map("create_task")
+  taskTemplateId    String?            @map("task_template_id") @db.Uuid
+  assignedUserId    String?            @map("assigned_user_id") @db.Uuid
+  clientVisible     Boolean            @default(false) @map("client_visible")
+  remindClient      Boolean            @default(false) @map("remind_client")
+  addToTaxCalendar  Boolean            @default(true) @map("add_to_tax_calendar")
+  notifyTeam        Boolean            @default(false) @map("notify_team")
+  reminders         Json               @default("[]")
+  sendPastDueNotice Boolean            @default(false) @map("send_past_due_notice")
+  escalateToManager Boolean            @default(false) @map("escalate_to_manager")
+  status            TaskSeriesStatus   @default(ACTIVE)
+  pausedAt          DateTime?          @map("paused_at") @db.Timestamptz(3)
+  endedAt           DateTime?          @map("ended_at") @db.Timestamptz(3)
+  createdByUserId   String?            @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  calendarEntry  ComplianceCalendarEntry?      @relation(fields: [businessId, calendarEntryId], references: [businessId, id], onDelete: Restrict)
+  taskTemplate   TaskTemplate?                 @relation(fields: [businessId, taskTemplateId], references: [businessId, id], onDelete: Restrict)
+  assignedMember Membership?                   @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  deadlines      ComplianceDeadline[]
+  rules          ComplianceApplicabilityRule[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, name, isTemplate])
+  @@index([businessId, status])
+  @@map("compliance_recurrences")
+}
+
+/// Which clients get (or are only suggested) a library entry's or a recurrence's deadline:
+/// federal tax classification and entity codes, states, services, statuses that exclude, and
+/// anything else in `criteria` (election, fiscal year end, payroll or sales tax registration).
+/// `version` goes up on every change, so a decision records the version that made it.
+model ComplianceApplicabilityRule {
+  id                          String               @id @default(uuid(7)) @db.Uuid
+  businessId                  String               @map("business_id") @db.Uuid
+  name                        String
+  calendarEntryId             String?              @map("calendar_entry_id") @db.Uuid
+  recurrenceId                String?              @map("recurrence_id") @db.Uuid
+  outcome                     ApplicabilityOutcome @default(SUGGEST)
+  entityTypes                 String[]             @default([]) @map("entity_types")
+  states                      String[]             @default([])
+  services                    ServiceKind[]        @default([])
+  /// Clients with one of these statuses (tax-exempt, dissolved, closed, not registered) never match.
+  excludeStatuses             String[]             @default([]) @map("exclude_statuses")
+  /// Only clients whose prior-year tax liability is above this, in cents.
+  priorYearLiabilityOverCents Int?                 @map("prior_year_liability_over_cents")
+  criteria                    Json                 @default("{}")
+  active                      Boolean              @default(true)
+  version                     Int                  @default(1)
+  createdByUserId             String?              @map("created_by_user_id") @db.Uuid
+  createdAt                   DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                   DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  calendarEntry ComplianceCalendarEntry?        @relation(fields: [businessId, calendarEntryId], references: [businessId, id], onDelete: Restrict)
+  recurrence    ComplianceRecurrence?           @relation(fields: [businessId, recurrenceId], references: [businessId, id], onDelete: Restrict)
+  decisions     ComplianceApplicabilityRecord[]
+
+  @@unique([businessId, id])
+  @@index([businessId, calendarEntryId])
+  @@index([businessId, recurrenceId])
+  @@map("compliance_applicability_rules")
+}
+
+/// What a rule decided for one client and due date: suggested, needing review (data missing, so
+/// nothing is generated silently), confirmed by staff (the deadline it made) or dismissed with a
+/// reason. A change of the client's classification re-evaluates without touching old records.
+model ComplianceApplicabilityRecord {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  businessId      String                @map("business_id") @db.Uuid
+  clientId        String                @map("client_id") @db.Uuid
+  ruleId          String                @map("rule_id") @db.Uuid
+  ruleVersion     Int                   @map("rule_version")
+  dueOn           DateTime              @map("due_on") @db.Date
+  decision        ApplicabilityDecision
+  /// Why it applies (or why it needs review or was dismissed), with the rule and calendar version.
+  reason          String
+  deadlineId      String?               @map("deadline_id") @db.Uuid
+  decidedByUserId String?               @map("decided_by_user_id") @db.Uuid
+  decidedAt       DateTime?             @map("decided_at") @db.Timestamptz(3)
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client   Client                      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  rule     ComplianceApplicabilityRule @relation(fields: [businessId, ruleId], references: [businessId, id], onDelete: Restrict)
+  deadline ComplianceDeadline?         @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, clientId, ruleId, dueOn])
+  @@unique([businessId, deadlineId])
+  @@index([businessId, decision])
+  @@map("compliance_applicability_records")
 }

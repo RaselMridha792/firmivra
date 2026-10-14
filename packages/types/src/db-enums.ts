@@ -134,6 +134,28 @@ export type CalendarStatus = z.infer<typeof CalendarStatus>;
 export const CalendarRuleKind = z.enum(['FIXED_DATE', 'FORMULA', 'NEEDS_VERIFICATION']);
 export type CalendarRuleKind = z.infer<typeof CalendarRuleKind>;
 
+/** How often a recurring deadline repeats; AUTHORITY_DEFINED follows the authority's own calendar. */
+export const DeadlineFrequency = z.enum([
+  'MONTHLY',
+  'QUARTERLY',
+  'ANNUAL',
+  'CUSTOM',
+  'AUTHORITY_DEFINED',
+]);
+export type DeadlineFrequency = z.infer<typeof DeadlineFrequency>;
+
+/** What a matching applicability rule does: APPLY makes the deadline, SUGGEST only suggests it until staff confirm it (imported government dates are never assigned to everyone). */
+export const ApplicabilityOutcome = z.enum(['APPLY', 'SUGGEST']);
+export type ApplicabilityOutcome = z.infer<typeof ApplicabilityOutcome>;
+
+export const ApplicabilityDecision = z.enum([
+  'SUGGESTED',
+  'NEEDS_REVIEW',
+  'CONFIRMED',
+  'DISMISSED',
+]);
+export type ApplicabilityDecision = z.infer<typeof ApplicabilityDecision>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;
@@ -148,6 +170,7 @@ export type RecurrenceEnd = z.infer<typeof RecurrenceEnd>;
 export const HolidayRule = z.enum(['NONE', 'NEXT_BUSINESS_DAY', 'PREVIOUS_BUSINESS_DAY']);
 export type HolidayRule = z.infer<typeof HolidayRule>;
 
+/** Also the status of a recurring compliance deadline (ComplianceRecurrence). */
 export const TaskSeriesStatus = z.enum(['ACTIVE', 'PAUSED', 'ENDED', 'ARCHIVED']);
 export type TaskSeriesStatus = z.infer<typeof TaskSeriesStatus>;
 
