@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useRef } from 'react';
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -11,6 +12,7 @@ const HEX = /^#[0-9a-f]{6}$/i;
  */
 export function BrandPreview({
   name,
+  logoUrl,
   primary,
   accent,
   header,
@@ -18,6 +20,8 @@ export function BrandPreview({
   signUp = true,
 }: {
   name: string;
+  /** The firm's logo; none keeps the name alone. */
+  logoUrl?: string | null;
   primary?: string | null;
   accent?: string | null;
   header?: string | null;
@@ -44,7 +48,19 @@ export function BrandPreview({
       className="overflow-hidden rounded-card border border-border bg-surface"
     >
       <p className="sr-only">Portal preview</p>
-      <p className="border-b border-border px-5 py-3 font-bold text-heading">{name}</p>
+      <div className="flex items-center gap-3 border-b border-border px-5 py-3">
+        {logoUrl ? (
+          <Image
+            unoptimized
+            src={logoUrl}
+            alt=""
+            width={96}
+            height={32}
+            className="h-auto max-h-8 w-auto"
+          />
+        ) : null}
+        <p className="font-bold text-heading">{name}</p>
+      </div>
       <div className="flex flex-col items-start gap-3 bg-canvas px-5 py-6">
         <p className="text-xs font-semibold uppercase tracking-eyebrow text-accent">
           Client portal

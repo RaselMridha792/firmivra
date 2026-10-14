@@ -23,6 +23,8 @@ import type { NavItem } from '../../../components/app-shell/types';
 import { FirmContext } from '../../../components/firm-context';
 import { SignedIn, useMe } from '../../../components/signed-in';
 import { api } from '../../../lib/api';
+import { portalAuth } from '../../../lib/auth';
+import { useApiQuery } from '../../../lib/query';
 import { claimCache } from '../../../lib/session';
 
 // The firm's menu (docs/junior/PAGE-MAP.md; Fahad owns this list, F03). Items marked `managers`
@@ -127,6 +129,30 @@ function FirmArea({ children }: { children: ReactNode }) {
   }
 
   const role = me.memberships.find((m) => m.business.id === firm.id && m.status === 'ACTIVE')?.role;
+  return (
+    <FirmShell firm={firm} role={role} refresh={refresh}>
+      {children}
+    </FirmShell>
+  );
+}
+
+/** The shell once the firm is open: the sidebar wears the firm's own logo when it has one. */
+function FirmShell({
+  firm,
+  role,
+  refresh,
+  children,
+}: {
+  firm: BusinessSummary;
+  role: MembershipRole | undefined;
+  refresh: () => Promise<void>;
+  children: ReactNode;
+}) {
+  // Under 'firm-settings', so Settings > Branding's upload or remove refreshes it too. The public
+  // portal info works for every role (staff cannot read the settings).
+  const info = useApiQuery(['firm-settings', 'logo', firm.slug], () =>
+    portalAuth(firm.slug).info(),
+  );
   const manager = role === 'OWNER' || role === 'ADMIN';
   return (
     <AppShell
@@ -134,6 +160,8 @@ function FirmArea({ children }: { children: ReactNode }) {
       sections={[items.filter((i) => manager || !i.managers)]}
       roleLabel={role ? ROLE_LABEL[role] : 'Staff'}
       greeting={<span data-testid="firm-name">{firm.name}</span>}
+      logoUrl={info.data?.branding.logoUrl}
+      firmName={firm.name}
     >
       {/* Pages read the firm and the role with useFirm() (and <RequireRole>). */}
       <FirmContext value={{ firm, role, refresh }}>{children}</FirmContext>

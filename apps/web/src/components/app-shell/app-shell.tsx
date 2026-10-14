@@ -19,6 +19,8 @@ export function AppShell({
   greeting,
   footer,
   bell,
+  logoUrl,
+  firmName,
   children,
 }: {
   /** Under the logo, for example "Super Admin Portal". */
@@ -34,10 +36,13 @@ export function AppShell({
   footer?: ReactNode;
   /** Replaces the header's plain bell, for example the firm's `<NotificationBell />` (F07). */
   bell?: ReactNode;
+  /** The firm's own logo for the sidebar (firm workspace); none keeps the Firmivra logo. */
+  logoUrl?: string | null;
+  firmName?: string;
   children: ReactNode;
 }) {
   const [drawer, setDrawer] = useState(false);
-  const sidebar = { subtitle, sections, roleLabel };
+  const sidebar = { subtitle, sections, roleLabel, logoUrl, firmName };
 
   return (
     <div className="min-h-screen bg-canvas">

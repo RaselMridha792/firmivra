@@ -13,11 +13,16 @@ export function Sidebar({
   subtitle,
   sections,
   roleLabel,
+  logoUrl,
+  firmName,
   onNavigate,
 }: {
   subtitle: string;
   sections: NavSections;
   roleLabel: string;
+  /** The firm's own logo; none keeps the Firmivra logo. */
+  logoUrl?: string | null;
+  firmName?: string;
   /** Closes the mobile drawer after a click. */
   onNavigate?: () => void;
 }) {
@@ -26,17 +31,35 @@ export function Sidebar({
   return (
     <nav aria-label="Main" className="flex h-full w-72 flex-col bg-brand-900 text-white">
       <div className="px-6 pb-4 pt-3">
-        <Image
-          src={firmivraLogoWhite}
-          alt="Firmivra"
-          priority
-          sizes="208px"
-          className="block h-auto w-52"
-        />
-        {/* Under the wordmark, which starts about 58 px into the logo. */}
-        <p className="-mt-3 ml-14.5 whitespace-nowrap text-xs tracking-brand uppercase">
-          {subtitle}
-        </p>
+        {logoUrl ? (
+          <>
+            <span className="inline-block rounded-control bg-surface p-2">
+              <Image
+                unoptimized
+                src={logoUrl}
+                alt={firmName ?? 'Firm logo'}
+                width={176}
+                height={56}
+                className="block h-auto max-h-14 w-auto max-w-44 object-contain"
+              />
+            </span>
+            <p className="mt-2 whitespace-nowrap text-xs tracking-brand uppercase">{subtitle}</p>
+          </>
+        ) : (
+          <>
+            <Image
+              src={firmivraLogoWhite}
+              alt="Firmivra"
+              priority
+              sizes="208px"
+              className="block h-auto w-52"
+            />
+            {/* Under the wordmark, which starts about 58 px into the logo. */}
+            <p className="-mt-3 ml-14.5 whitespace-nowrap text-xs tracking-brand uppercase">
+              {subtitle}
+            </p>
+          </>
+        )}
       </div>
 
       <div data-testid="sidebar-menu" className="flex flex-1 flex-col gap-2 overflow-y-auto">
