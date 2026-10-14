@@ -1303,7 +1303,6 @@ async function main() {
           businessId: businesses.lvp,
           messageId: SEED_MESSAGE_IDS.w2Question,
           documentId: SEED_DOCUMENT_IDS.interestDocument,
-          reportId: SEED_WORK_IDS.lvpReport,
         },
       },
       update: {},
@@ -1508,6 +1507,7 @@ async function main() {
       taxServiceId: serviceId('Annual Tax'),
       bookkeepingServiceId: serviceId('Bookkeeping'),
       documentId: SEED_DOCUMENT_IDS.interestDocument,
+      reportId: SEED_WORK_IDS.lvpReport,
     });
   });
 
