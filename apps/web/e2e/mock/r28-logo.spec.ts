@@ -62,13 +62,13 @@ test('the shell shows the dark logo, the slogan and motto, and the light logo in
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(app('/'));
   const sidebar = page.getByRole('navigation', { name: 'Main' });
-  expect((await sidebar.boundingBox())?.width).toBe(240);
+  expect((await sidebar.boundingBox())?.width).toBe(246);
   const logo = sidebar.locator('img');
   await expect(logo).toBeVisible();
-  // The logo fills the inner width (240 px minus 20 px each side), left aligned, up to 100 px high.
+  // The logo fills the inner width (246 px minus 20 px each side), left aligned, up to 100 px high.
   const box = await logo.boundingBox();
   expect(box?.x).toBe(20);
-  expect(box?.width).toBe(200);
+  expect(box?.width).toBe(206);
   expect(box?.height).toBeLessThanOrEqual(100);
   const slogan = page.getByTestId('firm-slogan');
   await expect(slogan).toContainText('More Than');
@@ -129,9 +129,9 @@ for (const [name, file] of [
       );
       const box = await logo.boundingBox();
       expect(box?.x).toBe(20);
-      expect(box?.width).toBe(200);
+      expect(box?.width).toBe(206);
       // Limited by the width, or by 100 px when the logo is squarer.
-      expect(box?.height).toBeCloseTo(Math.min(100, 200 * natural), 0);
+      expect(box?.height).toBeCloseTo(Math.min(100, 206 * natural), 0);
       // Never more than 16 px above it and 20 px below it, as in the design.
       const first = await page.getByTestId('sidebar-menu').getByRole('link').first().boundingBox();
       expect(box?.y).toBe(16);
