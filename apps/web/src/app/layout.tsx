@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { Nunito_Sans, Playfair_Display } from 'next/font/google';
+import { Nunito_Sans, Playfair_Display, Satisfy } from 'next/font/google';
 import { ApiProvider } from '../components/api-provider';
 import { MockBadge } from '../components/mock-badge';
 import './globals.css';
@@ -15,9 +15,17 @@ const display = Playfair_Display({
   variable: '--font-face-display',
 });
 
+// The firm sidebar's slogan, a handwritten script like the dashboard design's.
+const script = Satisfy({
+  subsets: ['latin'],
+  weight: '400',
+  display: 'swap',
+  variable: '--font-face-script',
+});
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${sans.variable} ${display.variable}`}>
+    <html lang="en" className={`${sans.variable} ${display.variable} ${script.variable}`}>
       <body className="min-h-screen bg-canvas font-sans text-text antialiased">
         <ApiProvider>{children}</ApiProvider>
         <MockBadge />
