@@ -346,6 +346,7 @@ model Business {
   intakeSettings           IntakeSettings?
   intakeTemplates          IntakeTemplate[]
   documentFolders          DocumentFolder[]
+  firmOffices              FirmOffice[]
   documentRequestTemplates DocumentRequestTemplate[]
   documentSettings         DocumentSettings[]
 
@@ -1533,11 +1534,13 @@ model AppointmentType {
 
   // R37: shown in Manage Appointment Types.
   /// Up to 500 characters.
-  description String?
+  description      String?
   /// The service this type is for (optional).
-  serviceId   String?        @map("service_id") @db.Uuid
+  serviceId        String?        @map("service_id") @db.Uuid
   /// The default colour of its appointments.
-  color       CalendarColor?
+  color            CalendarColor?
+  /// Reminders new appointments of this type start with: [{ channel, offsetMinutes }], at most 10.
+  reminderDefaults Json           @default("[]") @map("reminder_defaults")
 
   service      Service?      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
   business     Business      @relation(fields: [businessId], references: [id])
@@ -1635,14 +1638,22 @@ model Appointment {
   confirmedAt        DateTime?      @map("confirmed_at") @db.Timestamptz(3)
   /// A retry of the same booking returns the first one; unique per firm.
   idempotencyKey     String?        @map("idempotency_key") @db.Uuid
+  /// Where in the firm (in-person appointments only), and the room, which cannot be double booked.
+  officeId           String?        @map("office_id") @db.Uuid
+  roomId             String?        @map("room_id") @db.Uuid
 
-  client     Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  staff      Membership       @relation(fields: [businessId, staffUserId], references: [businessId, userId], onDelete: Restrict)
-  service    Service?         @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  type       AppointmentType? @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  client     Client                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?           @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  staff      Membership            @relation(fields: [businessId, staffUserId], references: [businessId, userId], onDelete: Restrict)
+  service    Service?              @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  office     FirmOffice?           @relation(fields: [businessId, officeId], references: [businessId, id], onDelete: Restrict)
+  room       FirmRoom?             @relation(fields: [businessId, officeId, roomId], references: [businessId, officeId, id], onDelete: Restrict)
+  reminders  AppointmentReminder[]
+  type       AppointmentType?      @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
 
   @@unique([businessId, idempotencyKey])
+  // Target of the reminders' same-firm foreign key.
+  @@unique([businessId, id])
   @@index([businessId, staffUserId, startsAt])
   @@index([businessId, clientId, startsAt])
   @@index([businessId, startsAt])
@@ -3768,4 +3779,74 @@ enum CalendarColor {
   RED
   PURPLE
   GRAY
+}
+
+enum ReminderChannel {
+  EMAIL
+  SMS
+  PORTAL
+}
+
+/// One reminder an appointment will send ("email, 1 day before"). The database keeps dueAt
+/// (the start minus the offset) and clears sentAt when the appointment is rescheduled, so the new
+/// time gets its own reminder. It replaces appointments.reminder_sent_at once the sender uses it.
+model AppointmentReminder {
+  id            String          @id @default(uuid(7)) @db.Uuid
+  businessId    String          @map("business_id") @db.Uuid
+  appointmentId String          @map("appointment_id") @db.Uuid
+  channel       ReminderChannel
+  /// Minutes before the start: 0 (at the start) to 43,200 (30 days). 1 week = 10,080.
+  offsetMinutes Int             @map("offset_minutes")
+  dueAt         DateTime        @default(now()) @map("due_at") @db.Timestamptz(3)
+  sentAt        DateTime?       @map("sent_at") @db.Timestamptz(3)
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  appointment Appointment @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, appointmentId, channel, offsetMinutes])
+  @@index([businessId, dueAt])
+  @@map("appointment_reminders")
+}
+
+/// A place the firm meets clients (Schedule Appointment's Office / Branch). Archived, never
+/// deleted once appointments use it.
+model FirmOffice {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  businessId   String    @map("business_id") @db.Uuid
+  name         String
+  addressLine1 String?   @map("address_line1")
+  city         String?
+  state        String?
+  postalCode   String?   @map("postal_code")
+  /// At most one live main office per firm.
+  isMain       Boolean   @default(false) @map("is_main")
+  sortOrder    Int       @default(0) @map("sort_order")
+  archivedAt   DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business     Business      @relation(fields: [businessId], references: [id])
+  rooms        FirmRoom[]
+  appointments Appointment[]
+
+  @@unique([businessId, id])
+  @@map("firm_offices")
+}
+
+/// A room of an office ("Conference Room 1"). Two live appointments never share a room at once.
+model FirmRoom {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  officeId   String    @map("office_id") @db.Uuid
+  name       String
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  office       FirmOffice    @relation(fields: [businessId, officeId], references: [businessId, id], onDelete: Restrict)
+  appointments Appointment[]
+
+  @@unique([businessId, officeId, id])
+  @@unique([businessId, officeId, name])
+  @@map("firm_rooms")
 }

@@ -513,6 +513,9 @@ describe('no scope set', () => {
     expect(await unscopedApp.workingHours.findMany()).toEqual([]);
     expect(await unscopedApp.blockedTime.findMany()).toEqual([]);
     expect(await unscopedApp.appointment.findMany()).toEqual([]);
+    expect(await unscopedApp.appointmentReminder.findMany()).toEqual([]);
+    expect(await unscopedApp.firmOffice.findMany()).toEqual([]);
+    expect(await unscopedApp.firmRoom.findMany()).toEqual([]);
     expect(await unscopedApp.messageThread.findMany()).toEqual([]);
     expect(await unscopedApp.message.findMany()).toEqual([]);
     expect(await unscopedApp.messageAttachment.findMany()).toEqual([]);

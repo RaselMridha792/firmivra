@@ -36,6 +36,10 @@ const ID = {
   authFederal: '00000000-0000-4a37-8000-000000000056',
   authState: '00000000-0000-4a37-8000-000000000057',
   returnFile: '00000000-0000-4a37-8000-000000000058',
+  officeMain: '00000000-0000-4a37-8000-000000000071',
+  roomConference: '00000000-0000-4a37-8000-000000000072',
+  reminderEmail: '00000000-0000-4a37-8000-000000000073',
+  reminderSms: '00000000-0000-4a37-8000-000000000074',
   requestPacket: '00000000-0000-4a37-8000-000000000024',
 } as const;
 
@@ -384,6 +388,47 @@ async function seedAppointmentDetails(tx: TxClient, businessId: string) {
       internalNotes: 'Client asked about the home office deduction.',
     },
   });
+  // The firm's main office and a room, and the reminders the consultation will send.
+  await tx.firmOffice.upsert({
+    where: { id: ID.officeMain },
+    update: {},
+    create: {
+      id: ID.officeMain,
+      businessId,
+      name: 'Main Office',
+      addressLine1: '100 Example Street',
+      city: 'Auburn',
+      state: 'GA',
+      postalCode: '30011',
+      isMain: true,
+    },
+  });
+  await tx.firmRoom.upsert({
+    where: { id: ID.roomConference },
+    update: {},
+    create: {
+      id: ID.roomConference,
+      businessId,
+      officeId: ID.officeMain,
+      name: 'Conference Room 1',
+    },
+  });
+  for (const [id, channel, offsetMinutes] of [
+    [ID.reminderEmail, 'EMAIL', 1440],
+    [ID.reminderSms, 'SMS', 120],
+  ] as const) {
+    await tx.appointmentReminder.upsert({
+      where: { id },
+      update: {},
+      create: {
+        id,
+        businessId,
+        appointmentId: SEED_CALENDAR_IDS.appointment,
+        channel,
+        offsetMinutes,
+      },
+    });
+  }
 }
 
 export async function seedR37(tx: TxClient, businessId: string) {

@@ -482,3 +482,6 @@ export type TaxReturnDocumentKind = z.infer<typeof TaxReturnDocumentKind>;
 /** Calendar colours: token names the screens map to packages/ui (no hex values here). */
 export const CalendarColor = z.enum(['BLUE', 'GREEN', 'AMBER', 'RED', 'PURPLE', 'GRAY']);
 export type CalendarColor = z.infer<typeof CalendarColor>;
+
+export const ReminderChannel = z.enum(['EMAIL', 'SMS', 'PORTAL']);
+export type ReminderChannel = z.infer<typeof ReminderChannel>;
