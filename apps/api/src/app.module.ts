@@ -43,6 +43,7 @@ import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
 import { BeginOnlineModule } from './begin-online/begin-online.controller.js';
+import { DashboardModule } from './dashboard/dashboard.controller.js';
 import { CheckoutModule } from './payments/checkout/checkout.controller.js';
 import { InvoicesModule } from './payments/invoices/invoices.module.js';
 import { RefundsModule } from './payments/refunds/refunds.controller.js';
@@ -112,6 +113,7 @@ export class AppModule {
         AuditViewerModule,
         SupportAccessModule,
         WorkspacesModule,
+        DashboardModule,
         DocumentsModule,
         InvoicesModule,
         CheckoutModule,
