@@ -41,7 +41,7 @@ export const Filters: Story = {
         }
       >
         <SearchField label="Search clients" placeholder="Search clients by name, email, phone…" />
-        <Select label="Services" options={any('All Services')} className="w-48" />
+        <Select label="Services" hideLabel options={any('All Services')} className="w-48" />
       </FilterBar>
       <FilterChip label="Status: Active" onRemove={() => {}} />
     </div>

@@ -1,7 +1,14 @@
 'use client';
 
 import { CaretDown, Funnel, MagnifyingGlass, X, type Icon } from '@phosphor-icons/react';
-import { useId, useState, type InputHTMLAttributes, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from 'react';
 import { Button } from './button';
 
 /** The filled search box at the start of a filter bar. */
@@ -85,8 +92,16 @@ export function FilterBar({
 }: FilterBarProps) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) =>
+      rootRef.current && !rootRef.current.contains(event.target as Node) && setOpen(false);
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [open]);
   return (
-    <div className="relative flex flex-wrap items-end gap-3">
+    <div ref={rootRef} className="relative flex flex-wrap items-end gap-3">
       {children}
       {more ? (
         <button
