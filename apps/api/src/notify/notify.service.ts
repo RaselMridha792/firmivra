@@ -245,7 +245,7 @@ export function createNotifyService(
     logger.warn('SMS_MODE=sns without SMS_ORIGINATION_NUMBER: texts go to the log, not sent');
   }
   return new SendingNotifyService({
-    branding: new BrandingSource(db),
+    branding: new BrandingSource(db, config.portalOrigin),
     preferences: new PreferenceSource(db),
     email: emailSide,
     sms:

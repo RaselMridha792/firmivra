@@ -12,6 +12,13 @@ import { PortalPageHeader } from '../../_components/portal-page-header';
 /** Only these have a screen yet; the firm's other calculators stay off the list until theirs ships. */
 const AVAILABLE: Calculator['key'][] = ['tax_return', 'quarterly_estimate', 'tax_bracket'];
 
+/** One line each, so the cards say what the calculator is for. */
+const BLURB: Partial<Record<Calculator['key'], string>> = {
+  tax_return: 'See a quick estimate of your refund or amount due.',
+  quarterly_estimate: 'Work out what to pay each quarter to stay current with the IRS.',
+  tax_bracket: 'See which brackets your income falls into and what you owe in each.',
+};
+
 /** /{firm}/calculator (signed in) and /{firm}/calculators (public): the firm's calculators. */
 export function CalculatorsHub({ publicPage = false }: { publicPage?: boolean }) {
   const slug = String(useParams<{ firmSlug: string }>().firmSlug);
@@ -40,7 +47,7 @@ export function CalculatorsHub({ publicPage = false }: { publicPage?: boolean })
                   className="block focus:outline-2 focus:outline-accent-500"
                 >
                   <Card title={c.title} className="h-full">
-                    <p className="text-sm text-text">Estimate your {c.taxYear} federal tax.</p>
+                    <p className="text-sm text-text">{BLURB[c.key]}</p>
                   </Card>
                 </Link>
               </li>

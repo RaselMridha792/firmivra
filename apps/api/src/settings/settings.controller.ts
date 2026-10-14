@@ -21,6 +21,8 @@ import {
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
+import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
+import { FirmLogoController, LOGO_PROVIDERS, PortalLogoController } from './logo.controller.js';
 import { SettingsService } from './settings.service.js';
 
 const kindPipe = new ZodValidationPipe(LegalKind);
@@ -106,8 +108,8 @@ export class SettingsController {
 }
 
 @Module({
-  imports: [FieldEncryptionModule],
-  controllers: [SettingsController],
-  providers: [SettingsService],
+  imports: [FieldEncryptionModule, PortalInfoModule],
+  controllers: [SettingsController, FirmLogoController, PortalLogoController],
+  providers: [SettingsService, ...LOGO_PROVIDERS],
 })
 export class SettingsModule {}

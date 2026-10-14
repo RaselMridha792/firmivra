@@ -161,7 +161,7 @@ function Calculator({ disclaimer }: { disclaimer: string }) {
               none.
             </p>
           </div>
-          <fieldset className="flex flex-col">
+          <fieldset className="flex flex-row flex-wrap gap-x-6">
             <legend className="text-sm font-medium text-text">
               Which deduction would you like to use?
             </legend>
@@ -193,7 +193,7 @@ function Calculator({ disclaimer }: { disclaimer: string }) {
               {CURRENT_TAX_YEAR} Standard Deduction Applied: {formatCents(standard)}
             </p>
           )}
-          <fieldset className="flex flex-col">
+          <fieldset className="flex flex-row flex-wrap gap-x-6">
             <legend className="text-sm font-medium text-text">
               To get your standard deduction right
             </legend>

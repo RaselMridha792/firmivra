@@ -122,6 +122,8 @@ export interface NotifyConfig {
   sms: SmsConfig;
   /** The origins of the app, portal and admin sites (those set): where message links may go. */
   linkOrigins: string[];
+  /** The portal site's origin (where a firm's logo is served for emails), when it is set. */
+  portalOrigin?: string;
   /** Run the reminder jobs in this API task (NOTIFY_JOBS; off by default in tests). */
   jobs: boolean;
 }
@@ -166,5 +168,13 @@ export function loadNotifyConfig(
   const jobs = env.NOTIFY_JOBS
     ? env.NOTIFY_JOBS === 'on'
     : env.NODE_ENV !== 'test' && env.VITEST === undefined;
-  return { email, sms, linkOrigins: [...new Set(linkOrigins)], jobs };
+  const portalOrigin =
+    env.PORTAL_BASE_URL === undefined ? null : siteOrigin(env.PORTAL_BASE_URL, local);
+  return {
+    email,
+    sms,
+    linkOrigins: [...new Set(linkOrigins)],
+    ...(portalOrigin !== null && { portalOrigin }),
+    jobs,
+  };
 }
