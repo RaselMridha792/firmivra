@@ -2,7 +2,9 @@
 
 import { notificationLink } from '@firmivra/types';
 import { Skeleton } from '@firmivra/ui';
-import { Bell, ChevronDown, CircleHelp, Plus, Search } from 'lucide-react';
+import { Bell, MagnifyingGlass, Plus, Question } from '@phosphor-icons/react';
+import { ChevronDown } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useState } from 'react';
@@ -58,7 +60,7 @@ export function FirmSearch() {
       }}
       className="flex h-10 w-full min-w-0 max-w-xl flex-1 items-center gap-2 rounded-control border border-border bg-canvas px-3 text-sm text-muted"
     >
-      <Search aria-hidden className="size-4 shrink-0" />
+      <MagnifyingGlass aria-hidden weight="fill" className="size-5 shrink-0" />
       <input
         name="q"
         type="search"
@@ -76,8 +78,8 @@ export function NewMenu({ links }: { links: readonly { label: string; href: stri
   return (
     <Popover
       trigger={() => (
-        <span className="flex items-center gap-1 rounded-control bg-action px-4 py-2 text-sm font-semibold text-on-action hover:bg-action-hover">
-          <Plus aria-hidden className="size-4" />
+        <span className="flex items-center gap-1 rounded-control bg-gold px-4 py-2 text-sm font-semibold text-heading hover:brightness-95">
+          <Plus aria-hidden weight="bold" className="size-4" />
           New
           <ChevronDown aria-hidden className="size-4" />
         </span>
@@ -105,7 +107,7 @@ export function FirmBell() {
     <Popover
       trigger={() => (
         <span className="relative block rounded-control p-2 text-text hover:bg-canvas">
-          <Bell aria-hidden className="size-5" />
+          <Bell aria-hidden weight="fill" className="size-6" />
           <span className="sr-only">Notifications{unread ? `, ${unread} unread` : ''}</span>
           {unread ? (
             <span
@@ -165,7 +167,38 @@ export function HelpLink({ email }: { email: string }) {
       aria-label="Help"
       className="rounded-control p-2 text-text hover:bg-canvas"
     >
-      <CircleHelp aria-hidden className="size-5" />
+      <Question aria-hidden weight="fill" className="size-6" />
     </a>
+  );
+}
+
+/** The strip under every page: the firm's logo or name on the left, links that exist on the right. */
+export function FirmFooter({
+  name,
+  logoUrl,
+  supportEmail,
+}: {
+  name: string;
+  logoUrl: string | null;
+  supportEmail: string;
+}) {
+  return (
+    <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface px-4 py-4 md:px-6">
+      {logoUrl ? (
+        <Image
+          unoptimized
+          src={logoUrl}
+          alt={name}
+          width={140}
+          height={36}
+          className="block h-9 w-auto object-contain object-left"
+        />
+      ) : (
+        <p className="font-semibold text-heading">{name}</p>
+      )}
+      <a href={`mailto:${supportEmail}`} className="text-sm font-medium text-link">
+        Support
+      </a>
+    </footer>
   );
 }

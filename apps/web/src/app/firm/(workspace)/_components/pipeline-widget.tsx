@@ -10,14 +10,14 @@ export function PipelineWidget() {
   const leads = useApiQuery(['dashboard', 'leads'], () => api.leads.counts());
   const clients = useApiQuery(['dashboard', 'clients'], () => api.clients.list({ limit: 100 }));
   const stages = [
-    { label: 'New leads', count: leads.data?.submitted ?? 0, href: '/leads', bar: 'bg-accent' },
-    { label: 'In review', count: leads.data?.inReview ?? 0, href: '/leads', bar: 'bg-info' },
+    { label: 'New leads', count: leads.data?.submitted ?? 0, href: '/leads', bar: 'bg-info' },
+    { label: 'In review', count: leads.data?.inReview ?? 0, href: '/leads', bar: 'bg-sky' },
     {
       label: 'Clients',
       count: clients.data?.items.length ?? 0,
       plus: Boolean(clients.data?.nextCursor),
       href: '/clients',
-      bar: 'bg-purple',
+      bar: 'bg-gold',
     },
   ];
   const max = Math.max(1, ...stages.map((s) => s.count));
@@ -44,7 +44,7 @@ export function PipelineWidget() {
                 <span className="mt-auto flex h-24 items-end">
                   <span
                     aria-hidden
-                    className={`w-full rounded-t-control ${s.bar}`}
+                    className={`mx-auto w-14 rounded-control ${s.bar}`}
                     style={{ height: `${Math.max(8, (s.count / max) * 100)}%` }}
                   />
                 </span>

@@ -1,12 +1,18 @@
 'use client';
 
 import { Skeleton } from '@firmivra/ui';
-import type { LucideIcon } from 'lucide-react';
-import { CalendarDays, DollarSign, UserPlus, Users } from 'lucide-react';
+import {
+  CalendarDots,
+  CurrencyCircleDollar,
+  type Icon,
+  UserPlus,
+  UsersThree,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import { api } from '../../../../lib/api';
 import { useApiQuery } from '../../../../lib/query';
 import { addDays, toInstant } from '../calendar/_components/time';
+import { IconTile, type Tone } from './icon-tile';
 
 const MAX_PAGE = 100;
 const money = (cents: number, currency: string) =>
@@ -15,8 +21,8 @@ const money = (cents: number, currency: string) =>
   );
 
 function Kpi({
-  icon: Icon,
-  tint,
+  icon,
+  tone,
   value,
   label,
   note,
@@ -24,8 +30,8 @@ function Kpi({
   loading,
   failed,
 }: {
-  icon: LucideIcon;
-  tint: string;
+  icon: Icon;
+  tone: Tone;
   value: string;
   label: string;
   note?: string;
@@ -37,16 +43,14 @@ function Kpi({
     <Link
       href={href}
       data-testid="kpi-card"
-      className="flex items-center gap-4 rounded-card border border-border bg-surface p-4 shadow-card hover:bg-canvas"
+      className="flex items-center gap-4 rounded-xl bg-surface p-4 shadow-md hover:bg-canvas"
     >
-      <span className={`flex size-12 shrink-0 items-center justify-center rounded-full ${tint}`}>
-        <Icon aria-hidden className="size-6" />
-      </span>
+      <IconTile icon={icon} tone={tone} />
       <span className="flex min-w-0 flex-col">
         {loading ? (
           <Skeleton className="h-8 w-16" />
         ) : (
-          <span className="text-2xl font-semibold text-heading">{failed ? '—' : value}</span>
+          <span className="text-3xl font-bold text-heading">{failed ? '—' : value}</span>
         )}
         <span className="text-sm text-muted">{label}</span>
         {note && !loading && !failed ? <span className="text-xs text-muted">{note}</span> : null}
@@ -79,8 +83,8 @@ export function KpiCards({
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Kpi
-        icon={Users}
-        tint="bg-info-soft text-info"
+        icon={UsersThree}
+        tone="blue"
         label="Total clients"
         href="/clients"
         loading={clients.isPending}
@@ -96,7 +100,7 @@ export function KpiCards({
       />
       <Kpi
         icon={UserPlus}
-        tint="bg-warning-soft text-warning"
+        tone="amber"
         label="New leads"
         href="/leads"
         loading={leads.isPending}
@@ -106,8 +110,8 @@ export function KpiCards({
       />
       {manager ? <Outstanding /> : null}
       <Kpi
-        icon={CalendarDays}
-        tint="bg-purple-soft text-purple"
+        icon={CalendarDots}
+        tone="blue"
         label="Appointments today"
         href="/calendar"
         loading={todays.isPending}
@@ -130,8 +134,8 @@ function Outstanding() {
   const total = items.reduce((sum, i) => sum + i.balanceDueCents, 0);
   return (
     <Kpi
-      icon={DollarSign}
-      tint="bg-danger-soft text-danger"
+      icon={CurrencyCircleDollar}
+      tone="red"
       label="Outstanding invoices"
       href="/invoices"
       loading={open.isPending}

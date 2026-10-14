@@ -1,9 +1,12 @@
-import type { LucideIcon } from 'lucide-react';
+import type { ComponentType } from 'react';
+
+/** Any icon component that takes a class and aria-hidden: lucide or Phosphor. */
+export type NavIcon = ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
 
 /** One sidebar item. Without `href` and with `soon`, it shows a "Soon" badge and opens nothing. */
 export interface NavItem {
   label: string;
-  icon: LucideIcon;
+  icon: NavIcon;
   /** Public path on this site, for example '/applications'. */
   href?: string;
   /** Count badge, for example pending applications. */

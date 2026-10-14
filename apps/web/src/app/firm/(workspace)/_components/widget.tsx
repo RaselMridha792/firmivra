@@ -30,10 +30,10 @@ export function Widget<T>({
     <section
       aria-label={title}
       data-testid="dashboard-widget"
-      className={`flex flex-col gap-3 rounded-card border border-border bg-surface p-5 shadow-card ${className}`}
+      className={`flex flex-col gap-3 rounded-xl bg-surface p-5 shadow-md ${className}`}
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-heading">{title}</h2>
+        <h2 className="text-xl font-bold text-heading">{title}</h2>
         {link ? (
           <Link
             href={link.href}

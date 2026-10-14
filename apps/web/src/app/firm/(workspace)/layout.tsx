@@ -4,24 +4,26 @@ import { ApiRequestError, type BusinessSummary, type MembershipRole } from '@fir
 import { Button } from '@firmivra/ui';
 import {
   Briefcase,
-  CalendarDays,
-  FileSignature,
+  CalendarDots,
+  ChatCircleDots,
+  ClipboardText,
+  GearSix,
   House,
-  MessageSquare,
+  type Icon,
   Receipt,
-  ScrollText,
-  Settings,
+  Signature,
   Target,
+  UserGear,
   UserPlus,
   Users,
-  UsersRound,
-} from 'lucide-react';
+} from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../../../components/app-shell/app-shell';
 import {
   FirmBell,
+  FirmFooter,
   FirmSearch,
   HelpLink,
   NewMenu,
@@ -37,19 +39,24 @@ import { claimCache } from '../../../lib/session';
 
 // The firm's menu (docs/junior/PAGE-MAP.md; Fahad owns this list, F03). Items marked `managers`
 // show only to Owner and Admin; the API still checks every request.
+/** The design's solid icons: Phosphor's fill weight. */
+const solid =
+  (Glyph: Icon): NavItem['icon'] =>
+  (props) => <Glyph weight="fill" {...props} />;
+
 const items: (NavItem & { managers?: true })[] = [
-  { label: 'Dashboard', icon: House, href: '/' },
-  { label: 'Clients', icon: Users, href: '/clients' },
-  { label: 'Sign-ups', icon: UserPlus, href: '/sign-ups', managers: true },
-  { label: 'Leads', icon: Target, href: '/leads' },
-  { label: 'Appointments', icon: CalendarDays, href: '/calendar' },
-  { label: 'Messages', icon: MessageSquare, href: '/messages' },
-  { label: 'Invoices & Payments', icon: Receipt, href: '/invoices' },
-  { label: 'Workspaces', icon: Briefcase, href: '/workspaces' },
-  { label: 'Firm Sign', icon: FileSignature, href: '/firm-sign' },
-  { label: 'Audit log', icon: ScrollText, href: '/audit-log', managers: true },
-  { label: 'Staff Management', icon: UsersRound, href: '/team', managers: true },
-  { label: 'Settings', icon: Settings, href: '/settings', managers: true },
+  { label: 'Dashboard', icon: solid(House), href: '/' },
+  { label: 'Clients', icon: solid(Users), href: '/clients' },
+  { label: 'Sign-ups', icon: solid(UserPlus), href: '/sign-ups', managers: true },
+  { label: 'Leads', icon: solid(Target), href: '/leads' },
+  { label: 'Appointments', icon: solid(CalendarDots), href: '/calendar' },
+  { label: 'Messages', icon: solid(ChatCircleDots), href: '/messages' },
+  { label: 'Invoices & Payments', icon: solid(Receipt), href: '/invoices' },
+  { label: 'Workspaces', icon: solid(Briefcase), href: '/workspaces' },
+  { label: 'Firm Sign', icon: solid(Signature), href: '/firm-sign' },
+  { label: 'Audit log', icon: solid(ClipboardText), href: '/audit-log', managers: true },
+  { label: 'Staff Management', icon: solid(UserGear), href: '/team', managers: true },
+  { label: 'Settings', icon: solid(GearSix), href: '/settings', managers: true },
 ];
 
 /** The "+ New" menu: where each new thing is created (all of them are pages that exist). */
@@ -200,6 +207,7 @@ function FirmShell({
         </>
       }
       bell={<FirmBell />}
+      footer={<FirmFooter name={firm.name} logoUrl={logoUrl} supportEmail={COMPANY.supportEmail} />}
     >
       {children}
     </AppShell>

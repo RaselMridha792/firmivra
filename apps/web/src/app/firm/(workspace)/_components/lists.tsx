@@ -1,7 +1,7 @@
 'use client';
 
 import { Badge } from '@firmivra/ui';
-import { MapPin, Phone, Video } from 'lucide-react';
+import { MapPin, Phone, VideoCamera } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../lib/api';
@@ -10,7 +10,7 @@ import { LOCATION_LABELS } from '../calendar/_components/shared';
 import { addDays, toInstant } from '../calendar/_components/time';
 import { Widget } from './widget';
 
-const ICONS = { VIDEO: Video, PHONE: Phone, IN_PERSON: MapPin } as const;
+const ICONS = { VIDEO: VideoCamera, PHONE: Phone, IN_PERSON: MapPin } as const;
 
 export function RecentMessages({ timeZone }: { timeZone: string }) {
   const inbox = useApiQuery(['dashboard', 'messages'], () => api.messages.inbox({ limit: 5 }));
@@ -107,7 +107,7 @@ export function UpcomingAppointments({ timeZone, today }: { timeZone: string; to
                         {a.type?.name ?? 'Appointment'} · {LOCATION_LABELS[a.locationKind]}
                       </span>
                     </span>
-                    <Icon aria-hidden className="size-5 shrink-0 text-link" />
+                    <Icon aria-hidden weight="fill" className="size-6 shrink-0 text-link" />
                   </Link>
                 </li>
               );

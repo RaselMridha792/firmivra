@@ -90,7 +90,9 @@ export function Header({
             onClick={() => setOpen((value) => !value)}
             className="flex items-center gap-2 rounded-control p-1 pr-2 hover:bg-canvas"
           >
-            <span className="flex size-10 items-center justify-center rounded-full bg-brand-900 text-sm font-semibold text-white">
+            <span
+              className={`flex size-11 items-center justify-center rounded-full text-sm font-semibold ${start ? 'border-2 border-border bg-info-soft text-heading' : 'bg-brand-900 text-white'}`}
+            >
               {initials(me.user.name)}
             </span>
             <span className="hidden text-left text-sm sm:block">

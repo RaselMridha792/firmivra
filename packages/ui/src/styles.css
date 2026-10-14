@@ -47,6 +47,10 @@
   /* R25: the Super Admin mockup's purple (Total Users, Team, Tasks, Platform Settings). */
   --color-purple: #6d28d9;
   --color-purple-soft: #f1ebfe;
+  /* R27: the firm dashboard mockup's gold (welcome name, + New, amber tiles), orange and light-blue stage colours. */
+  --color-gold: #d38a00;
+  --color-orange: #f26a21;
+  --color-sky: #4da3ff;
   --color-public-action: #005fcc;
   --color-public-action-hover: #004fa8;
   --color-public-action-pressed: #003d85;

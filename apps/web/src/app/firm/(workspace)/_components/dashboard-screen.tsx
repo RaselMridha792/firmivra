@@ -1,7 +1,7 @@
 'use client';
 
 import { Skeleton } from '@firmivra/ui';
-import { FilePlus2, MessageSquarePlus, UserPlus, type LucideIcon } from 'lucide-react';
+import { CalendarDots, ChatCircleDots, FileText, type Icon, UserPlus } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { RequireRole } from '../../../../components/require-role';
@@ -10,27 +10,27 @@ import { useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
 import { useApiQuery } from '../../../../lib/query';
 import { todayIn } from '../calendar/_components/time';
+import { IconTile } from './icon-tile';
 import { KpiCards } from './kpi-cards';
 import { RecentMessages, UpcomingAppointments } from './lists';
 import { PipelineWidget } from './pipeline-widget';
 
-const actions: { label: string; hint: string; href: string; icon: LucideIcon; managers?: true }[] =
-  [
-    { label: 'Add a client', hint: 'Add a client to your firm.', href: '/clients', icon: UserPlus },
-    {
-      label: 'Send a message',
-      hint: 'Write to a client in the portal.',
-      href: '/messages',
-      icon: MessageSquarePlus,
-    },
-    {
-      label: 'Create an invoice',
-      hint: 'Bill a client for your services.',
-      href: '/invoices',
-      icon: FilePlus2,
-      managers: true,
-    },
-  ];
+const actions: { label: string; hint: string; href: string; icon: Icon; managers?: true }[] = [
+  { label: 'Add a client', hint: 'Add a client to your firm.', href: '/clients', icon: UserPlus },
+  {
+    label: 'Send a message',
+    hint: 'Write to a client in the portal.',
+    href: '/messages',
+    icon: ChatCircleDots,
+  },
+  {
+    label: 'Create an invoice',
+    hint: 'Bill a client for your services.',
+    href: '/invoices',
+    icon: FileText,
+    managers: true,
+  },
+];
 
 /** The firm dashboard (Octavia's "Firm dashboard"): every number and row comes from the API. */
 export function DashboardScreen() {
@@ -48,14 +48,23 @@ export function DashboardScreen() {
 
   return (
     <div className="flex flex-col gap-6" data-testid="firm-dashboard">
-      <div className="flex flex-wrap items-end justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 data-testid="page-title" className="text-3xl font-semibold text-heading">
-            Welcome back, <span className="text-link">{first}</span>!
+          <h1 data-testid="page-title" className="text-4xl font-extrabold text-heading">
+            Welcome back, <span className="text-gold">{first}!</span>
           </h1>
-          <p className="text-muted">Here&apos;s what&apos;s happening with your firm today.</p>
+          <p className="mt-1 text-lg text-muted">
+            Here&apos;s what&apos;s happening with your firm today.
+          </p>
         </div>
-        {dateText ? <p className="text-sm font-medium text-text">{dateText}</p> : null}
+        {dateText ? (
+          <div className="flex items-center gap-3 md:border-l md:border-border md:pl-6">
+            <span className="flex size-12 items-center justify-center rounded-control border-2 border-heading text-heading">
+              <CalendarDots aria-hidden weight="fill" className="size-7" />
+            </span>
+            <p className="text-lg font-medium text-heading">{dateText}</p>
+          </div>
+        ) : null}
       </div>
 
       {timeZone && today ? (
@@ -84,20 +93,18 @@ export function DashboardScreen() {
       )}
 
       <section aria-label="Quick actions" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {actions.map(({ label, hint, href, icon: Icon, managers }) => (
+        {actions.map(({ label, hint, href, icon: Glyph, managers }) => (
           <RequireRole
             key={label}
             roles={managers ? ['OWNER', 'ADMIN'] : ['OWNER', 'ADMIN', 'STAFF']}
           >
             <Link
               href={href}
-              className="flex items-center gap-4 rounded-card border border-border bg-surface p-4 shadow-card hover:bg-canvas"
+              className="flex items-center gap-4 rounded-xl bg-surface p-4 shadow-md hover:bg-canvas"
             >
-              <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-info-soft text-info">
-                <Icon aria-hidden className="size-6" />
-              </span>
+              <IconTile icon={Glyph} tone="blue" />
               <span className="flex flex-col">
-                <span className="font-semibold text-heading">{label}</span>
+                <span className="font-bold text-heading">{label}</span>
                 <span className="text-sm text-muted">{hint}</span>
               </span>
             </Link>
