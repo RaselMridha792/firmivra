@@ -223,6 +223,7 @@ export function DocumentsTable({
           caption="Documents"
           showPagination={false}
           tableClassName="table-fixed"
+          dense
           server={{
             page: 1,
             hasNext: false,
