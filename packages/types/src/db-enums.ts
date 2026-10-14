@@ -377,3 +377,31 @@ export type MessageTemplateStatus = z.infer<typeof MessageTemplateStatus>;
 /** Who can use a template: its owner only, the whole team, or the people in message_template_shares. */
 export const MessageTemplateAccess = z.enum(['PRIVATE', 'TEAM', 'SELECTED']);
 export type MessageTemplateAccess = z.infer<typeof MessageTemplateAccess>;
+
+export const IntegrationConnectionStatus = z.enum([
+  'CONNECTED',
+  'SYNCING',
+  'NEEDS_ATTENTION',
+  'PAUSED',
+  'DISCONNECTED',
+]);
+export type IntegrationConnectionStatus = z.infer<typeof IntegrationConnectionStatus>;
+
+/** Live (production) or Test (sandbox) credentials; the two never mix. */
+export const IntegrationEnvironment = z.enum(['LIVE', 'TEST']);
+export type IntegrationEnvironment = z.infer<typeof IntegrationEnvironment>;
+
+export const IntegrationSyncDirection = z.enum(['IMPORT', 'EXPORT', 'TWO_WAY']);
+export type IntegrationSyncDirection = z.infer<typeof IntegrationSyncDirection>;
+
+export const IntegrationSyncMode = z.enum(['AUTO', 'MANUAL']);
+export type IntegrationSyncMode = z.infer<typeof IntegrationSyncMode>;
+
+export const IntegrationSyncRunStatus = z.enum([
+  'QUEUED',
+  'RUNNING',
+  'SUCCEEDED',
+  'FAILED',
+  'PARTIAL',
+]);
+export type IntegrationSyncRunStatus = z.infer<typeof IntegrationSyncRunStatus>;

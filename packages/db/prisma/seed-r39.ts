@@ -6,6 +6,7 @@ import { SEED_USERS } from './seed-data.js';
 
 export async function seedR39(tx: TxClient, businessId: string) {
   await seedTemplates(tx, businessId);
+  await seedIntegrations(tx, businessId);
 }
 
 async function seedTemplates(tx: TxClient, businessId: string) {
@@ -72,5 +73,43 @@ async function seedTemplates(tx: TxClient, businessId: string) {
     where: { businessId_key: { businessId, key: 'Office Hours' } },
     update: {},
     create: { businessId, key: 'Office Hours', label: 'Office hours', fallback: '9 to 5' },
+  });
+}
+
+async function seedIntegrations(tx: TxClient, businessId: string) {
+  const provider = 'quickbooks_online';
+  const environment = 'LIVE' as const;
+  const where = { businessId_provider_environment: { businessId, provider, environment } };
+  if (await tx.integrationConnection.findUnique({ where })) return;
+  const connection = await tx.integrationConnection.create({
+    data: {
+      businessId,
+      provider,
+      environment,
+      accountLabel: 'LVP Accounting & Taxes LLC',
+      accountIdLast4: '3456',
+      // Where the secret lives, never the secret (local development has no real connection).
+      secretRef: 'firmivra/local/lvp/quickbooks_online',
+      entities: ['invoices', 'customers', 'payments'],
+      syncEveryMinutes: 60,
+      connectedByUserId: SEED_USERS.lvpOwner.id,
+      lastSyncAt: new Date(),
+      nextSyncAt: new Date(Date.now() + 3_600_000),
+    },
+  });
+  const link = { businessId, connectionId: connection.id };
+  await tx.integrationFieldMapping.create({
+    data: { ...link, scope: 'client', localField: 'client.name', externalField: 'Customer Name' },
+  });
+  const now = new Date();
+  await tx.integrationSyncRun.create({
+    data: {
+      ...link,
+      entity: 'invoices',
+      status: 'SUCCEEDED',
+      recordCount: 42,
+      startedAt: now,
+      finishedAt: now,
+    },
   });
 }

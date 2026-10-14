@@ -53,5 +53,5 @@ export function r39Fixtures(urls: { owner: string; app: string }) {
       () => 'ok',
       (e: unknown) => (e instanceof Error ? e.message : String(e)),
     );
-  return { A, B, run, as, ownerIn, setup, close, outcome };
+  return { A, B, run, as, ownerIn, setup, close, outcome, owner, db };
 }

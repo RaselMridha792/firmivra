@@ -3087,3 +3087,130 @@ model CustomMergeField {
   @@unique([businessId, key])
   @@map("custom_merge_fields")
 }
+
+// ---------- Integrations (connection records; Stripe and meeting links stay as they are) ----------
+
+enum IntegrationConnectionStatus {
+  CONNECTED
+  SYNCING
+  /// Authorization expired, a sync keeps failing, or a permission is missing (statusReason says which).
+  NEEDS_ATTENTION
+  PAUSED
+  DISCONNECTED
+}
+
+/// Live (production) or Test (sandbox) credentials; the two never mix.
+enum IntegrationEnvironment {
+  LIVE
+  TEST
+}
+
+enum IntegrationSyncDirection {
+  IMPORT
+  EXPORT
+  TWO_WAY
+}
+
+enum IntegrationSyncMode {
+  AUTO
+  MANUAL
+}
+
+enum IntegrationSyncRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  PARTIAL
+}
+
+/// A firm's link to one outside provider (QuickBooks, Microsoft 365, Zoom, a payroll provider, a
+/// custom API...). The catalog (names, categories, what each provider can do) lives in code, so
+/// `provider` is a lower-case key the API checks against it. NEVER a secret: tokens and keys live
+/// in the secret store, and `secretRef` only names where (a secret name or ARN). `settings` holds
+/// non-secret options (default calendar, folders, event list). At most one connection per
+/// provider and environment. Disconnected, never deleted: imported records and history stay.
+model IntegrationConnection {
+  id                String                      @id @default(uuid(7)) @db.Uuid
+  businessId        String                      @map("business_id") @db.Uuid
+  provider          String
+  environment       IntegrationEnvironment      @default(LIVE)
+  status            IntegrationConnectionStatus @default(CONNECTED)
+  /// Why it needs attention, as a short code ("authorization_expired", "sync_failed").
+  statusReason      String?                     @map("status_reason")
+  /// The connected company, mailbox or account, as the provider names it.
+  accountLabel      String?                     @map("account_label")
+  /// Last 4 characters of the provider's account id, for the masked display.
+  accountIdLast4    String?                     @map("account_id_last4")
+  secretRef         String?                     @map("secret_ref")
+  secretRotatedAt   DateTime?                   @map("secret_rotated_at") @db.Timestamptz(3)
+  settings          Json                        @default("{}")
+  /// The provider objects being synced ("invoices", "customers", "calendar"...).
+  entities          String[]                    @default([])
+  direction         IntegrationSyncDirection    @default(TWO_WAY)
+  syncMode          IntegrationSyncMode         @default(AUTO) @map("sync_mode")
+  syncEveryMinutes  Int?                        @map("sync_every_minutes")
+  connectedAt       DateTime                    @default(now()) @map("connected_at") @db.Timestamptz(3)
+  connectedByUserId String?                     @map("connected_by_user_id") @db.Uuid
+  disconnectedAt    DateTime?                   @map("disconnected_at") @db.Timestamptz(3)
+  lastSyncAt        DateTime?                   @map("last_sync_at") @db.Timestamptz(3)
+  nextSyncAt        DateTime?                   @map("next_sync_at") @db.Timestamptz(3)
+  lastCheckAt       DateTime?                   @map("last_check_at") @db.Timestamptz(3)
+  createdAt         DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  mappings IntegrationFieldMapping[]
+  syncRuns IntegrationSyncRun[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, provider, environment])
+  @@index([businessId, status])
+  @@map("integration_connections")
+}
+
+/// One mapped pair for a connection: a Firmivra field and the provider's field ("client.name" and
+/// "Customer Name"), grouped by `scope` ("client", "lead", "invoice", "expense").
+model IntegrationFieldMapping {
+  id            String                   @id @default(uuid(7)) @db.Uuid
+  businessId    String                   @map("business_id") @db.Uuid
+  connectionId  String                   @map("connection_id") @db.Uuid
+  scope         String
+  localField    String                   @map("local_field")
+  externalField String                   @map("external_field")
+  direction     IntegrationSyncDirection @default(TWO_WAY)
+  sortOrder     Int                      @default(0) @map("sort_order")
+  createdAt     DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  connection IntegrationConnection @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, connectionId, scope, localField])
+  @@map("integration_field_mappings")
+}
+
+/// One sync (or connection test, or webhook delivery) of one object type. Insert, then finish
+/// once. `errorCode` and `errorMessage` are short and never carry tokens or record content. The
+/// health counts (failed syncs, records pending) and Recent Activity read these rows.
+model IntegrationSyncRun {
+  id                String                   @id @default(uuid(7)) @db.Uuid
+  businessId        String                   @map("business_id") @db.Uuid
+  connectionId      String                   @map("connection_id") @db.Uuid
+  /// "invoices", "customers", "test", "webhook"...
+  entity            String
+  status            IntegrationSyncRunStatus @default(QUEUED)
+  manual            Boolean                  @default(false)
+  requestedByUserId String?                  @map("requested_by_user_id") @db.Uuid
+  recordCount       Int                      @default(0) @map("record_count")
+  failedCount       Int                      @default(0) @map("failed_count")
+  errorCode         String?                  @map("error_code")
+  errorMessage      String?                  @map("error_message")
+  startedAt         DateTime?                @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?                @map("finished_at") @db.Timestamptz(3)
+  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  connection IntegrationConnection @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, connectionId, createdAt])
+  @@index([businessId, status])
+  @@map("integration_sync_runs")
+}
