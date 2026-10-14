@@ -3,7 +3,7 @@
 import { X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Header } from './header';
-import { Sidebar } from './sidebar';
+import { type FirmBrand, Sidebar } from './sidebar';
 import type { NavSections } from './types';
 
 /**
@@ -19,8 +19,9 @@ export function AppShell({
   greeting,
   footer,
   bell,
-  logoUrl,
-  firmName,
+  brand,
+  headerStart,
+  headerActions,
   children,
 }: {
   /** Under the logo, for example "Super Admin Portal". */
@@ -36,13 +37,16 @@ export function AppShell({
   footer?: ReactNode;
   /** Replaces the header's plain bell, for example the firm's `<NotificationBell />` (F07). */
   bell?: ReactNode;
-  /** The firm's own logo for the sidebar (firm workspace); none keeps the Firmivra logo. */
-  logoUrl?: string | null;
-  firmName?: string;
+  /** The firm workspace look: firm logo and motto in the sidebar, blue pill for the open page. */
+  brand?: FirmBrand;
+  /** Header content instead of search or greeting (the firm's search form). */
+  headerStart?: ReactNode;
+  /** Header controls before the bell (the firm's "+ New" menu). */
+  headerActions?: ReactNode;
   children: ReactNode;
 }) {
   const [drawer, setDrawer] = useState(false);
-  const sidebar = { subtitle, sections, roleLabel, logoUrl, firmName };
+  const sidebar = { subtitle, sections, roleLabel, brand };
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -67,11 +71,15 @@ export function AppShell({
         </div>
       ) : null}
 
-      <div className="flex min-h-screen flex-col md:pl-72 md:[&>header]:pr-4">
+      <div
+        className={`flex min-h-screen flex-col md:[&>header]:pr-4 ${brand ? 'md:pl-60' : 'md:pl-72'}`}
+      >
         <Header
           search={search}
           greeting={greeting}
           bell={bell}
+          start={headerStart}
+          actions={headerActions}
           roleLabel={roleLabel}
           onOpenMenu={() => setDrawer(true)}
         />

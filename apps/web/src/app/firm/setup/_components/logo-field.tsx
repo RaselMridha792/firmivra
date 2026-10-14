@@ -2,6 +2,7 @@
 
 import { DOCUMENT_ERRORS, type FirmSettings, LOGO_ERRORS, LOGO_LIMITS } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
+import { useQueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
 import { type ChangeEvent, useRef, useState } from 'react';
 import { api } from '../../../../lib/api';
@@ -21,6 +22,10 @@ const ACCEPT = [...Object.keys(LOGO_LIMITS.types), ...Object.values(LOGO_LIMITS.
 export function LogoField({ firm }: { firm: FirmSettings }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [done, setDone] = useState<string | null>(null);
+  const client = useQueryClient();
+  // The firm sidebar reads the logo from the portal info, under its own key.
+  const refreshSidebar = () =>
+    client.invalidateQueries({ queryKey: ['firm', firm.business.id, 'branding'] });
   const upload = useApiMutation(
     (file: File) =>
       uploadLogo(file, {
@@ -41,12 +46,22 @@ export function LogoField({ firm }: { firm: FirmSettings }) {
     if (!file) return;
     setDone(null);
     remove.reset();
-    upload.mutate(file, { onSuccess: () => setDone('Logo saved.') });
+    upload.mutate(file, {
+      onSuccess: () => {
+        setDone('Logo saved.');
+        void refreshSidebar();
+      },
+    });
   };
   const clear = () => {
     setDone(null);
     upload.reset();
-    remove.mutate(undefined, { onSuccess: () => setDone('Logo removed.') });
+    remove.mutate(undefined, {
+      onSuccess: () => {
+        setDone('Logo removed.');
+        void refreshSidebar();
+      },
+    });
   };
 
   return (
