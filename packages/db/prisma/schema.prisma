@@ -500,6 +500,7 @@ model ClientAccount {
   intakeSignatures         IntakeSignature[]
   verificationCodes        VerificationCode[]
   esignRecipients          EsignRecipient[]
+  authorizedPaymentMethods ClientPaymentMethod[]
 
   @@unique([businessId, email])
   // Target of client-owned rows (private notes).
@@ -751,6 +752,7 @@ model Client {
   esignRequests     EsignRequest[]
   esignBulkItems    EsignBulkItem[]
   recurringInvoices RecurringInvoice[]
+  paymentMethods    ClientPaymentMethod[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -3283,4 +3285,44 @@ model RecurringInvoiceLine {
 
   @@index([businessId, recurringInvoiceId])
   @@map("recurring_invoice_lines")
+}
+
+enum PaymentMethodStatus {
+  ACTIVE
+  REMOVED
+}
+
+/// A payment method the client saved for AutoPay: Stripe's references and what the screens show
+/// (type, brand, last 4, expiry), never a card or bank number. It is on the firm's own Stripe
+/// account, and the client authorized charging it (who and when). Removed, never deleted.
+model ClientPaymentMethod {
+  id                 String              @id @default(uuid(7)) @db.Uuid
+  businessId         String              @map("business_id") @db.Uuid
+  clientId           String              @map("client_id") @db.Uuid
+  processor          PaymentProcessor    @default(STRIPE)
+  /// Stripe's customer (cus_...) and payment method (pm_...) on the firm's account (acct_...).
+  customerRef        String              @map("customer_ref")
+  methodRef          String              @map("method_ref")
+  accountId          String              @map("account_id")
+  methodType         String              @map("method_type")
+  cardBrand          String?             @map("card_brand")
+  last4              String
+  expMonth           Int?                @map("exp_month")
+  expYear            Int?                @map("exp_year")
+  status             PaymentMethodStatus @default(ACTIVE)
+  isDefault          Boolean             @default(false) @map("is_default")
+  authorizedAt       DateTime            @map("authorized_at") @db.Timestamptz(3)
+  /// The client's portal login that authorized it.
+  authorizedByUserId String?             @map("authorized_by_user_id") @db.Uuid
+  removedAt          DateTime?           @map("removed_at") @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client       Client         @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  authorizedBy ClientAccount? @relation(fields: [businessId, authorizedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([processor, methodRef])
+  @@unique([businessId, id])
+  @@index([businessId, clientId, status])
+  @@map("client_payment_methods")
 }

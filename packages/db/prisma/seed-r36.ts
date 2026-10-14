@@ -5,6 +5,7 @@ import {
   SEED_BILLING_IDS,
   SEED_CLIENT_IDS,
   SEED_DOCUMENT_IDS,
+  SEED_STRIPE_ACCOUNT_ID,
   SEED_USERS,
   SEED_WORK_IDS,
 } from './seed-data.js';
@@ -12,7 +13,7 @@ import {
 type Prisma = ReturnType<typeof createPrismaClient>;
 
 export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFirmB: string }) {
-  // Invoices and Payments: a sample tax rate, the standard invoice template, a deposit account, the default payment settings and for LVP, a recurring schedule.
+  // Invoices and Payments: a sample tax rate, the standard invoice template, a deposit account, the default payment settings and for LVP, a recurring schedule and a saved card.
   for (const businessId of [businesses.lvp, businesses.testFirmB]) {
     await runInScope(prisma, { kind: 'business', businessId }, async (tx) => {
       await tx.invoiceTaxRate.upsert({
@@ -104,5 +105,24 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
         },
       });
     }
+    // The card the client saved for AutoPay (fake Stripe ids).
+    await tx.clientPaymentMethod.upsert({
+      where: { processor_methodRef: { processor: 'STRIPE', methodRef: 'pm_SeedFakeVisa4242' } },
+      update: {},
+      create: {
+        ...lvp,
+        clientId,
+        customerRef: 'cus_SeedFakeCustomer',
+        methodRef: 'pm_SeedFakeVisa4242',
+        accountId: SEED_STRIPE_ACCOUNT_ID,
+        methodType: 'card',
+        cardBrand: 'visa',
+        last4: '4242',
+        expMonth: 12,
+        expYear: 2030,
+        isDefault: true,
+        authorizedAt: new Date('2026-10-01T12:00:00Z'),
+      },
+    });
   });
 }

@@ -402,3 +402,6 @@ export type RecurringInvoiceStatus = z.infer<typeof RecurringInvoiceStatus>;
 
 export const InvoiceDelivery = z.enum(['EMAIL', 'PORTAL', 'EMAIL_AND_PORTAL']);
 export type InvoiceDelivery = z.infer<typeof InvoiceDelivery>;
+
+export const PaymentMethodStatus = z.enum(['ACTIVE', 'REMOVED']);
+export type PaymentMethodStatus = z.infer<typeof PaymentMethodStatus>;
