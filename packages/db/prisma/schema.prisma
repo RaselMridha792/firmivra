@@ -3899,6 +3899,7 @@ model PayrollClient {
   connection IntegrationConnection? @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
   changes    PayrollClientChange[]
   activities PayrollActivity[]
+  workers    PayrollWorker[]
 
   @@unique([businessId, id])
   @@unique([businessId, engagementId])
@@ -3959,4 +3960,61 @@ model PayrollSettings {
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("payroll_settings")
+}
+
+// ---------- Payroll: workers ----------
+
+enum PayrollWorkerType {
+  FULL_TIME
+  PART_TIME
+  CONTRACTOR
+}
+
+enum PayrollWorkerStatus {
+  ACTIVE
+  ON_LEAVE
+  INACTIVE
+  PENDING_SETUP
+}
+
+enum PayrollPayType {
+  HOURLY
+  SALARY
+  COMMISSION
+}
+
+/// An employee or contractor of a payroll client, as the provider or the firm lists them. No SSN,
+/// no bank details, nothing that identifies a worker beyond name and job: those stay in the
+/// provider. `rateCents` is the pay rate in cents (per hour, or per year for a salary) and the
+/// API shows it only to staff allowed to see pay. Inactive, never deleted.
+model PayrollWorker {
+  id                 String              @id @default(uuid(7)) @db.Uuid
+  businessId         String              @map("business_id") @db.Uuid
+  payrollClientId    String              @map("payroll_client_id") @db.Uuid
+  /// The provider's id for the worker, to match them on the next sync.
+  externalId         String?             @map("external_id")
+  displayName        String              @map("display_name")
+  workerType         PayrollWorkerType   @map("worker_type")
+  status             PayrollWorkerStatus @default(ACTIVE)
+  payType            PayrollPayType?     @map("pay_type")
+  rateCents          Int?                @map("rate_cents")
+  department         String?
+  jobTitle           String?             @map("job_title")
+  startedOn          DateTime?           @map("started_on") @db.Date
+  /// Readiness only (bank details validated at the provider); never the details.
+  directDepositReady Boolean?            @map("direct_deposit_ready")
+  /// "provider", "import" or "manual".
+  source             String              @default("manual")
+  sourceSyncedAt     DateTime?           @map("source_synced_at") @db.Timestamptz(3)
+  lastChangeAt       DateTime?           @map("last_change_at") @db.Timestamptz(3)
+  lastChangeNote     String?             @map("last_change_note")
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  payrollClient PayrollClient @relation(fields: [businessId, payrollClientId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([payrollClientId, externalId])
+  @@index([businessId, payrollClientId, status])
+  @@map("payroll_workers")
 }

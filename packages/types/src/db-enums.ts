@@ -545,3 +545,12 @@ export const PayrollActivityKind = z.enum([
   'OTHER',
 ]);
 export type PayrollActivityKind = z.infer<typeof PayrollActivityKind>;
+
+export const PayrollWorkerType = z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACTOR']);
+export type PayrollWorkerType = z.infer<typeof PayrollWorkerType>;
+
+export const PayrollWorkerStatus = z.enum(['ACTIVE', 'ON_LEAVE', 'INACTIVE', 'PENDING_SETUP']);
+export type PayrollWorkerStatus = z.infer<typeof PayrollWorkerStatus>;
+
+export const PayrollPayType = z.enum(['HOURLY', 'SALARY', 'COMMISSION']);
+export type PayrollPayType = z.infer<typeof PayrollPayType>;

@@ -346,6 +346,25 @@ async function seedPayroll(tx: TxClient, businessId: string) {
       changedByUserId: SEED_USERS.lvpOwner.id,
     },
   });
+  const worker = { ...link, source: 'import', workerType: 'FULL_TIME' as const };
+  await tx.payrollWorker.create({
+    data: {
+      ...worker,
+      displayName: 'Jasmine Smith',
+      payType: 'HOURLY',
+      rateCents: 1800,
+      externalId: 'sample-1',
+    },
+  });
+  await tx.payrollWorker.create({
+    data: {
+      ...worker,
+      displayName: 'Emily Wilson',
+      workerType: 'PART_TIME',
+      payType: 'HOURLY',
+      rateCents: 1650,
+    },
+  });
   await tx.payrollActivity.create({
     data: {
       ...link,
