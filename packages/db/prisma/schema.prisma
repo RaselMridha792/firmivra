@@ -4348,13 +4348,14 @@ model AdvisoryClient {
   createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client      Client                   @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement  Engagement?              @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  client      Client                      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement  Engagement?                 @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   workstreams AdvisoryWorkstream[]
   plans       AdvisoryPlan[]
   goals       AdvisoryGoal[]
   recs        AdvisoryRecommendation[]
   actions     AdvisoryActionItem[]
+  financials  AdvisoryFinancialSnapshot[]
 
   @@unique([businessId, id])
   @@unique([businessId, clientId])
@@ -4457,6 +4458,8 @@ model AdvisoryPlan {
 
   recs    AdvisoryRecommendation[]
   actions AdvisoryActionItem[]
+
+  financials AdvisoryFinancialSnapshot[]
 
   @@unique([businessId, id])
   @@index([businessId, advisoryClientId, targetYear])
@@ -4656,4 +4659,48 @@ model AdvisoryActionItem {
   @@index([businessId, assigneeUserId, status])
   @@index([businessId, dueOn])
   @@map("advisory_action_items")
+}
+
+// ---------- Business Advisory: financial snapshots ----------
+
+enum AdvisoryFinancialSource {
+  MANUAL
+  BOOKKEEPING
+  PAYROLL
+  BANK
+  UPLOADED
+}
+
+/// A client's financial position for a period, in cents: revenue, expenses, net profit (checked
+/// against them), cash flow, debt, headcount and optional budget figures, with its source and as-of
+/// date. Insert-only: a correction is a new row. A manual override of figures from a source
+/// (`overridden`) needs a reason and the person, and the earlier row stays as the "old value".
+model AdvisoryFinancialSnapshot {
+  id                  String                  @id @default(uuid(7)) @db.Uuid
+  businessId          String                  @map("business_id") @db.Uuid
+  advisoryClientId    String                  @map("advisory_client_id") @db.Uuid
+  planId              String?                 @map("plan_id") @db.Uuid
+  periodStart         DateTime                @map("period_start") @db.Date
+  periodEnd           DateTime                @map("period_end") @db.Date
+  revenueCents        Int?                    @map("revenue_cents")
+  expensesCents       Int?                    @map("expenses_cents")
+  netProfitCents      Int?                    @map("net_profit_cents")
+  cashFlowCents       Int?                    @map("cash_flow_cents")
+  debtCents           Int?                    @map("debt_cents")
+  budgetRevenueCents  Int?                    @map("budget_revenue_cents")
+  budgetExpensesCents Int?                    @map("budget_expenses_cents")
+  headcount           Int?
+  source              AdvisoryFinancialSource @default(MANUAL)
+  asOf                DateTime                @map("as_of") @db.Date
+  overridden          Boolean                 @default(false)
+  overrideReason      String?                 @map("override_reason")
+  overriddenByUserId  String?                 @map("overridden_by_user_id") @db.Uuid
+  createdByUserId     String                  @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  advisoryClient AdvisoryClient @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
+  plan           AdvisoryPlan?  @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, advisoryClientId, periodEnd])
+  @@map("advisory_financial_snapshots")
 }

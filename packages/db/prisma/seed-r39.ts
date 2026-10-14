@@ -626,4 +626,20 @@ async function seedAdvisory(tx: TxClient, businessId: string) {
       clientVisible: true,
     },
   });
+  await tx.advisoryFinancialSnapshot.create({
+    data: {
+      businessId,
+      advisoryClientId: advisory.id,
+      planId: plan.id,
+      periodStart: new Date('2025-01-01'),
+      periodEnd: new Date('2025-12-31'),
+      revenueCents: 125_000_000,
+      expensesCents: 104_000_000,
+      netProfitCents: 21_000_000,
+      cashFlowCents: 18_500_000,
+      headcount: 12,
+      asOf: new Date('2026-09-10'),
+      createdByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
 }

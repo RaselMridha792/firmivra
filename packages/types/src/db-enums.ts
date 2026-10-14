@@ -687,3 +687,12 @@ export type AdvisoryPriority = z.infer<typeof AdvisoryPriority>;
 /** Who an action item is for. Tasks (the `tasks` table) can only name a staff member, but an advisory action item is often the client's ("Gather 3 vendor quotes") or the firm team's. */
 export const AdvisoryAssigneeKind = z.enum(['STAFF', 'CLIENT', 'TEAM']);
 export type AdvisoryAssigneeKind = z.infer<typeof AdvisoryAssigneeKind>;
+
+export const AdvisoryFinancialSource = z.enum([
+  'MANUAL',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'BANK',
+  'UPLOADED',
+]);
+export type AdvisoryFinancialSource = z.infer<typeof AdvisoryFinancialSource>;
