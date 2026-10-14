@@ -465,6 +465,8 @@ model Membership {
   staffSupervised   StaffProfile[]         @relation("StaffSupervisor")
   staffNotesWritten StaffProfile[]         @relation("StaffNotesUpdatedBy")
   staffSecurity     StaffSecuritySettings?
+  staffCompensation StaffCompensation?
+  staffDrafts       StaffDraft[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -2992,7 +2994,8 @@ model MemberDepartment {
 // What Create/Edit Staff and Staff Account Access & Security keep about a member, beyond the
 // membership itself (role, status, job title, meeting link) and the person's login (name, email,
 // phone: one user row across firms). One row per member in each table, created when the member
-// is added or when the first field is saved. Firm tables with forced RLS.
+// is added or when the first field is saved. Firm tables with forced RLS. Compensation is also
+// walled off in the database: only the acting Owner or Admin reads or writes it.
 
 enum StaffEmploymentType {
   W2
@@ -3029,7 +3032,21 @@ enum StaffAccessLocation {
   ALLOWED_COUNTRIES
 }
 
+enum StaffPayType {
+  SALARY
+  HOURLY
+  COMMISSION
+  PER_PROJECT
+  OTHER
+}
 
+enum StaffPayFrequency {
+  WEEKLY
+  BIWEEKLY
+  SEMIMONTHLY
+  MONTHLY
+  ANNUALLY
+}
 
 /// Employment, assignment and internal-note details of one member. Dates are calendar dates
 /// (no time); `time_zone` is an IANA name.
@@ -3115,4 +3132,45 @@ model StaffSecuritySettings {
 
   @@id([businessId, membershipId])
   @@map("staff_security_settings")
+}
+
+/// Pay details: HR data, restricted. The database shows these rows only to the acting Owner or
+/// Admin (the session's actor), so a bug in a route or a role list cannot expose them. Never
+/// logged, never in an audit entry's metadata (audit that it changed, not the values).
+model StaffCompensation {
+  membershipId String             @map("membership_id") @db.Uuid
+  businessId   String             @map("business_id") @db.Uuid
+  payType      StaffPayType?      @map("pay_type")
+  /// The rate or salary in cents of USD (0 to 100,000,000.00).
+  rateCents    BigInt?            @map("rate_cents")
+  payFrequency StaffPayFrequency? @map("pay_frequency")
+  /// A short description of a commission arrangement, up to 200 characters.
+  commission   String?
+  /// The payroll system's id for the member, up to 40 characters.
+  payrollId    String?            @map("payroll_id")
+  updatedAt    DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, membershipId])
+  @@map("staff_compensation")
+}
+
+/// A Create Staff form saved with "Save as Draft": no account, no invitation, no access. It
+/// holds what was typed so far (`data`, at most 20,000 characters; the database refuses
+/// password, token or secret keys) and the step the person was on (1 to 4). Deleted once the
+/// staff member is created or the draft is discarded.
+model StaffDraft {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  createdById String   @map("created_by_membership_id") @db.Uuid
+  step        Int      @default(1)
+  data        Json
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy Membership @relation(fields: [businessId, createdById], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, updatedAt])
+  @@map("staff_drafts")
 }

@@ -391,3 +391,15 @@ export type StaffAuthMethod = z.infer<typeof StaffAuthMethod>;
 /** Where a member may sign in from: anywhere, only the listed IP addresses or networks, or only the listed countries (approximate, from the viewer's IP; telemetry, not proof of location). */
 export const StaffAccessLocation = z.enum(['ANYWHERE', 'ALLOWED_IPS', 'ALLOWED_COUNTRIES']);
 export type StaffAccessLocation = z.infer<typeof StaffAccessLocation>;
+
+export const StaffPayType = z.enum(['SALARY', 'HOURLY', 'COMMISSION', 'PER_PROJECT', 'OTHER']);
+export type StaffPayType = z.infer<typeof StaffPayType>;
+
+export const StaffPayFrequency = z.enum([
+  'WEEKLY',
+  'BIWEEKLY',
+  'SEMIMONTHLY',
+  'MONTHLY',
+  'ANNUALLY',
+]);
+export type StaffPayFrequency = z.infer<typeof StaffPayFrequency>;
