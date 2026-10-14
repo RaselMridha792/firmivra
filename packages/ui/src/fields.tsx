@@ -5,15 +5,28 @@ import { useId, type SelectHTMLAttributes, type InputHTMLAttributes } from 'reac
 /** `className` styles the <select> itself: set a width on a parent so the chevron follows it. */
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label: string;
+  /** Hides the label text; it stays as the accessible name (filter bars). */
+  hideLabel?: boolean;
   error?: string;
   options: { value: string; label: string }[];
 }
-export function Select({ label, options, error, id, className = '', ...props }: SelectProps) {
+export function Select({
+  label,
+  hideLabel,
+  options,
+  error,
+  id,
+  className = '',
+  ...props
+}: SelectProps) {
   const generatedId = useId();
   const fieldId = id ?? generatedId;
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={fieldId} className="text-sm font-medium text-text">
+      <label
+        htmlFor={fieldId}
+        className={`text-sm font-medium text-text ${hideLabel ? 'sr-only' : ''}`}
+      >
         {label}
       </label>
       <div className="relative">
