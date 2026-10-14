@@ -35,3 +35,16 @@ export async function expectInvisibleToOtherFirm(
     expect(await rowsSeenBy(app, firmA, table, firmB), `${table}: A sees B's`).toBe(0);
   }
 }
+
+/** Two fresh firms and one client of firm A, made as the owner role (the test's setup). */
+export async function createFirms(owner: PrismaClient, tag: string) {
+  const run = Math.random().toString(36).slice(2, 8);
+  const firms = await runInScope(owner, { kind: 'platform' }, async (tx) => ({
+    firmA: (await tx.business.create({ data: { slug: `${tag}-a-${run}`, name: 'A' } })).id,
+    firmB: (await tx.business.create({ data: { slug: `${tag}-b-${run}`, name: 'B' } })).id,
+  }));
+  const client = await runInScope(owner, { kind: 'business', businessId: firms.firmA }, (tx) =>
+    tx.client.create({ data: { businessId: firms.firmA, displayName: 'Fake Client' } }),
+  );
+  return { ...firms, client: client.id, run };
+}

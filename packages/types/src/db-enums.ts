@@ -353,3 +353,7 @@ export type EsignUploadKind = z.infer<typeof EsignUploadKind>;
 /** Percentage or a fixed amount. PERCENT keeps what the firm typed in `discount_percent`. */
 export const InvoiceDiscountType = z.enum(['PERCENT', 'FIXED']);
 export type InvoiceDiscountType = z.infer<typeof InvoiceDiscountType>;
+
+/** How a client may pay one invoice. MANUAL is paid outside the system and recorded by the firm. */
+export const InvoicePaymentMethod = z.enum(['CARD', 'ACH', 'MANUAL']);
+export type InvoicePaymentMethod = z.infer<typeof InvoicePaymentMethod>;
