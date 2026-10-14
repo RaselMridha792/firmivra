@@ -1,42 +1,81 @@
 'use client';
 
 import { Skeleton } from '@firmivra/ui';
-import { CalendarDots, ChatCircleDots, FileText, type Icon, UserPlus } from '@phosphor-icons/react';
+import {
+  CalendarDots,
+  ChatCircleDots,
+  CurrencyDollar,
+  type Icon,
+  PaperPlaneTilt,
+  UploadSimple,
+  UserPlus,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { RequireRole } from '../../../../components/require-role';
-import { useFirm } from '../../../../components/firm-context';
 import { useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
+import { moduleHref } from '../../../../lib/firm-modules';
 import { useApiQuery } from '../../../../lib/query';
 import { todayIn } from '../calendar/_components/time';
+import { RevenueOverview, ServiceBreakdown } from './charts';
 import { IconTile } from './icon-tile';
 import { KpiCards } from './kpi-cards';
-import { RecentMessages, UpcomingAppointments } from './lists';
+import { RecentMessages, TasksDue, UpcomingAppointments } from './lists';
 import { PipelineWidget } from './pipeline-widget';
 
-const actions: { label: string; hint: string; href: string; icon: Icon; managers?: true }[] = [
-  { label: 'Add a client', hint: 'Add a client to your firm.', href: '/clients', icon: UserPlus },
+const actions: {
+  title: string;
+  hint: string;
+  button: string;
+  href: string;
+  icon: Icon;
+  managers?: true;
+  outline?: true;
+}[] = [
   {
-    label: 'Send a message',
-    hint: 'Write to a client in the portal.',
+    title: 'Add a New Client',
+    hint: 'Manually add a client to your database.',
+    button: 'Add Client',
+    href: '/clients',
+    icon: UserPlus,
+  },
+  {
+    title: 'Send a Message',
+    hint: 'Send a portal message to a client.',
+    button: 'Send Message',
     href: '/messages',
     icon: ChatCircleDots,
   },
   {
-    label: 'Create an invoice',
-    hint: 'Bill a client for your services.',
+    title: 'Create a Bulk Email',
+    hint: 'Send updates to multiple clients at once.',
+    button: 'Go to Communications',
+    href: moduleHref('communications'),
+    icon: PaperPlaneTilt,
+  },
+  {
+    title: 'Generate an Invoice',
+    hint: 'Create and send an invoice in seconds.',
+    button: 'Create Invoice',
     href: '/invoices',
-    icon: FileText,
+    icon: CurrencyDollar,
     managers: true,
+  },
+  {
+    title: 'Upload Documents',
+    hint: 'Upload and organize client documents securely.',
+    button: 'Upload Now',
+    href: moduleHref('documents'),
+    icon: UploadSimple,
+    outline: true,
   },
 ];
 
 /** The firm dashboard (Octavia's "Firm dashboard"): every number and row comes from the API. */
 export function DashboardScreen() {
   const { me } = useMe();
-  const { role } = useFirm();
-  const manager = role === 'OWNER' || role === 'ADMIN';
+  const summary = useApiQuery(['dashboard', 'summary'], () => api.dashboard.summary());
   // The firm's time zone: every role may read it, and "today" is the firm's today.
   const availability = useApiQuery(['availability'], () => api.availability.get());
   const timeZone = availability.data?.timezone;
@@ -67,47 +106,58 @@ export function DashboardScreen() {
         ) : null}
       </div>
 
-      {timeZone && today ? (
-        <>
-          <KpiCards manager={manager} timeZone={timeZone} today={today} />
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
-            <PipelineWidget />
-            <RecentMessages timeZone={timeZone} />
+      <KpiCards summary={summary} />
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <PipelineWidget summary={summary} />
+        <RevenueOverview summary={summary} />
+        <ServiceBreakdown summary={summary} />
+        {timeZone && today ? (
+          <>
+            <RecentMessages timeZone={timeZone} today={today} />
+            <TasksDue summary={summary} />
             <UpcomingAppointments timeZone={timeZone} today={today} />
+          </>
+        ) : availability.isError ? (
+          <p role="alert" className="text-danger">
+            We couldn&apos;t load messages and appointments.{' '}
+            <button type="button" className="underline" onClick={() => void availability.refetch()}>
+              Try again
+            </button>
+          </p>
+        ) : (
+          <div aria-busy="true" className="contents">
+            <span className="sr-only">Loading…</span>
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-64 rounded-xl" />
+            ))}
           </div>
-        </>
-      ) : availability.isError ? (
-        <p role="alert" className="text-danger">
-          We couldn&apos;t load the dashboard.{' '}
-          <button type="button" className="underline" onClick={() => void availability.refetch()}>
-            Try again
-          </button>
-        </p>
-      ) : (
-        <div aria-busy="true" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <span className="sr-only">Loading…</span>
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 rounded-card" />
-          ))}
-        </div>
-      )}
+        )}
+      </div>
 
-      <section aria-label="Quick actions" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {actions.map(({ label, hint, href, icon: Glyph, managers }) => (
+      <section aria-label="Quick actions" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        {actions.map(({ title, hint, button, href, icon: Glyph, managers, outline }) => (
           <RequireRole
-            key={label}
+            key={title}
             roles={managers ? ['OWNER', 'ADMIN'] : ['OWNER', 'ADMIN', 'STAFF']}
           >
-            <Link
-              href={href}
-              className="flex items-center gap-4 rounded-xl bg-surface p-4 shadow-md hover:bg-canvas"
+            <div
+              data-testid="quick-action"
+              className="flex h-full flex-col gap-3 rounded-xl bg-surface p-4 shadow-md"
             >
-              <IconTile icon={Glyph} tone="blue" />
-              <span className="flex flex-col">
-                <span className="font-bold text-heading">{label}</span>
-                <span className="text-sm text-muted">{hint}</span>
-              </span>
-            </Link>
+              <div className="flex gap-3">
+                <IconTile icon={Glyph} tone="blue" small />
+                <div className="min-w-0">
+                  <h2 className="font-bold text-heading">{title}</h2>
+                  <p className="text-sm text-muted">{hint}</p>
+                </div>
+              </div>
+              <Link
+                href={href}
+                className={`mt-auto inline-flex min-h-10 items-center justify-center rounded-control px-3 text-center text-sm font-semibold ${outline ? 'border border-action text-action hover:bg-folder-surface' : 'bg-action text-on-action hover:bg-action-hover'}`}
+              >
+                {button}
+              </Link>
+            </div>
           </RequireRole>
         ))}
       </section>

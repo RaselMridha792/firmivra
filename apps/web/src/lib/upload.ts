@@ -1,7 +1,11 @@
 import {
   ApiRequestError,
+  type CreateLogoUploadRequest,
   DOCUMENT_ERRORS,
   fileNameFitsType,
+  LOGO_ERRORS,
+  logoContentTypeFor,
+  logoFileProblem,
   retryWhenUnavailable,
   UPLOAD_LIMITS,
   uploadContentTypeFor,
@@ -80,8 +84,37 @@ export async function uploadFile<T>(file: File, steps: UploadSteps<T>): Promise<
   return retryWhenUnavailable(() => steps.finish(ticket.uploadToken), { signal: steps.signal });
 }
 
+/**
+ * The firm's logo in the same three steps as `uploadFile`: PNG, JPEG or WebP up to 2 MB, checked
+ * first (LOGO_WRONG_TYPE, LOGO_TOO_BIG: 400, nothing sent). Show errors with
+ * `errorMessage(error, LOGO_ERRORS)`; UPLOAD_FAILED is the PUT to storage failing.
+ */
+export async function uploadLogo<T>(
+  file: File,
+  steps: {
+    start: (body: CreateLogoUploadRequest) => Promise<UploadTicket>;
+    finish: (uploadToken: string) => Promise<T>;
+    signal?: AbortSignal;
+  },
+): Promise<T> {
+  const problem = logoFileProblem(file);
+  const contentType = logoContentTypeFor(file.type);
+  if (problem || !contentType) {
+    const code = problem ?? 'LOGO_WRONG_TYPE';
+    throw new ApiRequestError(400, code, LOGO_ERRORS[code]);
+  }
+  const sha256 = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
+  const ticket = await steps.start({ contentType, sizeBytes: file.size, sha256 });
+  await put(file, ticket, steps);
+  return retryWhenUnavailable(() => steps.finish(ticket.uploadToken), { signal: steps.signal });
+}
+
 /** PUTs the file to the ticket's URL, reporting progress (fetch cannot report upload progress). */
-function put(file: File, ticket: UploadTicket, steps: UploadSteps<unknown>): Promise<void> {
+function put(
+  file: File,
+  ticket: UploadTicket,
+  steps: Pick<UploadSteps<unknown>, 'onProgress' | 'signal'>,
+): Promise<void> {
   const { onProgress, signal } = steps;
   // Mock mode only (never in a production build): the mock's ticket has no storage behind it.
   if (process.env.NODE_ENV !== 'production' && ticket.url.startsWith('mock:')) {

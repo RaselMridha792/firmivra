@@ -11,12 +11,20 @@ const TONES = {
 export type Tone = keyof typeof TONES;
 
 /** A round tinted tile behind a solid icon in a stronger shade of the same colour. */
-export function IconTile({ icon: Glyph, tone }: { icon: Icon; tone: Tone }) {
+export function IconTile({
+  icon: Glyph,
+  tone,
+  small = false,
+}: {
+  icon: Icon;
+  tone: Tone;
+  small?: boolean;
+}) {
   return (
     <span
-      className={`flex size-14 shrink-0 items-center justify-center rounded-full ${TONES[tone]}`}
+      className={`flex shrink-0 items-center justify-center rounded-full ${small ? 'size-11' : 'size-14'} ${TONES[tone]}`}
     >
-      <Glyph aria-hidden weight="fill" className="size-7" />
+      <Glyph aria-hidden weight="fill" className={small ? 'size-6' : 'size-7'} />
     </span>
   );
 }

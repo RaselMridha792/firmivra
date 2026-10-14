@@ -18,6 +18,7 @@ import {
   createFirmApplicationsClient,
   createInvoicesClient,
   createLeadsClient,
+  createDashboardClient,
   createMessagesClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
@@ -76,6 +77,7 @@ import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
+import { createDashboardMock } from '../mocks/dashboard';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
 import { myProfileMock } from '../mocks/clients';
@@ -146,6 +148,8 @@ export const api = {
       : createTaxReturnsClient(request),
   /** Begin Online leads (R11): the firm's inbox, convert and decline. */
   leads: dev && mocked('leads') ? createLeadsMock({ role: MOCK_ROLE }) : createLeadsClient(request),
+  /** The firm dashboard's numbers (R30). */
+  dashboard: dev && mocked('dashboard') ? createDashboardMock() : createDashboardClient(request),
   /** Client records (R10): the signed-in client's own, per firm (portal). */
   myProfile: (firmSlug: string) =>
     dev && mocked('myProfile') ? myProfileMock(firmSlug) : createMyProfileClient(request, firmSlug),

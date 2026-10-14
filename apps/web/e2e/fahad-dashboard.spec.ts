@@ -39,12 +39,21 @@ for (const width of [1536, 375]) {
       test.setTimeout(90_000);
       await page.setViewportSize({ width, height: 1024 });
       await page.goto(`${base}/sign-in`);
-      await page
-        .getByRole('button', { name: `LVP ${role} (${role}@lvp.test)`, exact: true })
-        .click();
+      await page.getByRole('button', { name: `Quick sign-in: ${role}@lvp.test` }).click();
       await expect(page.getByTestId('firm-name')).toHaveText('LVP Accounting & Taxes');
       await expect(page.getByTestId('page-title')).toContainText('Welcome back');
-      await expect(page.getByTestId('kpi-card').first()).toBeVisible();
+      await expect(page.getByTestId('kpi-card')).toHaveCount(6);
+      await expect(page.getByTestId('pipeline-stage')).toHaveCount(5);
+      for (const name of [
+        'Revenue Overview',
+        'Service Breakdown',
+        'Tasks Due',
+        'Recent Messages',
+      ]) {
+        await expect(page.getByRole('region', { name })).toBeVisible();
+      }
+      // Create Invoice is the Owner's and Admin's.
+      await expect(page.getByTestId('quick-action')).toHaveCount(role === 'owner' ? 5 : 4);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
@@ -56,7 +65,10 @@ for (const width of [1536, 375]) {
           : menu.filter(
               (name) => !['Sign-ups', 'Audit log', 'Staff Management', 'Settings'].includes(name),
             );
-      await expect(nav.getByRole('link')).toHaveText(expected);
+      // A menu item may end with its unread count (Messages).
+      await expect(nav.getByRole('link')).toHaveText(
+        expected.map((name) => new RegExp(`^${name.replace(/[&()]/g, '\\$&')}\\d*$`)),
+      );
       for (const name of ['Sign-ups', 'Audit log', 'Staff Management', 'Settings']) {
         await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(
           role === 'owner' ? 1 : 0,
