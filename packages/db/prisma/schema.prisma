@@ -355,6 +355,10 @@ model Business {
   promotions           Promotion[]
   messageTemplates     MessageTemplate[]
   messageSettings      MessageSettings?
+  outboundMessages     OutboundMessage[]
+  portalVisibility     PortalModuleVisibility[]
+  brandProfile         BusinessBrandProfile?
+  brandVersions        BusinessBrandVersion[]
 
   @@map("businesses")
 }
@@ -452,30 +456,39 @@ model Membership {
   offlinePaymentsVoided   OfflinePayment[] @relation("OfflinePaymentVoidedBy")
 
   // Firm Sign.
-  esignConsentPublished   EsignConsentVersion[]  @relation("EsignConsentPublishedBy")
-  esignRole               EsignMemberRole?       @relation("EsignMemberRole")
-  esignTemplates          EsignTemplate[]        @relation("EsignTemplateOwner")
-  esignTemplateVersions   EsignTemplateVersion[] @relation("EsignTemplateVersionSavedBy")
-  esignRequestsSent       EsignRequest[]         @relation("EsignRequestSender")
-  esignRequestsVoided     EsignRequest[]         @relation("EsignRequestVoidedBy")
-  esignRecipients         EsignRecipient[]       @relation("EsignRecipientStaff")
-  esignEmails             EsignEmail[]           @relation("EsignEmailMember")
-  esignUploads            EsignPendingUpload[]   @relation("EsignUploadMember")
-  esignKioskLock          EsignKioskLock?        @relation("EsignKioskLock")
-  esignBulkBatches        EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
+  esignConsentPublished   EsignConsentVersion[]    @relation("EsignConsentPublishedBy")
+  esignRole               EsignMemberRole?         @relation("EsignMemberRole")
+  esignTemplates          EsignTemplate[]          @relation("EsignTemplateOwner")
+  esignTemplateVersions   EsignTemplateVersion[]   @relation("EsignTemplateVersionSavedBy")
+  esignRequestsSent       EsignRequest[]           @relation("EsignRequestSender")
+  esignRequestsVoided     EsignRequest[]           @relation("EsignRequestVoidedBy")
+  esignRecipients         EsignRecipient[]         @relation("EsignRecipientStaff")
+  esignEmails             EsignEmail[]             @relation("EsignEmailMember")
+  esignUploads            EsignPendingUpload[]     @relation("EsignUploadMember")
+  esignKioskLock          EsignKioskLock?          @relation("EsignKioskLock")
+  esignBulkBatches        EsignBulkBatch[]         @relation("EsignBulkCreatedBy")
   invoiceAttachments      InvoiceAttachment[]
-  recurringAssigned       RecurringInvoice[]     @relation("RecurringAssignedTo")
-  recurringCreated        RecurringInvoice[]     @relation("RecurringCreatedBy")
-  servicesUpdated         Service[]              @relation("ServiceUpdatedBy")
-  packagesUpdated         ServicePackage[]       @relation("PackageUpdatedBy")
-  threadsAssigned         MessageThread[]        @relation("MessageThreadAssignedTo")
+  recurringAssigned       RecurringInvoice[]       @relation("RecurringAssignedTo")
+  recurringCreated        RecurringInvoice[]       @relation("RecurringCreatedBy")
+  servicesUpdated         Service[]                @relation("ServiceUpdatedBy")
+  packagesUpdated         ServicePackage[]         @relation("PackageUpdatedBy")
+  threadsAssigned         MessageThread[]          @relation("MessageThreadAssignedTo")
   threadMutes             MessageThreadMute[]
-  messageTemplatesOwned   MessageTemplate[]      @relation("MessageTemplateOwner")
-  messageTemplatesCreated MessageTemplate[]      @relation("MessageTemplateCreator")
+  messageTemplatesOwned   MessageTemplate[]        @relation("MessageTemplateOwner")
+  messageTemplatesCreated MessageTemplate[]        @relation("MessageTemplateCreator")
   messageSignature        MessageSignature?
-  messageSettingsAssignee MessageSettings[]      @relation("MessageSettingsAssignee")
-  messageSettingsChanged  MessageSettings[]      @relation("MessageSettingsChangedBy")
+  messageSettingsAssignee MessageSettings[]        @relation("MessageSettingsAssignee")
+  messageSettingsChanged  MessageSettings[]        @relation("MessageSettingsChangedBy")
   consentsRecorded        ContactConsent[]
+  outboundAssigned        OutboundMessage[]        @relation("OutboundAssignedTo")
+  outboundCreated         OutboundMessage[]        @relation("OutboundCreatedBy")
+  outboundFiles           OutboundMessageFile[]
+  portalVisibilityChanged PortalModuleVisibility[]
+  portalLocks             ClientPortalLock[]
+  portalActivity          ClientPortalActivity[]
+  portalRecentClients     PortalRecentClient[]
+  brandVersions           BusinessBrandVersion[]
+  brandProfileChanged     BusinessBrandProfile[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -506,9 +519,9 @@ model ClientAccount {
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business                 Business              @relation(fields: [businessId], references: [id])
-  user                     User                  @relation(fields: [userId], references: [id])
-  client                   Client?               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  business                 Business               @relation(fields: [businessId], references: [id])
+  user                     User                   @relation(fields: [userId], references: [id])
+  client                   Client?                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   invites                  Invite[]
   privateNotes             ClientPrivateNote[]
   legalAcceptances         LegalAcceptance[]
@@ -516,6 +529,7 @@ model ClientAccount {
   verificationCodes        VerificationCode[]
   esignRecipients          EsignRecipient[]
   authorizedPaymentMethods ClientPaymentMethod[]
+  portalActivity           ClientPortalActivity[]
 
   @@unique([businessId, email])
   // Target of client-owned rows (private notes).
@@ -654,6 +668,31 @@ model BusinessSettings {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  // R36 (Settings, r36_money_portal_rest): the Company Profile and Branding screens' fields. The primary
+  // and accent colours, the logos, the slogan and motto, the portal text and the time zone are above.
+  /// S3 keys under the firm's prefix (`tenant/<business_id>/`, CHECK).
+  faviconKey          String?         @map("favicon_key")
+  loginBackgroundKey  String?         @map("login_background_key")
+  /// `#rrggbb` (CHECK); contrast is the API's rule.
+  secondaryColor      String?         @map("secondary_color")
+  backgroundColor     String?         @map("background_color")
+  theme               BrandTheme      @default(LIGHT)
+  sidebarStyle        SidebarStyle    @default(SOLID) @map("sidebar_style")
+  sidebarPosition     SidebarPosition @default(LEFT) @map("sidebar_position")
+  showLogoText        Boolean         @default(true) @map("show_logo_text")
+  roundedCorners      Boolean         @default(true) @map("rounded_corners")
+  /// Plain text, up to 200 characters; never styled like a password or MFA prompt.
+  loginMessage        String?         @map("login_message")
+  supportEmail        String?         @map("support_email")
+  /// What the firm does ("Accounting & Tax Services"), up to 80 characters.
+  industry            String?
+  locale              String          @default("en-US")
+  currency            String          @default("usd")
+  dateFormat          DateFormat      @default(MDY) @map("date_format")
+  /// Counts up on every publish, so two admins never overwrite each other silently.
+  brandingVersion     Int             @default(1) @map("branding_version")
+  brandingPublishedAt DateTime?       @map("branding_published_at") @db.Timestamptz(3)
+
   business Business @relation(fields: [businessId], references: [id])
 
   @@map("business_settings")
@@ -751,8 +790,8 @@ model Client {
   createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business             Business                 @relation(fields: [businessId], references: [id])
-  assignedMember       Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  business             Business                   @relation(fields: [businessId], references: [id])
+  assignedMember       Membership?                @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
   profile              ClientProfile?
   accounts             ClientAccount[]
   taxStatuses          ClientTaxStatus[]
@@ -770,6 +809,11 @@ model Client {
   paymentMethods       ClientPaymentMethod[]
   promotionRedemptions PromotionRedemption[]
   consents             ContactConsent[]
+  outboundRecipients   OutboundMessageRecipient[]
+  portalVisibility     PortalModuleVisibility[]
+  portalLock           ClientPortalLock?
+  portalActivity       ClientPortalActivity[]
+  portalRecent         PortalRecentClient[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -1335,12 +1379,13 @@ model Lead {
   createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  service    Service           @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  engagement Engagement?       @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  intakes    Intake[]
-  signatures IntakeSignature[]
-  uploads    LeadUpload[]
-  consents   ContactConsent[]
+  service            Service                    @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  engagement         Engagement?                @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  intakes            Intake[]
+  signatures         IntakeSignature[]
+  uploads            LeadUpload[]
+  consents           ContactConsent[]
+  outboundRecipients OutboundMessageRecipient[]
 
   @@unique([businessId, id])
   @@index([businessId, status, createdAt])
@@ -1607,8 +1652,9 @@ model Message {
   readAt       DateTime?        @map("read_at") @db.Timestamptz(3)
   createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  thread      MessageThread       @relation(fields: [businessId, threadId], references: [businessId, id], onDelete: Restrict)
-  attachments MessageAttachment[]
+  thread             MessageThread              @relation(fields: [businessId, threadId], references: [businessId, id], onDelete: Restrict)
+  attachments        MessageAttachment[]
+  outboundRecipients OutboundMessageRecipient[]
 
   @@unique([businessId, id])
   @@index([businessId, threadId, createdAt])
@@ -3758,10 +3804,11 @@ model MessageTemplate {
   createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business  Business    @relation(fields: [businessId], references: [id])
-  service   Service?    @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  owner     Membership? @relation("MessageTemplateOwner", fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
-  createdBy Membership? @relation("MessageTemplateCreator", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  business         Business          @relation(fields: [businessId], references: [id])
+  service          Service?          @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  owner            Membership?       @relation("MessageTemplateOwner", fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
+  createdBy        Membership?       @relation("MessageTemplateCreator", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  outboundMessages OutboundMessage[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -3858,4 +3905,323 @@ model ContactConsent {
 
   @@index([businessId, channel, status])
   @@map("contact_consents")
+}
+
+/// DIRECT: one conversation message to chosen recipients (New Message); BULK: a campaign to an
+/// audience built from filters (Send Bulk Message).
+enum OutboundMessageKind {
+  DIRECT
+  BULK
+}
+
+/// DRAFT -> SCHEDULED or SENDING -> SENT, PARTIAL or FAILED; DRAFT or SCHEDULED -> CANCELED. The text
+/// can change until it is sending; SENT, PARTIAL, FAILED and CANCELED are final.
+enum OutboundMessageStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PARTIAL
+  FAILED
+  CANCELED
+}
+
+enum MessageAudience {
+  CLIENTS
+  LEADS
+  BOTH
+}
+
+/// A message composed to one or more recipients, or a bulk campaign (Frames 2 and 3): its channel,
+/// content, options, schedule and the audience snapshot. The text changes only while DRAFT or SCHEDULED.
+model OutboundMessage {
+  id                    String                @id @default(uuid(7)) @db.Uuid
+  businessId            String                @map("business_id") @db.Uuid
+  kind                  OutboundMessageKind
+  channel               MessageChannel
+  status                OutboundMessageStatus @default(DRAFT)
+  subject               String?
+  body                  String
+  templateId            String?               @map("template_id") @db.Uuid
+  /// The firm's local time, kept as an instant; allowed only while SCHEDULED.
+  scheduledFor          DateTime?             @map("scheduled_for") @db.Timestamptz(3)
+  /// The record it is about, e.g. "invoice" and its id (both or neither).
+  relatedEntityType     String?               @map("related_entity_type")
+  relatedEntityId       String?               @map("related_entity_id") @db.Uuid
+  assignedUserId        String?               @map("assigned_user_id") @db.Uuid
+  requestReadReceipt    Boolean               @default(false) @map("request_read_receipt")
+  addToTimeline         Boolean               @default(true) @map("add_to_timeline")
+  sendCopyToSender      Boolean               @default(false) @map("send_copy_to_sender")
+  notifyOnComplete      Boolean               @default(false) @map("notify_on_complete")
+  addToCommunicationLog Boolean               @default(false) @map("add_to_communication_log")
+  /// BULK: who it goes to, and the filters that built the list (the API's own shape, up to 8 KB).
+  audience              MessageAudience?
+  audienceFilters       Json?                 @map("audience_filters")
+  totalCount            Int?                  @map("total_count")
+  canReceiveCount       Int?                  @map("can_receive_count")
+  cannotReceiveCount    Int?                  @map("cannot_receive_count")
+  /// A bulk send to more recipients than the firm's threshold needs this first.
+  highVolumeConfirmedAt DateTime?             @map("high_volume_confirmed_at") @db.Timestamptz(3)
+  createdByUserId       String                @map("created_by_user_id") @db.Uuid
+  completedAt           DateTime?             @map("completed_at") @db.Timestamptz(3)
+  canceledAt            DateTime?             @map("canceled_at") @db.Timestamptz(3)
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business   Business                   @relation(fields: [businessId], references: [id])
+  template   MessageTemplate?           @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  assignedTo Membership?                @relation("OutboundAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  createdBy  Membership                 @relation("OutboundCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  recipients OutboundMessageRecipient[]
+  files      OutboundMessageFile[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status, scheduledFor])
+  @@index([businessId, createdAt])
+  @@map("outbound_messages")
+}
+
+/// QUEUED -> SENT -> DELIVERED -> READ, or FAILED (retried back to QUEUED, never after SENT), or
+/// SKIPPED with the reason (final). A SENT recipient is never sent to again.
+enum OutboundRecipientStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  SKIPPED
+}
+
+/// Why a recipient could not receive the message ("Cannot Receive").
+enum OutboundExclusion {
+  NO_CONTACT
+  NO_CONSENT
+  NO_PORTAL_ACCESS
+  PROVIDER_UNAVAILABLE
+  SUPPRESSED
+  NOT_PERMITTED
+  MANUALLY_EXCLUDED
+  DUPLICATE
+}
+
+/// One recipient of an outbound message, one row per recipient and channel (the idempotency: a
+/// retry finds the row, never makes a second). A client's or a lead's. A portal delivery links the
+/// conversation message it created. Only the outcome changes.
+model OutboundMessageRecipient {
+  id                String                  @id @default(uuid(7)) @db.Uuid
+  businessId        String                  @map("business_id") @db.Uuid
+  outboundMessageId String                  @map("outbound_message_id") @db.Uuid
+  clientId          String?                 @map("client_id") @db.Uuid
+  leadId            String?                 @map("lead_id") @db.Uuid
+  channel           MessageChannel
+  status            OutboundRecipientStatus @default(QUEUED)
+  exclusion         OutboundExclusion?
+  attempts          Int                     @default(0)
+  /// The provider's message id, for support and bounces; never the address or the text.
+  providerMessageId String?                 @map("provider_message_id")
+  /// A short error code from the provider, never message content.
+  lastError         String?                 @map("last_error")
+  messageId         String?                 @map("message_id") @db.Uuid
+  sentAt            DateTime?               @map("sent_at") @db.Timestamptz(3)
+  deliveredAt       DateTime?               @map("delivered_at") @db.Timestamptz(3)
+  readAt            DateTime?               @map("read_at") @db.Timestamptz(3)
+  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  outbound OutboundMessage @relation(fields: [businessId, outboundMessageId], references: [businessId, id], onDelete: Restrict)
+  client   Client?         @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  lead     Lead?           @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  message  Message?        @relation(fields: [businessId, messageId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, outboundMessageId, status])
+  @@index([businessId, clientId])
+  @@index([businessId, leadId])
+  @@map("outbound_message_recipients")
+}
+
+/// Part of the firm workspace a client's portal can show. The firm's default and a client's own are
+/// both rows of `portal_module_visibility`; a module's visibility never shares every record in it.
+enum PortalModule {
+  TAX_RETURNS
+  DOCUMENTS
+  INVOICES_PAYMENTS
+  APPOINTMENTS
+  INTAKE_FORMS
+  TASKS_REQUESTS
+  MESSAGES
+  REPORTS
+}
+
+enum BrandTheme {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum SidebarStyle {
+  SOLID
+  GRADIENT
+}
+
+enum SidebarPosition {
+  LEFT
+  RIGHT
+}
+
+enum DateFormat {
+  MDY
+  DMY
+  YMD
+}
+
+/// A file attached to an outbound message (compose and bulk): a firm file under
+/// `tenant/<business_id>/messages/`, at most 25 MB, scanned before it is sent. Added and removed
+/// while the message is a draft or scheduled; the scan result is set once.
+model OutboundMessageFile {
+  id                String     @id @default(uuid(7)) @db.Uuid
+  businessId        String     @map("business_id") @db.Uuid
+  outboundMessageId String     @map("outbound_message_id") @db.Uuid
+  fileName          String     @map("file_name")
+  contentType       String     @map("content_type")
+  sizeBytes         Int        @map("size_bytes")
+  /// SHA-256 of the file, hex.
+  sha256            String
+  s3Key             String     @unique @map("s3_key")
+  scanStatus        ScanStatus @default(PENDING) @map("scan_status")
+  scannedAt         DateTime?  @map("scanned_at") @db.Timestamptz(3)
+  uploadedByUserId  String     @map("uploaded_by_user_id") @db.Uuid
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  outbound   OutboundMessage @relation(fields: [businessId, outboundMessageId], references: [businessId, id], onDelete: Restrict)
+  uploadedBy Membership      @relation(fields: [businessId, uploadedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, outboundMessageId])
+  @@map("outbound_message_files")
+}
+
+/// Which portal modules show: the firm's default (`client_id` empty) and a client's own override.
+/// No row means the default in the API's code (every module shown except REPORTS). Changing it never
+/// deletes a record.
+model PortalModuleVisibility {
+  id              String       @id @default(uuid(7)) @db.Uuid
+  businessId      String       @map("business_id") @db.Uuid
+  clientId        String?      @map("client_id") @db.Uuid
+  module          PortalModule
+  visible         Boolean
+  changedByUserId String?      @map("changed_by_user_id") @db.Uuid
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business    @relation(fields: [businessId], references: [id])
+  client    Client?     @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  changedBy Membership? @relation(fields: [businessId, changedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, clientId])
+  @@map("portal_module_visibility")
+}
+
+/// A client's portal is locked (Lock Portal Access): their logins cannot sign in while the row
+/// exists; unlocking deletes it. Nothing about the client or their records changes.
+model ClientPortalLock {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  businessId     String   @map("business_id") @db.Uuid
+  clientId       String   @map("client_id") @db.Uuid
+  lockedByUserId String   @map("locked_by_user_id") @db.Uuid
+  /// Up to 200 characters, for the firm.
+  reason         String?
+  lockedAt       DateTime @default(now()) @map("locked_at") @db.Timestamptz(3)
+
+  client   Client     @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  lockedBy Membership @relation(fields: [businessId, lockedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, clientId])
+  @@map("client_portal_locks")
+}
+
+/// A client's portal activity feed (invitation, activation, sign-in, uploads, views, forms, invoice
+/// views, payments): what the Activity tab and Recent Portal Activity show, with the address for
+/// authorized staff. Insert-only; the audit log stays authoritative.
+model ClientPortalActivity {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  businessId      String           @map("business_id") @db.Uuid
+  clientId        String           @map("client_id") @db.Uuid
+  clientAccountId String?          @map("client_account_id") @db.Uuid
+  /// A code such as `document.uploaded` or `portal.sign_in`.
+  type            String
+  entityType      String?          @map("entity_type")
+  entityId        String?          @map("entity_id") @db.Uuid
+  actorKind       InvoiceActorKind @default(CLIENT) @map("actor_kind")
+  actorUserId     String?          @map("actor_user_id") @db.Uuid
+  ip              String?          @db.Inet
+  occurredAt      DateTime         @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  client        Client         @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  clientAccount ClientAccount? @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  actor         Membership?    @relation(fields: [businessId, actorUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, clientId, occurredAt])
+  @@map("client_portal_activity")
+}
+
+/// The clients a staff member opened last in Client Portal ("Recent Clients").
+model PortalRecentClient {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  clientId     String   @map("client_id") @db.Uuid
+  lastViewedAt DateTime @default(now()) @map("last_viewed_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+  client Client     @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, userId, clientId])
+  @@index([businessId, userId, lastViewedAt])
+  @@map("portal_recent_clients")
+}
+
+/// Branding beyond the logo and colours: email, client portal and document branding (one row per
+/// firm; no row means the firm's main branding and Firmivra's defaults). Asset keys are under the
+/// firm's own prefix. Nothing here can remove required Firmivra security or legal notices.
+model BusinessBrandProfile {
+  businessId        String   @id @map("business_id") @db.Uuid
+  emailLogoKey      String?  @map("email_logo_key")
+  emailFromName     String?  @map("email_from_name")
+  replyToEmail      String?  @map("reply_to_email")
+  emailHeader       String?  @map("email_header")
+  emailFooter       String?  @map("email_footer")
+  emailDisclaimer   String?  @map("email_disclaimer")
+  portalLogoKey     String?  @map("portal_logo_key")
+  portalBrandColor  String?  @map("portal_brand_color")
+  portalAccentColor String?  @map("portal_accent_color")
+  letterheadHeader  String?  @map("letterhead_header")
+  letterheadFooter  String?  @map("letterhead_footer")
+  documentFooter    String?  @map("document_footer")
+  signatureBlock    String?  @map("signature_block")
+  legalText         String?  @map("legal_text")
+  updatedByUserId   String?  @map("updated_by_user_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business    @relation(fields: [businessId], references: [id])
+  updatedBy Membership? @relation(fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@map("business_brand_profiles")
+}
+
+/// One published version of the firm's branding: what was live, so a sent email or a generated
+/// document keeps the branding it was made with. Insert-only; numbered 1, 2, 3 per firm.
+model BusinessBrandVersion {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  businessId        String   @map("business_id") @db.Uuid
+  version           Int
+  /// The published values (colours, theme, asset keys, texts), up to 32 KB; never a secret.
+  snapshot          Json
+  publishedByUserId String?  @map("published_by_user_id") @db.Uuid
+  publishedAt       DateTime @default(now()) @map("published_at") @db.Timestamptz(3)
+
+  business    Business    @relation(fields: [businessId], references: [id])
+  publishedBy Membership? @relation(fields: [businessId, publishedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, version])
+  @@map("business_brand_versions")
 }

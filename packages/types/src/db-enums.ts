@@ -453,3 +453,71 @@ export type ConsentChannel = z.infer<typeof ConsentChannel>;
 
 export const ConsentStatus = z.enum(['OPTED_IN', 'OPTED_OUT']);
 export type ConsentStatus = z.infer<typeof ConsentStatus>;
+
+/** DIRECT: one conversation message to chosen recipients (New Message); BULK: a campaign to an audience built from filters (Send Bulk Message). */
+export const OutboundMessageKind = z.enum(['DIRECT', 'BULK']);
+export type OutboundMessageKind = z.infer<typeof OutboundMessageKind>;
+
+/** DRAFT -> SCHEDULED or SENDING -> SENT, PARTIAL or FAILED; DRAFT or SCHEDULED -> CANCELED. The text can change until it is sending; SENT, PARTIAL, FAILED and CANCELED are final. */
+export const OutboundMessageStatus = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'SENDING',
+  'SENT',
+  'PARTIAL',
+  'FAILED',
+  'CANCELED',
+]);
+export type OutboundMessageStatus = z.infer<typeof OutboundMessageStatus>;
+
+export const MessageAudience = z.enum(['CLIENTS', 'LEADS', 'BOTH']);
+export type MessageAudience = z.infer<typeof MessageAudience>;
+
+/** QUEUED -> SENT -> DELIVERED -> READ, or FAILED (retried back to QUEUED, never after SENT), or SKIPPED with the reason (final). A SENT recipient is never sent to again. */
+export const OutboundRecipientStatus = z.enum([
+  'QUEUED',
+  'SENT',
+  'DELIVERED',
+  'READ',
+  'FAILED',
+  'SKIPPED',
+]);
+export type OutboundRecipientStatus = z.infer<typeof OutboundRecipientStatus>;
+
+/** Why a recipient could not receive the message ("Cannot Receive"). */
+export const OutboundExclusion = z.enum([
+  'NO_CONTACT',
+  'NO_CONSENT',
+  'NO_PORTAL_ACCESS',
+  'PROVIDER_UNAVAILABLE',
+  'SUPPRESSED',
+  'NOT_PERMITTED',
+  'MANUALLY_EXCLUDED',
+  'DUPLICATE',
+]);
+export type OutboundExclusion = z.infer<typeof OutboundExclusion>;
+
+/** Part of the firm workspace a client's portal can show. The firm's default and a client's own are both rows of `portal_module_visibility`; a module's visibility never shares every record in it. */
+export const PortalModule = z.enum([
+  'TAX_RETURNS',
+  'DOCUMENTS',
+  'INVOICES_PAYMENTS',
+  'APPOINTMENTS',
+  'INTAKE_FORMS',
+  'TASKS_REQUESTS',
+  'MESSAGES',
+  'REPORTS',
+]);
+export type PortalModule = z.infer<typeof PortalModule>;
+
+export const BrandTheme = z.enum(['LIGHT', 'DARK', 'SYSTEM']);
+export type BrandTheme = z.infer<typeof BrandTheme>;
+
+export const SidebarStyle = z.enum(['SOLID', 'GRADIENT']);
+export type SidebarStyle = z.infer<typeof SidebarStyle>;
+
+export const SidebarPosition = z.enum(['LEFT', 'RIGHT']);
+export type SidebarPosition = z.infer<typeof SidebarPosition>;
+
+export const DateFormat = z.enum(['MDY', 'DMY', 'YMD']);
+export type DateFormat = z.infer<typeof DateFormat>;

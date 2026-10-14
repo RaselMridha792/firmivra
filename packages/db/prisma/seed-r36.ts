@@ -298,5 +298,144 @@ export async function seedR36(prisma: Prisma, businesses: { lvp: string; testFir
         data: { ...lvp, clientId, channel: 'EMAIL', status: 'OPTED_IN', source: 'portal_sign_up' },
       });
     }
+
+    // A reminder to the client through the portal, scheduled for later.
+    if ((await tx.outboundMessage.count({ where: { subject: 'Appointment reminder' } })) === 0) {
+      await tx.outboundMessage.create({
+        data: {
+          ...lvp,
+          kind: 'DIRECT',
+          channel: 'PORTAL',
+          subject: 'Appointment reminder',
+          body: 'Hi {{first_name}}, a reminder about your appointment on {{appointment_date}}.',
+          status: 'SCHEDULED',
+          scheduledFor: new Date('2027-01-05T15:00:00Z'),
+          createdByUserId: SEED_USERS.lvpOwner.id,
+        },
+      });
+    }
+
+    // Recipients and a file for the scheduled reminder.
+    const reminder = await tx.outboundMessage.findFirstOrThrow({
+      where: { subject: 'Appointment reminder' },
+    });
+    await tx.outboundMessageRecipient.upsert({
+      where: { id: '00000000-0000-4036-8000-000000000001' },
+      update: {},
+      create: {
+        id: '00000000-0000-4036-8000-000000000001',
+        ...lvp,
+        outboundMessageId: reminder.id,
+        clientId,
+        channel: 'PORTAL',
+      },
+    });
+    await tx.outboundMessageFile.upsert({
+      where: { s3Key: `tenant/${businesses.lvp}/messages/seed-checklist.pdf` },
+      update: {},
+      create: {
+        ...lvp,
+        outboundMessageId: reminder.id,
+        fileName: 'Tax_Preparation_Checklist.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 428000,
+        sha256: 'e'.repeat(64),
+        s3Key: `tenant/${businesses.lvp}/messages/seed-checklist.pdf`,
+        uploadedByUserId: SEED_USERS.lvpOwner.id,
+      },
+    });
+
+    // Client portal tab: the firm's default (reports hidden), an override, a locked sample client,
+    // activity, and the owner's recent client.
+    for (const module of [
+      'TAX_RETURNS',
+      'DOCUMENTS',
+      'INVOICES_PAYMENTS',
+      'APPOINTMENTS',
+      'INTAKE_FORMS',
+      'TASKS_REQUESTS',
+      'MESSAGES',
+      'REPORTS',
+    ] as const) {
+      if ((await tx.portalModuleVisibility.count({ where: { clientId: null, module } })) === 0) {
+        await tx.portalModuleVisibility.create({
+          data: { ...lvp, module, visible: module !== 'REPORTS' },
+        });
+      }
+    }
+    const locked = await tx.client.upsert({
+      where: { businessId_email: { businessId: businesses.lvp, email: 'locked.sample@lvp.test' } },
+      update: {},
+      create: { ...lvp, displayName: 'Locked Sample Client', email: 'locked.sample@lvp.test' },
+    });
+    await tx.clientPortalLock.upsert({
+      where: { businessId_clientId: { businessId: businesses.lvp, clientId: locked.id } },
+      update: {},
+      create: {
+        ...lvp,
+        clientId: locked.id,
+        lockedByUserId: SEED_USERS.lvpOwner.id,
+        reason: 'Sample lock',
+      },
+    });
+    if ((await tx.clientPortalActivity.count({ where: { clientId } })) === 0) {
+      await tx.clientPortalActivity.createMany({
+        data: [
+          { ...lvp, clientId, type: 'portal.sign_in', ip: '203.0.113.10' },
+          {
+            ...lvp,
+            clientId,
+            type: 'document.uploaded',
+            entityType: 'document',
+            entityId: SEED_DOCUMENT_IDS.interestDocument,
+            ip: '203.0.113.10',
+          },
+        ],
+      });
+    }
+    await tx.portalRecentClient.upsert({
+      where: {
+        businessId_userId_clientId: {
+          businessId: businesses.lvp,
+          userId: SEED_USERS.lvpOwner.id,
+          clientId,
+        },
+      },
+      update: {},
+      create: { ...lvp, userId: SEED_USERS.lvpOwner.id, clientId },
+    });
+
+    // Company Profile and Branding: the settings columns, a brand profile and the first version.
+    await tx.businessSettings.update({
+      where: { businessId: businesses.lvp },
+      data: {
+        secondaryColor: '#D4AF37',
+        backgroundColor: '#F5F8FF',
+        loginMessage: 'Welcome. Your trusted partner in tax and business growth.',
+        supportEmail: 'support@lvp.test',
+        industry: 'Accounting & Tax Services',
+      },
+    });
+    await tx.businessBrandProfile.upsert({
+      where: { businessId: businesses.lvp },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        emailFromName: 'LVP Accounting & Taxes',
+        replyToEmail: 'support@lvp.test',
+        emailFooter: 'LVP Accounting & Taxes. Plan, prepare, prosper.',
+        letterheadHeader: 'LVP Accounting & Taxes',
+      },
+    });
+    if ((await tx.businessBrandVersion.count({ where: { businessId: businesses.lvp } })) === 0) {
+      await tx.businessBrandVersion.create({
+        data: {
+          ...lvp,
+          version: 1,
+          snapshot: { secondaryColor: '#D4AF37', theme: 'LIGHT' },
+          publishedByUserId: SEED_USERS.lvpOwner.id,
+        },
+      });
+    }
   });
 }
