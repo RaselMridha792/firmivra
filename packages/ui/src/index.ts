@@ -20,6 +20,9 @@ export {
 export { Pagination, type PaginationProps } from './pagination';
 export { DateRangePicker, type DateRange, type DateRangePickerProps } from './date-range-picker';
 export { FormField, FormSection } from './form-section';
+export { FilterBar, FilterChip, FilterGroup, SearchField, type FilterBarProps } from './filter-bar';
+export { BulkBar, type BulkAction } from './bulk-bar';
+export { IconButton, type IconButtonProps } from './icon-button';
 export { Modal } from './modal';
 export { Drawer, type DrawerProps } from './drawer';
 export {
