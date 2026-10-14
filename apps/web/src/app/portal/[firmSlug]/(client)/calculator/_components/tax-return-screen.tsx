@@ -66,6 +66,21 @@ const EMPTY: Form = {
 /** A blank is $0; anything else must be a number, which the contract then checks. */
 const amount = (text: string): number => (text.trim() === '' ? 0 : Number(text.replace(/,/g, '')));
 
+const inputFor = (form: Form) => ({
+  filingStatus: form.filingStatus,
+  wages: amount(form.wages),
+  otherIncome: amount(form.otherIncome),
+  businessIncome: form.selfEmployed ? amount(form.businessIncome) : 0,
+  businessExpenses: form.selfEmployed ? amount(form.businessExpenses) : 0,
+  deductionType: form.deductionType,
+  itemizedDeductions: amount(form.itemizedDeductions),
+  mfsSpouseItemizes: form.filingStatus === 'MARRIED_SEPARATE' && form.mfsSpouseItemizes,
+  withholding: amount(form.withholding),
+  estimatedPayments: amount(form.estimatedPayments),
+});
+
+const initialResult = () => estimateTaxReturn(TaxReturnInput.parse(inputFor(EMPTY)));
+
 /**
  * /{firm}/calculator/tax-return (signed in) and /{firm}/calculators/tax-return (public): the Tax
  * Return Estimator (Octavia's guide), core version. Runs in the browser; nothing is stored.
@@ -88,28 +103,15 @@ export function TaxReturnScreen({ publicPage = false }: { publicPage?: boolean }
 
 function Estimator({ disclaimer }: { disclaimer: string }) {
   const [form, setForm] = useState<Form>(EMPTY);
-  const [result, setResult] = useState<TaxReturnResult | null>(null);
+  const [result, setResult] = useState<TaxReturnResult>(initialResult);
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof Form>(key: K, value: Form[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
-    setResult(null);
   };
 
   function calculate() {
-    const parsed = TaxReturnInput.safeParse({
-      filingStatus: form.filingStatus,
-      wages: amount(form.wages),
-      otherIncome: amount(form.otherIncome),
-      businessIncome: form.selfEmployed ? amount(form.businessIncome) : 0,
-      businessExpenses: form.selfEmployed ? amount(form.businessExpenses) : 0,
-      deductionType: form.deductionType,
-      itemizedDeductions: amount(form.itemizedDeductions),
-      mfsSpouseItemizes: form.filingStatus === 'MARRIED_SEPARATE' && form.mfsSpouseItemizes,
-      withholding: amount(form.withholding),
-      estimatedPayments: amount(form.estimatedPayments),
-    });
+    const parsed = TaxReturnInput.safeParse(inputFor(form));
     if (!parsed.success) {
-      setResult(null);
       setError('Enter amounts as positive numbers with at most 2 decimals, for example 75000.');
       return;
     }
@@ -164,12 +166,14 @@ function Estimator({ disclaimer }: { disclaimer: string }) {
             <Radio
               name="self-employed"
               label="Yes"
+              className="[&>input]:accent-navigation"
               checked={form.selfEmployed}
               onChange={() => set('selfEmployed', true)}
             />
             <Radio
               name="self-employed"
               label="No"
+              className="[&>input]:accent-navigation"
               checked={!form.selfEmployed}
               onChange={() => set('selfEmployed', false)}
             />
@@ -185,12 +189,14 @@ function Estimator({ disclaimer }: { disclaimer: string }) {
             <Radio
               name="deduction"
               label="Standard Deduction"
+              className="[&>input]:accent-navigation"
               checked={form.deductionType === 'STANDARD'}
               onChange={() => set('deductionType', 'STANDARD')}
             />
             <Radio
               name="deduction"
               label="Itemized Deduction"
+              className="[&>input]:accent-navigation"
               checked={form.deductionType === 'ITEMIZED'}
               onChange={() => set('deductionType', 'ITEMIZED')}
             />
@@ -214,13 +220,16 @@ function Estimator({ disclaimer }: { disclaimer: string }) {
             </p>
           ) : null}
           <div className="flex flex-wrap gap-3">
-            <Button type="submit">Get My Tax Estimate</Button>
+            <Button type="submit" variant="dark">
+              Get My Tax Estimate
+            </Button>
             <Button
               type="button"
               variant="secondary"
+              className="border-navigation! text-navigation! hover:bg-navigation! hover:text-on-action!"
               onClick={() => {
                 setForm(EMPTY);
-                setResult(null);
+                setResult(initialResult());
                 setError(null);
               }}
             >
@@ -230,36 +239,34 @@ function Estimator({ disclaimer }: { disclaimer: string }) {
         </form>
       </Card>
       <div className="flex flex-col gap-6">
-        {result ? (
-          <Card
-            title={`Your ${CURRENT_TAX_YEAR} Federal Tax Estimate`}
-            data-testid="tax-return-result"
-          >
-            {result.notices.map((n) => (
-              <p key={n} role="status" className="mb-3 text-sm text-text">
-                {NOTICES[n]}
-              </p>
-            ))}
-            <dl className="flex flex-col gap-2">
-              {rows(result).map(([label, value]) => (
-                <div key={label} className="flex justify-between gap-4 text-sm">
-                  <dt className="text-text">{label}</dt>
-                  <dd className="font-semibold text-heading">{value}</dd>
-                </div>
-              ))}
-              <div className="flex justify-between gap-4 border-t border-border pt-2 text-base">
-                <dt className="font-semibold text-heading">
-                  {result.refundOrDue >= 0
-                    ? 'Estimated Federal Refund'
-                    : 'Estimated Federal Amount Due'}
-                </dt>
-                <dd className="font-bold text-heading">
-                  {formatCents(Math.abs(result.refundOrDue))}
-                </dd>
+        <Card
+          title={`Your ${CURRENT_TAX_YEAR} Federal Tax Estimate`}
+          data-testid="tax-return-result"
+        >
+          {result.notices.map((n) => (
+            <p key={n} role="status" className="mb-3 text-sm text-text">
+              {NOTICES[n]}
+            </p>
+          ))}
+          <dl className="flex flex-col gap-2">
+            {rows(result).map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-4 text-sm">
+                <dt className="text-text">{label}</dt>
+                <dd className="font-semibold text-heading">{value}</dd>
               </div>
-            </dl>
-          </Card>
-        ) : null}
+            ))}
+            <div className="flex justify-between gap-4 border-t border-border pt-2 text-base">
+              <dt className="font-semibold text-heading">
+                {result.refundOrDue >= 0
+                  ? 'Estimated Federal Refund'
+                  : 'Estimated Federal Amount Due'}
+              </dt>
+              <dd className="font-bold text-heading">
+                {formatCents(Math.abs(result.refundOrDue))}
+              </dd>
+            </div>
+          </dl>
+        </Card>
         <p className="text-sm text-text">{disclaimer}</p>
       </div>
     </div>
