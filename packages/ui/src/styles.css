@@ -55,6 +55,9 @@
   --color-nav-active: #0069fe;
   --color-orange: #f26a21;
   --color-sky: #4da3ff;
+  /* R40: the firm workspace tables' header band, and their row lines and control borders. */
+  --color-table-head: #edf2f8;
+  --color-divider: #e8ecf1;
   --color-public-action: #005fcc;
   --color-public-action-hover: #004fa8;
   --color-public-action-pressed: #003d85;
