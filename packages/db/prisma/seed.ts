@@ -1605,6 +1605,35 @@ async function main() {
           payrollId: 'PR002',
         },
       });
+      await tx.staffDocument.upsert({
+        where: { id: SEED_STAFF_GROUP_IDS.document },
+        update: {},
+        create: {
+          id: SEED_STAFF_GROUP_IDS.document,
+          businessId,
+          membershipId: staffId,
+          type: 'EMPLOYMENT_AGREEMENT',
+          fileName: 'seed-employment-agreement.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 1024,
+          sha256: createHash('sha256').update('seed-employment-agreement').digest('hex'),
+          s3Key: `tenant/${businessId}/staff/${staffId}/seed-employment-agreement.pdf`,
+          uploadedById: ownerId,
+        },
+      });
+      await tx.staffSession.upsert({
+        where: { id: SEED_STAFF_GROUP_IDS.session },
+        update: {},
+        create: {
+          id: SEED_STAFF_GROUP_IDS.session,
+          businessId,
+          membershipId: staffId,
+          tokenHash: createHash('sha256').update('seed-staff-session').digest('hex'),
+          device: 'Chrome on macOS',
+          ip: '203.0.113.7',
+          place: 'Atlanta, GA, USA',
+        },
+      });
       await tx.staffDraft.upsert({
         where: { id: SEED_STAFF_GROUP_IDS.draft },
         update: {},

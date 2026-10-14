@@ -403,3 +403,15 @@ export const StaffPayFrequency = z.enum([
   'ANNUALLY',
 ]);
 export type StaffPayFrequency = z.infer<typeof StaffPayFrequency>;
+
+export const StaffDocumentType = z.enum([
+  'EMPLOYMENT_AGREEMENT',
+  'CONTRACTOR_AGREEMENT',
+  'W4',
+  'DIRECT_DEPOSIT',
+  'NDA',
+  'CREDENTIAL_LICENSE',
+  'TRAINING_ACKNOWLEDGMENT',
+  'OTHER',
+]);
+export type StaffDocumentType = z.infer<typeof StaffDocumentType>;

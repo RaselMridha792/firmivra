@@ -468,6 +468,10 @@ model Membership {
   staffCompensation StaffCompensation?
   staffDrafts       StaffDraft[]
 
+  staffDocuments         StaffDocument[] @relation("StaffDocumentOwner")
+  staffDocumentsUploaded StaffDocument[] @relation("StaffDocumentUploader")
+  staffSessions          StaffSession[]
+
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
   @@unique([businessId, id])
@@ -3173,4 +3177,76 @@ model StaffDraft {
 
   @@index([businessId, updatedAt])
   @@map("staff_drafts")
+}
+
+// ---------- Staff documents and sessions (R35, migration r35_staff_documents_sessions) ----------
+// HR files kept for a member, and the member's signed-in sessions. Firm tables with forced RLS.
+// Documents are also walled off in the database: only the acting Owner or Admin reads or writes
+// them (they hold W-4 and direct deposit forms). Login history needs no table: it is the audit
+// log's `auth.signed_in` and `auth.sign_in_failed` rows.
+
+enum StaffDocumentType {
+  EMPLOYMENT_AGREEMENT
+  CONTRACTOR_AGREEMENT
+  W4
+  DIRECT_DEPOSIT
+  NDA
+  CREDENTIAL_LICENSE
+  TRAINING_ACKNOWLEDGMENT
+  OTHER
+}
+
+/// A file kept for a staff member. The object is in the firm's private prefix
+/// (`tenant/<business_id>/staff/<membership_id>/...`), served only through short-lived signed
+/// links, scanned before anyone downloads it (PENDING until the scanner sets the result once).
+/// Replacing a file adds a new row and archives the old one; nothing is deleted (retention).
+model StaffDocument {
+  id           String            @id @default(uuid(7)) @db.Uuid
+  businessId   String            @map("business_id") @db.Uuid
+  membershipId String            @map("membership_id") @db.Uuid
+  type         StaffDocumentType
+  fileName     String            @map("file_name")
+  /// PDF, JPEG, PNG, DOC or DOCX only (database CHECK).
+  contentType  String            @map("content_type")
+  /// 1 byte to 10 MB.
+  sizeBytes    Int               @map("size_bytes")
+  /// Hex SHA-256 of the file.
+  sha256       String
+  s3Key        String            @unique @map("s3_key")
+  scanStatus   ScanStatus        @default(PENDING) @map("scan_status")
+  scannedAt    DateTime?         @map("scanned_at") @db.Timestamptz(3)
+  uploadedById String?           @map("uploaded_by_membership_id") @db.Uuid
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  archivedAt   DateTime?         @map("archived_at") @db.Timestamptz(3)
+
+  member     Membership  @relation("StaffDocumentOwner", fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+  uploadedBy Membership? @relation("StaffDocumentUploader", fields: [businessId, uploadedById], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, membershipId, createdAt])
+  @@map("staff_documents")
+}
+
+/// One signed-in browser or device of a member (Active Sessions). `tokenHash` is the hex SHA-256
+/// of an identifier the API derives from the session's refresh token, never the token. Device
+/// and place are telemetry from the request (user agent and IP), not proof of who or where.
+/// "Sign out" sets `revokedAt` and revokes the Cognito refresh token; the concurrent-session
+/// limit counts rows with no `revokedAt` seen in the last 7 days (the refresh token's life).
+model StaffSession {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  businessId   String    @map("business_id") @db.Uuid
+  membershipId String    @map("membership_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  /// A label like "Chrome on macOS", up to 100 characters.
+  device       String
+  ip           String?
+  /// Approximate place from the IP, up to 100 characters; null when unknown.
+  place        String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastActiveAt DateTime  @default(now()) @map("last_active_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, membershipId, revokedAt])
+  @@map("staff_sessions")
 }
