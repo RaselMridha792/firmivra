@@ -135,6 +135,14 @@ enum TaskPriority {
   HIGH
 }
 
+/// How a template or recurring series picks the assignee of a new task.
+enum TaskAssignmentRule {
+  UNASSIGNED
+  SPECIFIC_USER
+  /// The client's current team (the client's assigned member) when the task is created.
+  CLIENT_TEAM
+}
+
 /// Bookkeeping: REPORT, RECONCILIATION. Tax Planning: ESTIMATE, PROJECTION.
 enum ReportKind {
   REPORT
@@ -443,6 +451,7 @@ model Membership {
   assignedTasks       Task[]
   taskCollaborations  TaskAssignee[]
   checklistAssigned   TaskChecklistItem[]
+  taskTemplates       TaskTemplate[]
   workingHours        WorkingHours[]
   blockedTimes        BlockedTime[]
   appointments        Appointment[]
@@ -873,12 +882,13 @@ model Service {
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business    Business        @relation(fields: [businessId], references: [id])
-  engagements Engagement[]
-  intakeForms IntakeForm[]
-  agreements  FirmAgreement[]
-  leads       Lead[]
-  tasks       Task[]
+  business      Business        @relation(fields: [businessId], references: [id])
+  engagements   Engagement[]
+  intakeForms   IntakeForm[]
+  agreements    FirmAgreement[]
+  leads         Lead[]
+  tasks         Task[]
+  taskTemplates TaskTemplate[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -2947,8 +2957,9 @@ model TaskType {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business @relation(fields: [businessId], references: [id])
-  tasks    Task[]
+  business  Business       @relation(fields: [businessId], references: [id])
+  tasks     Task[]
+  templates TaskTemplate[]
 
   @@unique([businessId, id])
   @@unique([businessId, name])
@@ -3032,4 +3043,38 @@ model TaskAttachment {
   @@unique([businessId, taskId, documentId])
   @@index([businessId, documentId])
   @@map("task_attachments")
+}
+
+/// A reusable task: what a new task starts with (name, instructions, type, service, priority,
+/// assignment rule, due date relative to creation, checklist, reminders, visibility). checklist
+/// is an array of {label, required}; reminders an array of {daysBefore, timeOfDay, inApp,
+/// channels}; recurrence, when set, is a saved recurring setup (the series' recurrence columns
+/// as JSON). Archived, not deleted.
+model TaskTemplate {
+  id                   String             @id @default(uuid(7)) @db.Uuid
+  businessId           String             @map("business_id") @db.Uuid
+  name                 String
+  description          String?
+  typeId               String?            @map("type_id") @db.Uuid
+  serviceId            String?            @map("service_id") @db.Uuid
+  priority             TaskPriority       @default(MEDIUM)
+  assignmentRule       TaskAssignmentRule @default(UNASSIGNED) @map("assignment_rule")
+  assignedUserId       String?            @map("assigned_user_id") @db.Uuid
+  /// The due date is this many days after the task is created.
+  dueOffsetDays        Int?               @map("due_offset_days")
+  clientVisibleDefault Boolean            @default(false) @map("client_visible_default")
+  checklist            Json               @default("[]")
+  reminders            Json               @default("[]")
+  recurrence           Json?
+  createdByUserId      String?            @map("created_by_user_id") @db.Uuid
+  archivedAt           DateTime?          @map("archived_at") @db.Timestamptz(3)
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  type           TaskType?   @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  service        Service?    @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember Membership? @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, name])
+  @@map("task_templates")
 }

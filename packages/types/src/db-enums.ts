@@ -79,6 +79,10 @@ export type TaskProgress = z.infer<typeof TaskProgress>;
 export const TaskPriority = z.enum(['LOW', 'MEDIUM', 'HIGH']);
 export type TaskPriority = z.infer<typeof TaskPriority>;
 
+/** How a template or recurring series picks the assignee of a new task. */
+export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
+export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;
+
 /** Bookkeeping: REPORT, RECONCILIATION. Tax Planning: ESTIMATE, PROJECTION. */
 export const ReportKind = z.enum(['REPORT', 'RECONCILIATION', 'ESTIMATE', 'PROJECTION']);
 export type ReportKind = z.infer<typeof ReportKind>;

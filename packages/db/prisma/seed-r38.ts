@@ -26,6 +26,7 @@ export const SEED_R38_IDS = {
   reminder1: id(4),
   reminder2: id(5),
   attachment: id(6),
+  template: id(7),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -93,5 +94,22 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
     where: { id: SEED_R38_IDS.attachment },
     update: {},
     create: { id: SEED_R38_IDS.attachment, businessId, taskId: c.taskId, documentId: c.documentId },
+  });
+
+  // Tasks: a template.
+  await tx.taskTemplate.upsert({
+    where: { id: SEED_R38_IDS.template },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.template,
+      businessId,
+      name: 'New client onboarding',
+      description: 'Welcome call, collect documents, set up the portal.',
+      typeId: taskType.id,
+      priority: 'MEDIUM',
+      dueOffsetDays: 7,
+      checklist: [{ label: 'Send the welcome email', required: true }, { label: 'Book the call' }],
+      reminders: [{ daysBefore: 1, inApp: true, channels: [] }],
+    },
   });
 }
