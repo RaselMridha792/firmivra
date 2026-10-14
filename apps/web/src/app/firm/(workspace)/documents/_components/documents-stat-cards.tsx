@@ -44,20 +44,20 @@ export function DocumentsStatCards() {
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5" data-testid="stat-cards">
       {STATS.map((stat) => (
-        <Card key={stat.label} className="flex items-center gap-3 p-4">
+        <Card key={stat.label} className="flex items-start gap-4 p-4">
           <span
-            className={`inline-flex size-12 shrink-0 items-center justify-center rounded-full ${stat.iconBg}`}
+            className={`inline-flex size-14 shrink-0 items-center justify-center rounded-full ${stat.iconBg}`}
           >
-            <stat.icon weight="regular" className={`size-6 ${stat.iconColor}`} aria-hidden="true" />
+            <stat.icon weight="regular" className={`size-7 ${stat.iconColor}`} aria-hidden="true" />
           </span>
           <span>
             <span
-              className="block text-2xl font-bold text-heading"
+              className="block text-3xl font-bold text-heading"
               aria-label={`${stat.label}: not available yet`}
             >
               &mdash;
             </span>
-            <span className="block text-sm font-medium text-text">{stat.label}</span>
+            <span className="block text-base font-medium text-text">{stat.label}</span>
             {stat.caption ? <span className="block text-xs text-muted">{stat.caption}</span> : null}
           </span>
         </Card>
