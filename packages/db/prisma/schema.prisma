@@ -417,25 +417,24 @@ model Membership {
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business                Business               @relation(fields: [businessId], references: [id])
-  user                    User                   @relation(fields: [userId], references: [id])
-  invites                 Invite[]
-  assignedClients         Client[]
-  assignedEngagements     Engagement[]
-  assignedTasks           Task[]
-  workingHours            WorkingHours[]
-  blockedTimes            BlockedTime[]
-  appointments            Appointment[]
-  invoicesCreated         Invoice[]
-  invoicesAssigned        Invoice[]              @relation("InvoiceAssignedTo")
-  paymentSettingsChanged  PaymentSettings[]
-  invoiceEvents           InvoiceEvent[]
-  invoicesArchived        InvoiceTracking[]
-  invoiceAttachmentsAdded InvoiceAttachment[]
-  contentCreated          ContentItem[]
-  agreementsCreated       FirmAgreement[]
-  agreementFiles          FirmAgreementFile[]
-  agreementVersions       FirmAgreementVersion[]
+  business               Business               @relation(fields: [businessId], references: [id])
+  user                   User                   @relation(fields: [userId], references: [id])
+  invites                Invite[]
+  assignedClients        Client[]
+  assignedEngagements    Engagement[]
+  assignedTasks          Task[]
+  workingHours           WorkingHours[]
+  blockedTimes           BlockedTime[]
+  appointments           Appointment[]
+  invoicesCreated        Invoice[]
+  invoicesAssigned       Invoice[]              @relation("InvoiceAssignedTo")
+  paymentSettingsChanged PaymentSettings[]
+  invoiceEvents          InvoiceEvent[]
+  invoicesArchived       InvoiceTracking[]
+  contentCreated         ContentItem[]
+  agreementsCreated      FirmAgreement[]
+  agreementFiles         FirmAgreementFile[]
+  agreementVersions      FirmAgreementVersion[]
 
   // Offline payments this member recorded or voided.
   offlinePaymentsRecorded OfflinePayment[] @relation("OfflinePaymentRecordedBy")
@@ -1100,7 +1099,6 @@ model Document {
   intake             Intake?             @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
   reports            EngagementReport[]
   messageAttachments MessageAttachment[]
-  invoiceAttachments InvoiceAttachment[]
   taxReturns         TaxReturn[]
 
   // Target of message attachments.
@@ -1656,16 +1654,15 @@ model Invoice {
   paymentMethods          InvoicePaymentMethod[] @default([CARD, ACH, MANUAL]) @map("payment_methods")
   autopay                 Boolean                @default(false)
 
-  client          Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement      Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  createdBy       Membership?         @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
-  assignedTo      Membership?         @relation("InvoiceAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  taxRate         InvoiceTaxRate?     @relation(fields: [businessId, taxRateId], references: [businessId, id], onDelete: Restrict)
-  template        InvoiceTemplate?    @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  client          Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement      Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  createdBy       Membership?      @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  assignedTo      Membership?      @relation("InvoiceAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  taxRate         InvoiceTaxRate?  @relation(fields: [businessId, taxRateId], references: [businessId, id], onDelete: Restrict)
+  template        InvoiceTemplate? @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
   lines           InvoiceLine[]
   tracking        InvoiceTracking?
   events          InvoiceEvent[]
-  attachments     InvoiceAttachment[]
   payments        Payment[]
   offlinePayments OfflinePayment[]
 
@@ -3108,23 +3105,4 @@ model InvoiceEvent {
 
   @@index([businessId, invoiceId, createdAt])
   @@map("invoice_events")
-}
-
-/// A vault document sent with the invoice (the client's own, never INTERNAL, scanned clean).
-/// Added and removed until the invoice is PAID or canceled; the document itself stays.
-model InvoiceAttachment {
-  id            String   @id @default(uuid(7)) @db.Uuid
-  businessId    String   @map("business_id") @db.Uuid
-  invoiceId     String   @map("invoice_id") @db.Uuid
-  documentId    String   @map("document_id") @db.Uuid
-  addedByUserId String?  @map("added_by_user_id") @db.Uuid
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  invoice  Invoice     @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
-  document Document    @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
-  addedBy  Membership? @relation(fields: [businessId, addedByUserId], references: [businessId, userId], onDelete: Restrict)
-
-  @@unique([businessId, invoiceId, documentId])
-  @@index([businessId, documentId])
-  @@map("invoice_attachments")
 }

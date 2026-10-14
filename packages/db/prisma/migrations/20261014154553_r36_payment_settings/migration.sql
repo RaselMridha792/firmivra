@@ -73,18 +73,6 @@ CREATE TABLE "invoice_events" (
     CONSTRAINT "invoice_events_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "invoice_attachments" (
-    "id" UUID NOT NULL,
-    "business_id" UUID NOT NULL,
-    "invoice_id" UUID NOT NULL,
-    "document_id" UUID NOT NULL,
-    "added_by_user_id" UUID,
-    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "invoice_attachments_pkey" PRIMARY KEY ("id")
-);
-
 -- CreateIndex
 CREATE INDEX "invoice_tracking_business_id_archived_at_idx" ON "invoice_tracking"("business_id", "archived_at");
 
@@ -93,12 +81,6 @@ CREATE UNIQUE INDEX "invoice_tracking_business_id_invoice_id_key" ON "invoice_tr
 
 -- CreateIndex
 CREATE INDEX "invoice_events_business_id_invoice_id_created_at_idx" ON "invoice_events"("business_id", "invoice_id", "created_at");
-
--- CreateIndex
-CREATE INDEX "invoice_attachments_business_id_document_id_idx" ON "invoice_attachments"("business_id", "document_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "invoice_attachments_business_id_invoice_id_document_id_key" ON "invoice_attachments"("business_id", "invoice_id", "document_id");
 
 -- AddForeignKey
 ALTER TABLE "payment_settings" ADD CONSTRAINT "payment_settings_business_id_fkey" FOREIGN KEY ("business_id") REFERENCES "businesses"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -118,28 +100,18 @@ ALTER TABLE "invoice_events" ADD CONSTRAINT "invoice_events_business_id_invoice_
 -- AddForeignKey
 ALTER TABLE "invoice_events" ADD CONSTRAINT "invoice_events_business_id_actor_user_id_fkey" FOREIGN KEY ("business_id", "actor_user_id") REFERENCES "memberships"("business_id", "user_id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AddForeignKey
-ALTER TABLE "invoice_attachments" ADD CONSTRAINT "invoice_attachments_business_id_invoice_id_fkey" FOREIGN KEY ("business_id", "invoice_id") REFERENCES "invoices"("business_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "invoice_attachments" ADD CONSTRAINT "invoice_attachments_business_id_document_id_fkey" FOREIGN KEY ("business_id", "document_id") REFERENCES "documents"("business_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "invoice_attachments" ADD CONSTRAINT "invoice_attachments_business_id_added_by_user_id_fkey" FOREIGN KEY ("business_id", "added_by_user_id") REFERENCES "memberships"("business_id", "user_id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
 -- R36 (Rasel, Oct 14): the Payment Settings screen (one row per firm; the defaults are the column
 -- defaults), what happens around an invoice that is not its money (views, reminders, AutoPay
--- retries, archiving), the invoice's activity timeline and the files sent with it.
+-- retries, archiving) and the invoice's activity timeline.
 
 -- ---------- Grants and RLS: only the firm's own business scope ----------
 GRANT SELECT, INSERT, UPDATE ON payment_settings, invoice_tracking TO firmivra_app;
 GRANT SELECT, INSERT ON invoice_events TO firmivra_app;
-GRANT SELECT, INSERT, DELETE ON invoice_attachments TO firmivra_app;
 DO $$
 DECLARE
   t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['payment_settings', 'invoice_tracking', 'invoice_events', 'invoice_attachments'] LOOP
+  FOREACH t IN ARRAY ARRAY['payment_settings', 'invoice_tracking', 'invoice_events'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
     EXECUTE format('CREATE POLICY %I ON %I USING (business_id = app_current_business_id())'
@@ -182,33 +154,3 @@ ALTER TABLE invoice_events
     CHECK (type NOT IN ('NOTE', 'ACTIVITY_LOGGED') OR btrim(coalesce(body, '')) <> ''),
   -- Staff events name the staff member; client and system events never do.
   ADD CONSTRAINT invoice_events_actor CHECK ((actor_kind = 'STAFF') = (actor_user_id IS NOT NULL));
-
--- ---------- Rules ----------
--- Insert-only: an event is never changed (there is no UPDATE or DELETE grant either).
--- A file sent with an invoice is the invoice client's own, shared with them and scanned clean, and
--- changes only while the invoice can still change.
-CREATE FUNCTION invoice_attachments_rules() RETURNS trigger
-  LANGUAGE plpgsql
-  AS $$
-DECLARE
-  target uuid := CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_id ELSE NEW.invoice_id END;
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM invoices i WHERE i.id = target AND i.status NOT IN ('PAID', 'CANCELED')) THEN
-    RAISE EXCEPTION 'invoice attachments: a paid or canceled invoice keeps its files'
-      USING ERRCODE = 'check_violation';
-  END IF;
-  IF TG_OP = 'DELETE' THEN
-    RETURN OLD;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM invoices i JOIN documents d ON d.id = NEW.document_id
-                 WHERE i.id = NEW.invoice_id AND d.client_id = i.client_id
-                   AND d.direction <> 'INTERNAL' AND d.scan_status = 'CLEAN') THEN
-    RAISE EXCEPTION 'invoice attachments: the document must be a clean, shared document of the invoice''s client'
-      USING ERRCODE = 'check_violation';
-  END IF;
-  RETURN NEW;
-END
-$$;
-CREATE TRIGGER invoice_attachments_rules
-  BEFORE INSERT OR DELETE ON invoice_attachments
-  FOR EACH ROW EXECUTE FUNCTION invoice_attachments_rules();

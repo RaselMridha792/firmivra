@@ -14,7 +14,6 @@ const db = createDatabase(urls.app, TEST_CLIENT_OPTIONS);
 
 let f: Awaited<ReturnType<typeof createFirms>>;
 const staff = randomUUID();
-const ids = { otherClient: '', engagement: '', otherEngagement: '' };
 let count = 0;
 const A = () => ({ businessId: f.firmA });
 const firmA = () => db.forBusiness(f.firmA);
@@ -29,27 +28,6 @@ const finalInvoice = async () => {
     data: { status: 'CANCELED', canceledAt: new Date() },
   });
 };
-const document = (clientId: string, engagementId: string, data: Record<string, unknown> = {}) =>
-  firmA().document.create({
-    data: {
-      ...A(),
-      clientId,
-      engagementId,
-      direction: 'FIRM_TO_CLIENT',
-      fileName: 'letter.pdf',
-      contentType: 'application/pdf',
-      sizeBytes: 1024,
-      sha256: 'c'.repeat(64),
-      s3Key: `tenant/${f.firmA}/documents/${randomUUID()}`,
-      ...data,
-    },
-  });
-const clean = async (id: string) =>
-  firmA().document.update({
-    where: { id },
-    data: { scanStatus: 'CLEAN', scannedAt: new Date() },
-  });
-
 beforeAll(async () => {
   f = await createFirms(owner, 'pc');
   await runInScope(owner, { kind: 'platform' }, (tx) =>
@@ -67,18 +45,6 @@ beforeAll(async () => {
     await tx.membership.create({
       data: { ...A(), userId: staff, role: 'STAFF', status: 'ACTIVE' },
     });
-    ids.otherClient = (await tx.client.create({ data: { ...A(), displayName: 'Other' } })).id;
-    const service = await tx.service.create({ data: { ...A(), kind: 'OTHER', name: 'Svc' } });
-    for (const [key, clientId] of [
-      ['engagement', f.client],
-      ['otherEngagement', ids.otherClient],
-    ] as const) {
-      ids[key] = (
-        await tx.engagement.create({
-          data: { ...A(), clientId, serviceId: service.id, title: 'E' },
-        })
-      ).id;
-    }
   });
 });
 
@@ -261,67 +227,15 @@ describe('invoice events', () => {
   });
 });
 
-describe('invoice attachments', () => {
-  const attach = (invoiceId: string, documentId: string) =>
-    firmA().invoiceAttachment.create({
-      data: { ...A(), invoiceId, documentId, addedByUserId: staff },
-    });
-
-  it("take the invoice client's own clean, shared document, once", async () => {
-    const inv = await draft();
-    const doc = await document(f.client, ids.engagement);
-    await expect(attach(inv.id, doc.id)).rejects.toThrow(/clean, shared document/); // still PENDING
-    await clean(doc.id);
-    await expect(attach(inv.id, doc.id)).resolves.toBeTruthy();
-    await expect(attach(inv.id, doc.id)).rejects.toThrow(/unique/i);
-  });
-
-  it("refuse another client's document and an internal one", async () => {
-    const inv = await draft();
-    const theirs = await clean((await document(ids.otherClient, ids.otherEngagement)).id);
-    await expect(attach(inv.id, theirs.id)).rejects.toThrow(/clean, shared document/);
-    const internal = await clean(
-      (await document(f.client, ids.engagement, { direction: 'INTERNAL' })).id,
-    );
-    await expect(attach(inv.id, internal.id)).rejects.toThrow(/clean, shared document/);
-  });
-
-  it('change only while the invoice can: removable on a draft, frozen once canceled', async () => {
-    const inv = await draft();
-    const doc = await clean((await document(f.client, ids.engagement)).id);
-    const row = await attach(inv.id, doc.id);
-    await firmA().invoiceAttachment.delete({ where: { id: row.id } });
-    const again = await attach(inv.id, doc.id);
-    await firmA().invoice.update({
-      where: { id: inv.id },
-      data: { status: 'CANCELED', canceledAt: new Date() },
-    });
-    await expect(firmA().invoiceAttachment.delete({ where: { id: again.id } })).rejects.toThrow(
-      /keeps its files/,
-    );
-    const other = await clean((await document(f.client, ids.engagement)).id);
-    await expect(attach(inv.id, other.id)).rejects.toThrow(/keeps its files/);
-  });
-});
-
 describe('isolation between firms', () => {
-  it('payment settings, tracking, events and attachments are invisible to another firm', async () => {
+  it('payment settings, tracking and events are invisible to another firm', async () => {
     const inv = await draft();
     await firmA().invoiceTracking.create({ data: { ...A(), invoiceId: inv.id } });
     await firmA().invoiceEvent.create({
       data: { ...A(), invoiceId: inv.id, type: 'SENT', actorUserId: staff },
     });
-    const doc = await clean((await document(f.client, ids.engagement)).id);
-    await firmA().invoiceAttachment.create({
-      data: { ...A(), invoiceId: inv.id, documentId: doc.id },
-    });
     await firmB().paymentSettings.create({ data: { businessId: f.firmB } });
-    const tables = [
-      'payment_settings',
-      'invoice_tracking',
-      'invoice_events',
-      'invoice_attachments',
-    ];
+    const tables = ['payment_settings', 'invoice_tracking', 'invoice_events'];
     // Firm B has rows of its own only in settings; the others it must simply not see of A's.
     await expectInvisibleToOtherFirm(app, f.firmA, f.firmB, ['payment_settings']);
     for (const table of tables.slice(1)) {
