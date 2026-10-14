@@ -112,6 +112,28 @@ export type DeadlineStatus = z.infer<typeof DeadlineStatus>;
 export const JurisdictionLevel = z.enum(['FEDERAL', 'STATE', 'LOCAL', 'INTERNAL']);
 export type JurisdictionLevel = z.infer<typeof JurisdictionLevel>;
 
+/** A family of official calendars (a firm keeps its own library of them). */
+export const CalendarFamily = z.enum([
+  'IRS_GENERAL',
+  'IRS_EMPLOYER',
+  'STATE_INCOME_FRANCHISE',
+  'SECRETARY_OF_STATE',
+  'SALES_USE_TAX',
+  'PAYROLL_WITHHOLDING',
+  'LOCAL_BUSINESS_LICENSE',
+  'PROFESSIONAL_LICENSE',
+  'FIRM_INTERNAL',
+]);
+export type CalendarFamily = z.infer<typeof CalendarFamily>;
+
+/** DRAFT (imported), VERIFIED (checked against the source), PUBLISHED (in use: at most one per family, authority and year), SUPERSEDED (a later version replaced it; kept for rollback and comparison), ARCHIVED. */
+export const CalendarStatus = z.enum(['DRAFT', 'VERIFIED', 'PUBLISHED', 'SUPERSEDED', 'ARCHIVED']);
+export type CalendarStatus = z.infer<typeof CalendarStatus>;
+
+/** How a calendar entry gives its date. NEEDS_VERIFICATION has no date: a date is never invented. */
+export const CalendarRuleKind = z.enum(['FIXED_DATE', 'FORMULA', 'NEEDS_VERIFICATION']);
+export type CalendarRuleKind = z.infer<typeof CalendarRuleKind>;
+
 /** How a template or recurring series picks the assignee of a new task. */
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;

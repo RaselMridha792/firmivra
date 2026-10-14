@@ -33,6 +33,10 @@ export const SEED_R38_IDS = {
   deadline1: id(11),
   deadline2: id(12),
   deadlineReminder: id(13),
+  deadlineDocument: id(14),
+  calendar: id(15),
+  entry1: id(16),
+  entry2: id(17),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -218,8 +222,93 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
       channels: ['EMAIL'],
     },
   });
+  await tx.complianceDeadlineDocument.upsert({
+    where: { id: SEED_R38_IDS.deadlineDocument },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.deadlineDocument,
+      businessId,
+      deadlineId: SEED_R38_IDS.deadline1,
+      documentId: c.documentId,
+    },
+  });
+  await tx.complianceDeadlineLink.upsert({
+    where: {
+      deadlineId_relatedDeadlineId: {
+        deadlineId: SEED_R38_IDS.deadline1,
+        relatedDeadlineId: SEED_R38_IDS.deadline2,
+      },
+    },
+    update: {},
+    create: {
+      businessId,
+      deadlineId: SEED_R38_IDS.deadline1,
+      relatedDeadlineId: SEED_R38_IDS.deadline2,
+    },
+  });
+  await seedCalendar(tx, businessId);
+  await tx.complianceDeadline.update({
+    where: { id: SEED_R38_IDS.deadline1 },
+    data: {
+      calendarEntryId: SEED_R38_IDS.entry1,
+      applicabilityReason: 'Individual with estimated tax: IRS calendar 2027, version 1',
+    },
+  });
   await tx.task.update({
     where: { id: c.taskId },
     data: { deadlineId: SEED_R38_IDS.deadline1, templateId: SEED_R38_IDS.template },
   });
+}
+
+/** The IRS 2027 calendar, published: an entry with a date, and one that needs checking. */
+async function seedCalendar(tx: TxClient, businessId: string) {
+  const calendarId = SEED_R38_IDS.calendar;
+  if (await tx.complianceCalendar.findUnique({ where: { id: calendarId } })) return;
+  await tx.complianceCalendar.create({
+    data: {
+      id: calendarId,
+      businessId,
+      family: 'IRS_GENERAL',
+      authority: 'IRS',
+      jurisdiction: 'FEDERAL',
+      effectiveYear: 2027,
+      name: 'IRS tax calendar 2027',
+      sourceUrl: 'https://www.irs.gov/publications/p509',
+      retrievedAt: new Date('2026-10-01T12:00:00Z'),
+    },
+  });
+  await tx.complianceCalendarEntry.createMany({
+    data: [
+      {
+        id: SEED_R38_IDS.entry1,
+        businessId,
+        calendarId,
+        name: 'Individual estimated tax, Q4 2026',
+        type: 'ESTIMATED_TAX',
+        form: 'Form 1040-ES',
+        ruleKind: 'FIXED_DATE',
+        dueOn: new Date('2027-01-15'),
+      },
+      {
+        id: SEED_R38_IDS.entry2,
+        businessId,
+        calendarId,
+        name: 'S corporation return',
+        type: 'TAX_FILING',
+        form: 'Form 1120-S',
+        ruleKind: 'FORMULA',
+        rule: { monthsAfterYearEnd: 3, day: 15 },
+      },
+    ],
+  });
+  for (const status of ['VERIFIED', 'PUBLISHED'] as const) {
+    await tx.complianceCalendar.update({
+      where: { id: calendarId },
+      data: {
+        status,
+        verifiedAt: new Date('2026-10-02T12:00:00Z'),
+        ...(status === 'PUBLISHED' ? { publishedAt: new Date('2026-10-02T13:00:00Z') } : {}),
+      },
+    });
+  }
 }

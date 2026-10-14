@@ -175,6 +175,37 @@ enum JurisdictionLevel {
   INTERNAL
 }
 
+/// A family of official calendars (a firm keeps its own library of them).
+enum CalendarFamily {
+  IRS_GENERAL
+  IRS_EMPLOYER
+  STATE_INCOME_FRANCHISE
+  SECRETARY_OF_STATE
+  SALES_USE_TAX
+  PAYROLL_WITHHOLDING
+  LOCAL_BUSINESS_LICENSE
+  PROFESSIONAL_LICENSE
+  FIRM_INTERNAL
+}
+
+/// DRAFT (imported), VERIFIED (checked against the source), PUBLISHED (in use: at most one per
+/// family, authority and year), SUPERSEDED (a later version replaced it; kept for rollback and
+/// comparison), ARCHIVED.
+enum CalendarStatus {
+  DRAFT
+  VERIFIED
+  PUBLISHED
+  SUPERSEDED
+  ARCHIVED
+}
+
+/// How a calendar entry gives its date. NEEDS_VERIFICATION has no date: a date is never invented.
+enum CalendarRuleKind {
+  FIXED_DATE
+  FORMULA
+  NEEDS_VERIFICATION
+}
+
 /// How a template or recurring series picks the assignee of a new task.
 enum TaskAssignmentRule {
   UNASSIGNED
@@ -1238,18 +1269,19 @@ model Document {
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  esignRequest       EsignRequest?       @relation("EsignFiledDocuments", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
-  esignFinalOf       EsignRequest?       @relation("EsignFinalDocument")
-  esignCertificateOf EsignRequest?       @relation("EsignCertificateDocument")
-  engagement         Engagement          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  category           DocumentCategory?   @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
-  request            DocumentRequest?    @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
-  leadUpload         LeadUpload?         @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
-  intake             Intake?             @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
-  reports            EngagementReport[]
-  messageAttachments MessageAttachment[]
-  taxReturns         TaxReturn[]
-  taskAttachments    TaskAttachment[]
+  esignRequest                EsignRequest?                @relation("EsignFiledDocuments", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
+  esignFinalOf                EsignRequest?                @relation("EsignFinalDocument")
+  esignCertificateOf          EsignRequest?                @relation("EsignCertificateDocument")
+  engagement                  Engagement                   @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category                    DocumentCategory?            @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  request                     DocumentRequest?             @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
+  leadUpload                  LeadUpload?                  @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
+  intake                      Intake?                      @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+  reports                     EngagementReport[]
+  messageAttachments          MessageAttachment[]
+  taxReturns                  TaxReturn[]
+  taskAttachments             TaskAttachment[]
+  complianceDeadlineDocuments ComplianceDeadlineDocument[]
 
   // Target of message attachments.
   @@unique([businessId, id])
@@ -3310,6 +3342,10 @@ model ComplianceDeadline {
   filedOn             DateTime?          @map("filed_on") @db.Date
   confirmationNumber  String?            @map("confirmation_number")
   notApplicableReason String?            @map("not_applicable_reason")
+  /// The library entry that made this deadline, and why it applies to the client (rule and
+  /// calendar version): at most one deadline per client, entry and due date (SQL only).
+  calendarEntryId     String?            @map("calendar_entry_id") @db.Uuid
+  applicabilityReason String?            @map("applicability_reason")
   createdByUserId     String?            @map("created_by_user_id") @db.Uuid
   archivedAt          DateTime?          @map("archived_at") @db.Timestamptz(3)
   createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -3319,7 +3355,11 @@ model ComplianceDeadline {
   engagement     Engagement?                  @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   assignedMember Membership?                  @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
   taskTemplate   TaskTemplate?                @relation(fields: [businessId, taskTemplateId], references: [businessId, id], onDelete: Restrict)
+  calendarEntry  ComplianceCalendarEntry?     @relation(fields: [businessId, calendarEntryId], references: [businessId, id], onDelete: Restrict)
   reminders      ComplianceDeadlineReminder[]
+  documents      ComplianceDeadlineDocument[]
+  links          ComplianceDeadlineLink[]     @relation("DeadlineLinks")
+  linkedFrom     ComplianceDeadlineLink[]     @relation("DeadlineLinked")
   tasks          Task[]
 
   @@unique([businessId, id])
@@ -3346,4 +3386,96 @@ model ComplianceDeadlineReminder {
 
   @@unique([businessId, deadlineId, daysBefore])
   @@map("compliance_deadline_reminders")
+}
+
+/// A document attached to a deadline: one of the deadline client's documents.
+model ComplianceDeadlineDocument {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  deadlineId    String   @map("deadline_id") @db.Uuid
+  documentId    String   @map("document_id") @db.Uuid
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  deadline ComplianceDeadline @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Cascade)
+  document Document           @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, deadlineId, documentId])
+  @@index([businessId, documentId])
+  @@map("compliance_deadline_documents")
+}
+
+/// "Related deadlines": a link from one deadline to another of the same client.
+model ComplianceDeadlineLink {
+  businessId        String   @map("business_id") @db.Uuid
+  deadlineId        String   @map("deadline_id") @db.Uuid
+  relatedDeadlineId String   @map("related_deadline_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  deadline        ComplianceDeadline @relation("DeadlineLinks", fields: [businessId, deadlineId], references: [businessId, id], onDelete: Cascade)
+  relatedDeadline ComplianceDeadline @relation("DeadlineLinked", fields: [businessId, relatedDeadlineId], references: [businessId, id], onDelete: Cascade)
+
+  @@id([deadlineId, relatedDeadlineId])
+  @@index([businessId, relatedDeadlineId])
+  @@map("compliance_deadline_links")
+}
+
+/// One version of an official calendar in the firm's library: an authority and jurisdiction for
+/// one effective year, with its source and when it was retrieved and last verified. Importing
+/// makes a DRAFT; publishing supersedes the previous PUBLISHED version, which stays for rollback.
+/// A failed import never touches the published one.
+model ComplianceCalendar {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  businessId        String            @map("business_id") @db.Uuid
+  family            CalendarFamily
+  /// "IRS", "Georgia Secretary of State".
+  authority         String
+  jurisdiction      JurisdictionLevel
+  state             String?
+  effectiveYear     Int               @map("effective_year")
+  /// 1, 2, 3... per family, authority, state and year.
+  version           Int               @default(1)
+  name              String
+  /// The official page the dates come from.
+  sourceUrl         String            @map("source_url")
+  retrievedAt       DateTime?         @map("retrieved_at") @db.Timestamptz(3)
+  verifiedAt        DateTime?         @map("verified_at") @db.Timestamptz(3)
+  status            CalendarStatus    @default(DRAFT)
+  publishedAt       DateTime?         @map("published_at") @db.Timestamptz(3)
+  publishedByUserId String?           @map("published_by_user_id") @db.Uuid
+  createdByUserId   String?           @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  entries ComplianceCalendarEntry[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, family, authority, state, effectiveYear, version])
+  @@index([businessId, status])
+  @@map("compliance_calendars")
+}
+
+/// A deadline of a calendar version: a fixed date for the year, or a formula (for example the
+/// 15th day of the 3rd month after year end, in `rule`), with the form it belongs to.
+model ComplianceCalendarEntry {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  businessId  String           @map("business_id") @db.Uuid
+  calendarId  String           @map("calendar_id") @db.Uuid
+  name        String
+  type        DeadlineType
+  form        String?
+  description String?
+  ruleKind    CalendarRuleKind @map("rule_kind")
+  dueOn       DateTime?        @map("due_on") @db.Date
+  rule        Json?
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  calendar  ComplianceCalendar   @relation(fields: [businessId, calendarId], references: [businessId, id], onDelete: Restrict)
+  deadlines ComplianceDeadline[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, calendarId, name, dueOn])
+  @@index([businessId, calendarId])
+  @@map("compliance_calendar_entries")
 }
