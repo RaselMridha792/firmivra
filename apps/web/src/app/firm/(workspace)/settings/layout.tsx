@@ -7,13 +7,23 @@ import { isActive } from '../../../../components/app-shell/types';
 import { useFirm } from '../../../../components/firm-context';
 
 const menu: [label: string, href: string][] = [
+  ['Overview', '/settings/overview'],
   ['Profile', '/settings/profile'],
   ['Branding', '/settings/branding'],
   ['Client portal', '/settings/portal'],
   ['Terms & Privacy', '/settings/legal'],
   ['Availability', '/settings/availability'],
-  ['Tax statuses', '/settings/tax-statuses'],
+  ['Users & roles', '/settings/users'],
+  ['Billing', '/settings/billing'],
   ['Payments', '/settings/payments'],
+  ['Communications', '/settings/communications'],
+  ['Notifications', '/settings/notifications'],
+  ['Forms & documents', '/settings/forms-documents'],
+  ['Workflow & automations', '/settings/workflow'],
+  ['Security & access', '/settings/security'],
+  ['Data & backups', '/settings/data'],
+  ['Preferences', '/settings/preferences'],
+  ['Tax statuses', '/settings/tax-statuses'],
 ];
 
 /**

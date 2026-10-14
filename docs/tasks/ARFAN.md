@@ -51,7 +51,7 @@ Checklist:
 
 - **Pages:** in `portal/[firmSlug]/(public)/begin/`: `quarterly-tax/`, `bookkeeping/`, `payroll/`, `tax-planning/` and `business-development/`.
 - **Mockups:** Quarterly Tax (`business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png`), Bookkeeping (4 files), Payroll (3), Tax Planning (4) and Business Development (4), all in `docs/mockups/begin-online/`. `NOTES-begin-online.md` maps each file to its service.
-- **Build:** each service from the N07a blocks. One PR per one or two services, each under 400 lines.
+- **Build:** each service from the N07a blocks. One PR per service (one ticket or one page per PR).
 
 ### Q01 · Oct 10 (morning) · Test: sign-in on the three dev sites
 
