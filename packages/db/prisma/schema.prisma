@@ -3572,3 +3572,129 @@ model CommunicationEvent {
   @@index([businessId, recipientId])
   @@map("communication_events")
 }
+
+// ---------- Reports: saved report definitions (engagement_reports stay as they are) ----------
+
+enum ReportCategory {
+  FINANCIAL
+  CLIENT
+  TAX
+  BOOKKEEPING
+  PAYROLL
+  LEADS
+  COMMUNICATIONS
+  TEAM_PRODUCTIVITY
+  ADVISORY
+}
+
+enum ReportVisibility {
+  PRIVATE
+  /// The people in report_shares and the roles in `sharedRoles`.
+  SELECTED
+  COMPANY
+}
+
+/// A saved report keeps its settings, with either a fixed date range or a rolling one.
+enum ReportDateRule {
+  FIXED
+  ROLLING
+}
+
+/// Which money "Total Revenue" means in every report, KPI card and export of the firm.
+enum RevenueBasis {
+  COLLECTED
+  INVOICED
+}
+
+/// A saved report: what the Custom Report Builder stores. Built-in quick reports live in code.
+/// It holds the definition (source, ordered columns, filters, grouping, sort, date rule, chart),
+/// never frozen results. Field names are validated by the API against the source's field list;
+/// the database also refuses any column that names a secret or an identifier no report may show.
+/// Archived, never deleted, so a past run still points at it.
+model ReportDefinition {
+  id                String           @id @default(uuid(7)) @db.Uuid
+  businessId        String           @map("business_id") @db.Uuid
+  category          ReportCategory
+  /// The primary dataset ("invoices_payments", "clients", "returns"...).
+  dataSource        String           @map("data_source")
+  name              String
+  description       String?
+  /// Selected columns, in display order.
+  columns           String[]         @default([])
+  /// Conditions: [{ field, op, value }] or AND/OR groups of them.
+  filters           Json             @default("[]")
+  groupBy           String?          @map("group_by")
+  sortBy            String?          @map("sort_by")
+  sortDescending    Boolean          @default(false) @map("sort_descending")
+  showTotals        Boolean          @default(false) @map("show_totals")
+  showPercentage    Boolean          @default(false) @map("show_percentage")
+  includeComparison Boolean          @default(false) @map("include_comparison")
+  /// "previous_period" or "same_period_last_year".
+  compareTo         String?          @map("compare_to")
+  dateRule          ReportDateRule   @default(ROLLING) @map("date_rule")
+  /// ROLLING: "last_7_days", "this_month", "previous_month", "this_year"...
+  datePreset        String?          @map("date_preset")
+  dateFrom          DateTime?        @map("date_from") @db.Date
+  dateTo            DateTime?        @map("date_to") @db.Date
+  chartType         String           @default("auto") @map("chart_type")
+  showDataLabels    Boolean          @default(false) @map("show_data_labels")
+  includeTaxRevenue Boolean          @default(false) @map("include_tax_revenue")
+  visibility        ReportVisibility @default(PRIVATE)
+  /// With SELECTED: firm roles that can open it (OWNER, ADMIN, STAFF).
+  sharedRoles       String[]         @default([]) @map("shared_roles")
+  ownerUserId       String           @map("owner_user_id") @db.Uuid
+  archivedAt        DateTime?        @map("archived_at") @db.Timestamptz(3)
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  shares    ReportShare[]
+  favorites ReportFavorite[]
+
+  @@unique([businessId, id])
+  @@index([businessId, category])
+  @@index([businessId, ownerUserId])
+  @@map("report_definitions")
+}
+
+/// A person a SELECTED report is shared with.
+model ReportShare {
+  businessId   String   @map("business_id") @db.Uuid
+  definitionId String   @map("definition_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  definition ReportDefinition @relation(fields: [businessId, definitionId], references: [businessId, id], onDelete: Cascade)
+
+  @@id([definitionId, userId])
+  @@index([businessId, userId])
+  @@map("report_shares")
+}
+
+/// A person's own favourite report.
+model ReportFavorite {
+  businessId   String   @map("business_id") @db.Uuid
+  definitionId String   @map("definition_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  definition ReportDefinition @relation(fields: [businessId, definitionId], references: [businessId, id], onDelete: Cascade)
+
+  @@id([definitionId, userId])
+  @@index([businessId, userId])
+  @@map("report_favorites")
+}
+
+/// One row per firm: the metric definitions every report, KPI card and export shares, so the
+/// numbers reconcile. `staleAfterMinutes` is when a cached aggregate shows a freshness warning.
+model ReportSettings {
+  businessId        String       @id @map("business_id") @db.Uuid
+  revenueBasis      RevenueBasis @default(COLLECTED) @map("revenue_basis")
+  includeTaxDefault Boolean      @default(false) @map("include_tax_default")
+  defaultDatePreset String       @default("this_year") @map("default_date_preset")
+  staleAfterMinutes Int          @default(60) @map("stale_after_minutes")
+  updatedByUserId   String?      @map("updated_by_user_id") @db.Uuid
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("report_settings")
+}

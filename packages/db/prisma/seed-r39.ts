@@ -10,6 +10,7 @@ export async function seedR39(tx: TxClient, businessId: string) {
   await seedIntegrationRequest(tx, businessId);
   await seedAudiences(tx, businessId);
   await seedCommunications(tx, businessId);
+  await seedReports(tx, businessId);
 }
 
 async function seedTemplates(tx: TxClient, businessId: string) {
@@ -245,4 +246,31 @@ async function seedCommunications(tx: TxClient, businessId: string) {
       createdByUserId: SEED_USERS.lvpOwner.id,
     },
   });
+}
+
+async function seedReports(tx: TxClient, businessId: string) {
+  await tx.reportSettings.upsert({ where: { businessId }, update: {}, create: { businessId } });
+  const ownerUserId = SEED_USERS.lvpOwner.id;
+  if (await tx.reportDefinition.findFirst({ where: { businessId, name: 'Custom Revenue Report' } }))
+    return;
+  const report = await tx.reportDefinition.create({
+    data: {
+      businessId,
+      category: 'FINANCIAL',
+      dataSource: 'invoices_payments',
+      name: 'Custom Revenue Report',
+      columns: ['client_name', 'invoice_number', 'invoice_date', 'amount', 'balance_due'],
+      filters: [{ field: 'payment_status', op: 'is_any_of', value: ['paid', 'partial'] }],
+      groupBy: 'service_type',
+      sortBy: 'amount',
+      sortDescending: true,
+      showTotals: true,
+      datePreset: 'this_year',
+      ownerUserId,
+      visibility: 'COMPANY',
+    },
+  });
+  const link = { businessId, definitionId: report.id };
+  await tx.reportFavorite.create({ data: { ...link, userId: ownerUserId } });
+  await tx.reportShare.create({ data: { ...link, userId: SEED_USERS.lvpStaff.id } });
 }

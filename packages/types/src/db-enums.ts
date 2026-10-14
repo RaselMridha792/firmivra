@@ -483,3 +483,27 @@ export const CommunicationEventType = z.enum([
   'FAILED',
 ]);
 export type CommunicationEventType = z.infer<typeof CommunicationEventType>;
+
+export const ReportCategory = z.enum([
+  'FINANCIAL',
+  'CLIENT',
+  'TAX',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'LEADS',
+  'COMMUNICATIONS',
+  'TEAM_PRODUCTIVITY',
+  'ADVISORY',
+]);
+export type ReportCategory = z.infer<typeof ReportCategory>;
+
+export const ReportVisibility = z.enum(['PRIVATE', 'SELECTED', 'COMPANY']);
+export type ReportVisibility = z.infer<typeof ReportVisibility>;
+
+/** A saved report keeps its settings, with either a fixed date range or a rolling one. */
+export const ReportDateRule = z.enum(['FIXED', 'ROLLING']);
+export type ReportDateRule = z.infer<typeof ReportDateRule>;
+
+/** Which money "Total Revenue" means in every report, KPI card and export of the firm. */
+export const RevenueBasis = z.enum(['COLLECTED', 'INVOICED']);
+export type RevenueBasis = z.infer<typeof RevenueBasis>;
