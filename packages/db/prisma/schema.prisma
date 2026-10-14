@@ -143,6 +143,42 @@ enum TaskAssignmentRule {
   CLIENT_TEAM
 }
 
+enum RecurrenceUnit {
+  DAY
+  WEEK
+  MONTH
+  QUARTER
+  YEAR
+}
+
+enum RecurrenceEnd {
+  NEVER
+  AFTER_COUNT
+  ON_DATE
+}
+
+/// Move a date that falls on a weekend or holiday.
+enum HolidayRule {
+  NONE
+  NEXT_BUSINESS_DAY
+  PREVIOUS_BUSINESS_DAY
+}
+
+enum TaskSeriesStatus {
+  ACTIVE
+  PAUSED
+  /// Stopped: no more tasks are made, the tasks made so far stay.
+  ENDED
+  ARCHIVED
+}
+
+enum TaskOccurrenceState {
+  SCHEDULED
+  GENERATED
+  SKIPPED
+  FAILED
+}
+
 /// Bookkeeping: REPORT, RECONCILIATION. Tax Planning: ESTIMATE, PROJECTION.
 enum ReportKind {
   REPORT
@@ -452,6 +488,7 @@ model Membership {
   taskCollaborations  TaskAssignee[]
   checklistAssigned   TaskChecklistItem[]
   taskTemplates       TaskTemplate[]
+  taskSeries          TaskSeries[]
   workingHours        WorkingHours[]
   blockedTimes        BlockedTime[]
   appointments        Appointment[]
@@ -766,6 +803,7 @@ model Client {
   taxReturns       TaxReturn[]
   esignRequests    EsignRequest[]
   esignBulkItems   EsignBulkItem[]
+  taskSeries       TaskSeries[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -889,6 +927,7 @@ model Service {
   leads         Lead[]
   tasks         Task[]
   taskTemplates TaskTemplate[]
+  taskSeries    TaskSeries[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -931,6 +970,7 @@ model Engagement {
   assignedMember   Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
   statusHistory    EngagementStatusHistory[]
   tasks            Task[]
+  taskSeries       TaskSeries[]
   notes            Note[]
   reports          EngagementReport[]
   documents        Document[]
@@ -1019,6 +1059,7 @@ model Task {
   taskChecklistItems TaskChecklistItem[]
   taskReminders      TaskReminder[]
   taskAttachments    TaskAttachment[]
+  taskOccurrence     TaskOccurrence?
 
   @@unique([businessId, id])
   @@index([businessId, clientId])
@@ -2960,6 +3001,7 @@ model TaskType {
   business  Business       @relation(fields: [businessId], references: [id])
   tasks     Task[]
   templates TaskTemplate[]
+  series    TaskSeries[]
 
   @@unique([businessId, id])
   @@unique([businessId, name])
@@ -3077,4 +3119,87 @@ model TaskTemplate {
 
   @@unique([businessId, name])
   @@map("task_templates")
+}
+
+/// A recurring task definition (the Set Up Recurring Task screen). Each due date makes one task
+/// from a snapshot of these defaults (see TaskOccurrence); a later edit never rewrites tasks
+/// already made. `pattern` holds the repeat-on choice: {weekdays: [0-6]} for weekly, {monthly:
+/// "DAY_OF_MONTH"} or {monthly: "NTH_WEEKDAY", nth: 1-5, weekday: 0-6} for monthly.
+model TaskSeries {
+  id                  String             @id @default(uuid(7)) @db.Uuid
+  businessId          String             @map("business_id") @db.Uuid
+  clientId            String             @map("client_id") @db.Uuid
+  engagementId        String?            @map("engagement_id") @db.Uuid
+  serviceId           String?            @map("service_id") @db.Uuid
+  typeId              String?            @map("type_id") @db.Uuid
+  title               String
+  details             String?
+  priority            TaskPriority       @default(MEDIUM)
+  assignmentRule      TaskAssignmentRule @default(UNASSIGNED) @map("assignment_rule")
+  assignedUserId      String?            @map("assigned_user_id") @db.Uuid
+  /// Collaborators of every task made; each must be a member of the firm (checked by the database).
+  extraAssigneeIds    String[]           @default([]) @map("extra_assignee_ids") @db.Uuid
+  interval            Int                @default(1)
+  unit                RecurrenceUnit
+  pattern             Json               @default("{}")
+  startOn             DateTime           @map("start_on") @db.Date
+  endMode             RecurrenceEnd      @default(NEVER) @map("end_mode")
+  endAfterCount       Int?               @map("end_after_count")
+  endOn               DateTime?          @map("end_on") @db.Date
+  holidayRule         HolidayRule        @default(NEXT_BUSINESS_DAY) @map("holiday_rule")
+  /// Make each task at the start of its period instead of leadDays before its due date.
+  createAtPeriodStart Boolean            @default(false) @map("create_at_period_start")
+  leadDays            Int?               @map("lead_days")
+  linkTaxCalendar     Boolean            @default(false) @map("link_tax_calendar")
+  dueTime             DateTime?          @map("due_time") @db.Time(0)
+  clientVisible       Boolean            @default(false) @map("client_visible")
+  notifyClient        Boolean            @default(false) @map("notify_client")
+  checklist           Json               @default("[]")
+  reminders           Json               @default("[]")
+  status              TaskSeriesStatus   @default(ACTIVE)
+  pausedAt            DateTime?          @map("paused_at") @db.Timestamptz(3)
+  endedAt             DateTime?          @map("ended_at") @db.Timestamptz(3)
+  createdByUserId     String?            @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client         Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement     Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  service        Service?         @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  type           TaskType?        @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  assignedMember Membership?      @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  occurrences    TaskOccurrence[]
+
+  @@unique([businessId, id])
+  @@index([businessId, clientId])
+  @@index([businessId, status])
+  @@map("task_series")
+}
+
+/// One due date of a series. The unique (series, scheduledOn) makes generation idempotent: a
+/// retry finds the row instead of making a second task. scheduledOn is the unadjusted date,
+/// dueOn the one after the holiday rule. A GENERATED row points at its task; SKIPPED has a reason.
+model TaskOccurrence {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  businessId  String              @map("business_id") @db.Uuid
+  seriesId    String              @map("series_id") @db.Uuid
+  scheduledOn DateTime            @map("scheduled_on") @db.Date
+  dueOn       DateTime            @map("due_on") @db.Date
+  state       TaskOccurrenceState @default(SCHEDULED)
+  taskId      String?             @map("task_id") @db.Uuid
+  skipReason  String?             @map("skip_reason")
+  /// A safe code for the last failure (never a message with client data), and the tries so far.
+  failureCode String?             @map("failure_code")
+  attempts    Int                 @default(0)
+  generatedAt DateTime?           @map("generated_at") @db.Timestamptz(3)
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  series TaskSeries @relation(fields: [businessId, seriesId], references: [businessId, id], onDelete: Restrict)
+  task   Task?      @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, seriesId, scheduledOn])
+  @@unique([businessId, taskId])
+  @@index([businessId, state, dueOn])
+  @@map("task_occurrences")
 }

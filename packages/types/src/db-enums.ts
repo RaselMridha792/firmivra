@@ -83,6 +83,22 @@ export type TaskPriority = z.infer<typeof TaskPriority>;
 export const TaskAssignmentRule = z.enum(['UNASSIGNED', 'SPECIFIC_USER', 'CLIENT_TEAM']);
 export type TaskAssignmentRule = z.infer<typeof TaskAssignmentRule>;
 
+export const RecurrenceUnit = z.enum(['DAY', 'WEEK', 'MONTH', 'QUARTER', 'YEAR']);
+export type RecurrenceUnit = z.infer<typeof RecurrenceUnit>;
+
+export const RecurrenceEnd = z.enum(['NEVER', 'AFTER_COUNT', 'ON_DATE']);
+export type RecurrenceEnd = z.infer<typeof RecurrenceEnd>;
+
+/** Move a date that falls on a weekend or holiday. */
+export const HolidayRule = z.enum(['NONE', 'NEXT_BUSINESS_DAY', 'PREVIOUS_BUSINESS_DAY']);
+export type HolidayRule = z.infer<typeof HolidayRule>;
+
+export const TaskSeriesStatus = z.enum(['ACTIVE', 'PAUSED', 'ENDED', 'ARCHIVED']);
+export type TaskSeriesStatus = z.infer<typeof TaskSeriesStatus>;
+
+export const TaskOccurrenceState = z.enum(['SCHEDULED', 'GENERATED', 'SKIPPED', 'FAILED']);
+export type TaskOccurrenceState = z.infer<typeof TaskOccurrenceState>;
+
 /** Bookkeeping: REPORT, RECONCILIATION. Tax Planning: ESTIMATE, PROJECTION. */
 export const ReportKind = z.enum(['REPORT', 'RECONCILIATION', 'ESTIMATE', 'PROJECTION']);
 export type ReportKind = z.infer<typeof ReportKind>;

@@ -27,6 +27,9 @@ export const SEED_R38_IDS = {
   reminder2: id(5),
   attachment: id(6),
   template: id(7),
+  series: id(8),
+  occurrence1: id(9),
+  occurrence2: id(10),
 } as const;
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
@@ -96,7 +99,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
     create: { id: SEED_R38_IDS.attachment, businessId, taskId: c.taskId, documentId: c.documentId },
   });
 
-  // Tasks: a template.
+  // Tasks: a template, a quarterly series and two of its due dates.
   await tx.taskTemplate.upsert({
     where: { id: SEED_R38_IDS.template },
     update: {},
@@ -110,6 +113,54 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
       dueOffsetDays: 7,
       checklist: [{ label: 'Send the welcome email', required: true }, { label: 'Book the call' }],
       reminders: [{ daysBefore: 1, inApp: true, channels: [] }],
+    },
+  });
+  await tx.taskSeries.upsert({
+    where: { id: SEED_R38_IDS.series },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.series,
+      businessId,
+      clientId: c.clientId,
+      engagementId: c.bookkeepingEngagementId,
+      serviceId: c.bookkeepingServiceId,
+      typeId: taskType.id,
+      title: 'Quarterly bookkeeping review',
+      priority: 'HIGH',
+      assignmentRule: 'SPECIFIC_USER',
+      assignedUserId: c.staffId,
+      interval: 3,
+      unit: 'MONTH',
+      pattern: { monthly: 'DAY_OF_MONTH' },
+      startOn: new Date('2026-10-15'),
+      checklist: [{ label: 'Reconcile bank and card accounts', required: true }],
+      reminders: [{ daysBefore: 7, inApp: true, channels: ['EMAIL'] }],
+      createdByUserId: c.ownerId,
+    },
+  });
+  await tx.taskOccurrence.upsert({
+    where: { id: SEED_R38_IDS.occurrence1 },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.occurrence1,
+      businessId,
+      seriesId: SEED_R38_IDS.series,
+      scheduledOn: new Date('2026-10-15'),
+      dueOn: new Date('2026-10-15'),
+      state: 'GENERATED',
+      taskId: c.taskId,
+      generatedAt: new Date('2026-10-01T09:00:00Z'),
+    },
+  });
+  await tx.taskOccurrence.upsert({
+    where: { id: SEED_R38_IDS.occurrence2 },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.occurrence2,
+      businessId,
+      seriesId: SEED_R38_IDS.series,
+      scheduledOn: new Date('2027-01-15'),
+      dueOn: new Date('2027-01-15'),
     },
   });
 }
