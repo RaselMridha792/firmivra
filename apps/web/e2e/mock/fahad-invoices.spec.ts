@@ -12,7 +12,7 @@ for (const width of [375, 768, 1024, 1440]) {
   test(`invoice list fits ${width}px and status filter works`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto(`${base}/invoices`);
-    const list = page.getByTestId(width < 768 ? 'invoices-cards' : 'invoices-table');
+    const list = page.getByTestId(width < 1280 ? 'invoices-cards' : 'invoices-table');
     await expect(list).toContainText('INV-');
     await page.getByTestId('invoice-status-filter').selectOption('PAID');
     await expect(list).toContainText('Paid');

@@ -6,7 +6,7 @@ import {
   type UpdateNotificationPreferencesRequest,
 } from '@firmivra/types';
 import { Card, Checkbox } from '@firmivra/ui';
-import { Bell } from 'lucide-react';
+import { Bell, ChevronRight, Settings2 } from 'lucide-react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
@@ -31,51 +31,91 @@ export function NotificationPreferencesCard({ slug }: { slug: string }) {
       items: [{ category: item.category, [channel]: on }],
     } as UpdateNotificationPreferencesRequest);
   return (
-    <Card className="grid min-w-0 gap-3">
-      <h2 className="flex items-center gap-2 font-display text-2xl font-bold text-heading">
-        <Bell aria-hidden className="size-6 text-firm-primary" /> Notification Preferences
-      </h2>
-      <p className="text-sm text-muted">Choose how you want to be notified.</p>
-      <PageState query={prefs} isEmpty={(p) => p.items.length === 0}>
-        {(p) => (
-          <ul className="grid gap-2">
-            {p.items.map((item) => (
-              <li
-                key={item.category}
-                className="flex flex-wrap items-center gap-4 border-b border-border pb-2"
-              >
-                <span className="flex-1 text-sm font-medium text-heading">
-                  {NOTIFICATION_CATEGORY_LABELS[item.category]}
-                  {item.locked ? (
-                    <span className="block text-xs font-normal text-muted">Always sent</span>
-                  ) : null}
-                </span>
-                <Checkbox
-                  label="Email"
-                  aria-label={`${NOTIFICATION_CATEGORY_LABELS[item.category]} by email`}
-                  checked={item.email}
-                  disabled={item.locked || update.isPending}
-                  onChange={(e) => set(item, 'email', e.target.checked)}
+    <Card className="grid min-w-0 content-start gap-3">
+      <div className="flex items-center gap-3">
+        <span className="grid size-12 shrink-0 place-items-center rounded-full bg-folder-surface text-firm-primary">
+          <Settings2 aria-hidden className="size-7" />
+        </span>
+        <div>
+          <h2 className="font-display text-xl font-bold text-heading">Profile Settings</h2>
+          <p className="text-sm text-muted">Update your preferences and communication settings.</p>
+        </div>
+      </div>
+      <details className="group grid gap-3">
+        <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-control border border-border bg-surface p-3 focus-visible:outline-2 focus-visible:outline-focus">
+          <Bell aria-hidden className="size-6 shrink-0 text-firm-primary" />
+          <span className="flex-1">
+            <span className="block font-display font-bold text-heading">
+              Notification Preferences
+            </span>
+            <span className="block text-sm text-muted">Choose how you want to be notified.</span>
+          </span>
+          <ChevronRight
+            aria-hidden
+            className="size-5 shrink-0 text-firm-primary transition-transform group-open:rotate-90"
+          />
+        </summary>
+        <PageState query={prefs} isEmpty={(p) => p.items.length === 0}>
+          {(p) => (
+            <ul className="grid gap-2">
+              {p.items.map((item) => (
+                <PreferenceRow
+                  key={item.category}
+                  item={item}
+                  hasSms={p.channels.includes('SMS')}
+                  pending={update.isPending}
+                  onChange={set}
                 />
-                {p.channels.includes('SMS') ? (
-                  <Checkbox
-                    label="Text"
-                    aria-label={`${NOTIFICATION_CATEGORY_LABELS[item.category]} by text`}
-                    checked={item.sms}
-                    disabled={item.locked || update.isPending}
-                    onChange={(e) => set(item, 'sms', e.target.checked)}
-                  />
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </PageState>
-      {update.isError ? (
-        <p role="alert" className="text-sm text-danger">
-          {errorMessage(update.error)}
-        </p>
-      ) : null}
+              ))}
+            </ul>
+          )}
+        </PageState>
+        {update.isError ? (
+          <p role="alert" className="text-sm text-danger">
+            {errorMessage(update.error)}
+          </p>
+        ) : null}
+      </details>
     </Card>
+  );
+}
+
+function PreferenceRow({
+  item,
+  hasSms,
+  pending,
+  onChange,
+}: {
+  item: NotificationPreference;
+  hasSms: boolean;
+  pending: boolean;
+  onChange: (item: NotificationPreference, channel: 'email' | 'sms', on: boolean) => void;
+}) {
+  const label = NOTIFICATION_CATEGORY_LABELS[item.category];
+  return (
+    <li className="flex flex-wrap items-center gap-4 border-b border-border pb-2">
+      <span className="flex-1 text-sm font-medium text-heading">
+        {label}
+        {item.locked && <span className="block text-xs font-normal text-muted">Always sent</span>}
+      </span>
+      <Checkbox
+        className="[&>input]:accent-firm-primary"
+        label="Email"
+        aria-label={`${label} by email`}
+        checked={item.email}
+        disabled={item.locked || pending}
+        onChange={(e) => onChange(item, 'email', e.target.checked)}
+      />
+      {hasSms && (
+        <Checkbox
+          className="[&>input]:accent-firm-primary"
+          label="Text"
+          aria-label={`${label} by text`}
+          checked={item.sms}
+          disabled={item.locked || pending}
+          onChange={(e) => onChange(item, 'sms', e.target.checked)}
+        />
+      )}
+    </li>
   );
 }

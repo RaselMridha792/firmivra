@@ -71,6 +71,29 @@ const EMPTY: Form = {
 /** A blank is $0; anything else must be a number, which the contract then checks. */
 const amount = (text: string): number => (text.trim() === '' ? 0 : Number(text.replace(/,/g, '')));
 
+const inputFor = (form: Form) => ({
+  filingStatus: form.filingStatus,
+  wages: amount(form.wages),
+  businessIncome: amount(form.businessIncome),
+  businessExpenses: amount(form.businessExpenses),
+  otherIncome: amount(form.otherIncome),
+  deductionType: form.deductionType,
+  itemizedDeductions: amount(form.itemizedDeductions),
+  mfsSpouseItemizes: form.filingStatus === 'MARRIED_SEPARATE' && form.mfsSpouseItemizes,
+  withholding: amount(form.withholding),
+  ...(form.priorOn
+    ? {
+        priorYear: {
+          totalTax: amount(form.priorTotalTax),
+          agi: amount(form.priorAgi),
+          coveredTwelveMonths: form.priorCovered,
+        },
+      }
+    : {}),
+});
+
+const initialResult = () => estimateQuarterlySteady(QuarterlySteadyInput.parse(inputFor(EMPTY)));
+
 /**
  * /{firm}/calculator/quarterly-estimate (signed in) and /{firm}/calculators/quarterly-estimate
  * (public): the Quarterly Estimated Tax Calculator (Octavia's guide). Runs in the browser.
@@ -100,36 +123,15 @@ function Calculator({
   publicPage: boolean;
 }) {
   const [form, setForm] = useState<Form>(EMPTY);
-  const [result, setResult] = useState<QuarterlySteadyResult | null>(null);
+  const [result, setResult] = useState<QuarterlySteadyResult>(initialResult);
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof Form>(key: K, value: Form[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
-    setResult(null);
   };
 
   function calculate() {
-    const parsed = QuarterlySteadyInput.safeParse({
-      filingStatus: form.filingStatus,
-      wages: amount(form.wages),
-      businessIncome: amount(form.businessIncome),
-      businessExpenses: amount(form.businessExpenses),
-      otherIncome: amount(form.otherIncome),
-      deductionType: form.deductionType,
-      itemizedDeductions: amount(form.itemizedDeductions),
-      mfsSpouseItemizes: form.filingStatus === 'MARRIED_SEPARATE' && form.mfsSpouseItemizes,
-      withholding: amount(form.withholding),
-      ...(form.priorOn
-        ? {
-            priorYear: {
-              totalTax: amount(form.priorTotalTax),
-              agi: amount(form.priorAgi),
-              coveredTwelveMonths: form.priorCovered,
-            },
-          }
-        : {}),
-    });
+    const parsed = QuarterlySteadyInput.safeParse(inputFor(form));
     if (!parsed.success) {
-      setResult(null);
       setError('Enter amounts as positive numbers with at most 2 decimals, for example 75000.');
       return;
     }
@@ -176,12 +178,14 @@ function Calculator({
             <Radio
               name="deduction"
               label="Standard Deduction"
+              className="[&>input]:accent-navigation"
               checked={form.deductionType === 'STANDARD'}
               onChange={() => set('deductionType', 'STANDARD')}
             />
             <Radio
               name="deduction"
               label="Itemized Deduction"
+              className="[&>input]:accent-navigation"
               checked={form.deductionType === 'ITEMIZED'}
               onChange={() => set('deductionType', 'ITEMIZED')}
             />
@@ -219,13 +223,16 @@ function Calculator({
             </p>
           ) : null}
           <div className="flex flex-wrap gap-3">
-            <Button type="submit">Calculate My Estimated Tax Payment</Button>
+            <Button type="submit" variant="dark">
+              Calculate My Estimated Tax Payment
+            </Button>
             <Button
               type="button"
               variant="secondary"
+              className="border-navigation! text-navigation! hover:bg-navigation! hover:text-on-action!"
               onClick={() => {
                 setForm(EMPTY);
-                setResult(null);
+                setResult(initialResult());
                 setError(null);
               }}
             >
@@ -235,39 +242,37 @@ function Calculator({
         </form>
       </Card>
       <div className="flex flex-col gap-6">
-        {result ? (
-          <Card title="Your estimate" data-testid="quarterly-result">
-            {result.notices.map((n) => (
-              <p key={n} role="status" className="mb-3 text-sm text-text">
-                {NOTICES[n]}
-              </p>
-            ))}
-            <dl className="flex flex-col gap-2">
-              {(
-                [
-                  ['Suggested Estimated Payment', result.suggestedPayment],
-                  ['Safe-Harbor Estimated Payment', result.safeHarborPayment],
-                ] as const
-              ).map(([label, value]) => (
-                <div key={label} className="flex justify-between gap-4 text-sm">
-                  <dt className="text-text">{label}</dt>
-                  <dd className="font-semibold text-heading">{formatCents(value)}</dd>
-                </div>
-              ))}
-            </dl>
-            <p className="mt-4 text-xs text-muted">
-              Payments are due in four installments for the year (April 15, June 15, September 15
-              and January 15). Your projected {CURRENT_TAX_YEAR} tax is{' '}
-              {formatCents(result.projectedTotalTax)}.
+        <Card title="Your estimate" data-testid="quarterly-result">
+          {result.notices.map((n) => (
+            <p key={n} role="status" className="mb-3 text-sm text-text">
+              {NOTICES[n]}
             </p>
-            <Link
-              href={publicPage ? `/${slug}/begin` : `/${slug}/appointments`}
-              className="mt-4 inline-block text-link underline"
-            >
-              Book a Tax Consultation
-            </Link>
-          </Card>
-        ) : null}
+          ))}
+          <dl className="flex flex-col gap-2">
+            {(
+              [
+                ['Suggested Estimated Payment', result.suggestedPayment],
+                ['Safe-Harbor Estimated Payment', result.safeHarborPayment],
+              ] as const
+            ).map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-4 text-sm">
+                <dt className="text-text">{label}</dt>
+                <dd className="font-semibold text-heading">{formatCents(value)}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-4 text-xs text-muted">
+            Payments are due in four installments for the year (April 15, June 15, September 15 and
+            January 15). Your projected {CURRENT_TAX_YEAR} tax is{' '}
+            {formatCents(result.projectedTotalTax)}.
+          </p>
+          <Link
+            href={publicPage ? `/${slug}/begin` : `/${slug}/appointments`}
+            className="mt-4 inline-block text-link underline"
+          >
+            Book a Tax Consultation
+          </Link>
+        </Card>
         <p className="text-sm text-text">{disclaimer}</p>
       </div>
     </div>

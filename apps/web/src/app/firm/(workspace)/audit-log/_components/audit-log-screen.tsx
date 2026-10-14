@@ -133,7 +133,7 @@ export function AuditLogScreen() {
           return (
             <>
               <section
-                className="space-y-4 md:hidden"
+                className="space-y-4 xl:hidden"
                 aria-label="Audit log entries"
                 data-testid="audit-mobile-cards"
               >
@@ -175,7 +175,7 @@ export function AuditLogScreen() {
                   </Button>
                 </nav>
               </section>
-              <div className="hidden min-w-0 md:block">
+              <div className="hidden min-w-0 xl:block">
                 <Table
                   caption="Audit log"
                   rows={page.items}

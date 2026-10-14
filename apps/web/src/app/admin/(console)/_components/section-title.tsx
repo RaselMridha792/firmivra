@@ -7,6 +7,7 @@ export function SectionTitle({
   nowrap = false,
   children,
   action,
+  className = '',
 }: {
   icon: LucideIcon;
   /** The icon's colour; the mockup gives each card its own. */
@@ -15,9 +16,12 @@ export function SectionTitle({
   nowrap?: boolean;
   children: ReactNode;
   action?: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className={`mb-4 flex items-center justify-between gap-3 ${nowrap ? '' : 'flex-wrap'}`}>
+    <div
+      className={`mb-4 flex items-center justify-between gap-3 ${nowrap ? '' : 'flex-wrap'} ${className}`}
+    >
       <h2 className="flex min-w-0 items-center gap-2 text-xl font-semibold text-brand-900">
         <Icon aria-hidden className={`size-6 shrink-0 ${iconClassName}`} />
         <span className="min-w-0">{children}</span>

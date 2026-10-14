@@ -46,9 +46,9 @@ export function SideCards({
               <button
                 type="button"
                 onClick={onClick}
-                className="flex w-full items-center gap-3 py-3 text-left text-sm text-text hover:text-link"
+                className="flex w-full items-center gap-3 py-3 text-left text-sm text-text hover:text-firm-primary"
               >
-                <Icon aria-hidden className="size-5 shrink-0 text-link" />
+                <Icon aria-hidden className="size-5 shrink-0 text-firm-primary" />
                 {label}
                 <ChevronRight aria-hidden className="ml-auto size-4 shrink-0 text-heading" />
               </button>
@@ -58,7 +58,7 @@ export function SideCards({
       </Card>
       <section className="rounded-card bg-info-soft p-5 shadow-md">
         <div className="mb-4 flex items-center gap-3">
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-pill bg-surface text-link">
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-pill bg-surface text-firm-primary">
             <Headset aria-hidden className="size-6" />
           </span>
           <div>
@@ -68,7 +68,7 @@ export function SideCards({
         </div>
         <Link
           href={`/${slug}/messages`}
-          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-control border border-action bg-surface px-4 py-2 text-sm font-medium text-action hover:bg-accent-soft"
+          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-control border border-firm-primary bg-surface px-4 py-2 text-sm font-medium text-firm-primary hover:bg-firm-primary hover:text-on-action"
         >
           <MessageCircleMore aria-hidden className="size-5" />
           Send a Message

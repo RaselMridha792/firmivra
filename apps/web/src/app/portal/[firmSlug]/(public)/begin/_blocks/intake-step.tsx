@@ -1,10 +1,31 @@
 'use client';
 
 import type { IntakeField, IntakeSection, IntakeStep } from '@firmivra/types';
+import {
+  BriefcaseBusiness,
+  Building2,
+  Calculator,
+  CalendarDays,
+  ChartNoAxesColumnIncreasing,
+  CloudUpload,
+  CreditCard,
+  FileText,
+  IdCard,
+  type LucideIcon,
+  MapPin,
+  MessageSquareMore,
+  Package,
+  Paperclip,
+  ReceiptText,
+  Settings,
+} from 'lucide-react';
+import type { ReactNode } from 'react';
 import { SectionPanel } from './form-blocks';
-import { type Fill, InfoNote, ScalarInput } from './intake-fields';
+import { type Fill, InfoNote, ScalarInput, splitBracket } from './intake-fields';
 import { GridInput } from './intake-grid';
 import { GroupInput } from './intake-group';
+import { type FormLook, fullRows, NO_LOOK, type PanelLook, type RowsLook } from './intake-layout';
+import { type FieldLook, FieldRows } from './intake-rows';
 import { type UploadActions, UploadInput } from './intake-upload';
 import {
   issueKey,
@@ -59,7 +80,11 @@ export interface StepProps {
   errors: Readonly<Record<string, string>>;
   fill: Fill;
   actions: UploadActions;
+  /** The form's mockup layout (intake-layout); without one, the plain two-column panels. */
+  look?: FormLook;
 }
+
+type FieldProps = Omit<StepProps, 'step' | 'shown' | 'look'>;
 
 /** One field of a step, by its type. */
 export function FieldInput({
@@ -69,12 +94,21 @@ export function FieldInput({
   errors,
   fill,
   actions,
-}: Omit<StepProps, 'step' | 'shown'> & { field: IntakeField }) {
+  look,
+  groupLook,
+}: FieldProps & { field: IntakeField; look?: FieldLook; groupLook?: RowsLook | undefined }) {
   const value = values[field.key];
   const set = (v: ScreenValue) => onChange(field.key, v);
   switch (field.type) {
     case 'info':
-      return <InfoNote label={fill(field.label)} text={fill(field.text)} />;
+      return (
+        <InfoNote
+          label={fill(field.label)}
+          text={fill(field.text)}
+          list={look?.list}
+          card={look?.noteCard}
+        />
+      );
     case 'grid':
       return (
         <GridInput
@@ -83,6 +117,8 @@ export function FieldInput({
           onChange={set}
           errors={errors}
           fill={fill}
+          quiet={look?.quiet === true}
+          look={look?.grid}
         />
       );
     case 'group':
@@ -93,6 +129,7 @@ export function FieldInput({
           onChange={set}
           errors={errors}
           fill={fill}
+          look={groupLook}
         />
       );
     case 'upload':
@@ -104,6 +141,12 @@ export function FieldInput({
           errors={errors}
           fill={fill}
           actions={actions}
+          tile={look?.tile === true}
+          quiet={look?.quiet === true}
+          chooser={look?.chooser === true}
+          card={look?.uploadCard}
+          wideCard={look?.uploadWide === true}
+          button={look?.uploadButton === true}
         />
       );
     default:
@@ -115,42 +158,332 @@ export function FieldInput({
           onChange={set}
           error={errors[issueKey([field.key])]}
           fill={fill}
+          {...(look ? { look } : {})}
         />
       );
   }
 }
 
-/** A step's numbered panels with the fields the answers show. */
-export function StepSections({ step, values, shown, onChange, errors, fill, actions }: StepProps) {
-  const sections = step.sections.filter((section) => section.fields.some((f) => shown.has(f.key)));
-  return (
-    <div className="grid items-start gap-3 lg:grid-cols-2">
-      {sections.map((section, index) => (
-        <SectionPanel
-          key={section.key}
-          number={index + 1}
-          title={fill(section.title)}
-          subtitle={section.subtitle ? fill(section.subtitle) : undefined}
-          className={wideSection(section) || sections.length === 1 ? 'lg:col-span-2' : ''}
-        >
-          <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2" data-section={section.key}>
-            {section.fields
-              .filter((f) => shown.has(f.key))
-              .map((f) => (
-                <div key={f.key} className={wideField(f) ? 'min-w-0 sm:col-span-2' : 'min-w-0'}>
-                  <FieldInput
-                    field={f}
-                    values={values}
-                    onChange={onChange}
-                    errors={errors}
-                    fill={fill}
-                    actions={actions}
-                  />
-                </div>
-              ))}
+/** A section's shown fields: in its mockup's rows when the form has a look for it. */
+function SectionFields({
+  section,
+  panel,
+  props,
+  visible,
+  skip,
+}: {
+  section: IntakeSection;
+  panel: PanelLook | undefined;
+  props: FieldProps;
+  visible: (key: string) => boolean;
+  skip: string | undefined;
+}) {
+  const fields = section.fields.filter((f) => visible(f.key) && f.key !== skip);
+  if (!panel) {
+    return (
+      <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2" data-section={section.key}>
+        {fields.map((f) => (
+          <div key={f.key} className={wideField(f) ? 'min-w-0 sm:col-span-2' : 'min-w-0'}>
+            <FieldInput field={f} {...props} />
           </div>
-        </SectionPanel>
-      ))}
+        ))}
+      </div>
+    );
+  }
+  // A bar's one field is named by the bar's subtitle; a field named like its panel keeps its
+  // label for screen readers only (the title already says it).
+  const title = props.fill(section.title);
+  const quiet = (f: IntakeField) =>
+    (panel.bar && fields.length === 1) || props.fill(f.label) === title;
+  if (panel.tiles) {
+    return (
+      <div
+        data-section={section.key}
+        className={`grid gap-2 sm:grid-cols-2 ${TILE_COLUMNS[Math.min(fields.length, 5)] ?? ''}`}
+      >
+        {fields.map((f) => (
+          <FieldInput key={f.key} field={f} {...props} look={{ tile: true }} />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div data-section={section.key} className="min-w-0 flex-1">
+      <FieldRows
+        fields={fields}
+        look={panel}
+        render={(f, fieldLook) => (
+          <FieldInput
+            field={f}
+            {...props}
+            look={{
+              ...fieldLook,
+              ...(quiet(f) ? { quiet: true } : {}),
+              ...(panel.bar && f.type === 'textarea' ? { inline: true } : {}),
+              ...(panel.intro && f.type === 'info' ? { list: true } : {}),
+            }}
+            groupLook={f.type === 'group' ? panel.groups?.[f.key] : undefined}
+          />
+        )}
+      />
     </div>
   );
+}
+
+/** Stacked columns' grids (whole classes, so Tailwind finds them). */
+const STACK_COLUMNS: Record<number, string> = {
+  2: 'lg:grid-cols-2',
+  3: 'lg:grid-cols-3',
+};
+
+/** Upload tiles' columns by how many there are (whole classes, so Tailwind finds them). */
+const TILE_COLUMNS: Record<number, string> = {
+  3: 'lg:grid-cols-3',
+  4: 'lg:grid-cols-4',
+  5: 'lg:grid-cols-5',
+};
+
+/** A joined section inside a panel: its own heading with an icon, then its fields. */
+function JoinedPart({
+  heading,
+  icon: Icon,
+  children,
+}: {
+  heading: string;
+  icon: LucideIcon | undefined;
+  children: ReactNode;
+}) {
+  const [main, bracket] = splitBracket(heading);
+  return (
+    <div className="mt-3 first:mt-0">
+      <h3 className="mb-1 flex items-center gap-2">
+        {Icon && (
+          <Icon aria-hidden="true" className="size-5 shrink-0 fill-accent-soft text-accent" />
+        )}
+        <span className="font-display text-base font-bold text-heading">{main}</span>
+        {bracket && <span className="text-xs text-firm-primary">{bracket}</span>}
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * A step's numbered panels with the fields the answers show, set out as the form's mockup has
+ * them (intake-layout): two to a row unless wide, joined sections in one panel, icons, bars.
+ */
+export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProps) {
+  const visible = (key: string) => shown.has(key);
+  const sections = step.sections.filter(
+    (s) => s.fields.some((f) => visible(f.key)) && !look.panels[s.key]?.hidden,
+  );
+  // A joined panel takes the place of its first shown member; the others are drawn inside it.
+  const anchorOf = new Map<string, string>();
+  for (const [key, panel] of Object.entries(look.panels)) {
+    for (const member of panel.join ?? []) anchorOf.set(member, key);
+  }
+  const panels: { key: string; panel: PanelLook | undefined; parts: IntakeSection[] }[] = [];
+  for (const section of sections) {
+    const anchor = anchorOf.get(section.key);
+    if (anchor === undefined) {
+      panels.push({ key: section.key, panel: look.panels[section.key], parts: [section] });
+      continue;
+    }
+    if (panels.some((p) => p.key === anchor)) continue;
+    const members = look.panels[anchor]!.join!;
+    const parts = members.flatMap((k) => sections.find((s) => s.key === k) ?? []);
+    panels.push({ key: anchor, panel: look.panels[anchor], parts });
+  }
+  const isWide = (p: (typeof panels)[number]) =>
+    p.panel ? !!(p.panel.wide || p.panel.bar) : wideSection(p.parts[0]!);
+  const stackOf = new Map<string, number>();
+  look.stacks?.forEach((stack, i) => {
+    for (const key of stack.columns.flat()) stackOf.set(key, i);
+  });
+  const span = fullRows(panels.map((p) => stackOf.has(p.key) || isWide(p)));
+  // Numbered in the definition's order, whichever column a panel sits in.
+  const numbers = new Map<string, number>();
+  let last = 0;
+  for (const p of panels) {
+    const plain =
+      (look.unnumbered && !p.panel?.numberInTitle) ||
+      p.panel?.bar ||
+      p.panel?.intro ||
+      p.panel?.headless ||
+      p.panel?.noNumber;
+    if (plain) continue;
+    if (!p.panel?.shareNumber || last === 0) last += 1;
+    numbers.set(p.key, last);
+  }
+  const drawn = new Set<number>();
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      {panels.map((p, i) => {
+        const stack = stackOf.get(p.key);
+        if (stack === undefined) return renderPanel(p, span[i] === true);
+        if (drawn.has(stack)) return null;
+        drawn.add(stack);
+        const { columns, stretch } = look.stacks![stack]!;
+        return (
+          <div
+            key={`stack-${p.key}`}
+            className={`grid gap-3 lg:col-span-2 ${STACK_COLUMNS[columns.length] ?? ''} ${stretch ? '' : 'items-start'}`}
+          >
+            {columns.map((keys) => (
+              <div key={keys.join('|')} className="grid min-w-0 gap-3">
+                {keys
+                  .flatMap((k) => panels.find((x) => x.key === k) ?? [])
+                  .map((x) => renderPanel(x, false, columns.length > 2))}
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  function renderPanel(p: (typeof panels)[number], full = false, compact = false) {
+    const first = p.parts[0]!;
+    const joined = p.panel?.join !== undefined;
+    const subtitle =
+      p.panel?.subtitle ??
+      (p.panel?.intro ? step.subtitle : undefined) ??
+      (joined ? undefined : (first.subtitle ?? soleHelp(first, p.panel, visible, props.fill)));
+    const barSubtitle = p.panel?.bar ? barLabel(first, visible, props.fill) : undefined;
+    const Badge = p.panel?.badge;
+    const lead = p.panel?.lead
+      ? p.parts[0]!.fields.find((f) => f.key === p.panel!.lead && visible(f.key))
+      : undefined;
+    const panel = (
+      <SectionPanel
+        key={p.key}
+        number={numbers.get(p.key)}
+        badge={Badge ? <Badge className="size-6" /> : undefined}
+        size={p.panel?.headless ? 'none' : p.panel?.intro ? 'intro' : 'panel'}
+        title={props.fill(p.panel?.title ?? first.title)}
+        subtitle={subtitle ? props.fill(subtitle) : barSubtitle}
+        icon={
+          p.panel?.icon ? (
+            p.panel.iconCircle ? (
+              <span className="grid size-14 place-items-center rounded-full bg-folder-surface text-heading">
+                <p.panel.icon
+                  className={`size-8 ${p.panel.icon === ChartNoAxesColumnIncreasing ? '' : 'fill-current [&_circle]:fill-surface [&_path+path]:stroke-surface'}`}
+                  strokeWidth={p.panel.icon === ChartNoAxesColumnIncreasing ? 3.5 : 2}
+                />
+              </span>
+            ) : (
+              <PanelIcon icon={p.panel.icon} tone={p.panel.iconTone} />
+            )
+          ) : undefined
+        }
+        iconPosition={p.panel?.iconFirst || p.panel?.iconCircle || p.panel?.bar ? 'start' : 'end'}
+        bar={p.panel?.bar}
+        tint={p.panel?.tint}
+        plain={p.panel?.plain}
+        tone={p.panel?.tone}
+        numberInTitle={p.panel?.numberInTitle}
+        badgeDark={p.panel?.badgeDark}
+        compact={compact}
+        // A panel under its lead note spans through the note's wrapper instead.
+        className={full && !lead ? 'lg:col-span-2' : ''}
+      >
+        {joined
+          ? p.parts.map((part) => (
+              <JoinedPart
+                key={part.key}
+                heading={props.fill(part.title)}
+                icon={p.panel?.joinIcons?.[part.key]}
+              >
+                <SectionFields
+                  section={part}
+                  panel={look.panels[part.key] ?? p.panel}
+                  props={props}
+                  visible={visible}
+                  skip={look.footerNote}
+                />
+              </JoinedPart>
+            ))
+          : p.parts.map((part) => (
+              <SectionFields
+                key={part.key}
+                section={part}
+                panel={p.panel}
+                props={props}
+                visible={visible}
+                skip={lead?.key ?? look.footerNote}
+              />
+            ))}
+      </SectionPanel>
+    );
+    if (lead?.type !== 'info') return panel;
+    return (
+      <div key={p.key} className={`grid min-w-0 gap-3 ${full ? 'lg:col-span-2' : ''}`}>
+        <InfoNote label={props.fill(lead.label)} text={props.fill(lead.text)} card />
+        {panel}
+      </div>
+    );
+  }
+}
+
+/**
+ * The mockups' solid accent icon at a panel's edge. A drawn shape (a page, a building, a gear)
+ * keeps its inner lines and holes white; a line drawing (a paper clip) stays a line.
+ */
+function PanelIcon({
+  icon: Icon,
+  tone,
+}: {
+  icon: LucideIcon;
+  tone?: 'heading' | 'danger' | undefined;
+}) {
+  const look = OUTLINE.has(Icon)
+    ? ''
+    : DETAILED.has(Icon)
+      ? 'fill-current [&_circle]:fill-surface [&_path+path]:stroke-surface'
+      : 'fill-current';
+  return (
+    <Icon
+      className={`size-10 ${look} ${tone === 'heading' ? 'text-heading' : tone === 'danger' ? 'text-danger' : ''}`}
+      strokeWidth={Icon === ChartNoAxesColumnIncreasing ? 3.5 : 1.5}
+    />
+  );
+}
+
+const DETAILED = new Set<LucideIcon>([
+  BriefcaseBusiness,
+  CreditCard,
+  Package,
+  Building2,
+  Calculator,
+  CalendarDays,
+  FileText,
+  IdCard,
+  MapPin,
+  MessageSquareMore,
+  ReceiptText,
+  Settings,
+]);
+const OUTLINE = new Set<LucideIcon>([CloudUpload, Paperclip]);
+
+/**
+ * A panel's one field named like the panel (or quiet by its look): its help line serves as the
+ * panel's subtitle.
+ */
+function soleHelp(
+  section: IntakeSection,
+  panel: PanelLook | undefined,
+  visible: (key: string) => boolean,
+  fill: Fill,
+) {
+  const fields = section.fields.filter((f) => visible(f.key));
+  const only = fields.length === 1 ? fields[0]! : undefined;
+  const quiet =
+    only && (fill(only.label) === fill(section.title) || panel?.quiet?.includes(only.key));
+  return only && quiet && 'help' in only && only.help ? only.help : undefined;
+}
+
+/** A bar's one field: its label is the bar's subtitle. */
+function barLabel(section: IntakeSection, visible: (key: string) => boolean, fill: Fill) {
+  const fields = section.fields.filter((f) => visible(f.key) && f.type !== 'info');
+  return fields.length === 1 ? fill(fields[0]!.label) : undefined;
 }

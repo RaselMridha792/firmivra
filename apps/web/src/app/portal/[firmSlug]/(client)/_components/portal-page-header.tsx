@@ -22,6 +22,7 @@ export function PortalPageHeader({
 }) {
   const sentences = script.split(/(?<=\.)\s+/);
   const last = sentences.length > 1 ? sentences.pop() : undefined;
+  const titleSize = Title === 'p' ? 'text-5xl md:text-6xl' : 'text-4xl md:text-5xl';
   return (
     <header
       data-testid="portal-page-header"
@@ -30,10 +31,10 @@ export function PortalPageHeader({
       <Leaves />
       <div className="relative flex items-center gap-6">
         <div className="min-w-0 flex-1">
-          <Title className="font-display text-4xl leading-tight font-bold text-heading md:text-5xl">
+          <Title className={`font-display ${titleSize} leading-tight font-bold text-heading`}>
             {title}
           </Title>
-          {subtitle ? <p className="mt-1 text-lg text-text">{subtitle}</p> : null}
+          {subtitle ? <p className="mt-1 text-xl text-text">{subtitle}</p> : null}
         </div>
         <p
           aria-hidden
