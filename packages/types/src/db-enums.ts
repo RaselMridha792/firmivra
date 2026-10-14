@@ -453,3 +453,13 @@ export type TaxExtensionStatus = z.infer<typeof TaxExtensionStatus>;
 
 export const TaxAckStatus = z.enum(['PENDING', 'ACCEPTED', 'REJECTED']);
 export type TaxAckStatus = z.infer<typeof TaxAckStatus>;
+
+export const TaxApprovalStatus = z.enum(['PENDING', 'APPROVED', 'RETURNED', 'INVALIDATED']);
+export type TaxApprovalStatus = z.infer<typeof TaxApprovalStatus>;
+
+export const TaxChecklistSection = z.enum(['PREPARATION', 'REVIEW', 'VALIDATION']);
+export type TaxChecklistSection = z.infer<typeof TaxChecklistSection>;
+
+/** OPEN and DONE are for the preparation and review lists; VALID, INFO, WARNING and ERROR for the final validation. */
+export const TaxCheckResult = z.enum(['OPEN', 'DONE', 'VALID', 'INFO', 'WARNING', 'ERROR']);
+export type TaxCheckResult = z.infer<typeof TaxCheckResult>;

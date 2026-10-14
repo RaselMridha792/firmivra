@@ -475,6 +475,10 @@ model Membership {
   taxReturnsValidated       TaxReturn[]               @relation("TaxReturnValidator")
   taxReturnsUpdated         TaxReturn[]               @relation("TaxReturnUpdatedBy")
   taxFilingAttemptsRecorded TaxReturnFilingAttempt[]  @relation("TaxAttemptRecordedBy")
+  taxApprovalsAssigned      TaxReturnApproval[]       @relation("TaxApprovalAssignedTo")
+  taxApprovalsDecided       TaxReturnApproval[]       @relation("TaxApprovalDecidedBy")
+  taxChecklistAcknowledged  TaxReturnChecklistItem[]  @relation("TaxChecklistAcknowledgedBy")
+  taxChecklistUpdated       TaxReturnChecklistItem[]  @relation("TaxChecklistUpdatedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1161,6 +1165,7 @@ model Document {
   messageAttachments MessageAttachment[]
   taxReturns         TaxReturn[]
   documentShares     DocumentShare[]
+  taxReturnApprovals TaxReturnApproval[]
 
   // Target of message attachments.
   @@unique([businessId, id])
@@ -2131,14 +2136,16 @@ model TaxReturn {
   /// Who made the last change; the history row's author.
   updatedByUserId        String?                 @map("updated_by_user_id") @db.Uuid
 
-  preparer       Membership?        @relation("TaxReturnPreparer", fields: [businessId, preparerUserId], references: [businessId, userId], onDelete: Restrict)
-  reviewer       Membership?        @relation("TaxReturnReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
-  finalValidator Membership?        @relation("TaxReturnValidator", fields: [businessId, finalValidatedByUserId], references: [businessId, userId], onDelete: Restrict)
-  updatedBy      Membership?        @relation("TaxReturnUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
-  amends         TaxReturn?         @relation("TaxReturnAmends", fields: [businessId, clientId, amendsReturnId], references: [businessId, clientId, id], onDelete: Restrict)
-  amendedBy      TaxReturn[]        @relation("TaxReturnAmends")
+  preparer       Membership?              @relation("TaxReturnPreparer", fields: [businessId, preparerUserId], references: [businessId, userId], onDelete: Restrict)
+  reviewer       Membership?              @relation("TaxReturnReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
+  finalValidator Membership?              @relation("TaxReturnValidator", fields: [businessId, finalValidatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy      Membership?              @relation("TaxReturnUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  amends         TaxReturn?               @relation("TaxReturnAmends", fields: [businessId, clientId, amendsReturnId], references: [businessId, clientId, id], onDelete: Restrict)
+  amendedBy      TaxReturn[]              @relation("TaxReturnAmends")
   history        TaxReturnHistory[]
   filings        TaxReturnFiling[]
+  approvals      TaxReturnApproval[]
+  checklist      TaxReturnChecklistItem[]
 
   client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -3552,4 +3559,90 @@ model TaxReturnFilingAttempt {
   @@index([businessId, filingId, transmittedAt])
   @@index([businessId, ackStatus, transmittedAt])
   @@map("tax_return_filing_attempts")
+}
+
+enum TaxApprovalStatus {
+  PENDING
+  APPROVED
+  /// Sent back to the preparer, with the reviewer's note.
+  RETURNED
+  /// A decided approval a material change cancelled; a new PENDING step replaces it.
+  INVALIDATED
+}
+
+/// A required review step of a return ("Preparer Review", "Final Review / Approval"). A decided
+/// step never changes, except to INVALIDATED; never deleted. Approving a return is the firm's
+/// own act: this records who and when.
+model TaxReturnApproval {
+  id                 String            @id @default(uuid(7)) @db.Uuid
+  businessId         String            @map("business_id") @db.Uuid
+  taxReturnId        String            @map("tax_return_id") @db.Uuid
+  /// The step's name, one line, up to 100 characters.
+  step               String
+  sortOrder          Int               @map("sort_order")
+  assignedUserId     String?           @map("assigned_user_id") @db.Uuid
+  status             TaxApprovalStatus @default(PENDING)
+  decidedAt          DateTime?         @map("decided_at") @db.Timestamptz(3)
+  decidedByUserId    String?           @map("decided_by_user_id") @db.Uuid
+  /// The draft that was reviewed.
+  approvedDocumentId String?           @map("approved_document_id") @db.Uuid
+  /// The reviewer's note; required when RETURNED.
+  note               String?
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  taxReturn        TaxReturn   @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  assignedMember   Membership? @relation("TaxApprovalAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  decidedBy        Membership? @relation("TaxApprovalDecidedBy", fields: [businessId, decidedByUserId], references: [businessId, userId], onDelete: Restrict)
+  approvedDocument Document?   @relation(fields: [businessId, approvedDocumentId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, taxReturnId, sortOrder])
+  @@index([businessId, assignedUserId, status])
+  @@map("tax_return_approvals")
+}
+
+enum TaxChecklistSection {
+  /// The preparer's own list.
+  PREPARATION
+  /// The reviewer's list.
+  REVIEW
+  /// The manual final validation (there is no tax software here): what the firm checked.
+  VALIDATION
+}
+
+/// OPEN and DONE are for the preparation and review lists; VALID, INFO, WARNING and ERROR for
+/// the final validation.
+enum TaxCheckResult {
+  OPEN
+  DONE
+  VALID
+  INFO
+  WARNING
+  ERROR
+}
+
+/// One line of a return's preparation or review checklist, or one result of its final
+/// validation. The counts on the screen (errors, warnings, informational) are computed.
+model TaxReturnChecklistItem {
+  id                   String              @id @default(uuid(7)) @db.Uuid
+  businessId           String              @map("business_id") @db.Uuid
+  taxReturnId          String              @map("tax_return_id") @db.Uuid
+  section              TaxChecklistSection
+  /// One line, up to 200 characters.
+  label                String
+  sortOrder            Int                 @default(0) @map("sort_order")
+  result               TaxCheckResult      @default(OPEN)
+  note                 String?
+  /// A WARNING is acknowledged by someone before the return is ready to file.
+  acknowledgedAt       DateTime?           @map("acknowledged_at") @db.Timestamptz(3)
+  acknowledgedByUserId String?             @map("acknowledged_by_user_id") @db.Uuid
+  updatedByUserId      String?             @map("updated_by_user_id") @db.Uuid
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  taxReturn      TaxReturn   @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  acknowledgedBy Membership? @relation("TaxChecklistAcknowledgedBy", fields: [businessId, acknowledgedByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy      Membership? @relation("TaxChecklistUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, taxReturnId, section, sortOrder])
+  @@map("tax_return_checklist_items")
 }

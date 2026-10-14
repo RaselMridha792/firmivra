@@ -27,6 +27,11 @@ const ID = {
   filing2025State: '00000000-0000-4a37-8000-000000000042',
   filing2024Federal: '00000000-0000-4a37-8000-000000000043',
   attempt2024: '00000000-0000-4a37-8000-000000000044',
+  approvalPreparer: '00000000-0000-4a37-8000-000000000051',
+  approvalFinal: '00000000-0000-4a37-8000-000000000052',
+  checkPrep: '00000000-0000-4a37-8000-000000000053',
+  checkValid: '00000000-0000-4a37-8000-000000000054',
+  checkWarning: '00000000-0000-4a37-8000-000000000055',
   requestPacket: '00000000-0000-4a37-8000-000000000024',
 } as const;
 
@@ -281,6 +286,47 @@ async function seedTaxReturnWorkflow(tx: TxClient, businessId: string) {
     refundCents: 120_000,
     amountStatus: 'FINAL',
   });
+  // Review: the preparer's review is done, the final one waits; a checklist and a validation
+  // with one warning nobody has acknowledged yet.
+  const taxReturnId = SEED_TAX_RETURN_IDS.lvp2025;
+  await tx.taxReturnApproval.upsert({
+    where: { id: ID.approvalPreparer },
+    update: {},
+    create: {
+      id: ID.approvalPreparer,
+      businessId,
+      taxReturnId,
+      step: 'Preparer Review',
+      sortOrder: 1,
+      assignedUserId: SEED_USERS.lvpStaff.id,
+      status: 'APPROVED',
+      decidedAt: new Date('2026-09-18T16:12:00Z'),
+      decidedByUserId: SEED_USERS.lvpStaff.id,
+    },
+  });
+  await tx.taxReturnApproval.upsert({
+    where: { id: ID.approvalFinal },
+    update: {},
+    create: {
+      id: ID.approvalFinal,
+      businessId,
+      taxReturnId,
+      step: 'Final Review / Approval',
+      sortOrder: 2,
+      assignedUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
+  for (const [id, section, label, result, sortOrder] of [
+    [ID.checkPrep, 'PREPARATION', 'All W-2s entered', 'DONE', 1],
+    [ID.checkValid, 'VALIDATION', 'Names and SSNs match the client record', 'VALID', 1],
+    [ID.checkWarning, 'VALIDATION', 'Bank account for the refund not provided', 'WARNING', 2],
+  ] as const) {
+    await tx.taxReturnChecklistItem.upsert({
+      where: { id },
+      update: {},
+      create: { id, businessId, taxReturnId, section, label, result, sortOrder },
+    });
+  }
   if (!(await tx.taxReturnFilingAttempt.findUnique({ where: { id: ID.attempt2024 } }))) {
     await tx.taxReturnFilingAttempt.create({
       data: {
