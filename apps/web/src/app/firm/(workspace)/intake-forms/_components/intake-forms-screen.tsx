@@ -42,6 +42,7 @@ import {
   Tabs,
   Toast,
   type Column,
+  type KpiTrend,
   Table,
 } from '@firmivra/ui';
 import Link from 'next/link';
@@ -112,7 +113,7 @@ function dateTimeLabel(value: string | null) {
   };
 }
 
-function trend(value: number, previous: number | null, positive: boolean) {
+function trend(value: number, previous: number | null, positive: boolean): KpiTrend | undefined {
   if (previous === null) return undefined;
   if (previous === 0) {
     return value === 0
