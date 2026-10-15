@@ -3,20 +3,22 @@ import { Avatar, Badge } from '@firmivra/ui';
 import { ArrowRight, Crown } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { PersonCell } from '../../_components/groups-shared';
-import type { OrgPerson } from './org-tree';
 
 /**
  * The chosen person, drawn like the Departments tab's details panel: who they report to, who
- * reports to them, their departments and the departments they head. Reporting lines change on
- * the person's staff account (Supervisor / Manager), so this panel links there.
+ * reports to them, their departments and the departments they head. The kit's chart cards are not
+ * buttons, so Reports To and Direct Reports move through the chart from here. Reporting lines
+ * change on the person's staff account (Supervisor / Manager), so this panel links there.
  */
 export function PersonDetails({
   person,
   supervisor,
+  reports,
   onSelect,
 }: {
-  person: OrgPerson;
+  person: OrgChartNode;
   supervisor: OrgChartNode | null;
+  reports: OrgChartNode[];
   onSelect: (id: string) => void;
 }) {
   const fact = 'flex gap-3 border-t border-divider py-1.5 text-sm';
@@ -57,9 +59,9 @@ export function PersonDetails({
         <div className={fact}>
           <dt className={term}>Direct Reports</dt>
           <dd className="min-w-0 flex-1">
-            {person.reports.length ? (
+            {reports.length ? (
               <ul className="flex flex-col gap-1">
-                {person.reports.map((r) => (
+                {reports.map((r) => (
                   <li key={r.id}>
                     <button
                       type="button"
