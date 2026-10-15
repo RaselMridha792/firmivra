@@ -1502,9 +1502,11 @@ export type LeadPriority = z.infer<typeof LeadPriority>;
 export const LeadActionType = z.enum([
   'CALL',
   'EMAIL',
+  'SMS',
   'APPOINTMENT',
   'SEND_DOCUMENTS',
   'FOLLOW_UP',
+  'CLOSE_LEAD',
 ]);
 export type LeadActionType = z.infer<typeof LeadActionType>;
 

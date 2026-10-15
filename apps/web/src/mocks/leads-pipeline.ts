@@ -280,11 +280,16 @@ function seed(empty: boolean): Store {
         nextAction:
           stage === 'CONVERTED' || stage === 'DECLINED'
             ? stage === 'DECLINED'
-              ? { type: 'CLOSE_LEAD', dueAt: null, notes: 'No further action', overdue: false }
+              ? {
+                  type: 'CLOSE_LEAD',
+                  dueAt: ago(contacted ?? 0),
+                  notes: 'No further action',
+                  overdue: false,
+                }
               : null
             : {
                 type: action,
-                dueAt: nextIn === null ? null : ago(-nextIn),
+                dueAt: ago(-(nextIn ?? 0)),
                 notes: null,
                 overdue: nextIn !== null && nextIn < 0,
               },
@@ -602,7 +607,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
           nextAction: input.nextAction
             ? {
                 type: input.nextAction.type,
-                dueAt: input.nextAction.dueAt ?? null,
+                dueAt: input.nextAction.dueAt,
                 notes: input.nextAction.notes ?? null,
                 overdue: false,
               }
@@ -706,9 +711,9 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       const l = find(id);
       l.profile.nextAction = {
         type: input.type,
-        dueAt: input.dueAt ?? null,
+        dueAt: input.dueAt,
         notes: input.notes ?? null,
-        overdue: input.dueAt ? Date.parse(input.dueAt) < Date.now() : false,
+        overdue: input.type !== 'CLOSE_LEAD' && Date.parse(input.dueAt) < Date.now(),
       };
       log(l, 'FOLLOW_UP', 'Follow-up scheduled');
       bump(l);
@@ -723,7 +728,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       l.profile.nextAction = input.next
         ? {
             type: input.next.type,
-            dueAt: input.next.dueAt ?? null,
+            dueAt: input.next.dueAt,
             notes: input.next.notes ?? null,
             overdue: false,
           }

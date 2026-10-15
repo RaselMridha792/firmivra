@@ -9675,9 +9675,13 @@ enum LeadPriority {
 enum LeadActionType {
   CALL
   EMAIL
+  /// R47: a text message, and closing the lead ("No further action"; it still has a time, the
+  /// moment it is closed).
+  SMS
   APPOINTMENT
   SEND_DOCUMENTS
   FOLLOW_UP
+  CLOSE_LEAD
 }
 
 /// A service a lead is interested in (the list can show several). The lead's own service
@@ -9747,7 +9751,7 @@ model LeadActivity {
   actorUserId String?          @map("actor_user_id") @db.Uuid
   /// When it happened; a logged call may be backdated, never set ahead.
   occurredAt  DateTime         @default(now()) @map("occurred_at") @db.Timestamptz(3)
-  /// One line, up to 200 characters: an email's subject, a tag's name.
+  /// Up to 1,000 characters (R47): an email's subject, a tag's name, a logged call's summary.
   summary     String?
   /// A note or the notes of a call, up to 5,000 characters; required for a NOTE.
   body        String?
