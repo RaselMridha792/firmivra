@@ -23,6 +23,7 @@ export const GROUP_ERRORS: Record<string, string> = {
   DUPLICATE_NAME: 'This name is already used by another department or team.',
   GROUP_IN_USE: 'Active staff are in it. Choose where to move them first.',
   MEMBER_NOT_ACTIVE: 'Choose a member who is active.',
+  GROUP_INACTIVE: 'It is not active. Reactivate it first.',
   FORBIDDEN: 'Only an Owner or an Admin can change departments and teams.',
 };
 
