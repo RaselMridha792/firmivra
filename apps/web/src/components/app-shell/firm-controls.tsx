@@ -78,10 +78,11 @@ export function NewMenu({ links }: { links: readonly { label: string; href: stri
   return (
     <Popover
       trigger={() => (
-        <span className="flex items-center gap-1 rounded-control bg-gold px-4 py-2 text-sm font-semibold text-heading hover:brightness-95">
+        // On phones only the plus shows; the name stays for screen readers.
+        <span className="flex min-h-9 items-center gap-1 rounded-control bg-gold px-3 py-2 text-sm font-semibold text-heading hover:brightness-95 sm:px-4">
           <Plus aria-hidden weight="bold" className="size-4" />
-          New
-          <ChevronDown aria-hidden className="size-4" />
+          <span className="sr-only sm:not-sr-only">New</span>
+          <ChevronDown aria-hidden className="hidden size-4 sm:block" />
         </span>
       )}
     >

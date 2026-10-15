@@ -66,7 +66,7 @@ export function PersonDetails({
                     <button
                       type="button"
                       onClick={() => onSelect(r.id)}
-                      className="text-left text-link hover:underline"
+                      className="inline-flex min-h-7 items-center text-left text-link hover:underline"
                     >
                       {r.name}
                     </button>
