@@ -121,7 +121,7 @@ export function Sidebar({
                   <>
                     <Icon
                       aria-hidden
-                      className={`shrink-0 ${brand ? 'size-[21px] -my-0.5' : 'size-6'}`}
+                      className={`shrink-0 ${brand ? 'size-[22px] -my-0.5' : 'size-6'}`}
                     />
                     <span className={`min-w-0 flex-1 ${brand ? '' : 'whitespace-nowrap'}`}>
                       {item.label}
@@ -140,13 +140,13 @@ export function Sidebar({
                     ) : null}
                   </>
                 );
-                const row = `flex items-center ${brand ? 'gap-5.75 px-3.5 py-2.5 text-[13.5px] leading-[17px]' : 'gap-2.5 px-6 py-3 text-base'}`;
+                const row = `flex items-start ${brand ? 'gap-3 px-3.5 py-2.5 text-[16px] leading-[20px] font-bold' : 'gap-2.5 px-6 py-3 text-base'}`;
                 if (!item.href) {
                   return (
                     <li
                       key={item.label}
                       aria-disabled="true"
-                      className={`${row} text-brand-100 ${brand ? '-my-0.5' : ''}`}
+                      className={`${row} text-brand-100 ${brand ? 'my-0.5' : ''}`}
                     >
                       {body}
                     </li>
@@ -154,7 +154,7 @@ export function Sidebar({
                 }
                 const active = isActive(pathname, item.href);
                 return (
-                  <li key={item.label} className={brand ? '-my-0.5' : undefined}>
+                  <li key={item.label} className={brand ? 'my-1' : undefined}>
                     <Link
                       href={item.href}
                       onClick={onNavigate}
