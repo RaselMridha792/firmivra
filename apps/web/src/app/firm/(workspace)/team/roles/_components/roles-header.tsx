@@ -7,10 +7,10 @@ import Link from 'next/link';
  */
 export function RolesHeader() {
   return (
-    <header className="flex flex-col gap-3">
+    <header className="flex flex-col gap-1">
       <Link
         href="/team"
-        className="inline-flex w-fit items-center gap-2 text-sm font-semibold text-link hover:underline"
+        className="inline-flex min-h-9 w-fit items-center gap-2 text-sm font-semibold text-link hover:underline"
       >
         <ArrowLeft aria-hidden weight="bold" className="size-4" />
         Back to Staff Management
