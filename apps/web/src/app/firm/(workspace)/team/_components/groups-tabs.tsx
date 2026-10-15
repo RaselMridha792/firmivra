@@ -19,8 +19,11 @@ export function GroupsTabs({
   children?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-divider bg-surface px-4 pb-3 shadow-sm lg:flex-row lg:items-center lg:justify-between lg:pb-0">
-      <nav aria-label="Teams and departments" className="flex gap-2 overflow-x-auto">
+    <div className="flex flex-col gap-3 rounded-xl border border-divider bg-surface px-4 pb-3 shadow-sm lg:flex-row lg:justify-between lg:pb-0">
+      <nav
+        aria-label="Teams and departments"
+        className="flex shrink-0 gap-2 overflow-x-auto lg:self-end"
+      >
         {TABS.map((tab) => {
           const on = tab.href === current;
           return (
@@ -36,7 +39,9 @@ export function GroupsTabs({
         })}
       </nav>
       {children ? (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">{children}</div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end lg:py-2">
+          {children}
+        </div>
       ) : null}
     </div>
   );
