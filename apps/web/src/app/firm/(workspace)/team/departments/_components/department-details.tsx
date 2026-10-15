@@ -50,8 +50,8 @@ export function DepartmentDetails({
     );
   }
   const teams = d.teams.filter((t) => t.status !== 'ARCHIVED');
-  const fact =
-    'flex gap-3 border-t border-divider py-2.5 text-sm [&>dd]:min-w-0 [&>dd]:flex-1 [&>dt]:w-28 [&>dt]:shrink-0';
+  const fact = 'flex gap-3 border-t border-divider py-1.5 text-sm';
+  const term = 'w-24 shrink-0 border-r border-divider font-semibold text-heading';
   return (
     <>
       <section
@@ -60,7 +60,7 @@ export function DepartmentDetails({
         data-testid="department-details"
       >
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 id="department-details" className="font-display text-xl font-bold text-heading">
+          <h2 id="department-details" className="text-base font-bold text-heading">
             Department Details
           </h2>
           {canChange ? (
@@ -78,17 +78,17 @@ export function DepartmentDetails({
           <GroupIcon name={d.name} size="lg" />
           <div className="min-w-0">
             <p className="flex flex-wrap items-center gap-3">
-              <span className="font-display text-xl font-bold text-heading">{d.name}</span>
+              <span className="text-xl font-bold text-heading">{d.name}</span>
               <GroupStatusBadge status={d.status} />
             </p>
             {d.description ? <p className="mt-1 text-sm text-link">{d.description}</p> : null}
           </div>
         </div>
         <dl>
-          <div className={`${fact} flex-col [&>dd]:w-full`}>
-            <dt className="font-semibold text-heading">Department Head</dt>
-            <dd className="flex items-center justify-between gap-2">
-              <PersonCell person={d.head} size="md" />
+          <div className={`${fact} flex-wrap`}>
+            <dt className={term}>Department Head</dt>
+            <dd className="flex min-w-56 flex-1 items-center justify-between gap-2">
+              <PersonCell person={d.head} />
               {canChange ? (
                 <Button variant="secondary" onClick={() => onChangeHead(d)}>
                   Change
@@ -97,27 +97,27 @@ export function DepartmentDetails({
             </dd>
           </div>
           <div className={fact}>
-            <dt className="font-semibold text-heading">Total Teams</dt>
-            <dd>{d.teamCount}</dd>
+            <dt className={term}>Total Teams</dt>
+            <dd className="min-w-0 flex-1">{d.teamCount}</dd>
           </div>
           <div className={fact}>
-            <dt className="font-semibold text-heading">Total Staff</dt>
-            <dd>{d.staffCount}</dd>
+            <dt className={term}>Total Staff</dt>
+            <dd className="min-w-0 flex-1">{d.staffCount}</dd>
           </div>
           <div className={fact}>
-            <dt className="font-semibold text-heading">Created</dt>
-            <dd>{dateText(d.createdAt)}</dd>
+            <dt className={term}>Created</dt>
+            <dd className="min-w-0 flex-1">{dateText(d.createdAt)}</dd>
           </div>
           <div className={fact}>
-            <dt className="font-semibold text-heading">Description</dt>
-            <dd className="text-link">{d.description ?? 'No description yet.'}</dd>
+            <dt className={term}>Description</dt>
+            <dd className="min-w-0 flex-1 text-link">{d.description ?? 'No description yet.'}</dd>
           </div>
         </dl>
       </section>
 
       <section aria-labelledby="department-teams" className={card} data-testid="department-teams">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 id="department-teams" className="font-display text-lg font-bold text-heading">
+          <h2 id="department-teams" className="text-base font-bold text-heading">
             Teams in This Department
           </h2>
           {canChange && d.status === 'ACTIVE' ? (
@@ -153,19 +153,19 @@ export function DepartmentDetails({
             <tbody>
               {teams.map((t) => (
                 <tr key={t.id} className="border-b border-divider" data-testid="department-team">
-                  <td className="px-2 py-2">
+                  <td className="px-2 py-1">
                     <span className="flex items-center gap-2 font-medium text-heading">
-                      <GroupIcon name={t.name} />
+                      <GroupIcon name={t.name} size="sm" />
                       {t.name}
                     </span>
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-2 py-1">
                     <span className="inline-flex items-center gap-1.5 text-text">
                       <UsersThree aria-hidden weight="fill" className="size-4 text-heading" />
                       {t.memberCount}
                     </span>
                   </td>
-                  <td className="px-2 py-2 text-right">
+                  <td className="px-2 py-1 text-right">
                     <RowMenu
                       label={`Actions for ${t.name}`}
                       items={[
