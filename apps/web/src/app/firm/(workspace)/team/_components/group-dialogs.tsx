@@ -30,11 +30,13 @@ export interface GroupFormValues {
   name: string;
   description: string;
   personId: string;
+  /** Add Team on the Teams tab: the department it belongs to. */
+  groupId?: string;
 }
 
 /**
- * Add or edit a department or a team: its name, description and head (or lead). The modal opens
- * from its page and has no route (PAGE-MAP).
+ * Add or edit a department or a team: its name, description and head (or lead), and for a new team
+ * on the Teams tab its department. The modal opens from its page and has no route (PAGE-MAP).
  */
 export function GroupFormModal({
   open,
@@ -44,6 +46,7 @@ export function GroupFormModal({
   submitLabel,
   pending,
   error,
+  groups,
   onSubmit,
   onClose,
 }: {
@@ -51,6 +54,8 @@ export function GroupFormModal({
   title: string;
   personLabel: string;
   initial: GroupFormValues;
+  /** The departments a new team can join; shows a required Department select. */
+  groups?: NamedRef[];
   submitLabel: string;
   pending: boolean;
   error: unknown;
@@ -60,13 +65,14 @@ export function GroupFormModal({
   const people = useActiveStaff();
   const [values, setValues] = useState(initial);
   const [nameError, setNameError] = useState('');
+  const [groupError, setGroupError] = useState('');
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (!values.name.trim()) {
-      setNameError('Enter a name.');
-      return;
-    }
-    setNameError('');
+    const missingName = !values.name.trim();
+    const missingGroup = Boolean(groups) && !values.groupId;
+    setNameError(missingName ? 'Enter a name.' : '');
+    setGroupError(missingGroup ? 'Choose a department.' : '');
+    if (missingName || missingGroup) return;
     onSubmit({ ...values, name: values.name.trim(), description: values.description.trim() });
   }
   return (
@@ -79,6 +85,18 @@ export function GroupFormModal({
           error={nameError}
           onChange={(event) => setValues({ ...values, name: event.target.value })}
         />
+        {groups ? (
+          <Select
+            label="Department *"
+            options={[
+              { value: '', label: 'Choose a department' },
+              ...groups.map((g) => ({ value: g.id, label: g.name })),
+            ]}
+            value={values.groupId ?? ''}
+            error={groupError}
+            onChange={(event) => setValues({ ...values, groupId: event.target.value })}
+          />
+        ) : null}
         <Textarea
           label="Description"
           maxLength={500}
