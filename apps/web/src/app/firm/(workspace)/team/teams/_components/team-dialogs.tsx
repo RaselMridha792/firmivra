@@ -148,21 +148,27 @@ function MembersForm({
           {people.map((p) => {
             const kind = picked.get(p.id);
             return (
-              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 px-3">
+              // On a phone the name keeps its line and the place drops under it.
+              <li
+                key={p.id}
+                className="flex flex-wrap items-center justify-between gap-x-2 px-3 pb-2 sm:pb-0"
+              >
                 <Checkbox
                   label={p.jobTitle ? `${p.name}, ${p.jobTitle}` : p.name}
                   checked={Boolean(kind)}
                   onChange={(event) => toggle(p.id, event.target.checked)}
-                  className="min-w-0 flex-1 text-sm"
+                  className="min-w-48 flex-1 text-sm"
                 />
                 {kind ? (
-                  <Select
-                    label={`Place of ${p.name}`}
-                    hideLabel
-                    options={KIND_OPTIONS}
-                    value={kind}
-                    onChange={(event) => setKind(p.id, event.target.value as TeamMemberKind)}
-                  />
+                  <div className="ml-8 sm:ml-0">
+                    <Select
+                      label={`Place of ${p.name}`}
+                      hideLabel
+                      options={KIND_OPTIONS}
+                      value={kind}
+                      onChange={(event) => setKind(p.id, event.target.value as TeamMemberKind)}
+                    />
+                  </div>
                 ) : null}
               </li>
             );
