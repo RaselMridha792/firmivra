@@ -22,7 +22,7 @@ export function GroupsHeader() {
             <UsersThree aria-hidden weight="fill" className="size-9" />
           </span>
           <div>
-            <h1 data-testid="page-title" className="font-display text-3xl font-bold text-heading">
+            <h1 data-testid="page-title" className="text-3xl font-bold text-heading">
               Teams &amp; Departments
             </h1>
             <p className="text-base text-link">
