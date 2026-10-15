@@ -367,7 +367,7 @@ function FormStatusChart({ summary }: { summary: IntakeDashboardSummary }) {
   return (
     <Card className="!p-4" data-testid="intake-form-status-chart">
       <h2 className="mb-3 text-base font-bold text-heading">Form Status Chart</h2>
-      <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-3">
+      <div className="grid grid-cols-1 items-center gap-4 2xl:grid-cols-[7rem_minmax(0,1fr)] 2xl:gap-3">
         <div className="flex justify-center">
           <DonutChart
             segments={segments}
@@ -384,7 +384,7 @@ function FormStatusChart({ summary }: { summary: IntakeDashboardSummary }) {
             {segments.map((segment) => (
               <li
                 key={segment.label}
-                className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 text-xs text-text"
+                className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1.5 text-[11px] text-text"
               >
                 <span className="flex min-w-0 items-center gap-2 leading-tight">
                   <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${segment.dot}`} />
@@ -831,8 +831,8 @@ export function IntakeFormsScreen() {
         ) : null}
       </section>
 
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-4">
-        <section className="min-w-0 space-y-4 xl:col-span-3" aria-label="Intake form submissions">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-5">
+        <section className="min-w-0 space-y-4 xl:col-span-4" aria-label="Intake form submissions">
           <div className="overflow-hidden rounded-card border border-border bg-surface pb-3 shadow-card [&_[aria-label=Pagination]]:px-3">
             <ApiPageState query={assignedForms} isEmpty={() => false}>
               {(data) => (
@@ -843,7 +843,7 @@ export function IntakeFormsScreen() {
                   caption="Client intake forms"
                   dense
                   loading={assignedForms.isFetching && !assignedForms.isPending}
-                  tableClassName="min-w-max [&_thead_th]:text-sm [&_thead_th]:font-semibold"
+                  tableClassName="[&_thead_th]:text-sm [&_thead_th]:font-semibold [&_th:nth-child(4)]:px-2 [&_td:nth-child(4)]:px-2 [&_th:nth-child(5)]:px-2 [&_td:nth-child(5)]:px-2 [&_th:last-child]:px-1 [&_td:last-child]:px-1 [&_td:last-child>div]:gap-1"
                   emptyTitle={
                     search || activeFilterCount || tab !== 'all'
                       ? 'No matching forms'
