@@ -1,6 +1,11 @@
 'use client';
 
-import type { LeadBulkRequest, LeadBulkResult, LeadOptions, LeadStage } from '@firmivra/types';
+import type {
+  LeadBulkRequest,
+  LeadBulkResult,
+  LeadOptions,
+  LeadPipelineStatus,
+} from '@firmivra/types';
 import { Button, Input, Modal, Select } from '@firmivra/ui';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
@@ -23,7 +28,7 @@ interface LeadBulkDialogProps {
 
 export function LeadBulkDialog({ state, options, onClose }: LeadBulkDialogProps) {
   const [assignedUserId, setAssignedUserId] = useState('');
-  const [stage, setStage] = useState<Exclude<LeadStage, 'CONVERTED'>>('NEW');
+  const [stage, setStage] = useState<Exclude<LeadPipelineStatus, 'CONVERTED'>>('SUBMITTED');
   const [campaignId, setCampaignId] = useState('');
   const [tagText, setTagText] = useState('');
   const bulk = useApiMutation((body: LeadBulkRequest) => api.leadPipeline.bulk(body), {
@@ -111,7 +116,9 @@ export function LeadBulkDialog({ state, options, onClose }: LeadBulkDialogProps)
           <Select
             label="New status"
             value={stage}
-            onChange={(event) => setStage(event.target.value as Exclude<LeadStage, 'CONVERTED'>)}
+            onChange={(event) =>
+              setStage(event.target.value as Exclude<LeadPipelineStatus, 'CONVERTED'>)
+            }
             options={STAGES.filter((item) => item.value !== 'CONVERTED')}
           />
         ) : null}

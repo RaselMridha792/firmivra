@@ -5,7 +5,7 @@ import type {
   LeadPriority,
   LeadRow,
   LeadSource,
-  LeadStage,
+  LeadPipelineStatus,
 } from '@firmivra/types';
 import { BulkBar, Button, Checkbox, FilterBar, FilterGroup, KpiCard, Select } from '@firmivra/ui';
 import {
@@ -39,7 +39,7 @@ import { LeadsTable, type LeadRowAction } from './leads-table';
 interface LeadFilters {
   source: LeadSource | '';
   serviceId: string;
-  stage: LeadStage | '';
+  stage: LeadPipelineStatus | '';
   assignedUserId: string;
   from: string;
   to: string;
@@ -88,8 +88,8 @@ function LeadsSummary({
       metric: summary.new,
       icon: UserPlus,
       tone: 'amber' as const,
-      active: filters.stage === 'NEW',
-      select: () => onFilter({ stage: 'NEW', overdue: false }),
+      active: filters.stage === 'SUBMITTED',
+      select: () => onFilter({ stage: 'SUBMITTED', overdue: false }),
       decreasesAreGood: false,
     },
     {
@@ -118,8 +118,8 @@ function LeadsSummary({
       metric: summary.notQualified,
       icon: XCircle,
       tone: 'red' as const,
-      active: filters.stage === 'NOT_QUALIFIED',
-      select: () => onFilter({ stage: 'NOT_QUALIFIED', overdue: false }),
+      active: filters.stage === 'DECLINED',
+      select: () => onFilter({ stage: 'DECLINED', overdue: false }),
       decreasesAreGood: true,
     },
     {
@@ -249,7 +249,7 @@ function LeadFilters({
           hideLabel
           value={filters.stage}
           onChange={(event) =>
-            onFilter({ stage: event.target.value as LeadStage | '', overdue: false })
+            onFilter({ stage: event.target.value as LeadPipelineStatus | '', overdue: false })
           }
           options={[{ value: '', label: 'All Lead Statuses' }, ...STAGES]}
         />

@@ -59,7 +59,7 @@ export function LeadCreateDialog({
       serviceIds: [],
       preferredContact: [],
       priority: 'WARM',
-      stage: 'NEW',
+      stage: 'SUBMITTED',
       allowDuplicate: false,
     },
   });
