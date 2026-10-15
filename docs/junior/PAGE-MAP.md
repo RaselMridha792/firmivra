@@ -78,7 +78,7 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/settings/payments` (Owner connects, Admin reads only, Staff never see it) | `(workspace)/settings/payments/page.tsx` | R16 | R7 Stripe | none |
 | `/settings/tax-statuses` | `(workspace)/settings/tax-statuses/` (the reference screen) | R1 | kit | none |
 
-### The six modules: Staff Management, Settings and Appointments (Tumit); Leads, Intake Forms and Services & Pricing (Arfan)
+### The six modules: Staff Management, Settings and Appointments (Tumit); Leads, Intake Forms and Services & Pricing (Arfan; five Services & Pricing pages are Fahad's: new, [id], [id]/edit, inactive and packages/new)
 
 Rasel's decision, Oct 14 (R41). Every route below exists on main as a placeholder that shows only the page title, built from `PageHeader`, so nobody waits for anyone: open the file and build the page from its design, on the typed mocks (`docs/junior/GUIDE.md`, "Mock first"). Folders are inside `apps/web/src/app/firm/(workspace)/`. Designs and docx are under `docs/mockups/firm-workspace/`; the docx is Octavia's written instruction for the module (`§` is its section, "Frame" its frame name).
 
@@ -158,14 +158,14 @@ Routes follow three rules: a page gets a route; a tab that shows its own content
 | `/intake-forms/templates` | `intake-forms/templates/` | Arfan | `intake-forms/source/form-templates-dashboard.jpg` | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 4) |
 | `/intake-forms/settings` | `intake-forms/settings/` | Arfan | `intake-forms/source/intake-form-settings.jpg` | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 5) |
 | `/services-pricing` | `services-pricing/` | Arfan | `services-and-pricing/source/services-and-pricing.jpg` | `services-and-pricing/source/services-and-pricing.docx` §2-3 |
-| `/services-pricing/inactive` | `services-pricing/inactive/` | Arfan | `services-and-pricing/source/services-and-pricing.jpg` (Inactive Services tab) | `services-and-pricing/source/services-and-pricing.docx` §2 |
+| `/services-pricing/inactive` | `services-pricing/inactive/` | Fahad | `services-and-pricing/source/services-and-pricing.jpg` (Inactive Services tab) | `services-and-pricing/source/services-and-pricing.docx` §2 |
 | `/services-pricing/categories` | `services-pricing/categories/` | Arfan | none (no frame; tab named in services-and-pricing.jpg) | `services-and-pricing/source/services-and-pricing.docx` §10 |
 | `/services-pricing/packages` | `services-pricing/packages/` | Arfan | none (no list frame; tab named in services-and-pricing.jpg) | `services-and-pricing/source/services-and-pricing.docx` §2, §8 |
 | `/services-pricing/promotions` | `services-pricing/promotions/` | Arfan | none (no frame; tab named in services-and-pricing.jpg) | `services-and-pricing/source/services-and-pricing.docx` §11 |
-| `/services-pricing/new` | `services-pricing/new/` | Arfan | `services-and-pricing/source/add-edit-service.jpg` | `services-and-pricing/source/services-and-pricing.docx` §4-7 |
-| `/services-pricing/[id]` | `services-pricing/[id]/` | Arfan | `services-and-pricing/source/add-edit-service.jpg` (Service Preview, View Full Page) | `services-and-pricing/source/services-and-pricing.docx` §3, §4 |
-| `/services-pricing/[id]/edit` | `services-pricing/[id]/edit/` | Arfan | `services-and-pricing/source/add-edit-service.jpg` (Edit mode) | `services-and-pricing/source/services-and-pricing.docx` §4-7 |
-| `/services-pricing/packages/new` | `services-pricing/packages/new/` | Arfan | `services-and-pricing/source/package-builder.jpg` | `services-and-pricing/source/services-and-pricing.docx` §8-9 |
+| `/services-pricing/new` | `services-pricing/new/` | Fahad | `services-and-pricing/source/add-edit-service.jpg` | `services-and-pricing/source/services-and-pricing.docx` §4-7 |
+| `/services-pricing/[id]` | `services-pricing/[id]/` | Fahad | `services-and-pricing/source/add-edit-service.jpg` (Service Preview, View Full Page) | `services-and-pricing/source/services-and-pricing.docx` §3, §4 |
+| `/services-pricing/[id]/edit` | `services-pricing/[id]/edit/` | Fahad | `services-and-pricing/source/add-edit-service.jpg` (Edit mode) | `services-and-pricing/source/services-and-pricing.docx` §4-7 |
+| `/services-pricing/packages/new` | `services-pricing/packages/new/` | Fahad | `services-and-pricing/source/package-builder.jpg` | `services-and-pricing/source/services-and-pricing.docx` §8-9 |
 | `/services-pricing/packages/[id]` | `services-pricing/packages/[id]/` | Arfan | `services-and-pricing/source/package-builder.jpg` (Package Preview, View Full Page) | `services-and-pricing/source/services-and-pricing.docx` §8 |
 | `/services-pricing/packages/[id]/edit` | `services-pricing/packages/[id]/edit/` | Arfan | `services-and-pricing/source/package-builder.jpg` (Edit mode) | `services-and-pricing/source/services-and-pricing.docx` §8-9 |
 
@@ -269,6 +269,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/admin/sign-in/`, `admin/forgot-password/`, `admin/reset-password/`
 - `apps/web/src/app/firm/sign-in/`, `firm/forgot-password/`, `firm/reset-password/`, `firm/activate/`
 - `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's, and `clients/[id]/messages/`, Nahid's), `invoices/`, `sign-ups/`, `workspaces/`
+- Five Services & Pricing pages (Rasel, Oct 15), in `apps/web/src/app/firm/(workspace)/`: `services-pricing/new/`, `services-pricing/[id]/` (with its `edit/`), `services-pricing/inactive/` and `services-pricing/packages/new/`; and `apps/web/src/mocks/services-pricing.ts` and `mocks/services-pricing-*.ts` (shared with Arfan)
 - `apps/web/e2e/fahad-*.spec.ts`, `apps/web/e2e/mock/fahad-*.spec.ts`, `docs/tasks/FAHAD.md`
 
 **Tumit** (Staff Management, Settings and Appointments, from Oct 14)
@@ -287,6 +288,6 @@ These are the only files a PR from your branch may change. A folder means everyt
 
 **Arfan** (Leads, Intake Forms and Services & Pricing, from Oct 14)
 - `apps/web/src/app/portal/[firmSlug]/(public)/begin/`
-- `apps/web/src/app/firm/(workspace)/leads/` (the list, the lead profile `leads/[id]/` and its tabs and convert steps; 14 routes), `intake-forms/` (13 routes), `services-pricing/` (11 routes)
+- `apps/web/src/app/firm/(workspace)/leads/` (the list, the lead profile `leads/[id]/` and its tabs and convert steps; 14 routes), `intake-forms/` (13 routes), `services-pricing/` (6 routes: the list, categories, packages list, `packages/[id]`, `packages/[id]/edit` and promotions; `new`, `[id]`, `[id]/edit`, `inactive` and `packages/new` moved to Fahad on Oct 15)
 - `apps/web/src/mocks/leads.ts`, `mocks/intake-forms.ts`, `mocks/services-pricing.ts` and new `mocks/leads-*.ts`, `mocks/intake-forms-*.ts`, `mocks/services-pricing-*.ts` (synthetic data only; registering a module in `lib/api.ts` is the contract session's)
 - `apps/web/e2e/` (all tests, mock-mode ones too: you lead testing), `docs/tasks/ARFAN.md`
