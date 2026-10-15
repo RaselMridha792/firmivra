@@ -105,12 +105,13 @@ export function DepartmentsScreen() {
         ) : null}
       </GroupsTabs>
 
-      <div className="grid items-start gap-4 xl:grid-cols-7">
+      {/* The design's two-to-one split needs 1440 px; narrower, the cards go under the list. */}
+      <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
         <section
           aria-labelledby="department-list"
-          className="min-w-0 rounded-xl border border-divider bg-surface p-4 shadow-sm xl:col-span-5"
+          className="min-w-0 rounded-xl border border-divider bg-surface p-4 shadow-sm min-[1440px]:col-span-2"
         >
-          <h2 id="department-list" className="font-display text-2xl font-bold text-heading">
+          <h2 id="department-list" className="text-xl font-bold text-heading">
             Department List
           </h2>
           <p className="mb-4 text-sm text-link">
@@ -124,7 +125,7 @@ export function DepartmentsScreen() {
                 caption="Departments"
                 noun="departments"
                 pageSize={PAGE_SIZE}
-                tableClassName="[&_tbody_tr:has([aria-pressed=true])]:bg-folder-surface"
+                tableClassName="[&_td]:py-1.5 [&_tbody_tr:has([aria-pressed=true])]:bg-folder-surface"
                 emptyTitle={
                   query || status !== 'all' ? 'No matching departments' : 'No departments yet'
                 }
@@ -230,7 +231,7 @@ export function DepartmentsScreen() {
           </PageState>
         </section>
 
-        <aside className="flex min-w-0 flex-col gap-4 xl:col-span-2">
+        <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">
           {selectedId ? (
             <DepartmentDetails
               id={selectedId}

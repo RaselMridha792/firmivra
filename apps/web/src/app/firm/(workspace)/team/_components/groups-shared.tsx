@@ -54,34 +54,35 @@ function iconFor(name: string): [Icon, keyof typeof tones] {
   return found ? [found[1], found[2]] : [Buildings, 'blue'];
 }
 
-export function GroupIcon({ name, size = 'md' }: { name: string; size?: 'md' | 'lg' }) {
+const iconSizes = {
+  sm: ['size-6 rounded-md', 'size-4'],
+  md: ['size-8 rounded-lg', 'size-5'],
+  lg: ['size-16 rounded-xl', 'size-8'],
+} as const;
+
+export function GroupIcon({ name, size = 'md' }: { name: string; size?: keyof typeof iconSizes }) {
   const [glyph, tone] = iconFor(name);
+  const [tile, mark] = iconSizes[size];
   return (
     <span
       aria-hidden
-      className={`flex shrink-0 items-center justify-center rounded-lg ${tones[tone]} ${size === 'lg' ? 'size-16' : 'size-9'}`}
+      className={`flex shrink-0 items-center justify-center ${tile} ${tones[tone]}`}
     >
-      {createElement(glyph, { weight: 'fill', className: size === 'lg' ? 'size-8' : 'size-5' })}
+      {createElement(glyph, { weight: 'fill', className: mark })}
     </span>
   );
 }
 
 /** Head or lead: the photo (initials until avatars exist), the name and the job title. */
-export function PersonCell({
-  person,
-  size = 'lg',
-}: {
-  person: StaffRef | null;
-  size?: 'md' | 'lg';
-}) {
+export function PersonCell({ person }: { person: StaffRef | null }) {
   if (!person) return <span className="text-muted">No head yet</span>;
   return (
     <span className="flex min-w-0 items-center gap-3">
-      <Avatar name={person.name} src={person.avatarUrl ?? undefined} size={size} />
+      <Avatar name={person.name} src={person.avatarUrl ?? undefined} size="md" />
       <span className="min-w-0">
         <span className="block truncate font-semibold text-heading">{person.name}</span>
         {person.jobTitle ? (
-          <span className="block truncate text-link">{person.jobTitle}</span>
+          <span className="block truncate text-xs text-link">{person.jobTitle}</span>
         ) : null}
       </span>
     </span>
