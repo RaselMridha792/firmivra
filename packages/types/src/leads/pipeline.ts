@@ -4,6 +4,7 @@ import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
 import {
   ClientAccountType,
+  LeadActionType,
   LeadActivityKind,
   LeadPriority,
   LeadSource,
@@ -51,16 +52,11 @@ export const LEAD_STATUS_LABELS: Record<LeadPipelineStatus, string> = {
 export const ContactChannel = z.enum(['PHONE', 'EMAIL', 'SMS']);
 export type ContactChannel = z.infer<typeof ContactChannel>;
 
-/** Next Action types (Call, Email, Appointment, Send Documents, Follow Up, Close Lead). */
-export const NextActionType = z.enum([
-  'CALL',
-  'EMAIL',
-  'SMS',
-  'APPOINTMENT',
-  'SEND_DOCUMENTS',
-  'FOLLOW_UP',
-  'CLOSE_LEAD',
-]);
+/**
+ * Next Action types (Call, Email, SMS, Appointment, Send Documents, Follow Up, Close Lead): the
+ * database's LeadActionType under the name the screens use. One source; the root exports both.
+ */
+export const NextActionType = LeadActionType;
 export type NextActionType = z.infer<typeof NextActionType>;
 
 const NamedRef = z.object({ id: z.uuid(), name: z.string() });
@@ -70,10 +66,10 @@ export const LeadCampaignRef = NamedRef;
 
 export const NextAction = z.object({
   type: NextActionType,
-  /** Null for CLOSE_LEAD ("No further action"). */
-  dueAt: DateTime.nullable(),
+  /** Always set (leads_next_action); for CLOSE_LEAD, when the lead was closed. */
+  dueAt: DateTime,
   notes: z.string().nullable(),
-  /** Derived: dueAt passed and not completed. Never stored. */
+  /** Derived: dueAt passed and not completed; never for CLOSE_LEAD. Never stored. */
   overdue: z.boolean(),
 });
 export type NextAction = z.infer<typeof NextAction>;
@@ -179,7 +175,8 @@ export type LeadOptions = z.infer<typeof LeadOptions>;
 
 const NextActionInput = z.strictObject({
   type: NextActionType,
-  dueAt: DateTime.nullable().optional(),
+  /** Required with every type, as the database requires it (CLOSE_LEAD: now). */
+  dueAt: DateTime,
   notes: clearable(text(500, 'many')),
 });
 
@@ -316,11 +313,14 @@ export const LeadActivityPage = z.object({
 });
 export type LeadActivityPage = z.infer<typeof LeadActivityPage>;
 
+/** lead_activities.summary holds up to this many characters (R47, lead_activities_text). */
+export const LEAD_ACTIVITY_SUMMARY_MAX = 1000;
+
 /** Log Activity: a manual call, meeting, note or follow-up. */
 export const LogLeadActivityRequest = z.strictObject({
   kind: LeadActivityKind.extract(['CALL', 'EMAIL_SENT', 'SMS_SENT', 'MEETING', 'FOLLOW_UP']),
   at: DateTime.optional(),
-  summary: text(1000, 'many'),
+  summary: text(LEAD_ACTIVITY_SUMMARY_MAX, 'many'),
 });
 export type LogLeadActivityRequest = z.input<typeof LogLeadActivityRequest>;
 

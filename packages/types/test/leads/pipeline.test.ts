@@ -4,13 +4,17 @@ import {
   CreateLeadRequest,
   createLeadPipelineClient,
   createRequest,
+  LEAD_ACTIVITY_SUMMARY_MAX,
   LEAD_STATUS_LABELS,
+  LeadActionType,
   LeadActivityKind,
   LeadBulkRequest,
   LeadPipelineQuery,
   LeadPipelineStatus,
   LeadSource,
   LogLeadActivityRequest,
+  NextActionType,
+  SetFollowUpRequest,
   UpdateLeadRequest,
 } from '../../src/index.js';
 
@@ -78,6 +82,18 @@ describe('api.leadPipeline', () => {
     expect(LogLeadActivityRequest.safeParse({ kind: 'EMAIL', summary: 'Sent' }).success).toBe(
       false,
     );
+  });
+
+  it('takes the database action types, a due time with each, and a 1,000-character summary', () => {
+    expect(NextActionType).toBe(LeadActionType);
+    expect(NextActionType.options).toEqual(expect.arrayContaining(['SMS', 'CLOSE_LEAD']));
+    const at = '2026-10-15T09:00:00.000Z';
+    expect(SetFollowUpRequest.safeParse({ type: 'CLOSE_LEAD', dueAt: at }).success).toBe(true);
+    expect(SetFollowUpRequest.safeParse({ type: 'CLOSE_LEAD' }).success).toBe(false);
+    expect(LEAD_ACTIVITY_SUMMARY_MAX).toBe(1000);
+    const log = (summary: string) => LogLeadActivityRequest.safeParse({ kind: 'CALL', summary });
+    expect(log('x'.repeat(1000)).success).toBe(true);
+    expect(log('x'.repeat(1001)).success).toBe(false);
   });
 
   it('needs a real change to update', () => {

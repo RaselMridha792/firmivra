@@ -288,9 +288,11 @@ describe('the lead timeline', () => {
     await expect(log(lead.id, { kind: 'NOTE' })).rejects.toThrow(/lead_activities_text/);
     await expect(log(lead.id, { status: 'CONTACTED' })).rejects.toThrow(/lead_activities_text/);
     await expect(log(lead.id, { kind: 'STATUS_CHANGED' })).rejects.toThrow(/lead_activities_text/);
-    await expect(log(lead.id, { summary: 'x'.repeat(201) })).rejects.toThrow(
+    // R47: the summary takes up to 1,000 characters.
+    await expect(log(lead.id, { summary: 'x'.repeat(1001) })).rejects.toThrow(
       /lead_activities_text/,
     );
+    await expect(log(lead.id, { summary: 'x'.repeat(1000) })).resolves.toBeTruthy();
     await expect(log(lead.id, { kind: 'NOTE', body: 'Wants evenings' })).resolves.toBeTruthy();
     await expect(
       log(lead.id, { occurredAt: new Date(Date.now() - 86_400_000) }),
