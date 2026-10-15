@@ -6,6 +6,7 @@ import {
   createAppointmentTypesClient,
   createAuditLogClient,
   createAvailabilityClient,
+  createBrandingClient,
   createBeginOnlineClient,
   createCalculatorsClient,
   createClientNotesClient,
@@ -16,11 +17,16 @@ import {
   createEngagementsClient,
   createEsignClient,
   createFirmApplicationsClient,
+  createIntakeFormsClient,
   createInvoicesClient,
+  createLeadPipelineClient,
   createLeadsClient,
+  createDashboardClient,
+  createDepartmentsClient,
   createMessagesClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
+  createPublicCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
   createMyIntakesClient,
@@ -39,12 +45,18 @@ import {
   createPaymentsSetupClient,
   createPublicAgreementsClient,
   createRequest,
+  createRolesClient,
+  createSchedulingClient,
+  createServicesPricingClient,
   createSettingsClient,
+  createSettingsOverviewClient,
+  createStaffClient,
   createSupportAccessClient,
   createTasksClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
+  createUsersClient,
   createWorkspacesClient,
 } from '@firmivra/types';
 import {
@@ -63,6 +75,7 @@ import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
+import { createClientsMock } from '../mocks/clients';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import {
@@ -75,6 +88,10 @@ import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
+import { createLeadPipelineMock } from '../mocks/leads-pipeline';
+import { createIntakeFormsMock } from '../mocks/intake-forms';
+import { createServicesPricingMock } from '../mocks/services-pricing';
+import { createDashboardMock } from '../mocks/dashboard';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
 import { myProfileMock } from '../mocks/clients';
@@ -87,12 +104,19 @@ import {
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createSettingsMock } from '../mocks/settings';
+import {
+  createBrandingMock,
+  createSettingsOverviewMock,
+  createUsersMock,
+} from '../mocks/settings-admin';
+import { createSchedulingMock } from '../mocks/appointments-scheduling';
+import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createTasksMock } from '../mocks/tasks';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
-import { MOCK_ROLE, mocked } from './mock';
+import { MOCK_ROLE, mocked, mockedEmpty } from './mock';
 import { sessionFetch } from './session';
 
 /**
@@ -122,6 +146,36 @@ export const api = {
       : createTaxStatusesClient(request),
   /** The firm's team: roles, deactivate, resend invites (docs/api/team.yaml). Invites: staffAuth. */
   team: dev && mocked('team') ? sharedTeamMock(MOCK_ROLE) : createTeamClient(request),
+  /** Staff Management (R42 contract): directory, Create/Edit Staff, security, documents, import. */
+  staff:
+    dev && mocked('staff')
+      ? createStaffMock({ role: MOCK_ROLE, empty: mockedEmpty('staff') })
+      : createStaffClient(request, options.baseUrl),
+  /** Teams & Departments and the org chart (R42 contract). Mock shares api.staff's rows. */
+  departments:
+    dev && mocked('departments')
+      ? createDepartmentsMock({ role: MOCK_ROLE, empty: mockedEmpty('departments') })
+      : createDepartmentsClient(request),
+  /** Roles and the permission grid (R42 contract): Create Staff step 2, Settings > Users & Roles. */
+  roles:
+    dev && mocked('roles')
+      ? createRolesMock({ role: MOCK_ROLE, empty: mockedEmpty('roles') })
+      : createRolesClient(request),
+  /** Settings > Overview (R42 contract). */
+  settingsOverview:
+    dev && mocked('settingsOverview')
+      ? createSettingsOverviewMock({ role: MOCK_ROLE, empty: mockedEmpty('settingsOverview') })
+      : createSettingsOverviewClient(request),
+  /** Settings > Company Profile & Branding beyond api.settings (R42 contract). */
+  branding:
+    dev && mocked('branding')
+      ? createBrandingMock({ role: MOCK_ROLE, empty: mockedEmpty('branding') })
+      : createBrandingClient(request),
+  /** Settings > Users & Roles: the user table, KPIs, export, Invite User (R42 contract). */
+  users:
+    dev && mocked('users')
+      ? createUsersMock({ role: MOCK_ROLE, empty: mockedEmpty('users') })
+      : createUsersClient(request, options.baseUrl),
   /** Settings, the setup wizard, and the firm's Terms and Privacy (docs/api/settings.yaml). */
   settings:
     dev && mocked('settings')
@@ -133,7 +187,11 @@ export const api = {
       ? createClientSignUpsMock({ role: MOCK_ROLE })
       : createClientSignUpsClient(request),
   /** Client records (R10): firm side. */
-  clients: createClientsClient(request),
+  // R34: wired to its existing mock (mocks/clients.ts), which no module had registered yet.
+  clients:
+    dev && mocked('clients')
+      ? createClientsMock({ role: MOCK_ROLE })
+      : createClientsClient(request),
   engagements:
     dev && mocked('engagements')
       ? createEngagementsMock({ role: MOCK_ROLE })
@@ -145,6 +203,23 @@ export const api = {
       : createTaxReturnsClient(request),
   /** Begin Online leads (R11): the firm's inbox, convert and decline. */
   leads: dev && mocked('leads') ? createLeadsMock({ role: MOCK_ROLE }) : createLeadsClient(request),
+  /** Leads page and Lead Profile (R43 contract): pipeline, follow-ups, activity, convert to client. */
+  leadPipeline:
+    dev && mocked('leadPipeline')
+      ? createLeadPipelineMock({ role: MOCK_ROLE, empty: mockedEmpty('leadPipeline') })
+      : createLeadPipelineClient(request),
+  /** Intake Forms workspace (R43 contract): dashboard, builder, send, review, templates, settings. */
+  intakeForms:
+    dev && mocked('intakeForms')
+      ? createIntakeFormsMock({ role: MOCK_ROLE, empty: mockedEmpty('intakeForms') })
+      : createIntakeFormsClient(request),
+  /** Services & Pricing (R43 contract): services, categories, packages, promotions. */
+  servicesPricing:
+    dev && mocked('servicesPricing')
+      ? createServicesPricingMock({ role: MOCK_ROLE, empty: mockedEmpty('servicesPricing') })
+      : createServicesPricingClient(request),
+  /** The firm dashboard's numbers (R30). */
+  dashboard: dev && mocked('dashboard') ? createDashboardMock() : createDashboardClient(request),
   /** Client records (R10): the signed-in client's own, per firm (portal). */
   myProfile: (firmSlug: string) =>
     dev && mocked('myProfile') ? myProfileMock(firmSlug) : createMyProfileClient(request, firmSlug),
@@ -169,6 +244,11 @@ export const api = {
     dev && mocked('appointments')
       ? createAppointmentsMock({ role: MOCK_ROLE })
       : createAppointmentsClient(request),
+  /** Appointments workspace (R42 contract): KPIs, agenda views, the full scheduling form, availability panel. */
+  scheduling:
+    dev && mocked('scheduling')
+      ? createSchedulingMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') })
+      : createSchedulingClient(request),
   /** Appointments (R12): the signed-in client's own, per firm (portal). */
   myAppointments: (firmSlug: string) =>
     dev && mocked('myAppointments')
@@ -190,6 +270,11 @@ export const api = {
     dev && mocked('myCalculators')
       ? myCalculatorsMock(firmSlug)
       : createMyCalculatorsClient(request, firmSlug),
+  /** Calculators (R14): the firm's enabled calculators for the public pages, no sign-in. */
+  publicCalculators: (firmSlug: string) =>
+    dev && mocked('myCalculators')
+      ? myCalculatorsMock(firmSlug)
+      : createPublicCalculatorsClient(request, firmSlug),
   /** Documents (R5): a client's files and document requests, for the firm. Upload with uploadFile(). */
   documents:
     dev && mocked('documents')

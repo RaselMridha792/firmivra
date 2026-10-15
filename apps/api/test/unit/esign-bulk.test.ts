@@ -100,21 +100,43 @@ describe('POST bulk-send', () => {
   });
 
   it('turns a client the caller can’t reach into a NOT_SENT row: no name, nothing made', async () => {
-    const list = [w.ids.c1, w.ids.cB, w.ids.archived, randomUUID(), w.ids.c2];
+    const list = [w.ids.c1, w.ids.archived, w.ids.c2];
     const b = await svc.send(w.a, staff, t.record.id, body(list.map((clientId) => ({ clientId }))));
-    // Staff reach only c1 (assigned to them); another firm's, archived, unknown and c2 are
-    // refused. The archived one is still theirs, so it keeps its name.
+    // Staff reach only c1 (assigned to them); archived and c2 are refused. The archived one is
+    // still theirs, so it keeps its name.
     expect(rows(b)).toEqual([
       ['Fake Client One', 'QUEUED', null],
-      ['Client', 'NOT_SENT', 'NO_CLIENT'],
       ['Fake Archived', 'NOT_SENT', 'NO_CLIENT'],
       ['Client', 'NOT_SENT', 'NO_CLIENT'],
-      ['Client', 'NOT_SENT', 'NO_CLIENT'],
     ]);
-    expect(w.audit.entries[0]!.metadata).toMatchObject({ clientIds: [w.ids.c1], refused: 4 });
+    expect(w.audit.entries[0]!.metadata).toMatchObject({ clientIds: [w.ids.c1], refused: 2 });
     expect(await requestsOf(w.a)).toEqual([]);
     expect(await requestsOf(w.b)).toEqual([]);
-    expect(JSON.stringify(await svc.get(w.a, staff, b.id))).not.toContain('Fake Client B');
+  });
+
+  it('answers 404 for a client id that is not the firm’s (another firm’s or unknown)', async () => {
+    for (const id of [w.ids.cB, randomUUID()]) {
+      const work = svc.send(
+        w.a,
+        owner,
+        t.record.id,
+        body([{ clientId: w.ids.c1 }, { clientId: id }]),
+      );
+      expect(await refused(work)).toEqual([404, 'NOT_FOUND']);
+    }
+    expect(bulk.batches.of(w.a).size).toBe(0);
+    expect(w.audit.entries).toEqual([]);
+  });
+
+  it('answers 409 ENGAGEMENT_MISMATCH for a service that is not the client’s', async () => {
+    const work = svc.send(
+      w.a,
+      owner,
+      t.record.id,
+      body([{ clientId: w.ids.c1, engagementId: w.ids.e2 }]),
+    );
+    expect(await refused(work)).toEqual([409, 'ENGAGEMENT_MISMATCH']);
+    expect(bulk.batches.of(w.a).size).toBe(0);
   });
 
   it('refuses what holds for every client before writing anything', async () => {

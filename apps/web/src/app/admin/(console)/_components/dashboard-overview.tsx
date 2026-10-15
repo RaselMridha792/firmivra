@@ -2,6 +2,7 @@
 
 import type {
   AdminDashboard,
+  AdminSystemStatus,
   FirmApplicationListItem,
   ListFirmApplicationsResponse,
 } from '@firmivra/types';
@@ -62,16 +63,15 @@ function StatCard({
       : stat.key === 'monthlyRevenueCents'
         ? (value / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
         : value.toLocaleString('en-US');
-  const linkClass = 'mt-1 inline-flex items-center gap-1 whitespace-nowrap text-sm text-brand-700';
+  const linkClass = 'mt-1 inline-flex max-w-full items-center gap-1 text-sm text-brand-700';
 
   return (
     // Four cards share a row from xl; until 2xl a smaller icon keeps "View Applications" on one line.
-    <Card variant="elevated" data-testid={stat.testId} className="!p-4 xl:!p-3 2xl:!p-4">
-      <div className="flex items-center gap-4 xl:gap-3 2xl:gap-4">
+    <Card variant="elevated" data-testid={stat.testId} className="min-w-0 !p-4 xl:!p-3 2xl:!p-4">
+      <div className="flex min-w-0 items-center gap-3 2xl:gap-4">
         <span
           className={
-            'flex size-16 shrink-0 xl:size-12 2xl:size-16 items-center justify-center rounded-card ' +
-            iconTone
+            'flex size-12 shrink-0 2xl:size-16 items-center justify-center rounded-card ' + iconTone
           }
         >
           <Icon aria-hidden className="size-7" />
@@ -80,7 +80,7 @@ function StatCard({
           <p
             data-testid={`${stat.testId}-value`}
             title={value === null ? 'Not available yet' : undefined}
-            className="text-3xl font-semibold text-brand-900"
+            className="text-2xl font-semibold text-brand-900 wrap-anywhere lg:text-3xl"
           >
             {value === null ? <span aria-hidden>{formattedValue}</span> : formattedValue}
             {value === null ? <span className="sr-only"> Not available yet</span> : null}
@@ -96,14 +96,14 @@ function StatCard({
           </p>
           {stat.href ? (
             <Link href={stat.href} className={`${linkClass} hover:underline`}>
-              {stat.linkLabel}
-              <ArrowRight aria-hidden className="size-4" />
+              <span className="min-w-0">{stat.linkLabel}</span>
+              <ArrowRight aria-hidden className="size-4 shrink-0" />
             </Link>
           ) : (
             // Users and Billing pages come after the first release (Soon in the menu).
             <span title="Coming soon" className={linkClass}>
-              {stat.linkLabel}
-              <ArrowRight aria-hidden className="size-4" />
+              <span className="min-w-0">{stat.linkLabel}</span>
+              <ArrowRight aria-hidden className="size-4 shrink-0" />
               <span className="sr-only"> (coming soon)</span>
             </span>
           )}
@@ -165,7 +165,7 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
   return (
     <li
       data-testid="recent-application"
-      className="grid gap-2 rounded-control border border-border p-3 text-sm xl:grid-cols-20 xl:items-center xl:gap-2 xl:rounded-none xl:border-0 xl:border-b xl:px-4 xl:py-4 xl:last:border-b-0"
+      className="grid min-w-0 gap-2 rounded-control border border-border p-3 text-sm [&>span]:min-w-0 [&>span]:wrap-anywhere xl:grid-cols-20 xl:items-center xl:gap-2 xl:rounded-none xl:border-0 xl:border-b xl:px-4 xl:py-4 xl:last:border-b-0"
     >
       <span className={`font-semibold text-text ${COLUMNS[0]}`}>
         <span className="text-xs text-muted xl:hidden">Business: </span>
@@ -206,6 +206,46 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
   );
 }
 
+type Health = 'online' | 'degraded' | 'offline' | 'checking' | 'unknown';
+const HEALTH: Record<Health, { label: string; dot: string; text: string }> = {
+  online: { label: 'Online', dot: 'bg-success', text: 'text-success' },
+  degraded: { label: 'Degraded', dot: 'bg-warning', text: 'text-warning' },
+  offline: { label: 'Offline', dot: 'bg-danger', text: 'text-danger' },
+  checking: { label: 'Checking…', dot: 'bg-muted', text: 'text-muted' },
+  unknown: { label: 'Not checked yet', dot: 'bg-muted', text: 'text-muted' },
+};
+
+const SERVICE_ROWS: Record<string, keyof Omit<AdminSystemStatus, 'checkedAt'>> = {
+  'File Storage': 'storage',
+  'Email Service': 'email',
+  'Client Portals': 'portals',
+};
+
+/**
+ * Platform and Database come from the public health check (the API itself and its database);
+ * File Storage, Email Service and Client Portals from the Super Admin's system status. A row
+ * neither answers, or portals with no active firm, says so instead of guessing.
+ */
+function healthOf(
+  label: string,
+  check: { data?: { status: 'ok' | 'degraded'; db: 'ok' | 'down' } | null; isError: boolean },
+  services: { data?: AdminSystemStatus; isError: boolean },
+  mock: boolean,
+): Health {
+  if (mock) return 'online';
+  const service = SERVICE_ROWS[label];
+  if (service) {
+    if (services.isError) return 'offline';
+    if (!services.data) return 'checking';
+    return services.data[service] ?? 'unknown';
+  }
+  if (label !== 'Platform' && label !== 'Database') return 'unknown';
+  if (check.isError) return 'offline';
+  if (!check.data) return 'checking';
+  if (label === 'Database') return check.data.db === 'ok' ? 'online' : 'offline';
+  return check.data.status === 'ok' ? 'online' : 'degraded';
+}
+
 export function DashboardOverview() {
   const { me } = useMe();
   const today = useSyncExternalStore(subscribeToNothing, localDateLabel, serverDateLabel);
@@ -217,10 +257,15 @@ export function DashboardOverview() {
   );
   const firstName = me.user.name.trim().split(/\s+/)[0] || 'there';
   const isMockMode = mocked('firmApplications');
+  // Mock mode has no API behind it: the statuses show the mockup's Online.
+  const health = useApiQuery(['health'], () => (isMockMode ? Promise.resolve(null) : api.health()));
+  const services = useApiQuery(['firm-applications', 'system-status'], () =>
+    api.firmApplications.systemStatus(),
+  );
 
   return (
-    <div data-testid="dashboard" className="flex flex-col gap-3">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div data-testid="dashboard" className="flex min-w-0 flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className="font-display text-3xl font-semibold tracking-tight text-brand-900">
             Welcome back, {firstName}!
@@ -237,7 +282,7 @@ export function DashboardOverview() {
 
       <PageState<AdminDashboard> query={dashboard}>
         {(data) => (
-          <div className="grid min-h-30 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid min-h-30 min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {dashboardStats.map((stat) => (
               <StatCard key={stat.key} stat={stat} value={data[stat.key]} />
             ))}
@@ -245,8 +290,8 @@ export function DashboardOverview() {
         )}
       </PageState>
 
-      <div className="mt-1 grid gap-4 lg:grid-cols-12 lg:items-start">
-        <div className="grid content-start gap-4 lg:col-span-8 xl:col-span-9">
+      <div className="mt-1 grid min-w-0 gap-4 xl:grid-cols-12 xl:items-start">
+        <div className="grid min-w-0 content-start gap-4 xl:col-span-9">
           <Card variant="elevated" className="!p-4 xl:min-h-48">
             <SectionTitle
               icon={FileText}
@@ -292,7 +337,7 @@ export function DashboardOverview() {
             </div>
           </Card>
 
-          <div className="grid gap-4 xl:grid-cols-13">
+          <div className="grid min-w-0 gap-4 xl:grid-cols-13">
             <Card variant="elevated" data-testid="platform-growth" className="!p-4 xl:col-span-7">
               <PlatformGrowth />
             </Card>
@@ -348,7 +393,7 @@ export function DashboardOverview() {
           </div>
         </div>
 
-        <div className="grid content-start gap-4 lg:col-span-4 xl:col-span-3">
+        <div className="grid min-w-0 content-start gap-4 xl:col-span-3">
           <Card variant="elevated" className="!p-4">
             <SectionTitle icon={Zap} iconClassName="text-warning">
               Quick Actions
@@ -385,25 +430,20 @@ export function DashboardOverview() {
           <Card variant="elevated" data-testid="system-status" className="!p-4">
             <SectionTitle icon={Database}>System Status</SectionTitle>
             <ul className="divide-y divide-border">
-              {systemStatuses.map((label) => (
-                <li key={label} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                  <span
-                    aria-hidden
-                    className={
-                      'size-3 shrink-0 rounded-full ' + (isMockMode ? 'bg-success' : 'bg-muted')
-                    }
-                  />
-                  <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
-                  <span
-                    className={
-                      'flex items-center gap-1.5 text-sm font-semibold ' +
-                      (isMockMode ? 'text-success' : 'text-muted')
-                    }
-                  >
-                    {isMockMode ? 'Online' : 'Not checked yet'}
-                  </span>
-                </li>
-              ))}
+              {systemStatuses.map((label) => {
+                const state = HEALTH[healthOf(label, health, services, isMockMode)];
+                return (
+                  <li key={label} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                    <span aria-hidden className={`size-3 shrink-0 rounded-full ${state.dot}`} />
+                    <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
+                    <span
+                      className={`flex items-center gap-1.5 text-sm font-semibold ${state.text}`}
+                    >
+                      {state.label}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </Card>
         </div>

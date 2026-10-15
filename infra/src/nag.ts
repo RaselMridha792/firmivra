@@ -96,6 +96,13 @@ export function addNagSuppressions(
     `IAM5[Resource::${documents}/tenant/*]`,
     'Object keys are per business under tenant/<businessId>/; access is limited to that prefix.',
   );
+  if (config.sesSandboxSendFromAnyIdentity) {
+    ack(
+      apiTask,
+      `IAM5[Resource::arn:aws:ses:${config.region}:${config.account}:identity/*]`,
+      'Temporary, while SES is in the sandbox: lets the role send from any verified identity in the account, not only this environment. Removed once SES production access is granted.',
+    );
+  }
   ack(
     app.malwareScan.planRole,
     `IAM5[Resource::arn:aws:events:${arn}:${GUARDDUTY_MANAGED_RULE}]`,

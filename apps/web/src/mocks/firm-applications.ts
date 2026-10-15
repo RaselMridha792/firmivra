@@ -693,5 +693,16 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         monthlyRevenueCents: null,
       };
     },
+
+    systemStatus: async () => {
+      await mockDelay();
+      // The mockup's System Status: every service online.
+      return {
+        storage: 'online' as const,
+        email: 'online' as const,
+        portals: 'online' as const,
+        checkedAt: new Date().toISOString(),
+      };
+    },
   };
 }

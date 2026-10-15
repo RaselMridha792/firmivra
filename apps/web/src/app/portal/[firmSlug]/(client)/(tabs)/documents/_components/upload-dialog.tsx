@@ -2,7 +2,8 @@
 
 import { DOCUMENT_ERRORS, UPLOAD_LIMITS, type UploadTargets } from '@firmivra/types';
 import { Button, Modal, Select } from '@firmivra/ui';
-import { BriefcaseBusiness, ChevronRight, CircleX, FileUser, type LucideIcon } from 'lucide-react';
+import { BriefcaseBusiness, ChevronRight, FileUser, type LucideIcon, X } from 'lucide-react';
+import Image from 'next/image';
 import { type FormEvent, useState } from 'react';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
@@ -10,6 +11,7 @@ import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { uploadFile } from '../../../../../../../lib/upload';
 import { usePortal } from '../../../../layout';
+import lvpLogo from '../../../_components/lvp-logo.png';
 
 type Kind = keyof UploadTargets;
 /** What a request's "Upload" button opens the form with. */
@@ -53,36 +55,49 @@ export function UploadDialog({
     setKind(null);
     onClose();
   };
+  const customTitleVisible = !preset && kind === null;
   return (
-    <Modal open={open} title="Upload Documents" onClose={close}>
-      <div className="grid max-w-modal gap-4">
-        <PageState query={targets}>
-          {(t) => {
-            const chosen = kindOf(t);
-            return chosen ? (
-              <UploadForm
-                key={`${chosen}-${preset?.requestId ?? ''}`}
-                slug={slug}
-                targets={t[chosen]}
-                preset={preset}
-                onBack={preset ? close : () => setKind(null)}
-                onUploaded={(name) => {
-                  close();
-                  onUploaded(name);
-                }}
-              />
-            ) : (
-              <Reasons targets={t} onPick={setKind} />
-            );
-          }}
-        </PageState>
-      </div>
-    </Modal>
+    <div
+      className={`[&>dialog]:w-11/12 [&>dialog]:p-8 md:[&>dialog]:w-3/4 md:[&>dialog]:max-w-4xl ${customTitleVisible ? '[&>dialog>div:first-child]:mb-0 [&>dialog>div:first-child]:justify-end [&>dialog>div:first-child>h2]:sr-only [&>dialog>div:first-child>button]:text-firm-primary' : ''}`}
+    >
+      <Modal open={open} title="Upload Documents" onClose={close}>
+        <div className="grid gap-4">
+          <PageState query={targets}>
+            {(t) => {
+              const chosen = kindOf(t);
+              return chosen ? (
+                <UploadForm
+                  key={`${chosen}-${preset?.requestId ?? ''}`}
+                  slug={slug}
+                  targets={t[chosen]}
+                  preset={preset}
+                  onBack={preset ? close : () => setKind(null)}
+                  onUploaded={(name) => {
+                    close();
+                    onUploaded(name);
+                  }}
+                />
+              ) : (
+                <Reasons targets={t} onPick={setKind} onClose={close} />
+              );
+            }}
+          </PageState>
+        </div>
+      </Modal>
+    </div>
   );
 }
 
-function Reasons({ targets, onPick }: { targets: UploadTargets; onPick: (kind: Kind) => void }) {
-  const { business } = usePortal();
+function Reasons({
+  targets,
+  onPick,
+  onClose,
+}: {
+  targets: UploadTargets;
+  onPick: (kind: Kind) => void;
+  onClose: () => void;
+}) {
+  const { business, branding } = usePortal();
   const reasons: [Kind, LucideIcon, string, string][] = [
     [
       'tax',
@@ -98,40 +113,83 @@ function Reasons({ targets, onPick }: { targets: UploadTargets; onPick: (kind: K
     ],
   ];
   return (
-    <>
-      <p className="text-text">Please select the reason for your document upload.</p>
+    <div className="grid gap-4">
+      <header className="grid gap-1">
+        {branding.logoUrl ? (
+          <Image
+            unoptimized
+            src={branding.logoUrl}
+            alt={business.name}
+            width={192}
+            height={64}
+            className="mb-2 h-12 w-auto object-contain object-left"
+          />
+        ) : business.slug === 'lvp' ? (
+          <Image
+            src={lvpLogo}
+            alt={business.name}
+            sizes="192px"
+            className="mb-2 h-12 w-auto object-contain object-left"
+          />
+        ) : (
+          <p className="mb-2 font-display text-2xl font-bold text-firm-primary">{business.name}</p>
+        )}
+        <h1 className="font-display text-4xl leading-tight font-bold text-firm-primary md:text-5xl">
+          Upload <span className="text-firm-primary">Documents</span>
+        </h1>
+        <p className="text-lg text-text">Please select the reason for your document upload.</p>
+      </header>
       {reasons.map(([kind, Icon, title, text]) => (
         <button
           key={kind}
           type="button"
           disabled={targets[kind].length === 0}
           onClick={() => onPick(kind)}
-          className="flex items-center gap-4 rounded-card border border-folder-border bg-folder-surface p-4 text-left hover:bg-folder-hover disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex items-center gap-4 rounded-card border border-folder-border bg-folder-surface p-4 text-left hover:bg-folder-hover disabled:cursor-not-allowed disabled:opacity-60 md:p-5"
         >
-          <Icon aria-hidden className="size-12 shrink-0 text-firm-primary" />
+          <Icon
+            aria-hidden
+            className="size-14 shrink-0 rounded-full bg-surface p-4 text-firm-primary md:size-16"
+          />
           <span className="flex-1">
-            <span className="block font-display text-lg font-bold text-heading">{title}</span>
-            <span className="block text-sm text-text">
+            <span className="block font-display text-lg font-bold text-heading md:text-xl">
+              {title}
+            </span>
+            <span className="block text-base text-text">
               {targets[kind].length === 0 ? 'You have no open service of this kind.' : text}
             </span>
           </span>
-          <ChevronRight aria-hidden className="size-6 shrink-0 text-firm-accent" />
+          <ChevronRight aria-hidden className="size-7 shrink-0 text-firm-primary" />
         </button>
       ))}
       <div role="note" className="flex gap-4 rounded-card border border-danger bg-danger-soft p-4">
-        <CircleX aria-hidden className="size-12 shrink-0 text-danger" />
+        <span className="grid size-14 shrink-0 place-items-center rounded-full bg-danger text-on-action md:size-16">
+          <X aria-hidden className="size-9" />
+        </span>
         <div className="text-sm text-text">
-          <p className="font-display text-lg font-bold text-heading">
+          <p className="font-display text-lg font-bold text-heading md:text-xl">
             I don&apos;t have an open service with {business.name}
           </p>
           <p className="font-bold text-danger">STOP.</p>
-          <p>You cannot upload documents just for safekeeping to this portal.</p>
+          <p>
+            <span aria-hidden className="font-bold text-firm-primary">
+              •{' '}
+            </span>
+            You cannot upload documents just for safekeeping to this portal.
+          </p>
           <p>
             This document upload tab is only to upload documents so that we can provide services.
           </p>
         </div>
       </div>
-    </>
+      <Button
+        variant="secondary"
+        onClick={onClose}
+        className="mx-auto w-2/3 bg-subtle! font-semibold"
+      >
+        Cancel
+      </Button>
+    </div>
   );
 }
 
@@ -230,7 +288,11 @@ function UploadForm({
           </p>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={!file || !serviceId}>
+          <Button
+            type="submit"
+            disabled={!file || !serviceId}
+            className="bg-firm-primary! hover:bg-navigation-hover!"
+          >
             {upload.isPending ? 'Uploading…' : 'Upload'}
           </Button>
           <Button variant="secondary" onClick={onBack}>

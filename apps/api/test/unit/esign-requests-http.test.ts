@@ -39,6 +39,7 @@ import {
   RequiresModule,
 } from '../../src/common/modules/requires-module.js';
 import { CODE_HASHER, ESIGN_STORE, PDF_ENGINE } from '../../src/esign/engine/engine.types.js';
+import { EXTRAS_REPOSITORY } from '../../src/esign/extras/extras.repository.js';
 import { EsignModule } from '../../src/esign/esign.module.js';
 import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
 import { ESIGN_REPOSITORY, notMigrated } from '../../src/esign/requests/esign.repository.js';
@@ -47,7 +48,7 @@ import {
   type NotifyMessage,
   type NotifyService,
 } from '../../src/notify/notify.types.js';
-import { esignWorld, fakeHasher, fakePdf } from './esign-fakes.js';
+import { esignWorld, fakeHasher, fakePdf, NO_KIOSK, NoDatabaseModule } from './esign-fakes.js';
 import { ConfigModule } from '../../src/config/config.module.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -83,10 +84,18 @@ let app: INestApplication;
 
 beforeAll(async () => {
   const metadata: ModuleMetadata = {
-    imports: [ConfigModule.forRoot(loadEnv()), EsignModule, FakeAuditModule, ModulesModule],
+    imports: [
+      ConfigModule.forRoot(loadEnv()),
+      EsignModule,
+      NoDatabaseModule,
+      FakeAuditModule,
+      ModulesModule,
+    ],
     controllers: [ProbeController],
   };
   const moduleRef = await Test.createTestingModule(metadata)
+    .overrideProvider(EXTRAS_REPOSITORY)
+    .useValue(NO_KIOSK)
     .overrideProvider(ESIGN_REPOSITORY)
     .useValue(w.repo)
     .overrideProvider(ESIGN_DIRECTORY)

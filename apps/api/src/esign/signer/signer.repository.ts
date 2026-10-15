@@ -15,8 +15,12 @@ export interface SignerLink {
   requestId: string;
   recipientId: string;
   tokenVersion: number;
-  /** SIGN: the invitation's link. COPY: the completed-copy link (30 days, SIGNER or CC). */
-  purpose: 'SIGN' | 'COPY';
+  /**
+   * SIGN: the invitation's link. COPY: the completed-copy link (30 days, SIGNER or CC).
+   * IN_PERSON: the kiosk's link (EsignInPersonService.start), until its expiry; the staff member
+   * vouches for the signer, so it skips the email and access codes.
+   */
+  purpose: 'SIGN' | 'COPY' | 'IN_PERSON';
 }
 
 export interface SignerRecord {
@@ -106,6 +110,12 @@ export interface EsignSignerRepository {
   /** The code passed: an EMAIL code is deleted, ACCESS tries go back to 0. */
   clearCode(businessId: string, recipientId: string, kind: EsignCodeKind): Promise<void>;
   addEvent(businessId: string, requestId: string, event: EsignEventRecord): Promise<void>;
+  /**
+   * In person: moves `active_at` of the kiosk lock that started this recipient's signing (the
+   * newest one, of the member and firm that started it) to `at`; false when there is none or it
+   * has been idle ESIGN_KIOSK_IDLE_MINUTES already (the kiosk is over, never revived).
+   */
+  touchKiosk(...a: [...Signer, at: Date]): Promise<boolean>;
   /** The firm's newest published consent version. */
   currentConsent(
     businessId: string,

@@ -31,7 +31,7 @@ export function InvoiceDetail() {
     <div className="mx-auto grid max-w-4xl gap-4">
       <Link
         href={`/${slug}/invoices`}
-        className="inline-flex items-center gap-2 text-link underline print:hidden"
+        className="inline-flex items-center gap-2 text-firm-primary underline print:hidden"
       >
         <ArrowLeft aria-hidden className="size-4" /> Back to Receipts &amp; Invoices
       </Link>
@@ -134,7 +134,7 @@ function InvoiceCard({ slug, invoice: i }: { slug: string; invoice: MyInvoiceDet
       <PayError pay={pay} />
       <div className="flex flex-wrap gap-2 print:hidden">
         {i.canPay ? <PayButton invoice={i} pay={pay} /> : null}
-        <Button variant="secondary" onClick={() => window.print()}>
+        <Button variant="secondary" onClick={() => window.print()} className="cursor-pointer">
           <Printer aria-hidden className="size-4" /> Print or save as PDF
         </Button>
       </div>

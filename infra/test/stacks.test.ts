@@ -264,7 +264,7 @@ describe('app', () => {
     });
   });
 
-  it('lets the migrate task only look users up (ListUsers) in the staff and admins pools', () => {
+  it('lets the migrate task only look users up (ListUsers), in all three pools', () => {
     type Policy = { Properties: { Roles: unknown; PolicyDocument: { Statement: unknown[] } } };
     const policies = Object.values(t('app').findResources('AWS::IAM::Policy')) as Policy[];
     const statements = policies
@@ -279,7 +279,7 @@ describe('app', () => {
     const resources = JSON.stringify(statements.map((s) => s.Resource));
     expect(resources).toMatch(/StaffPool/);
     expect(resources).toMatch(/AdminsPool/);
-    expect(resources).not.toMatch(/ClientsPool/);
+    expect(resources).toMatch(/ClientsPool/);
   });
 
   it('lets the API look users up by sub (ListUsers) in all three pools', () => {

@@ -21,6 +21,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Header } from '../../../../components/app-shell/header';
 import { isActive } from '../../../../components/app-shell/types';
+import lvpLogo from './_components/lvp-logo.png';
 import { usePortal } from '../layout';
 import { PortalFooter } from '../(public)/_components/portal-footer';
 import { taglineWords } from '../(public)/_components/tagline';
@@ -125,6 +126,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
   const { business, branding } = usePortal();
   const { me, signOut } = useMe();
   const pathname = usePathname();
+  const documentsPage = pathname === `/${slug}/documents`;
   const [drawer, setDrawer] = useState(false);
   // A failed check only hides the menu line.
   const signatures = useApiQuery(['my-signatures-status', slug], () =>
@@ -196,6 +198,13 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
         >
           {branding.logoUrl ? (
             <Image unoptimized src={branding.logoUrl} alt={business.name} width={176} height={56} />
+          ) : business.slug === 'lvp' ? (
+            <Image
+              src={lvpLogo}
+              alt={business.name}
+              sizes="192px"
+              className="h-16 w-auto object-contain"
+            />
           ) : (
             business.name
           )}
@@ -209,7 +218,11 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
             greeting={
               <>
                 <p className="font-display text-xl font-bold text-heading md:text-3xl">
-                  Welcome Back, <span className="text-link">{me.user.name.split(' ')[0]}</span>!
+                  Welcome Back,{' '}
+                  <span className={documentsPage ? 'text-firm-primary' : 'text-link'}>
+                    {me.user.name.split(' ')[0]}
+                  </span>
+                  !
                 </p>
                 <p className="hidden text-base font-normal md:block">
                   Your documents. Your services. All in one place.
@@ -228,7 +241,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
         <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
       </div>
       <div className="print:hidden">
-        <PortalFooter contact />
+        <PortalFooter contact compact />
       </div>
       <div className="[&_dialog]:m-0 [&_dialog]:h-screen! [&_dialog]:max-h-screen! [&_dialog]:w-sidebar! [&_dialog]:rounded-none [&_dialog]:p-0 [&_dialog>div]:p-4">
         <Modal open={drawer} title="Portal menu" onClose={() => setDrawer(false)}>

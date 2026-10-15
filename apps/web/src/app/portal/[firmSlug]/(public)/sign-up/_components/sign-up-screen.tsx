@@ -19,6 +19,7 @@ const benefits: Benefit[] = [
 export function SignUpScreen() {
   return (
     <SignUpFrame
+      signUpLook
       step="create"
       heading="Sign Up to Access Your"
       highlight="Client Portal"

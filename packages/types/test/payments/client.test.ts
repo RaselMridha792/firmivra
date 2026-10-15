@@ -140,7 +140,7 @@ describe('api.invoices (firm)', () => {
   };
   it.each([
     ['a check without its number', { ...cash, method: 'CHECK' }],
-    ['a card method', { ...cash, method: 'CARD' }],
+    ['a method outside the list', { ...cash, method: 'WIRE' }],
     ['no amount', { ...cash, amountCents: 0 }],
     ['part of a cent', { ...cash, amountCents: 10.5 }],
     ['a reference with spaces', { ...cash, reference: '10 42' }],
@@ -161,6 +161,17 @@ describe('api.invoices (firm)', () => {
     expect((await rejection(call)).code).toBe('VALIDATION_FAILED');
     expect(calls).toEqual([]);
   });
+
+  it.each(['ACH', 'CARD', 'OTHER'])(
+    'takes %s as an offline method and sends it',
+    async (method) => {
+      const { fn, calls } = fakeFetch(500, {});
+      const api = createInvoicesClient(request(fn));
+      const body = { ...cash, method };
+      await api.recordPayment(id, body as Parameters<typeof api.recordPayment>[1]).catch(() => 0);
+      expect(calls).toHaveLength(1);
+    },
+  );
 
   it('takes the first day of 2000 and a reference with inner hyphens', async () => {
     const { fn, calls } = fakeFetch(500, {});

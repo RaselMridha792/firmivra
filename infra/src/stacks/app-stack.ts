@@ -403,6 +403,34 @@ export class AppStack extends Stack {
       }),
     );
     email?.identity.grantSendEmail(apiRole);
+    // The identity's default configuration set (email-stack.ts) is applied even when the API
+    // never names it: SES still checks the caller's permission on that configuration set
+    // resource, not only on the sending identity. Needed whether or not SES is in the sandbox,
+    // so it is not inside the sesSandboxSendFromAnyIdentity flag below.
+    if (email) {
+      apiRole.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          sid: 'SesConfigurationSet',
+          actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+          resources: [
+            `arn:aws:ses:${config.region}:${config.account}:configuration-set/${email.configurationSet.configurationSetName}`,
+          ],
+        }),
+      );
+    }
+    // Tests the recipient-identity theory for the Oct 11 AccessDeniedException on
+    // firm-application.received/approved: while SES is in the sandbox, grant send from any
+    // identity in the account, not just this env's own. Remove once SES production access is
+    // granted (docs/SETUP-LOG.md); grantSendEmail above already covers the normal case.
+    if (config.sesSandboxSendFromAnyIdentity) {
+      apiRole.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          sid: 'SesSandboxAnyIdentity',
+          actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+          resources: [`arn:aws:ses:${config.region}:${config.account}:identity/*`],
+        }),
+      );
+    }
     apiRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
         sid: 'SmsToPhoneNumbers',
@@ -480,10 +508,10 @@ export class AppStack extends Stack {
         DB_APP_PASSWORD: ecs.Secret.fromSecretsManager(data.appDbSecret, 'password'),
       },
     });
-    // Read-only, only the two pools link-dev-users reads (no clients pool). ListUsers with the
-    // filter sub = "<sub>" finds the user and its attributes; AdminGetUser does not take the sub
-    // in pools that sign in by username.
-    for (const pool of [auth.staff.pool, auth.admins.pool]) {
+    // Read-only, on all three pools link-dev-users and one-off account scripts read. ListUsers
+    // with the filter sub = "<sub>" finds the user and its attributes; AdminGetUser does not take
+    // the sub in pools that sign in by username.
+    for (const pool of [auth.staff.pool, auth.clients.pool, auth.admins.pool]) {
       pool.grant(this.migrateTask.taskRole, 'cognito-idp:ListUsers');
     }
 

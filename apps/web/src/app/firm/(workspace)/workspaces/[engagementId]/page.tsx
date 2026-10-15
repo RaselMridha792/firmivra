@@ -1,8 +1,13 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../components/page-placeholder';
+import { WorkspaceScreen } from '../_components/workspace-screen';
 
 export const metadata: Metadata = { title: 'Workspace' };
 
-export default function WorkspacePage() {
-  return <PagePlaceholder title="Workspace" ticket="F11" owner="Fahad" />;
+export default async function WorkspacePage({
+  params,
+}: {
+  params: Promise<{ engagementId: string }>;
+}) {
+  const { engagementId } = await params;
+  return <WorkspaceScreen engagementId={engagementId} />;
 }

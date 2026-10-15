@@ -50,8 +50,12 @@ beforeAll(async () => {
   const firm = await runInScope(owner, { kind: 'platform' }, (tx) =>
     tx.business.create({ data: { slug: onSlug, name: onSlug, status: 'ACTIVE' } }),
   );
-  await runInScope(owner, { kind: 'business', businessId: firm.id }, (tx) =>
-    tx.businessSettings.create({ data: { businessId: firm.id, enabledModules: ['esign'] } }),
+  await runInScope(
+    owner,
+    { kind: 'business', businessId: firm.id },
+    (tx) =>
+      // The module switch (r0_esign): only app_set_business_module changes enabled_modules.
+      tx.$queryRaw`SELECT app_set_business_module(${firm.id}::uuid, 'esign', true, 'e2e test')`,
   );
   await owner.$disconnect();
   const env = loadEnv({

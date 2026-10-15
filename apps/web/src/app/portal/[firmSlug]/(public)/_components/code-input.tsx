@@ -16,12 +16,14 @@ export function CodeInput({
   onChange,
   disabled,
   invalid,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (code: string) => void;
   disabled?: boolean;
   invalid?: boolean;
+  placeholder?: string;
 }) {
   const boxesRef = useRef<(HTMLInputElement | null)[]>([]);
   // One character per box, a space for an empty box, so clearing one box never shifts the others.
@@ -54,6 +56,7 @@ export function CodeInput({
             aria-invalid={invalid || undefined}
             autoComplete={i === 0 ? 'one-time-code' : 'off'}
             inputMode="numeric"
+            placeholder={placeholder}
             disabled={disabled}
             value={digit.trim()}
             onChange={(e) => {

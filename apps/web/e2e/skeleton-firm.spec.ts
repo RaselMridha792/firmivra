@@ -26,6 +26,7 @@ const workspacePages: [path: string, title: string][] = [
   [`/clients/${id}/messages`, 'Client messages'],
   [`/clients/${id}/invoices`, 'Client invoices'],
   ['/sign-ups', 'Sign-ups'],
+  ['/documents', 'Documents'],
   ['/messages', 'Messages'],
   ['/invoices', 'Invoices'],
   ['/workspaces', 'Workspaces'],
@@ -91,9 +92,9 @@ test('/settings opens Profile: a relative 307 to a fixed path, query dropped', a
   }
 });
 
-const managerItems = ['Sign-ups', 'Team', 'Audit log', 'Settings'];
+const managerItems = ['Sign-ups', 'Staff Management', 'Audit log', 'Settings'];
 
-test('Sign-ups, Team, Audit log and Settings show for the owner, not for staff', async ({
+test('Sign-ups, Staff Management, Audit log and Settings show for the owner, not for staff', async ({
   page,
 }) => {
   await signIn(page, 'owner@lvp.test');

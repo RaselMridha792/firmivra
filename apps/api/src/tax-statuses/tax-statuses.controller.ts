@@ -20,7 +20,7 @@ import {
   type TaxStatus,
   TaxStatusId,
 } from '@firmivra/types';
-import { CurrentTenant, FIRM_MANAGERS, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentTenant, FIRM_MANAGERS, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { TaxStatusesService } from './tax-statuses.service.js';
@@ -32,6 +32,7 @@ const idPipe = new ZodValidationPipe(TaxStatusId);
  * Owner and Admin add, rename, reorder and archive. The firm comes from TenantGuard.
  */
 @Controller('business/tax-statuses')
+@Access('CLIENTS')
 export class TaxStatusesController {
   constructor(private readonly taxStatuses: TaxStatusesService) {}
 

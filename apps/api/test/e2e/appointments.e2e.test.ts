@@ -552,6 +552,7 @@ describe('working hours', () => {
     expect(mine).toEqual({
       member: { userId: people.adminA.id, name: names.adminA },
       hours: [{ weekday: 2, startsAt: '10:00', endsAt: '11:30' }],
+      meetingUrl: null,
     });
     // An empty list means no hours.
     expect(
@@ -571,7 +572,11 @@ describe('working hours', () => {
             hours,
           }),
         ),
-      ).toEqual({ member: { userId: people.ownerA.id, name: names.ownerA }, hours });
+      ).toEqual({
+        member: { userId: people.ownerA.id, name: names.ownerA },
+        hours,
+        meetingUrl: null,
+      });
     }
     expectError(
       await call('put', `/availability/${people.staffA2.id}/working-hours`, people.staffA, {

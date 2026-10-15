@@ -506,11 +506,15 @@ describe('GET /admin/firms and /admin/dashboard', () => {
     expect(counts.total).toBe(counts.active! + counts.pendingSetup! + counts.inactive!);
   });
 
-  it('gives the dashboard counts it can read (user counts wait for R0)', async () => {
+  it('gives the dashboard counts: staff and client logins, and no revenue before billing', async () => {
     const d = (await get('/admin/dashboard').expect(200)).body as AdminDashboard;
     expect(d.pendingApplications).toBeGreaterThanOrEqual(2);
     expect(d.activeFirms).toBeGreaterThanOrEqual(2);
-    expect([d.totalUsers, d.newUsersThisWeek, d.monthlyRevenueCents]).toEqual([null, null, null]);
+    // The seven staff and client fixtures; the Super Admin and admins-pool logins never count.
+    expect(d.totalUsers).toBeGreaterThanOrEqual(7);
+    expect(d.newUsersThisWeek).toBeGreaterThanOrEqual(7);
+    expect(d.newUsersThisWeek).toBeLessThanOrEqual(d.totalUsers!);
+    expect(d.monthlyRevenueCents).toBe(0);
   });
 });
 

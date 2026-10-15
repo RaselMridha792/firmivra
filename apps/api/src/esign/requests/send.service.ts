@@ -107,6 +107,14 @@ export class EsignSendService {
     );
     if (!sent) throw esignRefusal('INVALID_STATE');
     const { emailIds } = sent;
+    if (sent.defaultConsentId) {
+      // The firm had no consent text: its first send published the default one (version 1).
+      await this.audit.log(
+        'esign.consent_published',
+        { type: 'esign_consent_version', id: sent.defaultConsentId },
+        { version: 1, source: 'DEFAULT', requestId: id },
+      );
+    }
     await this.audit.log('esign.request_sent', entity(id), {
       clientId: record.clientId,
       recipientIds: turn.map((t) => t.recipientId),

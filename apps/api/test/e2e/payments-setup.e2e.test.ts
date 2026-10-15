@@ -1,5 +1,6 @@
 // Settings > Payments (R7): the firm's Stripe Connect account. GET /business/payments/setup,
 // POST .../onboarding and .../onboarding/refresh (the Owner connects through Stripe's onboarding),
+// POST .../sync (Stripe's state now, stored),
 // and StripeAccountsWriter (the only writer of `stripe_accounts`, platform scope) on the app's role.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
@@ -27,8 +28,9 @@ const people = {
   staffA: person('staff-a'),
   ownerB: person('owner-b'),
   ownerC: person('owner-c'),
+  ownerD: person('owner-d'),
 };
-const ids = { firmA: '', firmB: '', firmC: '' };
+const ids = { firmA: '', firmB: '', firmC: '', firmD: '' };
 
 async function seed() {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
@@ -47,7 +49,11 @@ async function seed() {
     ids.firmC = (
       await tx.business.create({ data: { slug: `setup-c-${run}`, name: 'C', status: 'ACTIVE' } })
     ).id;
-    // Firm B has finished Stripe; firms A and C have not started (C is for the writer's tests).
+    ids.firmD = (
+      await tx.business.create({ data: { slug: `setup-d-${run}`, name: 'D', status: 'ACTIVE' } })
+    ).id;
+    // Firm B has finished Stripe; firms A, C and D have not started (C is for the writer's tests,
+    // D for sync's).
     await tx.stripeAccount.create({
       data: {
         businessId: ids.firmB,
@@ -70,6 +76,7 @@ async function seed() {
     ],
     [ids.firmB, [[people.ownerB, 'OWNER']]],
     [ids.firmC, [[people.ownerC, 'OWNER']]],
+    [ids.firmD, [[people.ownerD, 'OWNER']]],
   ] as const) {
     await runInScope(owner, { kind: 'business', businessId }, async (tx) => {
       for (const [p, role] of members) {
@@ -103,7 +110,7 @@ async function call(
   app: INestApplication,
   who: { email: string },
   businessId = ids.firmA,
-  route: '' | '/onboarding' | '/onboarding/refresh' = '',
+  route: '' | '/onboarding' | '/onboarding/refresh' | '/sync' = '',
 ): Promise<Response> {
   let token = tokens.get(who.email);
   if (!token) {
@@ -124,7 +131,7 @@ async function call(
 }
 const post = (
   who: { email: string },
-  route: '/onboarding' | '/onboarding/refresh',
+  route: '/onboarding' | '/onboarding/refresh' | '/sync',
   businessId = ids.firmA,
 ) => call(app, who, businessId, route);
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
@@ -237,7 +244,7 @@ describe('POST .../onboarding and .../onboarding/refresh', () => {
     expect(creates).toHaveLength(1);
     expect(creates[0]!.params).toMatchObject({
       businessId: ids.firmA,
-      idempotencyKey: `fv-connect-${ids.firmA}`,
+      idempotencyKey: `fv-connect-v2-${ids.firmA}`,
     });
     const link = fake.calls.filter((c) => c.method === 'createAccountLink').at(-1)!;
     const base = process.env.APP_BASE_URL!.replace(/\/$/, '');
@@ -301,6 +308,64 @@ const expectOk = (res: Response) => {
   expect(res.status, JSON.stringify(res.body)).toBe(200);
   return res;
 };
+
+describe('POST .../sync', () => {
+  it('refuses Staff, answers 503 without a Stripe key and 409 before any start', async () => {
+    expect((await post(people.staffA, '/sync')).status).toBe(403);
+    const offRes = await call(off, people.ownerA, ids.firmA, '/sync');
+    expect([offRes.status, codeOf(offRes)]).toEqual([503, 'PAYMENT_PROVIDER_UNAVAILABLE']);
+    const none = await post(people.ownerD, '/sync', ids.firmD);
+    expect([none.status, codeOf(none)]).toEqual([409, 'PAYMENTS_NOT_SET_UP']);
+  });
+
+  it("stores Stripe's state with no new link, audited only when it changed", async () => {
+    expectOk(await post(people.ownerD, '/onboarding', ids.firmD));
+    const db = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const { accountId } = await runInScope(db, { kind: 'platform' }, (tx) =>
+      tx.stripeAccount.findUniqueOrThrow({ where: { businessId: ids.firmD } }),
+    );
+    await db.$disconnect();
+    const links = () => fake.calls.filter((c) => c.method === 'createAccountLink').length;
+    const before = links();
+
+    // The Owner sent the form; Stripe is checking it, and no account.updated has come.
+    fake.update(accountId, {
+      details_submitted: true,
+      requirements: {
+        currently_due: [],
+        past_due: [],
+        disabled_reason: 'requirements.pending_verification',
+      },
+    });
+    expect(Setup.parse(expectOk(await post(people.ownerD, '/sync', ids.firmD)).body)).toMatchObject(
+      { onboardingStatus: 'PENDING', detailsSubmitted: true, requirementsDue: false },
+    );
+
+    fake.update(accountId, {
+      charges_enabled: true,
+      payouts_enabled: true,
+      requirements: { currently_due: [], past_due: [], disabled_reason: null },
+    });
+    const done = Setup.parse(expectOk(await post(people.ownerD, '/sync', ids.firmD)).body);
+    expect(done).toMatchObject({ onboardingStatus: 'COMPLETE', chargesEnabled: true });
+    expect(Setup.parse((await call(app, people.ownerD, ids.firmD)).body)).toEqual(done);
+    expectOk(await post(people.ownerD, '/sync', ids.firmD));
+    expect(links()).toBe(before);
+    expect(await auditCount(ids.firmD, 'payments.stripe_account_synced')).toBe(2);
+  });
+
+  it("lets an Admin sync, and keeps firms apart (B's Owner gets 404 on firm A)", async () => {
+    expectOk(await post(people.adminA, '/sync'));
+    expect((await post(people.ownerB, '/sync', ids.firmA)).status).toBe(404);
+  });
+
+  it('writes nothing when Stripe does not answer (503)', async () => {
+    fake.down = true;
+    const res = await post(people.ownerA, '/sync');
+    fake.down = false;
+    expect([res.status, codeOf(res)]).toEqual([503, 'PAYMENT_PROVIDER_UNAVAILABLE']);
+  });
+});
 
 describe('StripeAccountsWriter', () => {
   const pending = {

@@ -216,10 +216,12 @@ export const FirmInvoicePayment = InvoicePayment.extend({
 export type FirmInvoicePayment = z.infer<typeof FirmInvoicePayment>;
 
 /**
- * How an offline payment arrived: CHECK or CASH. Card and bank payments go through Stripe
- * (`payments`). The same values as the database's OfflinePaymentMethod (R0).
+ * How an offline payment arrived: a check or cash, or (R36) a bank transfer, a card terminal or
+ * another way the firm received outside Stripe and records by hand. Card and bank payments made on
+ * the invoice go through Stripe (`payments`). The same values as the database's
+ * OfflinePaymentMethod.
  */
-const OfflineMethod = z.enum(['CHECK', 'CASH']);
+const OfflineMethod = z.enum(['CHECK', 'CASH', 'ACH', 'CARD', 'OTHER']);
 
 /**
  * A check or cash payment the firm recorded on the invoice (Owner or Admin). It never changes; a

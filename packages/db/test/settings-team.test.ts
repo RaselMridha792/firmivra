@@ -103,6 +103,22 @@ describe('business settings and tax statuses', () => {
     await expect(save(null)).resolves.toMatchObject({ accentColor: null });
   });
 
+  it('keeps the light logo and the two sidebar lines optional, at most 80 characters', async () => {
+    const save = (data: object) =>
+      firmA().businessSettings.update({ where: { businessId: ids.firmA }, data });
+    await expect(
+      save({ logoLightKey: `tenant/${ids.firmA}/logo/x.png`, sidebarSlogan: 'a'.repeat(80) }),
+    ).resolves.toMatchObject({ logoLightKey: `tenant/${ids.firmA}/logo/x.png` });
+    await expect(save({ sidebarMotto: 'PEOPLE | PLANS' })).resolves.toMatchObject({
+      sidebarMotto: 'PEOPLE | PLANS',
+    });
+    await expect(save({ sidebarSlogan: 'a'.repeat(81) })).rejects.toThrow(/check constraint/i);
+    await expect(save({ sidebarMotto: 'a'.repeat(81) })).rejects.toThrow(/check constraint/i);
+    await expect(
+      save({ logoLightKey: null, sidebarSlogan: null, sidebarMotto: null }),
+    ).resolves.toMatchObject({ sidebarSlogan: null });
+  });
+
   it('tax status names are unique per firm and not blank', async () => {
     await firmA().taxStatus.create({ data: { businessId: ids.firmA, name: 'Filed' } });
     await expect(

@@ -1,10 +1,14 @@
 import {
   ApiRequestError,
+  ConfirmLogoUploadRequest,
+  CreateLogoUploadRequest,
   FirmSettings,
   FirmSetup,
   LegalDocument,
   LegalKind,
   LegalVersionNumber,
+  LOGO_ERRORS,
+  LogoVariant,
   parseInput,
   PublishLegalDocumentRequest,
   SetupStep,
@@ -12,6 +16,10 @@ import {
   UpdateFirmSettingsRequest,
 } from '@firmivra/types';
 import { renameMockBusiness } from './me';
+
+/** A 2 x 2 blue square (PNG), the mock's uploaded logo. */
+const MOCK_LOGO =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGNkYPj/n4EIwDiqEAAqEAEA9xMPUgAAAABJRU5ErkJggg==';
 
 /**
  * Mock data for `api.settings`. The web kit's mock mode (NEXT_PUBLIC_API_MOCK) swaps the real
@@ -47,6 +55,9 @@ export function settingsFixture(): FirmSettings {
     country: 'US',
     timezone: 'America/New_York',
     logoUrl: null,
+    logoLightUrl: null,
+    sidebarSlogan: null,
+    sidebarMotto: null,
     primaryColor: null,
     accentColor: null,
     portalName: null,
@@ -146,6 +157,35 @@ export function createSettingsMock(
       settings = { ...settings, ...changes, updatedAt: now() };
       // GET /business reads the same row.
       if (typeof changes.name === 'string') renameMockBusiness(changes.name);
+      return copySettings();
+    },
+
+    createLogoUpload: async (body) => {
+      await allowed();
+      const { sha256, variant } = parseInput(CreateLogoUploadRequest, body);
+      return {
+        uploadToken: `mock-logo-${variant}-${sha256.slice(0, 8)}`,
+        url: `mock:logo/${sha256.slice(0, 8)}`,
+        method: 'PUT',
+        headers: {},
+        expiresAt: now(),
+      };
+    },
+    // The mock keeps no file: any confirmed upload shows this picture.
+    confirmLogoUpload: async (body) => {
+      await allowed();
+      const { uploadToken } = parseInput(ConfirmLogoUploadRequest, body);
+      if (!uploadToken.startsWith('mock-logo-')) {
+        throw fail(410, 'UPLOAD_EXPIRED', LOGO_ERRORS.UPLOAD_EXPIRED);
+      }
+      const field = uploadToken.startsWith('mock-logo-light-') ? 'logoLightUrl' : 'logoUrl';
+      settings = { ...settings, [field]: MOCK_LOGO, updatedAt: now() };
+      return copySettings();
+    },
+    removeLogo: async (variant = 'dark') => {
+      await allowed();
+      const field = parseInput(LogoVariant, variant) === 'light' ? 'logoLightUrl' : 'logoUrl';
+      settings = { ...settings, [field]: null, updatedAt: now() };
       return copySettings();
     },
 

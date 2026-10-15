@@ -1,10 +1,11 @@
 'use client';
 
 import type { FirmSettings } from '@firmivra/types';
-import { Badge, Input } from '@firmivra/ui';
+import { Input } from '@firmivra/ui';
 import { Palette } from 'lucide-react';
 import { BrandPreview } from './brand-preview';
 import { ColorField } from './fields';
+import { LogoField } from './logo-field';
 import type { StepProps } from './shared';
 import { LockedName, type StepForm, StepFrame, useStepForm } from './step-form';
 
@@ -12,9 +13,11 @@ export const brandingValues = (firm: FirmSettings) => ({
   portalName: firm.portalName ?? '',
   primaryColor: firm.primaryColor ?? '',
   accentColor: firm.accentColor ?? '',
+  sidebarSlogan: firm.sidebarSlogan ?? '',
+  sidebarMotto: firm.sidebarMotto ?? '',
 });
 
-/** Step 1: portal name and colours, with a live preview. Every firm starts with Firmivra's. */
+/** Step 1: portal name, logo and colours, with a live preview. Every firm starts with Firmivra's. */
 export function BrandingStep({ firm, onBack, onNext }: StepProps & { firm: FirmSettings }) {
   const stepForm = useStepForm('branding', brandingValues(firm), onNext);
   return (
@@ -42,11 +45,29 @@ export function BrandingFields({ form, firm }: { form: StepForm; firm: FirmSetti
         <ColorField form={form} name="primaryColor" label="Primary colour" />
         <ColorField form={form} name="accentColor" label="Accent colour" />
       </div>
-      <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
-        Logo: the Firmivra logo until you upload yours. <Badge>Upload soon</Badge>
-      </p>
+      <LogoField firm={firm} variant="dark" label="Logo for dark backgrounds (sidebar)" />
+      <LogoField
+        firm={firm}
+        variant="light"
+        label="Logo for light backgrounds (footer, portal, emails)"
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Input
+          label="Sidebar slogan"
+          maxLength={80}
+          error={form.formState.errors.sidebarSlogan?.message}
+          {...form.register('sidebarSlogan')}
+        />
+        <Input
+          label="Sidebar motto (words split by |)"
+          maxLength={80}
+          error={form.formState.errors.sidebarMotto?.message}
+          {...form.register('sidebarMotto')}
+        />
+      </div>
       <BrandPreview
         name={portalName || defaultName}
+        logoUrl={firm.logoLightUrl}
         primary={primary}
         accent={accent}
         header={firm.portalHeader}

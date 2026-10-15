@@ -8,7 +8,7 @@ import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { ButtonLink } from '../../../../(public)/_components/button-link';
 import { BusinessOnly, isBusinessOnly } from '../../../resources/_components/business-only';
-import { ActionItems, BusinessServices, HelpfulResources } from './business-cards';
+import { ActionItems, BusinessServices } from './business-cards';
 import { BusinessDocuments } from './business-documents';
 
 /**
@@ -28,22 +28,25 @@ export function BusinessScreen() {
       {() => (
         <div className="grid min-w-0 grid-cols-1 gap-4">
           <Card className="grid min-w-0 grid-cols-1 gap-4">
-            <header className="flex flex-col gap-4 md:flex-row md:items-start">
+            <header className="flex flex-col gap-4 border-b border-folder-border pb-4 md:flex-row md:items-start">
               <Folder
                 aria-hidden
-                className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-primary"
+                className="size-14 shrink-0 rounded-control bg-folder-surface p-3 text-firm-primary"
               />
               <div className="flex-1">
-                <h1 className="font-display text-3xl font-bold text-heading">
+                <h1 className="font-display text-2xl font-bold text-heading md:text-3xl">
                   Business Documents &amp; Resources
                 </h1>
-                <p className="text-text">
+                <p className="text-sm text-text">
                   Access important business documents, helpful resources, and tools to keep your
                   business organized and growing.
                 </p>
               </div>
               <div className="shrink-0">
-                <ButtonLink href={`/${slug}/documents`}>
+                <ButtonLink
+                  href={`/${slug}/documents`}
+                  className="bg-firm-primary! text-on-action! hover:bg-navigation-hover! focus-visible:outline-firm-primary"
+                >
                   <CloudUpload aria-hidden className="size-5" /> Upload Document
                 </ButtonLink>
               </div>
@@ -54,7 +57,6 @@ export function BusinessScreen() {
             <ActionItems slug={slug} />
             <BusinessServices slug={slug} />
           </div>
-          <HelpfulResources slug={slug} />
         </div>
       )}
     </PageState>

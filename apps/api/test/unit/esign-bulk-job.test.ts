@@ -112,13 +112,13 @@ const run = () => job.run({ businessIds: [w.a] });
 
 describe('the bulk job', () => {
   it('makes nothing for a client refused when the batch was made', async () => {
-    const list = [w.ids.c1, w.ids.cB, w.ids.c2];
+    const list = [w.ids.c1, w.ids.archived, w.ids.c2];
     const b = await svc.send(w.a, staff, t.record.id, body(list.map((clientId) => ({ clientId }))));
     await run();
     expect((await requestsOf(w.a)).map((r) => r.record.clientId)).toEqual([w.ids.c1]);
     expect(await requestsOf(w.b)).toEqual([]);
     expect(rows(await svc.get(w.a, staff, b.id)).slice(1)).toEqual([
-      ['Client', 'NOT_SENT', 'NO_CLIENT'],
+      ['Fake Archived', 'NOT_SENT', 'NO_CLIENT'],
       ['Client', 'NOT_SENT', 'NO_CLIENT'],
     ]);
   });

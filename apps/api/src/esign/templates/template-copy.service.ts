@@ -196,6 +196,17 @@ export class EsignTemplateCopyService {
     return bytes;
   }
 
+  /** A copy of the version's packet under a new key in the template's folder. */
+  async copyPacket(
+    businessId: string,
+    templateId: string,
+    v: EsignTemplateVersionRecord,
+  ): Promise<string> {
+    const s3Key = this.store.keyFor(businessId, templateId, `template-${randomUUID()}.pdf`);
+    await this.store.put(businessId, s3Key, await this.packet(businessId, v), 'application/pdf');
+    return s3Key;
+  }
+
   /** Runs `work`; if it throws, the object stored for it is removed first. */
   async removingOnFailure<T>(businessId: string, key: string, work: () => Promise<T>) {
     try {

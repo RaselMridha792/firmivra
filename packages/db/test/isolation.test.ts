@@ -479,10 +479,20 @@ describe('no scope set', () => {
     expect(await unscopedApp.legalAcceptance.findMany()).toEqual([]);
     expect(await unscopedApp.verificationCode.findMany()).toEqual([]);
     expect(await unscopedApp.taxReturn.findMany()).toEqual([]);
+    expect(await unscopedApp.taxReturnHistory.findMany()).toEqual([]);
+    expect(await unscopedApp.taxReturnFiling.findMany()).toEqual([]);
+    expect(await unscopedApp.taxReturnFilingAttempt.findMany()).toEqual([]);
+    expect(await unscopedApp.taxReturnApproval.findMany()).toEqual([]);
+    expect(await unscopedApp.taxReturnAuthorization.findMany()).toEqual([]);
+    expect(await unscopedApp.taxReturnDocument.findMany()).toEqual([]);
+    expect(await unscopedApp.taxReturnChecklistItem.findMany()).toEqual([]);
     expect(await unscopedApp.taxStatus.findMany()).toEqual([]);
     expect(await unscopedApp.invite.findMany()).toEqual([]);
     expect(await unscopedApp.client.findMany()).toEqual([]);
     expect(await unscopedApp.clientProfile.findMany()).toEqual([]);
+    expect(await unscopedApp.clientStatusHistory.findMany()).toEqual([]);
+    expect(await unscopedApp.tag.findMany()).toEqual([]);
+    expect(await unscopedApp.clientTag.findMany()).toEqual([]);
     expect(await unscopedApp.clientTaxStatus.findMany()).toEqual([]);
     expect(await unscopedApp.clientTaxStatusHistory.findMany()).toEqual([]);
     expect(await unscopedApp.service.findMany()).toEqual([]);
@@ -499,6 +509,9 @@ describe('no scope set', () => {
     expect(await unscopedApp.intakeSubmission.findMany()).toEqual([]);
     expect(await unscopedApp.lead.findMany()).toEqual([]);
     expect(await unscopedApp.leadUpload.findMany()).toEqual([]);
+    expect(await unscopedApp.leadService.findMany()).toEqual([]);
+    expect(await unscopedApp.leadTag.findMany()).toEqual([]);
+    expect(await unscopedApp.leadActivity.findMany()).toEqual([]);
     expect(await unscopedApp.notification.findMany()).toEqual([]);
     expect(await unscopedApp.notificationDelivery.findMany()).toEqual([]);
     expect(await unscopedApp.notificationPreference.findMany()).toEqual([]);
@@ -506,6 +519,12 @@ describe('no scope set', () => {
     expect(await unscopedApp.workingHours.findMany()).toEqual([]);
     expect(await unscopedApp.blockedTime.findMany()).toEqual([]);
     expect(await unscopedApp.appointment.findMany()).toEqual([]);
+    expect(await unscopedApp.appointmentReminder.findMany()).toEqual([]);
+    expect(await unscopedApp.firmOffice.findMany()).toEqual([]);
+    expect(await unscopedApp.firmRoom.findMany()).toEqual([]);
+    expect(await unscopedApp.appointmentSeries.findMany()).toEqual([]);
+    expect(await unscopedApp.availabilityOverride.findMany()).toEqual([]);
+    expect(await unscopedApp.appointmentSettings.findMany()).toEqual([]);
     expect(await unscopedApp.messageThread.findMany()).toEqual([]);
     expect(await unscopedApp.message.findMany()).toEqual([]);
     expect(await unscopedApp.messageAttachment.findMany()).toEqual([]);
@@ -525,6 +544,14 @@ describe('no scope set', () => {
     expect(await unscopedApp.firmAgreementVersion.findMany()).toEqual([]);
     expect(await unscopedApp.intakeSignature.findMany()).toEqual([]);
     expect(await unscopedApp.intakeSignatureAgreement.findMany()).toEqual([]);
+    expect(await unscopedApp.intakeSettings.findMany()).toEqual([]);
+    expect(await unscopedApp.intakeTemplate.findMany()).toEqual([]);
+    expect(await unscopedApp.documentFolder.findMany()).toEqual([]);
+    expect(await unscopedApp.documentRequestPacket.findMany()).toEqual([]);
+    expect(await unscopedApp.documentShare.findMany()).toEqual([]);
+    expect(await unscopedApp.documentSettings.findMany()).toEqual([]);
+    expect(await unscopedApp.documentRequestTemplate.findMany()).toEqual([]);
+    expect(await unscopedApp.documentRequestTemplateItem.findMany()).toEqual([]);
   });
 });
 

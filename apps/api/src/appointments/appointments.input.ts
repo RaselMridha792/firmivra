@@ -11,6 +11,7 @@ import {
   RescheduleAppointmentRequest,
   RescheduleMyAppointmentRequest,
   SlotsQuery,
+  UpdateAppointmentRequest,
   UpdateAppointmentTypeRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
@@ -105,6 +106,8 @@ export const BookBody = BookAppointmentRequest.superRefine(refine(['startsAt']))
 export const RescheduleBody = RescheduleAppointmentRequest.superRefine(
   refine(['startsAt']),
 ).transform(lowerIds);
+/** PATCH /business/appointments/{id}: free text only, so no ids to lower-case. */
+export const UpdateBody = UpdateAppointmentRequest.superRefine(refine());
 /** POST /business/appointments/{id}/cancel */
 export const CancelBody = CancelAppointmentRequest.superRefine(refine()).transform(lowerIds);
 

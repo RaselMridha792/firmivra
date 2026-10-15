@@ -58,8 +58,9 @@ export interface RecordCase {
    */
   body?: object | ((c: BodyContext) => object);
   /**
-   * Each top-level body field that names a record (every `...Id`, `...Ids` or `ids` field of the
-   * route's body schema), and its record; an `Ids` field gets a list of one. Added to `body`.
+   * Each body field that names a record (every `...Id`, `...Ids` or `ids` field of the route's
+   * body schema), and its record; an `Ids` field gets a list of one. Added to `body`. A nested one
+   * is dotted (`recipients.who.userId`) and set in each object of `body` that has its key.
    * The suite then sends each field in turn with firm P's (or client X's) record, the rest of the
    * request being the other firm's (or client's) own, and expects a refusal.
    */

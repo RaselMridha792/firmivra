@@ -61,6 +61,14 @@ export class EsignBulkService {
     await this.checkRoles(businessId, actor, v, body.roles);
     const items = await Promise.all(
       body.clients.map(async (c, position): Promise<EsignBulkItemRecord> => {
+        // A row names one of the firm's own clients and that client's service (foreign keys):
+        // an id that is not the firm's client is 404, a service not that client's 409, as in
+        // a single request; nothing is written.
+        if (!(await this.directory.client(businessId, c.clientId))) throw notFound();
+        if (c.engagementId) {
+          const service = await this.directory.engagement(businessId, c.engagementId);
+          if (service?.clientId !== c.clientId) throw esignRefusal('ENGAGEMENT_MISMATCH');
+        }
         const reached = await this.reaches(businessId, actor, c.clientId, true);
         return {
           ...{ position, clientId: c.clientId, engagementId: c.engagementId ?? null },

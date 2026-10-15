@@ -32,9 +32,11 @@ import {
   MySlotsQuery,
   RescheduleAppointmentRequest,
   RescheduleMyAppointmentRequest,
+  SetMeetingLinkRequest,
   SetWorkingHoursRequest,
   SlotList,
   SlotsQuery,
+  UpdateAppointmentRequest,
   UpdateAppointmentTypeRequest,
 } from './schemas.js';
 
@@ -71,8 +73,8 @@ export function createAppointmentTypesClient(request: ApiRequest) {
 export type AppointmentTypesClient = ReturnType<typeof createAppointmentTypesClient>;
 
 /**
- * `api.availability`: working hours and blocked time. Owner and Admin manage anyone's and
- * whole-firm blocks; Staff manage their own (403 FORBIDDEN otherwise).
+ * `api.availability`: working hours, blocked time and default meeting links. Owner and Admin
+ * manage anyone's and whole-firm blocks; Staff manage their own (403 FORBIDDEN otherwise).
  */
 export function createAvailabilityClient(request: ApiRequest) {
   return {
@@ -87,6 +89,16 @@ export function createAvailabilityClient(request: ApiRequest) {
         MemberAvailability,
         `/business/availability/${parseInput(MemberId, userId)}/working-hours`,
         { method: 'PUT', body: parseInput(SetWorkingHoursRequest, body) },
+      ),
+    /** Sets or clears (null or '') one member's default video meeting link. */
+    setMeetingLink: async (
+      userId: string,
+      body: SetMeetingLinkRequest,
+    ): Promise<MemberAvailability> =>
+      request(
+        MemberAvailability,
+        `/business/availability/${parseInput(MemberId, userId)}/meeting-link`,
+        { method: 'PUT', body: parseInput(SetMeetingLinkRequest, body) },
       ),
     blockedTimes: async (query: BlockedTimesQuery): Promise<BlockedTimeList['items']> => {
       const q = parseInput(BlockedTimesQuery, query);
@@ -134,6 +146,12 @@ export function createAppointmentsClient(request: ApiRequest) {
         `${appointment(id)}/reschedule`,
         post(parseInput(RescheduleAppointmentRequest, body)),
       ),
+    /** Changes the location only (kind and details); the times stay. */
+    update: async (id: string, body: UpdateAppointmentRequest): Promise<Appointment> =>
+      request(Appointment, appointment(id), {
+        method: 'PATCH',
+        body: parseInput(UpdateAppointmentRequest, body),
+      }),
     cancel: async (id: string, body: CancelAppointmentRequest = {}): Promise<Appointment> =>
       request(
         Appointment,

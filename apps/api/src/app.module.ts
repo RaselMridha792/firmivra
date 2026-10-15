@@ -20,6 +20,7 @@ import type { Env } from './config/env.js';
 import { DatabaseModule } from './database/database.module.js';
 import { DevModule } from './dev/dev.controller.js';
 import { HealthModule } from './health/health.controller.js';
+import { SystemStatusModule } from './system-status/system-status.controller.js';
 import { FirmApplicationsModule } from './firm-applications/firm-applications.controller.js';
 import { MeModule } from './me/me.controller.js';
 import { NotificationsModule } from './notifications/notifications.controller.js';
@@ -42,6 +43,7 @@ import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
 import { BeginOnlineModule } from './begin-online/begin-online.controller.js';
+import { DashboardModule } from './dashboard/dashboard.controller.js';
 import { CheckoutModule } from './payments/checkout/checkout.controller.js';
 import { InvoicesModule } from './payments/invoices/invoices.module.js';
 import { RefundsModule } from './payments/refunds/refunds.controller.js';
@@ -92,6 +94,7 @@ export class AppModule {
         NotifyModule,
         NotificationsModule,
         HealthModule,
+        SystemStatusModule,
         MeModule,
         FirmApplicationsModule,
         TaxStatusesModule,
@@ -110,6 +113,7 @@ export class AppModule {
         AuditViewerModule,
         SupportAccessModule,
         WorkspacesModule,
+        DashboardModule,
         DocumentsModule,
         InvoicesModule,
         CheckoutModule,

@@ -54,3 +54,16 @@ test('the header shows the new firm name after a Profile save, without a reload'
   await expect(page.getByText('Changes saved.')).toBeVisible();
   await expect(page.getByTestId('firm-name')).toHaveText('LVP Tax Partners');
 });
+
+test('only changed fields are checked: an unchanged save passes, a cleared team size does not', async ({
+  page,
+}) => {
+  await page.goto(app('/settings/profile'));
+  await expect(page.getByLabel('Team size')).not.toHaveValue('');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText('Changes saved.')).toBeVisible();
+
+  await page.getByLabel('Team size').fill('');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText('Enter the team size')).toBeVisible();
+});

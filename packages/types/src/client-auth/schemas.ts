@@ -42,8 +42,13 @@ export type LegalVersion = z.infer<typeof LegalVersion>;
 export const PortalInfo = z.object({
   business: z.object({ slug: z.string(), name: z.string() }),
   branding: z.object({
-    /** Null until R5 serves logos. */
+    /** The firm's logo (GET /portal/{slug}/logo), or null when it has none. */
     logoUrl: z.url().nullable(),
+    /** The logo for light backgrounds (`?variant=light`), or null when the firm has none. */
+    logoLightUrl: z.url().nullable(),
+    /** Under the firm sidebar: the slogan and the motto, or null. Plain text. */
+    sidebarSlogan: z.string().nullable(),
+    sidebarMotto: z.string().nullable(),
     primaryColor: HexColor,
     accentColor: HexColor,
     /** For example "LVP Accounting & Taxes Client Portal". */

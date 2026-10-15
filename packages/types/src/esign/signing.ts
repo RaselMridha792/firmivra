@@ -26,6 +26,11 @@ import { EsignContentType, EsignFieldId } from './schemas.js';
 //   skips the email code: the portal sign-in already proved who they are. PORTAL_SESSION does
 //   not replace the recipient's chosen method: the portal session is the check there (no email
 //   or access code), and the chosen method, ACCESS_CODE included, still applies to emailed links.
+// - In person: the kiosk's link (`signingUrl` of `api.esign.inPerson.start`) is the only one
+//   an IN_PERSON signer has. It opens at CONSENT (no email or access code: the staff member
+//   vouches), the events record authMethod IN_PERSON, and every signer call keeps the staff
+//   member's kiosk from timing out. Past the link's expiry, or once the kiosk has ended or been
+//   idle ESIGN_KIOSK_IDLE_MINUTES, it answers 404 LINK_INVALID.
 // - Responses never carry the request's internal note or another signer's field values.
 
 /** The email code: 6 digits, valid 15 minutes, 5 tries. */

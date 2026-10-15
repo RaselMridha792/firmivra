@@ -1,6 +1,6 @@
 import { Controller, Get, Module } from '@nestjs/common';
 import type { BusinessSummary } from '@firmivra/types';
-import { CurrentTenant, Roles } from '../auth/decorators.js';
+import { Access, CurrentTenant, Roles } from '../auth/decorators.js';
 import type { TenantContext } from '../common/request-context.js';
 import { TenantPrisma } from '../database/database.module.js';
 
@@ -11,6 +11,7 @@ const select = { id: true, slug: true, name: true, status: true } as const;
  * isolation e2e tests. Firm settings (T02, Sprint 1) build on this module.
  */
 @Controller()
+@Access('DASHBOARD')
 export class BusinessController {
   constructor(private readonly tenantPrisma: TenantPrisma) {}
 
