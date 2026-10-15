@@ -15,11 +15,9 @@ export function Badge({
   tone = 'neutral',
   dot,
   icon: Glyph,
-  className = '',
 }: {
   children: ReactNode;
   tone?: keyof typeof tones;
-  className?: string;
   /** A coloured dot before the text, as in the Status column. */
   dot?: boolean;
   /** A solid icon before the text (Accepted, Rejected). */
@@ -27,7 +25,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-pill px-3 py-1 text-xs font-semibold ${tones[tone]} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-pill px-3 py-1 text-xs font-semibold ${tones[tone]}`}
     >
       {dot ? <span aria-hidden className="size-2 rounded-full bg-current" /> : null}
       {Glyph ? <Glyph aria-hidden weight="fill" className="size-3.5" /> : null}

@@ -106,7 +106,7 @@ const columns: Column<LeadRow>[] = [
       <span className="flex min-w-0 flex-wrap gap-1">
         {lead.services.length ? (
           lead.services.map((service) => (
-            <Badge key={service.id} tone="info" className="!rounded-md">
+            <Badge key={service.id} tone="info">
               {service.name}
             </Badge>
           ))
@@ -121,20 +121,14 @@ const columns: Column<LeadRow>[] = [
     label: 'Priority',
     className: 'w-21',
     cell: (lead) => (
-      <Badge tone={priorityTone(lead.priority)} className="!rounded-md">
-        {PRIORITY_LABELS[lead.priority]}
-      </Badge>
+      <Badge tone={priorityTone(lead.priority)}>{PRIORITY_LABELS[lead.priority]}</Badge>
     ),
   },
   {
     id: 'stage',
     label: 'Status',
     className: 'w-29',
-    cell: (lead) => (
-      <Badge tone={stageTone(lead.stage)} className="!rounded-md">
-        {STAGE_LABELS[lead.stage]}
-      </Badge>
-    ),
+    cell: (lead) => <Badge tone={stageTone(lead.stage)}>{STAGE_LABELS[lead.stage]}</Badge>,
   },
   {
     id: 'lastContact',
@@ -228,7 +222,7 @@ export function LeadsTable({
   const router = useRouter();
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   return (
-    <div className="min-w-0 rounded-card border border-border bg-surface [&_nav]:!pl-3 [&_nav]:!pr-3 [&_nav]:!pb-3">
+    <div className="min-w-0 rounded-card border border-border bg-surface [&_nav]:!pl-3 [&_nav]:!pr-3 [&_nav]:!pb-3 [&_td_span.rounded-pill]:!rounded-md">
       <Table
         caption="Leads"
         rows={rows}
