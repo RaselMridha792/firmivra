@@ -38,7 +38,8 @@ export function Header({
     <header
       onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}
       // Super Admin (search): the header sits on the canvas as in its mockup; elsewhere a white bar.
-      className={`flex items-center gap-3 px-4 py-2 md:px-6 ${search && !start ? 'bg-canvas' : 'border-b border-border bg-surface'}`}
+      // Phones get tighter gaps so the controls fit a 320 px screen.
+      className={`flex items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 md:px-6 ${search && !start ? 'bg-canvas' : 'border-b border-border bg-surface'}`}
     >
       <button
         type="button"
@@ -88,7 +89,7 @@ export function Header({
             aria-haspopup="menu"
             aria-expanded={open}
             onClick={() => setOpen((value) => !value)}
-            className="flex items-center gap-2 rounded-control p-1 pr-2 hover:bg-canvas"
+            className="flex items-center gap-2 rounded-control p-1 hover:bg-canvas sm:pr-2"
           >
             <span
               className={`flex size-11 items-center justify-center rounded-full text-sm font-semibold ${start ? 'border-2 border-border bg-info-soft text-heading' : 'bg-brand-900 text-white'}`}
@@ -99,7 +100,7 @@ export function Header({
               <span className="block font-semibold text-text">{me.user.name}</span>
               <span className={hideRole ? 'sr-only' : 'block text-muted'}>{roleLabel}</span>
             </span>
-            <ChevronDown aria-hidden className="size-4 text-muted" />
+            <ChevronDown aria-hidden className="hidden size-4 text-muted sm:block" />
           </button>
           {open ? (
             <div

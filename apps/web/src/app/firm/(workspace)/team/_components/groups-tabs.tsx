@@ -22,7 +22,7 @@ export function GroupsTabs({
     <div className="flex flex-col gap-3 rounded-xl border border-divider bg-surface px-4 pb-3 shadow-sm lg:flex-row lg:justify-between lg:pb-0">
       <nav
         aria-label="Teams and departments"
-        className="flex shrink-0 gap-2 overflow-x-auto lg:self-end"
+        className="flex shrink-0 gap-1 overflow-x-auto sm:gap-2 lg:self-end"
       >
         {TABS.map((tab) => {
           const on = tab.href === current;
@@ -31,7 +31,7 @@ export function GroupsTabs({
               key={tab.href}
               href={tab.href}
               aria-current={on ? 'page' : undefined}
-              className={`min-h-11 border-b-3 px-6 py-4 text-base font-medium whitespace-nowrap ${on ? 'border-action text-action' : 'border-transparent text-heading hover:text-action'}`}
+              className={`min-h-11 border-b-3 px-2.5 py-3 text-sm font-medium whitespace-nowrap sm:px-6 sm:py-4 sm:text-base ${on ? 'border-action text-action' : 'border-transparent text-heading hover:text-action'}`}
             >
               {tab.label}
             </Link>
@@ -39,7 +39,9 @@ export function GroupsTabs({
         })}
       </nav>
       {children ? (
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end lg:py-2">
+        // A wrapping row (a column would squash the search field's height); on phones each
+        // control takes its own line.
+        <div className="flex flex-wrap items-center gap-3 max-sm:[&>*]:basis-full lg:justify-end lg:py-2">
           {children}
         </div>
       ) : null}
