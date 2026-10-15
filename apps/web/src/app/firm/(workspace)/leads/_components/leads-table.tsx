@@ -317,12 +317,15 @@ export function LeadsTable({
                       icon: ArrowsClockwise,
                       onSelect: () => onRowAction(lead, 'STAGE'),
                     },
-                    {
-                      label: 'Convert to Client',
-                      icon: UserPlus,
-                      disabled: lead.stage === 'CONVERTED' || lead.stage === 'NOT_QUALIFIED',
-                      onSelect: () => router.push(`/leads/${lead.id}/convert`),
-                    },
+                    ...(lead.stage === 'CONVERTED' || lead.stage === 'NOT_QUALIFIED'
+                      ? []
+                      : [
+                          {
+                            label: 'Convert to Client',
+                            icon: UserPlus,
+                            onSelect: () => router.push(`/leads/${lead.id}/convert`),
+                          },
+                        ]),
                     {
                       label: 'Archive',
                       icon: Archive,

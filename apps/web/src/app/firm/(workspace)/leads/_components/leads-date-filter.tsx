@@ -6,6 +6,7 @@ import { CalendarBlank, CaretDown } from '@phosphor-icons/react';
 function formatDate(value: string) {
   if (!value) return '';
   const [year, month, day] = value.split('-').map(Number);
+  if (year === undefined || month === undefined || day === undefined) return value;
   return new Intl.DateTimeFormat('en-US').format(new Date(year, month - 1, day));
 }
 
