@@ -63,6 +63,14 @@
   /* R40: the firm workspace tables' header band, and their row lines and control borders. */
   --color-table-head: #edf2f8;
   --color-divider: #e8ecf1;
+  /* R44: Settings' amber Quick Settings cards (warning-soft is yellower), measured from the design. */
+  --color-amber-surface: #fdf4e3;
+  /* R44: the Intake Forms status donut's segment colours, measured from the design. */
+  --color-chart-green: #3cb275;
+  --color-chart-blue: #7cb5ff;
+  --color-chart-yellow: #ffcb1d;
+  --color-chart-grey: #9cabca;
+  --color-chart-red: #eb055f;
   --color-public-action: #005fcc;
   --color-public-action-hover: #004fa8;
   --color-public-action-pressed: #003d85;
