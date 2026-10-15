@@ -1,4 +1,9 @@
-import type { LeadPipelineSummary, LeadPriority, LeadSource, LeadStage } from '@firmivra/types';
+import type {
+  LeadPipelineSummary,
+  LeadPriority,
+  LeadSource,
+  LeadPipelineStatus,
+} from '@firmivra/types';
 import type { KpiTrend } from '@firmivra/ui';
 
 export const LEAD_PIPELINE_KEY = ['lead-pipeline'] as const;
@@ -17,14 +22,15 @@ export const SOURCES: { value: LeadSource; label: string }[] = [
   { value: 'OTHER', label: 'Other' },
 ];
 
-export const STAGES: { value: LeadStage; label: string }[] = [
-  { value: 'NEW', label: 'New Lead' },
+export const STAGES: { value: LeadPipelineStatus; label: string }[] = [
+  { value: 'SUBMITTED', label: 'New Lead' },
+  { value: 'IN_REVIEW', label: 'In Review' },
   { value: 'CONTACTED', label: 'Contacted' },
   { value: 'IN_FOLLOW_UP', label: 'In Follow-Up' },
   { value: 'APPOINTMENT_SCHEDULED', label: 'Appointment Scheduled' },
   { value: 'QUALIFIED', label: 'Qualified' },
   { value: 'CONVERTED', label: 'Converted' },
-  { value: 'NOT_QUALIFIED', label: 'Not Qualified' },
+  { value: 'DECLINED', label: 'Not Qualified' },
   { value: 'LOST', label: 'No Response' },
 ];
 
@@ -40,17 +46,18 @@ export const SOURCE_LABELS = Object.fromEntries(
 
 export const STAGE_LABELS = Object.fromEntries(
   STAGES.map((item) => [item.value, item.label]),
-) as Record<LeadStage, string>;
+) as Record<LeadPipelineStatus, string>;
 
 export const PRIORITY_LABELS = Object.fromEntries(
   PRIORITIES.map((item) => [item.value, item.label]),
 ) as Record<LeadPriority, string>;
 
 export function stageTone(
-  stage: LeadStage,
+  stage: LeadPipelineStatus,
 ): 'info' | 'purple' | 'warning' | 'success' | 'danger' | 'neutral' {
   switch (stage) {
-    case 'NEW':
+    case 'SUBMITTED':
+    case 'IN_REVIEW':
       return 'info';
     case 'CONTACTED':
       return 'purple';
@@ -61,7 +68,7 @@ export function stageTone(
     case 'QUALIFIED':
     case 'CONVERTED':
       return 'success';
-    case 'NOT_QUALIFIED':
+    case 'DECLINED':
       return 'danger';
     case 'LOST':
       return 'neutral';

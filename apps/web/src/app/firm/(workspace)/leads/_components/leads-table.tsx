@@ -317,7 +317,7 @@ export function LeadsTable({
                       icon: ArrowsClockwise,
                       onSelect: () => onRowAction(lead, 'STAGE'),
                     },
-                    ...(lead.stage === 'CONVERTED' || lead.stage === 'NOT_QUALIFIED'
+                    ...(lead.stage === 'CONVERTED' || lead.stage === 'DECLINED'
                       ? []
                       : [
                           {
