@@ -9657,6 +9657,11 @@ enum LeadSource {
   INSTAGRAM
   GOOGLE_AD
   REFERRAL
+  /// R47: the Leads design's other sources (a call, a walk-in, an email, an event).
+  PHONE_CALL
+  WALK_IN
+  EMAIL
+  EVENT
   OTHER
 }
 
@@ -9724,6 +9729,9 @@ enum LeadActivityKind {
   TAG_ADDED
   ASSIGNED
   CONVERTED
+  /// R47: a document uploaded for the lead, and the lead added to a campaign (Leads design).
+  DOCUMENT
+  CAMPAIGN
 }
 
 /// A lead's timeline (Recent Activity, the Activity and Notes tabs): what happened, by whom

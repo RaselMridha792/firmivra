@@ -140,11 +140,12 @@ Each table's "Exists" row lists the routes on main. Gaps worth stating once: `GE
 8. **Intake internal notes**: `notes` is client-only. Needs a table or a `notes` extension (Tasks and Notes group).
 9. **Client photo and EIN hash**: not modelled (needs a file prefix rule and a hash decision).
 10. **Widening `ReviewedLeadStatus`** (`packages/types/src/leads/schemas.ts`): the web maps use the four old reviewed statuses. The new lead statuses are database-only until the Leads screens move.
-11. **Contract enums differ from the database enums** (R43, `packages/types/src/leads/pipeline.ts`): the contract's `LeadSource` has PHONE_CALL, WALK_IN, EMAIL and EVENT, and its `LeadActivityKind` uses STAGE_CHANGED, EMAIL, SMS, MEETING, APPOINTMENT, DOCUMENT, CAMPAIGN; the database enums are narrower (`LeadSource`, `LeadActivityKind` in `schema.prisma`). The root of `@firmivra/types` exports the contract's. Align one to the other with Rasel before the Leads API (a database change is a new migration).
-12. **Contact consent and filing extensions are not in these tables.** Email and SMS consent belongs to R39 `communication_consents`; extensions belong to R38 `compliance_deadlines` (`extension_filed_on`, `extended_due_on`). The Clients list and Tax Returns workspace read from those.
-13. **Client last activity** is written by the API (`client_profiles` / client `last_activity_at`) when a module logs a client action. Triggers on documents and requests deadlocked concurrent uploads and were removed.
-14. **Pay type, document scan and similar lists** follow the R35 brief; nothing new here.
-15. **API e2e tests that failed before this change**: three document concurrency e2e tests failed on `main` before the merge; on the merged branch the whole suite passes from a clean database.
+11. **Contact consent and filing extensions are not in these tables.** Email and SMS consent belongs to R39 `communication_consents`; extensions belong to R38 `compliance_deadlines` (`extension_filed_on`, `extended_due_on`). The Clients list and Tax Returns workspace read from those.
+12. **Client last activity** is written by the API (`client_profiles` / client `last_activity_at`) when a module logs a client action. Triggers on documents and requests deadlocked concurrent uploads and were removed.
+13. **Pay type, document scan and similar lists** follow the R35 brief; nothing new here.
+14. **API e2e tests that failed before this change**: three document concurrency e2e tests failed on `main` before the merge; on the merged branch the whole suite passes from a clean database.
+
+Resolved in R47 (Oct 15), formerly item 11, the contract and database lead enums: the database is the one source. Migration `20261015060000_r47_lead_enums` adds PHONE_CALL, WALK_IN, EMAIL and EVENT to `LeadSource` (11 values, as the Leads design shows) and DOCUMENT and CAMPAIGN to `LeadActivityKind`. The Leads contract (`leads/pipeline.ts`) now uses the generated `LeadSource`, `LeadPriority` and `LeadActivityKind` (STATUS_CHANGED, EMAIL_SENT, SMS_SENT, FOLLOW_UP_COMPLETED, APPOINTMENT_SCHEDULED, ...), and its stage is the database's `LeadStatus` without DRAFT and EXPIRED (`LeadPipelineStatus`; SUBMITTED is "New Lead", DECLINED is "Not Qualified"). There is no stage column. The contract's `NextActionType` still differs from the database's `LeadActionType` (it adds SMS and CLOSE_LEAD); that needs a decision before the follow-up API.
 
 ## Where the data lives (per module)
 

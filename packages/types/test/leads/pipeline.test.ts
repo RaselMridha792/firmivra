@@ -4,8 +4,13 @@ import {
   CreateLeadRequest,
   createLeadPipelineClient,
   createRequest,
+  LEAD_STATUS_LABELS,
+  LeadActivityKind,
   LeadBulkRequest,
   LeadPipelineQuery,
+  LeadPipelineStatus,
+  LeadSource,
+  LogLeadActivityRequest,
   UpdateLeadRequest,
 } from '../../src/index.js';
 
@@ -48,11 +53,31 @@ describe('api.leadPipeline', () => {
     expect(CreateLeadRequest.parse(lead)).toMatchObject({
       email: 'pat@example.test',
       priority: 'WARM',
-      stage: 'NEW',
+      stage: 'SUBMITTED',
       serviceIds: [],
     });
     expect(CreateLeadRequest.safeParse({ ...lead, businessId: id }).success).toBe(false);
     expect(CreateLeadRequest.safeParse({ ...lead, stage: 'CONVERTED' }).success).toBe(false);
+  });
+
+  it('uses the database enums: pipeline statuses, the 11 sources and the activity kinds', () => {
+    expect(LeadPipelineStatus.options).not.toContain('DRAFT');
+    expect(LeadPipelineStatus.options).not.toContain('EXPIRED');
+    expect(LEAD_STATUS_LABELS.SUBMITTED).toBe('New Lead');
+    expect(LEAD_STATUS_LABELS.DECLINED).toBe('Not Qualified');
+    expect(LeadSource.options).toEqual(
+      expect.arrayContaining(['PHONE_CALL', 'WALK_IN', 'EMAIL', 'EVENT']),
+    );
+    expect(LeadSource.options).toHaveLength(11);
+    expect(LeadActivityKind.options).toEqual(
+      expect.arrayContaining(['STATUS_CHANGED', 'EMAIL_SENT', 'SMS_SENT', 'DOCUMENT', 'CAMPAIGN']),
+    );
+    expect(LogLeadActivityRequest.safeParse({ kind: 'EMAIL_SENT', summary: 'Sent' }).success).toBe(
+      true,
+    );
+    expect(LogLeadActivityRequest.safeParse({ kind: 'EMAIL', summary: 'Sent' }).success).toBe(
+      false,
+    );
   });
 
   it('needs a real change to update', () => {

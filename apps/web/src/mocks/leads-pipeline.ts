@@ -14,7 +14,8 @@ import {
   LeadPipelineQuery,
   type LeadProfile,
   type LeadRow,
-  type LeadStage,
+  LEAD_STATUS_LABELS,
+  type LeadPipelineStatus,
   type LeadTask,
   LogLeadActivityRequest,
   type MemberRef,
@@ -101,7 +102,7 @@ function seed(empty: boolean): Store {
     string,
     number[],
     LeadRow['priority'],
-    LeadStage,
+    LeadPipelineStatus,
     number | null,
     NextActionType,
     number | null,
@@ -114,7 +115,7 @@ function seed(empty: boolean): Store {
       'Back Taxes Campaign',
       [0, 2],
       'HOT',
-      'NEW',
+      'SUBMITTED',
       null,
       'CALL',
       30,
@@ -205,13 +206,13 @@ function seed(empty: boolean): Store {
       'General Inquiry',
       [0, 3],
       'COLD',
-      'NOT_QUALIFIED',
+      'DECLINED',
       150,
       'CLOSE_LEAD',
       null,
       1,
     ],
-    ['Marco', 'Diaz', 'BEGIN_ONLINE', 'Annual Tax', [0], 'WARM', 'NEW', null, 'CALL', -5, 3],
+    ['Marco', 'Diaz', 'BEGIN_ONLINE', 'Annual Tax', [0], 'WARM', 'SUBMITTED', null, 'CALL', -5, 3],
     [
       'Clara',
       'Voss',
@@ -245,7 +246,7 @@ function seed(empty: boolean): Store {
       'Small Business Expo',
       [6, 2],
       'COLD',
-      'NEW',
+      'SUBMITTED',
       null,
       'EMAIL',
       -30,
@@ -277,8 +278,8 @@ function seed(empty: boolean): Store {
         lastContact:
           contacted === null ? null : { at: ago(contacted), channel: n % 2 ? 'CALL' : 'EMAIL' },
         nextAction:
-          stage === 'CONVERTED' || stage === 'NOT_QUALIFIED'
-            ? stage === 'NOT_QUALIFIED'
+          stage === 'CONVERTED' || stage === 'DECLINED'
+            ? stage === 'DECLINED'
               ? { type: 'CLOSE_LEAD', dueAt: null, notes: 'No further action', overdue: false }
               : null
             : {
@@ -314,7 +315,7 @@ function seed(empty: boolean): Store {
         {
           id: uuid('0f00', n * 10 + 2),
           at: createdAt,
-          kind: 'STAGE_CHANGED',
+          kind: 'STATUS_CHANGED',
           label: 'Status changed to New Lead',
           by: null,
         },
@@ -324,7 +325,7 @@ function seed(empty: boolean): Store {
               {
                 id: uuid('0f00', n * 10 + 3),
                 at: ago(contacted),
-                kind: 'EMAIL' as const,
+                kind: 'EMAIL_SENT' as const,
                 label: 'Email sent: Welcome to LVP',
                 by: assigned,
               },
@@ -542,10 +543,10 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       });
       return {
         total: count(() => true),
-        new: count((l) => l.profile.stage === 'NEW'),
+        new: count((l) => l.profile.stage === 'SUBMITTED'),
         inFollowUp: count((l) => l.profile.stage === 'IN_FOLLOW_UP'),
         converted: count((l) => l.profile.stage === 'CONVERTED'),
-        notQualified: count((l) => l.profile.stage === 'NOT_QUALIFIED'),
+        notQualified: count((l) => l.profile.stage === 'DECLINED'),
         overdueFollowUps: count((l) => l.profile.nextAction?.overdue === true),
       };
     },
@@ -655,7 +656,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         if (p.stage === 'CONVERTED')
           throw fail(409, 'ALREADY_CONVERTED', 'This lead is already a client');
         p.stage = stage;
-        log(l, 'STAGE_CHANGED', `Status changed to ${stage}`);
+        log(l, 'STATUS_CHANGED', `Status changed to ${LEAD_STATUS_LABELS[stage]}`);
       }
       bump(l);
       return view(l);
@@ -690,7 +691,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         if (!l || !visible(l) || (input.channel === 'SMS' && !l.profile.phone)) continue;
         log(
           l,
-          input.channel,
+          input.channel === 'EMAIL' ? 'EMAIL_SENT' : 'SMS_SENT',
           input.channel === 'EMAIL' ? `Email sent: ${input.subject ?? 'Message'}` : 'SMS sent',
         );
         l.profile.lastContact = { at: new Date().toISOString(), channel: input.channel };
@@ -734,7 +735,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       await mockDelay();
       const q = parseInput(LeadActivityQuery, query);
       const items = find(id).activity.filter(
-        (a) => q.kind === 'all' || ['CALL', 'EMAIL', 'SMS'].includes(a.kind),
+        (a) => q.kind === 'all' || ['CALL', 'EMAIL_SENT', 'SMS_SENT'].includes(a.kind),
       );
       return { items: copy(items.slice(0, q.limit)), nextCursor: null };
     },
@@ -743,10 +744,11 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       const input = parseInput(LogLeadActivityRequest, body);
       const l = find(id);
       log(l, input.kind, input.summary);
-      if (['CALL', 'EMAIL', 'SMS'].includes(input.kind)) {
+      const channel = { CALL: 'CALL', EMAIL_SENT: 'EMAIL', SMS_SENT: 'SMS' } as const;
+      if (input.kind === 'CALL' || input.kind === 'EMAIL_SENT' || input.kind === 'SMS_SENT') {
         l.profile.lastContact = {
           at: input.at ?? new Date().toISOString(),
-          channel: input.kind as 'CALL' | 'EMAIL' | 'SMS',
+          channel: channel[input.kind],
         };
       }
       return copy(l.activity[0] as LeadActivity);
@@ -841,7 +843,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         carried: {
           notes: c.notes ? l.notes.length : 0,
           communications: c.communications
-            ? l.activity.filter((a) => ['CALL', 'EMAIL', 'SMS'].includes(a.kind)).length
+            ? l.activity.filter((a) => ['CALL', 'EMAIL_SENT', 'SMS_SENT'].includes(a.kind)).length
             : 0,
           appointments: c.appointments ? l.appointments.length : 0,
           tasks: c.tasks ? l.tasks.length : 0,

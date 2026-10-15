@@ -2,7 +2,13 @@ import { z } from 'zod';
 import { Email } from '../auth/schemas.js';
 import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
-import { ClientAccountType } from '../db-enums.js';
+import {
+  ClientAccountType,
+  LeadActivityKind,
+  LeadPriority,
+  LeadSource,
+  LeadStatus,
+} from '../db-enums.js';
 
 // Leads workspace (R43 contract, for Arfan's screens): the Leads page (KPIs, filters, bulk
 // actions, the table), Add New Lead, the Lead Profile with its tabs, follow-ups and the
@@ -19,51 +25,28 @@ const DateTime = z.iso.datetime({ offset: true });
 export const LeadRecordId = z.uuid();
 
 /**
- * The pipeline stage the screens show. New column (to build): R11's LeadStatus keeps the Begin
- * Online lifecycle (SUBMITTED, IN_REVIEW, CONVERTED, DECLINED); a sent Begin Online lead starts
- * NEW, CONVERTED and DECLINED map to CONVERTED and NOT_QUALIFIED.
+ * The lead's status in the pipeline: the database's LeadStatus (R37) without DRAFT and EXPIRED
+ * (a Begin Online draft the visitor has not sent, which the firm never sees). SUBMITTED is "New
+ * Lead", DECLINED is "Not Qualified"; IN_REVIEW stays for Begin Online leads opened before R37.
+ * The `stage` fields and filters below hold this value (the leads.status column).
  */
-export const LeadStage = z.enum([
-  'NEW',
-  'CONTACTED',
-  'IN_FOLLOW_UP',
-  'APPOINTMENT_SCHEDULED',
-  'QUALIFIED',
-  'CONVERTED',
-  'NOT_QUALIFIED',
-  'LOST',
-]);
-export type LeadStage = z.infer<typeof LeadStage>;
+export const LeadPipelineStatus = LeadStatus.exclude(['DRAFT', 'EXPIRED']);
+export type LeadPipelineStatus = z.infer<typeof LeadPipelineStatus>;
 
-export const LEAD_STAGE_LABELS: Record<LeadStage, string> = {
-  NEW: 'New Lead',
+export const LEAD_STATUS_LABELS: Record<LeadPipelineStatus, string> = {
+  SUBMITTED: 'New Lead',
+  IN_REVIEW: 'In Review',
   CONTACTED: 'Contacted',
   IN_FOLLOW_UP: 'In Follow-Up',
   APPOINTMENT_SCHEDULED: 'Appointment Scheduled',
   QUALIFIED: 'Qualified',
   CONVERTED: 'Converted',
-  NOT_QUALIFIED: 'Not Qualified',
+  DECLINED: 'Not Qualified',
   LOST: 'Lost / No Response',
 };
 
-export const LeadPriority = z.enum(['HOT', 'WARM', 'COLD']);
-export type LeadPriority = z.infer<typeof LeadPriority>;
-
-/** Where the lead came from. Begin Online leads are BEGIN_ONLINE. */
-export const LeadSource = z.enum([
-  'BEGIN_ONLINE',
-  'WEBSITE_FORM',
-  'FACEBOOK_AD',
-  'INSTAGRAM',
-  'GOOGLE_AD',
-  'REFERRAL',
-  'PHONE_CALL',
-  'WALK_IN',
-  'EMAIL',
-  'EVENT',
-  'OTHER',
-]);
-export type LeadSource = z.infer<typeof LeadSource>;
+// LeadPriority, LeadSource and LeadActivityKind are the database enums (db-enums.ts, generated
+// from the Prisma schema): one source, exported from the package root.
 
 export const ContactChannel = z.enum(['PHONE', 'EMAIL', 'SMS']);
 export type ContactChannel = z.infer<typeof ContactChannel>;
@@ -119,7 +102,7 @@ export const LeadRow = z.object({
   campaign: LeadCampaignRef.nullable(),
   services: z.array(NamedRef),
   priority: LeadPriority,
-  stage: LeadStage,
+  stage: LeadPipelineStatus,
   lastContact: LastContact.nullable(),
   nextAction: NextAction.nullable(),
   assignedTo: MemberRef.nullable(),
@@ -142,7 +125,7 @@ export const LeadPipelineQuery = z.strictObject({
   search: SearchText.optional(),
   source: LeadSource.optional(),
   serviceId: z.uuid().optional(),
-  stage: LeadStage.optional(),
+  stage: LeadPipelineStatus.optional(),
   overdue: QueryBool.optional(),
   assignedUserId: z.uuid().optional(),
   from: CalendarDate.optional(),
@@ -214,7 +197,7 @@ export const CreateLeadRequest = z.strictObject({
   preferredContact: z.array(ContactChannel).max(3).default([]),
   assignedUserId: z.uuid().nullable().optional(),
   priority: LeadPriority.default('WARM'),
-  stage: LeadStage.exclude(['CONVERTED']).default('NEW'),
+  stage: LeadPipelineStatus.exclude(['CONVERTED']).default('SUBMITTED'),
   nextAction: NextActionInput.optional(),
   /** Create even though a lead with this email or phone exists (the screen asked first). */
   allowDuplicate: z.boolean().optional(),
@@ -239,7 +222,7 @@ export const UpdateLeadRequest = z
     preferredContact: z.array(ContactChannel).max(3),
     assignedUserId: z.uuid().nullable(),
     priority: LeadPriority,
-    stage: LeadStage.exclude(['CONVERTED']),
+    stage: LeadPipelineStatus.exclude(['CONVERTED']),
     tags: z.array(text(40)).max(20),
   })
   .partial()
@@ -269,7 +252,7 @@ export const LeadBulkRequest = z.discriminatedUnion('action', [
   z.strictObject({
     action: z.literal('STAGE'),
     ids: z.array(z.uuid()).min(1).max(200),
-    stage: LeadStage.exclude(['CONVERTED']),
+    stage: LeadPipelineStatus.exclude(['CONVERTED']),
   }),
   z.strictObject({
     action: z.literal('CAMPAIGN'),
@@ -307,25 +290,6 @@ export type LeadMessageRequest = z.input<typeof LeadMessageRequest>;
 
 // ---------- Activity, notes, profile ----------
 
-export const LeadActivityKind = z.enum([
-  'CREATED',
-  'STAGE_CHANGED',
-  'ASSIGNED',
-  'CALL',
-  'EMAIL',
-  'SMS',
-  'MEETING',
-  'NOTE',
-  'APPOINTMENT',
-  'FORM_SUBMITTED',
-  'DOCUMENT',
-  'TAG_ADDED',
-  'CAMPAIGN',
-  'FOLLOW_UP',
-  'CONVERTED',
-]);
-export type LeadActivityKind = z.infer<typeof LeadActivityKind>;
-
 /** One Recent Activity / Activity / Communications row. */
 export const LeadActivity = z.object({
   id: z.uuid(),
@@ -338,7 +302,7 @@ export const LeadActivity = z.object({
 });
 export type LeadActivity = z.infer<typeof LeadActivity>;
 
-/** GET /business/leads/{id}/activity; `kind` "communications" = CALL, EMAIL, SMS. */
+/** GET /business/leads/{id}/activity; `kind` "communications" = CALL, EMAIL_SENT, SMS_SENT. */
 export const LeadActivityQuery = z.strictObject({
   kind: z.enum(['all', 'communications']).optional().default('all'),
   cursor: z.string().max(200).optional(),
@@ -354,7 +318,7 @@ export type LeadActivityPage = z.infer<typeof LeadActivityPage>;
 
 /** Log Activity: a manual call, meeting, note or follow-up. */
 export const LogLeadActivityRequest = z.strictObject({
-  kind: z.enum(['CALL', 'EMAIL', 'SMS', 'MEETING', 'FOLLOW_UP']),
+  kind: LeadActivityKind.extract(['CALL', 'EMAIL_SENT', 'SMS_SENT', 'MEETING', 'FOLLOW_UP']),
   at: DateTime.optional(),
   summary: text(1000, 'many'),
 });

@@ -1487,6 +1487,10 @@ export const LeadSource = z.enum([
   'INSTAGRAM',
   'GOOGLE_AD',
   'REFERRAL',
+  'PHONE_CALL',
+  'WALK_IN',
+  'EMAIL',
+  'EVENT',
   'OTHER',
 ]);
 export type LeadSource = z.infer<typeof LeadSource>;
@@ -1519,5 +1523,7 @@ export const LeadActivityKind = z.enum([
   'TAG_ADDED',
   'ASSIGNED',
   'CONVERTED',
+  'DOCUMENT',
+  'CAMPAIGN',
 ]);
 export type LeadActivityKind = z.infer<typeof LeadActivityKind>;
