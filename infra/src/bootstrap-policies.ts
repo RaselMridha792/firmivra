@@ -48,6 +48,8 @@ const serviceLinkedRoles = (resource: string): Statement => ({
 
 function arns(account: string, region: string) {
   const policy = (name: string) => `arn:aws:iam::${account}:policy/${name}`;
+  const r = (service: string, resource: string) =>
+    `arn:aws:${service}:${region}:${account}:${resource}`;
   return {
     boundary: policy(PERMISSIONS_BOUNDARY_NAME),
     guardrails: [policy(PERMISSIONS_BOUNDARY_NAME), policy(CFN_EXEC_POLICY_NAME)],
@@ -59,6 +61,14 @@ function arns(account: string, region: string) {
     buckets: 'arn:aws:s3:::firmivra-*',
     cdkAssets: `arn:aws:s3:::cdk-${CDK_QUALIFIER}-assets-${account}-${region}/*`,
     secrets: `arn:aws:secretsmanager:${region}:${account}:secret:firmivra/*`,
+    // Step 19: the malware scan of uploads, its queues, rules, alarm topic and alarms.
+    plans: r('guardduty', 'malware-protection-plan/*'),
+    queues: r('sqs', 'firmivra-*'),
+    rules: r('events', 'rule/firmivra-*'),
+    topics: r('sns', 'firmivra-*'),
+    alarms: r('cloudwatch', 'alarm:firmivra-*'),
+    // GuardDuty's own rule, which the plan role makes and removes.
+    guardDutyRules: r('events', 'rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*'),
   };
 }
 
@@ -140,17 +150,40 @@ export function cfnExecPolicy(account: string, region: string): PolicyDocument {
         Action: ['acm:*', 'cloudfront:*', 'cognito-idp:*', 'ecs:*', 'kms:*', 'ses:*'],
         Resource: '*',
       },
+      // CreateMalwareProtectionPlan has no resource type; the rest take the plan ARN.
+      {
+        Sid: 'MalwareProtectionPlanCreate',
+        Effect: 'Allow',
+        Action: ['guardduty:CreateMalwareProtectionPlan'],
+        Resource: '*',
+      },
+      {
+        Sid: 'MalwareProtectionPlans',
+        Effect: 'Allow',
+        Action: [
+          'guardduty:GetMalwareProtectionPlan',
+          'guardduty:UpdateMalwareProtectionPlan',
+          'guardduty:DeleteMalwareProtectionPlan',
+          'guardduty:TagResource',
+          'guardduty:UntagResource',
+        ],
+        Resource: a.plans,
+      },
       {
         Sid: 'NamedResources',
         Effect: 'Allow',
         Action: [
+          'cloudwatch:*',
           'ecr:*',
           'elasticloadbalancing:*',
+          'events:*',
           'lambda:*',
           'logs:*',
           'rds:*',
           's3:*',
           'secretsmanager:*',
+          'sns:*',
+          'sqs:*',
         ],
         Resource: [
           r('ecr', 'repository/firmivra-*'),
@@ -163,6 +196,10 @@ export function cfnExecPolicy(account: string, region: string): PolicyDocument {
           r('rds', 'og:default*'),
           a.buckets,
           a.secrets,
+          a.alarms,
+          a.rules,
+          a.topics,
+          a.queues,
         ],
       },
       { Sid: 'LambdaCode', Effect: 'Allow', Action: ['s3:GetObject'], Resource: a.cdkAssets },
@@ -253,6 +290,10 @@ export function permissionsBoundary(account: string, region: string): PolicyDocu
           'route53:*',
           'ses:*',
           'sns:Publish',
+          // Create, Get, Update, Delete (not List).
+          'guardduty:*MalwareProtectionPlan',
+          'guardduty:TagResource',
+          'guardduty:UntagResource',
           'cloudformation:Describe*',
           'cloudformation:Get*',
           'cloudformation:List*',
@@ -269,6 +310,26 @@ export function permissionsBoundary(account: string, region: string): PolicyDocu
         Effect: 'Allow',
         Action: ['iam:*', 's3:*', 'secretsmanager:*'],
         Resource: [a.roles, a.githubOidc, a.buckets, a.secrets],
+      },
+      {
+        Sid: 'FirmivraQueuesRulesTopicsAlarms',
+        Effect: 'Allow',
+        Action: ['sqs:*', 'events:*', 'sns:*', 'cloudwatch:*'],
+        Resource: [a.queues, a.rules, a.topics, a.alarms],
+      },
+      // The malware plan role: GuardDuty's managed rule on the default bus.
+      {
+        Sid: 'GuardDutyManagedRules',
+        Effect: 'Allow',
+        Action: [
+          'events:PutRule',
+          'events:DeleteRule',
+          'events:PutTargets',
+          'events:RemoveTargets',
+          'events:DescribeRule',
+          'events:ListTargetsByRule',
+        ],
+        Resource: a.guardDutyRules,
       },
       serviceLinkedRoles(a.serviceLinkedRoles),
       { Sid: 'LambdaCode', Effect: 'Allow', Action: ['s3:GetObject'], Resource: a.cdkAssets },
