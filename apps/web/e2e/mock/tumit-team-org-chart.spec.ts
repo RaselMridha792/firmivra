@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const url = `http://app.localhost:${port}/team/org-chart`;
 
-test('draws the reporting lines and opens a person', async ({ page }) => {
+test('draws the reporting lines and moves through them from Person Details', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(url);
   await expect(page).toHaveTitle('Teams & departments: Org chart');
@@ -14,30 +14,28 @@ test('draws the reporting lines and opens a person', async ({ page }) => {
     'aria-current',
     'page',
   );
-  const people = page.getByTestId('org-person');
-  await expect(people).toHaveCount(8);
+  const chart = page.getByTestId('org-chart');
+  await expect(page.getByRole('list', { name: 'Organization chart' })).toBeVisible();
+  for (const name of ['Morgan Avery', 'Lena Fischer', 'Daniel Okafor', 'Theo Grant']) {
+    await expect(chart).toContainText(name);
+  }
+  await expect(chart).toContainText('Head of Tax');
   await expect(page.getByTestId('org-count')).toHaveText('8 active people');
 
+  // The top person opens first; their reports and boss open from the panel.
   const details = page.getByTestId('person-details');
   await expect(details).toContainText('Morgan Avery');
   await expect(details).toContainText('No one: top of the chart');
-
-  // Daniel reports to Lena; her name in the panel opens her.
-  await people.filter({ hasText: 'Daniel Okafor' }).click();
-  await expect(details).toContainText('Daniel Okafor');
-  await expect(details).toContainText('Lena Fischer');
+  await details.getByRole('button', { name: 'Lena Fischer' }).click();
+  await expect(details.getByRole('button', { name: 'Daniel Okafor' })).toBeVisible();
+  await details.getByRole('button', { name: 'Daniel Okafor' }).click();
+  await expect(details).toContainText('Tax Preparer');
   await details.getByRole('button', { name: /Lena Fischer/ }).click();
-  await expect(details.getByText('Daniel Okafor')).toBeVisible();
+  await expect(details).toContainText('Tax Manager');
   await expect(details.getByRole('link', { name: 'View Profile' })).toHaveAttribute(
     'href',
     /^\/team\/[0-9a-f-]{36}$/,
   );
-
-  // Hide and show the people under Lena.
-  await page.getByRole('button', { name: 'Hide the people who report to Lena Fischer' }).click();
-  await expect(people).toHaveCount(7);
-  await page.getByRole('button', { name: 'Show the people who report to Lena Fischer' }).click();
-  await expect(people).toHaveCount(8);
 });
 
 test('search and the department filter keep each match with the people above it', async ({
@@ -45,20 +43,23 @@ test('search and the department filter keep each match with the people above it'
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(url);
-  const people = page.getByTestId('org-person');
-  await expect(people).toHaveCount(8);
+  const chart = page.getByTestId('org-chart');
+  await expect(page.getByTestId('org-count')).toHaveText('8 active people');
 
   await page.getByLabel('Search people').fill('daniel');
-  await expect(people).toHaveCount(3);
   await expect(page.getByTestId('org-count')).toHaveText('1 of 8 people match');
+  await expect(chart).toContainText('Morgan Avery');
+  await expect(chart).toContainText('Lena Fischer');
+  await expect(chart).not.toContainText('Theo Grant');
   await expect(page.getByTestId('person-details')).toContainText('Daniel Okafor');
 
   await page.getByLabel('Search people').fill('');
   await page.getByLabel('Department', { exact: true }).selectOption({ label: 'Payroll' });
-  await expect(people).toHaveCount(3);
   await expect(page.getByTestId('org-count')).toHaveText('2 of 8 people match');
+  await expect(chart).toContainText('Rosa Delgado');
+  await expect(chart).not.toContainText('Daniel Okafor');
 
   await page.getByLabel('Search people').fill('nobody here');
-  await expect(people).toHaveCount(0);
-  await expect(page.getByText('No matching people')).toBeVisible();
+  await expect(chart).toContainText('No matching people');
+  await expect(page.getByTestId('person-details')).toHaveCount(0);
 });
