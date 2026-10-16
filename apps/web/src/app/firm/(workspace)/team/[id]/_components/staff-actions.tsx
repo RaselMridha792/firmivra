@@ -8,8 +8,16 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
 import { MEMBER_ERRORS } from './staff-parts';
 
-/** The high-risk actions that ask first: an optional reason and a confirm (the contract's). */
-export type StaffAction = 'resetPassword' | 'resetMfa' | 'signOutAll' | 'deactivate' | 'delete';
+/** The high-risk actions that ask first: a reason (optional, or required to lock) and a confirm. */
+export type StaffAction =
+  | 'resetPassword'
+  | 'resetMfa'
+  | 'signOutAll'
+  | 'lock'
+  | 'unlock'
+  | 'deactivate'
+  | 'reactivate'
+  | 'delete';
 
 const signedOut = (n: number) => (n ? ` ${n} session${n === 1 ? '' : 's'} signed out.` : '');
 
@@ -20,6 +28,8 @@ const ACTIONS: Record<
     body: (name: string) => string;
     confirm: string;
     danger?: boolean;
+    /** Lock needs a reason; Unlock and Reactivate take none. */
+    reason?: 'required' | 'none';
     done: (name: string, r: StaffActionResult) => string;
   }
 > = {
@@ -45,6 +55,30 @@ const ACTIONS: Record<
     confirm: 'Sign Out All',
     done: (_name, r) =>
       r.sessionsRevoked ? signedOut(r.sessionsRevoked).trim() : 'There were no open sessions.',
+  },
+  lock: {
+    title: 'Lock Account',
+    body: (name) =>
+      `${name} cannot sign in until the account is unlocked, and is signed out everywhere. Say why: the reason is kept with the account.`,
+    confirm: 'Lock Account',
+    danger: true,
+    reason: 'required',
+    done: (name, r) => `${name}’s account is locked.${signedOut(r.sessionsRevoked)}`,
+  },
+  unlock: {
+    title: 'Unlock Account',
+    body: (name) => `${name} can sign in again with their password and two-factor sign-in.`,
+    confirm: 'Unlock Account',
+    reason: 'none',
+    done: (name) => `${name}’s account is unlocked.`,
+  },
+  reactivate: {
+    title: 'Reactivate Account',
+    body: (name) =>
+      `${name} gets access again with the same role and history. Someone who never joined is invited again.`,
+    confirm: 'Reactivate Account',
+    reason: 'none',
+    done: (name) => `${name}’s account is active again.`,
   },
   deactivate: {
     title: 'Deactivate Account',
@@ -73,7 +107,10 @@ const CALLS: Record<
   resetPassword: (id, body) => api.staff.resetPassword(id, body),
   resetMfa: (id, body) => api.staff.resetMfa(id, body),
   signOutAll: (id, body) => api.staff.signOutAll(id, body),
+  lock: (id, body) => api.staff.lock(id, { reason: body.reason ?? '', confirm: true }),
+  unlock: (id) => api.staff.unlock(id),
   deactivate: (id, body) => api.staff.deactivate(id, body),
+  reactivate: (id) => api.staff.reactivate(id),
   delete: (id, body) => api.staff.deactivate(id, body),
 };
 
@@ -93,6 +130,7 @@ export function ActionModal({
 }) {
   const look = ACTIONS[action];
   const [reason, setReason] = useState('');
+  const [missing, setMissing] = useState(false);
   const run = useApiMutation(
     (why: string) => CALLS[action](id, { reason: why.trim() || null, confirm: true }),
     { invalidate: ['staff'] },
@@ -104,17 +142,23 @@ export function ActionModal({
         className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
+          const empty = look.reason === 'required' && !reason.trim();
+          setMissing(empty);
+          if (empty) return;
           run.mutate(reason, { onSuccess: (r) => onDone(look.done(name, r)) });
         }}
       >
         <p className="text-sm text-text">{look.body(name)}</p>
-        <Textarea
-          label="Reason (optional)"
-          maxLength={500}
-          rows={3}
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-        />
+        {look.reason === 'none' ? null : (
+          <Textarea
+            label={look.reason === 'required' ? 'Reason *' : 'Reason (optional)'}
+            maxLength={500}
+            rows={3}
+            value={reason}
+            error={missing ? 'Say why the account is locked.' : undefined}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        )}
         {run.error ? (
           <p role="alert" className="text-sm text-danger">
             {errorMessage(run.error, MEMBER_ERRORS)}
