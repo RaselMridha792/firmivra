@@ -909,7 +909,7 @@ function FormBody({
         <Section title="Staff & Status" icon={UsersThree} testId="staff-status">
           <div className="grid gap-4 md:grid-cols-[1.8fr_1.3fr_1.2fr_auto] md:items-end">
             <MultiPick
-              chips
+              chips="people"
               label="Assigned Staff *"
               placeholder="Choose staff"
               options={o.staff.map((s) => ({ value: s.userId, label: s.name }))}
