@@ -1,5 +1,6 @@
 'use client';
 
+import { ServiceAddOns } from './service-addons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CreateCatalogServiceRequest, type CatalogService } from '@firmivra/types';
 import { Button, Input, Modal, RichTextEditor, Select, Textarea, Toggle } from '@firmivra/ui';
@@ -81,7 +82,6 @@ export function ServiceEditor({
   } = form;
   const value = useWatch({ control }) as Values;
   const lines = useFieldArray({ control, name: 'lineItems' });
-  const addons = useFieldArray({ control, name: 'addOns' });
   const [cancel, setCancel] = useState(false);
   const [removeLine, setRemoveLine] = useState<number | null>(null);
   const [active, setActive] = useState(initial?.status === 'ACTIVE');
@@ -131,6 +131,13 @@ export function ServiceEditor({
       .map((c) => ({ value: c.id, label: c.name })),
   ];
   const currency = money(value.basePriceCents);
+  const savedLineTotal = (index: number) => {
+    const line = value.lineItems?.[index];
+    const saved = initial?.lineItems.find((item) => item.id === line?.id);
+    return saved && saved.quantity === line?.quantity && saved.rateCents === line?.rateCents
+      ? money(saved.totalCents)
+      : '—';
+  };
   const previewPrice =
     value.pricingType === 'CUSTOM_QUOTE'
       ? 'Quote required'
@@ -152,7 +159,7 @@ export function ServiceEditor({
           e.preventDefault();
           submit(active);
         }}
-        className="grid min-w-0 grid-cols-1 items-start gap-3 xl:grid-cols-3"
+        className="grid min-w-0 grid-cols-1 items-start gap-3 xl:grid-cols-3 lg:[&_input]:py-1 lg:[&_input]:text-sm lg:[&_select]:py-1 lg:[&_select]:text-sm lg:[&_textarea]:text-sm"
         data-testid="service-form"
       >
         <div className="min-w-0 space-y-3 xl:col-span-2">
@@ -300,11 +307,19 @@ export function ServiceEditor({
               ]}
               onChange={(e) => put('lineItemsMode', e.target.value as Values['lineItemsMode'])}
             />
+            <div className="hidden grid-cols-12 gap-2 border-b border-divider pb-2 text-xs font-semibold lg:grid">
+              <span className="col-span-3">Item Name</span>
+              <span className="col-span-3">Description</span>
+              <span>Qty</span>
+              <span className="col-span-2">Price</span>
+              <span>Total</span>
+              <span className="col-span-2">Actions</span>
+            </div>
             {lines.fields.length ? (
               lines.fields.map((line, i) => (
                 <div
                   key={line.id}
-                  className="grid min-w-0 gap-2 border-b border-divider pb-3 sm:grid-cols-2 lg:grid-cols-4"
+                  className="grid min-w-0 gap-2 border-b border-divider py-2 sm:grid-cols-2 lg:grid-cols-12 lg:[&>div:nth-child(1)]:col-span-3 lg:[&>div:nth-child(2)]:col-span-3 lg:[&>div:nth-child(4)]:col-span-2 lg:[&_label]:sr-only"
                   data-testid="service-line"
                 >
                   <Input
@@ -342,7 +357,13 @@ export function ServiceEditor({
                     }
                     error={errors.lineItems?.[i]?.rateCents?.message}
                   />
-                  <div className="flex flex-wrap gap-1 sm:col-span-2 lg:col-span-4">
+                  <p
+                    className="self-center text-xs text-muted"
+                    title="Saved line total; recalculated by the API on save"
+                  >
+                    {savedLineTotal(i)}
+                  </p>
+                  <div className="flex flex-wrap gap-1 sm:col-span-2 lg:col-span-2 [&>button]:min-h-8 [&>button]:px-1 [&>button]:py-1">
                     <Button
                       variant="ghost"
                       disabled={i === 0}
@@ -404,93 +425,7 @@ export function ServiceEditor({
             )}
             fullDescription={value.fullDescription}
           />
-          <Panel
-            title="Optional Add-Ons"
-            marker={<Plus className="size-4" />}
-            action={
-              <Button
-                variant="outline"
-                disabled={addons.fields.length >= 30}
-                onClick={() =>
-                  addons.append({
-                    name: '',
-                    description: '',
-                    priceCents: 0,
-                    status: 'ACTIVE',
-                    clientSelectable: true,
-                  })
-                }
-              >
-                + Add Add-On
-              </Button>
-            }
-          >
-            {addons.fields.length ? (
-              addons.fields.map((addon, i) => (
-                <div
-                  key={addon.id}
-                  className="space-y-2 border-b border-divider pb-3"
-                  data-testid="service-addon"
-                >
-                  <Input
-                    label={`Add-On Name ${i + 1}`}
-                    {...register(`addOns.${i}.name`)}
-                    error={errors.addOns?.[i]?.name?.message}
-                  />
-                  <Input
-                    label={`Add-On Description ${i + 1}`}
-                    {...register(`addOns.${i}.description`)}
-                  />
-                  <Input
-                    label={`Add-On Price ${i + 1}`}
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={(value.addOns?.[i]?.priceCents ?? 0) / 100}
-                    onChange={(e) =>
-                      put(
-                        'addOns',
-                        (value.addOns ?? []).map((x, index) =>
-                          index === i
-                            ? { ...x, priceCents: Math.round(Number(e.target.value) * 100) }
-                            : x,
-                        ),
-                      )
-                    }
-                    error={errors.addOns?.[i]?.priceCents?.message}
-                  />
-                  <Select
-                    label={`Add-On Status ${i + 1}`}
-                    options={[
-                      { value: 'ACTIVE', label: 'Active' },
-                      { value: 'INACTIVE', label: 'Inactive' },
-                    ]}
-                    {...register(`addOns.${i}.status`)}
-                  />
-                  <label className="flex items-center gap-2 text-sm">
-                    <Toggle
-                      label={`Client selectable add-on ${i + 1}`}
-                      checked={!!value.addOns?.[i]?.clientSelectable}
-                      onChange={(next) =>
-                        put(
-                          'addOns',
-                          (value.addOns ?? []).map((x, index) =>
-                            index === i ? { ...x, clientSelectable: next } : x,
-                          ),
-                        )
-                      }
-                    />
-                    Client selectable
-                  </label>
-                  <Button variant="ghost" onClick={() => addons.remove(i)}>
-                    Remove add-on {i + 1}
-                  </Button>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted">No optional add-ons added.</p>
-            )}
-          </Panel>
+          <ServiceAddOns items={value.addOns ?? []} onChange={(next) => put('addOns', next)} />
           <Panel title="Internal Settings" marker={<Gear weight="fill" className="size-4" />}>
             <Textarea
               label="Internal Notes (Not Visible to Clients)"
