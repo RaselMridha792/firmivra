@@ -72,6 +72,9 @@ enum ClientPortalRole {
 
 enum PlatformRole {
   SUPER_ADMIN
+  /// A platform team member below the CEO (R0 stage A): no admin-scope rights yet.
+  /// app_is_admin() checks role = SUPER_ADMIN on purpose; TEAM_MEMBER must stay excluded.
+  TEAM_MEMBER
 }
 
 /// docs/SYSTEM-DESIGN.md, Modules & packs. Only the tax and accounting pack exists now.
@@ -865,6 +868,9 @@ model Business {
   documentRequestTemplates DocumentRequestTemplate[]
   documentSettings         DocumentSettings?
 
+  /// R0 stage A: null until a subscription is set (no backfill for existing firms).
+  platformFirmSubscription PlatformFirmSubscription?
+
   @@map("businesses")
 }
 
@@ -1119,9 +1125,254 @@ model PlatformAdmin {
   role      PlatformRole @default(SUPER_ADMIN)
   createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  user User @relation(fields: [userId], references: [id])
+  user   User            @relation(fields: [userId], references: [id])
+  /// R0 stage A: the org-chart row for this admin, if one exists yet (CREATING_TEAM 20261016_r0).
+  member PlatformMember?
 
   @@map("platform_admins")
+}
+
+// ==================== R0 stage A: platform team hierarchy and plans (Oct 16) ====================
+// Firmivra's own internal org chart (Octavia's hierarchy/permissions and team developer
+// instructions) and the firm-facing plan ladder (pricing doc). platform_admins is untouched:
+// app_is_admin() keeps meaning exactly what it means today. A non-CEO member's admin row has
+// role TEAM_MEMBER, which app_is_admin() already excludes; letting TEAM_MEMBER sign in to the
+// admin console is a later PR (API and guards).
+
+enum PlatformRoleLevel {
+  CEO
+  CHIEF_OFFICER
+  VP_DIRECTOR
+  MANAGER
+  LEAD_SUPERVISOR
+  INDIVIDUAL_CONTRIBUTOR
+}
+
+/// Where a permission or a member's authority applies (hierarchy doc, "Permission Scope Options").
+enum PlatformScopeType {
+  COMPANY
+  DEPARTMENT
+  DIVISION
+  TEAM
+  DIRECT_REPORTS
+  OWN_RECORDS
+  CUSTOM
+}
+
+enum PlatformPermissionState {
+  ALLOW
+  DENY
+  INHERIT
+}
+
+enum PlatformMemberStatus {
+  PENDING_INVITATION
+  PENDING_APPROVAL
+  /// HR added a VP/Director hire; the department Chief Officer must finalize the role.
+  PENDING_DEPARTMENT_HEAD_APPROVAL
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+  DEACTIVATED
+}
+
+/// Data-driven and extensible (Team instructions): the 13 departments from the hierarchy doc.
+model PlatformDepartment {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  roleDefinitions PlatformRoleDefinition[]
+  members         PlatformMember[]
+
+  @@map("platform_departments")
+}
+
+/// A role template: title, authority level, home department, default reporting line and scope.
+/// Roles may exist without a current occupant (hierarchy doc).
+model PlatformRoleDefinition {
+  id                     String            @id @default(uuid(7)) @db.Uuid
+  code                   String            @unique
+  title                  String
+  level                  PlatformRoleLevel
+  departmentId           String            @map("department_id") @db.Uuid
+  defaultReportsToRoleId String?           @map("default_reports_to_role_id") @db.Uuid
+  defaultScopeType       PlatformScopeType @map("default_scope_type")
+  description            String?
+  createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  department           PlatformDepartment       @relation(fields: [departmentId], references: [id])
+  defaultReportsToRole PlatformRoleDefinition?  @relation("PlatformRoleDefaultReportsTo", fields: [defaultReportsToRoleId], references: [id])
+  rolesReportingHere   PlatformRoleDefinition[] @relation("PlatformRoleDefaultReportsTo")
+  permissions          PlatformRolePermission[]
+  members              PlatformMember[]         @relation("PlatformMemberRole")
+  intendedForMembers   PlatformMember[]         @relation("PlatformMemberIntendedRole")
+
+  @@index([departmentId])
+  @@map("platform_role_definitions")
+}
+
+/// The role's default permission template (doc: "permission_state: allow / deny / inherited").
+model PlatformRolePermission {
+  roleDefinitionId String                  @map("role_definition_id") @db.Uuid
+  permissionKey    String                  @map("permission_key")
+  state            PlatformPermissionState
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  roleDefinition PlatformRoleDefinition @relation(fields: [roleDefinitionId], references: [id], onDelete: Cascade)
+
+  @@id([roleDefinitionId, permissionKey])
+  @@map("platform_role_permissions")
+}
+
+/// The org chart: one row per person occupying a role, 1:1 extending platform_admins. A
+/// platform_admins row may exist with no member row yet; a member row never exists without one
+/// (app_log_... trigger below also ties role level to platform_admins.role).
+model PlatformMember {
+  userId                   String               @id @map("user_id") @db.Uuid
+  roleDefinitionId         String               @map("role_definition_id") @db.Uuid
+  departmentId             String               @map("department_id") @db.Uuid
+  reportsToUserId          String?              @map("reports_to_user_id") @db.Uuid
+  scopeType                PlatformScopeType    @map("scope_type")
+  /// No foreign key (stage A): department, team or user ids depending on scopeType.
+  scopeIds                 String[]             @default([]) @map("scope_ids") @db.Uuid
+  status                   PlatformMemberStatus @default(ACTIVE)
+  /// Set only while status is PENDING_DEPARTMENT_HEAD_APPROVAL.
+  intendedRoleDefinitionId String?              @map("intended_role_definition_id") @db.Uuid
+  /// Loose references, like audit_logs.actor_user_id: no FK to users (R0 convention).
+  invitedByUserId          String?              @map("invited_by_user_id") @db.Uuid
+  approvedByUserId         String?              @map("approved_by_user_id") @db.Uuid
+  createdAt                DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  admin                  PlatformAdmin                      @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  roleDefinition         PlatformRoleDefinition             @relation("PlatformMemberRole", fields: [roleDefinitionId], references: [id])
+  intendedRoleDefinition PlatformRoleDefinition?            @relation("PlatformMemberIntendedRole", fields: [intendedRoleDefinitionId], references: [id])
+  department             PlatformDepartment                 @relation(fields: [departmentId], references: [id])
+  reportsTo              PlatformMember?                    @relation("PlatformMemberReportsTo", fields: [reportsToUserId], references: [userId])
+  reports                PlatformMember[]                   @relation("PlatformMemberReportsTo")
+  permissionOverrides    PlatformMemberPermissionOverride[]
+
+  @@index([departmentId])
+  @@index([roleDefinitionId])
+  @@index([reportsToUserId])
+  @@index([status])
+  @@map("platform_members")
+}
+
+/// A member's individual exception to their role's permission template (hierarchy doc, "Custom
+/// Overrides"): still enforced never to exceed the grantor's own authority (API layer).
+model PlatformMemberPermissionOverride {
+  id               String                  @id @default(uuid(7)) @db.Uuid
+  platformMemberId String                  @map("platform_member_id") @db.Uuid
+  permissionKey    String                  @map("permission_key")
+  state            PlatformPermissionState
+  reason           String?
+  grantedByUserId  String?                 @map("granted_by_user_id") @db.Uuid
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  platformMember PlatformMember @relation(fields: [platformMemberId], references: [userId], onDelete: Cascade)
+
+  @@unique([platformMemberId, permissionKey])
+  @@map("platform_member_permission_overrides")
+}
+
+enum PlatformBillingCycle {
+  MONTHLY
+  ANNUAL
+}
+
+/// The firm-facing plan ladder (pricing doc), reference data. Not tenant data: seeded, not
+/// business-scoped.
+model PlatformPlan {
+  id                           String               @id @default(uuid(7)) @db.Uuid
+  code                         String               @unique
+  name                         String
+  basePriceCents               Int                  @map("base_price_cents")
+  billingCycle                 PlatformBillingCycle @default(MONTHLY) @map("billing_cycle")
+  includedSeats                Int                  @map("included_seats")
+  /// Null = no fixed ceiling (Enterprise: "21+ rate TBD").
+  maxSeats                     Int?                 @map("max_seats")
+  overagePriceCentsPerSeat     Int?                 @map("overage_price_cents_per_seat")
+  includedLocations            Int                  @default(1) @map("included_locations")
+  overagePriceCentsPerLocation Int?                 @map("overage_price_cents_per_location")
+  displayOrder                 Int                  @map("display_order")
+  isActive                     Boolean              @default(true) @map("is_active")
+  createdAt                    DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                    DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  features      PlatformPlanFeature[]
+  subscriptions PlatformFirmSubscription[]
+
+  @@map("platform_plans")
+}
+
+/// The cumulative feature checklist for a plan (every feature included at that tier).
+model PlatformPlanFeature {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  planId     String   @map("plan_id") @db.Uuid
+  featureKey String   @map("feature_key")
+  label      String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  plan PlatformPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, featureKey])
+  @@map("platform_plan_features")
+}
+
+enum PlatformSubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  /// Still active through the paid-through date; renewal disabled.
+  NON_RENEWING
+  EXPIRED
+  CANCELLED
+}
+
+/// One per firm. No row for most firms yet in stage A (no backfill): a missing row means no
+/// plan limits until stage B or the demo seed adds one.
+model PlatformFirmSubscription {
+  id                  String                     @id @default(uuid(7)) @db.Uuid
+  businessId          String                     @unique @map("business_id") @db.Uuid
+  planId              String                     @map("plan_id") @db.Uuid
+  status              PlatformSubscriptionStatus @default(TRIAL)
+  billingCycle        PlatformBillingCycle       @default(MONTHLY) @map("billing_cycle")
+  seatsIncluded       Int                        @map("seats_included")
+  seatsPurchased      Int                        @default(0) @map("seats_purchased")
+  locationsIncluded   Int                        @default(1) @map("locations_included")
+  locationsPurchased  Int                        @default(0) @map("locations_purchased")
+  /// A negotiated price, overriding the plan's base price.
+  priceCentsOverride  Int?                       @map("price_cents_override")
+  trialStartedAt      DateTime?                  @map("trial_started_at") @db.Timestamptz(3)
+  trialEndsAt         DateTime?                  @map("trial_ends_at") @db.Timestamptz(3)
+  startedAt           DateTime?                  @map("started_at") @db.Timestamptz(3)
+  currentPeriodStart  DateTime?                  @map("current_period_start") @db.Timestamptz(3)
+  currentPeriodEnd    DateTime?                  @map("current_period_end") @db.Timestamptz(3)
+  nextBillingDate     DateTime?                  @map("next_billing_date") @db.Timestamptz(3)
+  paidThroughDate     DateTime?                  @map("paid_through_date") @db.Timestamptz(3)
+  autoRenew           Boolean                    @default(true) @map("auto_renew")
+  cancelRequestedAt   DateTime?                  @map("cancel_requested_at") @db.Timestamptz(3)
+  cancelReason        String?                    @map("cancel_reason")
+  cancelRequestSource String?                    @map("cancel_request_source")
+  suspendedAt         DateTime?                  @map("suspended_at") @db.Timestamptz(3)
+  suspendedReason     String?                    @map("suspended_reason")
+  closedAt            DateTime?                  @map("closed_at") @db.Timestamptz(3)
+  closedReason        String?                    @map("closed_reason")
+  createdAt           DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business     @relation(fields: [businessId], references: [id])
+  plan     PlatformPlan @relation(fields: [planId], references: [id])
+
+  @@map("platform_firm_subscriptions")
 }
 
 /// Owner-approved, time-limited access for a Super Admin to one business (Tumit, Sprint 3).
@@ -9207,22 +9458,22 @@ enum TaxAckStatus {
 /// filed, where it stands, the refund or amount due the firm expects. Extensions are the compliance deadline's (R38). Status
 /// tracking only: the firm records what its tax software did.
 model TaxReturnFiling {
-  id                    String                @id @default(uuid(7)) @db.Uuid
-  businessId            String                @map("business_id") @db.Uuid
-  taxReturnId           String                @map("tax_return_id") @db.Uuid
+  id             String                @id @default(uuid(7)) @db.Uuid
+  businessId     String                @map("business_id") @db.Uuid
+  taxReturnId    String                @map("tax_return_id") @db.Uuid
   /// "US" for federal, or a two-letter state code.
-  jurisdiction          String
-  filingMethod          TaxFilingMethod       @default(EFILE) @map("filing_method")
+  jurisdiction   String
+  filingMethod   TaxFilingMethod       @default(EFILE) @map("filing_method")
   /// Closing the return waits for the required jurisdictions only.
-  required              Boolean               @default(true)
-  status                TaxJurisdictionStatus @default(NOT_FILED)
-  paperFiledOn          DateTime?             @map("paper_filed_on") @db.Date
+  required       Boolean               @default(true)
+  status         TaxJurisdictionStatus @default(NOT_FILED)
+  paperFiledOn   DateTime?             @map("paper_filed_on") @db.Date
   /// In cents. At most one of the two is above zero; the amount's status says estimate or final.
-  refundCents           Int?                  @map("refund_cents")
-  amountDueCents        Int?                  @map("amount_due_cents")
-  amountStatus          TaxAmountStatus?      @map("amount_status")
-  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  refundCents    Int?                  @map("refund_cents")
+  amountDueCents Int?                  @map("amount_due_cents")
+  amountStatus   TaxAmountStatus?      @map("amount_status")
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   taxReturn TaxReturn                @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
   attempts  TaxReturnFilingAttempt[]
