@@ -61,5 +61,6 @@ test('search and the department filter keep each match with the people above it'
 
   await page.getByLabel('Search people').fill('nobody here');
   await expect(chart).toContainText('No matching people');
-  await expect(page.getByTestId('person-details')).toHaveCount(0);
+  // The card keeps its frame with a quiet line (design-match rule 2).
+  await expect(page.getByTestId('person-details')).toContainText('No one matches.');
 });

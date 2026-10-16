@@ -12,6 +12,7 @@ import {
   PersonCell,
   dateText,
 } from '../../_components/groups-shared';
+import { NOT_LOADED, QuietCard } from '../../_components/quiet-card';
 import { KIND_LABELS } from './team-dialogs';
 
 /**
@@ -34,6 +35,14 @@ export function TeamDetails({
   const detail = useApiQuery([...GROUPS, 'team', id], () => api.departments.team(id));
   const t = detail.data;
   const card = 'rounded-xl border border-divider bg-surface p-4 shadow-sm';
+  if (!t && detail.isError) {
+    return (
+      <>
+        <QuietCard title="Team Details" testId="team-details" line={NOT_LOADED} />
+        <QuietCard title="Team Members" testId="team-members" line={NOT_LOADED} />
+      </>
+    );
+  }
   if (!t) {
     return (
       <section className={card} aria-busy="true">
