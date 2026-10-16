@@ -260,7 +260,21 @@ export function InactiveServices() {
       id: 'category',
       label: 'Category',
       sortable: true,
-      cell: (row) => <Badge tone="info">{row.category?.name ?? 'Uncategorized'}</Badge>,
+      cell: (row) => (
+        <Badge
+          tone={
+            row.category?.tone === 'purple'
+              ? 'purple'
+              : row.category?.tone === 'success'
+                ? 'success'
+                : row.category?.tone === 'warning'
+                  ? 'warning'
+                  : 'info'
+          }
+        >
+          {row.category?.name ?? 'Uncategorized'}
+        </Badge>
+      ),
     },
     {
       id: 'price',
@@ -306,7 +320,7 @@ export function InactiveServices() {
           ) : undefined
         }
       />
-      <div className="flex flex-col gap-3 border-b border-divider pb-3 2xl:flex-row">
+      <div className="flex flex-col gap-3 border-b border-divider pb-3 xl:flex-row xl:items-center">
         <nav aria-label="Services & Pricing sections" className="flex min-w-0 flex-wrap gap-1">
           {tabs.map((tab) => (
             <Link
@@ -353,13 +367,16 @@ export function InactiveServices() {
         </div>
       </div>
       <div
-        className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-5"
+        className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-5 [&>div>span]:rounded-lg"
         data-testid="catalog-metrics"
       >
         {metrics.map((metric) => (
           <KpiCard
             key={metric.key}
             icon={metric.icon}
+            tone={
+              metric.key === 'active' ? 'green' : metric.key === 'categories' ? 'amber' : 'blue'
+            }
             value={summary.isError ? '—' : (summary.data?.[metric.key] ?? '—')}
             label={metric.label}
             loading={summary.isPending}
@@ -380,7 +397,7 @@ export function InactiveServices() {
             rowKey={(row) => row.id}
             caption="Inactive services"
             dense
-            tableClassName="table-fixed"
+            tableClassName="table-fixed [&_th:last-child]:w-48 [&_td:last-child]:w-48"
             selection={{ selected, onChange: setSelected }}
             rowActions={rowActions}
             loading={list.isPending}
@@ -416,7 +433,19 @@ export function InactiveServices() {
               </Link>
               <p className="break-words text-sm text-muted">{row.shortDescription}</p>
               <div className="flex flex-wrap gap-2">
-                <Badge tone="info">{row.category?.name ?? 'Uncategorized'}</Badge>
+                <Badge
+                  tone={
+                    row.category?.tone === 'purple'
+                      ? 'purple'
+                      : row.category?.tone === 'success'
+                        ? 'success'
+                        : row.category?.tone === 'warning'
+                          ? 'warning'
+                          : 'info'
+                  }
+                >
+                  {row.category?.name ?? 'Uncategorized'}
+                </Badge>
                 <Badge tone="neutral">Inactive</Badge>
               </div>
               <p className="text-sm">{formatPrice(row)}</p>
