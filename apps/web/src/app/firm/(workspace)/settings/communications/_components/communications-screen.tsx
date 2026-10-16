@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
+import { moduleHref } from '../../../../../../lib/firm-modules';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { NOT_LOADED, Quiet, SettingsCard, SettingsHeader } from '../../_components/settings-parts';
@@ -222,7 +223,10 @@ function CommunicationsForm({
             Text messages say a message is waiting and never carry a link to documents, a code or
             client data. Each client chooses whether to get them.
           </p>
-          <Link href="/communications" className="text-sm font-semibold text-link hover:underline">
+          <Link
+            href={moduleHref('communications')}
+            className="text-sm font-semibold text-link hover:underline"
+          >
             Open Communications
           </Link>
         </SettingsCard>
