@@ -1,7 +1,7 @@
 'use client';
 
 import type { PermissionModule, StaffDetail } from '@firmivra/types';
-import { Badge, Button, Modal, Skeleton, Textarea } from '@firmivra/ui';
+import { Avatar, Badge, Button, Modal, Skeleton, Textarea } from '@firmivra/ui';
 import {
   CalendarBlank,
   CheckCircle,
@@ -33,23 +33,14 @@ import { CAPABILITY_ORDER } from '../../roles/_components/role-parts';
 import type { StaffAction } from './staff-actions';
 import { MEMBER_ERRORS, STATUS_LOOKS, dateTime, longDate } from './staff-parts';
 
-/** The designs' large profile picture (about 96 px); the kit's Avatar stops at 56 px. */
+/**
+ * The designs' large profile picture (about 96 px): the kit's Avatar, which stops at 56 px, drawn
+ * at the size-24 token.
+ */
 export function BigAvatar({ name, src }: { name: string; src?: string | null }) {
-  return src ? (
-    // A stored profile photo from the firm's own storage; next/image adds nothing here.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt={name} className="size-24 shrink-0 rounded-full object-cover" />
-  ) : (
-    <span
-      aria-hidden
-      className="flex size-24 shrink-0 items-center justify-center rounded-full bg-purple-soft text-3xl font-semibold text-purple"
-    >
-      {name
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((w) => w[0]?.toUpperCase())
-        .join('')}
+  return (
+    <span className="flex shrink-0 [&>*]:size-24! [&>span]:text-3xl!">
+      <Avatar name={name} src={src ?? undefined} size="xl" />
     </span>
   );
 }
