@@ -31,3 +31,17 @@ ADD --chown=node:node https://truststore.pki.rds.amazonaws.com/global/global-bun
 ENV NODE_EXTRA_CA_CERTS=/app/rds-ca.pem
 USER node
 CMD ["node", "scripts/migrate-deploy.mjs"]
+
+# Demo-seed task image (R0 PART 2, Oct 17): seeds or unseeds the `demo` firm, as a one-off ECS
+# task R1 runs after an RDS snapshot and Rasel's go. Built FROM build (not runtime): it needs
+# tsx, a devDependency, to run prisma/seed-demo.ts and prisma/unseed-demo.ts directly. Never part
+# of the default build (a plain `docker build` still produces the runtime migrate-task image).
+#   docker build -f packages/db/Dockerfile --target demo-seed-task -t firmivra-demo-seed .
+#   docker run ... -e APP_ENV=dev -e DB_HOST=... firmivra-demo-seed node scripts/seed-demo-task.mjs
+#   docker run ... -e APP_ENV=dev -e DB_HOST=... firmivra-demo-seed node scripts/unseed-demo-task.mjs
+FROM build AS demo-seed-task
+WORKDIR /repo/packages/db
+ADD --chown=node:node https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/rds-ca.pem
+ENV NODE_EXTRA_CA_CERTS=/app/rds-ca.pem
+USER node
+CMD ["node", "scripts/seed-demo-task.mjs"]
