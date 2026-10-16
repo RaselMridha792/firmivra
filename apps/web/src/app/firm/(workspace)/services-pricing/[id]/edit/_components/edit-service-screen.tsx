@@ -34,9 +34,7 @@ export function EditServiceScreen({ serviceId }: { serviceId: string }) {
   return (
     <div className="min-w-0 space-y-4" data-testid="edit-service-page">
       <PageState query={query}>{() => null}</PageState>
-      <fieldset className="min-w-0 border-0 p-0" disabled={!service}>
-        <ServiceEditor initial={service} onSaved={save} />
-      </fieldset>
+      <ServiceEditor initial={service} onSaved={save} disabled={!service} />
     </div>
   );
 }

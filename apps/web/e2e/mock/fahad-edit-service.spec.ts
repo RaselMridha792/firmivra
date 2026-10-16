@@ -30,4 +30,5 @@ test('unknown service keeps all form panels but prevents saving', async ({ page 
   await expect(page.getByTestId('page-not-found')).toBeVisible();
   await expect(page.getByTestId('service-form')).toBeVisible();
   await expect(page.getByTestId('save-changes')).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Back to Services', exact: true })).toBeEnabled();
 });

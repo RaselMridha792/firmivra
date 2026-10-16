@@ -153,65 +153,103 @@ export function TextList({
   items: string[];
   onChange: (items: string[]) => void;
 }) {
+  const [editing, setEditing] = useState(false);
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-semibold text-heading">{label}</h3>
-      {items.map((item, index) => (
-        <div key={index} className="flex min-w-0 items-start gap-1">
-          <div className="min-w-0 flex-1">
-            <Input
-              label={`${label} item ${index + 1}`}
-              hideLabel
-              value={item}
-              maxLength={200}
-              onChange={(e) =>
-                onChange(items.map((text, i) => (i === index ? e.target.value : text)))
-              }
-            />
-          </div>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-heading">{label}</h3>
+        <Button
+          variant="ghost"
+          className="min-h-8 px-2 py-1 text-xs"
+          onClick={() => setEditing(true)}
+          aria-label={`Edit ${label}`}
+        >
+          Edit
+        </Button>
+      </div>
+      <ul className="list-inside list-disc space-y-1 text-xs text-text">
+        {items.filter(Boolean).map((text) => (
+          <li key={text} className="break-words">
+            {text}
+          </li>
+        ))}
+      </ul>
+      {!items.length ? <p className="text-xs text-muted">No items listed.</p> : null}
+      <Modal
+        open={editing}
+        title={label}
+        onClose={() => {
+          onChange(items.map((text) => text.trim()).filter(Boolean));
+          setEditing(false);
+        }}
+        footer={
           <Button
-            variant="ghost"
-            aria-label={`Move ${label} item ${index + 1} up`}
-            disabled={index === 0}
-            className="px-1"
             onClick={() => {
-              const next = [...items];
-              [next[index - 1], next[index]] = [next[index]!, next[index - 1]!];
-              onChange(next);
+              onChange(items.map((text) => text.trim()).filter(Boolean));
+              setEditing(false);
             }}
           >
-            <ArrowUp className="size-4" />
+            Done
           </Button>
-          <Button
-            variant="ghost"
-            aria-label={`Move ${label} item ${index + 1} down`}
-            disabled={index === items.length - 1}
-            className="px-1"
-            onClick={() => {
-              const next = [...items];
-              [next[index], next[index + 1]] = [next[index + 1]!, next[index]!];
-              onChange(next);
-            }}
-          >
-            <ArrowDown className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            aria-label={`Remove ${label} item ${index + 1}`}
-            className="px-1"
-            onClick={() => onChange(items.filter((_, i) => i !== index))}
-          >
-            <Trash className="size-4" />
-          </Button>
-        </div>
-      ))}
-      <Button
-        variant="ghost"
-        disabled={items.length >= 30}
-        onClick={() => onChange([...items, ''])}
+        }
       >
-        + Add item
-      </Button>
+        {items.map((item, index) => (
+          <div key={index} className="flex min-w-0 items-start gap-1">
+            <div className="min-w-0 flex-1">
+              <Input
+                label={`${label} item ${index + 1}`}
+                hideLabel
+                value={item}
+                maxLength={200}
+                onChange={(e) =>
+                  onChange(items.map((text, i) => (i === index ? e.target.value : text)))
+                }
+              />
+            </div>
+            <Button
+              variant="ghost"
+              aria-label={`Move ${label} item ${index + 1} up`}
+              disabled={index === 0}
+              className="px-1"
+              onClick={() => {
+                const next = [...items];
+                [next[index - 1], next[index]] = [next[index]!, next[index - 1]!];
+                onChange(next);
+              }}
+            >
+              <ArrowUp className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              aria-label={`Move ${label} item ${index + 1} down`}
+              disabled={index === items.length - 1}
+              className="px-1"
+              onClick={() => {
+                const next = [...items];
+                [next[index], next[index + 1]] = [next[index + 1]!, next[index]!];
+                onChange(next);
+              }}
+            >
+              <ArrowDown className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              aria-label={`Remove ${label} item ${index + 1}`}
+              className="px-1"
+              onClick={() => onChange(items.filter((_, i) => i !== index))}
+            >
+              <Trash className="size-4" />
+            </Button>
+          </div>
+        ))}
+        <Button
+          variant="ghost"
+          disabled={items.length >= 30}
+          onClick={() => onChange([...items, ''])}
+        >
+          + Add item
+        </Button>
+      </Modal>
     </div>
   );
 }
