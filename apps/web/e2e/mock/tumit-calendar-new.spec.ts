@@ -23,7 +23,7 @@ test('checks the form, shows the staff day and schedules an appointment', async 
     page.getByTestId('client-information').getByLabel('Email', { exact: true }),
   ).toHaveValue('nina@example.test');
   await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
-  await expect(page.getByTestId('appointment-summary')).toContainText('30 minutes');
+  await expect(page.getByTestId('appointment-summary')).toContainText('30 min');
 
   // Tomorrow at 8 AM is free.
   const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
@@ -43,4 +43,17 @@ test('saves a draft without booking', async ({ page }) => {
   await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
   await page.getByRole('button', { name: 'Save as Draft' }).click();
   await expect(page.getByTestId('schedule-note')).toContainText('Draft saved');
+});
+
+test('opens on the date and hour picked on the calendar', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(`http://app.localhost:${port}/calendar/new?date=2026-10-15&time=09:00`);
+  await expect(page.getByLabel('Date *')).toHaveValue('2026-10-15', { timeout: 60_000 });
+  await expect(page.getByLabel('Start Time *')).toHaveValue('09:00');
+  await expect(page.getByLabel('End Time *')).toHaveValue('10:00');
+  const summary = page.getByTestId('appointment-summary');
+  await expect(summary).toContainText('9:00 AM – 10:00 AM');
+  await expect(summary).toContainText('1 hour');
+  // The design's staff chip with its remove button.
+  await expect(page.getByRole('button', { name: /^Remove / })).toBeVisible();
 });
