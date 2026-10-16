@@ -4,7 +4,7 @@ import type { AdminActivityTone } from '@firmivra/types';
 import { Skeleton } from '@firmivra/ui';
 import {
   ArrowRight,
-  Buildings,
+  BuildingOffice,
   CheckCircle,
   ClockCountdown,
   CreditCard,
@@ -43,7 +43,7 @@ const QUICK: {
     line: 'Approve, suspend, or manage company accounts.',
     link: 'Manage Companies',
     href: '#company-applications',
-    icon: Buildings,
+    icon: BuildingOffice,
     card: 'blue',
     tile: 'bg-success-soft text-success',
   },
@@ -144,7 +144,7 @@ export function OverviewScreen() {
       >
         <SettingsKpi
           label="Active Companies"
-          icon={Buildings}
+          icon={BuildingOffice}
           tone="blue"
           testId="kpi-active-companies"
           value={n(o?.activeCompanies?.value)}
