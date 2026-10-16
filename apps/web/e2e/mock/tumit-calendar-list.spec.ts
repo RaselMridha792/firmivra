@@ -11,16 +11,23 @@ test('lists, searches and filters appointments', async ({ page }) => {
   await expect(page.getByTestId('appointment-kpis')).toContainText('Total Appointments');
   await expect(page.getByRole('link', { name: 'List' })).toHaveAttribute('aria-current', 'page');
   const list = page.getByTestId('appointments-list');
+  const toolbar = page.getByTestId('appointments-toolbar');
   const rows = list.getByRole('row');
   await expect(rows.nth(1)).toBeVisible({ timeout: 60_000 });
+  // The right column of the design: the small month, today, Quick Actions and the Pro Tip.
+  await expect(page.getByTestId('appointments-mini')).toContainText("Today's Appointments");
+  await expect(page.getByTestId('appointment-quick-actions')).toContainText(
+    'Manage Appointment Types',
+  );
+  await expect(page.getByText('Pro Tip:')).toBeVisible();
 
-  await list.getByLabel('Status').selectOption('PENDING');
+  await toolbar.getByLabel('Status').selectOption('PENDING');
   await expect(list.getByRole('table')).not.toContainText('Confirmed');
-  await list.getByLabel('Status').selectOption('');
+  await toolbar.getByLabel('Status').selectOption('');
 
-  await list.getByLabel('Search appointments').fill('zzz-nobody');
+  await toolbar.getByLabel('Search appointments').fill('zzz-nobody');
   await expect(list.getByText('No matching appointments')).toBeVisible();
-  await list.getByLabel('Search appointments').fill('');
+  await toolbar.getByLabel('Search appointments').fill('');
   await expect(list.getByText('No matching appointments')).toHaveCount(0);
   await expect(rows.nth(1)).toBeVisible();
 });
