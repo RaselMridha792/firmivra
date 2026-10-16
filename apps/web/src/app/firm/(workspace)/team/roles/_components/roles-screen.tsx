@@ -22,11 +22,11 @@ import {
 import { LockSimple, ShieldCheck } from '@phosphor-icons/react';
 import { type FormEvent, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
-import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { NeedHelpCard } from '../../_components/need-help-card';
+import { NOT_LOADED, QuietCard } from '../../_components/quiet-card';
 import { CAPABILITY_ORDER, MODULE_LOOKS, NEEDS_VIEW, ROLE_ERRORS } from './role-parts';
 import { PermissionNotes, QuickPresets, RoleDescription, RoleTemplates } from './role-side';
 import { RolesHeader } from './roles-header';
@@ -64,27 +64,24 @@ export function RolesScreen() {
   const roles = useApiQuery([...ROLES, 'list'], () => api.roles.list());
   const modules = useApiQuery([...ROLES, 'modules'], () => api.roles.modules());
   const [picked, setPicked] = useState<MembershipRole | null>(null);
+  const items = roles.data?.items ?? [];
+  const selected = items.find((r) => r.role === picked) ?? items.find((r) => !r.locked) ?? items[0];
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <RolesHeader />
-      <PageState query={roles} isEmpty={(data) => data.items.length === 0}>
-        {(data) => {
-          const selected =
-            data.items.find((r) => r.role === picked) ??
-            data.items.find((r) => !r.locked) ??
-            data.items[0];
-          return selected ? (
-            // A new role starts clean: the key drops the unsaved boxes of the role before.
-            <RoleWorkspace
-              key={selected.role}
-              roles={data.items}
-              selected={selected}
-              modules={modules.data}
-              onSelect={(r) => setPicked(r.role)}
-            />
-          ) : null;
-        }}
-      </PageState>
+      {selected ? (
+        // A new role starts clean: the key drops the unsaved boxes of the role before.
+        <RoleWorkspace
+          key={selected.role}
+          roles={items}
+          selected={selected}
+          modules={modules.data}
+          modulesFailed={modules.isError}
+          onSelect={(r) => setPicked(r.role)}
+        />
+      ) : (
+        <RolesFrames loading={roles.isPending} failed={roles.isError} />
+      )}
     </div>
   );
 }
@@ -94,11 +91,13 @@ function RoleWorkspace({
   roles,
   selected,
   modules,
+  modulesFailed,
   onSelect,
 }: {
   roles: RoleSummary[];
   selected: RoleSummary;
   modules: PermissionModuleList | undefined;
+  modulesFailed: boolean;
   onSelect: (role: RoleSummary) => void;
 }) {
   const { role: me } = useFirm();
@@ -233,6 +232,8 @@ function RoleWorkspace({
               readOnly={!canChange}
               caption={`Module permissions for ${selected.label}`}
             />
+          ) : grid.isError || modulesFailed ? (
+            <PermissionMatrix rows={[]} columns={[]} value={{}} emptyText={NOT_LOADED} />
           ) : (
             <Skeleton className="h-96" />
           )}
@@ -346,6 +347,55 @@ function RoleWorkspace({
       {dialog === 'custom' ? (
         <CustomRoleModal roles={roles} onClose={() => setDialog(null)} />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * No role to show (loading, none, or the call failed): every card keeps its frame with one quiet
+ * line, and the presets stay as disabled buttons (design-match rule 2).
+ */
+function RolesFrames({ loading, failed }: { loading: boolean; failed: boolean }) {
+  const line = failed ? NOT_LOADED : 'No roles to show yet.';
+  return (
+    <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
+      <div className="flex min-w-0 flex-col gap-4 min-[1440px]:col-span-2">
+        <QuietCard title="Role & Permissions" testId="select-role" loading={loading} line={line} />
+        <section
+          aria-labelledby="module-permissions"
+          className="min-w-0 rounded-xl border border-divider bg-surface p-4 shadow-sm"
+        >
+          <h2 id="module-permissions" className="text-xl font-bold text-heading">
+            Module Permissions
+          </h2>
+          <p className="mb-3 text-sm text-link">
+            Select which areas a role can access and what it can do.
+          </p>
+          {loading ? (
+            <Skeleton className="h-96" />
+          ) : (
+            <PermissionMatrix rows={[]} columns={[]} value={{}} emptyText={line} />
+          )}
+        </section>
+      </div>
+      <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">
+        <QuietCard
+          title="Role Description"
+          testId="role-description"
+          loading={loading}
+          line={line}
+        />
+        <QuickPresets
+          canChange={false}
+          customized={false}
+          pending={false}
+          onDefaults={() => undefined}
+          onClear={() => undefined}
+        />
+        <QuietCard title="Role Templates" loading={loading} line={line} />
+        <PermissionNotes modules={undefined} />
+        <NeedHelpCard />
+      </aside>
     </div>
   );
 }
