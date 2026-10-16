@@ -83,3 +83,15 @@ test('keeps every frame when the member is not found', async ({ page }) => {
   }
   await expect(page.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
 });
+
+test('shows chosen service areas as removable chips', async ({ page }) => {
+  await open(page);
+  await page.getByRole('button', { name: /Service Area\(s\)/ }).click();
+  const first = page.getByRole('group', { name: 'Service Area(s)' }).getByRole('checkbox').first();
+  const label = (await first.locator('xpath=..').innerText()).trim();
+  await first.check();
+  const remove = page.getByRole('button', { name: `Remove ${label}` });
+  await expect(remove).toBeVisible();
+  await remove.click();
+  await expect(remove).toHaveCount(0);
+});
