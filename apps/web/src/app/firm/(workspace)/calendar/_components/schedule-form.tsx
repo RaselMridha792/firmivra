@@ -35,6 +35,7 @@ import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { MultiPick } from '../../team/new/_components/multi-pick';
 import { METHOD_LABELS, NOT_LOADED, SCHEDULING, STATUS_LOOKS } from './appointments-parts';
+import { TONE_DOTS, TONE_NAMES, colourTone } from './colour';
 import { StaffDayPanel } from './staff-day-panel';
 import { localParts, todayIn, toInstant } from './time';
 
@@ -55,16 +56,6 @@ const TIMES = Array.from({ length: 31 }, (_, i) => {
   const label = `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
   return { value, label };
 });
-
-/** The appointment's own colour; data sent to the API, not a style token. */
-const COLORS: [string, string][] = [
-  ['', 'Type colour'],
-  ['#2563EB', 'Blue'],
-  ['#16A34A', 'Green'],
-  ['#D97706', 'Amber'],
-  ['#DC2626', 'Red'],
-  ['#7C3AED', 'Purple'],
-];
 
 const UNITS: [ReminderUnit, string][] = [
   ['HOURS', 'hours before'],
@@ -554,7 +545,20 @@ function FormBody({
     year: 'numeric',
   });
   const timeLabel = (t: string) => TIMES.find((x) => x.value === t)?.label ?? t;
-  const dotColor = form.color || type?.color || undefined;
+  // Colour choices are the firm's own appointment type colours (data), shown by their tone.
+  const colourChoices = [
+    { value: '', label: 'Type colour' },
+    ...[...new Map(o.types.filter((t) => colourTone(t.color)).map((t) => [t.color ?? '', t]))].map(
+      ([value, t]) => ({
+        value,
+        label: `${TONE_NAMES[colourTone(value) ?? 'grey']} (as ${t.name})`,
+      }),
+    ),
+  ];
+  if (form.color && !colourChoices.some((c) => c.value === form.color)) {
+    colourChoices.push({ value: form.color, label: 'Current colour' });
+  }
+  const dotTone = colourTone(form.color || type?.color);
   const contactName = form.newContact ? form.name || '—' : (form.contact?.name ?? '—');
   const zoneShort = TIME_ZONES.find(([z]) => z === form.timezone)?.[1].match(/\(([A-Z]+)\)$/)?.[1];
   const duration = form.allDay
@@ -940,15 +944,14 @@ function FormBody({
               <Select
                 label="Color"
                 className="pl-8"
-                options={COLORS.map(([value, label]) => ({ value, label }))}
+                options={colourChoices}
                 value={form.color}
                 onChange={(e) => set('color', e.target.value)}
               />
-              {/* The chosen colour (data the API stores), else the type's. */}
+              {/* The chosen colour, else the type's, in its tone. */}
               <span
                 aria-hidden
-                className="pointer-events-none absolute bottom-4 left-3 size-3 rounded-full bg-action"
-                style={dotColor ? { background: dotColor } : undefined}
+                className={`pointer-events-none absolute bottom-4 left-3 size-3 rounded-full ${TONE_DOTS[dotTone ?? 'blue']}`}
               />
             </div>
             <Checkbox
