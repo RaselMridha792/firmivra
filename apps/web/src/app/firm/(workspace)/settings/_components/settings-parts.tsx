@@ -59,13 +59,13 @@ export function SettingsHeader({
 
 /**
  * The designs' light diagonal bands behind the page header, fading out to the left (decoration
- * only). No kit component draws them yet.
+ * only), in the spacing and colour tokens. No kit component draws them yet.
  */
 export function Stripes() {
   return (
     <span
       aria-hidden
-      className="pointer-events-none absolute -top-4 right-0 -bottom-2 -z-10 w-3/4 bg-[repeating-linear-gradient(120deg,transparent_0,transparent_56px,var(--color-info-soft)_56px,var(--color-info-soft)_112px)] mask-[linear-gradient(to_left,black,transparent)]"
+      className="pointer-events-none absolute -top-4 right-0 -bottom-2 -z-10 w-3/4 bg-[repeating-linear-gradient(120deg,transparent_0,transparent_--spacing(14),var(--color-info-soft)_--spacing(14),var(--color-info-soft)_--spacing(28))] mask-[linear-gradient(to_left,black,transparent)]"
     />
   );
 }
