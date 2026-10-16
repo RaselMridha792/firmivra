@@ -1,9 +1,8 @@
 'use client';
 
 import type { OrgChartNode } from '@firmivra/types';
-import { OrgChart, type OrgChartPerson, SearchField, Select } from '@firmivra/ui';
+import { OrgChart, type OrgChartPerson, SearchField, Select, Skeleton } from '@firmivra/ui';
 import { useDeferredValue, useState } from 'react';
-import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { GroupsHeader } from '../../_components/groups-header';
@@ -11,6 +10,7 @@ import { GroupsKpis } from '../../_components/groups-kpis';
 import { GROUPS } from '../../_components/groups-shared';
 import { GroupsTabs } from '../../_components/groups-tabs';
 import { NeedHelpCard } from '../../_components/need-help-card';
+import { NOT_LOADED, QuietCard } from '../../_components/quiet-card';
 import { PersonDetails } from './person-details';
 
 /** The matches and everyone above them, so each match keeps its reporting line. */
@@ -56,6 +56,21 @@ export function OrgChartScreen() {
     api.departments.list({ pageSize: 100 }),
   );
   const filtered = Boolean(query) || Boolean(department);
+  // The chart and its card stay when the call fails or finds no one (design-match rule 2).
+  const nodes = chart.data?.nodes ?? [];
+  const matches = nodes.filter(
+    (n) =>
+      (!query ||
+        n.name.toLowerCase().includes(query) ||
+        (n.jobTitle ?? '').toLowerCase().includes(query)) &&
+      (!department || n.departments.some((d) => d.id === department)),
+  );
+  const keep = filtered ? withBosses(nodes, matches) : null;
+  const shown = keep ? nodes.filter((n) => keep.has(n.id)) : nodes;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const top = nodes.find((n) => !n.supervisorId || !byId.has(n.supervisorId));
+  const selected = (picked ? byId.get(picked) : undefined) ?? (filtered ? matches[0] : top);
+  const byName = (a: OrgChartNode, b: OrgChartNode) => a.name.localeCompare(b.name);
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -87,85 +102,83 @@ export function OrgChartScreen() {
         />
       </GroupsTabs>
 
-      <PageState query={chart} isEmpty={() => false}>
-        {({ nodes }) => {
-          const matches = nodes.filter(
-            (n) =>
-              (!query ||
-                n.name.toLowerCase().includes(query) ||
-                (n.jobTitle ?? '').toLowerCase().includes(query)) &&
-              (!department || n.departments.some((d) => d.id === department)),
-          );
-          const keep = filtered ? withBosses(nodes, matches) : null;
-          const shown = keep ? nodes.filter((n) => keep.has(n.id)) : nodes;
-          const byId = new Map(nodes.map((n) => [n.id, n]));
-          const top = nodes.find((n) => !n.supervisorId || !byId.has(n.supervisorId));
-          const selected = (picked ? byId.get(picked) : undefined) ?? (filtered ? matches[0] : top);
-          const byName = (a: OrgChartNode, b: OrgChartNode) => a.name.localeCompare(b.name);
-          return (
-            // The Departments tab's two-to-one split, from 1440 px; narrower, the cards go under.
-            <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
-              <section
-                aria-labelledby="org-chart"
-                className="min-w-0 rounded-xl border border-divider bg-surface p-4 shadow-sm min-[1440px]:col-span-2"
-              >
-                <h2 id="org-chart" className="text-xl font-bold text-heading">
-                  Organization Chart
-                </h2>
-                <p className="mb-4 text-sm text-link">
-                  Who reports to whom, from each person&apos;s supervisor. Search for a person, or
-                  move through the chart from Person Details.
-                </p>
-                {/* The kit chart is centred on the top person and scrolls sideways; it opens in
+      {/* The Departments tab's two-to-one split, from 1440 px; narrower, the cards go under. */}
+      <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
+        <section
+          aria-labelledby="org-chart"
+          className="min-w-0 rounded-xl border border-divider bg-surface p-4 shadow-sm min-[1440px]:col-span-2"
+        >
+          <h2 id="org-chart" className="text-xl font-bold text-heading">
+            Organization Chart
+          </h2>
+          <p className="mb-4 text-sm text-link">
+            Who reports to whom, from each person&apos;s supervisor. Search for a person, or move
+            through the chart from Person Details.
+          </p>
+          {/* The kit chart is centred on the top person and scrolls sideways; it opens in
                     the middle so the top person shows, again after each filter (the key). */}
-                <div
-                  key={shown.map((n) => n.id).join()}
-                  data-testid="org-chart"
-                  ref={(el) => {
-                    const box = el?.firstElementChild;
-                    if (box instanceof HTMLElement) {
-                      box.scrollLeft = (box.scrollWidth - box.clientWidth) / 2;
-                    }
-                  }}
-                >
-                  <OrgChart
-                    people={[...shown].sort(byName).map(toCard)}
-                    label="Organization chart"
-                    emptyText={
-                      filtered
-                        ? 'No matching people. Try another search or department.'
-                        : 'No active staff yet. People appear here once their staff accounts are active.'
-                    }
-                  />
-                </div>
-                {shown.length ? (
-                  <p className="mt-4 text-sm text-muted" data-testid="org-count">
-                    {filtered
-                      ? `${matches.length} of ${nodes.length} people match`
-                      : `${nodes.length} active people`}
-                  </p>
-                ) : null}
-              </section>
+          <div
+            key={shown.map((n) => n.id).join()}
+            data-testid="org-chart"
+            ref={(el) => {
+              const box = el?.firstElementChild;
+              if (box instanceof HTMLElement) {
+                box.scrollLeft = (box.scrollWidth - box.clientWidth) / 2;
+              }
+            }}
+          >
+            {chart.isPending ? (
+              <Skeleton className="h-48" />
+            ) : (
+              <OrgChart
+                people={[...shown].sort(byName).map(toCard)}
+                label="Organization chart"
+                emptyText={
+                  chart.isError
+                    ? NOT_LOADED
+                    : filtered
+                      ? 'No matching people. Try another search or department.'
+                      : 'No active staff yet. People appear here once their staff accounts are active.'
+                }
+              />
+            )}
+          </div>
+          {shown.length ? (
+            <p className="mt-4 text-sm text-muted" data-testid="org-count">
+              {filtered
+                ? `${matches.length} of ${nodes.length} people match`
+                : `${nodes.length} active ${nodes.length === 1 ? 'person' : 'people'}`}
+            </p>
+          ) : null}
+        </section>
 
-              <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">
-                {selected ? (
-                  <PersonDetails
-                    person={selected}
-                    supervisor={
-                      selected.supervisorId ? (byId.get(selected.supervisorId) ?? null) : null
-                    }
-                    reports={nodes
-                      .filter((n) => n.supervisorId === selected.id && n.id !== selected.id)
-                      .sort(byName)}
-                    onSelect={setPicked}
-                  />
-                ) : null}
-                <NeedHelpCard />
-              </aside>
-            </div>
-          );
-        }}
-      </PageState>
+        <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">
+          {selected ? (
+            <PersonDetails
+              person={selected}
+              supervisor={selected.supervisorId ? (byId.get(selected.supervisorId) ?? null) : null}
+              reports={nodes
+                .filter((n) => n.supervisorId === selected.id && n.id !== selected.id)
+                .sort(byName)}
+              onSelect={setPicked}
+            />
+          ) : (
+            <QuietCard
+              title="Person Details"
+              testId="person-details"
+              loading={chart.isPending}
+              line={
+                chart.isError
+                  ? NOT_LOADED
+                  : filtered
+                    ? 'No one matches. Their details show here.'
+                    : 'The chosen person’s details show here.'
+              }
+            />
+          )}
+          <NeedHelpCard />
+        </aside>
+      </div>
     </div>
   );
 }
