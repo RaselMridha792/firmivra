@@ -40,5 +40,6 @@ export const MEMBER_ERRORS: Record<string, string> = {
   LAST_ACTIVE_OWNER: 'The firm needs at least one active owner, so this account stays active.',
   NOT_INVITED: 'This person has already joined, so there is no invite to send again.',
   NOT_DEACTIVATED: 'This account is not deactivated.',
+  NOT_LOCKED: 'This account is not locked.',
   FORBIDDEN: 'Only an Owner or an Admin can change staff accounts.',
 };

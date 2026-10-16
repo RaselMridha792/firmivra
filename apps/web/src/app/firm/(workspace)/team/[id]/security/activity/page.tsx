@@ -1,8 +1,13 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { ActivityTab } from '../_components/activity-tab';
 
 export const metadata: Metadata = { title: 'Staff security: Activity & audit' };
 
-export default function TeamIdSecurityActivityPage() {
-  return <PageHeader title="Staff Account Access & Security" />;
+export default async function TeamIdSecurityActivityPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  return <ActivityTab id={id} />;
 }

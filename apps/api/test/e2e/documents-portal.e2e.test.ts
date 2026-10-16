@@ -1330,6 +1330,10 @@ describe('scan results (q22, q24)', () => {
     expect(await scans.recordScanResult({ key: refused.key, status: 'THREATS_FOUND' })).toBe(
       'IGNORED',
     );
+    // A clean result for a refused key is IGNORED too: no document is ever saved for it.
+    expect(await scans.recordScanResult({ key: refused.key, status: 'NO_THREATS_FOUND' })).toBe(
+      'IGNORED',
+    );
     const saved = await asOwner(firms.a.id, (tx) =>
       tx.document.count({ where: { s3Key: refused.key } }),
     );
@@ -1344,6 +1348,48 @@ describe('scan results (q22, q24)', () => {
     expect(await scans.recordScanResult({ key: never.key, status: 'NO_THREATS_FOUND' })).toBe(
       'UNKNOWN',
     );
+  });
+
+  it('tells the PRIMARY login of a shared firm file once it is CLEAN, never of an internal or blocked one', async () => {
+    outbox.length = 0;
+    const shared = { shareWithClient: true };
+    const primaryOnly = bells('document.shared', [people.primary]);
+    // SCAN_MODE=local: CLEAN at confirm, so the confirm tells the client; a late result is
+    // IGNORED and tells nobody again.
+    const local = await firmFile(shared);
+    expect(await bellsOf(local.id, 'document.shared')).toEqual(primaryOnly);
+    expect(await scan(local.id, 'NO_THREATS_FOUND')).toBe('IGNORED');
+    expect(await bellsOf(local.id, 'document.shared')).toEqual(primaryOnly);
+    // GuardDuty: nothing while the file is checked, then exactly one bell when it is CLEAN
+    // (q24's UNSCANNED is CLEAN too); a repeated result adds none.
+    const [waiting, locked, infected, failed] = await scanned(async () => [
+      await firmFile(shared),
+      await firmFile(shared),
+      await firmFile(shared),
+      await firmFile(shared),
+    ]);
+    expect(await bellsOf(waiting.id, 'document.shared')).toEqual([]);
+    expect(await scan(waiting.id, 'NO_THREATS_FOUND')).toBe('CLEAN');
+    expect(await bellsOf(waiting.id, 'document.shared')).toEqual(primaryOnly);
+    expect(await scan(waiting.id, 'NO_THREATS_FOUND')).toBe('IGNORED');
+    expect(await bellsOf(waiting.id, 'document.shared')).toEqual(primaryOnly);
+    expect(await scan(locked.id, 'UNSUPPORTED', ['PASSWORD_PROTECTED'])).toBe('UNSCANNED');
+    expect(await bellsOf(locked.id, 'document.shared')).toEqual(primaryOnly);
+    expect(await scan(infected.id, 'THREATS_FOUND')).toBe('INFECTED');
+    expect(await scan(failed.id, 'ACCESS_DENIED')).toBe('PENDING');
+    // INTERNAL files and the client's own uploads never tell the client, in either mode.
+    const internal = await firmFile({});
+    const [internalScanned, theirs] = await scanned(async () => [
+      await firmFile({}),
+      await mine(people.primary, {}),
+    ]);
+    expect(await scan(internalScanned.id, 'NO_THREATS_FOUND')).toBe('CLEAN');
+    expect(await scan(theirs.id, 'NO_THREATS_FOUND')).toBe('CLEAN');
+    for (const d of [infected, failed, internal, internalScanned, theirs]) {
+      expect(await bellsOf(d.id, 'document.shared')).toEqual([]);
+    }
+    // No email copy: the catalog has no template for document.shared.
+    expect(outbox).toEqual([]);
   });
 
   it('accepts a password-protected PDF unscanned, fails other file reasons, and waits on our side', async () => {
