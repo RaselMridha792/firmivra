@@ -7,6 +7,8 @@ import {
   ShieldCheck,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import type { StaffDraftData, StaffFormOptions } from '@firmivra/types';
+import { EMPLOYMENT_TYPES } from './wizard-parts';
 
 export interface PreviewValues {
   name: string;
@@ -19,6 +21,28 @@ export interface PreviewValues {
 }
 
 const dash = (value: string) => value.trim() || '—';
+
+/** Account Preview's lines from the draft (steps 2 to 4), with names from the form options. */
+export function previewFromDraft(
+  base: StaffDraftData,
+  options: StaffFormOptions | undefined,
+  status = 'Not Invited',
+): PreviewValues {
+  const a = base.account ?? {};
+  const type = base.details?.employmentType;
+  return {
+    name: `${a.firstName ?? ''} ${a.lastName ?? ''}`,
+    email: a.email ?? '',
+    jobTitle: a.jobTitle ?? '',
+    departments: (options?.departments ?? [])
+      .filter((d) => (a.departmentIds ?? []).includes(d.id))
+      .map((d) => d.name)
+      .join(', '),
+    role: options?.roles.find((r) => r.role === a.role)?.label ?? '',
+    employmentType: type ? EMPLOYMENT_TYPES[type] : '',
+    status,
+  };
+}
 
 /** Account Preview: the live summary of the form (guide §3), with Edit back to step 1's top. */
 export function AccountPreview({ values, editHref }: { values: PreviewValues; editHref: string }) {
@@ -65,7 +89,14 @@ export function AccountPreview({ values, editHref }: { values: PreviewValues; ed
 }
 
 /** What Happens Next?, Security Best Practices and Need Help? under the preview. */
-export function WizardNotes() {
+export function WizardNotes({
+  created = 'The account will be created with the selected role and permissions.',
+  later = 'You can edit their account at any time.',
+}: {
+  /** What Happens Next?'s first and last lines, which change a little per step. */
+  created?: string;
+  later?: string;
+} = {}) {
   return (
     <>
       <ChecklistCard
@@ -76,7 +107,7 @@ export function WizardNotes() {
         items={[
           {
             id: 'create',
-            label: 'The account will be created with the selected role and permissions.',
+            label: created,
             done: false,
           },
           {
@@ -89,7 +120,7 @@ export function WizardNotes() {
             label: 'The team member will set their password and complete 2FA (if required).',
             done: false,
           },
-          { id: 'edit', label: 'You can edit their account at any time.', done: false },
+          { id: 'edit', label: later, done: false },
         ]}
       />
       <ChecklistCard
