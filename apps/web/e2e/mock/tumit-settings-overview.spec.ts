@@ -17,9 +17,6 @@ test('shows the KPIs, Quick Settings and recent activity', async ({ page }) => {
   // The platform's companies and applications keep their frames, with no numbers for a firm.
   await expect(page.getByTestId('kpi-active-companies')).toContainText('—');
   await expect(page.getByTestId('company-applications')).toContainText('none are shown to a firm');
-  await expect(
-    page.getByTestId('settings-menu').getByRole('link', { name: 'Overview' }),
-  ).toHaveAttribute('aria-current', 'page');
   await page.getByRole('link', { name: 'Manage Access' }).click();
   await expect(page).toHaveURL(/\/settings\/users$/, { timeout: 30_000 });
 });

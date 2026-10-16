@@ -5,62 +5,25 @@ import { Skeleton, type TileTone, tileTones } from '@firmivra/ui';
 import {
   ArrowRight,
   ArrowUp,
-  ArrowsLeftRight,
-  Bell,
   Buildings,
-  ChatCircleDots,
   CheckCircle,
-  ClipboardText,
   ClockCountdown,
   CreditCard,
-  CurrencyDollar,
   Database,
   FileText,
   GearSix,
-  House,
-  IdentificationBadge,
   type Icon,
   Info,
-  LockSimple,
-  Monitor,
   PaintBrush,
-  Palette,
-  PuzzlePiece,
   ShieldCheck,
   ShieldChevron,
-  Tag,
-  User,
   UsersThree,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { type ReactNode, createElement } from 'react';
 import { api } from '../../../../../../lib/api';
-import { moduleHref } from '../../../../../../lib/firm-modules';
 import { useApiQuery } from '../../../../../../lib/query';
 import { NOT_LOADED, SettingsHeader } from '../../_components/settings-parts';
-
-/** The design's Settings Menu, in its order, with where each item goes. */
-const MENU: [string, Icon, string][] = [
-  ['Overview', House, '/settings/overview'],
-  ['Company Applications', IdentificationBadge, '#company-applications'],
-  ['Companies', Buildings, '#quick-settings'],
-  ['Company Profile', User, '/settings/profile'],
-  ['Branding & White Label', Palette, '/settings/branding'],
-  ['Users & Roles', UsersThree, '/settings/users'],
-  ['Services & Pricing', Tag, '/services-pricing'],
-  ['Billing & Subscriptions', CreditCard, '/settings/billing'],
-  ['Payments & Payouts', CurrencyDollar, '/settings/payments'],
-  ['Communications', ChatCircleDots, '/settings/communications'],
-  ['Notifications', Bell, '/settings/notifications'],
-  ['Integrations', PuzzlePiece, moduleHref('integrations')],
-  ['Client Portal', Monitor, '/settings/portal'],
-  ['Forms & Documents', FileText, '/settings/forms-documents'],
-  ['Workflow & Automations', ArrowsLeftRight, '/settings/workflow'],
-  ['Security & Access', LockSimple, '/settings/security'],
-  ['Data & Backups', Database, '/settings/data'],
-  ['Audit Log', ClipboardText, '/audit-log'],
-  ['System Preferences', GearSix, '/settings/preferences'],
-];
 
 const QUICK: {
   title: string;
@@ -171,13 +134,13 @@ function Kpi({
     <section
       aria-label={label}
       data-testid={testId}
-      className="flex items-center gap-4 rounded-xl border border-divider bg-surface px-5 py-4 shadow-sm"
+      className="flex items-center gap-3 rounded-xl border border-divider bg-surface px-4 py-4 shadow-sm"
     >
       <span
         aria-hidden
-        className={`flex size-[4.5rem] shrink-0 items-center justify-center rounded-full ${tileTones[tone]}`}
+        className={`flex size-14 shrink-0 items-center justify-center rounded-full ${tileTones[tone]}`}
       >
-        {createElement(icon, { weight: 'fill', className: 'size-9' })}
+        {createElement(icon, { weight: 'fill', className: 'size-7' })}
       </span>
       <div className="min-w-0">
         <h2 className="text-sm font-bold text-heading">{label}</h2>
@@ -198,10 +161,11 @@ function Kpi({
 
 /**
  * Settings > Overview (settings.jpg, guide §2-3), as drawn: the KPI row (Active Companies, Staff
- * Users, Pending Applications, Security Alerts), the Settings Menu, Company Applications, Quick
- * Settings and Recent Administrative Activity (`api.settingsOverview.get`). The company numbers
+ * Users, Pending Applications, Security Alerts), Company Applications, Quick Settings and Recent
+ * Administrative Activity (`api.settingsOverview.get`). The company numbers
  * and applications are platform data the firm API leaves out (contract), so those widgets keep
- * their frames with a quiet line (design-match rule 2).
+ * their frames with a quiet line (design-match rule 2). The design's Settings Menu is the Settings
+ * layout's menu, as on every Settings page.
  */
 export function OverviewScreen() {
   const overview = useApiQuery(['settings', 'overview'], () => api.settingsOverview.get());
@@ -259,173 +223,146 @@ export function OverviewScreen() {
         />
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[16rem_1fr]">
-        <nav aria-label="Settings Menu" data-testid="settings-menu" className={`${card} pb-2`}>
-          <h2 className="px-4 pt-3 pb-2 text-lg font-bold text-heading">Settings Menu</h2>
-          <ul className="flex flex-col gap-0.5 px-2">
-            {MENU.map(([label, icon, href]) => {
-              const on = href === '/settings/overview';
-              return (
-                <li key={label}>
-                  <Link
-                    href={href}
-                    aria-current={on ? 'page' : undefined}
-                    className={`flex min-h-9 items-center gap-3 rounded-lg px-3 text-sm ${on ? 'bg-action font-semibold text-on-action' : 'text-link hover:bg-canvas'}`}
-                  >
-                    {createElement(icon, {
-                      'aria-hidden': true,
-                      weight: 'fill',
-                      className: `size-5 shrink-0 ${on ? '' : 'text-heading'}`,
-                    })}
-                    {label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-
-        <div className="flex min-w-0 flex-col gap-4">
-          <section
-            id="company-applications"
-            aria-labelledby="company-applications-title"
-            data-testid="company-applications"
-            className={card}
-          >
-            <div className={band}>
-              <h2
-                id="company-applications-title"
-                className="flex items-center gap-3 text-lg font-bold text-heading"
-              >
-                Company Applications
-                {o?.pendingApplications ? (
-                  <span className="rounded-full bg-danger-soft px-3 py-0.5 text-sm font-medium text-danger">
-                    {o.pendingApplications} Pending
-                  </span>
-                ) : null}
-              </h2>
-              <span className="inline-flex items-center gap-1 text-sm font-semibold text-muted">
-                View All
-                <ArrowRight aria-hidden weight="bold" className="size-4" />
-              </span>
-            </div>
-            <div className="overflow-x-auto px-4">
-              <table className="w-full min-w-[36rem] text-sm">
-                <caption className="sr-only">Company applications</caption>
-                <thead>
-                  <tr className="border-b border-divider text-left text-heading">
-                    {['Company', 'Applicant', 'Submitted', 'Status', 'Actions'].map((h) => (
-                      <th key={h} scope="col" className="py-2 font-semibold">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colSpan={5} className="py-4 text-muted">
-                      {loading ? (
-                        <Skeleton className="h-6" />
-                      ) : (
-                        'Company applications are reviewed by the Firmivra team; none are shown to a firm.'
-                      )}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p className="flex items-center gap-2 border-t border-divider px-4 py-2.5 text-xs text-link">
-              <Info aria-hidden weight="bold" className="size-4 shrink-0" />
-              Review verifies business details, owner identity, subscription selection, and required
-              documents before approval.
-            </p>
-          </section>
-
-          <section
-            id="quick-settings"
-            aria-labelledby="quick-settings-title"
-            className={`${card} gap-3 p-4`}
-          >
-            <h2 id="quick-settings-title" className="text-lg font-bold text-heading">
-              Quick Settings
+      <div className="flex min-w-0 flex-col gap-4">
+        <section
+          id="company-applications"
+          aria-labelledby="company-applications-title"
+          data-testid="company-applications"
+          className={card}
+        >
+          <div className={band}>
+            <h2
+              id="company-applications-title"
+              className="flex items-center gap-3 text-lg font-bold text-heading"
+            >
+              Company Applications
+              {o?.pendingApplications ? (
+                <span className="rounded-full bg-danger-soft px-3 py-0.5 text-sm font-medium text-danger">
+                  {o.pendingApplications} Pending
+                </span>
+              ) : null}
             </h2>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 min-[1440px]:grid-cols-3">
-              {QUICK.map((q) => (
-                <div
-                  key={q.title}
-                  className={`flex gap-4 rounded-xl border p-4 ${q.card === 'amber' ? 'border-warning-soft bg-warning-soft/60' : 'border-info-soft bg-info-soft/70'}`}
-                >
-                  <span
-                    aria-hidden
-                    className={`flex size-14 shrink-0 items-center justify-center rounded-xl ${q.tile}`}
-                  >
-                    {createElement(q.icon, { weight: 'fill', className: 'size-8' })}
-                  </span>
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <h3 className="font-bold text-heading">{q.title}</h3>
-                    <p className="text-sm text-link">{q.line}</p>
-                    <Link
-                      href={q.href}
-                      className="inline-flex min-h-9 w-fit items-center gap-2 font-semibold text-action hover:underline"
-                    >
-                      {q.link}
-                      <ArrowRight aria-hidden weight="bold" className="size-4" />
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+            <span className="inline-flex items-center gap-1 text-sm font-semibold text-muted">
+              View All
+              <ArrowRight aria-hidden weight="bold" className="size-4" />
+            </span>
+          </div>
+          <div className="overflow-x-auto px-4">
+            <table className="w-full min-w-[36rem] text-sm">
+              <caption className="sr-only">Company applications</caption>
+              <thead>
+                <tr className="border-b border-divider text-left text-heading">
+                  {['Company', 'Applicant', 'Submitted', 'Status', 'Actions'].map((h) => (
+                    <th key={h} scope="col" className="py-2 font-semibold">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colSpan={5} className="py-4 text-muted">
+                    {loading ? (
+                      <Skeleton className="h-6" />
+                    ) : (
+                      'Company applications are reviewed by the Firmivra team; none are shown to a firm.'
+                    )}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="flex items-center gap-2 border-t border-divider px-4 py-2.5 text-xs text-link">
+            <Info aria-hidden weight="bold" className="size-4 shrink-0" />
+            Review verifies business details, owner identity, subscription selection, and required
+            documents before approval.
+          </p>
+        </section>
 
-          <section
-            aria-labelledby="recent-activity"
-            data-testid="recent-admin-activity"
-            className={card}
-          >
-            <div className={band}>
-              <h2 id="recent-activity" className="text-lg font-bold text-heading">
-                Recent Administrative Activity
-              </h2>
-              <Link
-                href="/audit-log"
-                className="inline-flex items-center gap-1 text-sm font-semibold text-link hover:underline"
+        <section
+          id="quick-settings"
+          aria-labelledby="quick-settings-title"
+          className={`${card} gap-3 p-4`}
+        >
+          <h2 id="quick-settings-title" className="text-lg font-bold text-heading">
+            Quick Settings
+          </h2>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 min-[1440px]:grid-cols-3">
+            {QUICK.map((q) => (
+              <div
+                key={q.title}
+                className={`flex gap-4 rounded-xl border p-4 ${q.card === 'amber' ? 'border-warning-soft bg-warning-soft/60' : 'border-info-soft bg-info-soft/70'}`}
               >
-                View All
-                <ArrowRight aria-hidden weight="bold" className="size-4" />
-              </Link>
-            </div>
-            <div className="px-4 pb-2">
-              {loading ? (
-                <Skeleton className="my-3 h-40" />
-              ) : !o ? (
-                <p className="my-3 rounded-lg bg-subtle p-4 text-sm text-muted">{NOT_LOADED}</p>
-              ) : o.recentActivity.length ? (
-                <ul className="flex flex-col divide-y divide-divider">
-                  {o.recentActivity.slice(0, 5).map((a) => {
-                    const [icon, color] = TONES[a.tone];
-                    return (
-                      <li key={a.id} className="flex items-center gap-3 py-2.5">
-                        {createElement(icon, {
-                          'aria-hidden': true,
-                          weight: 'fill',
-                          className: `size-7 shrink-0 ${color}`,
-                        })}
-                        <span className="min-w-0 flex-1 text-sm text-link">{a.label}</span>
-                        <time dateTime={a.at} className="shrink-0 text-sm text-muted">
-                          {when(a.at)}
-                        </time>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p className="my-3 rounded-lg bg-subtle p-4 text-sm text-muted">
-                  No administrative changes yet. Changes to users, roles and settings show here.
-                </p>
-              )}
-            </div>
-          </section>
-        </div>
+                <span
+                  aria-hidden
+                  className={`flex size-14 shrink-0 items-center justify-center rounded-xl ${q.tile}`}
+                >
+                  {createElement(q.icon, { weight: 'fill', className: 'size-8' })}
+                </span>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <h3 className="font-bold text-heading">{q.title}</h3>
+                  <p className="text-sm text-link">{q.line}</p>
+                  <Link
+                    href={q.href}
+                    className="inline-flex min-h-9 w-fit items-center gap-2 font-semibold text-action hover:underline"
+                  >
+                    {q.link}
+                    <ArrowRight aria-hidden weight="bold" className="size-4" />
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section
+          aria-labelledby="recent-activity"
+          data-testid="recent-admin-activity"
+          className={card}
+        >
+          <div className={band}>
+            <h2 id="recent-activity" className="text-lg font-bold text-heading">
+              Recent Administrative Activity
+            </h2>
+            <Link
+              href="/audit-log"
+              className="inline-flex items-center gap-1 text-sm font-semibold text-link hover:underline"
+            >
+              View All
+              <ArrowRight aria-hidden weight="bold" className="size-4" />
+            </Link>
+          </div>
+          <div className="px-4 pb-2">
+            {loading ? (
+              <Skeleton className="my-3 h-40" />
+            ) : !o ? (
+              <p className="my-3 rounded-lg bg-subtle p-4 text-sm text-muted">{NOT_LOADED}</p>
+            ) : o.recentActivity.length ? (
+              <ul className="flex flex-col divide-y divide-divider">
+                {o.recentActivity.slice(0, 5).map((a) => {
+                  const [icon, color] = TONES[a.tone];
+                  return (
+                    <li key={a.id} className="flex items-center gap-3 py-2.5">
+                      {createElement(icon, {
+                        'aria-hidden': true,
+                        weight: 'fill',
+                        className: `size-7 shrink-0 ${color}`,
+                      })}
+                      <span className="min-w-0 flex-1 text-sm text-link">{a.label}</span>
+                      <time dateTime={a.at} className="shrink-0 text-sm text-muted">
+                        {when(a.at)}
+                      </time>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="my-3 rounded-lg bg-subtle p-4 text-sm text-muted">
+                No administrative changes yet. Changes to users, roles and settings show here.
+              </p>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
