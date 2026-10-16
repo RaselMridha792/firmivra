@@ -42,7 +42,7 @@ export type ClientAccountType = z.infer<typeof ClientAccountType>;
 export const ClientPortalRole = z.enum(['PRIMARY', 'SPOUSE', 'AUTHORIZED']);
 export type ClientPortalRole = z.infer<typeof ClientPortalRole>;
 
-export const PlatformRole = z.enum(['SUPER_ADMIN']);
+export const PlatformRole = z.enum(['SUPER_ADMIN', 'TEAM_MEMBER']);
 export type PlatformRole = z.infer<typeof PlatformRole>;
 
 /** docs/SYSTEM-DESIGN.md, Modules & packs. Only the tax and accounting pack exists now. */
@@ -569,6 +569,56 @@ export type AgreementScope = z.infer<typeof AgreementScope>;
 /** How a signature was captured. Intake signing is TYPED; DRAWN and UPLOADED are Firm Sign's. */
 export const SignatureMethod = z.enum(['TYPED', 'DRAWN', 'UPLOADED']);
 export type SignatureMethod = z.infer<typeof SignatureMethod>;
+
+export const PlatformRoleLevel = z.enum([
+  'CEO',
+  'CHIEF_OFFICER',
+  'VP_DIRECTOR',
+  'MANAGER',
+  'LEAD_SUPERVISOR',
+  'INDIVIDUAL_CONTRIBUTOR',
+]);
+export type PlatformRoleLevel = z.infer<typeof PlatformRoleLevel>;
+
+/** Where a permission or a member's authority applies (hierarchy doc, "Permission Scope Options"). */
+export const PlatformScopeType = z.enum([
+  'COMPANY',
+  'DEPARTMENT',
+  'DIVISION',
+  'TEAM',
+  'DIRECT_REPORTS',
+  'OWN_RECORDS',
+  'CUSTOM',
+]);
+export type PlatformScopeType = z.infer<typeof PlatformScopeType>;
+
+export const PlatformPermissionState = z.enum(['ALLOW', 'DENY', 'INHERIT']);
+export type PlatformPermissionState = z.infer<typeof PlatformPermissionState>;
+
+export const PlatformMemberStatus = z.enum([
+  'PENDING_INVITATION',
+  'PENDING_APPROVAL',
+  'PENDING_DEPARTMENT_HEAD_APPROVAL',
+  'ACTIVE',
+  'SUSPENDED',
+  'INACTIVE',
+  'DEACTIVATED',
+]);
+export type PlatformMemberStatus = z.infer<typeof PlatformMemberStatus>;
+
+export const PlatformBillingCycle = z.enum(['MONTHLY', 'ANNUAL']);
+export type PlatformBillingCycle = z.infer<typeof PlatformBillingCycle>;
+
+export const PlatformSubscriptionStatus = z.enum([
+  'TRIAL',
+  'ACTIVE',
+  'PAST_DUE',
+  'SUSPENDED',
+  'NON_RENEWING',
+  'EXPIRED',
+  'CANCELLED',
+]);
+export type PlatformSubscriptionStatus = z.infer<typeof PlatformSubscriptionStatus>;
 
 /** Where a sign-up verification code was sent. */
 export const VerificationChannel = z.enum(['EMAIL', 'PHONE']);
