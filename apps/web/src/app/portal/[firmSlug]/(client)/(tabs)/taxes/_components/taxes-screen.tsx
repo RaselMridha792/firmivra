@@ -110,7 +110,7 @@ export function TaxesScreen() {
         r.document ? (
           <Button
             variant="ghost"
-            className="underline"
+            className="text-firm-primary! underline"
             disabled={download.isPending}
             onClick={() => r.document && download.mutate(r.document.id)}
             aria-label={`Download ${r.document.fileName}`}

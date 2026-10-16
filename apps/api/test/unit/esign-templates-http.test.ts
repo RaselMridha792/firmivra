@@ -23,6 +23,7 @@ import { BUSINESS_MODULES, ModulesModule } from '../../src/common/modules/requir
 import { ConfigModule } from '../../src/config/config.module.js';
 import { loadEnv } from '../../src/config/env.js';
 import { CODE_HASHER, ESIGN_STORE, PDF_ENGINE } from '../../src/esign/engine/engine.types.js';
+import { EXTRAS_REPOSITORY } from '../../src/esign/extras/extras.repository.js';
 import { EsignModule } from '../../src/esign/esign.module.js';
 import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
 import { ESIGN_REPOSITORY } from '../../src/esign/requests/esign.repository.js';
@@ -35,6 +36,8 @@ import {
   fakePdf,
   InMemoryTemplateRepository,
   seedTemplate,
+  NO_KIOSK,
+  NoDatabaseModule,
 } from './esign-fakes.js';
 
 const w = esignWorld();
@@ -54,8 +57,16 @@ let app: INestApplication;
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
-    imports: [ConfigModule.forRoot(loadEnv()), EsignModule, FakeAuditModule, ModulesModule],
+    imports: [
+      ConfigModule.forRoot(loadEnv()),
+      EsignModule,
+      NoDatabaseModule,
+      FakeAuditModule,
+      ModulesModule,
+    ],
   })
+    .overrideProvider(EXTRAS_REPOSITORY)
+    .useValue(NO_KIOSK)
     .overrideProvider(TEMPLATE_REPOSITORY)
     .useValue(templates)
     .overrideProvider(ESIGN_DIRECTORY)

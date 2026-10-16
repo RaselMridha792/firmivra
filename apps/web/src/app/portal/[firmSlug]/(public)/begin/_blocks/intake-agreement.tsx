@@ -8,7 +8,7 @@ import {
   type LegalKind,
 } from '@firmivra/types';
 import { Button, Checkbox, Input, Modal } from '@firmivra/ui';
-import { Download } from 'lucide-react';
+import { Download, FileSignature } from 'lucide-react';
 import { useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
@@ -144,7 +144,7 @@ function AgreementCard({
         tabIndex={0}
         role="region"
         aria-label={agreement.title}
-        className="max-h-56 overflow-y-auto rounded-control border border-folder-border bg-folder-surface p-3 text-xs"
+        className="max-h-36 overflow-y-auto rounded-control border border-folder-border bg-surface p-3 text-xs"
       >
         <AgreementText body={agreement.bodyMarkdown} />
       </div>
@@ -189,6 +189,8 @@ export function AgreementPanel({
   value,
   onChange,
   error,
+  title = 'Service Agreement',
+  stacked = false,
 }: {
   firmSlug: string;
   block: IntakeAgreementBlock | undefined;
@@ -198,12 +200,16 @@ export function AgreementPanel({
   value: AgreementState;
   onChange: (value: AgreementState) => void;
   error: string;
+  /** The panel's title, as the form's mockup words it. */
+  title?: string | undefined;
+  /** The signature fields one under another (the agreement in a narrow column). */
+  stacked?: boolean;
 }) {
   const [today] = useState(() => usDate(localToday()));
   const [legalKind, setLegalKind] = useState<LegalKind | null>(null);
   if (!block && failed) {
     return (
-      <SectionPanel title="Service Agreement" className="mt-3">
+      <SectionPanel title={title} className="mt-3">
         <p role="alert" className="text-sm text-danger">
           The agreement couldn&apos;t be loaded.
         </p>
@@ -215,7 +221,7 @@ export function AgreementPanel({
   }
   if (!block) {
     return (
-      <SectionPanel title="Service Agreement" className="mt-3">
+      <SectionPanel title={title} className="mt-3">
         <p className="text-xs text-muted" role="status">
           Loading the agreement…
         </p>
@@ -224,7 +230,7 @@ export function AgreementPanel({
   }
   if (!block.ready) {
     return (
-      <SectionPanel title="Service Agreement" className="mt-3">
+      <SectionPanel title={title} className="mt-3">
         <p role="alert" className="text-sm text-danger">
           This form isn&apos;t available yet. Your answers are saved: please contact the firm.
         </p>
@@ -233,8 +239,9 @@ export function AgreementPanel({
   }
   return (
     <SectionPanel
-      title="Service Agreement"
+      title={title}
       subtitle="Please read the agreement in full, then sign below."
+      badge={<FileSignature className="size-6" />}
       className="mt-3"
     >
       <div className="space-y-4">
@@ -275,7 +282,9 @@ export function AgreementPanel({
             </Modal>
           </div>
         )}
-        <div className="grid gap-2 sm:grid-cols-2 [&_label]:text-xs">
+        <div
+          className={`grid gap-2 [&_label]:text-xs ${stacked ? '' : form === 'ANNUAL_TAX' ? 'sm:grid-cols-3' : 'sm:grid-cols-2 lg:grid-cols-4'}`}
+        >
           <Input
             label="Full Name *"
             autoComplete="name"

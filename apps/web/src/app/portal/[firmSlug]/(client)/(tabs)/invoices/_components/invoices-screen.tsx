@@ -81,12 +81,14 @@ export function InvoicesScreen() {
       <div className="grid gap-3 md:grid-cols-3">
         <Select
           label="Show"
+          className="focus:outline-firm-primary!"
           value={view}
           onChange={(e) => setView(e.target.value as MyInvoiceView)}
           options={VIEWS.map(([value, label]) => ({ value, label }))}
         />
         <Select
           label="Status"
+          className="focus:outline-firm-primary!"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
           options={[
@@ -99,6 +101,7 @@ export function InvoicesScreen() {
         />
         <Input
           label="Search"
+          className="focus:outline-firm-primary!"
           type="search"
           placeholder="Search invoices…"
           value={search}
@@ -171,7 +174,7 @@ function InvoiceTable({
           {i.canPay ? <PayButton invoice={i} pay={pay} /> : null}
           <Link
             href={`/${slug}/invoices/${i.id}`}
-            className="inline-flex items-center gap-1 text-link underline"
+            className="inline-flex items-center gap-1 text-firm-primary underline"
             aria-label={`View ${i.number}`}
           >
             <Eye aria-hidden className="size-4" /> View
@@ -187,6 +190,7 @@ function InvoiceTable({
       columns={columns}
       rowKey={(i) => i.id}
       pageSize={10}
+      tableClassName="text-firm-primary"
       emptyTitle={current ? 'Nothing to pay' : 'No past invoices'}
       emptyText={
         current ? 'Open and upcoming invoices will appear here.' : 'Paid and canceled invoices.'

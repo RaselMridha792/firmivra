@@ -1,6 +1,6 @@
 'use client';
 
-import { MembershipRole, type TeamMember } from '@firmivra/types';
+import { ChangeTeamRoleRequest, type TeamMember } from '@firmivra/types';
 import { Badge, Button, Modal, Select } from '@firmivra/ui';
 import { useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
@@ -30,7 +30,8 @@ export function TeamScreen() {
   const { role } = useFirm();
   const team = useApiQuery(TEAM, () => api.team.list());
   const change = useApiMutation(
-    ({ id, next }: { id: string; next: MembershipRole }) => api.team.changeRole(id, { role: next }),
+    ({ id, next }: { id: string; next: ChangeTeamRoleRequest['role'] }) =>
+      api.team.changeRole(id, { role: next }),
     { invalidate: TEAM },
   );
   const resend = useApiMutation((id: string) => api.team.resendInvite(id), { invalidate: TEAM });
@@ -47,7 +48,7 @@ export function TeamScreen() {
     !member.isYou && (role === 'OWNER' || (role === 'ADMIN' && member.role === 'STAFF'));
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-4">
       <div>
         <h1 data-testid="page-title" className="text-2xl font-semibold text-text">
           Team
@@ -81,13 +82,13 @@ export function TeamScreen() {
                   </span>
                   <span className="block break-all text-sm text-muted">{member.user.email}</span>
                 </span>
-                <span className="flex flex-wrap items-center gap-2">
+                <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
                   {role === 'OWNER' && !member.isYou && member.status === 'ACTIVE' ? (
                     <Select
                       label="Role"
                       aria-label={`Role for ${member.user.name}`}
                       className="min-h-11"
-                      options={MembershipRole.options.map((value) => ({
+                      options={ChangeTeamRoleRequest.shape.role.options.map((value) => ({
                         value,
                         label: ROLE_LABELS[value],
                       }))}
@@ -95,7 +96,10 @@ export function TeamScreen() {
                       disabled={change.isPending}
                       onChange={(event) =>
                         change.mutate(
-                          { id: member.id, next: MembershipRole.parse(event.target.value) },
+                          {
+                            id: member.id,
+                            next: ChangeTeamRoleRequest.shape.role.parse(event.target.value),
+                          },
                           report(`${member.user.name}'s role changed.`),
                         )
                       }

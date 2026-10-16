@@ -1,26 +1,35 @@
 import { expect, test } from '@playwright/test';
 
 const base = `http://app.localhost:${process.env['WEB_PORT'] ?? '3000'}`;
-const queues = [
-  'New clients',
-  'Missing documents',
-  'Preparation',
-  'Review',
-  'Signature',
-  'Payment',
-  'Filing',
-  'Completed',
-];
+// Octavia's order (docs/mockups/firm-workspace/dashboard), then the four extras.
 const menu = [
   'Dashboard',
   'Clients',
   'Sign-ups',
   'Leads',
+  'Appointments',
+  'Intake Forms',
+  'Documents',
+  'Client Portal',
+  'Tax Returns',
+  'Bookkeeping',
+  'Payroll',
+  'Tax Planning & Strategy',
+  'Business Advisory & Development',
+  'Invoices & Payments',
   'Messages',
-  'Calendar',
-  'Invoices',
+  'Communications',
+  'Tasks',
+  'Automations',
+  'Compliance & Deadlines',
+  'Reports',
+  'Templates',
+  'Services & Pricing',
   'Workspaces',
-  'Team',
+  'Firm Sign',
+  'Audit log',
+  'Staff Management',
+  'Integrations',
   'Settings',
 ];
 
@@ -30,15 +39,21 @@ for (const width of [1536, 375]) {
       test.setTimeout(90_000);
       await page.setViewportSize({ width, height: 1024 });
       await page.goto(`${base}/sign-in`);
-      await page
-        .getByRole('button', { name: `LVP ${role} (${role}@lvp.test)`, exact: true })
-        .click();
+      await page.getByRole('button', { name: `Quick sign-in: ${role}@lvp.test` }).click();
       await expect(page.getByTestId('firm-name')).toHaveText('LVP Accounting & Taxes');
-      await expect(page.getByTestId('work-queue')).toHaveCount(8);
-      for (const title of queues) {
-        await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+      await expect(page.getByTestId('page-title')).toContainText('Welcome back');
+      await expect(page.getByTestId('kpi-card')).toHaveCount(6);
+      await expect(page.getByTestId('pipeline-stage')).toHaveCount(5);
+      for (const name of [
+        'Revenue Overview',
+        'Service Breakdown',
+        'Tasks Due',
+        'Recent Messages',
+      ]) {
+        await expect(page.getByRole('region', { name })).toBeVisible();
       }
-      await expect(page.getByText('No items in this queue yet.', { exact: true })).toHaveCount(8);
+      // Create Invoice is the Owner's and Admin's.
+      await expect(page.getByTestId('quick-action')).toHaveCount(role === 'owner' ? 5 : 4);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
@@ -47,9 +62,14 @@ for (const width of [1536, 375]) {
       const expected =
         role === 'owner'
           ? menu
-          : menu.filter((name) => !['Sign-ups', 'Team', 'Settings'].includes(name));
-      await expect(nav.getByRole('link')).toHaveText(expected);
-      for (const name of ['Sign-ups', 'Team', 'Settings']) {
+          : menu.filter(
+              (name) => !['Sign-ups', 'Audit log', 'Staff Management', 'Settings'].includes(name),
+            );
+      // A menu item may end with its unread count (Messages).
+      await expect(nav.getByRole('link')).toHaveText(
+        expected.map((name) => new RegExp(`^${name.replace(/[&()]/g, '\\$&')}\\d*$`)),
+      );
+      for (const name of ['Sign-ups', 'Audit log', 'Staff Management', 'Settings']) {
         await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(
           role === 'owner' ? 1 : 0,
         );

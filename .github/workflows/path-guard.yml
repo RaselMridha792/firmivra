@@ -44,6 +44,7 @@ jobs:
 
           const RASEL = ['RaselMridha792'];
           const WEB = 'apps/web/src/app/';
+          const MOCKS = 'apps/web/src/mocks/';
           const DEVELOPERS = {
             fahad: {
               logins: ['Sefat-Ullah-Fahad'],
@@ -65,6 +66,16 @@ jobs:
                   'sign-ups/',
                   'workspaces/',
                 ].map((p) => `${WEB}firm/(workspace)/${p}`),
+                // Five Services & Pricing pages (Rasel, Oct 15): new, [id] (with edit), inactive
+                // and packages/new. Arfan keeps the rest of services-pricing/.
+                ...[
+                  'services-pricing/new/',
+                  'services-pricing/[id]/',
+                  'services-pricing/inactive/',
+                  'services-pricing/packages/new/',
+                ].map((p) => `${WEB}firm/(workspace)/${p}`),
+                `${MOCKS}services-pricing.ts`,
+                `${MOCKS}services-pricing-*.ts`,
               ],
               // Firm Sign under a client is R13-web's (the Oct 18 plan); a client's Messages
               // tab is Nahid's F10 (Rasel, Oct 9). The invoices pages are Fahad's (Rasel, Oct 10).
@@ -79,18 +90,21 @@ jobs:
                 'apps/web/src/components/app-shell/',
                 `${WEB}admin/(console)/`,
                 ...['welcome/', 'apply/', 'setup/'].map((p) => `${WEB}firm/${p}`),
-                ...[
-                  'team/',
-                  'audit-log/',
-                  'calendar/',
-                  'leads/[id]/',
-                  'settings/profile/',
-                  'settings/branding/',
-                  'settings/portal/',
-                  'settings/legal/',
-                  'settings/availability/',
-                ].map((p) => `${WEB}firm/(workspace)/${p}`),
+                // Staff Management, Settings and Appointments (Rasel, Oct 14, R41).
+                ...['team/', 'audit-log/', 'calendar/', 'settings/'].map(
+                  (p) => `${WEB}firm/(workspace)/${p}`,
+                ),
                 `${WEB}portal/[firmSlug]/(client)/appointments/`,
+                ...['team.ts', 'settings.ts', 'appointments.ts'].map((f) => `${MOCKS}${f}`),
+                ...['staff-*.ts', 'settings-*.ts', 'appointments-*.ts'].map((f) => `${MOCKS}${f}`),
+              ],
+              // The Settings menu and its /settings redirect are R1's; Payments is R16's and the
+              // Tax statuses screen is the reference screen.
+              except: [
+                `${WEB}firm/(workspace)/settings/layout.tsx`,
+                `${WEB}firm/(workspace)/settings/route.ts`,
+                `${WEB}firm/(workspace)/settings/payments/`,
+                `${WEB}firm/(workspace)/settings/tax-statuses/`,
               ],
             },
             // F10's messages from Oct 9 (Rasel); its invoices pages went to Fahad on Oct 10. The
@@ -105,13 +119,29 @@ jobs:
               logins: ['arfan-ahmed-shohag'],
               files: [
                 `${WEB}portal/[firmSlug]/(public)/begin/`,
-                `${WEB}firm/(workspace)/leads/`,
+                // Leads (the list, the lead profile, its tabs and the convert steps), Intake Forms and
+                // Services & Pricing (Rasel, Oct 14, R41).
+                ...['leads/', 'intake-forms/', 'services-pricing/'].map(
+                  (p) => `${WEB}firm/(workspace)/${p}`,
+                ),
+                ...['leads.ts', 'intake-forms.ts', 'services-pricing.ts'].map((f) => `${MOCKS}${f}`),
+                ...['leads-*.ts', 'intake-forms-*.ts', 'services-pricing-*.ts'].map(
+                  (f) => `${MOCKS}${f}`,
+                ),
                 'apps/web/e2e/',
               ],
-              // The lead page is Tumit's (Rasel, Oct 10); Arfan keeps the leads list.
-              except: [`${WEB}firm/(workspace)/leads/[id]/`],
             },
           };
+          // Three tickets, each adding extra paths on top of its developer's normal list, for
+          // that branch only; the normal list and except both still apply, every other branch
+          // keeps today's lists unchanged. Temporary: delete this block and its use below after
+          // the night of 13 Oct 2026 (Dhaka).
+          const TEMP_EXPIRES = new Date('2026-10-14T00:00:00+06:00');
+          const TEMP_OVERRIDES = [
+            { dev: 'fahad', prefix: 'fahad/FIR-444-', extra: [WEB, 'apps/web/src/components/', 'packages/ui/'] },
+            { dev: 'arfan', prefix: 'arfan/FIR-445-', extra: [WEB, 'apps/web/src/components/', 'apps/web/e2e/'] },
+            { dev: 'tumit', prefix: 'tumit/FIR-445-', extra: [`${WEB}portal/[firmSlug]/(public)/begin/`, 'apps/web/e2e/mock/'] },
+          ];
           // Everyone: their own tests (also the mock-mode ones) and their task file.
           for (const [name, dev] of Object.entries(DEVELOPERS)) {
             dev.files.push(
@@ -152,8 +182,13 @@ jobs:
             process.exit(1);
           }
           const dev = DEVELOPERS[name];
-          const allowed = (file) =>
-            dev.files.some((p) => matches(p, file)) && !(dev.except ?? []).some((p) => matches(p, file));
+          const extra =
+            (Date.now() < TEMP_EXPIRES.getTime() &&
+              TEMP_OVERRIDES.find((o) => o.dev === name && branch.startsWith(o.prefix))?.extra) ||
+            [];
+          const files = [...dev.files, ...extra];
+          const except = dev.except ?? [];
+          const allowed = (file) => files.some((p) => matches(p, file)) && !except.some((p) => matches(p, file));
           // A rename changes two paths: both must be the developer's.
           const changed = readFileSync(filesPath, 'utf8')
             .split('\n')

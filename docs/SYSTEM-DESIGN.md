@@ -529,7 +529,7 @@ Payments & e-sign
 
 **Stripe; Firm Sign (built in)**
 
-Stripe decided 4 Oct, with hosted Checkout. Stripe Connect with Standard accounts (Oct 9): each business connects its own account from Settings > Payments through Stripe's hosted onboarding and is paid into it; checkouts and refunds run on that account, and its webhook events are matched to the business by the connected account. A job every 15 minutes opens scheduled invoices on their day in the firm's time zone. Firm Sign decided 8 Oct: our own engine on pdf-lib, no e-signature vendor.
+Stripe decided 4 Oct, with hosted Checkout. Stripe Connect with the firm's own accounts (Oct 9; made with Accounts v2 and the full Stripe Dashboard since Oct 10): each business connects its own account from Settings > Payments through Stripe's hosted onboarding and is paid into it; checkouts and refunds run on that account, and its webhook events are matched to the business by the connected account. A job every 15 minutes opens scheduled invoices on their day in the firm's time zone. Firm Sign decided 8 Oct: our own engine on pdf-lib, no e-signature vendor.
 
 Ops
 
@@ -704,7 +704,7 @@ Which calculators are approved, and with what formulas and tax year?
 :   Needed before the Tax Return Calculator can be built.
 
 Stripe Connect, or one Stripe account per firm?
-:   Decided: Connect with Standard accounts, each firm paid into its own account.
+:   Decided: Connect with the firm's own accounts (Accounts v2, full Dashboard), each firm paid into its own account.
 
 Which video tool for appointments?
 :   Zoom or a plain meeting link. (E-signature is decided: the built-in Firm Sign.)

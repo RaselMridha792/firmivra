@@ -13,5 +13,6 @@ import { WorkspacesService } from './workspaces.service.js';
 @Module({
   controllers: [TasksController, WorkspacesController, ReportsController, MyReportsController],
   providers: [TasksService, WorkspacesService, ReportsService],
+  exports: [TasksService],
 })
 export class WorkspacesModule {}

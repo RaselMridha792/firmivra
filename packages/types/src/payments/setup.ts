@@ -18,7 +18,7 @@ const DateTime = z.iso.datetime({ offset: true });
 
 /**
  * GET /business/payments/setup (Owner and Admin): the firm's Stripe account as Firmivra last
- * heard from Stripe (onboarding and Stripe's `account.updated` webhook keep it current).
+ * heard from Stripe (onboarding, `sync()` and Stripe's `account.updated` webhook keep it current).
  */
 export const PaymentsSetup = z.object({
   /** A Stripe account was created for the firm (onboarding started). */
@@ -81,7 +81,7 @@ export function paymentsSetupStage(setup: PaymentsSetup): PaymentsSetupStage {
   return setup.detailsSubmitted ? 'IN_REVIEW' : 'ONBOARDING';
 }
 
-/** POST .../onboarding and .../onboarding/refresh take no fields at all. */
+/** POST .../sync, .../onboarding and .../onboarding/refresh take no fields at all. */
 export const StartOnboardingRequest = z.strictObject({});
 export type StartOnboardingRequest = z.input<typeof StartOnboardingRequest>;
 
@@ -112,7 +112,7 @@ export type StripeOnboardingLink = z.infer<typeof StripeOnboardingLink>;
  * Stripe sends the Owner back to /settings/payments with `?stripe=return` (left Stripe's form,
  * finished or not) or `?stripe=refresh` (the link expired or was used: call
  * `api.paymentsSetup.refresh()` and go again). Parse the page's search params with this; anything
- * else reads as no return.
+ * else reads as no return. On `return` the page calls `api.paymentsSetup.sync()`.
  */
 export const StripeOnboardingReturn = z.object({
   stripe: z.enum(['return', 'refresh']).optional().catch(undefined),
@@ -151,6 +151,15 @@ export function createPaymentsSetupClient(request: ApiRequest) {
   return {
     /** Owner and Admin. */
     get: async (): Promise<PaymentsSetup> => request(PaymentsSetup, BASE),
+    /**
+     * Owner and Admin. Asks Stripe for the account's state now and stores it (back from Stripe,
+     * and "Check status" while Stripe reviews); never makes a link. 409 PAYMENTS_NOT_SET_UP; 503.
+     */
+    sync: async (): Promise<PaymentsSetup> =>
+      request(PaymentsSetup, `${BASE}/sync`, {
+        method: 'POST',
+        body: parseInput(StartOnboardingRequest, {}),
+      }),
     /**
      * Owner only. Creates the firm's Stripe account the first time (a double click makes one),
      * then answers a fresh onboarding link. 409 PAYMENTS_ALREADY_SET_UP; 503.

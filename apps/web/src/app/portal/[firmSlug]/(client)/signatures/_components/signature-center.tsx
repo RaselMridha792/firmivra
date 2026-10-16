@@ -161,6 +161,7 @@ function Row({ slug, row }: { slug: string; row: MySignatureRow }) {
               // Stays off while the signer pages open: a second click would start a second session.
               disabled={start.isPending || start.isSuccess}
               // Signed in already: the signer pages open without an email code.
+              className="bg-firm-primary! text-on-action! hover:bg-navigation-hover! focus-visible:outline-firm-primary"
               onClick={() => start.mutate()}
             >
               {start.isPending || start.isSuccess ? 'Opening…' : 'Review and sign'}

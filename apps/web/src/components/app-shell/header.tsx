@@ -13,7 +13,13 @@ export function Header({
   onOpenMenu,
   bell,
   hideRole = false,
+  start,
+  actions,
 }: {
+  /** Replaces the search box or greeting, for example the firm's search form. */
+  start?: ReactNode;
+  /** Controls before the bell, for example the firm's "+ New" menu. */
+  actions?: ReactNode;
   /** Placeholder text for the search box; search is not connected yet. */
   search?: string;
   /** Centre text instead of a search box, for example "Welcome back, John!" in the portal. */
@@ -32,7 +38,8 @@ export function Header({
     <header
       onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}
       // Super Admin (search): the header sits on the canvas as in its mockup; elsewhere a white bar.
-      className={`flex items-center gap-3 px-4 py-2 md:px-6 ${search ? 'bg-canvas' : 'border-b border-border bg-surface'}`}
+      // Phones get tighter gaps so the controls fit a 320 px screen.
+      className={`flex items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 md:px-6 ${search && !start ? 'bg-canvas' : 'border-b border-border bg-surface'}`}
     >
       <button
         type="button"
@@ -43,7 +50,8 @@ export function Header({
         <Menu aria-hidden className="size-5" />
       </button>
 
-      {search ? (
+      {start}
+      {search && !start ? (
         <label className="hidden h-10 w-full max-w-xs flex-1 items-center gap-2 rounded-control border border-border bg-surface px-3 text-sm text-muted md:ml-auto md:flex">
           <Search aria-hidden className="size-4" />
           <input
@@ -63,6 +71,7 @@ export function Header({
             : 'ml-auto flex items-center gap-2'
         }
       >
+        {actions}
         {bell ?? (
           <button
             type="button"
@@ -80,16 +89,18 @@ export function Header({
             aria-haspopup="menu"
             aria-expanded={open}
             onClick={() => setOpen((value) => !value)}
-            className="flex items-center gap-2 rounded-control p-1 pr-2 hover:bg-canvas"
+            className="flex items-center gap-2 rounded-control p-1 hover:bg-canvas sm:pr-2"
           >
-            <span className="flex size-10 items-center justify-center rounded-full bg-brand-900 text-sm font-semibold text-white">
+            <span
+              className={`flex size-11 items-center justify-center rounded-full text-sm font-semibold ${start ? 'border-2 border-border bg-info-soft text-heading' : 'bg-brand-900 text-white'}`}
+            >
               {initials(me.user.name)}
             </span>
             <span className="hidden text-left text-sm sm:block">
               <span className="block font-semibold text-text">{me.user.name}</span>
               <span className={hideRole ? 'sr-only' : 'block text-muted'}>{roleLabel}</span>
             </span>
-            <ChevronDown aria-hidden className="size-4 text-muted" />
+            <ChevronDown aria-hidden className="hidden size-4 text-muted sm:block" />
           </button>
           {open ? (
             <div

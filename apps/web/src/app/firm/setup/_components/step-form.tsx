@@ -27,6 +27,36 @@ export const settingsResolver: typeof checkSettings = async (...args) => {
   }
 };
 
+/** Blank and missing count as the same (a cleared number is null, an empty list is no list). */
+const sameValue = (a: unknown, b: unknown) => {
+  const blank = (v: unknown) =>
+    v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+  if (blank(a) || blank(b)) return blank(a) && blank(b);
+  return JSON.stringify(a) === JSON.stringify(b);
+};
+
+/**
+ * The Settings pages check only what the person changed: a firm whose team size or services are
+ * still blank (set up before those were asked) can save a new phone number without filling them.
+ * A changed field still gets every rule, so a required one can't be cleared.
+ */
+export const changedFieldsResolver =
+  (defaults: UpdateFirmSettingsRequest): typeof settingsResolver =>
+  async (values, context, options) => {
+    const changed = Object.fromEntries(
+      Object.entries(values).filter(
+        ([field, value]) => !sameValue(value, defaults[field as keyof UpdateFirmSettingsRequest]),
+      ),
+    );
+    // Nothing changed: nothing to check (the schema itself asks for at least one setting).
+    if (!Object.keys(changed).length) return { values, errors: {} };
+    const result = await settingsResolver(changed, context, options);
+    // The changed fields come back parsed (trimmed, deduplicated); the rest as they were.
+    return Object.keys(result.errors).length
+      ? result
+      : { values: { ...values, ...result.values }, errors: {} };
+  };
+
 /**
  * Only the fields the person changed. An unchanged field is never sent, so it can't undo someone
  * else's change made while this form was open.

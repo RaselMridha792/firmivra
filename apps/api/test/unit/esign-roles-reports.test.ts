@@ -61,7 +61,7 @@ describe('Firm Sign roles', () => {
     ]);
   });
 
-  it('refuses Owner and Admin (ROLE_FIXED), non-members and other firms’ (NOT_A_MEMBER)', async () => {
+  it('refuses Owner and Admin (ROLE_FIXED); non-members and other firms’ are 404', async () => {
     const owner = as(w.users.ownerA, 'OWNER');
     const manager = { esignRole: 'MANAGER' } as const;
     expect(await refused(roles.set(w.a, owner, w.users.adminA, manager))).toEqual([
@@ -69,7 +69,7 @@ describe('Firm Sign roles', () => {
       'ROLE_FIXED',
     ]);
     for (const userId of [w.users.goneA, w.users.ownerB]) {
-      expect(await refused(roles.set(w.a, owner, userId, manager))).toEqual([409, 'NOT_A_MEMBER']);
+      expect(await refused(roles.set(w.a, owner, userId, manager))).toEqual([404, 'NOT_FOUND']);
     }
     expect(await w.repo.esignRole(w.b, w.users.ownerB)).toBe('OWNER');
   });

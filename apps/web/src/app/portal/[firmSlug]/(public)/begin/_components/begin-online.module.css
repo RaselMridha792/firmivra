@@ -6,7 +6,7 @@
   background: linear-gradient(to bottom, var(--color-action), var(--color-action-pressed));
 }
 
-.action:hover {
+.action:not(a):hover {
   background: var(--color-action-hover);
 }
 
@@ -14,8 +14,38 @@
   background: linear-gradient(to bottom, var(--color-navigation-hover), var(--color-navigation));
 }
 
-.darkAction:hover {
+a.action,
+.darkAction {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Fade the hover colour over the gradient so the button never becomes transparent. */
+a.action::before,
+.darkAction::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition-property: opacity;
+  transition-duration: inherit;
+  transition-timing-function: inherit;
+}
+
+a.action::before {
+  background: var(--color-action-hover);
+}
+
+.darkAction::before {
   background: var(--color-navigation-hover);
+}
+
+a.action:hover::before,
+.darkAction:hover::before {
+  opacity: 1;
 }
 
 .photoFade {

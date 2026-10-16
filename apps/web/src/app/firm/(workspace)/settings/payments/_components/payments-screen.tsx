@@ -9,7 +9,7 @@ import {
   type StripeOnboardingReturn,
 } from '@firmivra/types';
 import { Badge, Button, Card } from '@firmivra/ui';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { RequireRole } from '../../../../../../components/require-role';
@@ -41,15 +41,16 @@ const ACTIONS: Partial<Record<PaymentsSetupStage, string>> = {
 export function PaymentsScreen({ stripe }: StripeOnboardingReturn) {
   const setup = useApiQuery(PAYMENTS_SETUP, () => api.paymentsSetup.get());
 
-  // Back from Stripe: Stripe may have changed the state meanwhile. A fresh page load is already
-  // fetching it; only cached data (reached without a reload) needs one more read.
-  const refreshedRef = useRef(false);
-  const { refetch, isFetching } = setup;
+  // Back from Stripe: ask Stripe for the state now (Stripe may not have sent account.updated
+  // yet), once. If that fails, the page keeps what GET answered.
+  const sync = useSync();
+  const syncedRef = useRef(false);
+  const { mutate } = sync;
   useEffect(() => {
-    if (stripe !== 'return' || refreshedRef.current) return;
-    refreshedRef.current = true;
-    if (!isFetching) void refetch();
-  }, [stripe, refetch, isFetching]);
+    if (stripe !== 'return' || syncedRef.current) return;
+    syncedRef.current = true;
+    mutate();
+  }, [stripe, mutate]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -81,6 +82,37 @@ export function PaymentsScreen({ stripe }: StripeOnboardingReturn) {
   );
 }
 
+/** POST .../sync: Stripe's state now, stored by the API and shown at once. */
+function useSync() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.paymentsSetup.sync(),
+    onSuccess: (data) => client.setQueryData(PAYMENTS_SETUP, data),
+  });
+}
+
+/** While Stripe reviews: the Owner or an Admin asks Stripe again. */
+function CheckStatusButton() {
+  const sync = useSync();
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <Button
+        data-testid="stripe-check-status"
+        variant="secondary"
+        disabled={sync.isPending}
+        onClick={() => sync.mutate()}
+      >
+        {sync.isPending ? 'Checking…' : 'Check status'}
+      </Button>
+      {sync.error ? (
+        <p role="alert" className="text-sm text-danger">
+          {errorMessage(sync.error, PAYMENTS_SETUP_ERRORS)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function SetupCard({ setup, expired }: { setup: PaymentsSetup; expired: boolean }) {
   const stage = paymentsSetupStage(setup);
   const action = ACTIONS[stage];
@@ -107,6 +139,7 @@ function SetupCard({ setup, expired }: { setup: PaymentsSetup; expired: boolean 
           <li className="text-muted">Stripe is checking your details. Nothing to do for now.</li>
         ) : null}
       </ul>
+      {stage === 'IN_REVIEW' ? <CheckStatusButton /> : null}
       {action ? (
         <RequireRole
           roles={['OWNER']}

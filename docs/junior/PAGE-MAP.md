@@ -1,6 +1,6 @@
 # Page map
 
-Firmivra · Oct 6, 2026 (evening) · who builds which page, and in which file.
+Firmivra · Oct 6, 2026 (evening), updated Oct 14 (R41) · who builds which page, and in which file.
 
 ## How it works
 
@@ -8,7 +8,8 @@ Firmivra · Oct 6, 2026 (evening) · who builds which page, and in which file.
 - You open your page file, replace the `<PagePlaceholder>` with the screen from its mockup, and put the screen's parts in a `_components/` folder next to the page (Next.js ignores folders that start with `_`).
 - `page.tsx` stays a small server file with its `metadata` title line (the tests check each page by its tab title): no `'use client'`, `redirect()` or `notFound()` in `page.tsx`, and no title or title template in any layout except the root layout's default. A page opened straight from its URL (verify-email, verify-phone, sign-up/done, apply/done, begin/done, begin/resume, reset-password, activate) never navigates away by itself. Keep what the tests read: the nav "Main" and `AppShell`; `data-testid="firm-name"`; the header's `me-email`, the user-menu button with the role and its "Sign out"; the portal greeting "Welcome back, <first name>!"; the "Intake Form" tab; the quick sign-in buttons with the email; the sign-in headings "Super Admin console", "Firm workspace" and "Client portal: <slug>".
 - Change only the files listed under your name in "Your files" at the end. CI fails a PR from your branch that changes anything else.
-- Never create, move or rename a route, a layout or a page folder. A page is missing or in the wrong place? Ask Rasel, and the page's owner adds it (R1, or R13-web and R14 for their pages).
+- Never create, move or rename a route, a layout or a page folder. A page is missing or in the wrong place? Ask Rasel, and the page's owner adds it (R1, or R13-web and R14 for their pages). The routes of the six R41 modules (Staff Management, Settings, Appointments, Leads, Intake Forms, Services & Pricing) were all created on Oct 14: see "The six modules" below.
+- A page never waits for the backend: build it on the typed mocks (`docs/junior/GUIDE.md`, "Mock first"), and match its design as `docs/design-match.md` says.
 - Colours, fonts and spacing come from the tokens in `packages/ui` (Fahad's F01). Never fix a colour inside your page. A colour that looks wrong everywhere is a token: tell Fahad.
 - If the placeholders are not on main yet when you start, build your parts in your `_components/` folder and don't create the page files yourself.
 
@@ -61,10 +62,6 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/invoices` | `(workspace)/invoices/page.tsx` | Fahad | F10 | none |
 | `/workspaces` | `(workspace)/workspaces/page.tsx` | Fahad | F11 | none |
 | `/workspaces/[engagementId]` | `(workspace)/workspaces/[engagementId]/page.tsx` | Fahad | F11 | none |
-| `/leads` | `(workspace)/leads/page.tsx` | Arfan | F08 | none |
-| `/leads/[id]` | `(workspace)/leads/[id]/page.tsx` | Tumit | F08 | none |
-| `/calendar` | `(workspace)/calendar/page.tsx` | Tumit | F09 | none |
-| `/team` | `(workspace)/team/page.tsx` | Tumit | F05 | none |
 | `/audit-log` (Owner and Admin) | `(workspace)/audit-log/page.tsx` | Tumit | F12 | none |
 | `/firm-sign` (dashboard) | `(workspace)/firm-sign/page.tsx` | R13-web | Firm Sign | `FirmSign_Dashboard_Mockup.png` (Octavia's Oct 8 files) |
 | `/firm-sign/new` | `(workspace)/firm-sign/new/page.tsx` | R13-web | Firm Sign | Firm Sign spec |
@@ -78,15 +75,103 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/firm-sign/settings` | `(workspace)/firm-sign/settings/page.tsx` | R13-web | Firm Sign | Firm Sign spec |
 | `/clients/[id]/signatures` | `(workspace)/clients/[id]/signatures/page.tsx` | R13-web | Firm Sign | Firm Sign spec |
 | `/settings` | `(workspace)/settings/layout.tsx` (settings menu) and `route.ts` (`/settings` opens Profile) | R1 | | |
-| `/settings/profile` | `(workspace)/settings/profile/page.tsx` | Tumit | F05 | none |
-| `/settings/branding` | `(workspace)/settings/branding/page.tsx` | Tumit | F05 | none |
-| `/settings/portal` | `(workspace)/settings/portal/page.tsx` | Tumit | F05 | none |
-| `/settings/legal` | `(workspace)/settings/legal/page.tsx` | Tumit | F05 | none |
-| `/settings/availability` | `(workspace)/settings/availability/page.tsx` | Tumit | F09 | none |
 | `/settings/payments` (Owner connects, Admin reads only, Staff never see it) | `(workspace)/settings/payments/page.tsx` | R16 | R7 Stripe | none |
 | `/settings/tax-statuses` | `(workspace)/settings/tax-statuses/` (the reference screen) | R1 | kit | none |
 
-Sidebar: Dashboard, Clients, Sign-ups, Leads, Messages, Calendar, Invoices, Workspaces, Team, Audit log, Settings. Sign-ups, Team, Audit log and Settings show only for Owner and Admin.
+### The six modules: Staff Management, Settings and Appointments (Tumit); Leads, Intake Forms and Services & Pricing (Arfan; five Services & Pricing pages are Fahad's: new, [id], [id]/edit, inactive and packages/new)
+
+Rasel's decision, Oct 14 (R41). Every route below exists on main as a placeholder that shows only the page title, built from `PageHeader`, so nobody waits for anyone: open the file and build the page from its design, on the typed mocks (`docs/junior/GUIDE.md`, "Mock first"). Folders are inside `apps/web/src/app/firm/(workspace)/`. Designs and docx are under `docs/mockups/firm-workspace/`; the docx is Octavia's written instruction for the module (`§` is its section, "Frame" its frame name).
+
+Routes follow three rules: a page gets a route; a tab that shows its own content gets a route; each step of a wizard gets a route. A modal, a drawer, a menu, a bulk bar and a form panel get none: they open from their page. These have no route of their own: Add New Lead, send email and SMS, assign, change status, tags and bulk actions on `/leads`; Invite User and the user action menu on `/settings/users`; the New Appointment quick modal, Send Reminders and Sync Calendar (Integrations) on the calendar; the add-category, add-add-on, service-picker, add-department, add-team, change-head and promotion editors; preview of a template; row menus; the Settings sections inside one page (Intake Form Settings is one page with its eight panels).
+
+| URL | Folder | Owner | Design file | Docx |
+| --- | --- | --- | --- | --- |
+| `/team` | `team/` | Tumit | `staff-management/source/staff-mangement.jpg` | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §1 |
+| `/team/new` | `team/new/` | Tumit | `staff-management/source/create-staff-account-info.jpg` | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §2-3 |
+| `/team/new/permissions` | `team/new/permissions/` | Tumit | `staff-management/source/create-staff-2.jpg` | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §4-6 |
+| `/team/new/security` | `team/new/security/` | Tumit | `staff-management/source/create-staff-tab-3.jpg` | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §7 |
+| `/team/new/details` | `team/new/details/` | Tumit | `staff-management/source/additinal-details-tab-4.jpg` | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §8-10 |
+| `/team/[id]/created` | `team/[id]/created/` | Tumit | `staff-management/source/succesfully-created-staff.jpg` | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §11 |
+| `/team/[id]` | `team/[id]/` | Tumit | `staff-management/source/edit-staff-account.jpg` | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §12 |
+| `/team/[id]/security` | `team/[id]/security/` | Tumit | `staff-management/source/staff-account-access-and-security.jpg` | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §14 |
+| `/team/[id]/security/login` | `team/[id]/security/login/` | Tumit | `staff-management/source/staff-account-access-and-security.jpg` (Login & Security tab) | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §7, §14 |
+| `/team/[id]/security/sessions` | `team/[id]/security/sessions/` | Tumit | `staff-management/source/staff-account-access-and-security.jpg` (Active Sessions card) | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §14 |
+| `/team/[id]/security/history` | `team/[id]/security/history/` | Tumit | `staff-management/source/staff-account-access-and-security.jpg` (Login History card) | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §14 |
+| `/team/[id]/security/permissions` | `team/[id]/security/permissions/` | Tumit | `staff-management/source/edit-staff-account.jpg` (Access Summary card) | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §6, §14 |
+| `/team/[id]/security/activity` | `team/[id]/security/activity/` | Tumit | `staff-management/source/staff-account-access-and-security.jpg` (Activity & Audit tab) | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §14, §16 |
+| `/team/departments` | `team/departments/` | Tumit | `staff-management/source/teams-and-departments.jpg` | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §13 |
+| `/team/teams` | `team/teams/` | Tumit | `staff-management/source/teams-and-departments.jpg` (Teams tab) | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §13 |
+| `/team/org-chart` | `team/org-chart/` | Tumit | `staff-management/source/teams-and-departments.jpg` (Org Chart tab) | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §13 |
+| `/team/roles` | `team/roles/` | Tumit | `staff-management/source/create-staff-2.jpg` (matrix), settings/source/users-and-role.jpg (role templates) | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §5-6 |
+| `/team/activity` | `team/activity/` | Tumit | none (reuse Login History and Activity cards of staff-account-access-and-security.jpg) | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §14, §16 |
+| `/team/import` | `team/import/` | Tumit | none (no frame) | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §15 |
+| `/team/settings` | `team/settings/` | Tumit | none (no frame) | `staff-management/source/firmvra-staff-management-developer-guide-final.docx` §1, §3 |
+| `/settings/overview` | `settings/overview/` | Tumit | `settings/source/settings.jpg` | `settings/source/firmvra-settings-developer-guide-updated.docx` §2-3 |
+| `/settings/profile` | `settings/profile/` | Tumit | `settings/source/company-profile-branding-and-white-label.jpg` (Company Profile tab) | `settings/source/firmvra-settings-developer-guide-updated.docx` §4 |
+| `/settings/branding` | `settings/branding/` | Tumit | `settings/source/company-profile-branding-and-white-label.jpg` (Branding & White Label tab) | `settings/source/firmvra-settings-developer-guide-updated.docx` §4 |
+| `/settings/portal` | `settings/portal/` | Tumit | `settings/source/company-profile-branding-and-white-label.jpg` (Client Portal Branding tab) | `settings/source/firmvra-settings-developer-guide-updated.docx` §4, §11 |
+| `/settings/legal` | `settings/legal/` | Tumit | `settings/source/company-profile-branding-and-white-label.jpg` (Documents & Legal tab) | `settings/source/firmvra-settings-developer-guide-updated.docx` §4, §11 |
+| `/settings/availability` | `settings/availability/` | Tumit | `appointment/source/appointments-overview-and-calendar.jpg` (Edit My Availability panel) | `appointment/source/firmivra-appointments-instructions-fresh-copy.docx` §14 |
+| `/settings/users` | `settings/users/` | Tumit | `settings/source/users-and-role.jpg` | `settings/source/firmvra-settings-developer-guide-updated.docx` §5-8 |
+| `/settings/users/roles/new` | `settings/users/roles/new/` | Tumit | `settings/source/users-and-role.jpg` (Role Permissions, Module Permissions) | `settings/source/firmvra-settings-developer-guide-updated.docx` §5, §8 |
+| `/settings/billing` | `settings/billing/` | Tumit | none (no frame) | `settings/source/firmvra-settings-developer-guide-updated.docx` §11 |
+| `/settings/communications` | `settings/communications/` | Tumit | `settings/source/company-profile-branding-and-white-label.jpg` (Email & Communications tab, named only) | `settings/source/firmvra-settings-developer-guide-updated.docx` §11 |
+| `/settings/notifications` | `settings/notifications/` | Tumit | none (no frame) | `settings/source/firmvra-settings-developer-guide-updated.docx` §11 |
+| `/settings/forms-documents` | `settings/forms-documents/` | Tumit | none (no frame) | `settings/source/firmvra-settings-developer-guide-updated.docx` §11 |
+| `/settings/workflow` | `settings/workflow/` | Tumit | none (no frame) | `settings/source/firmvra-settings-developer-guide-updated.docx` §11 |
+| `/settings/security` | `settings/security/` | Tumit | none (no frame) | `settings/source/firmvra-settings-developer-guide-updated.docx` §10 |
+| `/settings/data` | `settings/data/` | Tumit | none (no frame) | `settings/source/firmvra-settings-developer-guide-updated.docx` §11-12 |
+| `/settings/preferences` | `settings/preferences/` | Tumit | `settings/source/company-profile-branding-and-white-label.jpg` (Preferences tab, named only) | `settings/source/firmvra-settings-developer-guide-updated.docx` §11 |
+| `/calendar` | `calendar/` | Tumit | `appointment/source/appointments.jpg` | `appointment/source/firmivra-appointments-instructions-fresh-copy.docx` §2, §10 |
+| `/calendar/list` | `calendar/list/` | Tumit | `appointment/source/appointments.jpg` (List view) | `appointment/source/firmivra-appointments-instructions-fresh-copy.docx` §2, §10 |
+| `/calendar/today` | `calendar/today/` | Tumit | `appointment/source/appointments.jpg` (Today view) | `appointment/source/firmivra-appointments-instructions-fresh-copy.docx` §2, §10 |
+| `/calendar/new` | `calendar/new/` | Tumit | `appointment/source/appointments-overview-and-calendar.jpg` | `appointment/source/firmivra-appointments-instructions-fresh-copy.docx` §3-5, §11-12, §16 |
+| `/calendar/[id]` | `calendar/[id]/` | Tumit | none (no frame; the calendar chip and the upcoming row open it) | `appointment/source/firmivra-appointments-instructions-fresh-copy.docx` §6, §17 |
+| `/calendar/[id]/edit` | `calendar/[id]/edit/` | Tumit | `appointment/source/appointments-overview-and-calendar.jpg` (Edit Existing) | `appointment/source/firmivra-appointments-instructions-fresh-copy.docx` §11, §17 |
+| `/calendar/types` | `calendar/types/` | Tumit | none (no frame; Quick Actions "Manage Appointment Types") | `appointment/source/firmivra-appointments-instructions-fresh-copy.docx` §10 |
+| `/calendar/availability` | `calendar/availability/` | Tumit | `appointment/source/appointments-overview-and-calendar.jpg` (Staff Availability panel) | `appointment/source/firmivra-appointments-instructions-fresh-copy.docx` §12-15 |
+| `/leads` | `leads/` | Arfan | `leads/source/leads.jpg` | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §2-6 |
+| `/leads/[id]` | `leads/[id]/` | Arfan | `leads/source/individual-lead-profile-lead-workspace.jpg` | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §1-8 |
+| `/leads/[id]/communications` | `leads/[id]/communications/` | Arfan | `leads/source/individual-lead-profile-lead-workspace.jpg` (Communications tab, named only) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §6 |
+| `/leads/[id]/appointments` | `leads/[id]/appointments/` | Arfan | `leads/source/individual-lead-profile-lead-workspace.jpg` (Upcoming Appointments card) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §6 |
+| `/leads/[id]/tasks` | `leads/[id]/tasks/` | Arfan | `leads/source/individual-lead-profile-lead-workspace.jpg` (Open Tasks card) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §8 |
+| `/leads/[id]/documents` | `leads/[id]/documents/` | Arfan | `leads/source/individual-lead-profile-lead-workspace.jpg` (Documents & Forms tab, named only) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §7 |
+| `/leads/[id]/campaigns` | `leads/[id]/campaigns/` | Arfan | `leads/source/individual-lead-profile-lead-workspace.jpg` (Campaigns tab, named only) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §2, §10 |
+| `/leads/[id]/notes` | `leads/[id]/notes/` | Arfan | `leads/source/individual-lead-profile-lead-workspace.jpg` (Notes tab, named only) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §6 |
+| `/leads/[id]/activity` | `leads/[id]/activity/` | Arfan | `leads/source/individual-lead-profile-lead-workspace.jpg` (Recent Activity card) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §1, §8 |
+| `/leads/[id]/convert` | `leads/[id]/convert/` | Arfan | `leads/source/convert-lead-to-client.jpg` (step 1) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §7 |
+| `/leads/[id]/convert/details` | `leads/[id]/convert/details/` | Arfan | `leads/source/convert-lead-to-client.jpg` (step 2) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §7 |
+| `/leads/[id]/convert/portal` | `leads/[id]/convert/portal/` | Arfan | `leads/source/convert-lead-to-client.jpg` (step 3) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §7 |
+| `/leads/[id]/convert/review` | `leads/[id]/convert/review/` | Arfan | `leads/source/convert-lead-to-client.jpg` (step 4) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §7 |
+| `/leads/[id]/convert/done` | `leads/[id]/convert/done/` | Arfan | `leads/source/convert-lead-to-client.jpg` (step 5) | `leads/source/firmivra-leads-module-developer-instructions-1.docx` §7 |
+| `/intake-forms` | `intake-forms/` | Arfan | `intake-forms/source/intake-forms.jpg` | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Main page) |
+| `/intake-forms/builder/[formId]` | `intake-forms/builder/[formId]/` | Arfan | `intake-forms/source/create-new-intake-form.jpg` | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 1) |
+| `/intake-forms/builder/[formId]/preview` | `intake-forms/builder/[formId]/preview/` | Arfan | `intake-forms/source/create-new-intake-form.jpg` (Preview tab) | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 1) |
+| `/intake-forms/builder/[formId]/logic` | `intake-forms/builder/[formId]/logic/` | Arfan | `intake-forms/source/create-new-intake-form.jpg` (Logic & Rules tab) | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 1) |
+| `/intake-forms/send` | `intake-forms/send/` | Arfan | `intake-forms/source/send-intake-form.jpg` | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 2) |
+| `/intake-forms/[id]` | `intake-forms/[id]/` | Arfan | `intake-forms/source/intake-form-detail-submission-view.jpg` | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 3) |
+| `/intake-forms/[id]/responses` | `intake-forms/[id]/responses/` | Arfan | `intake-forms/source/intake-form-detail-submission-view.jpg` (Responses tab, named only) | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 3) |
+| `/intake-forms/[id]/documents` | `intake-forms/[id]/documents/` | Arfan | `intake-forms/source/intake-form-detail-submission-view.jpg` (Uploaded Documents card) | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 3) |
+| `/intake-forms/[id]/notes` | `intake-forms/[id]/notes/` | Arfan | `intake-forms/source/intake-form-detail-submission-view.jpg` (Internal Notes card) | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 3) |
+| `/intake-forms/[id]/communication` | `intake-forms/[id]/communication/` | Arfan | `intake-forms/source/intake-form-detail-submission-view.jpg` (Communication tab, named only) | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 3) |
+| `/intake-forms/[id]/history` | `intake-forms/[id]/history/` | Arfan | `intake-forms/source/intake-form-detail-submission-view.jpg` (Activity Timeline card) | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 3) |
+| `/intake-forms/templates` | `intake-forms/templates/` | Arfan | `intake-forms/source/form-templates-dashboard.jpg` | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 4) |
+| `/intake-forms/settings` | `intake-forms/settings/` | Arfan | `intake-forms/source/intake-form-settings.jpg` | `intake-forms/source/firmivra-intake-forms-module-developer-instructions-updated.docx` (Frame 5) |
+| `/services-pricing` | `services-pricing/` | Arfan | `services-and-pricing/source/services-and-pricing.jpg` | `services-and-pricing/source/services-and-pricing.docx` §2-3 |
+| `/services-pricing/inactive` | `services-pricing/inactive/` | Fahad | `services-and-pricing/source/services-and-pricing.jpg` (Inactive Services tab) | `services-and-pricing/source/services-and-pricing.docx` §2 |
+| `/services-pricing/categories` | `services-pricing/categories/` | Arfan | none (no frame; tab named in services-and-pricing.jpg) | `services-and-pricing/source/services-and-pricing.docx` §10 |
+| `/services-pricing/packages` | `services-pricing/packages/` | Arfan | none (no list frame; tab named in services-and-pricing.jpg) | `services-and-pricing/source/services-and-pricing.docx` §2, §8 |
+| `/services-pricing/promotions` | `services-pricing/promotions/` | Arfan | none (no frame; tab named in services-and-pricing.jpg) | `services-and-pricing/source/services-and-pricing.docx` §11 |
+| `/services-pricing/new` | `services-pricing/new/` | Fahad | `services-and-pricing/source/add-edit-service.jpg` | `services-and-pricing/source/services-and-pricing.docx` §4-7 |
+| `/services-pricing/[id]` | `services-pricing/[id]/` | Fahad | `services-and-pricing/source/add-edit-service.jpg` (Service Preview, View Full Page) | `services-and-pricing/source/services-and-pricing.docx` §3, §4 |
+| `/services-pricing/[id]/edit` | `services-pricing/[id]/edit/` | Fahad | `services-and-pricing/source/add-edit-service.jpg` (Edit mode) | `services-and-pricing/source/services-and-pricing.docx` §4-7 |
+| `/services-pricing/packages/new` | `services-pricing/packages/new/` | Fahad | `services-and-pricing/source/package-builder.jpg` | `services-and-pricing/source/services-and-pricing.docx` §8-9 |
+| `/services-pricing/packages/[id]` | `services-pricing/packages/[id]/` | Arfan | `services-and-pricing/source/package-builder.jpg` (Package Preview, View Full Page) | `services-and-pricing/source/services-and-pricing.docx` §8 |
+| `/services-pricing/packages/[id]/edit` | `services-pricing/packages/[id]/edit/` | Arfan | `services-and-pricing/source/package-builder.jpg` (Edit mode) | `services-and-pricing/source/services-and-pricing.docx` §8-9 |
+
+Not in the firm workspace: the Settings design also lists "Company Applications" and "Companies". The docx calls them platform-level, so they belong to the Super Admin console (`admin/`), and no firm route exists for them. Services & Pricing and Integrations in the Settings menu open `/services-pricing` and the Integrations module page; Audit Log opens `/audit-log`; Payments & Payouts is `/settings/payments` (R16); Reports from Staff Management and Appointments opens the Reports module page.
+
+Sidebar: Dashboard, Clients, Sign-ups, Leads, Appointments, Intake Forms, Documents, Client Portal, Tax Returns, Bookkeeping, Payroll, Tax Planning & Strategy, Business Advisory & Development, Invoices & Payments, Messages, Communications, Tasks, Automations, Compliance & Deadlines, Reports, Templates, Services & Pricing, Workspaces, Firm Sign, Audit log, Staff Management, Integrations, Settings. Intake Forms opens `/intake-forms` and Services & Pricing opens `/services-pricing`; the other modules still open the shared module page. Sign-ups, Staff Management, Audit log and Settings show only for Owner and Admin. The Settings menu (`settings/layout.tsx`, R1's) lists Overview, Profile, Branding, Client portal, Terms & Privacy, Availability, Users & roles, Billing, Payments, Communications, Notifications, Forms & documents, Workflow & automations, Security & access, Data & backups, Preferences and Tax statuses.
 
 - "Firm Sign" shows only when `api.esign.status()` says enabled. Fahad adds that menu line in F06, with the client page's "Send for Signature" button and its "Signatures" tab link.
 - "Payments" (Owner and Admin) is one line in `settings/layout.tsx`. R16 adds it in the /settings/payments PR; the rest of that file stays R1's.
@@ -172,7 +257,7 @@ Folder tabs: Intake Form, Business Documents & Resources, My Uploaded Documents,
 | Sign-in, MFA, reset and activate screens for the firm and Super Admin sites | `apps/web/src/components/auth/` | Fahad (F02) |
 | Notification bell wiring (the portal reuses it) | `apps/web/src/components/notification-bell.tsx` | Fahad (F07) |
 | Page placeholder, data hooks, `PageState`, `errorMessage`, mock mode | `apps/web/src/components/`, `apps/web/src/lib/` | R1: don't change |
-| API functions and mock data | `packages/types/`, `apps/web/src/lib/api.ts`, `apps/web/src/mocks/` | the API sessions: don't change |
+| API functions and mock data | `packages/types/`, `apps/web/src/lib/api.ts`, `apps/web/src/mocks/` | the contract session writes them first; you only extend the mock files listed under your name in "Your files" |
 
 ## Your files
 
@@ -184,14 +269,16 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/admin/sign-in/`, `admin/forgot-password/`, `admin/reset-password/`
 - `apps/web/src/app/firm/sign-in/`, `firm/forgot-password/`, `firm/reset-password/`, `firm/activate/`
 - `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's, and `clients/[id]/messages/`, Nahid's), `invoices/`, `sign-ups/`, `workspaces/`
+- Five Services & Pricing pages (Rasel, Oct 15), in `apps/web/src/app/firm/(workspace)/`: `services-pricing/new/`, `services-pricing/[id]/` (with its `edit/`), `services-pricing/inactive/` and `services-pricing/packages/new/`; and `apps/web/src/mocks/services-pricing.ts` and `mocks/services-pricing-*.ts` (shared with Arfan)
 - `apps/web/e2e/fahad-*.spec.ts`, `apps/web/e2e/mock/fahad-*.spec.ts`, `docs/tasks/FAHAD.md`
 
-**Tumit**
+**Tumit** (Staff Management, Settings and Appointments, from Oct 14)
 - `apps/web/src/components/app-shell/`
 - `apps/web/src/app/admin/(console)/`
 - `apps/web/src/app/firm/welcome/`, `firm/apply/`, `firm/setup/`
-- `apps/web/src/app/firm/(workspace)/team/`, `audit-log/`, `calendar/`, `leads/[id]/`, `settings/profile/`, `settings/branding/`, `settings/portal/`, `settings/legal/`, `settings/availability/`
+- `apps/web/src/app/firm/(workspace)/team/` (Staff Management, 20 routes), `audit-log/`, `calendar/` (Appointments, 8 routes), `settings/` (all of it except `settings/layout.tsx`, `settings/route.ts`, `settings/payments/` and `settings/tax-statuses/`)
 - `apps/web/src/app/portal/[firmSlug]/(client)/appointments/`
+- `apps/web/src/mocks/team.ts`, `mocks/settings.ts`, `mocks/appointments.ts` and new `mocks/staff-*.ts`, `mocks/settings-*.ts`, `mocks/appointments-*.ts` (synthetic data only; registering a module in `lib/api.ts` is the contract session's)
 - `apps/web/e2e/tumit-*.spec.ts`, `apps/web/e2e/mock/tumit-*.spec.ts`, `docs/tasks/TUMIT.md`
 
 **Nahid** (F10's messages, from Oct 9; its invoices pages went to Fahad on Oct 10; the portal pages moved to R17)
@@ -199,7 +286,8 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/firm/(workspace)/clients/[id]/messages/`
 - `apps/web/e2e/nahid-*.spec.ts`, `apps/web/e2e/mock/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
 
-**Arfan**
+**Arfan** (Leads, Intake Forms and Services & Pricing, from Oct 14)
 - `apps/web/src/app/portal/[firmSlug]/(public)/begin/`
-- `apps/web/src/app/firm/(workspace)/leads/` (the list; `leads/[id]/` is Tumit's)
+- `apps/web/src/app/firm/(workspace)/leads/` (the list, the lead profile `leads/[id]/` and its tabs and convert steps; 14 routes), `intake-forms/` (13 routes), `services-pricing/` (6 routes: the list, categories, packages list, `packages/[id]`, `packages/[id]/edit` and promotions; `new`, `[id]`, `[id]/edit`, `inactive` and `packages/new` moved to Fahad on Oct 15)
+- `apps/web/src/mocks/leads.ts`, `mocks/intake-forms.ts`, `mocks/services-pricing.ts` and new `mocks/leads-*.ts`, `mocks/intake-forms-*.ts`, `mocks/services-pricing-*.ts` (synthetic data only; registering a module in `lib/api.ts` is the contract session's)
 - `apps/web/e2e/` (all tests, mock-mode ones too: you lead testing), `docs/tasks/ARFAN.md`

@@ -40,6 +40,12 @@ import {
 } from './calendar-data.js';
 import { lockAppointment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
 import { errors, isSlotConflict, isStaffConflict } from './errors.js';
+import {
+  detailsAfterStaffChange,
+  linkOf,
+  MEETING_LINKS,
+  type MeetingLinkStore,
+} from './meeting-links.js';
 
 type ListQuery = z.output<typeof MyAppointmentsQuery>;
 type SlotsQ = z.output<typeof MySlotsQuery>;
@@ -95,6 +101,7 @@ export class MyAppointmentsService {
     private readonly audit: AuditService,
     private readonly history: AppointmentHistory,
     private readonly notices: AppointmentNotices,
+    @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -274,6 +281,11 @@ export class MyAppointmentsService {
       const slot = { start, end: start + type.durationMinutes * MINUTE };
       endsInCalendar(slot.end);
       const staff = await this.choose(tx, businessId, me, slot, retry);
+      // A VIDEO type gets the chosen staff member's link (R14).
+      const locationDetails =
+        type.locationKind === 'VIDEO'
+          ? await linkOf(this.links, tx, businessId, staff.userId)
+          : null;
       await lockForBooking(tx, businessId, staff.userId, me.clientId);
       const created = await tx.appointment.create({
         data: {
@@ -284,6 +296,7 @@ export class MyAppointmentsService {
           startsAt: new Date(slot.start),
           endsAt: new Date(slot.end),
           locationKind: type.locationKind,
+          locationDetails,
           bookedByClient: true,
         },
         select: appointmentSelect,
@@ -311,6 +324,13 @@ export class MyAppointmentsService {
       const slot = { start, end: start + lengthOf(current) };
       endsInCalendar(slot.end);
       const staff = await this.choose(tx, businessId, me, slot, retry, current);
+      const locationDetails = await detailsAfterStaffChange(
+        this.links,
+        tx,
+        businessId,
+        current,
+        staff.userId,
+      );
       await lockForBooking(tx, businessId, staff.userId, current.clientId);
       const updated = await tx.appointment.update({
         where: { id: current.id },
@@ -318,6 +338,7 @@ export class MyAppointmentsService {
           startsAt: new Date(slot.start),
           endsAt: new Date(slot.end),
           staffUserId: staff.userId,
+          locationDetails,
         },
         select: appointmentSelect,
       });

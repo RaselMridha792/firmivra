@@ -82,7 +82,11 @@ export class EsignTemplateVersionsService {
     return this.templateAccess.detail(businessId, actor, saved);
   }
 
-  /** An older version copied into a new newest one (its packet is shared, never copied). */
+  /**
+   * An older version copied into a new newest one, its packet copied to a new file (each version
+   * holds its own: esign_template_versions.s3_key is unique). 409 FILE_BLOCKED if the stored packet
+   * no longer matches its hash.
+   */
   async restore(
     businessId: string,
     actor: EsignActor,
@@ -95,9 +99,10 @@ export class EsignTemplateVersionsService {
     if (!old) throw new NotFoundException(NOT_FOUND);
     const { version: _v, savedAt: _at, savedByUserId: _by, ...content } = old;
     const note = body.note ?? `Restored version ${version}`;
-    const restored = { ...content, note, savedByUserId: actor.userId };
-    const saved = templateSaved(
-      await this.templates.addVersion(businessId, t.id, restored, t.updatedAt),
+    const s3Key = await this.copies.copyPacket(businessId, t.id, old);
+    const restored = { ...content, s3Key, note, savedByUserId: actor.userId };
+    const saved = await this.copies.removingOnFailure(businessId, s3Key, async () =>
+      templateSaved(await this.templates.addVersion(businessId, t.id, restored, t.updatedAt)),
     );
     await this.audit.log('esign.template_version_restored', templateEntity(t.id), {
       restoredVersion: version,

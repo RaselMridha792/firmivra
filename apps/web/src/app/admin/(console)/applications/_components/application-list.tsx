@@ -1,6 +1,12 @@
 'use client';
 
-import { type FirmApplicationReviewStatus, type ListFirmApplicationsQuery } from '@firmivra/types';
+import {
+  ENTITY_TYPES,
+  FIRM_SERVICES,
+  FIRM_PLANS,
+  type FirmApplicationReviewStatus,
+  type ListFirmApplicationsQuery,
+} from '@firmivra/types';
 import { Card } from '@firmivra/ui';
 import { CircleCheck, FileText, UsersRound, X } from 'lucide-react';
 import { useState } from 'react';
@@ -12,7 +18,6 @@ import { applicationCountsKey, applicationListKey } from './application-data';
 import {
   cellClass,
   EmailText,
-  emailCellClass,
   firstCellClass,
   formatPhone,
   ListPager,
@@ -89,62 +94,18 @@ export function ApplicationList() {
   if (!me.platformAdmin) return <NoApplicationPermission />;
 
   return (
-    <div className="flex w-full flex-col gap-5">
-      <header className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
+    <div className="flex w-full min-w-0 flex-col gap-0 [&>footer]:rounded-b-card [&>footer]:border-x [&>footer]:border-b [&>footer]:border-border [&>footer]:bg-surface [&>footer]:p-4">
+      <header className="mb-5 flex flex-col gap-4">
         <div>
           <h1
             data-testid="page-title"
-            className="font-display text-4xl font-bold tracking-tight text-heading md:text-5xl"
+            className="font-display text-3xl font-bold tracking-tight text-heading md:text-5xl"
           >
             Firm Applications
           </h1>
-          <p className="mt-1 text-lg text-muted">
+          <p className="mt-2 text-base text-muted md:text-lg">
             Review and manage new firm applications. Approve firms to activate their accounts.
           </p>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row 2xl:mt-2">
-          <SearchBox
-            label="Search applications"
-            className="sm:w-80"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-            placeholder="Search by business, owner, or email..."
-          />
-          <select
-            aria-label="Filter by status"
-            value={statusFilter}
-            onChange={(event) => {
-              setStatusFilter(event.target.value as StatusFilter);
-              setTab('all');
-              setPage(1);
-            }}
-            className={selectClass}
-          >
-            {statuses.map(({ value, label }) => (
-              <option key={value || 'all'} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Filter by date range"
-            value={dateRange}
-            onChange={(event) => {
-              const value = event.target.value as DateRange;
-              setDateRange(value);
-              setDates(rangeBounds(value));
-              setPage(1);
-            }}
-            className={`${selectClass} sm:w-36`}
-          >
-            <option value="all">All Time</option>
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="month">This month</option>
-          </select>
         </div>
       </header>
 
@@ -152,7 +113,7 @@ export function ApplicationList() {
         {(data) => (
           <section
             aria-label="Application totals"
-            className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+            className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4 [&>div]:shadow-none [&_.size-13]:size-16 [&_svg]:size-8"
           >
             <StatCard
               label="Pending Review"
@@ -180,7 +141,7 @@ export function ApplicationList() {
       <div
         role="tablist"
         aria-label="Application status"
-        className="flex gap-6 overflow-x-auto border-b border-border"
+        className="flex flex-wrap gap-x-4 gap-y-0 rounded-t-card border border-border bg-surface px-4 pt-3"
       >
         {tabs.map(({ id, label }) => {
           const value =
@@ -210,6 +171,60 @@ export function ApplicationList() {
         })}
       </div>
 
+      <div
+        className="grid min-w-0 grid-cols-1 items-end gap-4 border-x border-border bg-surface p-4 sm:grid-cols-2 xl:grid-cols-3"
+        data-testid="application-filters"
+      >
+        <SearchBox
+          label="Search applications"
+          className="min-w-0 w-full sm:col-span-2 xl:col-span-1"
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(1);
+          }}
+          placeholder="Search by business, owner, or email..."
+        />
+        <label className="flex min-w-0 flex-col gap-1 text-sm text-muted">
+          Status
+          <select
+            aria-label="Filter by status"
+            value={statusFilter}
+            onChange={(event) => {
+              setStatusFilter(event.target.value as StatusFilter);
+              setTab('all');
+              setPage(1);
+            }}
+            className={`${selectClass} min-w-0 w-full max-w-full`}
+          >
+            {statuses.map(({ value, label }) => (
+              <option key={value || 'all'} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-w-0 flex-col gap-1 text-sm text-muted">
+          Date Range
+          <select
+            aria-label="Filter by date range"
+            value={dateRange}
+            onChange={(event) => {
+              const value = event.target.value as DateRange;
+              setDateRange(value);
+              setDates(rangeBounds(value));
+              setPage(1);
+            }}
+            className={`${selectClass} min-w-0 w-full max-w-full`}
+          >
+            <option value="all">All Time</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="month">This month</option>
+          </select>
+        </label>
+      </div>
+
       <ApplicationPageState
         query={applications}
         empty="No applications match these filters."
@@ -217,8 +232,12 @@ export function ApplicationList() {
       >
         {(data) => (
           <>
-            <Card variant="elevated" className="overflow-hidden !p-0" aria-label="Applications">
-              <ul className="divide-y divide-border sm:hidden">
+            <Card
+              variant="elevated"
+              className="overflow-hidden !rounded-none !p-0"
+              aria-label="Applications"
+            >
+              <ul className="divide-y divide-border xl:hidden">
                 {data.items.map((application) => {
                   const [day, time] = dateParts(application.submittedAt);
                   return (
@@ -244,6 +263,32 @@ export function ApplicationList() {
                             ) : null}
                           </dd>
                         </div>
+                        <div>
+                          <dt className="text-xs text-muted">Business Type</dt>
+                          <dd className="mt-1 wrap-anywhere">
+                            {application.entityType
+                              ? ENTITY_TYPES[application.entityType]
+                              : '\u2014'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-muted">Requested Plan</dt>
+                          <dd className="mt-1 wrap-anywhere">
+                            {application.requestedPlan
+                              ? FIRM_PLANS[application.requestedPlan]
+                              : '\u2014'}
+                          </dd>
+                        </div>
+                        <div className="col-span-2">
+                          <dt className="text-xs text-muted">Services</dt>
+                          <dd className="mt-1 wrap-anywhere">
+                            {application.services.length
+                              ? application.services
+                                  .map((service) => FIRM_SERVICES[service])
+                                  .join(', ')
+                              : '\u2014'}
+                          </dd>
+                        </div>
                         <div className="col-span-2">
                           <dt className="text-xs text-muted">Submitted</dt>
                           <dd className="mt-1 text-text">
@@ -253,7 +298,7 @@ export function ApplicationList() {
                       </dl>
                       <Link
                         aria-label={`Open application for ${application.legalName}`}
-                        className="flex justify-center rounded-control bg-platform-navy px-4 py-2.5 text-sm font-semibold text-white hover:bg-platform-navy-raised"
+                        className="flex justify-center rounded-control bg-action px-4 py-2.5 text-sm font-semibold text-on-action hover:bg-action-hover"
                         href={`/applications/${application.id}`}
                       >
                         Open Application
@@ -262,16 +307,19 @@ export function ApplicationList() {
                   );
                 })}
               </ul>
-              <div className="hidden sm:block">
+              <div className="hidden min-w-0 xl:block [&_table]:table-fixed [&_table]:text-xs 2xl:[&_table]:text-sm [&_table]:min-w-0 [&_td]:border-l-0 [&_td]:px-1 [&_th]:px-1 [&_thead_th]:whitespace-nowrap [&_th]:min-w-0 [&_th:first-child]:w-8 [&_[data-testid=application-status]]:px-2 [&_[data-testid=application-status]]:text-xs 2xl:[&_[data-testid=application-status]]:text-sm">
                 <ListTable
                   head={[
                     { label: '#', center: true },
                     { label: 'Business Name' },
+                    { label: 'Business Type' },
                     { label: 'Owner / Contact' },
-                    { label: 'Email' },
+                    { label: 'Email', className: 'w-36 2xl:w-56' },
+                    { label: 'Services' },
+                    { label: 'Requested Plan' },
                     { label: 'Submitted' },
-                    { label: 'Status' },
-                    { label: 'Actions', center: true },
+                    { label: 'Status', className: 'w-28 2xl:w-36' },
+                    { label: 'Action', center: true, className: 'w-28 2xl:w-36' },
                   ]}
                 >
                   {data.items.map((application, index) => {
@@ -285,22 +333,39 @@ export function ApplicationList() {
                         <td className={firstCellClass}>{first + index}</td>
                         <th
                           scope="row"
-                          className={`${cellClass} min-w-40 break-words font-semibold text-heading`}
+                          className={`${cellClass} break-words font-semibold text-heading`}
                         >
                           {application.legalName}
                         </th>
                         <td className={`${cellClass} break-words`}>
+                          {application.entityType ? ENTITY_TYPES[application.entityType] : '\u2014'}
+                        </td>
+                        <td className={`${cellClass} break-words`}>
                           {application.contactName}
                           {application.contactPhone ? (
-                            <span className="block whitespace-nowrap text-muted">
+                            <span className="block text-muted">
                               {formatPhone(application.contactPhone)}
                             </span>
                           ) : null}
                         </td>
-                        <td className={`${cellClass} ${emailCellClass}`}>
-                          <EmailText value={application.contactEmail} />
+                        <td className={`${cellClass} break-words`}>
+                          <span className="block truncate" title={application.contactEmail}>
+                            {application.contactEmail}
+                          </span>
                         </td>
-                        <td className={`${cellClass} whitespace-nowrap`}>
+                        <td className={`${cellClass} break-words`}>
+                          {application.services.length
+                            ? application.services
+                                .map((service) => FIRM_SERVICES[service])
+                                .join(', ')
+                            : '\u2014'}
+                        </td>
+                        <td className={`${cellClass} break-words`}>
+                          {application.requestedPlan
+                            ? FIRM_PLANS[application.requestedPlan]
+                            : '\u2014'}
+                        </td>
+                        <td className={`${cellClass} break-words`}>
                           {day}
                           <span className="block">{time}</span>
                         </td>
@@ -310,7 +375,7 @@ export function ApplicationList() {
                         <td className={`${cellClass} text-center`}>
                           <Link
                             aria-label={`Open application for ${application.legalName}`}
-                            className="inline-flex whitespace-nowrap rounded-control bg-platform-navy px-4 py-2.5 font-semibold text-white hover:bg-platform-navy-raised"
+                            className="inline-flex justify-center whitespace-nowrap rounded-control bg-action px-1 py-2.5 font-semibold text-on-action hover:bg-action-hover"
                             href={`/applications/${application.id}`}
                           >
                             Open Application

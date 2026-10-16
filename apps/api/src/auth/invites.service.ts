@@ -16,6 +16,7 @@ import {
   type ActivationCheckResponse,
   CreateInviteRequest,
   type MembershipRole,
+  ROLES_MANAGED_BY,
 } from '@firmivra/types';
 import { AuditService, type AuditEntity } from '../audit/audit.service.js';
 import { type AuthContext, requestContext } from '../common/request-context.js';
@@ -154,12 +155,13 @@ async function inviterNow(tx: TxClient, inviter: Inviter): Promise<Inviter> {
 const expiredByDatabase = (e: unknown) =>
   e instanceof Error && e.message.includes('expired invite cannot be accepted');
 
-/** The owner invites admins and staff, an admin invites staff; only the platform invites owners. */
+/**
+ * The owner invites any role but Owner, an admin any role below Admin (ROLES_MANAGED_BY); only
+ * the platform invites owners.
+ */
 function assertMayInvite(inviter: Inviter | null, role: MembershipRole): void {
   if (!inviter) return;
-  const allowed: MembershipRole[] =
-    inviter.role === 'OWNER' ? ['ADMIN', 'STAFF'] : inviter.role === 'ADMIN' ? ['STAFF'] : [];
-  if (!allowed.includes(role)) {
+  if (!ROLES_MANAGED_BY[inviter.role].includes(role)) {
     throw new ForbiddenException({ code: 'FORBIDDEN', message: 'You cannot invite this role' });
   }
 }

@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../components/page-placeholder';
+import { InvoicesScreen } from './_components/invoices-screen';
 
 export const metadata: Metadata = { title: 'Invoices' };
 
 export default function InvoicesPage() {
-  return <PagePlaceholder title="Invoices" ticket="F10" owner="Fahad" />;
+  return <InvoicesScreen />;
 }

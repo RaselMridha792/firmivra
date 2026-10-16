@@ -2,6 +2,8 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
 import type { Calculator, CalculatorKey, FirmCalculator } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
+import { PortalInfoService } from '../client-auth/portal-info.controller.js';
+import { BUSINESS_MODULES, type BusinessModules } from '../common/modules/requires-module.js';
 import { DATABASE } from '../database/database.module.js';
 import {
   CALCULATOR_DEFAULTS,
@@ -19,11 +21,10 @@ const rowSelect = {
   disclaimer: true,
   enabled: true,
   sortOrder: true,
-  config: true,
 } satisfies Prisma.CalculatorDefinitionSelect;
 
 /**
- * The firm's calculators (R12 step 5; contract in packages/types/src/calculators). Every query
+ * The firm's calculators (R12 step 5, R14 K1; contract in packages/types/src/calculators). Every query
  * runs in the firm's business scope with `businessId` from TenantGuard. Everyone at the firm
  * reads; Owner and Admin change (the routes say so). Reads never write: a firm without a row
  * gets the default definition, and its row is created on the first change. Clients read enabled
@@ -35,6 +36,8 @@ export class CalculatorsService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly portal: PortalInfoService,
+    @Inject(BUSINESS_MODULES) private readonly modules: BusinessModules,
   ) {}
 
   private async rows(businessId: string): Promise<DefinitionRow[]> {
@@ -57,9 +60,8 @@ export class CalculatorsService {
       { kind: 'business', businessId },
       async (tx) => {
         const d = CALCULATOR_DEFAULTS[key];
-        // No config: the column's default `{}` keeps showing the current default figures, so a
-        // firm that only renamed its calculator gets the new figures when the defaults change,
-        // the same as a firm without a row (never a frozen copy of the placeholders).
+        // No config: the column keeps its default `{}` and is never read (the figures live in
+        // packages/types, by tax year).
         const inserted = await tx.calculatorDefinition.createMany({
           data: [
             {
@@ -110,6 +112,22 @@ export class CalculatorsService {
   /** One enabled calculator; a key the firm turned off is 404 NOT_FOUND. */
   async mineOne(businessId: string, key: CalculatorKey): Promise<Calculator> {
     const found = (await this.mine(businessId)).find((c) => c.key === key);
+    if (!found) throw notFound();
+    return found;
+  }
+
+  /**
+   * The public pages' read: the ACTIVE firm named by the slug, only while its 'calculators'
+   * module is on (404 otherwise, as if the pages did not exist), enabled calculators only.
+   */
+  async publicList(firmSlug: string): Promise<Calculator[]> {
+    const firm = await this.portal.activeFirm(firmSlug);
+    if (!(await this.modules.isEnabled(firm.id, 'calculators'))) throw notFound();
+    return this.mine(firm.id);
+  }
+
+  async publicOne(firmSlug: string, key: CalculatorKey): Promise<Calculator> {
+    const found = (await this.publicList(firmSlug)).find((c) => c.key === key);
     if (!found) throw notFound();
     return found;
   }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   type Appointment,
@@ -7,7 +7,7 @@ import {
   type AppointmentList,
   type SlotList,
 } from '@firmivra/types';
-import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import {
@@ -17,6 +17,7 @@ import {
   FirmSlotsQuery,
   idParam,
   RescheduleBody,
+  UpdateBody,
 } from './appointments.input.js';
 import { AppointmentsService } from './appointments.service.js';
 import { firmActor, optionalBody } from './request-actors.js';
@@ -29,6 +30,7 @@ const idPipe = new ZodValidationPipe(idParam(AppointmentId));
  * for anything else about those). The firm comes from TenantGuard.
  */
 @Controller('business/appointments')
+@Access('APPOINTMENTS')
 @Roles(...FIRM_STAFF)
 export class AppointmentsController {
   constructor(private readonly appointments: AppointmentsService) {}
@@ -81,6 +83,17 @@ export class AppointmentsController {
     @Body(new ZodValidationPipe(RescheduleBody)) body: z.output<typeof RescheduleBody>,
   ): Promise<Appointment> {
     return this.appointments.reschedule(tenant.businessId, firmActor(auth, tenant), id, body);
+  }
+
+  /** Edit location (R14): kind and details only. */
+  @Patch(':id')
+  update(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(UpdateBody)) body: z.output<typeof UpdateBody>,
+  ): Promise<Appointment> {
+    return this.appointments.update(tenant.businessId, firmActor(auth, tenant), id, body);
   }
 
   @Post(':id/cancel')

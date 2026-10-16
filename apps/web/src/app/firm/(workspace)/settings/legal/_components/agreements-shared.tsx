@@ -12,8 +12,15 @@ export const AGREEMENTS = ['firm-settings', 'agreements'];
 export const agreementKey = (id: string) => [...AGREEMENTS, id];
 const versionKey = (id: string, version: number) => [...AGREEMENTS, id, 'version', version];
 
-const day = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-US', { dateStyle: 'medium', timeZone: 'UTC' });
+/** A moment (publishedAt), on the viewer's own calendar. */
+const day = (iso: string) => new Date(iso).toLocaleDateString('en-US', { dateStyle: 'medium' });
+
+/** A calendar date (effectiveDate, YYYY-MM-DD): the same day wherever the viewer is. */
+const calendarDay = (date: string) =>
+  new Date(`${date}T00:00:00Z`).toLocaleDateString('en-US', {
+    dateStyle: 'medium',
+    timeZone: 'UTC',
+  });
 
 export const scopeLabel = (agreement: Pick<FirmAgreementSummary, 'scope' | 'service'>) =>
   agreement.scope === 'ALL_INTAKES'
@@ -24,7 +31,7 @@ export const scopeLabel = (agreement: Pick<FirmAgreementSummary, 'scope' | 'serv
 export const versionLine = (version: AgreementVersionSummary) =>
   [
     `Version ${version.version}, published ${day(version.publishedAt)}`,
-    version.effectiveDate ? `effective ${day(`${version.effectiveDate}T00:00:00Z`)}` : null,
+    version.effectiveDate ? `effective ${calendarDay(version.effectiveDate)}` : null,
   ]
     .filter(Boolean)
     .join(' · ');

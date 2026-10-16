@@ -1,5 +1,7 @@
 import { type ApiRequest, parseInput } from '../client.js';
+import { UploadTicket } from '../documents/schemas.js';
 import { LegalDocument, LegalKind } from '../client-auth/schemas.js';
+import { ConfirmLogoUploadRequest, CreateLogoUploadRequest, LogoVariant } from './logo.js';
 import {
   FirmLegalOverview,
   FirmSettings,
@@ -12,6 +14,7 @@ import {
 
 const SETTINGS = '/business/settings';
 const SETUP = '/business/setup';
+const LOGO = '/business/logo';
 const legal = (kind: LegalKind) => `/business/legal/${parseInput(LegalKind, kind)}`;
 
 /**
@@ -27,6 +30,25 @@ export function createSettingsClient(request: ApiRequest) {
       request(FirmSettings, SETTINGS, {
         method: 'PATCH',
         body: parseInput(UpdateFirmSettingsRequest, body),
+      }),
+
+    /** Step 1 of a new logo (PNG, JPEG or WebP, up to 2 MB): where to PUT the file. */
+    createLogoUpload: async (body: CreateLogoUploadRequest): Promise<UploadTicket> =>
+      request(UploadTicket, `${LOGO}/uploads`, {
+        method: 'POST',
+        body: parseInput(CreateLogoUploadRequest, body),
+      }),
+    /** Step 3: checks the stored file and makes it the logo; answers the settings. */
+    confirmLogoUpload: async (body: ConfirmLogoUploadRequest): Promise<FirmSettings> =>
+      request(FirmSettings, `${LOGO}/uploads/confirm`, {
+        method: 'POST',
+        body: parseInput(ConfirmLogoUploadRequest, body),
+      }),
+    /** Removes the logo (dark by default); the Firmivra logo shows again. Repeating is harmless. */
+    removeLogo: async (variant: LogoVariant = 'dark'): Promise<FirmSettings> =>
+      request(FirmSettings, `${LOGO}?variant=${parseInput(LogoVariant, variant)}`, {
+        method: 'DELETE',
+        body: {},
       }),
 
     getSetup: async (): Promise<FirmSetup> => request(FirmSetup, SETUP),

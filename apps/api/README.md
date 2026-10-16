@@ -121,6 +121,7 @@ export class ClientsController {
 }
 ```
 
+- Eight firm roles (R35): Owner, Admin, Manager, Staff, Bookkeeper, Tax Preparer, Client Support, Read Only (`FIRM_ROLES` in `packages/types`). `@Roles(...)` still lists Owner, Admin and Staff. The five newer roles get into a route only through the permission grid (`DEFAULT_ROLE_PERMISSIONS`, `packages/types/src/team/permissions.ts`): put `@Access('CLIENTS')` on a controller (the capability follows the method: GET views, POST creates, PUT and PATCH edit, DELETE deletes) or `@Access('CLIENTS', 'EDIT')` on a route. It works only on routes whose `@Roles` include STAFF; a route without it is closed to them. Services scope their data by `legacyFirmRole(tenant.role)`: the five newer roles count as Staff there (only their assigned clients).
 - Roles: `FIRM_STAFF` (owner, admin, staff), `FIRM_MANAGERS` (owner, admin), `'CLIENT'` on portal routes (`portal/:firmSlug/...`), `'SUPER_ADMIN'` on `admin/` routes, `'AUTHENTICATED'` for anyone signed in.
 - Firm status: firm routes work only for `ACTIVE` firms. A route a firm needs before that (the setup wizard after approval) says so: `@AllowBusinessStatuses('PENDING_SETUP', 'ACTIVE')`.
 - Database: `TenantPrisma.db` for firm data (never `businessId` from the body or query). Super Admin routes use `PlatformPrisma.db` for platform tables; it throws unless `RolesGuard` verified a Super Admin for this request. `@Inject(DATABASE)` with `forPlatform()` is for the auth guards and sign-in only; Rasel reviews any other use.

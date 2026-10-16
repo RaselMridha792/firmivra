@@ -74,8 +74,13 @@ export const FirmSettings = z.object({
   country: z.string(),
   /** IANA time zone, for example America/New_York. */
   timezone: z.string(),
-  /** Null until R5 adds logo upload and signed URLs. */
+  /** The logo's lasting public address (see logo.ts), or null when the firm has none. */
   logoUrl: z.url().nullable(),
+  /** The logo for light backgrounds (`?variant=light`), or null when the firm has none. */
+  logoLightUrl: z.url().nullable(),
+  /** Under the firm sidebar: the slogan (gold script) and the motto (small capitals). Plain text. */
+  sidebarSlogan: z.string().nullable(),
+  sidebarMotto: z.string().nullable(),
   /** Portal colours, `#rrggbb`. Null uses Firmivra's default. */
   primaryColor: z.string().nullable(),
   accentColor: z.string().nullable(),
@@ -156,6 +161,8 @@ export const UpdateFirmSettingsRequest = z
       }),
     primaryColor: clearable(HexColor),
     accentColor: clearable(HexColor),
+    sidebarSlogan: clearable(upTo(80)),
+    sidebarMotto: clearable(upTo(80)),
     portalName: clearable(upTo(120)),
     portalHeader: clearable(upTo(200)),
     welcomeMessage: clearable(upTo(2000, 'many')),

@@ -1,6 +1,7 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import {
   AdminDashboard,
+  AdminSystemStatus,
   ApproveFirmApplicationRequest,
   DeclineFirmApplicationRequest,
   FirmApplicationCounts,
@@ -98,6 +99,9 @@ export function createFirmApplicationsClient(request: ApiRequest) {
 
     /** The Super Admin dashboard's counts. */
     dashboard: async (): Promise<AdminDashboard> => request(AdminDashboard, '/admin/dashboard'),
+    /** Storage, email and portal checks for the System Status card. */
+    systemStatus: async (): Promise<AdminSystemStatus> =>
+      request(AdminSystemStatus, '/admin/system-status'),
   };
 }
 

@@ -55,7 +55,8 @@ export function createStacks(app: App, config: EnvConfig) {
     data,
     auth,
     email,
-    description: 'Firmivra: ECR, ECS services, load balancer, CloudFront, DNS',
+    description:
+      'Firmivra: ECR, ECS services, load balancer, CloudFront, DNS, malware scan, alarms',
   });
   const ci = new CiStack(app, id('ci'), {
     ...common,

@@ -71,7 +71,7 @@ export type EsignMemberRoleList = z.infer<typeof EsignMemberRoleList>;
 
 /**
  * PUT /esign/roles/{userId} (Owner, Admin): a Staff member's Firm Sign access. 409 ROLE_FIXED for
- * an Owner or Admin, NOT_A_MEMBER for anyone not an active member.
+ * an Owner or Admin; 404 for anyone not an active member of the firm.
  */
 export const SetEsignMemberRoleBody = z.strictObject({
   esignRole: z.enum(['MANAGER', 'STAFF', 'VIEWER']),
@@ -217,7 +217,10 @@ export const ESIGN_BULK_MAX = 200;
  * ACCESS_CODE role needs another `authMethod` (or IN_PERSON). Answers 202 with the batch; the job
  * runner creates and sends the requests. A client whose request can't be sent (a readiness
  * problem) stays a DRAFT and the batch row says why. 400 BULK_LIMIT (the client checks it before
- * sending), 409 TEMPLATE_ARCHIVED, TEMPLATE_ROLES_UNFILLED, APPROVER_NOT_ALLOWED.
+ * sending), 404 for a client id that is not the firm's, 409 ENGAGEMENT_MISMATCH for a service
+ * that is not that client's (nothing written either way), 409 TEMPLATE_ARCHIVED,
+ * TEMPLATE_ROLES_UNFILLED, APPROVER_NOT_ALLOWED. A client the caller can't reach (not assigned to
+ * them, or archived) is a NOT_SENT row (NO_CLIENT).
  */
 export const EsignBulkSendBody = z
   .strictObject({

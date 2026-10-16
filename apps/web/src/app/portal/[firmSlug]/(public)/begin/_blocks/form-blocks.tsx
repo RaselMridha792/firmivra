@@ -13,29 +13,70 @@ export function SectionPanel({
   icon,
   iconPosition = 'end',
   aside,
+  bar = false,
+  badge,
+  size = 'panel',
+  action,
+  tint = false,
+  plain = false,
+  tone,
+  numberInTitle = false,
+  badgeDark = false,
+  compact = false,
   children,
   className = '',
 }: {
-  number?: number;
+  number?: number | undefined;
   title: string;
-  subtitle?: string;
+  subtitle?: string | undefined;
   icon?: ReactNode;
   iconPosition?: 'start' | 'end';
   aside?: ReactNode;
+  /** A tinted bar: the title on the left and the fields on the right (a form's comments). */
+  bar?: boolean | undefined;
+  /** An icon in the number's circle instead of a number. */
+  badge?: ReactNode;
+  /** `intro`: the step's own heading, large and unnumbered; `none`: no header at all. */
+  size?: 'panel' | 'intro' | 'none';
+  /** A button at the header's end ("Edit Information"). */
+  action?: ReactNode;
+  tint?: boolean | undefined;
+  /** No box: a large heading on the page. */
+  plain?: boolean | undefined;
+  tone?: 'danger' | 'warm' | undefined;
+  /** "1. Title" instead of the number in a circle. */
+  numberInTitle?: boolean | undefined;
+  /** A navy badge circle with a white icon. */
+  badgeDark?: boolean | undefined;
+  /** A smaller title (a panel in a column of three). */
+  compact?: boolean | undefined;
   children: ReactNode;
   className?: string;
 }) {
   const titleId = useId();
+  // "Business Information (if applicable)": a lower-case bracket smaller, as the mockups set it
+  // ("Business Income (Gross Receipts)" keeps its size).
+  const bracket = /^(.*\S)\s+(\([a-z][^()]*\))$/.exec(title);
   return (
     <Card
       aria-labelledby={titleId}
-      className={`min-w-0 border-folder-border! p-3! shadow-none! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${className}`}
+      className={`min-w-0 border-folder-border! p-3! shadow-none! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${bar ? 'bg-accent-soft! sm:flex sm:items-center sm:gap-4' : ''} ${tint ? 'bg-accent-soft!' : ''} ${plain ? 'border-0! bg-transparent! px-0!' : ''} ${tone === 'danger' ? 'border-danger! bg-danger-soft!' : tone === 'warm' ? 'border-accent! bg-accent-soft!' : ''} ${className}`}
     >
-      <header className="mb-2 flex items-center gap-3">
-        {number !== undefined && (
+      <header
+        className={`flex items-center gap-3 ${size === 'none' ? 'sr-only' : bar ? 'mb-2 sm:mb-0 sm:w-5/12' : 'mb-2'}`}
+      >
+        {badge && (
           <span
             aria-hidden="true"
-            className="grid size-11 shrink-0 place-items-center rounded-full bg-navigation font-display text-3xl leading-none text-white"
+            className={`grid size-11 shrink-0 place-items-center rounded-full text-on-action ${badgeDark ? 'bg-heading' : 'bg-action'}`}
+          >
+            {badge}
+          </span>
+        )}
+        {number !== undefined && !badge && !numberInTitle && !plain && (
+          <span
+            aria-hidden="true"
+            className="grid size-11 shrink-0 place-items-center rounded-full bg-navigation font-display text-3xl leading-none text-accent"
           >
             {number}
           </span>
@@ -46,16 +87,34 @@ export function SectionPanel({
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <h2 id={titleId} className="font-display text-xl leading-tight font-bold text-heading">
-            {title}
+          <h2
+            id={titleId}
+            className={`font-display leading-tight font-bold text-heading ${bar ? 'text-base' : size === 'intro' || plain ? 'text-3xl' : numberInTitle || compact ? 'text-lg' : 'text-xl'}`}
+          >
+            {number !== undefined && (numberInTitle || plain) && `${number}. `}
+            {bracket ? (
+              <>
+                {bracket[1]}{' '}
+                <span className="font-sans text-xs font-normal text-firm-primary">
+                  {bracket[2]}
+                </span>
+              </>
+            ) : (
+              title
+            )}
           </h2>
-          {subtitle && <p className="text-xs text-firm-primary">{subtitle}</p>}
+          {subtitle && (
+            <p className={`text-firm-primary ${size === 'intro' ? 'mt-1 text-sm' : 'text-xs'}`}>
+              {subtitle}
+            </p>
+          )}
         </div>
         {icon && iconPosition === 'end' && (
           <span aria-hidden="true" className="shrink-0 text-accent">
             {icon}
           </span>
         )}
+        {action}
       </header>
       {aside ? (
         <>
@@ -187,7 +246,7 @@ export function MaskedInput({
       <Button
         variant="ghost"
         disabled={disabled}
-        aria-label={`${visible ? 'Hide' : 'Show'} ${label.replace(' *', '')}`}
+        aria-label={`${visible ? 'Hide' : 'Show'} ${label.replace(/\s\*$/, '')}`}
         aria-pressed={visible}
         onClick={() => setVisible(!visible)}
         className="absolute top-5 right-1 min-h-7! px-1! py-1!"
@@ -261,37 +320,44 @@ export function IntakeStepper({
   steps,
   current,
   onEdit,
+  boxed = false,
 }: {
   /** `skipped`: a step the answers leave out (Annual's business step for a personal return). */
-  steps: { id: number; label: string; skipped?: boolean }[];
+  steps: { id: number; label: string; skipped?: boolean; hint?: string | undefined }[];
   current: number;
   onEdit: (step: number) => void;
+  /** In a white box, the steps not reached in grey (Tax Planning's mockups). */
+  boxed?: boolean | undefined;
 }) {
   return (
-    <ol aria-label="Intake progress" className="mb-3 flex">
-      {steps.map(({ id, label, skipped }, index) => (
+    <ol
+      aria-label="Intake progress"
+      className={`mb-3 flex ${boxed ? 'rounded-card border border-folder-border bg-surface px-2 py-3 shadow-sm' : ''}`}
+    >
+      {steps.map(({ id, label, skipped, hint }, index) => (
         <li
           key={id}
           aria-current={current === id ? 'step' : undefined}
-          className="relative flex min-w-0 flex-1 flex-col items-center gap-1 text-center text-xs text-firm-primary"
+          className="relative flex min-w-0 flex-1 flex-col items-center gap-1 text-center text-sm font-semibold text-firm-primary"
         >
           {index < steps.length - 1 && (
-            <span aria-hidden="true" className="absolute top-4 left-1/2 h-px w-full bg-action/40" />
+            <span aria-hidden="true" className="absolute top-4 left-1/2 h-px w-full bg-action" />
           )}
           <Button
             variant="ghost"
             disabled={id > current || skipped}
             onClick={() => onEdit(id)}
             aria-label={skipped ? `${label} (not needed)` : `Go to ${label}`}
-            className={`relative min-h-9! w-9 rounded-full! p-0! ${current === id ? 'bg-action! text-on-action!' : 'bg-folder-surface!'} ${skipped ? 'opacity-50' : ''}`}
+            className={`relative min-h-8! w-8 rounded-full! p-0! text-sm! font-bold! ${current === id ? 'bg-action! text-on-action!' : boxed ? 'bg-muted! text-on-action!' : 'bg-folder-surface! text-firm-primary!'} ${skipped ? 'opacity-50' : ''}`}
           >
             <span aria-hidden="true">{index + 1}</span>
           </Button>
-          <span
-            className={`px-1 ${current === id ? 'font-semibold' : ''} ${skipped ? 'text-muted line-through' : ''}`}
-          >
+          <span className={`px-1 ${skipped ? 'font-normal text-muted line-through' : ''}`}>
             {label}
           </span>
+          {hint && !skipped && (
+            <span className="hidden px-1 text-xs font-normal sm:block">{hint}</span>
+          )}
           {skipped && <span className="text-xs text-muted">Not needed</span>}
         </li>
       ))}
@@ -301,24 +367,27 @@ export function IntakeStepper({
 
 export function ReviewCard({
   title,
+  icon,
   onEdit,
   children,
   className = '',
 }: {
   title: string;
+  icon?: ReactNode;
   onEdit: () => void;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <Card className={`min-w-0 border-folder-border! p-3! shadow-none! ${className}`}>
-      <header className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="font-display text-lg font-bold text-heading">{title}</h3>
+      <header className="mb-2 flex items-center gap-3">
+        {icon && <span className="shrink-0 text-accent">{icon}</span>}
+        <h3 className="min-w-0 flex-1 font-display text-lg font-bold text-heading">{title}</h3>
         <Button
           variant="outline"
           onClick={onEdit}
           aria-label={`Edit ${title}`}
-          className="min-h-7! gap-1! px-2! py-1! text-xs!"
+          className="min-h-8! gap-1! px-3! py-1! text-xs!"
         >
           <Pencil aria-hidden="true" className="size-3" />
           Edit
@@ -339,11 +408,13 @@ export function ReviewRows({ rows }: { rows: [string, ReactNode, string?, boolea
           className={`border-b border-folder-border last:border-0 ${wide ? '' : 'grid grid-cols-2'}`}
         >
           <dt
-            className={`px-2 py-1 text-firm-primary ${wide ? 'font-semibold' : 'border-r border-folder-border'}`}
+            className={`px-2 py-1 text-firm-primary ${wide ? (label ? 'font-semibold' : 'sr-only') : 'border-r border-folder-border'}`}
           >
             {label}
           </dt>
-          <dd className="min-w-0 px-2 py-1 break-words text-muted">{value || 'Not provided'}</dd>
+          <dd className={`min-w-0 break-words text-text ${wide && !label ? '' : 'px-2 py-1'}`}>
+            {value || 'Not provided'}
+          </dd>
         </div>
       ))}
     </dl>

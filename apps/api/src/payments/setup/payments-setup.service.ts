@@ -20,6 +20,7 @@ import { StripeAccountsWriter, toOnboardingState } from '../stripe/stripe-accoun
 import { STRIPE_GATEWAY, stripeErrorName, type StripeGateway } from '../stripe/stripe-gateway.js';
 
 type AccountRow = {
+  id: string;
   accountId: string;
   onboardingStatus: 'PENDING' | 'RESTRICTED' | 'COMPLETE';
   chargesEnabled: boolean;
@@ -29,7 +30,7 @@ type AccountRow = {
 };
 
 /** The answer for a firm's `stripe_accounts` row, or for none (not connected). */
-export function toPaymentsSetup(row: Omit<AccountRow, 'accountId'> | null): PaymentsSetup {
+export function toPaymentsSetup(row: Omit<AccountRow, 'id' | 'accountId'> | null): PaymentsSetup {
   const setup = {
     connected: row !== null,
     onboardingStatus: row?.onboardingStatus ?? null,
@@ -100,7 +101,8 @@ export class PaymentsSetupService {
       this.call('accounts.create', businessId, () =>
         stripe.createAccount(
           { businessId, country: 'US', email: null },
-          `fv-connect-${businessId}`,
+          // v2: a new prefix, so a key used with the v1 create is never replayed.
+          `fv-connect-v2-${businessId}`,
         ),
       ),
     );
@@ -124,6 +126,30 @@ export class PaymentsSetupService {
     const row = await this.row(businessId);
     if (!row) throw setupConflict('PAYMENTS_NOT_SET_UP');
     return this.syncAndLink(stripe, businessId, row);
+  }
+
+  /**
+   * POST .../sync: Stripe's current state of the firm's account, stored, with no new link. The page
+   * calls it when Stripe sends the Owner back (`?stripe=return`) and from "Check status", so the
+   * state catches up even before (or without) `account.updated`. Audited only when it changed.
+   */
+  async sync(businessId: string): Promise<PaymentsSetup> {
+    const stripe = this.gateway();
+    const row = await this.row(businessId);
+    if (!row) throw setupConflict('PAYMENTS_NOT_SET_UP');
+    const account = await this.call('accounts.retrieve', businessId, () =>
+      stripe.retrieveAccount(row.accountId),
+    );
+    const state = toOnboardingState(account);
+    const same = (Object.keys(state) as (keyof typeof state)[]).every((k) => state[k] === row[k]);
+    if (same) return toPaymentsSetup(row);
+    const updated = await this.accounts.update(businessId, row.accountId, state);
+    await this.audit.log(
+      'payments.stripe_account_synced',
+      { type: 'stripe_account', id: updated.id },
+      { accountId: row.accountId, onboardingStatus: state.onboardingStatus },
+    );
+    return toPaymentsSetup(updated);
   }
 
   /** Stores Stripe's current state of the account, then a new link unless it is COMPLETE (409). */

@@ -5,15 +5,28 @@ import { useId, type SelectHTMLAttributes, type InputHTMLAttributes } from 'reac
 /** `className` styles the <select> itself: set a width on a parent so the chevron follows it. */
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label: string;
+  /** Hides the label text; it stays as the accessible name (filter bars). */
+  hideLabel?: boolean;
   error?: string;
   options: { value: string; label: string }[];
 }
-export function Select({ label, options, error, id, className = '', ...props }: SelectProps) {
+export function Select({
+  label,
+  hideLabel,
+  options,
+  error,
+  id,
+  className = '',
+  ...props
+}: SelectProps) {
   const generatedId = useId();
   const fieldId = id ?? generatedId;
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={fieldId} className="text-sm font-medium text-text">
+      <label
+        htmlFor={fieldId}
+        className={`text-sm font-medium text-text ${hideLabel ? 'sr-only' : ''}`}
+      >
         {label}
       </label>
       <div className="relative">
@@ -21,7 +34,7 @@ export function Select({ label, options, error, id, className = '', ...props }: 
           id={fieldId}
           aria-invalid={!!error}
           aria-describedby={error ? `${fieldId}-error` : undefined}
-          className={`w-full appearance-none rounded-control border bg-surface py-2 pl-3 pr-10 text-base text-text focus:outline-2 focus:outline-accent-500 disabled:bg-disabled ${error ? 'border-danger' : 'border-border'} ${className}`}
+          className={`min-w-0 w-full max-w-full appearance-none rounded-control border bg-surface py-2 pl-3 pr-10 text-base text-text focus:outline-2 focus:outline-accent-500 disabled:bg-disabled ${error ? 'border-danger' : 'border-border'} ${className}`}
           {...props}
         >
           {options.map((o) => (

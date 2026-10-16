@@ -20,12 +20,15 @@ import {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import {
   type FieldContext,
   FieldEncryption,
   FieldEncryptionError,
 } from '../field-encryption/field-encryption.service.js';
+import { logoUrl } from './logo-checks.js';
 
 type SettingsPatch = z.output<typeof UpdateFirmSettingsRequest>;
 
@@ -89,6 +92,7 @@ export class SettingsService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly fieldEncryption: FieldEncryption,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -345,8 +349,10 @@ export class SettingsService {
       // The column defaults, for a firm that has not saved settings yet.
       country: s?.country ?? 'US',
       timezone: s?.timezone ?? 'America/New_York',
-      // R5 turns logo_key into a short-lived signed URL.
-      logoUrl: null,
+      logoUrl: logoUrl(this.env.PORTAL_BASE_URL, business.slug, s?.logoKey),
+      logoLightUrl: logoUrl(this.env.PORTAL_BASE_URL, business.slug, s?.logoLightKey, 'light'),
+      sidebarSlogan: s?.sidebarSlogan ?? null,
+      sidebarMotto: s?.sidebarMotto ?? null,
       primaryColor: s?.brandColor ?? null,
       accentColor: s?.accentColor ?? null,
       portalName: s?.portalName ?? null,

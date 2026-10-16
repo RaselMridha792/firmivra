@@ -40,7 +40,7 @@ import { esignRefusal, invalid } from '../requests/requests.service.js';
 import { EsignSendService } from '../requests/send.service.js';
 import { SIGNER_REPOSITORY } from './signer.repository.js';
 import type { AdoptedMark, EsignSignerRepository, SignerRecord } from './signer.repository.js';
-import type { SignerAttachment } from './signer.repository.js';
+import type { SignerAttachment, SignerLink } from './signer.repository.js';
 
 /** The signer cookie lives an hour from the last step that moved the signer on. */
 export const SIGNER_COOKIE_SECONDS = 60 * 60;
@@ -74,6 +74,17 @@ export function signerStep(s: SignerSession, r: SignerRecord, now: Date): Signer
   if (!s.accessCodePassed) return 'VERIFY_ACCESS_CODE';
   return s.consentVersionId === null ? 'CONSENT' : 'SIGN';
 }
+
+/**
+ * An in-person signing session: only the kiosk's link opens an IN_PERSON signer (`open`), and the
+ * Signature center never does, so a signing session of one is always on the staff member's device.
+ */
+export const inPerson = (c: Pick<SignerCall, 'session' | 'signer'>) =>
+  c.session.purpose === 'SIGN' && c.signer.recipient.delivery === 'IN_PERSON';
+
+/** The auth method the timeline records: IN_PERSON at the kiosk, else the recipient's own. */
+const authMethod = (c: SignerCall): EsignAuthMethod =>
+  inPerson(c) ? 'IN_PERSON' : c.signer.recipient.authMethod;
 
 /** A signer call: the firm from the slug, the recipient from the cookie, never from the body. */
 export interface SignerCall {
@@ -125,14 +136,19 @@ export class EsignSignerService {
     const link = await this.repo.findLink(firm.id, this.tokens.hash(token));
     const signer = link && (await this.read(firm.id, link));
     if (!link || !signer || signer.tokenVersion !== link.tokenVersion) throw linkInvalid();
-    const { requestId, recipientId, tokenVersion, purpose } = link;
+    const { requestId, recipientId, tokenVersion } = link;
+    // Only the kiosk's link opens an IN_PERSON signer, and it opens no one else.
+    const kiosk = link.purpose === 'IN_PERSON';
+    if (kiosk !== (signer.recipient.delivery === 'IN_PERSON')) throw linkInvalid();
     const method = signer.recipient.authMethod;
-    // A copy link always asks for the email code, never the access code or consent.
-    const copy = purpose === 'COPY';
+    // A copy link always asks for the email code, never the access code or consent; the kiosk's
+    // asks for neither code (the staff member vouches), only consent.
+    const copy = link.purpose === 'COPY';
+    const purpose = copy ? 'COPY' : 'SIGN';
     const session: SignerSession = {
       ...{ slug: firm.slug, businessId: firm.id, requestId, recipientId, tokenVersion, purpose },
-      emailCodePassed: !copy && method !== 'EMAIL_CODE',
-      accessCodePassed: copy || method !== 'ACCESS_CODE',
+      emailCodePassed: kiosk || (!copy && method !== 'EMAIL_CODE'),
+      accessCodePassed: kiosk || copy || method !== 'ACCESS_CODE',
       consentVersionId: copy ? null : signer.consentVersionId,
     };
     const call: SignerCall = {
@@ -143,6 +159,12 @@ export class EsignSignerService {
     };
     // Used (signed or declined), closed or expired: the same answer as an unknown link.
     if (['DONE', 'DECLINED', 'CLOSED'].includes(call.step)) throw linkInvalid();
+    if (kiosk) {
+      await this.touchKiosk(call);
+      await this.event(call, 'AUTH_PASSED', 'IN_PERSON');
+      await this.log(call, 'esign.signer_link_opened', { authMethod: 'IN_PERSON' });
+      return this.moveOn(call, res);
+    }
     if (method === 'LINK') await this.event(call, 'AUTH_PASSED', 'LINK');
     await this.log(call, 'esign.signer_link_opened');
     return this.moveOn(call, res);
@@ -168,7 +190,9 @@ export class EsignSignerService {
       ...{ firm, session, signer },
       step: signerStep(session, signer, new Date()),
     };
-    if (call.step !== 'CONSENT' && call.step !== 'SIGN') throw linkInvalid();
+    // In person is on the staff member's device only (the center lists it as WAITING).
+    const kiosk = me.delivery === 'IN_PERSON';
+    if (kiosk || (call.step !== 'CONSENT' && call.step !== 'SIGN')) throw linkInvalid();
     await this.event(call, 'AUTH_PASSED', 'PORTAL_SESSION');
     await this.log(call, 'esign.signer_portal_opened', { authMethod: 'PORTAL_SESSION' });
     return this.moveOn(call, res);
@@ -183,14 +207,23 @@ export class EsignSignerService {
     const signer = await this.read(firm.id, session);
     if (!signer || signer.tokenVersion !== session.tokenVersion) throw linkInvalid();
     const step = signerStep(session, signer, new Date());
+    const c = { firm, session, signer, step };
+    // Every call of an in-person signer keeps the staff member's kiosk from timing out.
+    if (inPerson(c)) await this.touchKiosk(c);
     if (steps.length > 0 && !steps.includes(step)) throw esignRefusal('WRONG_STEP');
-    return { firm, session, signer, step };
+    return c;
+  }
+
+  /** Moves the kiosk's idle timer; an idle (or ended) kiosk ends the signer's session too. */
+  private async touchKiosk(c: SignerCall) {
+    const { request: q, recipient: me } = c.signer;
+    if (!(await this.repo.touchKiosk(c.firm.id, q.id, me.id, new Date()))) throw linkInvalid();
   }
 
   /** A SIGN link's or session's SIGNER; a COPY one's SIGNER or CC. */
   private read(
     businessId: string,
-    s: Pick<SignerSession, 'requestId' | 'recipientId' | 'purpose'>,
+    s: Pick<SignerSession, 'requestId' | 'recipientId'> & Pick<SignerLink, 'purpose'>,
   ) {
     const read = s.purpose === 'COPY' ? this.repo.copyHolder : this.repo.signer;
     return read.call(this.repo, businessId, s.requestId, s.recipientId);
@@ -275,7 +308,7 @@ export class EsignSignerService {
   /** POST consent: pins the version on the recipient. */
   async acceptConsent(c: SignerCall, versionId: string, res: Response): Promise<SignerState> {
     const { request: q, recipient: me } = c.signer;
-    const event = this.eventRecord(c, 'CONSENTED', me.authMethod);
+    const event = this.eventRecord(c, 'CONSENTED', authMethod(c));
     const pinned = await this.repo.acceptConsent(c.firm.id, q.id, me.id, versionId, event);
     if (!pinned) throw esignRefusal('CONSENT_OUTDATED');
     await this.log(c, 'esign.signer_consented', { consentVersionId: versionId });
@@ -307,7 +340,7 @@ export class EsignSignerService {
         r.id === me.id ? { ...r, status: 'VIEWED' as const, viewedAt: at } : r,
       );
       const status = this.rules.statusAfter(all.map(rule), q.status);
-      const event = this.eventRecord(c, 'VIEWED', me.authMethod);
+      const event = this.eventRecord(c, 'VIEWED', authMethod(c));
       if (await this.repo.markViewed(c.firm.id, q.id, me.id, { at, status, event })) {
         await this.log(c, 'esign.signer_viewed');
       }
@@ -389,7 +422,7 @@ export class EsignSignerService {
       const next = turnIds.filter((id) => all.find((r) => r.id === id)?.status === 'WAITING');
       const { turn, links, mailed } = this.sender.startTurn(c.firm.slug, all, next);
       const emails = mailed.map((r) => ({ recipientId: r.id, template: 'esign.request' as const }));
-      const event = this.eventRecord(c, 'SIGNED', me.authMethod);
+      const event = this.eventRecord(c, 'SIGNED', authMethod(c));
       const write = { signedAt, values, status, allSigned, turn, emails, event };
       const emailIds = await this.repo.finish(c.firm.id, q.id, me.id, write, q.lastActivityAt);
       if (emailIds) {
@@ -418,7 +451,7 @@ export class EsignSignerService {
   async decline(c: SignerCall, reason: string | null): Promise<SignerState> {
     const { request: q, recipient: me } = c.signer;
     const at = new Date();
-    const event = { ...this.eventRecord(c, 'DECLINED', me.authMethod), reason };
+    const event = { ...this.eventRecord(c, 'DECLINED', authMethod(c)), reason };
     if (!(await this.repo.decline(c.firm.id, q.id, me.id, { at, reason, event }))) {
       throw esignRefusal('REQUEST_CLOSED');
     }

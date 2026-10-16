@@ -87,7 +87,8 @@ export const selectClass =
   'h-11 rounded-control border border-border bg-surface px-3 text-sm text-text focus:outline-2 focus:outline-focus';
 
 /** A column: its header text, and whether its cells are centred. */
-export type ListColumn = { label: string; center?: boolean };
+/** `className` hides a column below a width, e.g. `hidden 2xl:table-cell`. */
+export type ListColumn = { label: string; center?: boolean; className?: string };
 
 /** The table's frame: header row on bg-canvas, a divider between cells. `#` is the row number. */
 export function ListTable({ head, children }: { head: ListColumn[]; children: ReactNode }) {
@@ -96,11 +97,11 @@ export function ListTable({ head, children }: { head: ListColumn[]; children: Re
       <table className="w-full min-w-4xl border-collapse text-left text-sm text-text">
         <thead className="bg-canvas text-heading">
           <tr>
-            {head.map(({ label, center }) => (
+            {head.map(({ label, center, className = '' }) => (
               <th
                 key={label}
                 scope="col"
-                className={`whitespace-nowrap px-3 py-4 font-medium ${label === '#' ? 'w-12' : ''} ${center ? 'text-center' : ''}`}
+                className={`whitespace-nowrap px-3 py-4 font-medium ${label === '#' ? 'w-12' : ''} ${center ? 'text-center' : ''} ${className}`}
               >
                 {label === '#' ? (
                   <>

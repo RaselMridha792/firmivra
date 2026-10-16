@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
+import type { MembershipRole } from '@firmivra/types';
 import { DATABASE } from '../../database/database.module.js';
 
 // The firm data a request refers to (clients, services, portal logins, members), read through
@@ -35,6 +36,14 @@ export interface DirectoryMember {
   jobTitle: string | null;
   active: boolean;
 }
+
+/**
+ * Firm Sign knows three firm roles. The five newer roles count as STAFF here (the narrowest) until
+ * Firm Sign's own roles (Manager, Viewer) are mapped to them: they never reach Firm Sign's routes
+ * today (default deny), so this is only what the directory shows.
+ */
+const firmSignRole = (role: MembershipRole): DirectoryStaff['firmRole'] =>
+  role === 'OWNER' || role === 'ADMIN' ? role : 'STAFF';
 
 /** An active member and their firm role (Firm Sign roles and approvers). */
 export type DirectoryStaff = DirectoryMember & { firmRole: 'OWNER' | 'ADMIN' | 'STAFF' };
@@ -172,10 +181,13 @@ export class PrismaEsignDirectory implements EsignDirectory {
   async member(businessId: string, userId: string): Promise<DirectoryMember | null> {
     const row = await this.database.forBusiness(businessId).membership.findFirst({
       where: { businessId, userId },
-      select: { status: true, user: { select: { name: true, email: true, phone: true } } },
+      select: {
+        status: true,
+        jobTitle: true,
+        user: { select: { name: true, email: true, phone: true } },
+      },
     });
-    // TODO(r0_esign): the member's job title column arrives with r0_esign; null until then.
-    return row && { userId, ...row.user, jobTitle: null, active: row.status === 'ACTIVE' };
+    return row && { userId, ...row.user, jobTitle: row.jobTitle, active: row.status === 'ACTIVE' };
   }
 
   async members(businessId: string): Promise<DirectoryStaff[]> {
@@ -185,11 +197,12 @@ export class PrismaEsignDirectory implements EsignDirectory {
       select: {
         userId: true,
         role: true,
+        jobTitle: true,
         user: { select: { name: true, email: true, phone: true } },
       },
     });
-    return rows.map(({ userId, role, user }) => {
-      return { userId, ...user, jobTitle: null, active: true, firmRole: role };
+    return rows.map(({ userId, role, jobTitle, user }) => {
+      return { userId, ...user, jobTitle, active: true, firmRole: firmSignRole(role) };
     });
   }
 

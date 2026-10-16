@@ -12,6 +12,9 @@ import { StepHeading } from './sign-up-frame';
 import { useSignUpState } from './use-sign-up-state';
 import { ContactFirm, Expired } from './verify-step';
 
+const PORTAL_BUTTON_CLASSES =
+  'bg-platform-blue! hover:bg-platform-blue-hover! focus-visible:outline-platform-blue';
+
 /**
  * Complete (docs/mockups/client-portal/LVP Client Portal Account Confirmation.png). Also where
  * the shell sends a signed-in client the firm has not approved yet: with no sign-up in progress,
@@ -33,22 +36,33 @@ export function DoneStep() {
 function Created({ waiting = false }: { waiting?: boolean }) {
   const { business } = usePortal();
   return (
-    <div data-testid="sign-up-done" className="grid gap-4 text-center">
+    <div
+      data-testid="sign-up-done"
+      className="grid gap-4 text-center [&_header]:mb-0 [&_header_p]:text-firm-primary [&_h1]:text-platform-navy md:[&_header_p]:text-xl md:[&_h1]:text-5xl"
+    >
       <Check
         aria-hidden
-        className="mx-auto size-20 rounded-full bg-folder-surface p-4 text-firm-primary"
+        strokeWidth={3}
+        className="mx-auto size-24 rounded-full bg-folder-surface p-6 text-platform-blue"
       />
       <StepHeading title="Account Created!">
         {waiting
           ? 'Your account is waiting for approval.'
           : 'Your email and phone number have been verified.'}
       </StepHeading>
-      <p className="text-lg text-text">
+      <p className="text-lg text-firm-primary">
         {business.name} reviews every new account. We&apos;ll email you when your client portal is
         ready.
       </p>
-      <ButtonLink href={`/${business.slug}/sign-in`}>Go to Client Portal</ButtonLink>
-      <Link className="text-link underline" href={`/${business.slug}`}>
+      <ButtonLink className={PORTAL_BUTTON_CLASSES} href={`/${business.slug}/sign-in`}>
+        Go to Client Portal
+      </ButtonLink>
+      <div aria-hidden className="flex items-center gap-6 px-12 text-sm text-muted">
+        <span className="h-px flex-1 bg-border" />
+        or
+        <span className="h-px flex-1 bg-border" />
+      </div>
+      <Link className="text-platform-blue underline" href={`/${business.slug}`}>
         Return to Homepage
       </Link>
     </div>
@@ -66,7 +80,9 @@ function Waiting() {
     return (
       <div role="status" className="grid gap-4 text-center">
         <StepHeading title="Your account is ready" />
-        <ButtonLink href={`/${business.slug}/home`}>Go to Client Portal</ButtonLink>
+        <ButtonLink className={PORTAL_BUTTON_CLASSES} href={`/${business.slug}/home`}>
+          Go to Client Portal
+        </ButtonLink>
       </div>
     );
   }
