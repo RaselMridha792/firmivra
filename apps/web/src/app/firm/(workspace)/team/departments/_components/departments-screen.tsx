@@ -6,7 +6,6 @@ import { Plus } from '@phosphor-icons/react';
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
-import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { GroupFormModal, PersonModal, StatusModal } from '../../_components/group-dialogs';
@@ -21,6 +20,7 @@ import {
 } from '../../_components/groups-shared';
 import { GroupsTabs } from '../../_components/groups-tabs';
 import { NeedHelpCard } from '../../_components/need-help-card';
+import { NOT_LOADED, QuietCard } from '../../_components/quiet-card';
 import { RowMenu } from '../../_components/row-menu';
 import { DepartmentDetails } from './department-details';
 
@@ -62,7 +62,9 @@ export function DepartmentsScreen() {
       api.departments.update(id, body),
     { invalidate: GROUPS },
   );
-  const rows = list.data?.items ?? [];
+  const data = list.data;
+  const rows = data?.items ?? [];
+  const filtered = Boolean(query) || status !== 'all';
   const selectedId = picked && rows.some((d) => d.id === picked) ? picked : rows[0]?.id;
   const open = (next: Dialog) => {
     create.reset();
@@ -117,118 +119,123 @@ export function DepartmentsScreen() {
           <p className="mb-4 text-sm text-link">
             Manage your departments. Click on a department to view teams, members, and settings.
           </p>
-          <PageState query={list} isEmpty={() => false}>
-            {(data) => (
-              <Table
-                rows={data.items}
-                rowKey={(d) => d.id}
-                caption="Departments"
-                noun="departments"
-                pageSize={PAGE_SIZE}
-                tableClassName="[&_td]:py-1.5 [&_tbody_tr:has([aria-pressed=true])]:bg-folder-surface"
-                emptyTitle={
-                  query || status !== 'all' ? 'No matching departments' : 'No departments yet'
-                }
-                emptyText={
-                  query || status !== 'all'
-                    ? 'Try another search or status.'
-                    : 'Add your first department to group your staff.'
-                }
-                server={{
-                  page: data.page,
-                  total: data.total,
-                  hasNext: data.page * data.pageSize < data.total,
-                  hasPrevious: data.page > 1,
-                  onNext: () => setPage(data.page + 1),
-                  onPrevious: () => setPage(data.page - 1),
-                  onPage: setPage,
-                  onSort: () => undefined,
-                }}
-                columns={[
+          {/* The table's frame stays when the call fails or finds nothing (design-match rule 2). */}
+          <Table
+            rows={rows}
+            loading={list.isPending}
+            rowKey={(d) => d.id}
+            caption="Departments"
+            noun="departments"
+            pageSize={PAGE_SIZE}
+            tableClassName="[&_td]:py-1.5 [&_tbody_tr:has([aria-pressed=true])]:bg-folder-surface"
+            emptyTitle={
+              list.isError
+                ? 'Departments are not available'
+                : filtered
+                  ? 'No matching departments'
+                  : 'No departments yet'
+            }
+            emptyText={
+              list.isError
+                ? NOT_LOADED
+                : filtered
+                  ? 'Try another search or status.'
+                  : 'Add your first department to group your staff.'
+            }
+            server={
+              data && {
+                page: data.page,
+                total: data.total,
+                hasNext: data.page * data.pageSize < data.total,
+                hasPrevious: data.page > 1,
+                onNext: () => setPage(data.page + 1),
+                onPrevious: () => setPage(data.page - 1),
+                onPage: setPage,
+                onSort: () => undefined,
+              }
+            }
+            columns={[
+              {
+                id: 'name',
+                label: 'Department Name',
+                cell: (d) => (
+                  <button
+                    type="button"
+                    aria-pressed={d.id === selectedId}
+                    data-testid="department-row"
+                    onClick={() => setPicked(d.id)}
+                    className="flex items-center gap-3 text-left font-semibold whitespace-nowrap text-heading"
+                  >
+                    <GroupIcon name={d.name} />
+                    {d.name}
+                  </button>
+                ),
+              },
+              {
+                id: 'head',
+                label: 'Department Head',
+                className: 'max-w-48',
+                cell: (d) => <PersonCell person={d.head} />,
+              },
+              { id: 'teams', label: 'Teams', cell: (d) => d.teamCount },
+              { id: 'staff', label: 'Staff Count', cell: (d) => d.staffCount },
+              {
+                id: 'status',
+                label: 'Status',
+                cell: (d) => <GroupStatusBadge status={d.status} />,
+              },
+            ]}
+            rowActions={(d) => (
+              <RowMenu
+                label={`Actions for ${d.name}`}
+                items={[
+                  ...(canChange
+                    ? [
+                        {
+                          label: 'Edit',
+                          onSelect: () => open({ kind: 'edit', department: d }),
+                        },
+                        {
+                          label: 'Change Head',
+                          onSelect: () => open({ kind: 'head', department: d }),
+                        },
+                      ]
+                    : []),
                   {
-                    id: 'name',
-                    label: 'Department Name',
-                    cell: (d) => (
-                      <button
-                        type="button"
-                        aria-pressed={d.id === selectedId}
-                        data-testid="department-row"
-                        onClick={() => setPicked(d.id)}
-                        className="flex items-center gap-3 text-left font-semibold whitespace-nowrap text-heading"
-                      >
-                        <GroupIcon name={d.name} />
-                        {d.name}
-                      </button>
-                    ),
+                    label: 'Manage Teams',
+                    onSelect: () => router.push(`/team/teams?departmentId=${d.id}`),
                   },
-                  {
-                    id: 'head',
-                    label: 'Department Head',
-                    className: 'max-w-48',
-                    cell: (d) => <PersonCell person={d.head} />,
-                  },
-                  { id: 'teams', label: 'Teams', cell: (d) => d.teamCount },
-                  { id: 'staff', label: 'Staff Count', cell: (d) => d.staffCount },
-                  {
-                    id: 'status',
-                    label: 'Status',
-                    cell: (d) => <GroupStatusBadge status={d.status} />,
-                  },
+                  ...(canChange && d.status === 'ACTIVE'
+                    ? [
+                        {
+                          label: 'Deactivate',
+                          onSelect: () =>
+                            open({ kind: 'status', department: d, action: 'Deactivate' }),
+                        },
+                      ]
+                    : []),
+                  ...(canChange && d.status !== 'ACTIVE'
+                    ? [
+                        {
+                          label: 'Reactivate',
+                          onSelect: () => update.mutate({ id: d.id, body: { status: 'ACTIVE' } }),
+                        },
+                      ]
+                    : []),
+                  ...(canChange && d.status !== 'ARCHIVED'
+                    ? [
+                        {
+                          label: 'Archive',
+                          danger: true,
+                          onSelect: () =>
+                            open({ kind: 'status', department: d, action: 'Archive' }),
+                        },
+                      ]
+                    : []),
                 ]}
-                rowActions={(d) => (
-                  <RowMenu
-                    label={`Actions for ${d.name}`}
-                    items={[
-                      ...(canChange
-                        ? [
-                            {
-                              label: 'Edit',
-                              onSelect: () => open({ kind: 'edit', department: d }),
-                            },
-                            {
-                              label: 'Change Head',
-                              onSelect: () => open({ kind: 'head', department: d }),
-                            },
-                          ]
-                        : []),
-                      {
-                        label: 'Manage Teams',
-                        onSelect: () => router.push(`/team/teams?departmentId=${d.id}`),
-                      },
-                      ...(canChange && d.status === 'ACTIVE'
-                        ? [
-                            {
-                              label: 'Deactivate',
-                              onSelect: () =>
-                                open({ kind: 'status', department: d, action: 'Deactivate' }),
-                            },
-                          ]
-                        : []),
-                      ...(canChange && d.status !== 'ACTIVE'
-                        ? [
-                            {
-                              label: 'Reactivate',
-                              onSelect: () =>
-                                update.mutate({ id: d.id, body: { status: 'ACTIVE' } }),
-                            },
-                          ]
-                        : []),
-                      ...(canChange && d.status !== 'ARCHIVED'
-                        ? [
-                            {
-                              label: 'Archive',
-                              danger: true,
-                              onSelect: () =>
-                                open({ kind: 'status', department: d, action: 'Archive' }),
-                            },
-                          ]
-                        : []),
-                    ]}
-                  />
-                )}
               />
             )}
-          </PageState>
+          />
         </section>
 
         <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">
@@ -239,7 +246,29 @@ export function DepartmentsScreen() {
               onEdit={(d) => open({ kind: 'edit', department: d })}
               onChangeHead={(d) => open({ kind: 'head', department: d })}
             />
-          ) : null}
+          ) : (
+            // No department to open: the two cards keep their frames.
+            <>
+              <QuietCard
+                title="Department Details"
+                testId="department-details"
+                loading={list.isPending}
+                line={
+                  list.isError
+                    ? NOT_LOADED
+                    : filtered
+                      ? 'No department matches. Its details show here.'
+                      : 'Add a department to see its head, teams and staff here.'
+                }
+              />
+              <QuietCard
+                title="Teams in This Department"
+                testId="department-teams"
+                loading={list.isPending}
+                line={list.isError ? NOT_LOADED : 'The teams of the chosen department show here.'}
+              />
+            </>
+          )}
           <NeedHelpCard />
         </aside>
       </div>
