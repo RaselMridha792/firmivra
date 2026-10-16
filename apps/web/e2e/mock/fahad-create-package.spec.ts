@@ -56,3 +56,17 @@ test('cancel protects a changed package', async ({ page }) => {
   await page.getByRole('button', { name: 'Keep Editing' }).click();
   await expect(page.getByTestId('package-name')).toHaveValue('Unsaved example');
 });
+
+test('preview uses the API price when a percentage discount determines the price', async ({
+  page,
+}) => {
+  await page.goto(url);
+  await page.getByRole('button', { name: 'Add Service', exact: true }).click();
+  await page.getByRole('button', { name: 'Add Bookkeeping Services', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByTestId('package-price').fill('');
+  await page.getByLabel('Discount (Optional)').selectOption('PERCENTAGE');
+  await page.getByLabel('Discount percentage').fill('20');
+  await expect(page.getByTestId('package-client-preview')).toContainText('$159.20');
+  await expect(page.getByTestId('package-savings')).toContainText('$39.80');
+});

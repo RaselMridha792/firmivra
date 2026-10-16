@@ -381,7 +381,10 @@ export function PackageBuilder() {
         </div>
         <aside className="min-w-0 space-y-3">
           <PackagePreview
-            value={value}
+            value={{
+              ...value,
+              packagePriceCents: totals?.packagePriceCents ?? value.packagePriceCents,
+            }}
             selected={rows.filter((s) => s.included).map((s) => s.row)}
           />
           <Panel
