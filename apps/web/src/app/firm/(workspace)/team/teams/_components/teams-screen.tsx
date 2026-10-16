@@ -5,7 +5,6 @@ import { Button, SearchField, Select, Table } from '@firmivra/ui';
 import { Plus, UsersThree } from '@phosphor-icons/react';
 import { useDeferredValue, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
-import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { GroupFormModal, PersonModal, StatusModal } from '../../_components/group-dialogs';
@@ -20,6 +19,7 @@ import {
 } from '../../_components/groups-shared';
 import { GroupsTabs } from '../../_components/groups-tabs';
 import { NeedHelpCard } from '../../_components/need-help-card';
+import { NOT_LOADED, QuietCard } from '../../_components/quiet-card';
 import { RowMenu } from '../../_components/row-menu';
 import { MembersModal, MoveModal } from './team-dialogs';
 import { TeamDetails } from './team-details';
@@ -134,122 +134,125 @@ export function TeamsScreen({ departmentId, teamId }: { departmentId?: string; t
           <p className="mb-4 text-sm text-link">
             Manage your teams. Click on a team to view its lead, members, and settings.
           </p>
-          <PageState query={list} isEmpty={() => false}>
-            {(data) => (
-              <Table
-                rows={data}
-                rowKey={(t) => t.id}
-                caption="Teams"
-                noun="teams"
-                pageSize={PAGE_SIZE}
-                tableClassName="[&_td]:py-1.5 [&_tbody_tr:has([aria-pressed=true])]:bg-folder-surface"
-                emptyTitle={filtered ? 'No matching teams' : 'No teams yet'}
-                emptyText={
-                  filtered
-                    ? 'Try another search, department or status.'
-                    : 'Add your first team inside a department.'
-                }
-                columns={[
-                  {
-                    id: 'name',
-                    label: 'Team Name',
-                    cell: (t) => (
-                      <button
-                        type="button"
-                        aria-pressed={t.id === selectedId}
-                        data-testid="team-row"
-                        onClick={() => setPicked(t.id)}
-                        className="flex items-center gap-3 text-left font-semibold whitespace-nowrap text-heading"
-                      >
-                        <GroupIcon name={t.name} />
-                        {t.name}
-                      </button>
-                    ),
-                  },
-                  {
-                    id: 'department',
-                    label: 'Department',
-                    cell: (t) => <span className="whitespace-nowrap">{t.department.name}</span>,
-                  },
-                  {
-                    id: 'lead',
-                    label: 'Team Lead',
-                    className: 'max-w-40',
-                    cell: (t) =>
-                      t.lead ? (
-                        <PersonCell person={t.lead} />
-                      ) : (
-                        <span className="text-muted">No lead yet</span>
-                      ),
-                  },
-                  {
-                    id: 'members',
-                    label: 'Members',
-                    cell: (t) => (
-                      <span className="inline-flex items-center gap-1.5">
-                        <UsersThree aria-hidden weight="fill" className="size-4 text-heading" />
-                        {t.memberCount}
-                      </span>
-                    ),
-                  },
-                  {
-                    id: 'status',
-                    label: 'Status',
-                    cell: (t) => <GroupStatusBadge status={t.status} />,
-                  },
-                ]}
-                rowActions={(t) =>
-                  canChange ? (
-                    <RowMenu
-                      label={`Actions for ${t.name}`}
-                      items={[
-                        { label: 'Edit', onSelect: () => open({ kind: 'edit', team: t }) },
-                        ...(t.status === 'ACTIVE'
-                          ? [
-                              {
-                                label: 'Manage Members',
-                                onSelect: () => open({ kind: 'members', team: t }),
-                              },
-                            ]
-                          : []),
-                        { label: 'Change Lead', onSelect: () => open({ kind: 'lead', team: t }) },
-                        {
-                          label: 'Move Department',
-                          onSelect: () => open({ kind: 'move', team: t }),
-                        },
-                        t.status === 'ACTIVE'
-                          ? {
-                              label: 'Deactivate',
-                              onSelect: () =>
-                                open({ kind: 'status', team: t, action: 'Deactivate' }),
-                            }
-                          : {
-                              label: 'Reactivate',
-                              onSelect: () =>
-                                update.mutate({ id: t.id, body: { status: 'ACTIVE' } }),
-                            },
-                        ...(t.status !== 'ARCHIVED'
-                          ? [
-                              {
-                                label: 'Archive',
-                                danger: true,
-                                onSelect: () =>
-                                  open({ kind: 'status', team: t, action: 'Archive' }),
-                              },
-                            ]
-                          : []),
-                      ]}
-                    />
+          {/* The table's frame stays when the call fails or finds nothing (design-match rule 2). */}
+          <Table
+            rows={rows}
+            loading={list.isPending}
+            rowKey={(t) => t.id}
+            caption="Teams"
+            noun="teams"
+            pageSize={PAGE_SIZE}
+            tableClassName="[&_td]:py-1.5 [&_tbody_tr:has([aria-pressed=true])]:bg-folder-surface"
+            emptyTitle={
+              list.isError
+                ? 'Teams are not available'
+                : filtered
+                  ? 'No matching teams'
+                  : 'No teams yet'
+            }
+            emptyText={
+              list.isError
+                ? NOT_LOADED
+                : filtered
+                  ? 'Try another search, department or status.'
+                  : 'Add your first team inside a department.'
+            }
+            columns={[
+              {
+                id: 'name',
+                label: 'Team Name',
+                cell: (t) => (
+                  <button
+                    type="button"
+                    aria-pressed={t.id === selectedId}
+                    data-testid="team-row"
+                    onClick={() => setPicked(t.id)}
+                    className="flex items-center gap-3 text-left font-semibold whitespace-nowrap text-heading"
+                  >
+                    <GroupIcon name={t.name} />
+                    {t.name}
+                  </button>
+                ),
+              },
+              {
+                id: 'department',
+                label: 'Department',
+                cell: (t) => <span className="whitespace-nowrap">{t.department.name}</span>,
+              },
+              {
+                id: 'lead',
+                label: 'Team Lead',
+                className: 'max-w-40',
+                cell: (t) =>
+                  t.lead ? (
+                    <PersonCell person={t.lead} />
                   ) : (
-                    <RowMenu
-                      label={`Actions for ${t.name}`}
-                      items={[{ label: 'View Team', onSelect: () => setPicked(t.id) }]}
-                    />
-                  )
-                }
-              />
-            )}
-          </PageState>
+                    <span className="text-muted">No lead yet</span>
+                  ),
+              },
+              {
+                id: 'members',
+                label: 'Members',
+                cell: (t) => (
+                  <span className="inline-flex items-center gap-1.5">
+                    <UsersThree aria-hidden weight="fill" className="size-4 text-heading" />
+                    {t.memberCount}
+                  </span>
+                ),
+              },
+              {
+                id: 'status',
+                label: 'Status',
+                cell: (t) => <GroupStatusBadge status={t.status} />,
+              },
+            ]}
+            rowActions={(t) =>
+              canChange ? (
+                <RowMenu
+                  label={`Actions for ${t.name}`}
+                  items={[
+                    { label: 'Edit', onSelect: () => open({ kind: 'edit', team: t }) },
+                    ...(t.status === 'ACTIVE'
+                      ? [
+                          {
+                            label: 'Manage Members',
+                            onSelect: () => open({ kind: 'members', team: t }),
+                          },
+                        ]
+                      : []),
+                    { label: 'Change Lead', onSelect: () => open({ kind: 'lead', team: t }) },
+                    {
+                      label: 'Move Department',
+                      onSelect: () => open({ kind: 'move', team: t }),
+                    },
+                    t.status === 'ACTIVE'
+                      ? {
+                          label: 'Deactivate',
+                          onSelect: () => open({ kind: 'status', team: t, action: 'Deactivate' }),
+                        }
+                      : {
+                          label: 'Reactivate',
+                          onSelect: () => update.mutate({ id: t.id, body: { status: 'ACTIVE' } }),
+                        },
+                    ...(t.status !== 'ARCHIVED'
+                      ? [
+                          {
+                            label: 'Archive',
+                            danger: true,
+                            onSelect: () => open({ kind: 'status', team: t, action: 'Archive' }),
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
+              ) : (
+                <RowMenu
+                  label={`Actions for ${t.name}`}
+                  items={[{ label: 'View Team', onSelect: () => setPicked(t.id) }]}
+                />
+              )
+            }
+          />
         </section>
 
         <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">
@@ -261,7 +264,29 @@ export function TeamsScreen({ departmentId, teamId }: { departmentId?: string; t
               onChangeLead={(t) => open({ kind: 'lead', team: t })}
               onManageMembers={(t) => open({ kind: 'members', team: t })}
             />
-          ) : null}
+          ) : (
+            // No team to open: the two cards keep their frames.
+            <>
+              <QuietCard
+                title="Team Details"
+                testId="team-details"
+                loading={list.isPending}
+                line={
+                  list.isError
+                    ? NOT_LOADED
+                    : filtered
+                      ? 'No team matches. Its details show here.'
+                      : 'Add a team to see its lead, department and members here.'
+                }
+              />
+              <QuietCard
+                title="Team Members"
+                testId="team-members"
+                loading={list.isPending}
+                line={list.isError ? NOT_LOADED : 'The members of the chosen team show here.'}
+              />
+            </>
+          )}
           <NeedHelpCard />
         </aside>
       </div>

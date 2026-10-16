@@ -66,6 +66,16 @@ jobs:
                   'sign-ups/',
                   'workspaces/',
                 ].map((p) => `${WEB}firm/(workspace)/${p}`),
+                // Five Services & Pricing pages (Rasel, Oct 15): new, [id] (with edit), inactive
+                // and packages/new. Arfan keeps the rest of services-pricing/.
+                ...[
+                  'services-pricing/new/',
+                  'services-pricing/[id]/',
+                  'services-pricing/inactive/',
+                  'services-pricing/packages/new/',
+                ].map((p) => `${WEB}firm/(workspace)/${p}`),
+                `${MOCKS}services-pricing.ts`,
+                `${MOCKS}services-pricing-*.ts`,
               ],
               // Firm Sign under a client is R13-web's (the Oct 18 plan); a client's Messages
               // tab is Nahid's F10 (Rasel, Oct 9). The invoices pages are Fahad's (Rasel, Oct 10).
