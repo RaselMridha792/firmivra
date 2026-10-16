@@ -545,15 +545,21 @@ function FormBody({
     year: 'numeric',
   });
   const timeLabel = (t: string) => TIMES.find((x) => x.value === t)?.label ?? t;
-  // Colour choices are the firm's own appointment type colours (data), shown by their tone.
+  // Colour choices are the firm's own appointment type colours (data), named by their tone; a
+  // tone two colours share gets the type's name too.
+  const typeColours = [
+    ...new Map(o.types.filter((t) => colourTone(t.color)).map((t) => [t.color ?? '', t.name])),
+  ];
+  const toneName = (value: string) => TONE_NAMES[colourTone(value) ?? 'grey'];
   const colourChoices = [
     { value: '', label: 'Type colour' },
-    ...[...new Map(o.types.filter((t) => colourTone(t.color)).map((t) => [t.color ?? '', t]))].map(
-      ([value, t]) => ({
-        value,
-        label: `${TONE_NAMES[colourTone(value) ?? 'grey']} (as ${t.name})`,
-      }),
-    ),
+    ...typeColours.map(([value, typeName]) => ({
+      value,
+      label:
+        typeColours.filter(([v]) => toneName(v) === toneName(value)).length > 1
+          ? `${toneName(value)} (${typeName})`
+          : toneName(value),
+    })),
   ];
   if (form.color && !colourChoices.some((c) => c.value === form.color)) {
     colourChoices.push({ value: form.color, label: 'Current colour' });
