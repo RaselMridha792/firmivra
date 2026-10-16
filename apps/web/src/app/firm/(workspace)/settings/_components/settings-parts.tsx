@@ -26,7 +26,8 @@ export function SettingsHeader({
   crumb?: boolean;
 }) {
   return (
-    <header className="flex flex-col gap-2">
+    <header className="relative isolate flex flex-col gap-2">
+      <Stripes />
       {crumb ? (
         <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
           <Link href="/settings/overview" className="text-link hover:underline">
@@ -53,6 +54,19 @@ export function SettingsHeader({
         {action}
       </div>
     </header>
+  );
+}
+
+/**
+ * The designs' light diagonal bands behind the page header, fading out to the left (decoration
+ * only). No kit component draws them yet.
+ */
+export function Stripes() {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute -top-4 right-0 -bottom-2 -z-10 w-3/4 bg-[repeating-linear-gradient(120deg,transparent_0,transparent_56px,var(--color-info-soft)_56px,var(--color-info-soft)_112px)] [mask-image:linear-gradient(to_left,black,transparent)]"
+    />
   );
 }
 
