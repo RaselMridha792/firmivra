@@ -1,10 +1,9 @@
 'use client';
 
 import type { AdminActivityTone } from '@firmivra/types';
-import { Skeleton, type TileTone, tileTones } from '@firmivra/ui';
+import { Skeleton } from '@firmivra/ui';
 import {
   ArrowRight,
-  ArrowUp,
   Buildings,
   CheckCircle,
   ClockCountdown,
@@ -20,10 +19,15 @@ import {
   UsersThree,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { type ReactNode, createElement } from 'react';
+import { createElement } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
-import { NOT_LOADED, SettingsHeader } from '../../_components/settings-parts';
+import {
+  BandCard,
+  NOT_LOADED,
+  SettingsHeader,
+  SettingsKpi,
+} from '../../_components/settings-parts';
 
 const QUICK: {
   title: string;
@@ -110,55 +114,6 @@ function when(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-const card = 'flex min-w-0 flex-col rounded-xl border border-divider bg-surface shadow-sm';
-const band = 'flex items-center justify-between gap-3 rounded-t-xl bg-subtle px-4 py-3';
-
-function Kpi({
-  label,
-  icon,
-  tone,
-  value,
-  change,
-  note,
-  testId,
-}: {
-  label: string;
-  icon: Icon;
-  tone: TileTone;
-  value: ReactNode;
-  change?: number;
-  note: string;
-  testId: string;
-}) {
-  return (
-    <section
-      aria-label={label}
-      data-testid={testId}
-      className="flex items-center gap-3 rounded-xl border border-divider bg-surface px-4 py-4 shadow-sm"
-    >
-      <span
-        aria-hidden
-        className={`flex size-14 shrink-0 items-center justify-center rounded-full ${tileTones[tone]}`}
-      >
-        {createElement(icon, { weight: 'fill', className: 'size-7' })}
-      </span>
-      <div className="min-w-0">
-        <h2 className="text-sm font-bold text-heading">{label}</h2>
-        <div className="flex items-baseline gap-3 text-3xl font-bold text-heading">
-          {value}
-          {change ? (
-            <span className="flex items-center gap-0.5 text-base font-semibold text-success">
-              <ArrowUp aria-hidden weight="bold" className="size-4" />
-              {change}
-            </span>
-          ) : null}
-        </div>
-        <p className="text-sm text-link">{note}</p>
-      </div>
-    </section>
-  );
-}
-
 /**
  * Settings > Overview (settings.jpg, guide §2-3), as drawn: the KPI row (Active Companies, Staff
  * Users, Pending Applications, Security Alerts), Company Applications, Quick Settings and Recent
@@ -187,7 +142,7 @@ export function OverviewScreen() {
         className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-[1440px]:grid-cols-4"
         data-testid="settings-kpis"
       >
-        <Kpi
+        <SettingsKpi
           label="Active Companies"
           icon={Buildings}
           tone="blue"
@@ -196,7 +151,7 @@ export function OverviewScreen() {
           change={o?.activeCompanies?.addedThisMonth}
           note="Approved accounts"
         />
-        <Kpi
+        <SettingsKpi
           label="Staff Users"
           icon={UsersThree}
           tone="blue"
@@ -205,7 +160,7 @@ export function OverviewScreen() {
           change={o?.staffUsers.addedThisMonth}
           note="Across all companies"
         />
-        <Kpi
+        <SettingsKpi
           label="Pending Applications"
           icon={FileText}
           tone="amber"
@@ -213,7 +168,7 @@ export function OverviewScreen() {
           value={n(o?.pendingApplications)}
           note="Awaiting review"
         />
-        <Kpi
+        <SettingsKpi
           label="Security Alerts"
           icon={ShieldCheck}
           tone="blue"
@@ -224,29 +179,24 @@ export function OverviewScreen() {
       </div>
 
       <div className="flex min-w-0 flex-col gap-4">
-        <section
+        <BandCard
           id="company-applications"
-          aria-labelledby="company-applications-title"
-          data-testid="company-applications"
-          className={card}
-        >
-          <div className={band}>
-            <h2
-              id="company-applications-title"
-              className="flex items-center gap-3 text-lg font-bold text-heading"
-            >
-              Company Applications
-              {o?.pendingApplications ? (
-                <span className="rounded-full bg-danger-soft px-3 py-0.5 text-sm font-medium text-danger">
-                  {o.pendingApplications} Pending
-                </span>
-              ) : null}
-            </h2>
+          title="Company Applications"
+          testId="company-applications"
+          badge={
+            o?.pendingApplications ? (
+              <span className="rounded-full bg-danger-soft px-3 py-0.5 text-sm font-medium text-danger">
+                {o.pendingApplications} Pending
+              </span>
+            ) : null
+          }
+          action={
             <span className="inline-flex items-center gap-1 text-sm font-semibold text-muted">
               View All
               <ArrowRight aria-hidden weight="bold" className="size-4" />
             </span>
-          </div>
+          }
+        >
           <div className="overflow-x-auto px-4">
             <table className="w-full min-w-[36rem] text-sm">
               <caption className="sr-only">Company applications</caption>
@@ -277,12 +227,12 @@ export function OverviewScreen() {
             Review verifies business details, owner identity, subscription selection, and required
             documents before approval.
           </p>
-        </section>
+        </BandCard>
 
         <section
           id="quick-settings"
           aria-labelledby="quick-settings-title"
-          className={`${card} gap-3 p-4`}
+          className="flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm"
         >
           <h2 id="quick-settings-title" className="text-lg font-bold text-heading">
             Quick Settings
@@ -315,15 +265,10 @@ export function OverviewScreen() {
           </div>
         </section>
 
-        <section
-          aria-labelledby="recent-activity"
-          data-testid="recent-admin-activity"
-          className={card}
-        >
-          <div className={band}>
-            <h2 id="recent-activity" className="text-lg font-bold text-heading">
-              Recent Administrative Activity
-            </h2>
+        <BandCard
+          title="Recent Administrative Activity"
+          testId="recent-admin-activity"
+          action={
             <Link
               href="/audit-log"
               className="inline-flex items-center gap-1 text-sm font-semibold text-link hover:underline"
@@ -331,7 +276,8 @@ export function OverviewScreen() {
               View All
               <ArrowRight aria-hidden weight="bold" className="size-4" />
             </Link>
-          </div>
+          }
+        >
           <div className="px-4 pb-2">
             {loading ? (
               <Skeleton className="my-3 h-40" />
@@ -362,7 +308,7 @@ export function OverviewScreen() {
               </p>
             )}
           </div>
-        </section>
+        </BandCard>
       </div>
     </div>
   );
