@@ -2,6 +2,7 @@ import { Avatar, Callout, ChecklistCard } from '@firmivra/ui';
 import {
   ArrowSquareOut,
   PaperPlaneTilt,
+  Lightbulb,
   PencilSimple,
   Question,
   ShieldCheck,
@@ -91,11 +92,16 @@ export function AccountPreview({ values, editHref }: { values: PreviewValues; ed
 /** What Happens Next?, Security Best Practices and Need Help? under the preview. */
 export function WizardNotes({
   created = 'The account will be created with the selected role and permissions.',
+  third = 'The team member will set their password and complete 2FA (if required).',
   later = 'You can edit their account at any time.',
+  tips = false,
 }: {
-  /** What Happens Next?'s first and last lines, which change a little per step. */
+  /** What Happens Next?'s first, third and last lines, which change a little per step. */
   created?: string;
+  third?: string;
   later?: string;
+  /** Step 4 shows Helpful Tips where the other steps show Security Best Practices. */
+  tips?: boolean;
 } = {}) {
   return (
     <>
@@ -117,30 +123,46 @@ export function WizardNotes({
           },
           {
             id: 'password',
-            label: 'The team member will set their password and complete 2FA (if required).',
+            label: third,
             done: false,
           },
           { id: 'edit', label: later, done: false },
         ]}
       />
-      <ChecklistCard
-        title="Security Best Practices"
-        icon={ShieldCheck}
-        iconTone="green"
-        marker="checkbox"
-        surface="success"
-        items={[
-          { id: 'passwords', label: 'Use strong, unique passwords.', done: true },
-          { id: 'mfa', label: 'Require two-factor authentication.', done: true },
-          { id: 'least', label: 'Limit access to only what’s needed.', done: true },
-          { id: 'review', label: 'Review staff access regularly.', done: true },
-          {
-            id: 'deactivate',
-            label: 'Deactivate accounts immediately when no longer needed.',
-            done: true,
-          },
-        ]}
-      />
+      {tips ? (
+        <ChecklistCard
+          title="Helpful Tips"
+          icon={Lightbulb}
+          iconTone="blue"
+          marker="check"
+          items={[
+            { id: 'documents', label: 'Upload all required employment documents.', done: true },
+            { id: 'team', label: 'Verify the correct team and role are assigned.', done: true },
+            { id: 'workload', label: 'Set an appropriate workload limit.', done: true },
+            { id: 'pay', label: 'Ensure compensation details are accurate.', done: true },
+            { id: 'draft', label: 'You can save as a draft and finish later.', done: true },
+          ]}
+        />
+      ) : (
+        <ChecklistCard
+          title="Security Best Practices"
+          icon={ShieldCheck}
+          iconTone="green"
+          marker="checkbox"
+          surface="success"
+          items={[
+            { id: 'passwords', label: 'Use strong, unique passwords.', done: true },
+            { id: 'mfa', label: 'Require two-factor authentication.', done: true },
+            { id: 'least', label: 'Limit access to only what’s needed.', done: true },
+            { id: 'review', label: 'Review staff access regularly.', done: true },
+            {
+              id: 'deactivate',
+              label: 'Deactivate accounts immediately when no longer needed.',
+              done: true,
+            },
+          ]}
+        />
+      )}
       <Callout
         icon={Question}
         tone="navy"
