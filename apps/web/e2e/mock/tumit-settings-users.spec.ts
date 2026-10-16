@@ -15,8 +15,14 @@ test('lists, filters and invites users', async ({ page }) => {
   const table = page.getByTestId('user-management');
   await expect(table).toContainText('Hana Kim');
 
+  await expect(table.getByLabel('Company')).toHaveValue('');
+  await table.getByLabel('Select all rows').check();
+  await table.getByLabel('Select all rows').uncheck();
+
+  // An invited user is "Pending", as in the design.
   await table.getByLabel('Status').selectOption('invited');
   await expect(table).toContainText('Sam Whitley');
+  await expect(table).toContainText('Pending');
   await expect(table).not.toContainText('Hana Kim');
   await table.getByLabel('Status').selectOption('all');
 
@@ -43,11 +49,17 @@ test('signs a user out from the row menu and edits a role grid', async ({ page }
     .click();
   await expect(page.getByTestId('users-result')).toContainText('signed out');
 
-  // Role Templates choose the grid's role.
-  await page
-    .getByRole('button', { name: /Bookkeeper/ })
-    .first()
-    .click();
+  // The Role select picks the grid; the module row you click shows in Permission Details.
+  await page.getByTestId('role-permissions').getByLabel('Role').selectOption('BOOKKEEPER');
   await expect(page.getByTestId('role-permissions').getByLabel('Role')).toHaveValue('BOOKKEEPER');
+  await page
+    .getByTestId('module-permissions')
+    .getByRole('rowheader', { name: 'Clients', exact: true })
+    .click();
+  await expect(page.getByTestId('permission-detail')).toContainText('Clients');
   await expect(page.getByTestId('permission-details')).toContainText('Changes to permissions');
+
+  // A role template starts Create Custom Role from that role.
+  await page.getByTestId('role-templates').getByRole('button', { name: 'Bookkeeper' }).click();
+  await expect(page).toHaveURL(/\/settings\/users\/roles\/new\?from=BOOKKEEPER$/);
 });

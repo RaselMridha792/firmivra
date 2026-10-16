@@ -8,7 +8,6 @@ import {
 } from '@firmivra/types';
 import {
   Avatar,
-  Badge,
   Button,
   Modal,
   SearchField,
@@ -16,20 +15,21 @@ import {
   Skeleton,
   Table,
   type Column,
-  tileTones,
 } from '@firmivra/ui';
 import {
   DownloadSimple,
   EnvelopeSimple,
   FileText,
+  GearSix,
   type Icon,
-  Key,
+  LockSimple,
   Plus,
+  Shield,
   ShieldCheck,
-  ShieldWarning,
   User,
-  UserMinus,
+  UserPlus,
   UsersThree,
+  WarningCircle,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -40,65 +40,67 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { RowMenu, type RowMenuItem } from '../../../team/_components/row-menu';
 import { ActionModal, type StaffAction } from '../../../team/[id]/_components/staff-actions';
-import { MEMBER_ERRORS, STATUS_LOOKS } from '../../../team/[id]/_components/staff-parts';
-import { RoleTemplates } from '../../../team/roles/_components/role-side';
-import { NOT_LOADED, SettingsHeader } from '../../_components/settings-parts';
+import { MEMBER_ERRORS } from '../../../team/[id]/_components/staff-parts';
+import {
+  BandCard,
+  NOT_LOADED,
+  SettingsHeader,
+  SettingsKpi,
+} from '../../_components/settings-parts';
 import { InviteUserModal } from './invite-user-modal';
 import { RolePanel } from './role-panel';
+import { RoleTemplates } from './role-templates';
 
-const PAGE_SIZE = 10;
+const PAGE_SIZES = [10, 25, 50];
 
 const MFA: Record<FirmUser['mfa'], { label: string; tone: string; icon: Icon }> = {
   ENABLED: { label: 'Enabled', tone: 'text-success', icon: ShieldCheck },
-  DISABLED: { label: 'Disabled', tone: 'text-muted', icon: ShieldWarning },
-  PENDING: { label: 'Pending', tone: 'text-muted', icon: ShieldWarning },
+  DISABLED: { label: 'Disabled', tone: 'text-muted', icon: Shield },
+  PENDING: { label: 'Pending', tone: 'text-muted', icon: WarningCircle },
 };
+
+/** The design's role chips: one tint per role (Administrator amber, Tax Preparer blue, ...). */
+const ROLE_CHIPS: Record<MembershipRole, string> = {
+  OWNER: 'bg-info-soft text-heading',
+  ADMIN: 'bg-warning-soft text-warning',
+  MANAGER: 'bg-purple-soft text-purple',
+  STAFF: 'bg-info-soft text-action',
+  BOOKKEEPER: 'bg-warning-soft text-warning',
+  TAX_PREPARER: 'bg-info-soft text-action',
+  CLIENT_SUPPORT: 'bg-success-soft text-success',
+  READ_ONLY: 'bg-disabled text-text',
+};
+
+/** The design's status chips; an invited user is "Pending" in amber. */
+const STATUS_CHIPS: Record<FirmUser['status'], [string, string]> = {
+  ACTIVE: ['Active', 'bg-success-soft text-success'],
+  INVITED: ['Pending', 'bg-warning-soft text-gold'],
+  LOCKED: ['Locked', 'bg-danger-soft text-danger'],
+  DEACTIVATED: ['Deactivated', 'bg-disabled text-muted'],
+};
+
+const chip =
+  'inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap';
 
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-/** "Today 9:12 AM", "Sep 28, 2026", or "Invited Sep 25, 2026". */
-function lastLogin(u: FirmUser): string {
-  if (u.status === 'INVITED' && u.invite) return `Invited ${day(u.invite.sentAt)}`;
+/** "Today 9:12 AM", "Sep 28, 2026", or "Invited Sep 25, 2026" (the date never breaks). */
+function lastLogin(u: FirmUser): ReactNode {
+  if (u.status === 'INVITED' && u.invite) {
+    return (
+      <>
+        Invited <span className="whitespace-nowrap">{day(u.invite.sentAt)}</span>
+      </>
+    );
+  }
   if (!u.lastLoginAt) return 'Never';
   const d = new Date(u.lastLoginAt);
-  if (d.toDateString() === new Date().toDateString()) {
-    return `Today ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
-  }
-  return day(u.lastLoginAt);
-}
-
-function Kpi({
-  label,
-  icon,
-  tone,
-  value,
-  note,
-}: {
-  label: string;
-  icon: Icon;
-  tone: 'blue' | 'green' | 'amber' | 'purple';
-  value: ReactNode;
-  note: ReactNode;
-}) {
-  return (
-    <section
-      aria-label={label}
-      className="flex items-center gap-4 rounded-xl border border-divider bg-surface p-4 shadow-sm"
-    >
-      <span
-        aria-hidden
-        className={`flex size-16 shrink-0 items-center justify-center rounded-full ${tileTones[tone]}`}
-      >
-        {createElement(icon, { weight: 'fill', className: 'size-8' })}
-      </span>
-      <div className="min-w-0">
-        <h2 className="text-sm font-bold text-heading">{label}</h2>
-        <div className="text-3xl font-bold text-heading">{value}</div>
-        <p className="text-sm text-link">{note}</p>
-      </div>
-    </section>
-  );
+  const text =
+    d.toDateString() === new Date().toDateString()
+      ? `Today ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+      : day(u.lastLoginAt);
+  return <span className="whitespace-nowrap">{text}</span>;
 }
 
 type Dialog =
@@ -109,14 +111,17 @@ type Dialog =
 
 /**
  * Settings > Users & Roles (users-and-role.jpg, guide §5-8): the KPIs (`api.users.summary`), User
- * Management (`api.users.list`: search, role, status, Export, pages, row menu through
- * `api.staff`), Quick Actions, Role Templates and the role grid (`api.roles`). Owner and Admin
- * only. A firm has one company, so the Company column shows the firm's name and has no filter.
+ * Management (`api.users.list`: search, company, role, status, Export, selection, pages, row menu
+ * through `api.staff`), the role grid (`api.roles`), Quick Actions and Role Templates. Owner and
+ * Admin only. A firm has one company, so All Companies offers the firm itself.
  */
 export function UsersScreen() {
   const router = useRouter();
-  const { role: me } = useFirm();
+  const { role: me, firm } = useFirm();
   const [search, setSearch] = useState('');
+  const [company, setCompany] = useState('');
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0] ?? 10);
+  const [selected, setSelected] = useState<string[]>([]);
   const [role, setRole] = useState<MembershipRole | ''>('');
   const [status, setStatus] = useState<StaffStatusFilter>('all');
   const [page, setPage] = useState(1);
@@ -128,7 +133,7 @@ export function UsersScreen() {
     ...(role ? { role } : {}),
     status,
     page,
-    pageSize: PAGE_SIZE,
+    pageSize,
   };
   const summary = useApiQuery(['users', 'summary'], () => api.users.summary());
   const list = useApiQuery(['users', 'list', query], () => api.users.list(query));
@@ -205,27 +210,30 @@ export function UsersScreen() {
     {
       id: 'role',
       label: 'Role',
-      cell: (u) => <Badge tone="info">{FIRM_ROLE_LABELS[u.role]}</Badge>,
+      cell: (u) => (
+        <span className={`${chip} min-w-24 ${ROLE_CHIPS[u.role]}`}>{FIRM_ROLE_LABELS[u.role]}</span>
+      ),
     },
-    { id: 'company', label: 'Company', cell: (u) => u.company },
+    { id: 'company', label: 'Company', cell: (u) => u.company, className: 'min-w-24' },
     {
       id: 'status',
       label: 'Status',
       cell: (u) => (
-        <Badge tone={STATUS_LOOKS[u.status].tone} dot>
-          {STATUS_LOOKS[u.status].label}
-        </Badge>
+        <span className={`${chip} min-w-18 ${STATUS_CHIPS[u.status][1]}`}>
+          <span aria-hidden className="size-2 rounded-full bg-current" />
+          {STATUS_CHIPS[u.status][0]}
+        </span>
       ),
     },
     {
       id: 'mfa',
       label: 'MFA',
       cell: (u) => (
-        <span className={`inline-flex items-center gap-1.5 ${MFA[u.mfa].tone}`}>
+        <span className={`inline-flex items-center gap-1.5 whitespace-nowrap ${MFA[u.mfa].tone}`}>
           {createElement(MFA[u.mfa].icon, {
             'aria-hidden': true,
             weight: 'fill',
-            className: 'size-4',
+            className: 'size-5',
           })}
           {MFA[u.mfa].label}
         </span>
@@ -235,12 +243,18 @@ export function UsersScreen() {
   ];
 
   const quick: [string, Icon, () => void][] = [
-    ['Invite User', User, () => setDialog({ kind: 'invite' })],
-    ['Manage Roles', ShieldCheck, () => router.push('/team/roles')],
+    ['Invite User', UserPlus, () => setDialog({ kind: 'invite' })],
+    ['Manage Roles', GearSix, () => router.push('/team/roles')],
     ['View Audit Log', FileText, () => router.push('/audit-log')],
-    ['Reset User Passwords', Key, () => setDialog({ kind: 'pick', action: 'resetPassword' })],
-    ['Deactivate User', UserMinus, () => setDialog({ kind: 'pick', action: 'deactivate' })],
+    [
+      'Reset User Passwords',
+      LockSimple,
+      () => setDialog({ kind: 'pick', action: 'resetPassword' }),
+    ],
+    ['Deactivate User', LockSimple, () => setDialog({ kind: 'pick', action: 'deactivate' })],
   ];
+  // One company per firm: choosing it shows the same users.
+  const rows = company && company !== firm.name ? [] : (list.data?.items ?? []);
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -262,205 +276,216 @@ export function UsersScreen() {
         className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-[1440px]:grid-cols-4"
         data-testid="users-kpis"
       >
-        <Kpi
+        <SettingsKpi
           label="Total Users"
           icon={UsersThree}
           tone="blue"
           value={n(s?.total)}
-          note={s ? `↑ ${s.addedThisMonth} this month` : summary.isError ? 'Not loaded' : ' '}
+          change={s?.addedThisMonth}
+          note={summary.isError ? 'Not loaded' : 'Across all companies'}
         />
-        <Kpi
+        <SettingsKpi
           label="Active Users"
           icon={User}
           tone="green"
           value={n(s?.active)}
+          noteTone="text-success"
           note={
             s
               ? `${s.total ? Math.round((s.active / s.total) * 100) : 0}% active`
               : summary.isError
                 ? 'Not loaded'
-                : ' '
+                : ' '
           }
         />
-        <Kpi
+        <SettingsKpi
           label="Pending Invitations"
           icon={EnvelopeSimple}
           tone="amber"
           value={n(s?.pendingInvitations)}
-          note={s ? 'Awaiting response' : summary.isError ? 'Not loaded' : ' '}
+          note={summary.isError ? 'Not loaded' : 'Awaiting response'}
         />
-        <Kpi
+        <SettingsKpi
           label="Roles"
           icon={ShieldCheck}
           tone="purple"
           value={n(s?.roles)}
-          note={s ? `${s.customRoles ?? 0} custom roles` : summary.isError ? 'Not loaded' : ' '}
+          note={
+            s?.customRoles
+              ? `${s.customRoles} custom roles`
+              : summary.isError
+                ? 'Not loaded'
+                : 'Custom roles'
+          }
         />
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-4 min-[1800px]:grid-cols-[1fr_20rem]">
-        <section
-          aria-labelledby="user-management"
-          data-testid="user-management"
-          className="flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm"
-        >
-          <h2 id="user-management" className="text-xl font-bold text-heading">
-            User Management
-          </h2>
-          <div className="flex flex-wrap items-center gap-3">
-            <SearchField
-              label="Search users"
-              placeholder="Search by name, email, or role..."
-              value={search}
-              minWidth="16rem"
-              onChange={(event) => {
-                setSearch(event.target.value);
-                setPage(1);
-              }}
-            />
-            <div className="w-40">
-              <Select
-                label="Role"
-                hideLabel
-                options={[
-                  { value: '', label: 'All Roles' },
-                  ...roleItems.map((r) => ({ value: r.role, label: r.label })),
-                ]}
-                value={role}
-                onChange={(event) => {
-                  setRole(event.target.value as MembershipRole | '');
-                  setPage(1);
-                }}
-              />
-            </div>
-            <div className="w-40">
-              <Select
-                label="Status"
-                hideLabel
-                options={[
-                  { value: 'all', label: 'All Statuses' },
-                  { value: 'active', label: 'Active' },
-                  { value: 'invited', label: 'Pending' },
-                  { value: 'locked', label: 'Locked' },
-                  { value: 'inactive', label: 'Inactive' },
-                ]}
-                value={status}
-                onChange={(event) => {
-                  setStatus(event.target.value as StaffStatusFilter);
-                  setPage(1);
-                }}
-              />
-            </div>
-            <a
-              href={api.users.exportUrl(query)}
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-action px-4 text-sm font-semibold text-action hover:bg-folder-surface"
-            >
-              <DownloadSimple aria-hidden weight="bold" className="size-4" />
-              Export
-            </a>
-          </div>
-          {message || resend.error ? (
-            <p
-              role={resend.error ? 'alert' : 'status'}
-              data-testid="users-result"
-              className={`text-sm ${resend.error ? 'text-danger' : 'text-success'}`}
-            >
-              {resend.error ? errorMessage(resend.error, MEMBER_ERRORS) : message}
-            </p>
-          ) : null}
-          <Table
-            rows={list.data?.items ?? []}
-            loading={list.isPending}
-            rowKey={(u) => u.id}
-            caption="Users"
-            noun="users"
-            dense
-            columns={columns}
-            rowActions={(u) => <RowMenu label={`Actions for ${u.name}`} items={menu(u)} />}
-            server={
-              list.data && {
-                page: list.data.page,
-                total: list.data.total,
-                hasNext: list.data.page * list.data.pageSize < list.data.total,
-                hasPrevious: list.data.page > 1,
-                onNext: () => setPage(list.data.page + 1),
-                onPrevious: () => setPage(list.data.page - 1),
-                onPage: setPage,
-                onSort: () => undefined,
-              }
-            }
-            emptyTitle={
-              list.isError
-                ? 'Users are not available'
-                : filtered
-                  ? 'No matching users'
-                  : 'No users yet'
-            }
-            emptyText={
-              list.isError
-                ? NOT_LOADED
-                : filtered
-                  ? 'Try another search, role or status.'
-                  : 'Invite your first user to give them access.'
-            }
-          />
-        </section>
-
-        <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1800px]:grid-cols-1">
-          <section
-            aria-label="Quick Actions"
-            data-testid="users-quick-actions"
-            className="flex flex-col gap-2 rounded-xl border border-divider bg-surface p-4 shadow-sm"
-          >
-            <h2 className="text-lg font-bold text-heading">Quick Actions</h2>
-            {quick.map(([label, icon, run]) => (
-              <button
-                key={label}
-                type="button"
-                disabled={!manages}
-                onClick={run}
-                className="flex min-h-11 items-center gap-3 rounded-lg px-1 text-left text-sm font-medium text-heading hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <span
-                  aria-hidden
-                  className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-action text-on-action"
+      <div className="grid grid-cols-1 items-start gap-4 min-[1700px]:grid-cols-[1fr_16rem]">
+        <div className="flex min-w-0 flex-col gap-4">
+          <BandCard title="User Management" testId="user-management">
+            <div className="flex flex-col gap-3 p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-48 flex-1">
+                  <SearchField
+                    label="Search users"
+                    placeholder="Search by name, email, or role..."
+                    value={search}
+                    onChange={(event) => {
+                      setSearch(event.target.value);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+                <div className="w-40">
+                  <Select
+                    label="Company"
+                    hideLabel
+                    options={[
+                      { value: '', label: 'All Companies' },
+                      { value: firm.name, label: firm.name },
+                    ]}
+                    value={company}
+                    onChange={(event) => setCompany(event.target.value)}
+                  />
+                </div>
+                <div className="w-36">
+                  <Select
+                    label="Role"
+                    hideLabel
+                    options={[
+                      { value: '', label: 'All Roles' },
+                      ...roleItems.map((r) => ({ value: r.role, label: r.label })),
+                    ]}
+                    value={role}
+                    onChange={(event) => {
+                      setRole(event.target.value as MembershipRole | '');
+                      setPage(1);
+                    }}
+                  />
+                </div>
+                <div className="w-36">
+                  <Select
+                    label="Status"
+                    hideLabel
+                    options={[
+                      { value: 'all', label: 'All Statuses' },
+                      { value: 'active', label: 'Active' },
+                      { value: 'invited', label: 'Pending' },
+                      { value: 'locked', label: 'Locked' },
+                      { value: 'inactive', label: 'Inactive' },
+                    ]}
+                    value={status}
+                    onChange={(event) => {
+                      setStatus(event.target.value as StaffStatusFilter);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+                <a
+                  href={api.users.exportUrl(query)}
+                  className="ml-auto inline-flex min-h-10 items-center gap-2 rounded-lg border border-action px-4 text-sm font-semibold text-action hover:bg-folder-surface"
                 >
-                  {createElement(icon, { weight: 'fill', className: 'size-5' })}
-                </span>
-                {label}
-              </button>
-            ))}
-          </section>
-          {roles.data ? (
-            <RoleTemplates
-              roles={roleItems}
-              selected={selectedRole?.role ?? ''}
-              canChange={manages}
-              onSelect={(r) => setPicked(r.role)}
-              onCreate={() => router.push('/settings/users/roles/new')}
-            />
-          ) : (
-            <section
-              aria-label="Role Templates"
-              className="flex flex-col gap-2 rounded-xl border border-divider bg-surface p-4 shadow-sm"
-            >
-              <h2 className="text-base font-bold text-heading">Role Templates</h2>
-              {roles.isPending ? (
-                <Skeleton className="h-40" />
-              ) : (
-                <p className="rounded-lg bg-subtle p-4 text-sm text-muted">{NOT_LOADED}</p>
-              )}
-            </section>
-          )}
+                  <DownloadSimple aria-hidden weight="bold" className="size-5" />
+                  Export
+                </a>
+              </div>
+              {message || resend.error ? (
+                <p
+                  role={resend.error ? 'alert' : 'status'}
+                  data-testid="users-result"
+                  className={`text-sm ${resend.error ? 'text-danger' : 'text-success'}`}
+                >
+                  {resend.error ? errorMessage(resend.error, MEMBER_ERRORS) : message}
+                </p>
+              ) : null}
+              <Table
+                rows={rows}
+                loading={list.isPending}
+                rowKey={(u) => u.id}
+                caption="Users"
+                noun="users"
+                dense
+                tableClassName="[&_td]:px-1.5 [&_th]:px-1.5 [&_thead_th]:font-bold [&_thead_th]:text-heading"
+                columns={columns}
+                selection={{ selected, onChange: setSelected }}
+                rowActions={(u) => (
+                  <RowMenu vertical label={`Actions for ${u.name}`} items={menu(u)} />
+                )}
+                pageSize={pageSize}
+                pageSizes={PAGE_SIZES}
+                onPageSize={(size) => {
+                  setPageSize(size);
+                  setPage(1);
+                }}
+                server={
+                  list.data && {
+                    page: list.data.page,
+                    total: list.data.total,
+                    hasNext: list.data.page * list.data.pageSize < list.data.total,
+                    hasPrevious: list.data.page > 1,
+                    onNext: () => setPage(list.data.page + 1),
+                    onPrevious: () => setPage(list.data.page - 1),
+                    onPage: setPage,
+                    onSort: () => undefined,
+                  }
+                }
+                emptyTitle={
+                  list.isError
+                    ? 'Users are not available'
+                    : filtered || company
+                      ? 'No matching users'
+                      : 'No users yet'
+                }
+                emptyText={
+                  list.isError
+                    ? NOT_LOADED
+                    : filtered || company
+                      ? 'Try another search, company, role or status.'
+                      : 'Invite your first user to give them access.'
+                }
+              />
+            </div>
+          </BandCard>
+
+          <RolePanel
+            key={selectedRole?.role ?? 'none'}
+            roles={roleItems}
+            selected={selectedRole}
+            onSelect={setPicked}
+          />
+        </div>
+
+        <aside className="grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 min-[1700px]:grid-cols-1">
+          <BandCard title="Quick Actions" testId="users-quick-actions">
+            <div className="flex flex-col gap-1 p-3">
+              {quick.map(([label, icon, run]) => (
+                <button
+                  key={label}
+                  type="button"
+                  disabled={!manages}
+                  onClick={run}
+                  className="flex min-h-11 items-center gap-3 rounded-lg px-1 text-left text-base text-heading hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span
+                    aria-hidden
+                    className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-action text-on-action"
+                  >
+                    {createElement(icon, { weight: 'fill', className: 'size-5' })}
+                  </span>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </BandCard>
+          <RoleTemplates
+            roles={roles.data ? roleItems : undefined}
+            loading={roles.isPending}
+            canChange={manages}
+            onUse={(r) => router.push(`/settings/users/roles/new?from=${r}`)}
+            onCreate={() => router.push('/settings/users/roles/new')}
+          />
         </aside>
       </div>
-
-      <RolePanel
-        key={selectedRole?.role ?? 'none'}
-        roles={roleItems}
-        selected={selectedRole}
-        onSelect={setPicked}
-      />
 
       {dialog?.kind === 'invite' ? (
         <InviteUserModal

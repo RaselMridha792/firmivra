@@ -24,7 +24,7 @@ import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { MODULE_LOOKS, NEEDS_VIEW, ROLE_ERRORS } from '../../../team/roles/_components/role-parts';
-import { NOT_LOADED } from '../../_components/settings-parts';
+import { BandCard, NOT_LOADED } from '../../_components/settings-parts';
 
 /** The design's six columns; Admin is the contract's MANAGE (Delete follows the role). */
 const COLUMNS: [PermissionCapability, string][] = [
@@ -57,13 +57,11 @@ function toGrants(
   );
 }
 
-const card =
-  'flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm';
-
 /**
  * Role Permissions, Module Permissions and Permission Details (users-and-role.jpg, guide §5, §8):
  * the same role grid as Staff Management's Roles & Permissions (`api.roles`), with the design's
- * six columns. Saving more than the role's default asks first (409 PERMISSION_ESCALATION).
+ * six columns; the module row you click shows in Permission Details. Saving more than the role's
+ * default asks first (409 PERMISSION_ESCALATION).
  */
 export function RolePanel({
   roles,
@@ -111,157 +109,160 @@ export function RolePanel({
         if (errorCode(error) === 'PERMISSION_ESCALATION') setAsking(true);
       },
     });
+  // A row's boxes are named "Clients: View", so the row's module is the part before ": ".
+  const pickRow = (target: EventTarget) => {
+    const name = (target as HTMLElement)
+      .closest('tr')
+      ?.querySelector('input')
+      ?.getAttribute('aria-label');
+    const found = modules.data?.modules.find((m) => m.label === name?.split(': ')[0]);
+    if (found) setDetail(found.module);
+  };
   const moduleInfo =
     modules.data?.modules.find((m) => m.module === detail) ?? modules.data?.modules[0];
   const error = save.error && errorCode(save.error) !== 'PERMISSION_ESCALATION' ? save.error : null;
 
   return (
-    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1800px]:grid-cols-[1fr_2fr_1.2fr]">
-      <section aria-label="Role Permissions" data-testid="role-permissions" className={card}>
-        <div>
-          <h2 className="text-lg font-bold text-heading">Role Permissions</h2>
-          <p className="text-sm text-muted">Select a role to view or edit permissions.</p>
-        </div>
-        {selected ? (
-          <Select
-            label="Role"
-            options={roles.map((r) => ({ value: r.role, label: r.label }))}
-            value={selected.role}
-            onChange={(event) => {
-              setDraft(null);
-              setDone('');
-              onSelect(event.target.value as MembershipRole);
-            }}
-          />
-        ) : (
-          <Select
-            label="Role"
-            disabled
-            options={[{ value: '', label: 'No roles' }]}
-            value=""
-            onChange={() => undefined}
-          />
-        )}
-        <Button
-          disabled={!canChange || draft === null || save.isPending}
-          onClick={() => submit(false)}
-        >
-          Save Changes
-        </Button>
-        <Button
-          variant="ghost"
-          className="self-end"
-          disabled={!canChange || !selected?.customized || reset.isPending}
-          onClick={() =>
-            reset.mutate(undefined, {
-              onSuccess: () => {
-                setDraft(null);
-                setDone('Back to the default permissions.');
-              },
-            })
-          }
-        >
-          <ArrowCounterClockwise aria-hidden weight="bold" className="size-4" />
-          Reset to Default
-        </Button>
-        {error || reset.error ? (
-          <p role="alert" className="text-sm text-danger">
-            {errorMessage(error ?? reset.error, ROLE_ERRORS)}
-          </p>
-        ) : done ? (
-          <p role="status" data-testid="role-saved" className="text-sm text-success">
-            {done}
-          </p>
-        ) : draft ? (
-          <p className="text-sm text-muted">Unsaved changes</p>
-        ) : null}
-        {selected?.locked ? (
-          <p className="text-xs text-muted">The Owner role always has every permission.</p>
-        ) : null}
-      </section>
-
-      <section
-        aria-label="Module Permissions"
-        data-testid="module-permissions"
-        // Under the two small cards until the page is wide enough for the design's three columns.
-        className={`${card} lg:order-last lg:col-span-2 min-[1800px]:order-none min-[1800px]:col-span-1`}
-      >
-        <h2 className="text-lg font-bold text-heading">Module Permissions</h2>
-        {grid.data && modules.data ? (
-          <PermissionMatrix
-            rows={modules.data.modules.map((m) => ({
-              id: m.module,
-              label: m.label,
-              icon: MODULE_LOOKS[m.module][0],
-              tone: MODULE_LOOKS[m.module][1],
-            }))}
-            columns={COLUMNS.map(([id, label]) => ({ id, label }))}
-            value={value}
-            onChange={
-              canChange
-                ? (next) => {
-                    setDraft(next);
-                    setDone('');
-                  }
-                : undefined
-            }
-            readOnly={!canChange}
-            rowHeader="Module"
-            requires={NEEDS_VIEW}
-            isAvailable={(row, column) =>
-              modules.data?.modules
-                .find((m) => m.module === row)
-                ?.capabilities.some((c) => c === column) ?? false
-            }
-            caption={`Module permissions for ${selected?.label ?? 'this role'}`}
-          />
-        ) : grid.isError || modules.isError || (!selected && !grid.isPending) ? (
-          <PermissionMatrix rows={[]} columns={[]} value={{}} emptyText={NOT_LOADED} />
-        ) : (
-          <Skeleton className="h-80" />
-        )}
-      </section>
-
-      <section aria-label="Permission Details" data-testid="permission-details" className={card}>
-        <h2 className="text-lg font-bold text-heading">Permission Details</h2>
-        {moduleInfo ? (
-          <>
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-[1.15fr_2fr_1fr]">
+      <BandCard title="Role Permissions" testId="role-permissions" className="self-stretch">
+        <div className="flex flex-1 flex-col gap-3 p-4 pt-2">
+          <p className="text-sm text-text">Select a role to view or edit permissions.</p>
+          {selected ? (
             <Select
-              label="Module"
-              hideLabel
-              options={(modules.data?.modules ?? []).map((m) => ({
-                value: m.module,
-                label: m.label,
-              }))}
-              value={moduleInfo.module}
-              onChange={(event) => setDetail(event.target.value as PermissionModule)}
+              label="Role"
+              options={roles.map((r) => ({ value: r.role, label: r.label }))}
+              value={selected.role}
+              onChange={(event) => {
+                setDraft(null);
+                setDone('');
+                onSelect(event.target.value as MembershipRole);
+              }}
             />
-            <div className="flex gap-3">
+          ) : (
+            <Select
+              label="Role"
+              disabled
+              options={[{ value: '', label: 'No roles' }]}
+              value=""
+              onChange={() => undefined}
+            />
+          )}
+          <Button
+            className="mt-1 min-h-12 text-base"
+            disabled={!canChange || save.isPending}
+            onClick={() => (draft === null ? setDone('No changes to save.') : submit(false))}
+          >
+            Save Changes
+          </Button>
+          <button
+            type="button"
+            disabled={!canChange || reset.isPending}
+            onClick={() =>
+              reset.mutate(undefined, {
+                onSuccess: () => {
+                  setDraft(null);
+                  setDone('Back to the default permissions.');
+                },
+              })
+            }
+            className="inline-flex min-h-9 items-center gap-1.5 self-end text-sm text-action hover:underline disabled:cursor-not-allowed disabled:text-muted disabled:no-underline"
+          >
+            <ArrowCounterClockwise aria-hidden weight="bold" className="size-4" />
+            Reset to Default
+          </button>
+          {error || reset.error ? (
+            <p role="alert" className="text-sm text-danger">
+              {errorMessage(error ?? reset.error, ROLE_ERRORS)}
+            </p>
+          ) : done ? (
+            <p role="status" data-testid="role-saved" className="text-sm text-success">
+              {done}
+            </p>
+          ) : draft ? (
+            <p className="text-sm text-muted">Unsaved changes</p>
+          ) : null}
+          {selected?.locked ? (
+            <p className="text-xs text-muted">The Owner role always has every permission.</p>
+          ) : null}
+        </div>
+      </BandCard>
+
+      <BandCard
+        title="Module Permissions"
+        testId="module-permissions"
+        // Under the two small cards until the page is wide enough for the design's three columns.
+        className="self-stretch lg:order-last lg:col-span-2 min-[1440px]:order-none min-[1440px]:col-span-1"
+      >
+        {/* Clicking or tabbing into a module's row shows it in Permission Details. */}
+        <div
+          className="max-h-80 overflow-y-auto px-3 pb-3 [&_table]:text-xs [&_td]:px-1 [&_td]:py-1 [&_th]:px-1.5 [&_th]:py-1.5 [&_input]:size-4 [&>div]:rounded-none [&>div]:border-0"
+          onClickCapture={(event) => pickRow(event.target)}
+          onFocusCapture={(event) => pickRow(event.target)}
+        >
+          {grid.data && modules.data ? (
+            <PermissionMatrix
+              rows={modules.data.modules.map((m) => ({ id: m.module, label: m.label }))}
+              columns={COLUMNS.map(([id, label]) => ({ id, label }))}
+              value={value}
+              onChange={
+                canChange
+                  ? (next) => {
+                      setDraft(next);
+                      setDone('');
+                    }
+                  : undefined
+              }
+              readOnly={!canChange}
+              rowHeader="Module"
+              requires={NEEDS_VIEW}
+              isAvailable={(row, column) =>
+                modules.data?.modules
+                  .find((m) => m.module === row)
+                  ?.capabilities.some((c) => c === column) ?? false
+              }
+              caption={`Module permissions for ${selected?.label ?? 'this role'}`}
+            />
+          ) : grid.isError || modules.isError || (!selected && !grid.isPending) ? (
+            <PermissionMatrix rows={[]} columns={[]} value={{}} emptyText={NOT_LOADED} />
+          ) : (
+            <Skeleton className="h-72" />
+          )}
+        </div>
+      </BandCard>
+
+      <BandCard title="Permission Details" testId="permission-details" className="self-stretch">
+        <div className="flex flex-1 flex-col gap-4 p-4">
+          {moduleInfo ? (
+            <div className="flex gap-3" data-testid="permission-detail">
               <span
                 aria-hidden
-                className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-info-soft text-info"
+                className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-info-soft text-action"
               >
                 {createElement(MODULE_LOOKS[moduleInfo.module][0], {
                   weight: 'fill',
-                  className: 'size-6',
+                  className: 'size-7',
                 })}
               </span>
               <div className="min-w-0">
                 <p className="font-bold text-heading">{moduleInfo.label}</p>
-                <p className="text-sm text-muted">{moduleInfo.description}</p>
+                <p className="text-xs text-muted">{moduleInfo.description}</p>
               </div>
             </div>
-          </>
-        ) : modules.isPending ? (
-          <Skeleton className="h-20" />
-        ) : (
-          <p className="rounded-lg bg-subtle p-4 text-sm text-muted">{NOT_LOADED}</p>
-        )}
-        <Callout icon={Info} tone="navy" surface="info" size="compact">
-          Changes to permissions take effect immediately. Users will see updated access on their
-          next page load.
-        </Callout>
-      </section>
+          ) : modules.isPending ? (
+            <Skeleton className="h-20" />
+          ) : (
+            <p className="rounded-lg bg-subtle p-4 text-sm text-muted">{NOT_LOADED}</p>
+          )}
+          <div className="border-t border-divider pt-4">
+            <Callout icon={Info} tone="navy" surface="info" size="compact">
+              <span className="text-xs text-link">
+                Changes to permissions take effect immediately. Users will see updated access on
+                their next page load.
+              </span>
+            </Callout>
+          </div>
+        </div>
+      </BandCard>
 
       {asking ? (
         <Modal
