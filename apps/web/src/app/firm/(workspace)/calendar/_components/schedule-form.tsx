@@ -9,17 +9,19 @@ import {
   ScheduleAppointmentRequest,
   type SchedulingOptions,
 } from '@firmivra/types';
-import { Button, Callout, Checkbox, Input, Select, Skeleton, Textarea } from '@firmivra/ui';
+import { Button, Callout, Checkbox, Input, Select, Skeleton, Textarea, Toggle } from '@firmivra/ui';
 import {
   ArrowLeft,
   ArrowRight,
   Bell,
   CalendarBlank,
+  CaretDown,
   CaretRight,
   ClipboardText,
+  Copy,
   Info,
   Lightbulb,
-  LinkSimple,
+  MagnifyingGlass,
   NotePencil,
   Repeat,
   User,
@@ -117,7 +119,10 @@ interface Form {
   count: number;
 }
 
-function blank(o: SchedulingOptions): Form {
+/** A new form; `at` is the date and hour picked on the calendar (`?date=&time=`). */
+function blank(o: SchedulingOptions, at?: { date: string; time: string }): Form {
+  const start = at?.time ?? '10:00';
+  const end = `${String(Math.min(Number(start.slice(0, 2)) + 1, 23)).padStart(2, '0')}:${start.slice(3, 5)}`;
   return {
     contact: null,
     newContact: false,
@@ -128,9 +133,9 @@ function blank(o: SchedulingOptions): Form {
     businessName: '',
     typeId: '',
     serviceId: '',
-    date: todayIn(o.timezone),
-    start: '10:00',
-    end: '11:00',
+    date: at?.date ?? todayIn(o.timezone),
+    start,
+    end,
     timezone: o.timezone,
     method: 'IN_PERSON',
     officeId: o.offices?.[0]?.id ?? '',
@@ -196,31 +201,48 @@ const minutesOf = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 
 
 function Section({
   title,
+  note,
   icon,
   action,
   children,
   testId,
+  id,
+  small,
 }: {
   title: string;
+  /** "(Optional)", small after the title. */
+  note?: string;
+  /** The three small cards at the bottom (Related Items, Client Reminders, Recurrence). */
+  small?: boolean;
   icon: typeof User;
   action?: ReactNode;
   children: ReactNode;
   testId?: string;
+  id?: string;
 }) {
   return (
     <section
-      aria-label={title}
+      id={id}
+      aria-label={note ? `${title} ${note}` : title}
       data-testid={testId}
       className="flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm"
     >
-      <div className="flex items-center gap-3">
+      <div className={`flex items-center ${small ? 'gap-2' : 'gap-3'}`}>
         <span
           aria-hidden
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-action text-on-action"
+          className={`flex shrink-0 items-center justify-center rounded-lg bg-action text-on-action ${small ? 'size-8' : 'size-9'}`}
         >
-          {createElement(icon, { weight: 'fill', className: 'size-5' })}
+          {createElement(icon, { weight: 'fill', className: small ? 'size-4' : 'size-5' })}
         </span>
-        <h2 className="flex-1 text-lg font-bold text-heading">{title}</h2>
+        <h2 className={`min-w-0 flex-1 font-bold text-heading ${small ? 'text-base' : 'text-lg'}`}>
+          {title}
+          {note ? (
+            <>
+              {' '}
+              <span className="text-xs font-normal text-link">{note}</span>
+            </>
+          ) : null}
+        </h2>
         {action}
       </div>
       {children}
@@ -251,7 +273,7 @@ function Segmented<T extends string>({
             role="radio"
             aria-checked={value === v}
             onClick={() => onChange(v)}
-            className={`min-h-11 flex-1 border-r border-border px-3 text-sm last:border-r-0 ${value === v ? 'bg-action font-semibold text-on-action' : 'bg-surface text-heading hover:bg-canvas'}`}
+            className={`min-h-11 flex-1 border-r border-border px-2 text-sm whitespace-nowrap last:border-r-0 ${value === v ? 'bg-action font-semibold text-on-action' : 'bg-surface text-heading hover:bg-canvas'}`}
           >
             {l}
           </button>
@@ -267,26 +289,39 @@ function Segmented<T extends string>({
  * with the Staff Availability panel, the Appointment Summary and the Pro Tip. A conflict
  * (409 SCHEDULING_CONFLICT) shows what clashes; an Owner or Admin may book anyway with a reason.
  */
-export function ScheduleForm({ record }: { record?: AppointmentRecord }) {
+export function ScheduleForm({
+  record,
+  at,
+}: {
+  record?: AppointmentRecord;
+  /** The date and hour picked on the calendar (`/calendar/new?date=&time=`). */
+  at?: { date: string; time: string };
+}) {
   const options = useApiQuery([...SCHEDULING, 'options'], () => api.scheduling.options());
+  const header = <ScheduleHeader editing={Boolean(record)} />;
+  if (options.data)
+    return <FormBody options={options.data} record={record} at={at} header={header} />;
   return (
-    <div className="flex min-w-0 flex-col gap-6">
-      <ScheduleHeader editing={Boolean(record)} />
-      {options.data ? (
-        <FormBody options={options.data} record={record} />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 min-[1440px]:grid-cols-3">
-          {['Client Information', 'Appointment Details', 'Staff Availability'].map((t) => (
-            <Section key={t} title={t} icon={CalendarBlank}>
-              {options.isPending ? (
-                <Skeleton className="h-32" />
-              ) : (
-                <p className="rounded-lg bg-subtle p-4 text-sm text-muted">{NOT_LOADED}</p>
-              )}
-            </Section>
-          ))}
-        </div>
-      )}
+    <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-[1fr_22rem]">
+      <div className="flex min-w-0 flex-col gap-4">
+        {header}
+        {['Client Information', 'Appointment Details', 'Staff & Status'].map((t) => (
+          <Section key={t} title={t} icon={CalendarBlank}>
+            {options.isPending ? (
+              <Skeleton className="h-32" />
+            ) : (
+              <p className="rounded-lg bg-subtle p-4 text-sm text-muted">{NOT_LOADED}</p>
+            )}
+          </Section>
+        ))}
+      </div>
+      <Section title="Staff Availability" icon={UsersThree}>
+        {options.isPending ? (
+          <Skeleton className="h-96" />
+        ) : (
+          <p className="rounded-lg bg-subtle p-4 text-sm text-muted">{NOT_LOADED}</p>
+        )}
+      </Section>
     </div>
   );
 }
@@ -303,20 +338,20 @@ export function ScheduleHeader({ editing }: { editing: boolean }) {
           {editing ? 'Edit Appointment' : 'Create Appointment'}
         </span>
       </nav>
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Link
             href="/calendar"
-            className="inline-flex min-h-11 items-center gap-2 rounded-control border border-action px-4 text-sm font-semibold text-action hover:bg-folder-surface"
+            className="inline-flex min-h-11 items-center gap-2 rounded-control border border-action px-3 text-sm font-semibold text-action hover:bg-folder-surface"
           >
             <ArrowLeft aria-hidden weight="bold" className="size-4" />
             Back to Appointments
           </Link>
           <div className="min-w-0">
-            <h1 data-testid="page-title" className="text-3xl font-bold text-heading">
+            <h1 data-testid="page-title" className="text-2xl font-bold text-heading">
               Schedule Appointment
             </h1>
-            <p className="text-base text-link">Create a new appointment or edit an existing one.</p>
+            <p className="text-sm text-text">Create a new appointment or edit an existing one.</p>
           </div>
         </div>
         <nav
@@ -326,14 +361,14 @@ export function ScheduleHeader({ editing }: { editing: boolean }) {
           <Link
             href="/calendar/new"
             aria-current={editing ? undefined : 'page'}
-            className={`inline-flex min-h-10 items-center rounded-lg px-5 text-sm font-semibold ${editing ? 'text-action hover:bg-folder-surface' : 'bg-action text-on-action'}`}
+            className={`inline-flex min-h-10 items-center rounded-lg px-4 text-sm font-semibold ${editing ? 'text-action hover:bg-folder-surface' : 'bg-action text-on-action'}`}
           >
             Create New
           </Link>
           <Link
             href="/calendar/list"
             aria-current={editing ? 'page' : undefined}
-            className={`inline-flex min-h-10 items-center rounded-lg px-5 text-sm font-semibold ${editing ? 'bg-action text-on-action' : 'text-action hover:bg-folder-surface'}`}
+            className={`inline-flex min-h-10 items-center rounded-lg px-4 text-sm font-semibold ${editing ? 'bg-action text-on-action' : 'text-action hover:bg-folder-surface'}`}
           >
             Edit Existing
           </Link>
@@ -346,12 +381,17 @@ export function ScheduleHeader({ editing }: { editing: boolean }) {
 function FormBody({
   options: o,
   record,
+  at,
+  header,
 }: {
   options: SchedulingOptions;
   record?: AppointmentRecord;
+  at?: { date: string; time: string };
+  header: ReactNode;
 }) {
   const router = useRouter();
-  const [form, setForm] = useState<Form>(() => (record ? fromRecord(record, o) : blank(o)));
+  const [form, setForm] = useState<Form>(() => (record ? fromRecord(record, o) : blank(o, at)));
+  const [copied, setCopied] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [key] = useState(() => crypto.randomUUID());
@@ -514,7 +554,28 @@ function FormBody({
     year: 'numeric',
   });
   const timeLabel = (t: string) => TIMES.find((x) => x.value === t)?.label ?? t;
+  const dotColor = form.color || type?.color || undefined;
   const contactName = form.newContact ? form.name || '—' : (form.contact?.name ?? '—');
+  const zoneShort = TIME_ZONES.find(([z]) => z === form.timezone)?.[1].match(/\(([A-Z]+)\)$/)?.[1];
+  const duration = form.allDay
+    ? 'All day'
+    : minutes > 0
+      ? `${Math.floor(minutes / 60) ? `${Math.floor(minutes / 60)} hour${minutes >= 120 ? 's' : ''} ` : ''}${minutes % 60 ? `${minutes % 60} min` : ''}`.trim()
+      : '—';
+  const onReminders = (['EMAIL', 'SMS', 'PORTAL'] as const).filter((c) => form.reminders[c].on);
+  const firstReminder = onReminders[0] ? form.reminders[onReminders[0]] : null;
+  const sameTiming = onReminders.every(
+    (c) =>
+      form.reminders[c].amount === firstReminder?.amount &&
+      form.reminders[c].unit === firstReminder.unit,
+  );
+  const remindersLabel = onReminders.length
+    ? `${onReminders.map((c) => (c === 'EMAIL' ? 'Email' : c === 'SMS' ? 'SMS' : 'Portal')).join(', ')}${
+        firstReminder && sameTiming
+          ? ` (${firstReminder.amount} ${(UNITS.find(([u]) => u === firstReminder.unit)?.[1] ?? '').replace(/s before$/, firstReminder.amount === 1 ? ' before' : 's before')})`
+          : ''
+      }`
+    : 'None';
   const grid = 'grid gap-4 md:grid-cols-2';
 
   return (
@@ -525,10 +586,12 @@ function FormBody({
         e.preventDefault();
         submit();
       }}
-      className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-[1fr_24rem]"
+      className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-[1fr_22rem]"
     >
       <div className="flex min-w-0 flex-col gap-4">
+        {header}
         <Section
+          id="client-information"
           title="Client Information"
           icon={User}
           testId="client-information"
@@ -590,10 +653,21 @@ function FormBody({
                   placeholder="Search by name, email, phone, or ID..."
                   value={form.contact ? form.contact.name : search}
                   autoComplete="off"
+                  className="pr-9 pl-9"
                   onChange={(e) => {
                     set('contact', null);
                     setSearch(e.target.value);
                   }}
+                />
+                <MagnifyingGlass
+                  aria-hidden
+                  weight="bold"
+                  className="pointer-events-none absolute bottom-3.5 left-3 size-4 text-muted"
+                />
+                <CaretDown
+                  aria-hidden
+                  weight="bold"
+                  className="pointer-events-none absolute right-3 bottom-3.5 size-4 text-muted"
                 />
                 {!form.contact && search.trim().length >= 2 ? (
                   <ul
@@ -738,7 +812,7 @@ function FormBody({
               }
             />
           </div>
-          <div className={grid}>
+          <div className="grid gap-4 md:grid-cols-[1fr_1.4fr]">
             <Select
               label="Time Zone"
               options={(TIME_ZONES.some(([z]) => z === form.timezone)
@@ -757,52 +831,72 @@ function FormBody({
               onChange={(v) => set('method', v)}
             />
           </div>
-          {form.method === 'IN_PERSON' ? (
-            <div className={grid}>
-              <Select
-                label="Office / Branch"
-                options={[
-                  { value: '', label: 'Select office' },
-                  ...(o.offices ?? []).map((x) => ({ value: x.id, label: x.name })),
-                ]}
-                value={form.officeId}
-                onChange={(e) => setForm((f) => ({ ...f, officeId: e.target.value, roomId: '' }))}
-              />
-              <Select
-                label="Room (optional)"
-                options={[
-                  { value: '', label: 'No room' },
-                  ...rooms.map((x) => ({ value: x.id, label: x.name })),
-                ]}
-                value={form.roomId}
-                onChange={(e) => set('roomId', e.target.value)}
-              />
-            </div>
-          ) : null}
-          {form.method === 'VIDEO' ? (
-            <div className="flex flex-col gap-2">
-              <Checkbox
-                label={
-                  o.videoProvider
-                    ? 'Generate Zoom Link'
-                    : 'Generate Zoom Link (connect a video integration first)'
-                }
-                disabled={!o.videoProvider}
-                checked={form.generateVideoLink}
-                onChange={(e) => set('generateVideoLink', e.target.checked)}
-                className="text-sm"
-              />
-              {form.generateVideoLink ? null : (
+          {/* The design's row: Office / Branch, Room and Video Meeting Link, each used by its
+              location type and greyed out for the others. */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <Select
+              label="Office / Branch"
+              disabled={form.method !== 'IN_PERSON'}
+              options={[
+                { value: '', label: 'Select office' },
+                ...(o.offices ?? []).map((x) => ({ value: x.id, label: x.name })),
+              ]}
+              value={form.officeId}
+              onChange={(e) => setForm((f) => ({ ...f, officeId: e.target.value, roomId: '' }))}
+            />
+            <Select
+              label="Room (optional)"
+              disabled={form.method !== 'IN_PERSON'}
+              options={[
+                { value: '', label: 'No room' },
+                ...rooms.map((x) => ({ value: x.id, label: x.name })),
+              ]}
+              value={form.roomId}
+              onChange={(e) => set('roomId', e.target.value)}
+            />
+            <div className="flex min-w-0 flex-col gap-1" data-testid="video-link">
+              <span className="flex items-center gap-1 text-sm font-medium text-text">
+                Video Meeting Link
+                <Info aria-hidden weight="fill" className="size-4 text-action" />
+              </span>
+              <span className="flex items-center gap-2 text-xs text-text">
+                <Toggle
+                  label="Generate Zoom Link"
+                  checked={form.generateVideoLink}
+                  disabled={form.method !== 'VIDEO' || !o.videoProvider}
+                  onChange={(on) => set('generateVideoLink', on)}
+                />
+                {o.videoProvider
+                  ? 'Generate Zoom Link'
+                  : 'Generate Zoom Link (connect video first)'}
+              </span>
+              <span className="flex min-w-0 items-stretch gap-1">
                 <Input
                   label="Video Meeting Link"
-                  placeholder="https://"
-                  value={form.videoUrl}
+                  hideLabel
+                  placeholder={form.generateVideoLink ? 'Made when you schedule' : 'https://'}
+                  disabled={form.method !== 'VIDEO' || form.generateVideoLink}
+                  value={form.generateVideoLink ? '' : form.videoUrl}
                   error={errors.videoUrl}
                   onChange={(e) => set('videoUrl', e.target.value)}
                 />
-              )}
+                <button
+                  type="button"
+                  aria-label="Copy the video link"
+                  title={copied ? 'Copied' : 'Copy'}
+                  disabled={!form.videoUrl.trim() || form.generateVideoLink}
+                  onClick={() =>
+                    void navigator.clipboard
+                      ?.writeText(form.videoUrl.trim())
+                      .then(() => setCopied(true))
+                  }
+                  className="flex w-10 shrink-0 items-center justify-center rounded-control border border-border text-action hover:bg-canvas disabled:text-muted"
+                >
+                  <Copy aria-hidden weight="bold" className="size-4" />
+                </button>
+              </span>
             </div>
-          ) : null}
+          </div>
           {form.method === 'PHONE' || form.method === 'OTHER' ? (
             <Input
               label={form.method === 'PHONE' ? 'Phone number to call' : 'Where'}
@@ -813,8 +907,9 @@ function FormBody({
         </Section>
 
         <Section title="Staff & Status" icon={UsersThree} testId="staff-status">
-          <div className="grid gap-4 md:grid-cols-[2fr_1.4fr_1fr_auto] md:items-end">
+          <div className="grid gap-4 md:grid-cols-[1.8fr_1.3fr_1.2fr_auto] md:items-end">
             <MultiPick
+              chips
               label="Assigned Staff *"
               placeholder="Choose staff"
               options={o.staff.map((s) => ({ value: s.userId, label: s.name }))}
@@ -825,21 +920,37 @@ function FormBody({
                 if (v[0]) setPanelStaff(v[0]);
               }}
             />
-            <Select
-              label="Appointment Status *"
-              options={[
-                { value: 'CONFIRMED', label: 'Confirmed' },
-                { value: 'PENDING', label: 'Pending' },
-              ]}
-              value={form.status}
-              onChange={(e) => set('status', e.target.value as Form['status'])}
-            />
-            <Select
-              label="Color"
-              options={COLORS.map(([value, label]) => ({ value, label }))}
-              value={form.color}
-              onChange={(e) => set('color', e.target.value)}
-            />
+            <div className="relative">
+              <Select
+                label="Appointment Status *"
+                className="pl-8"
+                options={[
+                  { value: 'CONFIRMED', label: 'Confirmed' },
+                  { value: 'PENDING', label: 'Pending' },
+                ]}
+                value={form.status}
+                onChange={(e) => set('status', e.target.value as Form['status'])}
+              />
+              <span
+                aria-hidden
+                className={`pointer-events-none absolute bottom-4 left-3 size-3 rounded-full ${form.status === 'CONFIRMED' ? 'bg-success' : 'bg-gold'}`}
+              />
+            </div>
+            <div className="relative">
+              <Select
+                label="Color"
+                className="pl-8"
+                options={COLORS.map(([value, label]) => ({ value, label }))}
+                value={form.color}
+                onChange={(e) => set('color', e.target.value)}
+              />
+              {/* The chosen colour (data the API stores), else the type's. */}
+              <span
+                aria-hidden
+                className="pointer-events-none absolute bottom-4 left-3 size-3 rounded-full bg-action"
+                style={dotColor ? { background: dotColor } : undefined}
+              />
+            </div>
             <Checkbox
               label="All Day"
               checked={form.allDay}
@@ -870,24 +981,32 @@ function FormBody({
           </div>
         </Section>
 
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
-          <Section title="Related Items (Optional)" icon={ClipboardText} testId="related-items">
-            {[
-              'Link to Tax Return',
-              'Link to Bookkeeping Client',
-              'Link to Invoice',
-              'Link to Task',
-              'Send Intake Form Before Appointment',
-              'Require Documents Before Appointment',
-            ].map((l) => (
-              <Checkbox key={l} label={l} disabled className="min-h-8 text-sm" />
-            ))}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.1fr_1.3fr_0.75fr]">
+          <Section
+            small
+            title="Related Items"
+            note="(Optional)"
+            icon={ClipboardText}
+            testId="related-items"
+          >
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              {[
+                'Link to Tax Return',
+                'Link to Task',
+                'Link to Bookkeeping Client',
+                'Send Intake Form Before Appointment',
+                'Link to Invoice',
+                'Require Documents Before Appointment',
+              ].map((l) => (
+                <Checkbox key={l} label={l} disabled className="min-h-8 text-xs" />
+              ))}
+            </div>
             <p className="text-xs text-muted">
               Choose these on the appointment once the client is set.
             </p>
           </Section>
 
-          <Section title="Client Reminders" icon={Bell} testId="client-reminders">
+          <Section small title="Client Reminders" icon={Bell} testId="client-reminders">
             {(
               [
                 ['EMAIL', 'Email Reminder', true],
@@ -895,7 +1014,7 @@ function FormBody({
                 ['PORTAL', 'Portal Notification', o.portalEnabled],
               ] as [ReminderChannel, string, boolean][]
             ).map(([ch, label, ok]) => (
-              <div key={ch} className="grid grid-cols-[4rem_1fr] items-center gap-x-2">
+              <div key={ch} className="grid grid-cols-[1fr_3.25rem_7rem] items-center gap-x-1.5">
                 <Checkbox
                   label={label}
                   disabled={!ok}
@@ -906,10 +1025,11 @@ function FormBody({
                       [ch]: { ...form.reminders[ch], on: e.target.checked },
                     })
                   }
-                  className="col-span-2 min-h-8 text-sm"
+                  className="min-h-8 text-xs"
                 />
                 <Select
                   label={`${label} amount`}
+                  className="py-1! pr-7! pl-2! text-sm!"
                   hideLabel
                   disabled={!ok || !form.reminders[ch].on}
                   options={[1, 2, 3, 4, 6, 12, 24, 48].map((n) => ({
@@ -926,6 +1046,7 @@ function FormBody({
                 />
                 <Select
                   label={`${label} unit`}
+                  className="py-1! pr-7! pl-2! text-sm!"
                   hideLabel
                   disabled={!ok || !form.reminders[ch].on}
                   options={UNITS.map(([value, l]) => ({ value, label: l }))}
@@ -943,13 +1064,14 @@ function FormBody({
               label="Send Confirmation Message Immediately"
               checked={form.sendConfirmation}
               onChange={(e) => set('sendConfirmation', e.target.checked)}
-              className="min-h-8 text-sm"
+              className="min-h-8 text-xs"
             />
           </Section>
 
-          <Section title="Recurrence (Optional)" icon={Repeat} testId="recurrence">
+          <Section small title="Recurrence" note="(Optional)" icon={Repeat} testId="recurrence">
             <Select
               label="Repeat"
+              className="pr-8! pl-2! text-sm!"
               hideLabel
               options={[
                 { value: 'NONE', label: 'Does not repeat' },
@@ -995,22 +1117,6 @@ function FormBody({
             {note}
           </p>
         ) : null}
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <Link
-            href={record ? `/calendar/${record.id}` : '/calendar'}
-            className="inline-flex min-h-11 items-center rounded-control border border-action px-6 text-sm font-semibold text-action hover:bg-folder-surface"
-          >
-            Cancel
-          </Link>
-          {record ? null : (
-            <Button variant="secondary" disabled={busy} onClick={saveDraft}>
-              Save as Draft
-            </Button>
-          )}
-          <Button type="submit" disabled={busy || (conflict && !override.trim())} className="px-8">
-            {record ? 'Save Changes' : conflict ? 'Book Anyway' : 'Schedule Appointment'}
-          </Button>
-        </div>
       </div>
 
       <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">
@@ -1049,7 +1155,18 @@ function FormBody({
           data-testid="appointment-summary"
           className="flex flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm"
         >
-          <h2 className="text-lg font-bold text-heading">Appointment Summary</h2>
+          <div className="flex items-center gap-3">
+            <span
+              aria-hidden
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-action text-on-action"
+            >
+              <CalendarBlank weight="fill" className="size-5" />
+            </span>
+            <h2 className="flex-1 text-lg font-bold text-heading">Appointment Summary</h2>
+            <a href="#client-information" className="text-sm font-semibold text-link underline">
+              Edit
+            </a>
+          </div>
           <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2 text-sm">
             {(
               [
@@ -1057,19 +1174,38 @@ function FormBody({
                 ['Type', typeName],
                 [
                   'Date & Time',
-                  form.allDay
-                    ? `${dateLabel}, all day`
-                    : `${dateLabel}, ${timeLabel(form.start)} – ${timeLabel(form.end)}`,
+                  <span key="when">
+                    {dateLabel}
+                    <br />
+                    {form.allDay
+                      ? 'All day'
+                      : `${timeLabel(form.start)} – ${timeLabel(form.end)}${zoneShort ? ` (${zoneShort})` : ''}`}
+                  </span>,
                 ],
-                ['Duration', form.allDay ? 'All day' : minutes > 0 ? `${minutes} minutes` : '—'],
+                ['Duration', duration],
                 [
                   'Location',
-                  form.method === 'IN_PERSON'
-                    ? ['In Person', office, room].filter(Boolean).join(' – ')
-                    : METHOD_LABELS[form.method],
+                  form.method === 'IN_PERSON' ? (
+                    <span key="where">
+                      {['In Person', office].filter(Boolean).join(' – ')}
+                      {room ? <br /> : null}
+                      {room}
+                    </span>
+                  ) : (
+                    METHOD_LABELS[form.method]
+                  ),
                 ],
                 ['Staff', staffNames.join(', ') || '—'],
-                ['Status', STATUS_LOOKS[form.status].label],
+                [
+                  'Status',
+                  <span key="s" className="inline-flex items-center gap-1.5">
+                    <span
+                      aria-hidden
+                      className={`size-2.5 rounded-full ${form.status === 'CONFIRMED' ? 'bg-success' : 'bg-gold'}`}
+                    />
+                    {STATUS_LOOKS[form.status].label}
+                  </span>,
+                ],
                 [
                   'Video Link',
                   form.method === 'VIDEO'
@@ -1078,24 +1214,18 @@ function FormBody({
                       : form.videoUrl || '—'
                     : '—',
                 ],
-                [
-                  'Reminders',
-                  (['EMAIL', 'SMS', 'PORTAL'] as const)
-                    .filter((c) => form.reminders[c].on)
-                    .map((c) => (c === 'EMAIL' ? 'Email' : c === 'SMS' ? 'SMS' : 'Portal'))
-                    .join(', ') || 'None',
-                ],
-              ] as [string, string][]
+                ['Reminders', remindersLabel],
+              ] as [string, ReactNode][]
             ).map(([k, v]) => (
               <div key={k} className="contents">
-                <dt className="text-muted">{k}</dt>
+                <dt className="text-heading">{k}</dt>
                 <dd className="min-w-0 break-words text-heading">{v}</dd>
               </div>
             ))}
           </dl>
         </section>
 
-        <Callout icon={Lightbulb} tone="blue" surface="info" title="Pro Tip:">
+        <Callout icon={Lightbulb} tone="blue" surface="info" titleStyle="tip" title="Pro Tip:">
           Keep your availability up to date so clients can easily find a time that works.{' '}
           <Link
             href="/calendar/availability"
@@ -1105,11 +1235,28 @@ function FormBody({
             <ArrowRight aria-hidden weight="bold" className="size-3" />
           </Link>
         </Callout>
-        <p className="flex items-center gap-2 text-xs text-muted">
-          <LinkSimple aria-hidden weight="bold" className="size-4" />
-          Calendar sync (Google, Outlook) comes from Integrations.
-        </p>
       </aside>
+
+      <div className="flex flex-wrap items-center justify-end gap-3 min-[1440px]:col-span-2">
+        <Link
+          href={record ? `/calendar/${record.id}` : '/calendar'}
+          className="inline-flex min-h-11 items-center rounded-control border border-action px-6 text-sm font-semibold text-action hover:bg-folder-surface"
+        >
+          Cancel
+        </Link>
+        {record ? null : (
+          <Button variant="secondary" disabled={busy} onClick={saveDraft}>
+            Save as Draft
+          </Button>
+        )}
+        <Button
+          type="submit"
+          disabled={busy || (conflict && !override.trim())}
+          className="min-w-64 px-8"
+        >
+          {record ? 'Save Changes' : conflict ? 'Book Anyway' : 'Schedule Appointment'}
+        </Button>
+      </div>
     </form>
   );
 }
