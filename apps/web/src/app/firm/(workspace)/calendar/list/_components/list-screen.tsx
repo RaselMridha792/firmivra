@@ -1,15 +1,14 @@
 'use client';
 
-import type { AgendaEntry, AgendaItem, AppointmentDisplayStatus } from '@firmivra/types';
-import { Badge, Button, SearchField, Select, Table, type Column } from '@firmivra/ui';
-import { CalendarBlank, PencilSimple } from '@phosphor-icons/react';
-import Link from 'next/link';
+import type { AgendaItem, AppointmentDisplayStatus } from '@firmivra/types';
+import { Button, SearchField, Select, Table } from '@firmivra/ui';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
-import { RowMenu, type RowMenuItem } from '../../../team/_components/row-menu';
+import type { RowMenuItem } from '../../../team/_components/row-menu';
+import { AgendaActions, agendaColumns } from '../../_components/agenda-table';
 import {
   AppointmentsHeader,
   AppointmentsToolbar,
@@ -17,9 +16,6 @@ import {
   SCHEDULING,
   STATUS_LOOKS,
   SummaryCards,
-  dateAndTime,
-  initials,
-  placeOf,
 } from '../../_components/appointments-parts';
 import { AppointmentsSide } from '../../_components/appointments-side';
 
@@ -122,56 +118,6 @@ export function ListScreen() {
       : []),
   ];
 
-  const columns: Column<AgendaEntry>[] = [
-    {
-      id: 'when',
-      label: 'Date & Time',
-      cell: (a) => {
-        const [d, t] = dateAndTime(a.startsAt, tz);
-        return (
-          <span className="whitespace-nowrap">
-            {d}
-            <span className="block text-muted">{t}</span>
-          </span>
-        );
-      },
-    },
-    {
-      id: 'contact',
-      label: 'Client / Lead',
-      cell: (a) =>
-        a.restricted ? (
-          <span className="text-muted">Busy</span>
-        ) : (
-          <Link
-            href={`/calendar/${a.id}`}
-            className="flex items-center gap-2 font-semibold text-heading hover:underline"
-          >
-            <span
-              aria-hidden
-              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-purple-soft text-xs font-bold text-purple"
-            >
-              {a.internal ? 'TM' : initials(a.contact.name)}
-            </span>
-            {a.internal ? 'Team Meeting' : a.contact.name}
-          </Link>
-        ),
-    },
-    {
-      id: 'service',
-      label: 'Service',
-      cell: (a) => (a.restricted ? '—' : (a.service?.name ?? '—')),
-    },
-    { id: 'type', label: 'Type', cell: (a) => (a.restricted ? '—' : (a.type?.name ?? '—')) },
-    {
-      id: 'status',
-      label: 'Status',
-      cell: (a) => <Badge tone={STATUS_LOOKS[a.status].tone}>{STATUS_LOOKS[a.status].label}</Badge>,
-    },
-    { id: 'staff', label: 'Staff Member', cell: (a) => a.staff.map((s) => s.name).join(', ') },
-    { id: 'where', label: 'Location', cell: (a) => (a.restricted ? '—' : placeOf(a)) },
-  ];
-
   return (
     <div className="flex min-w-0 flex-col gap-5">
       <AppointmentsHeader />
@@ -246,30 +192,8 @@ export function ListScreen() {
             dense
             tableClassName="[&_td]:px-2 [&_th]:px-2"
             showPagination={false}
-            columns={columns}
-            rowActions={(a) =>
-              a.restricted ? null : (
-                <span className="flex items-center gap-1">
-                  <Link
-                    href={`/calendar/${a.id}/edit`}
-                    aria-label={`Edit ${a.contact.name}'s appointment`}
-                    title="Edit"
-                    className="inline-flex size-8 items-center justify-center rounded-lg border border-divider text-heading hover:bg-canvas"
-                  >
-                    <PencilSimple aria-hidden weight="bold" className="size-4" />
-                  </Link>
-                  <Link
-                    href={`/calendar/${a.id}/edit`}
-                    aria-label={`Reschedule ${a.contact.name}'s appointment`}
-                    title="Reschedule"
-                    className="inline-flex size-8 items-center justify-center rounded-lg border border-divider text-danger hover:bg-canvas"
-                  >
-                    <CalendarBlank aria-hidden weight="bold" className="size-4" />
-                  </Link>
-                  <RowMenu vertical label={`Actions for ${a.contact.name}`} items={menu(a)} />
-                </span>
-              )
-            }
+            columns={agendaColumns(tz)}
+            rowActions={(a) => (a.restricted ? null : <AgendaActions entry={a} menu={menu(a)} />)}
             emptyTitle={
               agenda.isError
                 ? 'Appointments are not available'
