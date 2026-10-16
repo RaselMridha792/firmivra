@@ -1,8 +1,13 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { PermissionsTab } from '../_components/permissions-tab';
 
 export const metadata: Metadata = { title: 'Staff security: Permissions' };
 
-export default function TeamIdSecurityPermissionsPage() {
-  return <PageHeader title="Staff Account Access & Security" />;
+export default async function TeamIdSecurityPermissionsPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  return <PermissionsTab id={id} />;
 }
