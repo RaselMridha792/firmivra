@@ -69,7 +69,7 @@ export function AvailabilityScreen() {
           <h1 data-testid="page-title" className="text-3xl font-bold text-heading">
             Staff Availability
           </h1>
-          <p className="text-base text-link">
+          <p className="text-base text-text">
             See who is free, and keep availability up to date so clients can easily find a time.
           </p>
         </div>
