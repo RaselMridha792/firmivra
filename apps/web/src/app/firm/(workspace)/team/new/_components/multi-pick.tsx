@@ -7,8 +7,9 @@ import { useEffect, useId, useRef, useState } from 'react';
 /**
  * A select that keeps several values (Department(s), Service Area(s)). The kit has no multi-select
  * yet, so this small one lives here: a button like the kit's Select that opens a list of
- * checkboxes; Escape or a click outside closes it. `chips` shows each chosen person as a chip
- * with their initials and a remove button (Assigned Staff in Schedule Appointment).
+ * checkboxes; Escape or a click outside closes it. `chips` shows each chosen item as a chip with
+ * a remove button: `people` with their initials (Assigned Staff in Schedule Appointment), `tags`
+ * as plain tags (Service Area(s) in Edit Staff).
  */
 export function MultiPick({
   label,
@@ -27,7 +28,7 @@ export function MultiPick({
   onChange: (next: string[]) => void;
   error?: string;
   emptyText?: string;
-  chips?: boolean;
+  chips?: 'people' | 'tags';
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -60,9 +61,9 @@ export function MultiPick({
             .map((o) => (
               <span
                 key={o.value}
-                className="inline-flex items-center gap-1.5 rounded-pill bg-subtle py-0.5 pr-1 pl-0.5 text-sm text-heading"
+                className={`inline-flex items-center gap-1.5 rounded-pill py-0.5 pr-1 text-sm ${chips === 'people' ? 'bg-subtle pl-0.5 text-heading' : 'bg-info-soft pl-2.5 text-heading'}`}
               >
-                <Avatar name={o.label} size="sm" />
+                {chips === 'people' ? <Avatar name={o.label} size="sm" /> : null}
                 {o.label}
                 <button
                   type="button"
