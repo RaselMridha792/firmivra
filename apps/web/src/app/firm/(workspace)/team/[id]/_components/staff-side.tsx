@@ -1,7 +1,7 @@
 'use client';
 
 import type { PermissionModule, StaffDetail } from '@firmivra/types';
-import { Avatar, Badge, Button, Modal, Skeleton, Textarea } from '@firmivra/ui';
+import { Badge, Button, Modal, Skeleton, Textarea } from '@firmivra/ui';
 import {
   CalendarBlank,
   CheckCircle,
@@ -32,6 +32,27 @@ import { RowMenu } from '../../_components/row-menu';
 import { CAPABILITY_ORDER } from '../../roles/_components/role-parts';
 import type { StaffAction } from './staff-actions';
 import { MEMBER_ERRORS, STATUS_LOOKS, dateTime, longDate } from './staff-parts';
+
+/** The designs' large profile picture (about 96 px); the kit's Avatar stops at 56 px. */
+export function BigAvatar({ name, src }: { name: string; src?: string | null }) {
+  return src ? (
+    // A stored profile photo from the firm's own storage; next/image adds nothing here.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt={name} className="size-24 shrink-0 rounded-full object-cover" />
+  ) : (
+    <span
+      aria-hidden
+      className="flex size-24 shrink-0 items-center justify-center rounded-full bg-purple-soft text-3xl font-semibold text-purple"
+    >
+      {name
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((w) => w[0]?.toUpperCase())
+        .join('')}
+    </span>
+  );
+}
 
 const card =
   'flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm';
@@ -99,7 +120,7 @@ export function ProfileCard({
   return (
     <section aria-label="Staff profile" data-testid="staff-profile" className={card}>
       <div className="flex items-start gap-4">
-        <Avatar name={member.name} src={member.avatarUrl ?? undefined} size="xl" />
+        <BigAvatar name={member.name} src={member.avatarUrl} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="text-lg font-bold break-words text-heading">{member.name}</p>
           <span className="w-fit">
