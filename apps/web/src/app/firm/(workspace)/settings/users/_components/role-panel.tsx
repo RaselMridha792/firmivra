@@ -27,7 +27,7 @@ import { MODULE_LOOKS, NEEDS_VIEW, ROLE_ERRORS } from '../../../team/roles/_comp
 import { BandCard, NOT_LOADED } from '../../_components/settings-parts';
 
 /** The design's six columns; Admin is the contract's MANAGE (Delete follows the role). */
-const COLUMNS: [PermissionCapability, string][] = [
+export const COLUMNS: [PermissionCapability, string][] = [
   ['VIEW', 'View'],
   ['CREATE', 'Create'],
   ['EDIT', 'Edit'],

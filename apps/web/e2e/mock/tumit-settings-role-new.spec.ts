@@ -20,3 +20,19 @@ test('checks the name, shows the starting grid and explains the missing API', as
   await expect(page.getByText('Custom roles are not available yet.')).toBeVisible();
   await expect(page.getByLabel('Role Name *')).toHaveValue('Payroll Specialist');
 });
+
+test('starts from the template chosen on Users & Roles', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/users/roles/new?from=TAX_PREPARER`);
+  await expect(page.getByLabel('Start From *')).toHaveValue('TAX_PREPARER', { timeout: 60_000 });
+  const templates = page.getByTestId('role-templates');
+  await expect(templates.getByRole('button', { name: 'Tax Preparer' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await templates.getByRole('button', { name: 'Client Support' }).click();
+  await expect(page.getByLabel('Start From *')).toHaveValue('CLIENT_SUPPORT');
+  // The Owner role is never a starting point.
+  await page.goto(`http://app.localhost:${port}/settings/users/roles/new?from=OWNER`);
+  await expect(page.getByLabel('Start From *')).toHaveValue('STAFF', { timeout: 60_000 });
+});

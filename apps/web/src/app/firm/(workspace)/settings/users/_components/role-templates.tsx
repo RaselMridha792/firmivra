@@ -25,21 +25,25 @@ const ICONS: Partial<Record<MembershipRole, Icon>> = {
 };
 
 /**
- * Role Templates (users-and-role.jpg): each firm role in its tint, without member counts. A
- * template opens Create Custom Role starting from that role. The Owner role is not a template.
+ * Role Templates (users-and-role.jpg): each firm role in its tint, without member counts. On
+ * Users & Roles a template opens Create Custom Role starting from that role; on Create Custom Role
+ * it is the role to start from (`selected`). The Owner role is not a template.
  */
 export function RoleTemplates({
   roles,
   loading,
   canChange,
+  selected,
   onUse,
   onCreate,
 }: {
   roles: RoleSummary[] | undefined;
   loading: boolean;
   canChange: boolean;
+  selected?: MembershipRole;
   onUse: (role: MembershipRole) => void;
-  onCreate: () => void;
+  /** Create Custom Role under the list; left out on Create Custom Role itself. */
+  onCreate?: () => void;
 }) {
   return (
     <BandCard title="Role Templates" testId="role-templates">
@@ -56,9 +60,10 @@ export function RoleTemplates({
                     <button
                       type="button"
                       data-testid="role-template"
+                      aria-pressed={selected ? r.role === selected : undefined}
                       disabled={!canChange}
                       onClick={() => onUse(r.role)}
-                      className={`flex min-h-10 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium disabled:cursor-not-allowed ${tileTones[tone]}`}
+                      className={`flex min-h-10 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium disabled:cursor-not-allowed ${tileTones[tone]} ${r.role === selected ? 'ring-2 ring-action' : ''}`}
                     >
                       {createElement(ICONS[r.role] ?? glyph, {
                         'aria-hidden': true,
@@ -76,7 +81,7 @@ export function RoleTemplates({
         ) : (
           <Quiet>{NOT_LOADED}</Quiet>
         )}
-        {canChange ? (
+        {canChange && onCreate ? (
           <Button variant="outline" className="mt-1 w-full" onClick={onCreate}>
             <Plus aria-hidden weight="bold" className="size-4" />
             Create Custom Role
