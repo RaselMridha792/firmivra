@@ -43,6 +43,8 @@ import { SupportAccessModule } from './support-access/support-access.controller.
 import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
+import { ScanQueueModule } from './storage/scan-queue/scan-queue.module.js';
+import { ScanRouterModule } from './storage/scan-queue/scan-router.js';
 import { BeginOnlineModule } from './begin-online/begin-online.controller.js';
 import { DashboardModule } from './dashboard/dashboard.controller.js';
 import { CheckoutModule } from './payments/checkout/checkout.controller.js';
@@ -117,6 +119,8 @@ export class AppModule {
         WorkspacesModule,
         DashboardModule,
         DocumentsModule,
+        ScanRouterModule,
+        ScanQueueModule,
         InvoicesModule,
         CheckoutModule,
         StripeWebhookModule,
