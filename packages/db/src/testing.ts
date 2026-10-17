@@ -37,6 +37,17 @@ export function testDatabaseUrls(suffix = 'test'): { owner: string; app: string 
 }
 
 /**
+ * Tables whose rows a migration inserts (settings rows, counters, reference lists): emptying them
+ * would leave the database unlike every real environment. Add a table here when its migration
+ * inserts rows the app relies on.
+ */
+const MIGRATION_REFERENCE_TABLES = [
+  // r0_platform_billing (stage B3)
+  'platform_billing_settings',
+  'platform_billing_counters',
+];
+
+/**
  * Creates the test database if needed, applies all migrations and empties every table.
  * Needs an owner role that can create databases (local Docker and CI Postgres are superusers).
  */
@@ -67,9 +78,12 @@ export async function prepareTestDatabase(
     // Every table, from the catalog: a hand-kept list missed tables with no foreign-key path to
     // the listed ones (compliance_calendars, for one), so on a reused local test database a fixed
     // seed id survived from the last run and broke the next seed.
+    // Except the reference rows a migration itself inserts (defaults every environment needs).
     const { rows } = await owner.query<{ name: string }>(
       `SELECT quote_ident(tablename) AS name FROM pg_tables
-       WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`,
+       WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'
+         AND NOT (tablename = ANY ($1::text[]))`,
+      [MIGRATION_REFERENCE_TABLES],
     );
     await owner.query(`TRUNCATE ${rows.map((r) => r.name).join(', ')} CASCADE`);
   } finally {

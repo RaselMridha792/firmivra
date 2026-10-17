@@ -185,6 +185,50 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 - Oct 17, PART 2 Stage 2 (client work for the demo firm), branch `rasel/R0-demo-seed-stage2` on top of Stage 1: one module per file, `seed-demo-engagements.ts` (56 engagements in every status, 97 tasks at every status and progress, 9 notes, 35 tax returns), `seed-demo-billing.ts` (21 invoices: paid, part paid, open, overdue, draft, scheduled, canceled; paid ones settled by recorded offline payments as the acting owner, so no Stripe account is needed), `seed-demo-calendar.ts` (working hours, a closure, 18 appointments over 4 weeks), `seed-demo-documents.ts` (16 requests in every status, 24 documents, filed 2024 returns linked to their tax return), `seed-demo-messages.ts` (10 threads, 13 messages; client-sent ones only from the portal client, the one client with a login). `seed-demo-all.ts` runs every stage in order (the CLI and the test both use it). Dates are relative to the run day. Realism pass for Octavia: no "(fake)" or "(sample)" suffixes, the portal client renamed Harper Coleman. Test: the round trip now covers every firm table from the catalog: a second seed changes no count anywhere, and unseed (also as an RDS-like role) deletes exactly what was created. Also the `prepareTestDatabase` truncation fix (see the correction under "Needs from others").
 
+- Oct 17, Super Admin schema stage B3 (Billing), branch `rasel/R0-stage-b3-billing` from main: migration `r0_platform_billing`, 15 tables (invoices, lines, recurring, estimates, lines, payments, refunds, credit notes, lines, applications, firm billing profiles, settings, counters, processor events, subscription history). Rasel: Firmivra bills firms (the spec's client = the firm's billing contact), linked to the subscription. Integer cents; the database numbers INV-/EST-/CN- (owner-run counter, never reused), computes line amounts and totals, and keeps paid, refunded and credited sums and the statuses that follow through recompute functions guarded by a transaction-local marker; payments never pass the balance, refunds never pass what was paid, credit never passes what a note has left or the invoice owes. A firm reads its own issued documents only. The B3 tests caught a NULL marker (current_setting(..., true) returns NULL when never set, so `IF NOT by_recompute` skipped the by-hand checks): fixed with coalesce. Also in this PR: `prepareTestDatabase` keeps `MIGRATION_REFERENCE_TABLES` (rows a migration inserts) when it empties the test database; #704's truncate-all would otherwise wipe them; and `bootstrap-platform-org.test.ts` gets a 300 s setup timeout (its own database outgrew the 120 s hook default in a full run). Contract note `docs/work/R0-stage-b3-billing.md`. Tests: `test/platform-billing.test.ts` (8); full db suite 106 files, 974 tests.
+
+## Handoff for a fresh R0 window (Oct 17)
+
+Read `CLAUDE.md`, `docs/work/README.md`, this file and the contract notes below. Rasel merges every PR; merging a schema PR is his yes for that migration. Never push to `main`, never rebase or force-push; merge `origin/main` into a branch when it conflicts.
+
+**PART 2 demo data** (the `demo` firm and 8 `demo-` firms; `pnpm db:seed:demo` / `pnpm db:unseed:demo`; coverage map `docs/work/R0-demo-coverage.md`):
+- Stage 1 #679 merged; Stage 2 #704 merged.
+- Stage 3 #705 and Stage 4 #706 are open, `main` merged in. Merge order: #705 then #706. After each merge, merge `main` into the next one (take the stage branch's side for the demo files and docs; keep both sides of new log entries).
+- On dev, run by R1 only, after an RDS snapshot and Rasel's go, from the `demo-seed-task` image: migrate, then `bootstrap-platform-org-task.mjs`, then `seed-demo-task.mjs`. `unseed-demo-task.mjs` drops every demo firm in one transaction.
+- Stage 4 acts as the earliest SUPER_ADMIN (Rasel's choice).
+- Stage 5 (demo data for the work modules, packages and promotions, audit and login history, and the new Super Admin groups) is not started.
+
+**Super Admin schema stage B** (Rasel's go Oct 17: B1 to B9, one migration and PR each, a contract note each, then demo stage 5):
+- **Open:** B1 notifications and export jobs #711 (`R0-stage-b1-notifications.md`); B2 support #713 (`R0-stage-b2-support.md`); B3 billing (`R0-stage-b3-billing.md`).
+- **Next:** B4 Audit & Security. Extend `audit_logs` with nullable typed columns (category, severity, outcome, actor type, actor name and role snapshots, session id, auth method, target label, subject user, parent event, risk score, rule id, detection source) plus cross-firm indexes; existing writers and tests must keep working. Add `security_alerts`, investigation notes, and a versioned single-row security policy.
+- **Then:** B5 Sales Pipeline, B6 Communications, B7 System Settings, B8 Integrations, B9 Reports.
+- **Inventory:** what each module needs, from Octavia's specs, is summarized in the plan in this session's PR descriptions. The specs are read-only in Rasel's Downloads folder (never copy them into the repo); Markdown extracts are in the session scratchpad.
+
+**Decisions to keep (Rasel, Oct 17):**
+- Firmivra bills firms.
+- Support tickets carry the firm; firms see and raise their own, never notes.
+- Audit extends `audit_logs` (one trail).
+- Cross-firm figures come from platform tables or rollups; Super Admin never reads firm tables directly.
+- Don't send questions back to Octavia; where her docs disagree, decide and note it in the contract note.
+
+**Conventions these PRs follow (copy them):**
+- Platform tables are `platform_*` or module-prefixed, with FORCE RLS. The team policy is `app_is_admin() OR app_is_platform_member()`, plus `app_scope() = 'platform'` for jobs; a firm policy uses `app_scope() = 'business' AND business_id = app_current_business_id()`.
+- `platform_text_ok()` checks text. Rules triggers fix what must not change, and the database stamps times.
+- Numbers come from a one-row counter moved only by an owner-run `SECURITY DEFINER` function. Not a sequence (Prisma drift), and not `max()+1` (RLS hides other firms' rows).
+- Cross-scope membership checks use composite foreign keys, which RLS doesn't hide.
+- Money is integer cents.
+- A transaction-local marker guards database-only columns; wrap `current_setting` in `coalesce`.
+- When a migration inserts reference rows, add the table to `MIGRATION_REFERENCE_TABLES` (`src/testing.ts`).
+- Add a sample row for every new table in `seed.ts` (`seed.test.ts` requires rows in every table, and LVP rows in every table with `business_id`), or add it to its `knownEmpty` list with the reason.
+- Regenerate `packages/types/src/db-enums.ts` (`pnpm --filter @firmivra/db gen:enums`).
+- Name migrations after `20261017170000`.
+- Check `prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma` is empty against a fresh scratch database.
+
+**Open items:**
+- R1: the export prefix `platform/exports/*` needs an IAM grant and a 7-day lifecycle rule (B1 note).
+- The dev SUPER_ADMIN emails were never needed by code.
+- `set-module.mjs` should take the migrate task's `DB_*` variables (older follow-up).
+
 ## Demo path check (Oct 10)
 
 Main at b3fb7698 (#372), local: a fresh database (`pnpm db:migrate`, `pnpm db:seed`), the API with `AUTH_MODE=local`, `STRIPE_MODE=fake`, `SCAN_MODE=local`, emails in Mailpit. Calls through the dev token route (bearer) as Octavia's roles, plus the cookie flows (Begin Online drafts, portal sign-up and sign-in) with each site's `Origin`, as the browser sends them. The seed has no Firm Admin login, so LVP's Owner (`owner@lvp.test`) stood in for the Admin.

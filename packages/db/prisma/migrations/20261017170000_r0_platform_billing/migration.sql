@@ -749,7 +749,7 @@ CREATE FUNCTION platform_invoices_rules() RETURNS trigger
   SET search_path = public, pg_temp
   AS $$
 DECLARE
-  by_recompute boolean := current_setting('app.billing_recompute', true) = NEW.id::text;
+  by_recompute boolean := coalesce(current_setting('app.billing_recompute', true), '') = NEW.id::text;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW.status <> 'DRAFT' OR NEW.paid_cents <> 0 OR NEW.credited_cents <> 0
@@ -872,7 +872,7 @@ CREATE FUNCTION platform_credit_notes_rules() RETURNS trigger
   SET search_path = public, pg_temp
   AS $$
 DECLARE
-  by_recompute boolean := current_setting('app.billing_recompute', true) = NEW.id::text;
+  by_recompute boolean := coalesce(current_setting('app.billing_recompute', true), '') = NEW.id::text;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW.status <> 'DRAFT' OR NEW.applied_cents <> 0 OR NEW.refunded_cents <> 0 THEN
@@ -935,7 +935,7 @@ CREATE FUNCTION platform_payments_rules() RETURNS trigger
   AS $$
 DECLARE
   i record;
-  by_recompute boolean := current_setting('app.billing_recompute', true) = NEW.id::text;
+  by_recompute boolean := coalesce(current_setting('app.billing_recompute', true), '') = NEW.id::text;
 BEGIN
   SELECT * INTO i FROM platform_invoices WHERE id = NEW.invoice_id FOR UPDATE;
   IF TG_OP = 'INSERT' THEN
