@@ -167,6 +167,9 @@ const auditRows = (entityId: string) =>
 
 const DAY = 86_400_000;
 const day = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10);
+/** The firm’s day (the firm has no time zone set: New York), for dates the server works out. */
+const firmDay = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 
 beforeAll(async () => {
   await asOwner({ kind: 'platform' }, async (tx) => {
@@ -862,7 +865,7 @@ describe('the strategy library and the plan’s strategies', () => {
     });
     expectError(await patch(s1?.id ?? '', { implementedOn: day(-1) }), 400, 'VALIDATION_FAILED');
     const done = TaxPlanDetail.parse(ok(await patch(s1?.id ?? '', { status: 'IMPLEMENTED' })));
-    expect(done.strategies.find((s) => s.id === s1?.id)?.implementedOn).toBe(day(0));
+    expect(done.strategies.find((s) => s.id === s1?.id)?.implementedOn).toBe(firmDay());
     const back = TaxPlanDetail.parse(ok(await patch(s1?.id ?? '', { status: 'IN_PROGRESS' })));
     expect(back.strategies.find((s) => s.id === s1?.id)?.implementedOn).toBeNull();
     const dropped = TaxPlanDetail.parse(ok(await patch(shared.custom, { selected: false })));
