@@ -56,6 +56,7 @@ import {
   createTaskWorkClient,
   createComplianceClient,
   createTemplatesClient,
+  createAutomationsClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
@@ -313,6 +314,11 @@ export const api = {
    * templates. Real API only until its mock is written.
    */
   templates: createTemplatesClient(request),
+  /**
+   * Automations (R55): overview, rules and their versions, rule templates, logs and settings.
+   * Real API only until its mock is written.
+   */
+  automations: createAutomationsClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
   workspaces:
     dev && mocked('workspaces')
