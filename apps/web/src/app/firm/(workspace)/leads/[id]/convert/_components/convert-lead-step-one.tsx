@@ -512,10 +512,14 @@ function StaffAssignment({
   );
 }
 
-function LeadConversionRightRail() {
+function LeadConversionRightRail({ highlighted = false }: { highlighted?: boolean }) {
+  const cardClassName = `p-3 ${highlighted ? 'border-info-soft' : ''}`;
   return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <Card className="p-3" data-testid="convert-lead-carry-over">
+    <div
+      data-testid={highlighted ? 'convert-lead-portal-step-column' : undefined}
+      className="flex min-w-0 flex-col gap-3"
+    >
+      <Card className={cardClassName} data-testid="convert-lead-carry-over">
         <SectionTitle
           icon={FolderOpen}
           title="What to Carry Over"
@@ -535,7 +539,7 @@ function LeadConversionRightRail() {
           ))}
         </ul>
       </Card>
-      <Card className="p-3" data-testid="convert-lead-portal-access">
+      <Card className={cardClassName} data-testid="convert-lead-portal-access">
         <SectionTitle icon={UsersThree} title="Client Portal Access" tone="plain" />
         <div className="space-y-3 px-1 text-sm">
           <div className="flex items-start gap-2.5 text-text">
@@ -558,7 +562,7 @@ function LeadConversionRightRail() {
           </div>
         </div>
       </Card>
-      <Card className="p-3" data-testid="convert-lead-after-conversion">
+      <Card className={cardClassName} data-testid="convert-lead-after-conversion">
         <SectionTitle icon={CheckCircle} title="After Conversion" tone="plain" iconTone="success" />
         <ul className="space-y-2 rounded-control bg-success-soft p-3">
           {AFTER_CONVERSION.map((item) => (
@@ -577,9 +581,9 @@ function LeadConversionRightRail() {
   );
 }
 
-type ConvertLeadStep = 'review' | 'details';
+type ConvertLeadStep = 'review' | 'details' | 'portal';
 
-/** Review the lead and client details before continuing through the conversion flow. */
+/** Shared lead conversion screen for reviewing lead, details, and portal setup steps. */
 export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: ConvertLeadStep }) {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -631,34 +635,47 @@ export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: Con
 
       <section
         aria-label="Lead conversion information"
-        className={`grid min-w-0 gap-4 ${activeStep === 'review' ? 'xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)_minmax(0,1fr)]' : 'mx-auto w-full max-w-2xl xl:grid-cols-1'}`}
+        className={`grid min-w-0 gap-4 ${activeStep === 'review' ? 'xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)_minmax(0,1fr)]' : activeStep === 'portal' ? 'w-full xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]' : 'mx-auto w-full max-w-2xl xl:grid-cols-1'}`}
       >
-        {activeStep === 'review' ? (
-          <div className="flex min-w-0 flex-col gap-3">
+        {activeStep === 'review' || activeStep === 'portal' ? (
+          <div
+            data-testid="convert-lead-profile-step-column"
+            className="flex min-w-0 flex-col gap-3"
+          >
             <LeadOverview lead={profile} query={lead} onEdit={() => router.push(`/leads/${id}`)} />
             <LeadDetails lead={profile} query={lead} />
           </div>
         ) : null}
-        <div
-          data-testid="convert-lead-details-step-column"
-          className={`flex min-w-0 flex-col gap-3 rounded-card ${activeStep === 'details' ? 'border-2 border-info-soft p-2' : ''}`}
-        >
-          <ClientDetails lead={profile} query={options} services={optionData?.services} />
-          <StaffAssignment lead={profile} query={options} staff={optionData?.staff} />
-        </div>
+        {activeStep === 'details' ? (
+          <div
+            data-testid="convert-lead-details-step-column"
+            className="flex min-w-0 flex-col gap-3 rounded-card border-2 border-info-soft p-2"
+          >
+            <ClientDetails lead={profile} query={options} services={optionData?.services} />
+            <StaffAssignment lead={profile} query={options} staff={optionData?.staff} />
+          </div>
+        ) : null}
         {activeStep === 'review' ? <LeadConversionRightRail /> : null}
+        {activeStep === 'portal' ? <LeadConversionRightRail highlighted /> : null}
       </section>
 
       <footer className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
-        <Button variant="secondary" onClick={() => router.push(`/leads/${id}`)}>
-          Cancel
+        <Button
+          variant="secondary"
+          onClick={() =>
+            router.push(activeStep === 'portal' ? `/leads/${id}/convert/details` : `/leads/${id}`)
+          }
+        >
+          {activeStep === 'portal' ? 'Back' : 'Cancel'}
         </Button>
         <Button
           onClick={() =>
             router.push(
               activeStep === 'review'
                 ? `/leads/${id}/convert/details`
-                : `/leads/${id}/convert/portal`,
+                : activeStep === 'details'
+                  ? `/leads/${id}/convert/portal`
+                  : `/leads/${id}/convert/review`,
             )
           }
         >
