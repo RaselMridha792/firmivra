@@ -12,15 +12,16 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { RowMenu, type RowMenuItem } from '../../../team/_components/row-menu';
 import {
   AppointmentsHeader,
+  AppointmentsToolbar,
   NOT_LOADED,
   SCHEDULING,
   STATUS_LOOKS,
   SummaryCards,
-  ViewSwitch,
   dateAndTime,
   initials,
   placeOf,
 } from '../../_components/appointments-parts';
+import { AppointmentsSide } from '../../_components/appointments-side';
 
 const DAY = 86_400_000;
 const PERIODS = [
@@ -46,10 +47,11 @@ const LIST_ERRORS: Record<string, string> = {
 };
 
 /**
- * Appointments > List (appointments.jpg, guide §2, §10): the KPI cards, the view switch, and the
- * appointments as the design's Upcoming table, from `api.scheduling.agenda` with search, status
- * and period, 50 at a time (Load more). Row actions: Edit, Reschedule, and the menu (View
- * Details, Confirm, Send Reminder, Join Meeting). Another member's appointment shows as Busy.
+ * Appointments > List (appointments.jpg, guide §2, §10): the Appointments frame (KPI cards, the
+ * view switch with this view's search, status and period, New Appointment, and the right
+ * column), with the appointments as the design's Upcoming table from `api.scheduling.agenda`,
+ * 50 at a time (Load more). Row actions: Edit, Reschedule, and the menu (View Details, Confirm,
+ * Send Reminder, Join Meeting). Another member's appointment shows as Busy.
  */
 export function ListScreen() {
   const router = useRouter();
@@ -171,129 +173,130 @@ export function ListScreen() {
   ];
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-5">
       <AppointmentsHeader />
       <SummaryCards />
-      <section
-        aria-labelledby="appointments-list"
-        data-testid="appointments-list"
-        className="flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <ViewSwitch current="list" />
-          <h2 id="appointments-list" className="sr-only">
+      <AppointmentsToolbar current="list">
+        <SearchField
+          label="Search appointments"
+          placeholder="Search by name, email, phone, or service..."
+          value={search}
+          minWidth="14rem"
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setLimit(50);
+          }}
+        />
+        <div className="w-36">
+          <Select
+            label="Status"
+            hideLabel
+            options={[
+              { value: '', label: 'All Statuses' },
+              ...Object.entries(STATUS_LOOKS)
+                .filter(([k]) => k !== 'DRAFT')
+                .map(([value, l]) => ({ value, label: l.label })),
+            ]}
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value as AppointmentDisplayStatus | '');
+              setLimit(50);
+            }}
+          />
+        </div>
+        <div className="w-40">
+          <Select
+            label="Period"
+            hideLabel
+            options={PERIODS.map((p) => ({ value: p.value, label: p.label }))}
+            value={period}
+            onChange={(e) => {
+              const next = e.target.value as Period;
+              setPeriod(next);
+              setSpan(range(next));
+              setLimit(50);
+            }}
+          />
+        </div>
+      </AppointmentsToolbar>
+      <div className="grid grid-cols-1 items-start gap-4 min-[1280px]:grid-cols-[1fr_18rem]">
+        <section
+          aria-labelledby="appointments-list"
+          data-testid="appointments-list"
+          className="flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm"
+        >
+          <h2 id="appointments-list" className="text-lg font-bold text-heading">
             Appointments
           </h2>
-          <div className="flex flex-wrap items-center gap-3">
-            <SearchField
-              label="Search appointments"
-              placeholder="Search by name, email, phone, or service..."
-              value={search}
-              minWidth="18rem"
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setLimit(50);
-              }}
-            />
-            <div className="w-40">
-              <Select
-                label="Status"
-                hideLabel
-                options={[
-                  { value: '', label: 'All Statuses' },
-                  ...Object.entries(STATUS_LOOKS)
-                    .filter(([k]) => k !== 'DRAFT')
-                    .map(([value, l]) => ({ value, label: l.label })),
-                ]}
-                value={status}
-                onChange={(e) => {
-                  setStatus(e.target.value as AppointmentDisplayStatus | '');
-                  setLimit(50);
-                }}
-              />
-            </div>
-            <div className="w-40">
-              <Select
-                label="Period"
-                hideLabel
-                options={PERIODS.map((p) => ({ value: p.value, label: p.label }))}
-                value={period}
-                onChange={(e) => {
-                  const next = e.target.value as Period;
-                  setPeriod(next);
-                  setSpan(range(next));
-                  setLimit(50);
-                }}
-              />
-            </div>
-          </div>
-        </div>
-        {message || error ? (
-          <p
-            role={error ? 'alert' : 'status'}
-            data-testid="list-result"
-            className={`text-sm ${error ? 'text-danger' : 'text-success'}`}
-          >
-            {error ? errorMessage(error, LIST_ERRORS) : message}
-          </p>
-        ) : null}
-        <Table
-          rows={rows}
-          loading={agenda.isPending}
-          rowKey={(a) => a.id}
-          caption="Appointments"
-          noun="appointments"
-          dense
-          showPagination={false}
-          columns={columns}
-          rowActions={(a) =>
-            a.restricted ? null : (
-              <span className="flex items-center gap-1">
-                <Link
-                  href={`/calendar/${a.id}/edit`}
-                  aria-label={`Edit ${a.contact.name}'s appointment`}
-                  title="Edit"
-                  className="inline-flex size-8 items-center justify-center rounded-lg border border-divider text-heading hover:bg-canvas"
-                >
-                  <PencilSimple aria-hidden weight="bold" className="size-4" />
-                </Link>
-                <Link
-                  href={`/calendar/${a.id}/edit`}
-                  aria-label={`Reschedule ${a.contact.name}'s appointment`}
-                  title="Reschedule"
-                  className="inline-flex size-8 items-center justify-center rounded-lg border border-divider text-danger hover:bg-canvas"
-                >
-                  <CalendarBlank aria-hidden weight="bold" className="size-4" />
-                </Link>
-                <RowMenu label={`Actions for ${a.contact.name}`} items={menu(a)} />
-              </span>
-            )
-          }
-          emptyTitle={
-            agenda.isError
-              ? 'Appointments are not available'
-              : filtered
-                ? 'No matching appointments'
-                : 'No appointments'
-          }
-          emptyText={
-            agenda.isError
-              ? NOT_LOADED
-              : filtered
-                ? 'Try another search, status or period.'
-                : 'Nothing is booked in this period. Schedule one with New Appointment.'
-          }
-        />
-        {agenda.data?.nextCursor || rows.length >= limit ? (
-          <Button
-            variant="secondary"
-            className="self-center"
-            onClick={() => setLimit((l) => Math.min(l + 50, 500))}
-          >
-            Load more
-          </Button>
-        ) : null}
-      </section>
+          {message || error ? (
+            <p
+              role={error ? 'alert' : 'status'}
+              data-testid="list-result"
+              className={`text-sm ${error ? 'text-danger' : 'text-success'}`}
+            >
+              {error ? errorMessage(error, LIST_ERRORS) : message}
+            </p>
+          ) : null}
+          <Table
+            rows={rows}
+            loading={agenda.isPending}
+            rowKey={(a) => a.id}
+            caption="Appointments"
+            noun="appointments"
+            dense
+            tableClassName="[&_td]:px-2 [&_th]:px-2"
+            showPagination={false}
+            columns={columns}
+            rowActions={(a) =>
+              a.restricted ? null : (
+                <span className="flex items-center gap-1">
+                  <Link
+                    href={`/calendar/${a.id}/edit`}
+                    aria-label={`Edit ${a.contact.name}'s appointment`}
+                    title="Edit"
+                    className="inline-flex size-8 items-center justify-center rounded-lg border border-divider text-heading hover:bg-canvas"
+                  >
+                    <PencilSimple aria-hidden weight="bold" className="size-4" />
+                  </Link>
+                  <Link
+                    href={`/calendar/${a.id}/edit`}
+                    aria-label={`Reschedule ${a.contact.name}'s appointment`}
+                    title="Reschedule"
+                    className="inline-flex size-8 items-center justify-center rounded-lg border border-divider text-danger hover:bg-canvas"
+                  >
+                    <CalendarBlank aria-hidden weight="bold" className="size-4" />
+                  </Link>
+                  <RowMenu vertical label={`Actions for ${a.contact.name}`} items={menu(a)} />
+                </span>
+              )
+            }
+            emptyTitle={
+              agenda.isError
+                ? 'Appointments are not available'
+                : filtered
+                  ? 'No matching appointments'
+                  : 'No appointments'
+            }
+            emptyText={
+              agenda.isError
+                ? NOT_LOADED
+                : filtered
+                  ? 'Try another search, status or period.'
+                  : 'Nothing is booked in this period. Schedule one with New Appointment.'
+            }
+          />
+          {agenda.data?.nextCursor || rows.length >= limit ? (
+            <Button
+              variant="secondary"
+              className="self-center"
+              onClick={() => setLimit((l) => Math.min(l + 50, 500))}
+            >
+              Load more
+            </Button>
+          ) : null}
+        </section>
+        <AppointmentsSide />
+      </div>
     </div>
   );
 }
