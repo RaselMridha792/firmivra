@@ -364,6 +364,9 @@ export const SEED_PLATFORM_IDS = {
   supportRequest: '00000000-0000-4005-8000-000000000002',
   platformEvent: '00000000-0000-4005-8000-000000000011',
   firmEvent: '00000000-0000-4005-8000-000000000012',
+  // Stage B1: a Super Admin notification about LVP's approved application, and an audit export.
+  notification: '00000000-0000-4005-8000-000000000021',
+  exportJob: '00000000-0000-4005-8000-000000000022',
 } as const;
 
 /**
