@@ -13,6 +13,7 @@ import {
   type MemberRef,
 } from '@firmivra/types';
 import { mockMe } from './appointments';
+import { teamFixtures } from './team';
 
 /**
  * The data both halves of the Compliance mock share (mocks/compliance.ts: deadlines;
@@ -70,6 +71,12 @@ export const CLIENTS: ComplianceClientRef[] = [
     clientNumber: 1006,
     accountType: 'BUSINESS',
   },
+  {
+    id: '0199b6a1-0000-7000-8000-000000000002',
+    displayName: 'Acme Widgets LLC (fake)',
+    clientNumber: 1002,
+    accountType: 'BUSINESS',
+  },
 ];
 export const KEVIN: MemberRef = {
   userId: '0199c0f0-0b00-7000-8000-000000000001',
@@ -80,8 +87,14 @@ export const ALICIA: MemberRef = {
   name: 'Alicia Park',
 };
 export const MEMBERS: MemberRef[] = [mockMe, KEVIN, ALICIA];
-export const memberOf = (userId: string | null | undefined): MemberRef | null =>
-  userId ? (MEMBERS.find((m) => m.userId === userId) ?? null) : null;
+/** A team member by user id. The team mock's people are known too, so the pickers' choices work. */
+export const memberOf = (userId: string | null | undefined): MemberRef | null => {
+  if (!userId) return null;
+  const known = MEMBERS.find((m) => m.userId === userId);
+  if (known) return known;
+  const teammate = teamFixtures().find((m) => m.user.id === userId);
+  return { userId, name: teammate?.user.name ?? 'Team member' };
+};
 
 export interface Store {
   deadlines: ComplianceDeadline[];
