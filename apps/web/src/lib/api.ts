@@ -53,6 +53,7 @@ import {
   createStaffClient,
   createSupportAccessClient,
   createTasksClient,
+  createBookkeepingClient,
   createTaskWorkClient,
   createTemplatesClient,
   createTaxReturnsClient,
@@ -114,6 +115,7 @@ import {
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createTasksMock } from '../mocks/tasks';
+import { createBookkeepingMock } from '../mocks/bookkeeping';
 import { createTaskWorkMock } from '../mocks/tasks-work';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
@@ -303,6 +305,11 @@ export const api = {
    * templates. Real API only until its mock is written.
    */
   templates: createTemplatesClient(request),
+  /** Bookkeeping (R38): clients, connections, periods and the close, reconciliations and reports. Mock: NEXT_PUBLIC_API_MOCK=bookkeeping (mocks/bookkeeping.ts, R56). */
+  bookkeeping:
+    dev && mocked('bookkeeping')
+      ? createBookkeepingMock({ role: MOCK_ROLE, empty: mockedEmpty('bookkeeping') })
+      : createBookkeepingClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
   workspaces:
     dev && mocked('workspaces')
