@@ -36,6 +36,7 @@ import {
 import { Public } from '../auth/decorators.js';
 import { poolSecrets } from '../auth/sealed.js';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
+import { ScanRouterModule } from '../storage/scan-queue/scan-router.js';
 import { requestContext } from '../common/request-context.js';
 import { networkOf } from '../common/network.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
@@ -48,6 +49,7 @@ import { BeginOnlineSweep } from './begin-online-sweep.js';
 import { BeginOnlineService } from './begin-online.service.js';
 import { DraftSubmitService } from './draft-submit.service.js';
 import { DRAFT_UPLOAD_PROVIDERS, DraftUploadsService } from './draft-uploads.service.js';
+import { LeadScanHandler } from './lead-scan-handler.js';
 import { DraftCookies } from './drafts.js';
 import { ResumeLinksService } from './resume-links.service.js';
 
@@ -242,7 +244,7 @@ export class BeginOnlineController {
 }
 
 @Module({
-  imports: [PortalInfoModule, FieldEncryptionModule, IntakesModule],
+  imports: [PortalInfoModule, FieldEncryptionModule, IntakesModule, ScanRouterModule],
   controllers: [BeginOnlineController],
   providers: [
     BeginOnlineService,
@@ -250,6 +252,7 @@ export class BeginOnlineController {
     ResumeLinksService,
     DraftUploadsService,
     DraftSubmitService,
+    LeadScanHandler,
     ...DRAFT_UPLOAD_PROVIDERS,
     {
       provide: DraftCookies,
