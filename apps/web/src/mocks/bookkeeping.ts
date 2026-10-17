@@ -411,15 +411,7 @@ export function createBookkeepingMock({
         nextReportDueOn:
           s.status === 'NOT_STARTED'
             ? null
-            : day(
-                new Date(
-                  Date.UTC(
-                    new Date().getUTCFullYear(),
-                    new Date().getUTCMonth(),
-                    15 + (i % 2) * 15,
-                  ),
-                ),
-              ),
+            : day(new Date(Date.now() + (4 + (i % 3) * 7) * 86_400_000)),
         paused: false,
         pausedAt: null,
         pauseReason: null,
@@ -564,7 +556,9 @@ export function createBookkeepingMock({
             p.accountsWithoutReconciliation.push({ id: a.id, name: a.name });
           }
         }
-        const due = day(new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 15)));
+        const due = closed
+          ? day(new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 15)))
+          : ws.nextReportDueOn;
         const sm = summaryOf(p);
         p.reports.push(
           reportRow(
