@@ -33,8 +33,13 @@ export function EditServiceScreen({ serviceId }: { serviceId: string }) {
   };
   return (
     <div className="min-w-0 space-y-4" data-testid="edit-service-page">
-      <PageState query={query}>{() => null}</PageState>
-      <ServiceEditor initial={service} onSaved={save} disabled={!service} />
+      {/* One notice under the header (loading, not found, or one Try again); the frames stay. */}
+      <ServiceEditor
+        initial={service}
+        onSaved={save}
+        disabled={!service}
+        notice={<PageState query={query}>{() => null}</PageState>}
+      />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { CreateCatalogServiceRequest } from '@firmivra/types';
-import { Button, Input, Modal, Select, Textarea, Toggle } from '@firmivra/ui';
+import { Button, IconButton, Input, Modal, Select, Textarea, Toggle } from '@firmivra/ui';
 import { PencilSimple, Plus, Trash } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { money, Panel } from './service-parts';
@@ -39,7 +39,7 @@ export function ServiceAddOns({
         action={
           <Button
             variant="outline"
-            className="min-h-8 px-2 py-1 text-xs"
+            className="text-xs"
             disabled={items.length >= 30}
             onClick={() => {
               setError('');
@@ -55,7 +55,8 @@ export function ServiceAddOns({
               });
             }}
           >
-            + Add Add-On
+            <Plus weight="fill" className="size-4" />
+            Add Add-On
           </Button>
         }
       >
@@ -68,36 +69,31 @@ export function ServiceAddOns({
           items.map((item, i) => (
             <div
               key={item.id ?? `addon-${i}`}
-              className="grid grid-cols-6 items-start gap-2 border-b border-divider px-2 py-2 text-xs"
+              className="grid grid-cols-6 items-center gap-2 border-b border-divider px-2 py-2 text-sm"
               data-testid="service-addon"
             >
               <div className="col-span-3 min-w-0">
                 <p className="break-words">{item.name}</p>
-                {item.status === 'INACTIVE' ? <p className="text-muted">Inactive</p> : null}
+                {item.status === 'INACTIVE' ? <p className="text-xs text-muted">Inactive</p> : null}
               </div>
               <span>{money(item.priceCents)}</span>
               <div className="col-span-2 flex flex-wrap justify-end gap-1">
-                <Button
-                  variant="outline"
-                  className="min-h-7 px-1 py-1"
-                  aria-label={`Edit add-on ${i + 1}`}
+                <IconButton
+                  icon={PencilSimple}
+                  tone="action"
+                  label={`Edit add-on ${i + 1}`}
                   onClick={() => {
                     setError('');
                     setEdit({ index: i, value: { ...item } });
                   }}
-                >
-                  <PencilSimple weight="fill" className="size-3" />
-                </Button>
-                <Button
-                  variant="secondary"
-                  className="min-h-7 px-1 py-1"
-                  aria-label={`Remove add-on ${i + 1}`}
+                />
+                <IconButton
+                  icon={Trash}
+                  label={`Remove add-on ${i + 1}`}
                   onClick={() =>
                     item.id ? setRemove(i) : onChange(items.filter((_, index) => index !== i))
                   }
-                >
-                  <Trash weight="fill" className="size-3" />
-                </Button>
+                />
               </div>
             </div>
           ))

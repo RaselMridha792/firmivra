@@ -3,10 +3,19 @@
 import { ServiceAddOns } from './service-addons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CreateCatalogServiceRequest, type CatalogService } from '@firmivra/types';
-import { Button, Input, Modal, RichTextEditor, Select, Textarea, Toggle } from '@firmivra/ui';
+import {
+  Button,
+  IconButton,
+  Input,
+  Modal,
+  RichTextEditor,
+  Select,
+  Textarea,
+  Toggle,
+} from '@firmivra/ui';
 import { Gear, Plus, Trash, ArrowUp, ArrowDown } from '@phosphor-icons/react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   useFieldArray,
   useForm,
@@ -61,10 +70,13 @@ export function ServiceEditor({
   initial,
   onSaved,
   disabled = false,
+  notice,
 }: {
   initial?: CatalogService;
   onSaved: (values: Values) => Promise<CatalogService>;
   disabled?: boolean;
+  /** Loading, not-found or error state of the service, shown under the page header. */
+  notice?: ReactNode;
 }) {
   const router = useRouter();
   const categories = useApiQuery(['services-pricing', 'categories'], () =>
@@ -162,19 +174,17 @@ export function ServiceEditor({
         edit
         onBack={() => (isDirty ? setCancel(true) : router.push('/services-pricing'))}
       />
+      {notice}
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          submit(active);
+          if (!disabled) submit(active);
         }}
-        className="min-w-0"
+        className="grid min-w-0 grid-cols-1 items-start gap-3 xl:grid-cols-3"
         data-testid="service-form"
       >
-        <fieldset
-          disabled={disabled}
-          className="grid min-w-0 grid-cols-1 items-start gap-3 border-0 p-0 xl:grid-cols-3 lg:[&_input]:py-1 lg:[&_input]:text-sm lg:[&_select]:py-1 lg:[&_select]:text-sm lg:[&_textarea]:text-sm"
-        >
-          <div className="min-w-0 space-y-3 xl:col-span-2">
+        <fieldset disabled={disabled} className="min-w-0 border-0 p-0 xl:col-span-2">
+          <div className="min-w-0 space-y-3">
             <Panel title="Basic Information" marker={1}>
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="min-w-0 space-y-3 md:col-span-2">
@@ -215,7 +225,9 @@ export function ServiceEditor({
                         checked={active}
                         onChange={setActiveOverride}
                       />
-                      <span className="text-sm">
+                      <span
+                        className={`text-sm ${active && !disabled ? 'text-success' : 'text-muted'}`}
+                      >
                         {disabled
                           ? 'Unavailable'
                           : active
@@ -229,7 +241,8 @@ export function ServiceEditor({
                   <IconPicker value={value.icon} onChange={(next) => put('icon', next)} />
                 </div>
               </div>
-              {!categories.data?.length || categories.isError ? (
+              {/* Only once the service is here; otherwise the notice above says it once. */}
+              {!disabled && (!categories.data?.length || categories.isError) ? (
                 <PageState
                   query={categories}
                   empty="No categories available. A category is needed before saving."
@@ -336,30 +349,38 @@ export function ServiceEditor({
                 ]}
                 onChange={(e) => put('lineItemsMode', e.target.value as Values['lineItemsMode'])}
               />
-              <div className="hidden grid-cols-12 gap-2 border-b border-divider pb-2 text-xs font-semibold lg:grid">
-                <span className="col-span-3">Item Name</span>
-                <span className="col-span-3">Description</span>
-                <span>Qty</span>
+              <div className="hidden grid-cols-12 gap-2 border-b border-divider pb-2 text-xs font-semibold text-heading lg:grid">
+                <span>#</span>
+                <span className="col-span-3">
+                  Item Name <span className="text-danger">*</span>
+                </span>
+                <span className="col-span-2">Description</span>
+                <span>Quantity</span>
                 <span className="col-span-2">Price</span>
                 <span>Total</span>
-                <span className="col-span-2">Actions</span>
+                <span className="col-span-2 text-center">Actions</span>
               </div>
               {lines.fields.length ? (
                 lines.fields.map((line, i) => (
                   <div
                     key={line.id}
-                    className="grid min-w-0 gap-2 border-b border-divider py-2 sm:grid-cols-2 lg:grid-cols-12 lg:[&>div:nth-child(1)]:col-span-3 lg:[&>div:nth-child(2)]:col-span-3 lg:[&>div:nth-child(4)]:col-span-2 lg:[&_label]:sr-only"
+                    className="grid min-w-0 gap-2 border-b border-divider py-2 sm:grid-cols-2 lg:grid-cols-12 lg:items-center lg:[&_label]:sr-only"
                     data-testid="service-line"
                   >
-                    <Input
-                      label={`Item Name ${i + 1} *`}
-                      {...register(`lineItems.${i}.name`)}
-                      error={errors.lineItems?.[i]?.name?.message}
-                    />
-                    <Input
-                      label={`Description ${i + 1}`}
-                      {...register(`lineItems.${i}.description`)}
-                    />
+                    <span className="hidden text-sm text-text lg:block">{i + 1}</span>
+                    <div className="min-w-0 lg:col-span-3">
+                      <Input
+                        label={`Item Name ${i + 1} *`}
+                        {...register(`lineItems.${i}.name`)}
+                        error={errors.lineItems?.[i]?.name?.message}
+                      />
+                    </div>
+                    <div className="min-w-0 lg:col-span-2">
+                      <Input
+                        label={`Description ${i + 1}`}
+                        {...register(`lineItems.${i}.description`)}
+                      />
+                    </div>
                     <Input
                       label={`Quantity ${i + 1}`}
                       type="number"
@@ -368,54 +389,53 @@ export function ServiceEditor({
                       {...register(`lineItems.${i}.quantity`, { valueAsNumber: true })}
                       error={errors.lineItems?.[i]?.quantity?.message}
                     />
-                    <Input
-                      label={`Price ${i + 1}`}
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={(value.lineItems?.[i]?.rateCents ?? 0) / 100}
-                      onChange={(e) =>
-                        put(
-                          `lineItems`,
-                          (value.lineItems ?? []).map((x, index) =>
-                            index === i
-                              ? { ...x, rateCents: Math.round(Number(e.target.value) * 100) }
-                              : x,
-                          ),
-                        )
-                      }
-                      error={errors.lineItems?.[i]?.rateCents?.message}
-                    />
+                    <div className="min-w-0 lg:col-span-2">
+                      <Input
+                        label={`Price ${i + 1}`}
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={(value.lineItems?.[i]?.rateCents ?? 0) / 100}
+                        onChange={(e) =>
+                          put(
+                            `lineItems`,
+                            (value.lineItems ?? []).map((x, index) =>
+                              index === i
+                                ? { ...x, rateCents: Math.round(Number(e.target.value) * 100) }
+                                : x,
+                            ),
+                          )
+                        }
+                        error={errors.lineItems?.[i]?.rateCents?.message}
+                      />
+                    </div>
                     <p
-                      className="self-center text-xs text-muted"
+                      className="self-center text-sm text-text"
                       title="Saved line total; recalculated by the API on save"
                     >
                       {savedLineTotal(i)}
                     </p>
-                    <div className="flex flex-wrap gap-1 sm:col-span-2 lg:col-span-2 [&>button]:min-h-8 [&>button]:px-1 [&>button]:py-1">
-                      <Button
-                        variant="ghost"
+                    <div className="flex flex-wrap gap-1 sm:col-span-2 lg:col-span-2 lg:justify-center">
+                      <IconButton
+                        icon={ArrowUp}
+                        tone="action"
+                        label={`Move line ${i + 1} up`}
                         disabled={i === 0}
                         onClick={() => lines.move(i, i - 1)}
-                        aria-label={`Move line ${i + 1} up`}
-                      >
-                        <ArrowUp className="size-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
+                      />
+                      <IconButton
+                        icon={ArrowDown}
+                        tone="action"
+                        label={`Move line ${i + 1} down`}
                         disabled={i === lines.fields.length - 1}
                         onClick={() => lines.move(i, i + 1)}
-                        aria-label={`Move line ${i + 1} down`}
-                      >
-                        <ArrowDown className="size-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
+                      />
+                      <IconButton
+                        icon={Trash}
+                        tone="danger"
+                        label={`Remove line ${i + 1}`}
                         onClick={() => setRemoveLine(i)}
-                        aria-label={`Remove line ${i + 1}`}
-                      >
-                        <Trash className="size-4" />
-                      </Button>
+                      />
                     </div>
                   </div>
                 ))
@@ -430,12 +450,12 @@ export function ServiceEditor({
                     lines.append({ name: '', description: '', quantity: 1, rateCents: 0 })
                   }
                 >
-                  <Plus className="size-4" />
+                  <Plus weight="fill" className="size-4" />
                   Add Line Item
                 </Button>
-                <p className="text-sm">
+                <p className="text-base text-text">
                   Total Price:{' '}
-                  <strong>
+                  <strong className="text-lg text-heading">
                     {disabled
                       ? '—'
                       : value.lineItemsMode === 'ADDITIVE'
@@ -446,7 +466,9 @@ export function ServiceEditor({
               </div>
             </Panel>
           </div>
-          <aside className="min-w-0 space-y-3">
+        </fieldset>
+        <aside className="min-w-0 space-y-3">
+          <fieldset disabled={disabled} className="min-w-0 space-y-3 border-0 p-0">
             <ClientPreview
               name={value.name}
               description={value.shortDescription}
@@ -472,41 +494,45 @@ export function ServiceEditor({
                 {value.internalNotes?.length ?? 0}/500
               </p>
             </Panel>
-            {save.error ? (
-              <p role="alert" data-testid="save-error" className="text-sm text-danger">
-                {errorMessage(save.error)}
-              </p>
-            ) : null}
-            {Object.keys(errors).length ? (
-              <p role="alert" className="text-sm text-danger">
-                Check the highlighted fields before saving.
-              </p>
-            ) : null}
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => (isDirty ? setCancel(true) : router.push('/services-pricing'))}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="outline"
-                disabled={save.isPending}
-                onClick={() => submit(active)}
-                data-testid="save-changes"
-              >
-                Save Changes
-              </Button>
-              <Button
-                disabled={save.isPending}
-                onClick={() => submit(true)}
-                data-testid="save-activate"
-              >
-                {save.isPending ? 'Saving…' : 'Save & Activate'}
-              </Button>
-            </div>
-          </aside>
-        </fieldset>
+          </fieldset>
+          {/* Outside the disabled fieldset: Cancel works even when the service can't load. */}
+          {save.error ? (
+            <p role="alert" data-testid="save-error" className="text-sm text-danger">
+              {errorMessage(save.error)}
+            </p>
+          ) : null}
+          {Object.keys(errors).length ? (
+            <p role="alert" className="text-sm text-danger">
+              Check the highlighted fields before saving.
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              className="flex-1 whitespace-nowrap"
+              onClick={() => (isDirty ? setCancel(true) : router.push('/services-pricing'))}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1 whitespace-nowrap"
+              disabled={disabled || save.isPending}
+              onClick={() => submit(active)}
+              data-testid="save-changes"
+            >
+              Save Changes
+            </Button>
+            <Button
+              className="flex-1 whitespace-nowrap"
+              disabled={disabled || save.isPending}
+              onClick={() => submit(true)}
+              data-testid="save-activate"
+            >
+              {save.isPending ? 'Saving…' : 'Save & Activate'}
+            </Button>
+          </div>
+        </aside>
       </form>
       <Modal
         open={cancel}
