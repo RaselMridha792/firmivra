@@ -110,28 +110,14 @@ export class CiStack extends Stack {
 
     // Base images (node, postgres) through our own ECR: the anonymous public.ecr.aws limit
     // ("toomanyrequests: Data limit exceeded") failed CI and Deploy dev. A pull-through cache needs
-    // no upstream credentials for ECR Public; the first pull of a tag creates the repository from
-    // the template below and stores the image, later pulls come from our registry.
+    // no upstream credentials for ECR Public; the first pull of a tag creates the repository and
+    // stores the image, later pulls come from our registry. No repository creation template
+    // (Rasel, Oct 17): it needs ecr:CreateRepository on * for CloudFormation, and two base images
+    // grow only slowly without a lifecycle rule.
     new ecr.CfnPullThroughCacheRule(this, 'EcrPublicCache', {
       ecrRepositoryPrefix: ECR_PUBLIC_CACHE_PREFIX,
       upstreamRegistry: 'ecr-public',
       upstreamRegistryUrl: 'public.ecr.aws',
-    });
-    new ecr.CfnRepositoryCreationTemplate(this, 'EcrPublicCacheTemplate', {
-      prefix: ECR_PUBLIC_CACHE_PREFIX,
-      appliedFor: ['PULL_THROUGH_CACHE'],
-      description: 'Cached public base images (node, postgres): keep the newest few',
-      imageTagMutability: 'MUTABLE',
-      lifecyclePolicy: JSON.stringify({
-        rules: [
-          {
-            rulePriority: 1,
-            description: 'Keep the 5 newest images per repository',
-            selection: { tagStatus: 'any', countType: 'imageCountMoreThan', countNumber: 5 },
-            action: { type: 'expire' },
-          },
-        ],
-      }),
     });
     const cachedImages = `arn:aws:ecr:${this.region}:${this.account}:repository/${ECR_PUBLIC_CACHE_PREFIX}/*`;
     const pullCached = new iam.PolicyStatement({

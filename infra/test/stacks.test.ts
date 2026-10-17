@@ -1206,25 +1206,13 @@ describe('ci', () => {
     });
   });
 
-  it('caches public base images in our ECR, keeping 5 per repository', () => {
+  it('caches public base images in our ECR, with no repository creation template', () => {
     t('ci').hasResourceProperties('AWS::ECR::PullThroughCacheRule', {
       EcrRepositoryPrefix: 'ecr-public',
       UpstreamRegistry: 'ecr-public',
       UpstreamRegistryUrl: 'public.ecr.aws',
     });
-    const template = Object.values(
-      t('ci').findResources('AWS::ECR::RepositoryCreationTemplate'),
-    )[0] as { Properties: { Prefix: string; AppliedFor: string[]; LifecyclePolicy: string } };
-    expect(template.Properties.Prefix).toBe('ecr-public');
-    expect(template.Properties.AppliedFor).toEqual(['PULL_THROUGH_CACHE']);
-    expect(JSON.parse(template.Properties.LifecyclePolicy)).toEqual({
-      rules: [
-        expect.objectContaining({
-          selection: { tagStatus: 'any', countType: 'imageCountMoreThan', countNumber: 5 },
-          action: { type: 'expire' },
-        }),
-      ],
-    });
+    t('ci').resourceCountIs('AWS::ECR::RepositoryCreationTemplate', 0);
   });
 
   it('gives pull requests of this repo only a role that pulls cached base images', () => {

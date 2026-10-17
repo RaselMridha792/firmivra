@@ -36,6 +36,8 @@ export const SERVICE_LINKED_ROLES = [
   // Cognito sending through our SES identity (AWSServiceRoleForAmazonCognitoIdpEmailService),
   // created by the session that updates the pool: the CloudFormation execution role.
   'email.cognito-idp.amazonaws.com',
+  // The ci stack's ECR pull-through cache rule (AWSServiceRoleForECRPullThroughCache).
+  'pullthroughcache.ecr.amazonaws.com',
 ];
 
 const serviceLinkedRoles = (resource: string): Statement => ({
