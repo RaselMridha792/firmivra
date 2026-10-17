@@ -1,6 +1,6 @@
 'use client';
 
-import { DotsThree } from '@phosphor-icons/react';
+import { DotsThree, DotsThreeVertical } from '@phosphor-icons/react';
 import { useEffect, useId, useRef, useState } from 'react';
 
 export interface RowMenuItem {
@@ -11,9 +11,18 @@ export interface RowMenuItem {
 
 /**
  * The design's square "⋯" button and its menu. The kit's ActionMenu adds a caret and a label to
- * its button, which the design's rows don't have. Arrow keys move, Escape closes.
+ * its button, which the design's rows don't have. Arrow keys move, Escape closes. `vertical` draws
+ * "⋮", as in users-and-role.jpg.
  */
-export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
+export function RowMenu({
+  label,
+  items,
+  vertical,
+}: {
+  label: string;
+  items: RowMenuItem[];
+  vertical?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -49,7 +58,11 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
         onClick={() => setOpen(!open)}
         className="inline-flex size-8 items-center justify-center rounded-lg border border-divider bg-surface text-heading hover:bg-canvas"
       >
-        <DotsThree aria-hidden weight="bold" className="size-5" />
+        {vertical ? (
+          <DotsThreeVertical aria-hidden weight="bold" className="size-5" />
+        ) : (
+          <DotsThree aria-hidden weight="bold" className="size-5" />
+        )}
       </button>
       {open ? (
         <div
