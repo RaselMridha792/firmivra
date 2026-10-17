@@ -75,6 +75,8 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         if: steps.missing.outputs.any == 'true'
 
+      # Base images (node) come from our ECR pull-through cache, not anonymous public.ecr.aws (its
+      # download limit failed builds); the ECR login above covers the cache too.
       # One plain image per tag (no provenance or SBOM): ECR keeps the last 10 images, and
       # attestations would count too. Layers are cached in GitHub Actions per image.
       - name: Build and push api
@@ -84,6 +86,7 @@ jobs:
           context: .
           file: apps/api/Dockerfile
           push: true
+          build-args: BASE_REGISTRY=${{ env.REGISTRY }}/ecr-public
           tags: ${{ env.REGISTRY }}/firmivra-dev-api:${{ github.sha }}
           provenance: false
           sbom: false
@@ -97,6 +100,7 @@ jobs:
           context: .
           file: apps/web/Dockerfile
           push: true
+          build-args: BASE_REGISTRY=${{ env.REGISTRY }}/ecr-public
           tags: ${{ env.REGISTRY }}/firmivra-dev-web:${{ github.sha }}
           provenance: false
           sbom: false
@@ -110,6 +114,7 @@ jobs:
           context: .
           file: packages/db/Dockerfile
           push: true
+          build-args: BASE_REGISTRY=${{ env.REGISTRY }}/ecr-public
           tags: ${{ env.REGISTRY }}/firmivra-dev-migrate:${{ github.sha }}
           provenance: false
           sbom: false
