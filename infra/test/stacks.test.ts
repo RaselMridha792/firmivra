@@ -1205,6 +1205,69 @@ describe('ci', () => {
       },
     });
   });
+
+  it('caches public base images in our ECR, with no repository creation template', () => {
+    t('ci').hasResourceProperties('AWS::ECR::PullThroughCacheRule', {
+      EcrRepositoryPrefix: 'ecr-public',
+      UpstreamRegistry: 'ecr-public',
+      UpstreamRegistryUrl: 'public.ecr.aws',
+    });
+    t('ci').resourceCountIs('AWS::ECR::RepositoryCreationTemplate', 0);
+  });
+
+  it('gives pull requests of this repo only a role that pulls cached base images', () => {
+    const ci = t('ci');
+    ci.hasResourceProperties('AWS::IAM::Role', {
+      RoleName: 'firmivra-dev-github-ci-pull',
+      MaxSessionDuration: 3600,
+      AssumeRolePolicyDocument: {
+        Statement: [
+          Match.objectLike({
+            Action: 'sts:AssumeRoleWithWebIdentity',
+            Condition: {
+              StringEquals: {
+                'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+                'token.actions.githubusercontent.com:sub':
+                  'repo:RaselMridha792@149437621/firmivra@1404534844:pull_request',
+              },
+            },
+          }),
+        ],
+      },
+    });
+    const [roleId] = Object.keys(
+      ci.findResources('AWS::IAM::Role', {
+        Properties: { RoleName: 'firmivra-dev-github-ci-pull' },
+      }),
+    );
+    const policies = Object.values(
+      ci.findResources('AWS::IAM::Policy', {
+        Properties: { Roles: [{ Ref: roleId }] },
+      }),
+    ) as {
+      Properties: {
+        PolicyDocument: { Statement: { Action: string | string[]; Resource: unknown }[] };
+      };
+    }[];
+    expect(policies).toHaveLength(1);
+    const statements = policies[0]!.Properties.PolicyDocument.Statement.map((s) => ({
+      actions: ([] as string[]).concat(s.Action).sort(),
+      resource: s.Resource,
+    }));
+    expect(statements).toEqual([
+      { actions: ['ecr:GetAuthorizationToken'], resource: '*' },
+      {
+        actions: [
+          'ecr:BatchCheckLayerAvailability',
+          'ecr:BatchGetImage',
+          'ecr:BatchImportUpstreamImage',
+          'ecr:CreateRepository',
+          'ecr:GetDownloadUrlForLayer',
+        ],
+        resource: 'arn:aws:ecr:us-east-1:778127141557:repository/ecr-public/*',
+      },
+    ]);
+  });
 });
 
 describe('retained resources', () => {
