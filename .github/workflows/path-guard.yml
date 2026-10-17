@@ -141,6 +141,20 @@ jobs:
                 'apps/web/e2e/',
               ],
             },
+            // Integrations, Reports, Tax Planning & Strategy and Business Advisory & Development
+            // (Rasel, Oct 17).
+            ibrahim: {
+              logins: ['BFIbrahim'],
+              files: [
+                ...['integrations/', 'reports/', 'tax-planning/', 'business-advisory/'].map(
+                  (p) => `${WEB}firm/(workspace)/${p}`,
+                ),
+                ...['integrations', 'reports', 'tax-planning', 'business-advisory'].flatMap((m) => [
+                  `${MOCKS}${m}.ts`,
+                  `${MOCKS}${m}-*.ts`,
+                ]),
+              ],
+            },
           };
           // Three tickets, each adding extra paths on top of its developer's normal list, for
           // that branch only; the normal list and except both still apply, every other branch
@@ -187,7 +201,7 @@ jobs:
             Object.keys(DEVELOPERS).find((n) => branch.startsWith(`${n}/`));
           if (!name) {
             console.log(
-              `::error::${author}: start the branch with your name (fahad/, tumit/, nahid/ or arfan/).`,
+              `::error::${author}: start the branch with your name (fahad/, tumit/, nahid/, arfan/ or ibrahim/).`,
             );
             process.exit(1);
           }
