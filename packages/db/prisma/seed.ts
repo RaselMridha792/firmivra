@@ -2105,6 +2105,125 @@ async function main() {
   await seedPlatformTeam(prisma);
   await seedPlatformPlans(prisma);
 
+  // Stage B5: Firmivra's sales pipeline (admin scope, as the Super Admin). LVP is the won deal,
+  // now an active client linked to its application and firm; a prospect firm is being worked
+  // toward a demo. The database writes the stage and assignment history.
+  await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
+    if (await tx.salesOpportunity.findUnique({ where: { id: SEED_PLATFORM_IDS.salesLvpDeal } })) {
+      return;
+    }
+    const pipeline = await tx.salesPipeline.findUniqueOrThrow({
+      where: { systemKey: 'firmivra_default' },
+      include: { stages: true },
+    });
+    const stage = (key: string) => pipeline.stages.find((s) => s.systemKey === key)!.id;
+    const teamPro = await tx.platformPlan.findUnique({ where: { code: 'TEAM_PRO' } });
+    await tx.salesContact.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesLvpContact,
+        name: SEED_USERS.lvpOwner.name,
+        email: SEED_USERS.lvpOwner.email,
+        companyName: SEED_BUSINESSES.lvp.name,
+        jobTitle: 'Owner',
+      },
+    });
+    await tx.salesOpportunity.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesLvpDeal,
+        pipelineId: pipeline.id,
+        stageId: stage('new_lead'),
+        contactId: SEED_PLATFORM_IDS.salesLvpContact,
+        title: SEED_BUSINESSES.lvp.name,
+        companyName: SEED_BUSINESSES.lvp.name,
+        source: 'REFERRAL',
+        planId: teamPro?.id ?? null,
+        valueCents: 238_800,
+        assignedToUserId: SEED_USERS.superAdmin.id,
+      },
+    });
+    for (const key of ['contacted', 'qualified', 'appointment_set', 'active_client']) {
+      await tx.salesOpportunity.update({
+        where: { id: SEED_PLATFORM_IDS.salesLvpDeal },
+        data: {
+          stageId: stage(key),
+          ...(key === 'active_client'
+            ? {
+                firmApplicationId: SEED_PLATFORM_IDS.lvpApplication,
+                linkedBusinessId: businesses.lvp,
+              }
+            : {}),
+        },
+      });
+    }
+    await tx.salesContact.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesProspectContact,
+        name: 'Marisol Ortega',
+        email: 'marisol@ortega-cpa.test',
+        phone: '(512) 555-0147',
+        companyName: 'Ortega CPA & Advisory',
+        jobTitle: 'Managing Partner',
+      },
+    });
+    await tx.salesOpportunity.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesProspectDeal,
+        pipelineId: pipeline.id,
+        stageId: stage('new_lead'),
+        contactId: SEED_PLATFORM_IDS.salesProspectContact,
+        title: 'Ortega CPA & Advisory',
+        companyName: 'Ortega CPA & Advisory',
+        source: 'WEBSITE',
+        planId: teamPro?.id ?? null,
+        valueCents: 358_800,
+        assignedToUserId: SEED_USERS.superAdmin.id,
+      },
+    });
+    await tx.salesActivity.create({
+      data: {
+        opportunityId: SEED_PLATFORM_IDS.salesProspectDeal,
+        kind: 'CALL',
+        direction: 'OUTBOUND',
+        outcome: 'CONNECTED',
+        occurredAt: new Date(Date.now() - 2 * 86_400_000),
+        summary:
+          'Five preparers, moving off spreadsheets before the extension season. Wants a demo.',
+      },
+    });
+    await tx.salesOpportunity.update({
+      where: { id: SEED_PLATFORM_IDS.salesProspectDeal },
+      data: { stageId: stage('appointment_set') },
+    });
+    await tx.salesFollowUp.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesDemo,
+        opportunityId: SEED_PLATFORM_IDS.salesProspectDeal,
+        kind: 'DEMO',
+        title: 'Firmivra demo for Ortega CPA',
+        dueAt: new Date(Date.now() + 3 * 86_400_000),
+        endsAt: new Date(Date.now() + 3 * 86_400_000 + 45 * 60_000),
+        location: 'Video call',
+        assignedToUserId: SEED_USERS.superAdmin.id,
+      },
+    });
+    await tx.salesNote.create({
+      data: {
+        opportunityId: SEED_PLATFORM_IDS.salesProspectDeal,
+        authorUserId: SEED_USERS.superAdmin.id,
+        body: 'Ask about their e-signature volume; they file about 900 returns a year.',
+      },
+    });
+    await tx.salesTag.create({
+      data: { id: SEED_PLATFORM_IDS.salesTag, name: 'Tax season', colorKey: 'accent-amber' },
+    });
+    await tx.salesOpportunityTag.create({
+      data: {
+        opportunityId: SEED_PLATFORM_IDS.salesProspectDeal,
+        tagId: SEED_PLATFORM_IDS.salesTag,
+      },
+    });
+  });
+
   console.warn(
     `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, intake agreements, a signed Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request, sample audit events, Firm Sign (LVP: on, with a sent request; Firm B: off, one draft), the platform team hierarchy (13 departments, the CEO mapped from Super Admin) and the 6-plan ladder.`,
   );

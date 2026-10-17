@@ -376,6 +376,13 @@ export const SEED_PLATFORM_IDS = {
   supportEvent: '00000000-0000-4005-8000-000000000036',
   supportHoliday: '00000000-0000-4005-8000-000000000037',
   supportCannedResponse: '00000000-0000-4005-8000-000000000038',
+  // Stage B5: Firmivra's sale to LVP (won, now an active client) and a prospect being worked.
+  salesLvpContact: '00000000-0000-4005-8000-000000000061',
+  salesLvpDeal: '00000000-0000-4005-8000-000000000062',
+  salesProspectContact: '00000000-0000-4005-8000-000000000063',
+  salesProspectDeal: '00000000-0000-4005-8000-000000000064',
+  salesDemo: '00000000-0000-4005-8000-000000000065',
+  salesTag: '00000000-0000-4005-8000-000000000066',
   // Stage B3: what Firmivra billed LVP.
   billingPaidInvoice: '00000000-0000-4005-8000-000000000041',
   billingCreditedInvoice: '00000000-0000-4005-8000-000000000042',
