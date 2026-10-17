@@ -6,7 +6,10 @@ import { expect, test, type Page } from '@playwright/test';
 
 const basePort = Number(process.env['WEB_PORT'] ?? '3000') + 1;
 const leadId = '0199c0c0-0a00-7000-8000-000000000001';
-const url = (port: number) => `http://app.localhost:${port}/leads/${leadId}/convert/portal`;
+const stepOneUrl = (port: number) => `http://app.localhost:${port}/leads/${leadId}/convert`;
+const stepUrl = (port: number, step: 'details' | 'portal') =>
+  `http://app.localhost:${port}/leads/${leadId}/convert/${step}`;
+const url = (port: number) => stepUrl(port, 'portal');
 const nextBin = createRequire(import.meta.url).resolve('next/dist/bin/next');
 
 async function unusedPort() {
@@ -121,6 +124,44 @@ async function captureStepThree(page: Page, filename: string) {
     style: '[data-testid="mock-badge"] { display: none !important; }',
   });
 }
+
+test('keeps all seven cards on steps 1 and 2, highlighting the active column', async ({ page }) => {
+  const cardIds = [
+    'convert-lead-lead-info',
+    'convert-lead-details',
+    'convert-lead-client-fields',
+    'convert-lead-staff-assignment',
+    'convert-lead-carry-over',
+    'convert-lead-portal-access',
+    'convert-lead-after-conversion',
+  ];
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(stepOneUrl(basePort));
+  await expect(page).toHaveTitle(/^Convert lead: Review lead information/);
+  for (const id of cardIds) await expect(page.getByTestId(id)).toBeVisible();
+  const detailsColumn = page.getByTestId('convert-lead-details-step-column');
+  await expect(detailsColumn.locator(':scope > section')).toHaveCount(2);
+  await expect(detailsColumn).not.toHaveClass(/border-info-soft/);
+  await expect(
+    page.getByRole('listitem').filter({ has: page.getByText('Review Lead Information') }),
+  ).toHaveAttribute('aria-current', 'step');
+
+  await page.goto(stepUrl(basePort, 'details'));
+  await expect(page).toHaveTitle(/^Convert lead: Client details & services/);
+  for (const id of cardIds) await expect(page.getByTestId(id)).toBeVisible();
+  await expect(detailsColumn).toHaveClass(/border-info-soft/);
+  await expect(
+    page.getByRole('listitem').filter({ has: page.getByText('Client Details & Services') }),
+  ).toHaveAttribute('aria-current', 'step');
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  const dimensions = await page.getByTestId('convert-lead-page').evaluate((element) => ({
+    client: element.clientWidth,
+    scroll: element.scrollWidth,
+  }));
+  expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.client);
+});
 
 test('shows the five step 3 cards full width with mock data and fits mobile', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });

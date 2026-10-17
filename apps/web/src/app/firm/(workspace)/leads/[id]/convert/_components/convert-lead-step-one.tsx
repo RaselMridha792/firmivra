@@ -635,28 +635,22 @@ export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: Con
 
       <section
         aria-label="Lead conversion information"
-        className={`grid min-w-0 gap-4 ${activeStep === 'review' ? 'xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)_minmax(0,1fr)]' : activeStep === 'portal' ? 'w-full xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]' : 'mx-auto w-full max-w-2xl xl:grid-cols-1'}`}
+        className={`grid min-w-0 gap-4 ${activeStep === 'portal' ? 'w-full xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]' : 'xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)_minmax(0,1fr)]'}`}
       >
-        {activeStep === 'review' || activeStep === 'portal' ? (
-          <div
-            data-testid="convert-lead-profile-step-column"
-            className="flex min-w-0 flex-col gap-3"
-          >
-            <LeadOverview lead={profile} query={lead} onEdit={() => router.push(`/leads/${id}`)} />
-            <LeadDetails lead={profile} query={lead} />
-          </div>
-        ) : null}
-        {activeStep === 'details' ? (
+        <div data-testid="convert-lead-profile-step-column" className="flex min-w-0 flex-col gap-3">
+          <LeadOverview lead={profile} query={lead} onEdit={() => router.push(`/leads/${id}`)} />
+          <LeadDetails lead={profile} query={lead} />
+        </div>
+        {activeStep !== 'portal' ? (
           <div
             data-testid="convert-lead-details-step-column"
-            className="flex min-w-0 flex-col gap-3 rounded-card border-2 border-info-soft p-2"
+            className={`flex min-w-0 flex-col gap-3 rounded-card ${activeStep === 'details' ? 'border-2 border-info-soft p-2' : ''}`}
           >
             <ClientDetails lead={profile} query={options} services={optionData?.services} />
             <StaffAssignment lead={profile} query={options} staff={optionData?.staff} />
           </div>
         ) : null}
-        {activeStep === 'review' ? <LeadConversionRightRail /> : null}
-        {activeStep === 'portal' ? <LeadConversionRightRail highlighted /> : null}
+        <LeadConversionRightRail highlighted={activeStep === 'portal'} />
       </section>
 
       <footer className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
