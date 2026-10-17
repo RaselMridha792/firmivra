@@ -91,6 +91,8 @@ const {
  */
 const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
   { param: 'year', value: '2025', routes: /\/tax-years\/:year(\/history)?$/ },
+  // A tax year of a payroll client's year-end checklist, not a record.
+  { param: 'taxYear', value: '2030', routes: /\/payroll\/clients\/:id\/year-end\/:taxYear$/ },
   { param: 'kind', value: 'terms', routes: /\/legal\/:kind(\/versions(\/:version)?)?$/ },
   { param: 'version', value: '1', routes: /\/legal\/:kind\/versions\/:version$/ },
   // Each agreement record has version 1.

@@ -870,6 +870,8 @@ model Business {
 
   /// R0 stage A: null until a subscription is set (no backfill for existing firms).
   platformFirmSubscription PlatformFirmSubscription?
+  /// R0 stage B1: Super Admin notifications about this firm (nullable link, platform data).
+  platformNotifications    PlatformNotification[]
   /// R0 stage B2: the firm's tickets with Firmivra support (Super Admin Support module).
   supportTickets           SupportTicket[]
 
@@ -1129,11 +1131,14 @@ model PlatformAdmin {
   role      PlatformRole @default(SUPER_ADMIN)
   createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  user                   User            @relation(fields: [userId], references: [id])
+  user                   User                   @relation(fields: [userId], references: [id])
   /// R0 stage A: the org-chart row for this admin, if one exists yet (CREATING_TEAM 20261016_r0).
   member                 PlatformMember?
+  /// R0 stage B1: this admin's notification center and export jobs.
+  notifications          PlatformNotification[]
+  exportJobs             PlatformExportJob[]
   /// R0 stage B2: support tickets assigned to this team member.
-  supportTicketsAssigned SupportTicket[] @relation("SupportTicketAssignee")
+  supportTicketsAssigned SupportTicket[]        @relation("SupportTicketAssignee")
 
   @@map("platform_admins")
 }
@@ -1379,6 +1384,124 @@ model PlatformFirmSubscription {
   plan     PlatformPlan @relation(fields: [planId], references: [id])
 
   @@map("platform_firm_subscriptions")
+}
+
+// ---------- R0 stage B1: Super Admin notifications and export jobs ----------
+
+/// The Super Admin notification center's categories (Notifications spec).
+enum PlatformNotificationCategory {
+  FIRMS
+  FIRM_APPLICATIONS
+  SALES_LEADS
+  BILLING_SUBSCRIPTIONS
+  SUPPORT
+  INTEGRATIONS
+  SECURITY
+  SYSTEM
+}
+
+enum PlatformNotificationPriority {
+  CRITICAL
+  HIGH
+  NORMAL
+  INFORMATIONAL
+}
+
+/// The spec's five statuses mix two things: read or not (readAt) and whether the item asks for
+/// work. The API shows Unread / Read / Action Required / Resolved / Dismissed from the two.
+enum PlatformNotificationAttention {
+  NONE
+  ACTION_REQUIRED
+  RESOLVED
+  DISMISSED
+}
+
+/// One row per recipient: a Super Admin team member sees only items for the modules they hold.
+/// The content is fixed at insert; only the read and attention state change, and rows are never
+/// deleted (history is kept). `eventKey` dedupes a producer's retries per recipient.
+model PlatformNotification {
+  id               String                        @id @default(uuid(7)) @db.Uuid
+  recipientUserId  String                        @map("recipient_user_id") @db.Uuid
+  category         PlatformNotificationCategory
+  /// Event key, e.g. "billing.payment_failed".
+  type             String
+  priority         PlatformNotificationPriority  @default(NORMAL)
+  title            String
+  /// Short, safe text only: never secrets, card or bank data, or document contents.
+  body             String?
+  /// The record it opens (deep link), e.g. "firm_application" and its id.
+  sourceType       String                        @map("source_type")
+  sourceId         String?                       @map("source_id") @db.Uuid
+  sourceLabel      String?                       @map("source_label")
+  /// The firm it is about, if any (a platform link, not tenant data).
+  businessId       String?                       @map("business_id") @db.Uuid
+  eventKey         String                        @map("event_key")
+  requiresAction   Boolean                       @default(false) @map("requires_action")
+  attention        PlatformNotificationAttention @default(NONE)
+  readAt           DateTime?                     @map("read_at") @db.Timestamptz(3)
+  resolvedAt       DateTime?                     @map("resolved_at") @db.Timestamptz(3)
+  resolvedByUserId String?                       @map("resolved_by_user_id") @db.Uuid
+  dismissedAt      DateTime?                     @map("dismissed_at") @db.Timestamptz(3)
+  occurredAt       DateTime                      @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  createdAt        DateTime                      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  recipient PlatformAdmin @relation(fields: [recipientUserId], references: [userId], onDelete: Cascade)
+  business  Business?     @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@unique([recipientUserId, eventKey])
+  @@index([recipientUserId, occurredAt])
+  @@index([recipientUserId, attention])
+  @@index([sourceType, sourceId])
+  @@map("platform_notifications")
+}
+
+/// The Super Admin modules that export (Audit, Integration logs, Communications, Reports, ...).
+enum PlatformExportModule {
+  AUDIT
+  BILLING
+  COMMUNICATIONS
+  INTEGRATION_LOGS
+  REPORTS
+  SALES
+  SUPPORT
+}
+
+enum PlatformExportStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+/// An export a Super Admin asked for, made off the request path (large ones must not freeze the
+/// console). Holds the filters and columns, never the exported data; the file lives in S3 under
+/// platform/exports/<id> until expiresAt.
+model PlatformExportJob {
+  id                String               @id @default(uuid(7)) @db.Uuid
+  requestedByUserId String               @map("requested_by_user_id") @db.Uuid
+  module            PlatformExportModule
+  format            ReportFormat
+  title             String
+  filters           Json                 @default("{}")
+  columns           String[]             @default([])
+  status            PlatformExportStatus @default(QUEUED)
+  rowCount          Int?                 @map("row_count")
+  s3Key             String?              @map("s3_key")
+  sizeBytes         Int?                 @map("size_bytes")
+  errorCode         String?              @map("error_code")
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt         DateTime?            @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?            @map("finished_at") @db.Timestamptz(3)
+  expiresAt         DateTime?            @map("expires_at") @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  requestedBy PlatformAdmin @relation(fields: [requestedByUserId], references: [userId], onDelete: Restrict)
+
+  @@index([requestedByUserId, createdAt])
+  @@index([status, createdAt])
+  @@map("platform_export_jobs")
 }
 
 // ---------- R0 stage B2: Super Admin Support (tickets from firms) ----------
