@@ -194,7 +194,7 @@ export function TemplatesScreen() {
         <nav
           aria-label="Template views"
           role="tablist"
-          className="flex overflow-x-auto border-b border-divider"
+          className="relative flex overflow-x-auto border-b border-divider"
         >
           {TABS.map((t) => (
             <button
@@ -355,7 +355,7 @@ export function TemplatesScreen() {
         </ul>
       )}
 
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
         <section className={card} aria-label="Recent Templates" data-testid="recent">
           <header className="mb-3 flex items-center justify-between">
             <h2 className="font-display text-lg font-bold text-heading">Recent Templates</h2>
@@ -385,13 +385,13 @@ export function TemplatesScreen() {
                   >
                     {r.name}
                   </Link>
-                  <span className="hidden w-24 shrink-0 text-text md:block">
+                  <span className="hidden w-28 shrink-0 text-text xl:block">
                     {kindOf(r.kind).noun}
                   </span>
-                  <span className="hidden w-28 shrink-0 text-text md:block">
+                  <span className="hidden w-28 shrink-0 text-text lg:block">
                     {dayText(r.updatedAt)}
                   </span>
-                  <span className="hidden w-28 shrink-0 truncate text-text lg:block">
+                  <span className="hidden w-24 shrink-0 truncate text-text 2xl:block">
                     {r.updatedBy?.name ?? r.owner.name}
                   </span>
                   <Link

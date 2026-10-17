@@ -39,11 +39,11 @@ const SORTS: {
   sort: NonNullable<MessageTemplatesQuery['sort']>;
   direction: 'asc' | 'desc';
 }[] = [
-  { value: 'updated', label: 'Sort by: Last Updated', sort: 'updated', direction: 'desc' },
-  { value: 'name', label: 'Sort by: Name', sort: 'name', direction: 'asc' },
-  { value: 'uses', label: 'Sort by: Most Used', sort: 'uses', direction: 'desc' },
-  { value: 'category', label: 'Sort by: Category', sort: 'category', direction: 'asc' },
-  { value: 'status', label: 'Sort by: Status', sort: 'status', direction: 'asc' },
+  { value: 'updated', label: 'Sort: Last Updated', sort: 'updated', direction: 'desc' },
+  { value: 'name', label: 'Sort: Name', sort: 'name', direction: 'asc' },
+  { value: 'uses', label: 'Sort: Most Used', sort: 'uses', direction: 'desc' },
+  { value: 'category', label: 'Sort: Category', sort: 'category', direction: 'asc' },
+  { value: 'status', label: 'Sort: Status', sort: 'status', direction: 'asc' },
 ];
 
 /** /templates/library/[kind]: the library of one kind: categories, filters, the table and bulk actions. */
@@ -132,41 +132,41 @@ export function LibraryScreen({ slug }: { slug: string }) {
 
   const columns: Column<MessageTemplateRow>[] = [
     {
-      id: 'fav',
-      label: 'Favorite',
-      cell: (r) => (
-        <button
-          type="button"
-          aria-label={r.favorite ? `Remove ${r.name} from favorites` : `Add ${r.name} to favorites`}
-          aria-pressed={r.favorite}
-          onClick={() =>
-            favorite.mutate(r, {
-              onError: (e) => notice(errorMessage(e, TEMPLATE_ERRORS), 'error'),
-            })
-          }
-          className="inline-flex size-8 items-center justify-center rounded-lg hover:bg-canvas"
-        >
-          <Star
-            aria-hidden
-            weight={r.favorite ? 'fill' : 'regular'}
-            className={`size-5 ${r.favorite ? 'text-gold' : 'text-muted'}`}
-          />
-        </button>
-      ),
-    },
-    {
       id: 'name',
       label: 'Template Name',
       cell: (r) => (
-        <span className="block min-w-48">
-          <Link
-            href={`/templates/${r.id}/edit`}
-            data-testid="template-link"
-            className="font-semibold text-heading hover:underline"
+        <span className="flex min-w-48 items-start gap-1">
+          <button
+            type="button"
+            aria-label={
+              r.favorite ? `Remove ${r.name} from favorites` : `Add ${r.name} to favorites`
+            }
+            aria-pressed={r.favorite}
+            onClick={() =>
+              favorite.mutate(r, {
+                onError: (e) => notice(errorMessage(e, TEMPLATE_ERRORS), 'error'),
+              })
+            }
+            className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg hover:bg-canvas"
           >
-            {r.name}
-          </Link>
-          {r.description ? <span className="block text-xs text-muted">{r.description}</span> : null}
+            <Star
+              aria-hidden
+              weight={r.favorite ? 'fill' : 'regular'}
+              className={`size-5 ${r.favorite ? 'text-gold' : 'text-muted'}`}
+            />
+          </button>
+          <span className="block">
+            <Link
+              href={`/templates/${r.id}/edit`}
+              data-testid="template-link"
+              className="font-semibold text-heading hover:underline"
+            >
+              {r.name}
+            </Link>
+            {r.description ? (
+              <span className="block text-xs text-muted">{r.description}</span>
+            ) : null}
+          </span>
         </span>
       ),
     },
@@ -190,6 +190,7 @@ export function LibraryScreen({ slug }: { slug: string }) {
     {
       id: 'tags',
       label: 'Tags',
+      className: 'hidden 2xl:table-cell',
       cell: (r) =>
         r.tags.length ? (
           <span className="flex min-w-28 flex-wrap gap-1">
@@ -258,7 +259,7 @@ export function LibraryScreen({ slug }: { slug: string }) {
       <nav
         aria-label="Subcategories"
         role="tablist"
-        className="flex overflow-x-auto border-b border-divider"
+        className="relative flex overflow-x-auto border-b border-divider"
       >
         {[{ id: '', name: 'All Templates' }, ...categories].map((c) => (
           <button
