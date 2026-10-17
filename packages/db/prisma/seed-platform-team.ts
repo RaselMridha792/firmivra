@@ -455,7 +455,13 @@ const ROLE_PERMISSION_TEMPLATE: readonly [string, readonly boolean[]][] = [
   ['team.message_team', [true, true, true, true, true, false]],
 ];
 
-export async function seedPlatformTeam(prisma: Prisma): Promise<void> {
+/**
+ * Firmivra's own org chart: the 13 departments, the 129-role catalog and the team.* permission
+ * template. Reference data, not tied to any one admin account -- safe to run on dev, where the
+ * SUPER_ADMIN rows are real people, not this repo's synthetic seed users. Returns each
+ * department's id by code (the CEO mapping needs EXECUTIVE's). Safe to run again.
+ */
+export async function seedPlatformTeamCatalog(prisma: Prisma): Promise<Record<string, string>> {
   // Departments and role definitions: platform (identity-layer) reference data, not firm data.
   const deptIds = await runInScope(prisma, { kind: 'platform' }, async (tx) => {
     const ids: Record<string, string> = {};
@@ -537,6 +543,14 @@ export async function seedPlatformTeam(prisma: Prisma): Promise<void> {
       }
     }
   });
+  return deptIds;
+}
+
+/** The LVP-style seed's own org chart plus the one CEO mapping it needs: the seed's own
+ * SEED_USERS.superAdmin. Used only by `pnpm db:seed` (never on dev; see bootstrap-platform-org.ts
+ * for a generic, dev-safe version that maps every existing SUPER_ADMIN, not one fixed id). */
+export async function seedPlatformTeam(prisma: Prisma): Promise<void> {
+  const deptIds = await seedPlatformTeamCatalog(prisma);
 
   // Map every existing SUPER_ADMIN to the CEO role (Rasel's PART 1, item 1). Runs in admin scope,
   // after the platformAdmin upsert above has committed, so app_is_admin() already sees it.
