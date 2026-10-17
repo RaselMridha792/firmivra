@@ -9,7 +9,6 @@ import {
   Envelope,
   Globe,
   IdentificationCard,
-  Layout,
   PaperPlaneTilt,
   PuzzlePiece,
   ShieldCheck,
@@ -44,7 +43,6 @@ export const FIRM_MODULES: readonly FirmModule[] = [
   { slug: 'automations', label: 'Automations', icon: ArrowsClockwise },
   { slug: 'compliance', label: 'Compliance & Deadlines', icon: ShieldCheck },
   { slug: 'reports', label: 'Reports', icon: ChartLineUp },
-  { slug: 'templates', label: 'Templates', icon: Layout },
   { slug: 'integrations', label: 'Integrations', icon: PuzzlePiece },
 ];
 
