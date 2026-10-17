@@ -20,7 +20,7 @@ async function main() {
   const org = await seedDemo(prisma);
 
   console.warn(
-    `Seeded the demo firm: ${org.businessId}, owner + 6 staff across 3 departments, ${Object.keys(org.clients).length} clients (1 with a portal login).`,
+    `Seeded the demo firm: ${org.businessId}, owner + 6 staff across 3 departments, ${Object.keys(org.clients).length} clients (1 with a portal login), with engagements, tasks, invoices, appointments, documents and messages.`,
   );
 }
 
