@@ -196,7 +196,7 @@ Start here: `CLAUDE.md`, `docs/work/README.md`, this file, and the contract note
 - **#713:** B2, Support, 13 tables (`R0-stage-b2-support.md`).
 - **#714:** B3, Billing, 15 tables, Firmivra bills firms (`R0-stage-b3-billing.md`).
 - **#705** and **#706:** demo data Stage 3 (leads, Firm Sign, sign-ups, the bell) and Stage 4 (the 8 `demo-` firms for Super Admin). #706 is built on #705.
-- **Needs Rasel's OK:** #713 and #714 both carry the same one-line change to `apps/api/package.json`. Its typecheck now gets an 8 GB heap, because the growing Prisma client types ran it out of memory at 4 GB. It's a stopgap; trimming those types is a separate job.
+- **OK'd by Rasel, in #713 only:** a one-line change to `apps/api/package.json` gives its typecheck an 8 GB heap, because the growing Prisma client types ran it out of memory at 4 GB. #714 picks it up by merging `main` after #713 lands, and its typecheck fails until then. It's a stopgap; trimming those types is a separate job.
 
 **Done earlier (merged):**
 - #677: Part 1, the platform team hierarchy and plans.
