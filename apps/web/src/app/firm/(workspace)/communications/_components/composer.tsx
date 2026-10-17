@@ -20,8 +20,7 @@ import {
 import {
   ArrowLeft,
   CheckCircle,
-  DeviceMobile,
-  Desktop,
+  Info,
   FileText,
   Trash,
   UsersThree,
@@ -36,6 +35,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { uploadFile } from '../../../../../lib/upload';
+import { SaveTemplateDialog } from './communication-actions';
 import { RecipientsModal } from './recipients-modal';
 import { ReviewDialog } from './review-dialog';
 import {
@@ -45,10 +45,10 @@ import {
   card,
   channelOf,
   dateTimeText,
-  gold,
   outlined,
   plain,
   quiet,
+  StatusPill,
   subtle,
 } from './communications-shared';
 
@@ -114,7 +114,9 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
   const [d, setD] = useState(initial);
   const [form, setForm] = useState<Form>(() => formOf(initial));
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
-  const [dialog, setDialog] = useState<'recipients' | 'test' | 'template' | 'review' | 'strip'>();
+  const [dialog, setDialog] = useState<
+    'recipients' | 'test' | 'template' | 'review' | 'strip' | 'saveTemplate'
+  >();
   const [mode, setMode] = useState<'NOW' | 'LATER'>(() => (initial.scheduledFor ? 'LATER' : 'NOW'));
   const [when, setWhen] = useState(
     () => local(initial.scheduledFor) || local(new Date(Date.now() + 86_400_000).toISOString()),
@@ -206,6 +208,41 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
   };
 
   const checks = review.data?.checks ?? [];
+  const saveDraft = (
+    <button
+      type="button"
+      disabled={readOnly || saving || !dirty}
+      className={outlined}
+      onClick={() => void save()}
+    >
+      Save Draft
+    </button>
+  );
+  const sendTest = (
+    <button
+      type="button"
+      disabled={readOnly || channel === 'ANNOUNCEMENT'}
+      className={subtle}
+      onClick={() => void save(true).then((s) => s && setDialog('test'))}
+    >
+      Send Test
+    </button>
+  );
+  const reviewBtn = (
+    <button
+      type="button"
+      disabled={readOnly || saving || !d.canSend}
+      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-action px-5 text-sm font-semibold text-on-action hover:opacity-90 disabled:opacity-50"
+      onClick={() =>
+        void save(true).then((s) => {
+          if (s) setDialog('review');
+        })
+      }
+    >
+      Review &amp; {mode === 'LATER' && channel !== 'ANNOUNCEMENT' ? 'Schedule' : 'Send'}
+    </button>
+  );
+  const typeLabel = { EMAIL: 'Email', SMS: 'Text Message (SMS)', ANNOUNCEMENT: 'Announcement' };
   const chips = d.audience?.chips.filter((c) => !c.kind.startsWith('EXCLUDE')) ?? [];
 
   return (
@@ -224,7 +261,24 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
           {d.status === 'DRAFT' ? 'New Communication' : 'Edit Communication'}
         </span>
       </nav>
-      <h1 className="font-display text-3xl font-bold text-heading">Create New Communication</h1>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="font-display text-3xl font-bold text-heading">
+              Create New Communication
+            </h1>
+            <StatusPill status={d.status} />
+          </div>
+          <p className="text-base text-muted">
+            Build, preview, and send a message to the right audience.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Top actions">
+          {saveDraft}
+          {sendTest}
+          {reviewBtn}
+        </div>
+      </header>
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
@@ -241,25 +295,29 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
         </p>
       ) : null}
 
-      <div
-        role="tablist"
-        aria-label="Communication type"
-        className="relative flex overflow-x-auto border-b border-divider"
-      >
-        {CHANNELS.map((c) => (
-          <button
-            key={c.channel}
-            type="button"
-            role="tab"
-            aria-selected={channel === c.channel}
-            disabled={readOnly}
-            onClick={() => void switchTo(c.channel)}
-            className={`-mb-px inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-4 text-sm whitespace-nowrap ${channel === c.channel ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
-          >
-            <c.icon aria-hidden weight="fill" className="size-4" /> {c.label}
-          </button>
-        ))}
-      </div>
+      <section className={card} aria-label="Communication type">
+        <h2 className="mb-2 text-sm font-semibold text-heading">Communication Type</h2>
+        <div
+          role="tablist"
+          aria-label="Communication type"
+          className="grid grid-cols-3 overflow-hidden rounded-control border border-border"
+        >
+          {CHANNELS.map((c) => (
+            <button
+              key={c.channel}
+              type="button"
+              role="tab"
+              aria-selected={channel === c.channel}
+              disabled={readOnly || saving}
+              onClick={() => void switchTo(c.channel)}
+              className={`inline-flex min-h-11 items-center justify-center gap-2 px-2 text-sm ${channel === c.channel ? 'bg-action font-semibold text-on-action' : 'font-medium text-heading hover:bg-canvas'}`}
+            >
+              <c.icon aria-hidden weight="fill" className="size-4 shrink-0" />
+              <span className="truncate">{typeLabel[c.channel]}</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
       <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <section
@@ -381,29 +439,27 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
             />
           )}
 
-          <div className="flex flex-wrap items-center gap-2" aria-label="Personalize">
-            <span className="text-sm font-medium text-heading">Personalize:</span>
-            {FIELDS.map((f) => (
-              <button
-                key={f}
-                type="button"
-                disabled={readOnly}
-                onClick={() =>
-                  set({
-                    body:
-                      channel === 'SMS'
-                        ? `${form.body}[${f}]`
-                        : form.body.replace(/<\/p>\s*$/, `[${f}]</p>`) === form.body
-                          ? `${form.body}<p>[${f}]</p>`
-                          : form.body.replace(/<\/p>\s*$/, `[${f}]</p>`),
-                  })
-                }
-                className="rounded-pill border border-border px-3 py-1 text-xs font-medium text-text hover:bg-canvas disabled:opacity-50"
-              >
-                [{f}]
-              </button>
-            ))}
-          </div>
+          <Select
+            label="Personalize"
+            value=""
+            disabled={readOnly}
+            onChange={(e) => {
+              const f = e.target.value;
+              if (!f) return;
+              set({
+                body:
+                  channel === 'SMS'
+                    ? `${form.body}[${f}]`
+                    : /<\/p>\s*$/.test(form.body)
+                      ? form.body.replace(/<\/p>\s*$/, `[${f}]</p>`)
+                      : `${form.body}<p>[${f}]</p>`,
+              });
+            }}
+            options={[
+              { value: '', label: 'Insert Personalization Field' },
+              ...FIELDS.map((f) => ({ value: f, label: `[${f}]` })),
+            ]}
+          />
           {d.mergeFields.unknown.length > 0 ? (
             <p
               role="alert"
@@ -508,6 +564,12 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
               ) : null}
             </div>
           ) : null}
+          {channel === 'EMAIL' ? (
+            <p className="flex items-center gap-2 rounded-lg bg-info-soft p-3 text-sm text-info">
+              <Info aria-hidden weight="fill" className="size-5 shrink-0" />
+              An unsubscribe link and company mailing information will be added automatically.
+            </p>
+          ) : null}
         </section>
 
         <aside className="flex min-w-0 flex-col gap-4" aria-label="Delivery and preview">
@@ -521,6 +583,9 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
                 disabled={readOnly}
                 onChange={() => setMode('NOW')}
               />
+              <p className="-mt-2 mb-1 pl-7 text-xs text-muted">
+                Send this message immediately after you review.
+              </p>
               <Radio
                 name="when"
                 label="Schedule for Later"
@@ -528,18 +593,36 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
                 disabled={readOnly}
                 onChange={() => setMode('LATER')}
               />
+              <p className="-mt-2 mb-1 pl-7 text-xs text-muted">
+                Choose a date and time to send this message.
+              </p>
               {mode === 'LATER' ? (
-                <div className="mt-2 flex flex-col gap-2">
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <Input
-                    label="Send at"
-                    type="datetime-local"
-                    value={when}
+                    label="Date"
+                    type="date"
+                    value={when.slice(0, 10)}
                     disabled={readOnly}
-                    onChange={(e) => setWhen(e.target.value)}
+                    onChange={(e) => setWhen(`${e.target.value}T${when.slice(11, 16) || '09:00'}`)}
                   />
-                  <p className="text-xs text-muted">Time zone: {d.timezone.replace('_', ' ')}</p>
+                  <Input
+                    label="Time"
+                    type="time"
+                    value={when.slice(11, 16)}
+                    disabled={readOnly}
+                    onChange={(e) => setWhen(`${when.slice(0, 10)}T${e.target.value}`)}
+                  />
                 </div>
               ) : null}
+              <div className="mt-2">
+                <Select
+                  label="Time Zone"
+                  value={d.timezone}
+                  disabled
+                  onChange={() => undefined}
+                  options={[{ value: d.timezone, label: d.timezone.replace('_', ' ') }]}
+                />
+              </div>
             </section>
           ) : null}
           <section className={card} aria-label="Template" data-testid="template-card">
@@ -555,28 +638,35 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
                 className={`${subtle} min-h-9`}
                 onClick={() => setDialog('template')}
               >
-                Use a Template
+                {d.template ? 'Change Template' : 'Use a Template'}
               </button>
             </div>
+            <button
+              type="button"
+              disabled={readOnly}
+              className={`${subtle} mt-2 min-h-9`}
+              onClick={() => setDialog('saveTemplate')}
+            >
+              Save as Template
+            </button>
           </section>
           <section className={card} aria-label="Message preview" data-testid="message-preview">
             <div className="mb-2 flex items-center justify-between gap-2">
               <h2 className="font-display text-lg font-bold text-heading">Message Preview</h2>
-              <div className="flex gap-1" role="group" aria-label="Preview size">
+              <div
+                className="flex overflow-hidden rounded-control border border-border"
+                role="group"
+                aria-label="Preview size"
+              >
                 {(['desktop', 'mobile'] as const).map((k) => (
                   <button
                     key={k}
                     type="button"
                     aria-pressed={device === k}
-                    aria-label={k === 'desktop' ? 'Desktop' : 'Mobile'}
                     onClick={() => setDevice(k)}
-                    className={`flex size-9 items-center justify-center rounded-control ${device === k ? 'bg-accent-soft text-action' : 'text-muted hover:bg-canvas'}`}
+                    className={`min-h-9 px-3 text-xs font-medium ${device === k ? 'bg-action text-on-action' : 'text-heading hover:bg-canvas'}`}
                   >
-                    {k === 'desktop' ? (
-                      <Desktop aria-hidden weight="fill" className="size-5" />
-                    ) : (
-                      <DeviceMobile aria-hidden weight="fill" className="size-5" />
-                    )}
+                    {k === 'desktop' ? 'Desktop' : 'Mobile'}
                   </button>
                 ))}
               </div>
@@ -610,7 +700,7 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
                 {review.isError ? 'The checklist is not available right now.' : 'Checking…'}
               </p>
             ) : (
-              <ul className="flex flex-col gap-1">
+              <ul className="grid gap-1 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                 {checks.map((c, i) => {
                   const Glyph =
                     c.severity === 'OK' ? CheckCircle : c.severity === 'WARN' ? Warning : XCircle;
@@ -638,34 +728,9 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
           {saving ? 'Saving…' : dirty ? 'Unsaved changes' : `Saved ${dateTimeText(d.savedAt)}`}
         </p>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={readOnly || saving || !dirty}
-            className={subtle}
-            onClick={() => void save()}
-          >
-            Save Draft
-          </button>
-          <button
-            type="button"
-            disabled={readOnly || channel === 'ANNOUNCEMENT'}
-            className={subtle}
-            onClick={() => void save(true).then((s) => s && setDialog('test'))}
-          >
-            Send Test
-          </button>
-          <button
-            type="button"
-            disabled={readOnly || saving || !d.canSend}
-            className={gold}
-            onClick={() =>
-              void save(true).then((s) => {
-                if (s) setDialog('review');
-              })
-            }
-          >
-            Review &amp; {mode === 'LATER' && channel !== 'ANNOUNCEMENT' ? 'Schedule' : 'Send'}
-          </button>
+          {saveDraft}
+          {sendTest}
+          {reviewBtn}
         </div>
       </footer>
 
@@ -690,6 +755,14 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
             void qc.invalidateQueries({ queryKey: [...COMM_KEY] });
             router.push(`/communications/${cid}`);
           }}
+        />
+      ) : null}
+      {dialog === 'saveTemplate' ? (
+        <SaveTemplateDialog
+          id={d.id}
+          name={d.name}
+          onClose={() => setDialog(undefined)}
+          onNotice={notice}
         />
       ) : null}
       {dialog === 'test' ? (

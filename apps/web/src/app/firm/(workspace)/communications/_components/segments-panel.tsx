@@ -47,7 +47,7 @@ const OP_LABEL: Record<string, string> = {
 };
 
 /** Create or change a segment (a rule-based group) or a list (chosen people), with a live count. */
-function SegmentDialog({
+export function SegmentDialog({
   segment,
   canManage,
   onClose,

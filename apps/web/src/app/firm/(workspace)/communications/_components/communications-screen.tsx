@@ -9,13 +9,15 @@ import {
   Select,
   Table,
   Toast,
+  tileTones,
+  type TileTone,
   type Column,
 } from '@firmivra/ui';
 import {
+  ArrowRight,
   CaretRight,
+  DeviceMobile,
   ChatCircleDots,
-  CheckCircle,
-  Clock,
   EnvelopeSimple,
   FileText,
   Megaphone,
@@ -42,10 +44,8 @@ import {
   channelOf,
   dateTimeText,
   dayText,
-  gold,
   hrefOf,
   linkBtn,
-  percent,
   quiet,
 } from './communications-shared';
 import { SegmentsPanel } from './segments-panel';
@@ -70,6 +70,15 @@ const TABS: { id: TabId; label: string; href?: string }[] = [
   { id: 'sent', label: 'Sent History' },
 ];
 
+interface RailItem {
+  label: string;
+  icon: typeof EnvelopeSimple;
+  tone: TileTone;
+  needsCreate?: boolean;
+  onClick?: () => void;
+  href?: string;
+}
+
 type Create = (channel: CommunicationRow['channel'], templateId?: string) => Promise<void>;
 
 /** /communications: the overview and the lists behind its tabs. */
@@ -92,90 +101,176 @@ export function CommunicationsScreen() {
     }
   };
 
+  const emails = useApiQuery([...COMM_KEY, 'count', 'EMAIL'], () =>
+    api.communications.list({ tab: 'sent', channel: 'EMAIL', page: 1, pageSize: 1 }),
+  );
+  const texts = useApiQuery([...COMM_KEY, 'count', 'SMS'], () =>
+    api.communications.list({ tab: 'sent', channel: 'SMS', page: 1, pageSize: 1 }),
+  );
+
   const columns: Column<CommunicationRow>[] = [
     {
-      id: 'name',
-      label: 'Communication',
+      id: 'type',
+      label: 'Type',
       cell: (r) => (
         <span className="flex items-center gap-2">
           <ChannelTile channel={r.channel} size="sm" />
-          <span className="min-w-0">
-            <Link
-              href={hrefOf(r)}
-              data-testid="comm-link"
-              className="block font-medium text-link hover:underline"
-            >
-              {r.name}
-            </Link>
-            <span className="block truncate text-xs text-muted">
-              {r.subject ?? channelOf(r.channel).label}
-            </span>
+          <span className="sr-only">{channelOf(r.channel).noun}</span>
+        </span>
+      ),
+    },
+    {
+      id: 'name',
+      label: 'Subject / Message',
+      cell: (r) => (
+        <span className="min-w-0">
+          <Link
+            href={hrefOf(r)}
+            data-testid="comm-link"
+            className="block font-medium text-link hover:underline"
+          >
+            {r.name}
+          </Link>
+          <span className="block max-w-56 truncate text-xs text-muted">
+            {r.subject ?? channelOf(r.channel).label}
           </span>
         </span>
       ),
     },
-    { id: 'type', label: 'Type', cell: (r) => channelOf(r.channel).noun },
     {
       id: 'aud',
       label: 'Audience',
-      cell: (r) => (r.finalCount === null ? '—' : `${r.finalCount} recipients`),
+      cell: (r) =>
+        r.audienceSummary ? (
+          <span className="inline-block max-w-40 truncate rounded-md bg-info-soft px-2 py-1 text-xs font-medium text-info">
+            {r.audienceSummary}
+          </span>
+        ) : (
+          '—'
+        ),
     },
     { id: 'status', label: 'Status', cell: (r) => <StatusPill status={r.status} /> },
     {
       id: 'when',
-      label: 'Date',
-      cell: (r) =>
-        r.scheduledFor
-          ? dateTimeText(r.scheduledFor)
-          : r.sentAt
-            ? dayText(r.sentAt)
-            : dayText(r.updatedAt),
+      label: 'Sent / Scheduled',
+      cell: (r) => dateTimeText(r.scheduledFor ?? r.sentAt ?? r.updatedAt),
     },
-    { id: 'open', label: 'Open Rate', cell: (r) => percent(r.openRatePercent) },
   ];
 
-  const quick = (channel: CommunicationRow['channel'] | 'template' | 'draft') => {
-    const meta =
-      channel === 'template' ? undefined : channel === 'draft' ? undefined : channelOf(channel);
-    const title = meta
-      ? `New ${meta.label}`
-      : channel === 'template'
-        ? 'Use a Template'
-        : 'Resume Draft';
-    const text = meta
-      ? {
-          EMAIL: 'Send an email to clients or leads.',
-          SMS: 'Send a quick text message.',
-          ANNOUNCEMENT: 'Post to the client portal.',
-        }[meta.channel]
-      : channel === 'template'
-        ? 'Start from a saved message.'
-        : 'Pick up where you left off.';
-    const Glyph = meta?.icon ?? (channel === 'template' ? FileText : NotePencil);
-    return (
-      <button
-        key={title}
-        type="button"
-        disabled={!canCreate}
-        data-testid={`quick-${channel.toLowerCase()}`}
-        onClick={() =>
-          meta ? void create(meta.channel) : setPicker(channel as 'template' | 'draft')
-        }
-        className="flex h-full w-full flex-col items-start gap-3 rounded-xl bg-surface p-4 text-left shadow-md hover:ring-2 hover:ring-action disabled:opacity-60"
-      >
-        <span
-          aria-hidden
-          className="flex size-12 items-center justify-center rounded-xl bg-info-soft text-info"
-        >
-          <Glyph weight="fill" className="size-6" />
-        </span>
-        <span>
-          <span className="block text-base font-semibold text-heading">{title}</span>
-          <span className="block text-sm text-muted">{text}</span>
-        </span>
-      </button>
-    );
-  };
+  const toTab = (t: TabId) => () => setTab(t);
+  const cards = [
+    {
+      id: 'email',
+      title: 'Send Bulk Email',
+      text: 'Send to a group or your entire list',
+      icon: EnvelopeSimple,
+      tone: 'blue' as const,
+      needsCreate: true,
+      onClick: () => void create('EMAIL'),
+    },
+    {
+      id: 'sms',
+      title: 'Send Bulk Text (SMS)',
+      text: 'Text clients, leads or custom lists',
+      icon: ChatCircleDots,
+      tone: 'blue' as const,
+      needsCreate: true,
+      onClick: () => void create('SMS'),
+    },
+    {
+      id: 'announcement',
+      title: 'Create Announcement',
+      text: 'Post to client portal and/or send via email/text',
+      icon: Megaphone,
+      tone: 'blue' as const,
+      needsCreate: true,
+      onClick: () => void create('ANNOUNCEMENT'),
+    },
+    {
+      id: 'segments',
+      title: 'Manage Segments',
+      text: 'Create and manage your contact lists',
+      icon: UsersThree,
+      tone: 'blue' as const,
+      needsCreate: false,
+      onClick: toTab('segments'),
+    },
+    {
+      id: 'templates',
+      title: 'Message Templates',
+      text: 'Use or create templates for email, text, and portal',
+      icon: FileText,
+      tone: 'blue' as const,
+      needsCreate: false,
+      onClick: () => router.push('/templates'),
+    },
+  ];
+  const starts = [
+    {
+      title: 'Send an Email',
+      text: 'Create and send a new email campaign.',
+      icon: EnvelopeSimple,
+      tone: 'blue' as const,
+      needsCreate: true,
+      onClick: () => void create('EMAIL'),
+    },
+    {
+      title: 'Send a Text Message',
+      text: 'Create and send a new SMS campaign.',
+      icon: ChatCircleDots,
+      tone: 'blue' as const,
+      needsCreate: true,
+      onClick: () => void create('SMS'),
+    },
+    {
+      title: 'Create an Announcement',
+      text: 'Post to client portal and/or send via email or text.',
+      icon: Megaphone,
+      tone: 'blue' as const,
+      needsCreate: true,
+      onClick: () => void create('ANNOUNCEMENT'),
+    },
+    {
+      title: 'Choose Recipients',
+      text: 'Select from segments, lists, or custom filters.',
+      icon: UsersThree,
+      tone: 'blue' as const,
+      needsCreate: false,
+      onClick: toTab('segments'),
+    },
+  ];
+  const rail: RailItem[] = [
+    {
+      label: 'Send Bulk Email',
+      icon: EnvelopeSimple,
+      tone: 'blue' as const,
+      needsCreate: true,
+      onClick: () => void create('EMAIL'),
+    },
+    {
+      label: 'Send Bulk Text (SMS)',
+      icon: ChatCircleDots,
+      tone: 'blue' as const,
+      needsCreate: true,
+      onClick: () => void create('SMS'),
+    },
+    {
+      label: 'Create Announcement',
+      icon: Megaphone,
+      tone: 'blue' as const,
+      needsCreate: true,
+      onClick: () => void create('ANNOUNCEMENT'),
+    },
+    { label: 'View Messages', icon: ChatCircleDots, tone: 'blue' as const, href: '/messages' },
+    {
+      label: 'Manage Segments',
+      icon: UsersThree,
+      tone: 'blue' as const,
+      needsCreate: false,
+      onClick: toTab('segments'),
+    },
+    { label: 'Message Templates', icon: FileText, tone: 'blue' as const, href: '/templates' },
+  ];
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="communications-page">
@@ -183,23 +278,25 @@ export function CommunicationsScreen() {
         <div className="flex min-w-0 items-center gap-4">
           <span
             aria-hidden
-            className="flex size-20 shrink-0 items-center justify-center rounded-xl bg-action text-on-action"
+            className="flex size-14 shrink-0 sm:size-20 items-center justify-center rounded-xl bg-action text-on-action"
           >
             <PaperPlaneTilt weight="fill" className="size-10" />
           </span>
           <div className="min-w-0">
-            <h1 className="font-display text-4xl font-bold text-heading">Communications</h1>
+            <h1 className="font-display text-3xl sm:text-4xl font-bold text-heading">
+              Communications
+            </h1>
             <p className="text-base text-muted">
-              Reach clients and leads by email, text and portal announcements.
+              Message. Email. Text. Announce. Keep your clients informed — all in one place.
             </p>
           </div>
         </div>
         {canCreate ? (
           <ActionMenu
-            label="Create New"
+            label="New Communication"
             trigger={
-              <span className={gold}>
-                <Plus aria-hidden weight="bold" className="size-5" /> Create New
+              <span className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-action px-5 text-sm font-semibold text-on-action">
+                <Plus aria-hidden weight="bold" className="size-5" /> New Communication
               </span>
             }
             sections={[
@@ -275,65 +372,88 @@ export function CommunicationsScreen() {
       ) : null}
 
       {tab === 'overview' ? (
-        <>
-          <ul
-            className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5"
-            aria-label="Start a new communication"
-            data-testid="quick-cards"
-          >
-            {(['EMAIL', 'SMS', 'ANNOUNCEMENT', 'template', 'draft'] as const).map((c) => (
-              <li key={c}>{quick(c)}</li>
-            ))}
-          </ul>
-          <ul
-            className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
-            data-testid="comm-kpis"
-          >
-            <li>
-              <KpiCard
-                icon={PaperPlaneTilt}
-                tone="blue"
-                value={o?.kpis.sent ?? '—'}
-                label="Communications Sent"
-                loading={overview.isPending}
-              />
-            </li>
-            <li>
-              <KpiCard
-                icon={UsersThree}
-                tone="purple"
-                value={o?.kpis.recipientsReached ?? '—'}
-                label="Recipients Reached"
-                loading={overview.isPending}
-              />
-            </li>
-            <li>
-              <KpiCard
-                icon={CheckCircle}
-                tone="green"
-                value={o ? percent(o.kpis.deliveryRatePercent) : '—'}
-                label="Delivery Rate"
-                loading={overview.isPending}
-              />
-            </li>
-            <li>
-              <KpiCard
-                icon={EnvelopeSimple}
-                tone="amber"
-                value={o ? percent(o.kpis.openRatePercent) : '—'}
-                label="Open Rate"
-                loading={overview.isPending}
-              />
-            </li>
-          </ul>
-          <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="flex min-w-0 flex-col gap-5">
+            <ul
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+              aria-label="Quick start"
+              data-testid="quick-cards"
+            >
+              {cards.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    data-testid={`quick-${c.id}`}
+                    disabled={c.needsCreate && !canCreate}
+                    onClick={c.onClick}
+                    className="relative flex h-full w-full flex-col items-start gap-2 rounded-xl bg-surface p-3 pb-14 text-left shadow-md hover:ring-2 hover:ring-action disabled:opacity-60"
+                  >
+                    <span
+                      aria-hidden
+                      className={`flex size-12 items-center justify-center rounded-xl ${tileTones[c.tone]}`}
+                    >
+                      <c.icon weight="fill" className="size-6" />
+                    </span>
+                    <span className="block text-base font-semibold text-heading">{c.title}</span>
+                    <span className="block text-sm text-muted">{c.text}</span>
+                    <span
+                      aria-hidden
+                      className="absolute right-3 bottom-3 flex size-8 items-center justify-center rounded-full bg-action text-on-action"
+                    >
+                      <ArrowRight weight="bold" className="size-4" />
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <ul
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
+              data-testid="comm-kpis"
+            >
+              <li>
+                <KpiCard
+                  icon={EnvelopeSimple}
+                  tone="blue"
+                  value={o?.kpis.sent ?? '—'}
+                  label="Total Sent"
+                  loading={overview.isPending}
+                />
+              </li>
+              <li>
+                <KpiCard
+                  icon={ChatCircleDots}
+                  tone="purple"
+                  value={emails.data?.total ?? '—'}
+                  label="Emails Sent"
+                  loading={emails.isPending && !emails.isError}
+                />
+              </li>
+              <li>
+                <KpiCard
+                  icon={DeviceMobile}
+                  tone="green"
+                  value={texts.data?.total ?? '—'}
+                  label="Texts Sent"
+                  loading={texts.isPending && !texts.isError}
+                />
+              </li>
+              <li>
+                <KpiCard
+                  icon={UsersThree}
+                  tone="amber"
+                  value={o?.kpis.recipientsReached ?? '—'}
+                  label="Total Recipients"
+                  loading={overview.isPending}
+                />
+              </li>
+            </ul>
             <section className={card} aria-label="Recent communications" data-testid="recent">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h2 className="font-display text-xl font-bold text-heading">
                   Recent Communications
                 </h2>
                 <button type="button" className={linkBtn} onClick={() => setTab('sent')}>
-                  View all <CaretRight aria-hidden weight="bold" className="size-3" />
+                  View All
                 </button>
               </div>
               <div className="relative">
@@ -354,97 +474,81 @@ export function CommunicationsScreen() {
                 />
               </div>
             </section>
-            <aside className="flex min-w-0 flex-col gap-4" aria-label="Communication tools">
-              <section className={card} aria-label="Upcoming communications" data-testid="upcoming">
-                <h2 className="mb-2 font-display text-lg font-bold text-heading">
-                  Upcoming Communications
-                </h2>
-                {o && o.scheduled.length > 0 ? (
-                  <ul>
-                    {o.scheduled.map((r) => (
-                      <li
-                        key={r.id}
-                        className="flex items-center gap-3 border-t border-divider py-2 first:border-t-0"
+            <section
+              className={card}
+              aria-label="Start a new communication"
+              data-testid="start-new"
+            >
+              <h2 className="mb-3 font-display text-xl font-bold text-heading">
+                Start a New Communication
+              </h2>
+              <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+                {starts.map((c) => (
+                  <li key={c.title}>
+                    <button
+                      type="button"
+                      disabled={c.needsCreate && !canCreate}
+                      onClick={c.onClick}
+                      className="flex h-full w-full items-center gap-3 rounded-lg border border-divider p-3 text-left hover:bg-canvas disabled:opacity-60"
+                    >
+                      <span
+                        aria-hidden
+                        className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${tileTones[c.tone]}`}
                       >
-                        <ChannelTile channel={r.channel} size="sm" />
-                        <Link href={hrefOf(r)} className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-link">
-                            {r.name}
-                          </span>
-                          <span className="block text-xs text-muted">
-                            {r.scheduledFor ? dateTimeText(r.scheduledFor) : ''}
-                          </span>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className={quiet}>Nothing is scheduled.</p>
-                )}
-              </section>
-              <section className={card} aria-label="Saved templates" data-testid="saved-templates">
-                <h2 className="mb-2 font-display text-lg font-bold text-heading">
-                  Saved Templates
-                </h2>
-                {o && o.templates.length > 0 ? (
-                  <ul>
-                    {o.templates.map((t) => (
-                      <li
-                        key={t.id}
-                        className="flex items-center justify-between gap-2 border-t border-divider py-2 first:border-t-0"
+                        <c.icon weight="fill" className="size-6" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-heading">{c.title}</span>
+                        <span className="block text-xs text-muted">{c.text}</span>
+                      </span>
+                      <CaretRight
+                        aria-hidden
+                        weight="bold"
+                        className="size-4 shrink-0 text-muted"
+                      />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
+          <aside className="flex min-w-0 flex-col gap-4" aria-label="Communication tools">
+            <section className={card} aria-label="Quick actions" data-testid="quick-actions">
+              <h2 className="mb-2 font-display text-lg font-bold text-heading">Quick Actions</h2>
+              <ul className="flex flex-col gap-1.5">
+                {rail.map((a) => (
+                  <li key={a.label}>
+                    {a.href ? (
+                      <Link
+                        href={a.href}
+                        className="flex w-full items-center gap-3 rounded-lg bg-canvas p-2 text-sm font-medium text-heading hover:ring-1 hover:ring-action"
                       >
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-heading">
-                            {t.name}
-                          </span>
-                          <span className="block text-xs text-muted">{t.category ?? t.kind}</span>
-                        </span>
-                        <button
-                          type="button"
-                          disabled={!canCreate}
-                          className={linkBtn}
-                          onClick={() =>
-                            void create(
-                              t.kind === 'SMS'
-                                ? 'SMS'
-                                : t.kind === 'ANNOUNCEMENT'
-                                  ? 'ANNOUNCEMENT'
-                                  : 'EMAIL',
-                              t.id,
-                            )
-                          }
+                        <span
+                          aria-hidden
+                          className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${tileTones[a.tone]}`}
                         >
-                          Use
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className={quiet}>No saved templates yet.</p>
-                )}
-                <Link href="/templates" className={`${linkBtn} mt-2`}>
-                  Manage templates <CaretRight aria-hidden weight="bold" className="size-3" />
-                </Link>
-              </section>
-              <section className={card} aria-label="Quick actions" data-testid="quick-actions">
-                <h2 className="mb-2 font-display text-lg font-bold text-heading">Quick Actions</h2>
-                <ul>
-                  {[
-                    { label: 'View Scheduled', icon: Clock, onClick: () => setTab('scheduled') },
-                    {
-                      label: 'Manage Segments & Lists',
-                      icon: UsersThree,
-                      onClick: () => setTab('segments'),
-                    },
-                    { label: 'Sent History', icon: CheckCircle, onClick: () => setTab('sent') },
-                  ].map((a) => (
-                    <li key={a.label}>
+                          <a.icon weight="fill" className="size-5" />
+                        </span>
+                        {a.label}
+                        <CaretRight
+                          aria-hidden
+                          weight="bold"
+                          className="ml-auto size-3 text-muted"
+                        />
+                      </Link>
+                    ) : (
                       <button
                         type="button"
+                        disabled={a.needsCreate && !canCreate}
                         onClick={a.onClick}
-                        className="flex w-full items-center gap-3 border-t border-divider py-2 text-left text-sm font-medium text-heading first:border-t-0 hover:text-action"
+                        className="flex w-full items-center gap-3 rounded-lg bg-canvas p-2 text-left text-sm font-medium text-heading hover:ring-1 hover:ring-action disabled:opacity-60"
                       >
-                        <a.icon aria-hidden weight="fill" className="size-5 text-action" />{' '}
+                        <span
+                          aria-hidden
+                          className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${tileTones[a.tone]}`}
+                        >
+                          <a.icon weight="fill" className="size-5" />
+                        </span>
                         {a.label}
                         <CaretRight
                           aria-hidden
@@ -452,24 +556,132 @@ export function CommunicationsScreen() {
                           className="ml-auto size-3 text-muted"
                         />
                       </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section className={card} aria-label="Upcoming communications" data-testid="upcoming">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h2 className="font-display text-lg font-bold text-heading">
+                  Upcoming Communications
+                </h2>
+                <button type="button" className={linkBtn} onClick={() => setTab('scheduled')}>
+                  View All
+                </button>
+              </div>
+              {o && o.scheduled.length > 0 ? (
+                <ul>
+                  {o.scheduled.map((r) => (
+                    <li
+                      key={r.id}
+                      className="flex items-center gap-3 border-t border-divider py-2 first:border-t-0"
+                    >
+                      <span
+                        aria-hidden
+                        className="flex size-11 shrink-0 flex-col items-center justify-center rounded-lg bg-canvas text-heading"
+                      >
+                        <span className="text-[10px] font-semibold uppercase">
+                          {r.scheduledFor
+                            ? new Date(r.scheduledFor).toLocaleDateString('en-US', {
+                                month: 'short',
+                              })
+                            : ''}
+                        </span>
+                        <span className="text-lg leading-none font-bold">
+                          {r.scheduledFor ? new Date(r.scheduledFor).getDate() : ''}
+                        </span>
+                      </span>
+                      <Link href={hrefOf(r)} className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-link">
+                          {r.name}
+                        </span>
+                        <span className="block truncate text-xs text-muted">
+                          {channelOf(r.channel).noun}
+                          {r.finalCount !== null ? ` • ${r.finalCount} recipients` : ''}
+                        </span>
+                      </Link>
+                      <StatusPill status={r.status} />
                     </li>
                   ))}
                 </ul>
-              </section>
-              {o && o.segments.total > 0 ? (
-                <section className={card} aria-label="Grow your reach" data-testid="reach">
-                  <h2 className="mb-1 font-display text-lg font-bold text-heading">
-                    Grow Your Reach
-                  </h2>
-                  <p className="text-sm text-text">
-                    You have {o.segments.total} segments covering {o.segments.totalMembers}{' '}
-                    contacts. Group clients to send the right message to the right people.
-                  </p>
-                </section>
-              ) : null}
-            </aside>
-          </div>
-        </>
+              ) : (
+                <p className={quiet}>Nothing is scheduled.</p>
+              )}
+            </section>
+            <section className={card} aria-label="Saved templates" data-testid="saved-templates">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h2 className="font-display text-lg font-bold text-heading">Saved Templates</h2>
+                <Link href="/templates" className={linkBtn}>
+                  View All
+                </Link>
+              </div>
+              {o && o.templates.length > 0 ? (
+                <ul>
+                  {o.templates.map((t) => {
+                    const channel =
+                      t.kind === 'SMS'
+                        ? 'SMS'
+                        : t.kind === 'ANNOUNCEMENT'
+                          ? 'ANNOUNCEMENT'
+                          : 'EMAIL';
+                    return (
+                      <li
+                        key={t.id}
+                        className="flex items-center gap-3 border-t border-divider py-2 first:border-t-0"
+                      >
+                        <ChannelTile channel={channel} size="sm" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-heading">
+                            {t.name}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={!canCreate}
+                            className="text-xs font-medium text-link disabled:opacity-50"
+                            onClick={() => void create(channel, t.id)}
+                          >
+                            Use template
+                          </button>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className={quiet}>No saved templates yet.</p>
+              )}
+            </section>
+            <section
+              className="flex items-center gap-3 rounded-xl bg-info-soft p-4"
+              aria-label="Grow your reach"
+              data-testid="reach"
+            >
+              <span
+                aria-hidden
+                className="flex size-14 shrink-0 items-center justify-center rounded-full bg-action text-on-action"
+              >
+                <UsersThree weight="fill" className="size-7" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h2 className="font-display text-lg font-bold text-heading">Grow Your Reach</h2>
+                <p className="text-sm text-text">
+                  {o && o.segments.total > 0
+                    ? `You have ${o.segments.total} segments covering ${o.segments.totalMembers} contacts. Use segments to send targeted messages.`
+                    : 'Use segments to send targeted messages and increase engagement.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Manage segments"
+                onClick={() => setTab('segments')}
+                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-surface text-action shadow-md"
+              >
+                <ArrowRight aria-hidden weight="bold" className="size-4" />
+              </button>
+            </section>
+          </aside>
+        </div>
       ) : tab === 'segments' ? (
         <SegmentsPanel canManage={o?.canManageSegments ?? false} onNotice={notice} />
       ) : (

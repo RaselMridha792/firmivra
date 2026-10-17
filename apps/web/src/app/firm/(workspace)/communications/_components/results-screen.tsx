@@ -1,25 +1,42 @@
 'use client';
 
-import type { CommunicationDetail, CommunicationRecipient } from '@firmivra/types';
-import { Button, KpiCard, Modal, Select, Table, Toast, type Column } from '@firmivra/ui';
+import type {
+  CommunicationDetail,
+  CommunicationRecipient,
+  CommunicationResults,
+} from '@firmivra/types';
 import {
-  ArrowLeft,
+  ActionMenu,
+  Badge,
+  Button,
+  KpiCard,
+  Modal,
+  Select,
+  Table,
+  Toast,
+  type Column,
+} from '@firmivra/ui';
+import {
+  ArrowRight,
   Archive,
-  ChartBar,
+  CaretRight,
   CheckCircle,
   Copy,
   CursorClick,
+  DotsThreeVertical,
   DownloadSimple,
   EnvelopeOpen,
   FileText,
+  Info as InfoIcon,
+  MagnifyingGlass,
   PaperPlaneTilt,
   Repeat,
+  UsersThree,
   WarningCircle,
 } from '@phosphor-icons/react';
-import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -27,17 +44,17 @@ import { RescheduleDialog, SaveTemplateDialog, useAct } from './communication-ac
 import {
   COMM_ERRORS,
   COMM_KEY,
-  ChannelTile,
   StatusPill,
   card,
   channelOf,
   dateTimeText,
   dayText,
-  gold,
+  linkBtn,
   percent,
   plain,
   quiet,
   subtle,
+  timeText,
 } from './communications-shared';
 
 const TABS = ['Overview', 'Recipients', 'Activity', 'Message', 'Settings'] as const;
@@ -54,11 +71,21 @@ const RECIPIENT_LABEL: Record<string, string> = {
   UNSUBSCRIBED: 'Unsubscribed',
   NOT_SENT: 'Not sent',
 };
+const RECIPIENT_TONE: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'neutral'> = {
+  DELIVERED: 'success',
+  OPENED: 'info',
+  CLICKED: 'info',
+  BOUNCED: 'danger',
+  FAILED: 'danger',
+  UNSUBSCRIBED: 'neutral',
+  NOT_SENT: 'neutral',
+  QUEUED: 'warning',
+  SENT: 'info',
+};
 
 /** /communications/[id]: Communication Details & Results. */
 export function ResultsScreen({ id }: { id: string }) {
   const router = useRouter();
-  const qc = useQueryClient();
   const [tab, setTab] = useState<TabId>('Overview');
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [dialog, setDialog] = useState<'template' | 'follow' | 'reschedule'>();
@@ -86,52 +113,49 @@ export function ResultsScreen({ id }: { id: string }) {
     const c = await act(work, done);
     if (c) router.push(`/communications/${c.id}/edit`);
   };
+  const exportResults = async () => {
+    try {
+      const x = await api.communications.exportResults(id);
+      notice(`Export ready: ${x.fileName} (${x.rowCount} rows).`, 'success');
+    } catch (e) {
+      notice(errorMessage(e, COMM_ERRORS), 'error');
+    }
+  };
+  const when = d.sentAt ?? d.scheduledFor;
+  const duplicate = () =>
+    void draftFrom(() => api.communications.duplicate(id), 'Copied to a new draft.');
+  const archive = () => void act(() => api.communications.archive(id), 'Archived.');
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="results-page">
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
-        <Link href="/communications" aria-label="Back to Communications" className="text-link">
-          <ArrowLeft aria-hidden weight="bold" className="size-4" />
-        </Link>
         <Link href="/communications" className="text-link">
-          Communications
+          ← Sent History
         </Link>
-        <span aria-hidden className="text-muted">
-          ›
-        </span>
-        <span className="font-semibold text-heading">{d.name}</span>
       </nav>
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <ChannelTile channel={d.channel} size="lg" />
-          <div className="min-w-0">
-            <h1 className="font-display text-3xl font-bold text-heading">{d.name}</h1>
-            <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
-              <StatusPill status={d.status} /> {channelOf(d.channel).label}
-              {d.sentAt
-                ? ` · Sent ${dateTimeText(d.sentAt)}`
-                : d.scheduledFor
-                  ? ` · Scheduled ${dateTimeText(d.scheduledFor)}`
-                  : ''}
-            </p>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="font-display text-3xl font-bold wrap-break-word text-heading">
+              {d.subject ?? d.name}
+            </h1>
+            <Badge tone="neutral">{channelOf(d.channel).label} Campaign</Badge>
+            <StatusPill status={d.status} />
           </div>
+          <p className="mt-1 text-sm text-muted">
+            {when
+              ? `${d.sentAt ? 'Sent' : 'Scheduled for'} ${dayText(when)} at ${timeText(when)}`
+              : 'Not sent yet'}{' '}
+            · Created by {d.createdBy.name}
+          </p>
         </div>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Actions">
-          <button
-            type="button"
-            className={subtle}
-            onClick={() =>
-              void draftFrom(() => api.communications.duplicate(id), 'Copied to a new draft.')
-            }
-          >
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Actions">
+          <button type="button" className={subtle} onClick={duplicate}>
             <Copy aria-hidden weight="bold" className="size-4" /> Duplicate
           </button>
-          <button type="button" className={subtle} onClick={() => setDialog('template')}>
-            <FileText aria-hidden weight="bold" className="size-4" /> Save as Template
-          </button>
-          {d.status === 'SENT' ? (
-            <button type="button" className={subtle} onClick={() => setDialog('follow')}>
-              <Repeat aria-hidden weight="bold" className="size-4" /> Send Follow-Up
+          {r.canExport ? (
+            <button type="button" className={subtle} onClick={() => void exportResults()}>
+              <DownloadSimple aria-hidden weight="bold" className="size-4" /> Export Results
             </button>
           ) : null}
           {d.status === 'SCHEDULED' ? (
@@ -139,48 +163,24 @@ export function ResultsScreen({ id }: { id: string }) {
               Reschedule
             </button>
           ) : null}
-          {r.canExport ? (
-            <button
-              type="button"
-              className={subtle}
-              onClick={async () => {
-                try {
-                  const x = await api.communications.exportResults(id);
-                  notice(`Export ready: ${x.fileName} (${x.rowCount} rows).`, 'success');
-                } catch (e) {
-                  notice(errorMessage(e, COMM_ERRORS), 'error');
-                }
-              }}
-            >
-              <DownloadSimple aria-hidden weight="bold" className="size-4" /> Export
-            </button>
-          ) : null}
-          {!d.archived ? (
-            <button
-              type="button"
-              className={subtle}
-              onClick={async () => {
-                await act(() => api.communications.archive(id), 'Archived.');
-                await qc.invalidateQueries({ queryKey: [...COMM_KEY] });
-              }}
-            >
-              <Archive aria-hidden weight="bold" className="size-4" /> Archive
-            </button>
-          ) : null}
-          {r.canResendFailed ? (
-            <button
-              type="button"
-              className={gold}
-              onClick={() =>
-                void draftFrom(
-                  () => api.communications.resendFailed(id),
-                  'Draft made for the failed recipients.',
-                )
-              }
-            >
-              Resend to {m.failed.count} Failed
-            </button>
-          ) : null}
+          <ActionMenu
+            label="More actions"
+            trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-5" />}
+            align="right"
+            sections={[
+              {
+                items: d.archived
+                  ? [
+                      {
+                        label: 'Restore',
+                        icon: Archive,
+                        onSelect: () => void act(() => api.communications.restore(id), 'Restored.'),
+                      },
+                    ]
+                  : [{ label: 'Archive', icon: Archive, danger: true, onSelect: archive }],
+              },
+            ]}
+          />
         </div>
       </header>
       {message ? (
@@ -197,7 +197,7 @@ export function ResultsScreen({ id }: { id: string }) {
         <ul className="grid grid-cols-2 gap-4 lg:grid-cols-5" data-testid="result-kpis">
           <li>
             <KpiCard
-              icon={PaperPlaneTilt}
+              icon={UsersThree}
               tone="blue"
               value={m.totalRecipients}
               label="Total Recipients"
@@ -205,21 +205,21 @@ export function ResultsScreen({ id }: { id: string }) {
           </li>
           <li>
             <KpiCard
-              icon={CheckCircle}
-              tone="green"
+              icon={PaperPlaneTilt}
+              tone="blue"
               value={m.delivered.count}
               label="Delivered"
-              note={percent(m.delivered.ratePercent)}
+              note={`${percent(m.delivered.ratePercent)} of ${m.totalRecipients}`}
             />
           </li>
           {r.supports.opens ? (
             <li>
               <KpiCard
                 icon={EnvelopeOpen}
-                tone="purple"
+                tone="blue"
                 value={m.opened.count}
                 label="Opened"
-                note={percent(m.opened.ratePercent)}
+                note={`${percent(m.opened.ratePercent)} of ${m.delivered.count}`}
               />
             </li>
           ) : null}
@@ -227,10 +227,10 @@ export function ResultsScreen({ id }: { id: string }) {
             <li>
               <KpiCard
                 icon={CursorClick}
-                tone="amber"
+                tone="blue"
                 value={m.clicked.count}
                 label="Clicked"
-                note={percent(m.clicked.ratePercent)}
+                note={`${percent(m.clicked.ratePercent)} of ${m.delivered.count}`}
               />
             </li>
           ) : null}
@@ -240,7 +240,7 @@ export function ResultsScreen({ id }: { id: string }) {
               tone="red"
               value={m.failed.count}
               label="Failed"
-              note={percent(m.failed.ratePercent)}
+              note={`${percent(m.failed.ratePercent)} of ${m.totalRecipients}`}
             />
           </li>
         </ul>
@@ -265,131 +265,221 @@ export function ResultsScreen({ id }: { id: string }) {
         ))}
       </div>
 
-      {tab === 'Overview' ? (
-        <div className="grid min-w-0 items-start gap-5 lg:grid-cols-2">
-          <section className={card} aria-label="Performance" data-testid="performance">
-            <h2 className="mb-3 font-display text-lg font-bold text-heading">Performance</h2>
-            {m.totalRecipients === 0 ? (
-              <p className={quiet}>No delivery data yet.</p>
-            ) : (
-              <ul className="flex flex-col gap-3">
-                {r.funnel.map((f) => (
-                  <li key={f.stage}>
-                    <div className="mb-1 flex justify-between text-sm text-heading">
-                      <span>{f.stage.charAt(0) + f.stage.slice(1).toLowerCase()}</span>
-                      <span className="font-semibold">{f.count}</span>
-                    </div>
-                    <div
-                      className="h-2 rounded-pill bg-canvas"
-                      role="img"
-                      aria-label={`${f.count} of ${m.totalRecipients}`}
-                    >
-                      <div
-                        className="h-2 rounded-pill bg-action"
-                        style={{ width: `${Math.min(100, (f.count / m.totalRecipients) * 100)}%` }}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-          <section className={card} aria-label="Delivery trend" data-testid="trend">
-            <h2 className="mb-3 font-display text-lg font-bold text-heading">
-              <ChartBar aria-hidden weight="fill" className="mr-2 inline size-5 text-action" />
-              Delivery Over Time
-            </h2>
-            {m.totalRecipients === 0 ? (
-              <p className={quiet}>No delivery data yet.</p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {r.trend.map((t) => (
-                  <li
-                    key={t.date}
-                    className="grid grid-cols-[5rem_1fr_3rem] items-center gap-2 text-sm"
-                  >
-                    <span className="text-muted">{dayText(t.date)}</span>
-                    <div className="h-2 rounded-pill bg-canvas">
-                      <div
-                        className="h-2 rounded-pill bg-success"
-                        style={{
-                          width: `${Math.min(100, (t.delivered / Math.max(1, m.delivered.count)) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-right font-medium text-heading">{t.delivered}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-          <section className={card} aria-label="Delivery breakdown" data-testid="breakdown">
-            <h2 className="mb-3 font-display text-lg font-bold text-heading">Delivery Breakdown</h2>
-            {m.totalRecipients === 0 ? (
-              <p className={quiet}>Nothing to break down yet.</p>
-            ) : (
-              <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm">
-                {[
-                  ['Delivered', m.delivered.count],
-                  ['Pending', m.pending.count],
-                  ['Failed', m.failed.count],
-                  ['Unsubscribed', m.unsubscribed.count],
-                ].map(([k, v]) => (
-                  <div key={k} className="contents">
-                    <dt className="text-muted">{k}</dt>
-                    <dd className="text-right font-semibold text-heading">{v}</dd>
+      <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="flex min-w-0 flex-col gap-5">
+          {tab === 'Overview' ? (
+            <>
+              <section className={card} aria-label="Campaign performance" data-testid="performance">
+                <h2 className="mb-3 font-display text-xl font-bold text-heading">
+                  Campaign Performance
+                </h2>
+                {m.totalRecipients === 0 ? (
+                  <p className={quiet}>No delivery data yet.</p>
+                ) : (
+                  <div className="grid min-w-0 gap-5 md:grid-cols-2">
+                    <ul className="flex flex-col gap-3">
+                      {r.funnel.map((f) => (
+                        <li
+                          key={f.stage}
+                          className="grid grid-cols-[5rem_1fr_6rem] items-center gap-2 text-sm"
+                        >
+                          <span className="text-heading">
+                            {f.stage.charAt(0) + f.stage.slice(1).toLowerCase()}
+                          </span>
+                          <span
+                            className="h-5 rounded-sm bg-canvas"
+                            role="img"
+                            aria-label={`${f.count} of ${m.totalRecipients}`}
+                          >
+                            <span
+                              className="block h-5 rounded-sm bg-action"
+                              style={{
+                                width: `${Math.min(100, (f.count / m.totalRecipients) * 100)}%`,
+                              }}
+                            />
+                          </span>
+                          <span className="text-right font-semibold text-heading">
+                            {f.count}
+                            {f.stage !== 'SENT' ? (
+                              <span className="font-normal text-muted">
+                                {' '}
+                                ({percent(Math.round((f.count / m.totalRecipients) * 1000) / 10)})
+                              </span>
+                            ) : null}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <Trend r={r} />
                   </div>
-                ))}
-              </dl>
-            )}
-            {r.failureReasons.length > 0 ? (
-              <ul className="mt-3 border-t border-divider pt-2 text-sm text-danger">
-                {r.failureReasons.map((f) => (
-                  <li key={f.code}>
-                    {f.label}: {f.count}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </section>
+                )}
+              </section>
+              <section className={card} aria-label="Delivery breakdown" data-testid="breakdown">
+                <h2 className="mb-3 font-display text-xl font-bold text-heading">
+                  Delivery Breakdown
+                </h2>
+                {m.totalRecipients === 0 ? (
+                  <p className={quiet}>Nothing to break down yet.</p>
+                ) : (
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <ul className="grid min-w-64 flex-1 grid-cols-[auto_1fr_auto_auto] items-center gap-x-4 gap-y-2 text-sm">
+                      {[
+                        {
+                          label: 'Delivered',
+                          v: m.delivered,
+                          dot: 'bg-success',
+                          text: 'text-success',
+                        },
+                        { label: 'Bounced', v: m.failed, dot: 'bg-danger', text: 'text-danger' },
+                        {
+                          label: 'Unsubscribed',
+                          v: m.unsubscribed,
+                          dot: 'bg-muted',
+                          text: 'text-muted',
+                        },
+                        { label: 'Not Sent', v: m.pending, dot: 'bg-muted', text: 'text-muted' },
+                      ].map((x) => (
+                        <li key={x.label} className="contents">
+                          <span aria-hidden className={`size-2.5 rounded-full ${x.dot}`} />
+                          <span className="text-heading">{x.label}</span>
+                          <span className="text-right font-medium text-heading">{x.v.count}</span>
+                          <span className={`text-right ${x.text}`}>{percent(x.v.ratePercent)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <button type="button" className={linkBtn} onClick={() => setTab('Recipients')}>
+                      View Recipient Details{' '}
+                      <ArrowRight aria-hidden weight="bold" className="size-3" />
+                    </button>
+                  </div>
+                )}
+                {r.failureReasons.length > 0 ? (
+                  <ul className="mt-3 border-t border-divider pt-2 text-sm text-danger">
+                    {r.failureReasons.map((f) => (
+                      <li key={f.code}>
+                        {f.label}: {f.count}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+              <section className={card} aria-label="Recipient activity">
+                <RecipientTable
+                  id={id}
+                  supports={r.supports}
+                  onExport={r.canExport ? exportResults : undefined}
+                />
+                {r.canResendFailed ? (
+                  <button
+                    type="button"
+                    className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-control bg-action px-5 text-sm font-semibold text-on-action hover:opacity-90"
+                    onClick={() =>
+                      void draftFrom(
+                        () => api.communications.resendFailed(id),
+                        'Draft made for the failed recipients.',
+                      )
+                    }
+                  >
+                    <PaperPlaneTilt aria-hidden weight="fill" className="size-4" /> Resend to{' '}
+                    {m.failed.count} Failed Recipients
+                  </button>
+                ) : null}
+              </section>
+            </>
+          ) : tab === 'Recipients' ? (
+            <section className={card} aria-label="Recipients">
+              <RecipientTable
+                id={id}
+                supports={r.supports}
+                onExport={r.canExport ? exportResults : undefined}
+              />
+            </section>
+          ) : tab === 'Activity' ? (
+            <ActivityPanel id={id} />
+          ) : tab === 'Message' ? (
+            <section className={card} aria-label="Message" data-testid="message-tab">
+              {d.subject ? (
+                <p className="mb-2 text-sm font-semibold text-heading">Subject: {d.subject}</p>
+              ) : null}
+              <div className="rounded-lg border border-divider bg-canvas p-3 text-sm whitespace-pre-wrap text-heading">
+                {plain(d.body) || 'No content.'}
+              </div>
+              {d.attachments.length > 0 ? (
+                <ul className="mt-3 text-sm text-muted">
+                  {d.attachments.map((a) => (
+                    <li key={a.id}>{a.fileName}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+          ) : (
+            <section className={card} aria-label="Settings" data-testid="settings-tab">
+              <Info d={d} full />
+            </section>
+          )}
+        </div>
+
+        <aside className="flex min-w-0 flex-col gap-4" aria-label="Campaign details">
           <section className={card} aria-label="Campaign information" data-testid="info">
             <h2 className="mb-3 font-display text-lg font-bold text-heading">
               Campaign Information
             </h2>
             <Info d={d} />
           </section>
-          <section className={`${card} lg:col-span-2`} aria-label="Recipient activity">
-            <h2 className="mb-3 font-display text-lg font-bold text-heading">Recipient Activity</h2>
-            <RecipientTable id={id} supports={r.supports} />
+          <section className={card} aria-label="Message preview" data-testid="side-preview">
+            <h2 className="mb-2 font-display text-lg font-bold text-heading">Message Preview</h2>
+            <div className="rounded-lg border border-divider bg-canvas p-3 text-sm">
+              {d.subject ? <p className="mb-1 font-semibold text-heading">{d.subject}</p> : null}
+              <p className="max-h-36 overflow-hidden whitespace-pre-wrap text-text">
+                {plain(d.body) || 'No content.'}
+              </p>
+            </div>
+            <button type="button" className={`${linkBtn} mt-2`} onClick={() => setTab('Message')}>
+              View Full Message <ArrowRight aria-hidden weight="bold" className="size-3" />
+            </button>
           </section>
-        </div>
-      ) : tab === 'Recipients' ? (
-        <section className={card} aria-label="Recipients">
-          <RecipientTable id={id} supports={r.supports} filters />
-        </section>
-      ) : tab === 'Activity' ? (
-        <ActivityPanel id={id} />
-      ) : tab === 'Message' ? (
-        <section className={card} aria-label="Message" data-testid="message-tab">
-          {d.subject ? (
-            <p className="mb-2 text-sm font-semibold text-heading">Subject: {d.subject}</p>
-          ) : null}
-          <div className="rounded-lg border border-divider bg-canvas p-3 text-sm whitespace-pre-wrap text-heading">
-            {plain(d.body) || 'No content.'}
-          </div>
-          {d.attachments.length > 0 ? (
-            <ul className="mt-3 text-sm text-muted">
-              {d.attachments.map((a) => (
-                <li key={a.id}>{a.fileName}</li>
-              ))}
+          <section className={card} aria-label="Actions" data-testid="side-actions">
+            <h2 className="mb-2 font-display text-lg font-bold text-heading">Actions</h2>
+            <ul className="flex flex-col gap-1.5">
+              {[
+                { label: 'Duplicate Campaign', icon: Copy, onClick: duplicate, show: true },
+                {
+                  label: 'Save as Template',
+                  icon: FileText,
+                  onClick: () => setDialog('template'),
+                  show: true,
+                },
+                {
+                  label: 'Send Follow-Up',
+                  icon: Repeat,
+                  onClick: () => setDialog('follow'),
+                  show: d.status === 'SENT',
+                },
+                { label: 'Archive Campaign', icon: Archive, onClick: archive, show: !d.archived },
+              ]
+                .filter((a) => a.show)
+                .map((a) => (
+                  <li key={a.label}>
+                    <button
+                      type="button"
+                      onClick={a.onClick}
+                      className="flex w-full items-center gap-3 rounded-lg border border-divider p-2 text-left text-sm font-medium text-heading hover:bg-canvas"
+                    >
+                      <a.icon aria-hidden weight="fill" className="size-5 shrink-0 text-action" />
+                      {a.label}
+                      <CaretRight aria-hidden weight="bold" className="ml-auto size-3 text-muted" />
+                    </button>
+                  </li>
+                ))}
             </ul>
-          ) : null}
-        </section>
-      ) : (
-        <section className={card} aria-label="Settings" data-testid="settings-tab">
-          <Info d={d} full />
-        </section>
-      )}
+          </section>
+          <p className="flex items-start gap-3 rounded-xl bg-info-soft p-4 text-sm text-info">
+            <InfoIcon aria-hidden weight="fill" className="mt-0.5 size-5 shrink-0" />
+            Delivery and engagement data is retained according to company communication and
+            record-retention settings.
+          </p>
+        </aside>
+      </div>
 
       {dialog === 'template' ? (
         <SaveTemplateDialog
@@ -419,28 +509,80 @@ export function ResultsScreen({ id }: { id: string }) {
   );
 }
 
+/** Engagement over time: a small line chart of opens per day (deliveries when opens are not tracked). */
+function Trend({ r }: { r: CommunicationResults }) {
+  const key = r.supports.opens ? 'opened' : 'delivered';
+  const values = r.trend.map((t) => t[key]);
+  const max = Math.max(1, ...values);
+  const w = 320;
+  const h = 120;
+  const pts = values.map(
+    (v, i) =>
+      [
+        (i / Math.max(1, values.length - 1)) * (w - 56) + 28,
+        h - 10 - (v / max) * (h - 20),
+      ] as const,
+  );
+  return (
+    <figure className="min-w-0" data-testid="trend">
+      <figcaption className="mb-1 text-sm font-semibold text-heading">
+        Engagement Over Time
+      </figcaption>
+      <svg
+        viewBox={`0 0 ${w} ${h + 20}`}
+        role="img"
+        aria-label={`${key === 'opened' ? 'Opens' : 'Deliveries'} per day`}
+        className="h-auto w-full"
+      >
+        <polyline
+          fill="none"
+          className="stroke-action"
+          strokeWidth="2"
+          points={pts.map((p) => p.join(',')).join(' ')}
+        />
+        {pts.map((p, i) => (
+          <circle key={r.trend[i]!.date} cx={p[0]} cy={p[1]} r="3" className="fill-action" />
+        ))}
+        {r.trend.map((t, i) => (
+          <text
+            key={t.date}
+            x={pts[i]![0]}
+            y={h + 14}
+            textAnchor="middle"
+            className="fill-muted"
+            fontSize="9"
+          >
+            {dayText(t.date).replace(/, \d{4}$/, '')}
+          </text>
+        ))}
+      </svg>
+    </figure>
+  );
+}
+
 function Info({ d, full }: { d: CommunicationDetail; full?: boolean }) {
   const rows: [string, string][] = [
-    ['Type', channelOf(d.channel).label],
-    ['Created by', d.createdBy.name],
-    ['Created', dayText(d.createdAt)],
-    ...(d.sentAt ? ([['Sent', dateTimeText(d.sentAt)]] as [string, string][]) : []),
-    ...(d.sender ? ([['From', d.sender.label]] as [string, string][]) : []),
-    ...(d.subject ? ([['Subject', d.subject]] as [string, string][]) : []),
+    ['Campaign Name', d.name],
     ['Audience', d.audienceSummary ?? '—'],
+    ['Final Recipients', d.finalCount === null ? '—' : String(d.finalCount)],
+    ...(d.sender ? ([['From', d.sender.label]] as [string, string][]) : []),
+    ...(d.replyTo ? ([['Reply-To', d.replyTo]] as [string, string][]) : []),
+    ...(d.subject ? ([['Subject', d.subject]] as [string, string][]) : []),
     ...(full
       ? ([
+          ['Type', channelOf(d.channel).label],
+          ['Created', dayText(d.createdAt)],
           ['Time zone', d.timezone],
           ['Template', d.template?.name ?? 'None'],
         ] as [string, string][])
       : []),
   ];
   return (
-    <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[8rem_1fr]">
+    <dl className="grid gap-x-4 gap-y-1.5 text-sm sm:grid-cols-[8rem_1fr] xl:grid-cols-[7rem_1fr]">
       {rows.map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="text-muted">{k}</dt>
-          <dd className="min-w-0 break-words text-heading">{v}</dd>
+          <dd className="min-w-0 wrap-break-word text-heading">{v}</dd>
         </div>
       ))}
     </dl>
@@ -450,48 +592,64 @@ function Info({ d, full }: { d: CommunicationDetail; full?: boolean }) {
 function RecipientTable({
   id,
   supports,
-  filters,
+  onExport,
 }: {
   id: string;
   supports: { opens: boolean; clicks: boolean };
-  filters?: boolean;
+  onExport: (() => Promise<void>) | undefined;
 }) {
+  const router = useRouter();
   const [status, setStatus] = useState('');
+  const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const list = useApiQuery([...COMM_KEY, 'recipients', id, status, page], () =>
+  const term = useDeferredValue(search.trim());
+  const list = useApiQuery([...COMM_KEY, 'recipients', id, status, term, page], () =>
     api.communications.recipients(id, {
       ...(status ? { status: status as CommunicationRecipient['status'] } : {}),
+      ...(term ? { search: term } : {}),
       page,
       pageSize: 10,
     }),
   );
+  const yesNo = (n: number) => (n > 0 ? 'Yes' : 'No');
   const columns: Column<CommunicationRecipient>[] = [
     { id: 'who', label: 'Recipient', cell: (x) => x.client?.name ?? x.leadName ?? 'Contact' },
-    { id: 'addr', label: 'Address', cell: (x) => x.addressMask },
+    { id: 'addr', label: 'Email', cell: (x) => x.addressMask },
     {
       id: 'st',
       label: 'Status',
-      cell: (x) =>
-        x.failureLabel
-          ? `${RECIPIENT_LABEL[x.status]} · ${x.failureLabel}`
-          : RECIPIENT_LABEL[x.status],
+      cell: (x) => (
+        <span title={x.failureLabel ?? undefined}>
+          <Badge tone={RECIPIENT_TONE[x.status] ?? 'neutral'}>{RECIPIENT_LABEL[x.status]}</Badge>
+        </span>
+      ),
     },
     ...(supports.opens
-      ? [{ id: 'op', label: 'Opens', cell: (x: CommunicationRecipient) => x.openCount }]
+      ? [{ id: 'op', label: 'Opened', cell: (x: CommunicationRecipient) => yesNo(x.openCount) }]
       : []),
     ...(supports.clicks
-      ? [{ id: 'cl', label: 'Clicks', cell: (x: CommunicationRecipient) => x.clickCount }]
+      ? [{ id: 'cl', label: 'Clicked', cell: (x: CommunicationRecipient) => yesNo(x.clickCount) }]
       : []),
-    {
-      id: 'at',
-      label: 'Delivered',
-      cell: (x) => (x.deliveredAt ? dateTimeText(x.deliveredAt) : '—'),
-    },
   ];
   return (
     <div className="flex flex-col gap-3" data-testid="recipient-table">
-      {filters ? (
-        <div className="w-48">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="mr-auto font-display text-xl font-bold text-heading">Recipient Activity</h2>
+        <label className="flex h-10 w-44 items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-muted focus-within:outline-2 focus-within:outline-focus">
+          <MagnifyingGlass aria-hidden weight="bold" className="size-4 shrink-0" />
+          <span className="sr-only">Search recipients</span>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search recipients..."
+            className="w-full bg-transparent text-sm text-text outline-none placeholder:text-muted"
+          />
+        </label>
+        <div className="w-36">
           <Select
             label="Status"
             hideLabel
@@ -501,12 +659,17 @@ function RecipientTable({
               setPage(1);
             }}
             options={[
-              { value: '', label: 'All statuses' },
+              { value: '', label: 'All Statuses' },
               ...Object.entries(RECIPIENT_LABEL).map(([value, label]) => ({ value, label })),
             ]}
           />
         </div>
-      ) : null}
+        {onExport ? (
+          <button type="button" className={subtle} onClick={() => void onExport()}>
+            <DownloadSimple aria-hidden weight="bold" className="size-4" /> Export Recipients
+          </button>
+        ) : null}
+      </div>
       <div className="relative">
         <Table
           rows={list.data?.items ?? []}
@@ -522,6 +685,26 @@ function RecipientTable({
             list.isError
               ? 'We could not load the recipients. Try again in a moment.'
               : 'Recipients appear once this has been sent.'
+          }
+          rowActions={(x) =>
+            x.client ? (
+              <ActionMenu
+                label={`Actions for ${x.client.name}`}
+                trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-5" />}
+                align="right"
+                sections={[
+                  {
+                    items: [
+                      {
+                        label: 'View Client',
+                        icon: CheckCircle,
+                        onSelect: () => router.push(`/clients/${x.client!.id}`),
+                      },
+                    ],
+                  },
+                ]}
+              />
+            ) : null
           }
           server={{
             page: list.data?.page ?? 1,
