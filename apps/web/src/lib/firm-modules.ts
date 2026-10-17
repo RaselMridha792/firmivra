@@ -8,7 +8,6 @@ import {
   IdentificationCard,
   Layout,
   PaperPlaneTilt,
-  ShieldCheck,
   UploadSimple,
 } from '@phosphor-icons/react/ssr';
 import type { Icon } from '@phosphor-icons/react';
@@ -36,7 +35,6 @@ export const FIRM_MODULES: readonly FirmModule[] = [
   { slug: 'payroll', label: 'Payroll', icon: CurrencyDollar },
   { slug: 'communications', label: 'Communications', icon: PaperPlaneTilt },
   { slug: 'automations', label: 'Automations', icon: ArrowsClockwise },
-  { slug: 'compliance', label: 'Compliance & Deadlines', icon: ShieldCheck },
   { slug: 'templates', label: 'Templates', icon: Layout },
 ];
 
