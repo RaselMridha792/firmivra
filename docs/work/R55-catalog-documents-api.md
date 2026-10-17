@@ -26,7 +26,7 @@ Branch `rasel/R55-catalog-documents-api`. Local ports: API 4550, web 3550, datab
 
 - [x] 1. Services & Pricing under `/business/catalog`: services (list, create, get, update, activate, deactivate, archive, duplicate, delete, usage), packages (list, create, get, update, pricing panel, activate, deactivate, duplicate, archive), summary, categories (list, create, update, reorder, merge, delete) and promotions (list, create, update, end).
 - [x] 2. Documents: compared with `createDocumentsClient` and `createMyDocumentsClient`; nothing is missing, so no code was added (list below).
-- [ ] 5. Templates (the message-template library: categories, templates with versions, attachments, sharing, favourites, uses, branding, custom merge fields, the 48 starter templates). 5a [x]: contract (`packages/types/src/templates/`, `createTemplatesClient` as `api.templates`). 5b: API.
+- [ ] 4. Tasks module (the Task models, 9 tables). 4a: contract (`packages/types/src/tasks/work.ts`, `createTaskWorkClient` as `api.taskWork`). 4b: API core: overview, summary, calendar, detail, create/edit with checklist, reminders, dependency, attachments and visibility, row and bulk actions, task types. 4c: templates and recurring series (preview, edit scopes, idempotent generation job).
 
 ## Documents: what already existed and what was added
 
@@ -69,11 +69,11 @@ The tables from R36 cover the catalog, but a few contract fields do not map one 
 
 Shared test file touched: `apps/api/test/isolation/body-ids.ts` got three `NOT_RECORDS` entries (a new service or package refuses any line or add-on id; package add-on `linkedServiceId` is refused), each with its reason.
 - 2026-10-17: #685 CI red was Docker Hub's pull rate limit on test shard 1 (shard 2 cancelled with it), not code. The four download routes answering 409 in the isolation suite come from the s3mock container running on this laptop: the same four fail on clean origin/main here, and all 19 isolation tests pass on this branch with S3 unreachable, as in CI.
-- 2026-10-17: step 5a, the Templates contract: summary page (tabs, category cards, recent), the library query, template detail with versions, attachments (the documents upload ticket), shares, favourites and automation impact, preview and test send, bulk actions, categories (reorder, merge), merge fields (built-in and custom), Branding & Letterhead, HTML and text import, and the starter templates. Compliance was reassigned to another session; a draft of its contract is on the local branch `rasel/R55-compliance-contract` (not pushed).
+- 2026-10-17: step 4a, the Tasks contract. The older routes and shapes (`./schemas.ts`, `api.tasks`, its mock) are unchanged. New: `TaskDetail` (a superset of `Task`), `TaskRow`, the overview query and KPIs, the calendar, checklist, reminders, attachments, bulk actions, task types, templates, recurring series with recurrence rules, preview and occurrences; the client is `createTaskWorkClient` (`api.taskWork`, real API only until a mock is written).
 
-### Templates (step 5)
+### Tasks (step 4)
 
-1. **Delete**: the app role may not delete templates, categories or their versions (grants are select, insert and update), and sends keep the version they used. The contract offers archive and restore only; the guide's "Delete where there is no usage" is not available.
-2. **Active automations**: the contract has `automationCount` and `confirmAutomationImpact`, but no table links an automation to a template (rule versions hold their steps as data). Until Automations has its API the count reads 0.
-3. **DOCX import**: the contract takes HTML and plain text; a .docx must be converted by the screen first.
-4. **Merge fields from live data**: built-in Client, Company, Staff and Custom fields resolve in the first API; Appointment, Invoice, Tax and Workflow fields resolve when the record id is given, and are reported as unresolved otherwise.
+1. **Idempotent "Save & Create Another"**: the guide asks for a safe retry. No table has a request key, so the first version cannot guarantee it; a repeat creates a second task. A `request_key` column (unique per firm) on `tasks` would fix it.
+2. **`tasks.details`** is capped at 2000 characters by the database, but the older contract allows 5000 (a longer text is a 500 today). The new contract and the API use 2000.
+3. **Holidays**: "Adjust for holidays" needs a holiday list. None is stored, so the first version treats weekends as the only non-business days (`holidayRule` NEXT_BUSINESS_DAY or PREVIOUS_BUSINESS_DAY).
+4. **Series `startOn` and client** cannot change after creation (database rule); the contract says so.
