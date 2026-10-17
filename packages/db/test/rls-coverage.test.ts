@@ -52,6 +52,8 @@ describe('row-level security coverage', () => {
       'client_status_history',
       'platform_user_signups',
       'platform_owner_invites',
+      // Only platform_billing_next_number() (owner-run) moves the document counters.
+      'platform_billing_counters',
     ];
     expect(app.filter((r) => !r.select).map((r) => r.table)).toEqual([]);
     expect(app.filter((r) => !r.insert && !readOnly.includes(r.table)).map((r) => r.table)).toEqual(

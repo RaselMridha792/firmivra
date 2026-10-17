@@ -1642,6 +1642,167 @@ async function main() {
         },
       });
     }
+    // Stage B3: what Firmivra billed LVP (admin scope). The database numbers the documents, works
+    // out the totals and keeps the paid, refunded and credited sums and statuses.
+    if (
+      !(await tx.platformInvoice.findUnique({
+        where: { id: SEED_PLATFORM_IDS.billingPaidInvoice },
+      }))
+    ) {
+      const billTo = {
+        billToName: SEED_USERS.lvpOwner.name,
+        billToEmail: SEED_USERS.lvpOwner.email,
+      };
+      await tx.platformFirmBillingProfile.create({
+        data: {
+          businessId: businesses.lvp,
+          billingContactName: billTo.billToName,
+          billingContactEmail: billTo.billToEmail,
+          paymentTermDays: 15,
+        },
+      });
+      // September: Team Pro, paid by card, then $20 refunded as a goodwill credit.
+      await tx.platformInvoice.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingPaidInvoice,
+          businessId: businesses.lvp,
+          invoiceDate: new Date('2026-09-01'),
+          dueDate: new Date('2026-09-16'),
+          periodStart: new Date('2026-09-01'),
+          periodEnd: new Date('2026-09-30'),
+          ...billTo,
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [
+              { description: 'Team Pro plan, September 2026', unitCents: 19900 },
+              { description: 'Additional seat', quantity: 2, unitCents: 2900, sortOrder: 1 },
+            ],
+          },
+        },
+      });
+      await tx.platformInvoice.update({
+        where: { id: SEED_PLATFORM_IDS.billingPaidInvoice },
+        data: { status: 'SENT' },
+      });
+      await tx.platformPayment.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingPayment,
+          businessId: businesses.lvp,
+          invoiceId: SEED_PLATFORM_IDS.billingPaidInvoice,
+          amountCents: 25700,
+          method: 'CARD',
+          status: 'COMPLETED',
+          paidOn: new Date('2026-09-03'),
+          reference: 'Visa ending 4242',
+          recordedByUserId: SEED_USERS.superAdmin.id,
+          idempotencyKey: SEED_PLATFORM_IDS.billingPaymentKey,
+        },
+      });
+      await tx.platformRefund.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingRefund,
+          businessId: businesses.lvp,
+          paymentId: SEED_PLATFORM_IDS.billingPayment,
+          amountCents: 2000,
+          reason: 'Goodwill credit for the September portal outage.',
+          requestedByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      await tx.platformRefund.update({
+        where: { id: SEED_PLATFORM_IDS.billingRefund },
+        data: { status: 'COMPLETED' },
+      });
+      // October: sent, part settled by a $50 credit note.
+      await tx.platformInvoice.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingCreditedInvoice,
+          businessId: businesses.lvp,
+          invoiceDate: new Date('2026-10-01'),
+          dueDate: new Date('2026-10-16'),
+          periodStart: new Date('2026-10-01'),
+          periodEnd: new Date('2026-10-31'),
+          ...billTo,
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [{ description: 'Team Pro plan, October 2026', unitCents: 19900 }],
+          },
+        },
+      });
+      await tx.platformInvoice.update({
+        where: { id: SEED_PLATFORM_IDS.billingCreditedInvoice },
+        data: { status: 'SENT' },
+      });
+      await tx.platformCreditNote.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingCreditNote,
+          businessId: businesses.lvp,
+          relatedInvoiceId: SEED_PLATFORM_IDS.billingPaidInvoice,
+          issueDate: new Date('2026-10-02'),
+          reason: 'Service credit for the September outage.',
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [{ description: 'Service credit', unitCents: 5000 }],
+          },
+        },
+      });
+      await tx.platformCreditNote.update({
+        where: { id: SEED_PLATFORM_IDS.billingCreditNote },
+        data: { status: 'AVAILABLE' },
+      });
+      await tx.platformCreditApplication.create({
+        data: {
+          businessId: businesses.lvp,
+          creditNoteId: SEED_PLATFORM_IDS.billingCreditNote,
+          invoiceId: SEED_PLATFORM_IDS.billingCreditedInvoice,
+          amountCents: 5000,
+          appliedByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      // An upgrade quote, and the monthly schedule.
+      await tx.platformEstimate.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingEstimate,
+          businessId: businesses.lvp,
+          issueDate: new Date('2026-10-05'),
+          expirationDate: new Date('2026-11-04'),
+          contactName: billTo.billToName,
+          contactEmail: billTo.billToEmail,
+          notes: 'Business plan for up to 10 staff, billed annually.',
+          assignedUserId: SEED_USERS.superAdmin.id,
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [{ description: 'Business plan, 12 months', quantity: 12, unitCents: 49900 }],
+          },
+        },
+      });
+      await tx.platformEstimate.update({
+        where: { id: SEED_PLATFORM_IDS.billingEstimate },
+        data: { status: 'SENT' },
+      });
+      await tx.platformRecurringInvoice.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingRecurring,
+          businessId: businesses.lvp,
+          description: 'Team Pro plan, monthly',
+          frequency: 'MONTHLY',
+          lineTemplate: [
+            { description: 'Team Pro plan', quantity: 1, unitCents: 19900, taxRateBps: 0 },
+          ],
+          amountCents: 19900,
+          startDate: new Date('2026-09-01'),
+          nextInvoiceDate: new Date('2026-11-01'),
+          createdByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      await tx.platformPaymentEvent.create({
+        data: {
+          eventId: 'evt_seed_platform_payment',
+          type: 'payment_intent.succeeded',
+          paymentId: SEED_PLATFORM_IDS.billingPayment,
+          processedAt: new Date(),
+        },
+      });
+    }
     if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.platformEvent } }))) {
       await tx.auditLog.create({
         data: {
