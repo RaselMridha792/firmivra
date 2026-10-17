@@ -115,6 +115,7 @@ import {
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createTasksMock } from '../mocks/tasks';
+import { createAutomationsMock } from '../mocks/automations';
 import { createTaskWorkMock } from '../mocks/tasks-work';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
@@ -308,7 +309,10 @@ export const api = {
    * Automations (R55): overview, rules and their versions, rule templates, logs and settings.
    * Real API only until its mock is written.
    */
-  automations: createAutomationsClient(request),
+  automations:
+    dev && mocked('automations')
+      ? createAutomationsMock({ role: MOCK_ROLE, empty: mockedEmpty('automations') })
+      : createAutomationsClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
   workspaces:
     dev && mocked('workspaces')
