@@ -113,6 +113,12 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
     value: '1',
     routes: /\/business\/templates\/:id\/versions\/:version(\/restore)?$/,
   },
+  // A provider code of the Integrations catalog (cases/integrations.ts), not a record.
+  {
+    param: 'provider',
+    value: 'quickbooks',
+    routes: /\/business\/integrations\/providers\/:provider(\/connect)?$/,
+  },
 ];
 const fixedOf = (path: string): Record<string, string> =>
   Object.fromEntries(

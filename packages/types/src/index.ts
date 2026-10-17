@@ -29,6 +29,7 @@ export * from './templates/index.js';
 export * from './automations/index.js';
 export * from './reports/index.js';
 export * from './advisory/index.js';
+export * from './integrations/index.js';
 export * from './workspaces/index.js';
 export * from './audit-log/index.js';
 export * from './support-access/index.js';
