@@ -5,6 +5,10 @@ import { randomUUID } from 'node:crypto';
 import type { CaseModule, RecordDef, SeedContext } from '../world.js';
 
 const tag = () => randomUUID().slice(0, 8);
+/** A fixed update time, so a PATCH case can send the version without reading it. */
+const STAMP = new Date('2026-01-01T00:00:00.000Z');
+const VERSION = STAMP.toISOString();
+const DAY = new Date('2099-01-15T00:00:00.000Z');
 
 /** A client X task on the world's engagement; the fields it starts with are the caller's. */
 const task = (
@@ -22,6 +26,24 @@ const task = (
         engagementId: await get('engagement'),
         title: 'Fake task',
         ...(await extra(ctx)),
+      },
+    });
+    return row.id;
+  },
+});
+
+/** A recurring series for client X (its first date far ahead; the job is off in tests). */
+const series = (extra: Record<string, unknown> = {}): RecordDef => ({
+  clientPrivate: true,
+  async create({ tx, businessId, get }) {
+    const row = await tx.taskSeries.create({
+      data: {
+        businessId,
+        clientId: await get('client'),
+        title: 'Fake series',
+        unit: 'MONTH',
+        startOn: DAY,
+        ...extra,
       },
     });
     return row.id;
@@ -95,6 +117,40 @@ export const records: CaseModule['records'] = {
       return (
         await tx.taskTemplate.create({ data: { businessId, name: `Fake template ${tag()}` } })
       ).id;
+    },
+  },
+  taskTemplatePatch: {
+    async create({ tx, businessId }) {
+      return (
+        await tx.taskTemplate.create({
+          data: { businessId, name: `Fake template ${tag()}`, updatedAt: STAMP },
+        })
+      ).id;
+    },
+  },
+  taskTemplateArchive: {
+    async create({ tx, businessId }) {
+      return (
+        await tx.taskTemplate.create({ data: { businessId, name: `Fake template ${tag()}` } })
+      ).id;
+    },
+  },
+  /** A task with a due date, for "make it recurring". */
+  taskConvert: task(() => ({ dueOn: DAY })),
+  taskSeries: series(),
+  taskSeriesPatch: series({ updatedAt: STAMP }),
+  taskSeriesPause: series(),
+  taskSeriesPaused: series({ status: 'PAUSED', pausedAt: new Date() }),
+  taskSeriesStop: series(),
+  taskSeriesSkipFuture: series(),
+  taskSeriesSkip: series(),
+  taskOccurrence: {
+    clientPrivate: true,
+    async create({ tx, businessId, get }) {
+      const row = await tx.taskOccurrence.create({
+        data: { businessId, seriesId: await get('taskSeriesSkip'), scheduledOn: DAY, dueOn: DAY },
+      });
+      return row.id;
     },
   },
 };
@@ -185,4 +241,69 @@ export const cases: CaseModule['cases'] = {
   },
   [`POST ${BASE}/task-types/:id/archive`]: { params: { id: 'taskTypeEdit' } },
   [`POST ${BASE}/task-types/:id/restore`]: { params: { id: 'taskTypeEdit' } },
+
+  // ---------- Templates and recurring series ----------
+  [`GET ${BASE}/task-templates/:id`]: { params: { id: 'taskTemplate' } },
+  [`POST ${BASE}/task-templates`]: {
+    params: {},
+    body: () => ({ name: `Fake new template ${tag()}`, assignmentRule: 'SPECIFIC_USER' }),
+    bodyIds: { typeId: 'taskType', serviceId: 'service', assignedUserId: 'adminUser' },
+  },
+  [`PATCH ${BASE}/task-templates/:id`]: {
+    params: { id: 'taskTemplatePatch' },
+    body: { version: VERSION, assignmentRule: 'SPECIFIC_USER' },
+    bodyIds: { typeId: 'taskType', serviceId: 'service', assignedUserId: 'adminUser' },
+  },
+  [`POST ${BASE}/task-templates/:id/duplicate`]: { params: { id: 'taskTemplate' } },
+  [`POST ${BASE}/task-templates/:id/archive`]: { params: { id: 'taskTemplateArchive' } },
+  [`POST ${BASE}/task-templates/:id/restore`]: { params: { id: 'taskTemplateArchive' } },
+  [`POST ${BASE}/tasks/:id/save-as-template`]: {
+    params: { id: 'task' },
+    body: () => ({ name: `Fake saved template ${tag()}` }),
+  },
+  [`POST ${BASE}/tasks/:id/convert-to-recurring`]: {
+    params: { id: 'taskConvert' },
+    body: { recurrence: { unit: 'MONTH' } },
+  },
+  [`GET ${BASE}/task-series/:id`]: { params: { id: 'taskSeries' } },
+  [`GET ${BASE}/task-series/:id/occurrences`]: { params: { id: 'taskSeries' } },
+  [`POST ${BASE}/task-series`]: {
+    params: {},
+    body: () => ({
+      title: `Fake new series ${tag()}`,
+      assignmentRule: 'SPECIFIC_USER',
+      recurrence: { unit: 'MONTH', startOn: '2099-01-15' },
+    }),
+    bodyIds: {
+      clientId: 'client',
+      engagementId: 'engagement',
+      serviceId: 'service',
+      typeId: 'taskType',
+      assignedUserId: 'adminUser',
+      extraAssigneeIds: 'adminUser',
+      templateId: 'taskTemplate',
+    },
+  },
+  [`PATCH ${BASE}/task-series/:id`]: {
+    params: { id: 'taskSeriesPatch' },
+    body: { scope: 'FUTURE', version: VERSION, assignmentRule: 'SPECIFIC_USER' },
+    bodyIds: {
+      engagementId: 'engagement',
+      serviceId: 'service',
+      typeId: 'taskType',
+      assignedUserId: 'adminUser',
+      extraAssigneeIds: 'adminUser',
+    },
+  },
+  [`POST ${BASE}/task-series/:id/pause`]: { params: { id: 'taskSeriesPause' } },
+  [`POST ${BASE}/task-series/:id/resume`]: { params: { id: 'taskSeriesPaused' } },
+  [`POST ${BASE}/task-series/:id/stop`]: { params: { id: 'taskSeriesStop' } },
+  [`POST ${BASE}/task-series/:id/skip-future`]: {
+    params: { id: 'taskSeriesSkipFuture' },
+    body: { confirm: true },
+  },
+  [`POST ${BASE}/task-series/:id/occurrences/:occurrenceId/skip`]: {
+    params: { id: 'taskSeriesSkip', occurrenceId: 'taskOccurrence' },
+    body: {},
+  },
 };

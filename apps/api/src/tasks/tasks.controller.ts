@@ -22,13 +22,22 @@ import {
   TaskAttachmentId,
   type TaskCalendar,
   type TaskDetail,
+  type TaskSeriesDetail,
+  type TaskTemplate,
   TaskId,
   type TaskList,
   type TaskOverviewPage,
   type TaskSummary,
   UpdateTaskAttachmentRequest,
 } from '@firmivra/types';
-import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import {
+  Access,
+  CurrentAuth,
+  CurrentTenant,
+  FIRM_MANAGERS,
+  FIRM_STAFF,
+  Roles,
+} from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { TasksService } from '../workspaces/tasks.service.js';
@@ -36,13 +45,17 @@ import { actorOf } from '../workspaces/common.js';
 import { TasksQuery } from '../workspaces/input.js';
 import {
   BulkTaskRequest,
+  ConvertToRecurringRequest,
   CreateTaskDetailRequest,
+  SaveTaskAsTemplateRequest,
   TaskCalendarQuery,
   TaskOverviewQuery,
   UpdateTaskDetailRequest,
 } from './task-input.js';
 import { TaskBulkService } from './task-bulk.service.js';
 import { TaskReadService } from './task-read.service.js';
+import { TaskSeriesService } from './task-series.service.js';
+import { TaskTemplatesService } from './task-templates.service.js';
 import { TaskWriteService } from './task-write.service.js';
 
 const OK: OkResponse = { ok: true };
@@ -66,6 +79,8 @@ export class TasksController {
     private readonly reader: TaskReadService,
     private readonly writer: TaskWriteService,
     private readonly bulk: TaskBulkService,
+    private readonly templates: TaskTemplatesService,
+    private readonly series: TaskSeriesService,
   ) {}
 
   // Static routes first: ':id' would take "summary" for an id.
@@ -214,6 +229,32 @@ export class TasksController {
     @Param('id', idPipe) id: string,
   ): Promise<TaskDetail> {
     return this.writer.restore(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  // ----- Templates and recurring series (Owner and Admin) -----
+
+  @Post(':id/save-as-template')
+  @Roles(...FIRM_MANAGERS)
+  saveAsTemplate(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(SaveTaskAsTemplateRequest))
+    body: z.output<typeof SaveTaskAsTemplateRequest>,
+  ): Promise<TaskTemplate> {
+    return this.templates.fromTask(tenant.businessId, actorOf(auth, tenant), id, body.name);
+  }
+
+  @Post(':id/convert-to-recurring')
+  @Roles(...FIRM_MANAGERS)
+  convertToRecurring(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(ConvertToRecurringRequest))
+    body: z.output<typeof ConvertToRecurringRequest>,
+  ): Promise<TaskSeriesDetail> {
+    return this.series.convert(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
   // ----- Checklist -----
