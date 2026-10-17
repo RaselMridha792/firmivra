@@ -47,6 +47,24 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     routes: /^POST \/api\/v1\/business\/tasks$/,
     why: 'a new task has no checklist steps yet: any step id is refused (400), so the field names no record (R55)',
   },
+  ...[
+    [
+      'userId',
+      'ASSIGN: the assignee is checked against the firm’s active members (409 NOT_A_MEMBER)',
+    ],
+    [
+      'planId',
+      'ADD_TO_PLAN: looked up among the opportunity’s own client’s plans in the firm (404)',
+    ],
+    [
+      'appointmentId',
+      'SCHEDULE_DISCUSSION: looked up among the opportunity’s own client’s appointments (404)',
+    ],
+  ].map(([field, why]) => ({
+    field: field as string,
+    routes: /^POST \/api\/v1\/business\/tax-planning\/opportunities\/:id\/actions$/,
+    why: `one action's id (${why}); each action has its own fields, so one request cannot carry them all: tax-planning.e2e.test.ts sends each (R55)`,
+  })),
   ...['signature.agreements.agreementId', 'signature.acknowledgments.agreementId'].map((field) => ({
     field,
     routes:
