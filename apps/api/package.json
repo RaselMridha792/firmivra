@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "build": "nest build",
+    "build": "node --max-old-space-size=8192 ./node_modules/@nestjs/cli/bin/nest.js build",
     "dev": "nest start --watch --preserveWatchOutput",
     "start": "node dist/main.js",
     "lint": "node --max-old-space-size=8192 ./node_modules/eslint/bin/eslint.js .",
