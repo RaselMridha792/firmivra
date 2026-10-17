@@ -1,8 +1,11 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { PackageEditScreen } from '../../../_components/package-edit-screen';
 
 export const metadata: Metadata = { title: 'Edit package' };
 
-export default function ServicesPricingPackagesIdEditPage() {
-  return <PageHeader title="Create Package" />;
+type Props = { params: Promise<{ id: string }> };
+
+export default async function ServicesPricingPackageEditPage({ params }: Props) {
+  const { id } = await params;
+  return <PackageEditScreen id={id} />;
 }
