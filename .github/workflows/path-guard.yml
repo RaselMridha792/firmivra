@@ -73,6 +73,10 @@ jobs:
                   'services-pricing/[id]/',
                   'services-pricing/inactive/',
                   'services-pricing/packages/new/',
+                  // Oct 17 pages (Rasel): categories, the packages pages and promotions.
+                  'services-pricing/categories/',
+                  'services-pricing/packages/',
+                  'services-pricing/promotions/',
                 ].map((p) => `${WEB}firm/(workspace)/${p}`),
                 `${MOCKS}services-pricing.ts`,
                 `${MOCKS}services-pricing-*.ts`,
@@ -97,6 +101,12 @@ jobs:
                 `${WEB}portal/[firmSlug]/(client)/appointments/`,
                 ...['team.ts', 'settings.ts', 'appointments.ts'].map((f) => `${MOCKS}${f}`),
                 ...['staff-*.ts', 'settings-*.ts', 'appointments-*.ts'].map((f) => `${MOCKS}${f}`),
+                // Oct 17 pages (Rasel): the Intake Forms builder, templates and send pages.
+                ...['intake-forms/builder/', 'intake-forms/templates/', 'intake-forms/send/'].map(
+                  (p) => `${WEB}firm/(workspace)/${p}`,
+                ),
+                `${MOCKS}intake-forms.ts`,
+                `${MOCKS}intake-forms-*.ts`,
               ],
               // The Settings menu and its /settings redirect are R1's; Payments is R16's and the
               // Tax statuses screen is the reference screen.
