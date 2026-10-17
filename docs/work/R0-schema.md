@@ -193,6 +193,104 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 - Oct 17, PART 2 Stage 4 (the Super Admin side), branch `rasel/R0-demo-seed-stage4` on top of Stage 3: `seed-demo-platform.ts`, 8 more firms with `demo-` slugs (5 active, 1 pending setup, 1 suspended, 1 closed), each with an owner login, settings, services, its approved application and a plan subscription covering every subscription state; 4 standalone applications (pending, info requested, declined); a Business subscription for `demo`. Each step runs in the app's scope: applications filed in platform scope, decided in admin scope, linked at provisioning; subscriptions in admin scope. The database takes the reviewer from the admin scope, so stage 4 acts as the earliest existing SUPER_ADMIN (Rasel's choice, Oct 17) and refuses to run without one; it also needs the plan ladder (run the platform-org bootstrap first on dev). New migration `r0_demo_unseed_platform`: `app_delete_business_data` clears a firm's application history first (that table has no business_id), and `app_delete_firm_applications(ids)` (owner/migrate only, same RLS and trigger handling) deletes the standalone applications. `unseedDemoOrg` now runs as one transaction (`unseedDemoIn`) over every demo firm and the applications. Round-trip test: exact totals across all 9 firms, also as the RDS-like role; the app role can run neither function.
 
+- Oct 17, Super Admin schema stage B3 (Billing), branch `rasel/R0-stage-b3-billing` from main: migration `r0_platform_billing`, 15 tables (invoices, lines, recurring, estimates, lines, payments, refunds, credit notes, lines, applications, firm billing profiles, settings, counters, processor events, subscription history). Rasel: Firmivra bills firms (the spec's client = the firm's billing contact), linked to the subscription. Integer cents; the database numbers INV-/EST-/CN- (owner-run counter, never reused), computes line amounts and totals, and keeps paid, refunded and credited sums and the statuses that follow through recompute functions guarded by a transaction-local marker; payments never pass the balance, refunds never pass what was paid, credit never passes what a note has left or the invoice owes. A firm reads its own issued documents only. The B3 tests caught a NULL marker (current_setting(..., true) returns NULL when never set, so `IF NOT by_recompute` skipped the by-hand checks): fixed with coalesce. Also in this PR: `prepareTestDatabase` keeps `MIGRATION_REFERENCE_TABLES` (rows a migration inserts) when it empties the test database; #704's truncate-all would otherwise wipe them; and `bootstrap-platform-org.test.ts` gets a 300 s setup timeout (its own database outgrew the 120 s hook default in a full run). Contract note `docs/work/R0-stage-b3-billing.md`. Tests: `test/platform-billing.test.ts` (8); full db suite 106 files, 974 tests.
+
+## Handoff for a fresh R0 window (Oct 17, end of the first R0 window)
+
+Start here: `CLAUDE.md`, `docs/work/README.md`, this file, and the contract notes `docs/work/R0-stage-b*.md`. Rasel merges every PR; merging a schema PR is his yes for that migration. Never push to `main`, never rebase or force-push. When a branch falls behind or conflicts, merge `origin/main` into it: take the branch's side for demo files; keep both sides of log entries in this file and of `MIGRATION_REFERENCE_TABLES`.
+
+**Open PRs**, all with `main` (32d49076, ECR-cached CI) merged in on Oct 17. Merge order: #711, #713, #714 (any order among the three), then #705, then #706.
+- **#711:** B1, Super Admin notifications and export jobs (`R0-stage-b1-notifications.md`).
+- **#713:** B2, Support, 13 tables (`R0-stage-b2-support.md`).
+- **#714:** B3, Billing, 15 tables, Firmivra bills firms (`R0-stage-b3-billing.md`).
+- **#705** and **#706:** demo data Stage 3 (leads, Firm Sign, sign-ups, the bell) and Stage 4 (the 8 `demo-` firms for Super Admin). #706 is built on #705.
+- **OK'd by Rasel, in #713 only:** a one-line change to `apps/api/package.json` gives its typecheck an 8 GB heap, because the growing Prisma client types ran it out of memory at 4 GB. #714 picks it up by merging `main` after #713 lands, and its typecheck fails until then. It's a stopgap; trimming those types is a separate job.
+
+**Done earlier (merged):**
+- #677: Part 1, the platform team hierarchy and plans.
+- #679: demo Stage 1.
+- #704: demo Stage 2, plus the test setup now empties every table.
+
+**On dev** (R1 runs these, after an RDS snapshot and Rasel's go; nothing has run on dev yet), from the `demo-seed-task` image:
+1. migrate
+2. `bootstrap-platform-org-task.mjs` (plans, roles, CEO mapping of every SUPER_ADMIN)
+3. `seed-demo-task.mjs`
+
+`unseed-demo-task.mjs` removes every demo firm in one transaction. Stage 4 acts as the earliest SUPER_ADMIN.
+
+**Not started:** B4 to B9, then demo Stage 5.
+
+- **B4, Audit & Security** (design ready, not written):
+  - Extend `audit_logs` with nullable columns:
+    - `category` (AUTHENTICATION, AUTHORIZATION, DATA, INTEGRATION, SECURITY, SYSTEM)
+    - `severity` (INFO, LOW, MEDIUM, HIGH, CRITICAL)
+    - `outcome` (SUCCESS, FAILURE, DENIED)
+    - `actor_type`, `actor_name`, `actor_role`
+    - `session_id`, `auth_method`, `target_label`, `subject_user_id`, `parent_event_id`
+    - `risk_score` (0 to 100), `rule_id`, `detection_source`, `item_count`
+  - Add cross-firm indexes on `(created_at)`, `(category, created_at)` and `(severity, created_at)`.
+  - Existing writers and their tests must keep working unchanged.
+  - **One wall change for Rasel to confirm in the PR:** today admin scope reads only platform audit rows (`business_id IS NULL`). The cross-firm dashboard needs a read policy for the team (`app_is_admin() OR app_is_platform_member()`) over all rows. Inserts stay as they are; the API checks the `audit.*` permission keys.
+  - New tables:
+    - `security_alerts`: OPEN, ACKNOWLEDGED, RESOLVED, DISMISSED; links its triggering audit row; unique event key; team only.
+    - Audit investigation notes: additive; edits and deletes become their own audit rows.
+    - `platform_security_policy`: one row, typed JSON sections for MFA, password, session, login protection, admin access, API and integrations, audit retention, export controls and alert routing; a version bumped on every save.
+  - Spec: `11-Firmivra_Audit_and_Security_Developer_Instructions.md` (extract).
+- **B5 Sales Pipeline:** pipelines, stages, contacts, opportunities, tags, stage and assignment history, activity, follow-ups, notes, attention settings. Firmivra sells to prospective firms; link the firm application or business on conversion.
+- **B6 Communications:** conversations, messages and recipients, broadcasts and their channels and recipients, segments, template categories, templates, media. Firm contacts only.
+- **B7 System Settings:**
+  - typed platform settings; secret references only, never values
+  - brand assets; feature flags and overrides (GLOBAL and FIRM)
+  - retention policies, legal holds, retention runs
+  - maintenance windows, job controls, default sets
+- **B8 Integrations:**
+  - platform connections, sync runs, logs
+  - a catalog with plan and firm access; definitions stay in code
+  - API keys, webhook endpoints and deliveries, daily usage
+- **B9 Reports:** saved reports and a daily feature-usage rollup. Exports use B1's `platform_export_jobs`.
+- **Demo Stage 5:** the work modules, packages and promotions, audit and login history, and the new Super Admin groups, under the same `demo-` rules.
+
+The per-module inventory (entities, enums, endpoints, open questions with recommended defaults) came from Octavia's specs. They are read-only in Rasel's Downloads folder, under `BACK END UPDATED/Backend & Super Admin/SUPER ADMIN`; extract them with python-docx into a scratch folder and never copy them into the repo.
+
+**Decisions to keep (Rasel, Oct 17):**
+- Firmivra bills firms.
+- Support tickets carry the firm; firms see and raise their own, never notes.
+- Audit extends `audit_logs` (one trail).
+- Cross-firm figures come from platform tables or rollups.
+- Don't send questions back to Octavia; where her docs disagree, decide and note it in the contract note.
+
+**Conventions (copy them):**
+- Platform tables, FORCE RLS: the team policy is `app_is_admin() OR app_is_platform_member()`, plus `app_scope() = 'platform'` for jobs; a firm policy uses `app_scope() = 'business' AND business_id = app_current_business_id()`.
+- `platform_text_ok()` checks text. Rules triggers fix what must not change, and the database stamps times.
+- Numbers come from a one-row counter moved only by an owner-run `SECURITY DEFINER` function: not a sequence (Prisma drift), not `max()+1` (RLS hides rows).
+- Cross-scope membership checks use composite foreign keys (RLS doesn't hide them from the check).
+- Money is integer cents.
+- Database-only columns are guarded by a transaction-local marker; wrap `current_setting` in `coalesce`.
+- When a migration inserts reference rows, list the table in `MIGRATION_REFERENCE_TABLES` (`packages/db/src/testing.ts`).
+- Seed a sample row for every new table in `seed.ts`, or list it in `seed.test.ts`'s `knownEmpty` with the reason.
+- Regenerate `packages/types/src/db-enums.ts` with `pnpm --filter @firmivra/db gen:enums`.
+- Name migrations after `20261017170000`.
+- Write the hand SQL to a scratch file and splice it in (bash heredocs mangled some SQL quoting).
+
+**How to run the DB checks:**
+1. `docker compose up -d`. Postgres listens on 5433, owner role `firmivra`; `DATABASE_URL` is in `.env`.
+2. Generate a migration against a fresh scratch database:
+   `docker exec -i firmivra-postgres-1 psql -U firmivra -d postgres -c "DROP DATABASE IF EXISTS firmivra_r0_gen WITH (FORCE)" -c "CREATE DATABASE firmivra_r0_gen"`,
+   then `DATABASE_URL=postgresql://firmivra:firmivra@localhost:5433/firmivra_r0_gen pnpm --filter @firmivra/db exec prisma migrate dev --create-only --name <name>`.
+   Rename the folder so it sorts last, add the hand SQL, then run `prisma migrate deploy` on the same scratch database.
+3. Drift check, which must print an empty migration:
+   `pnpm --filter @firmivra/db exec prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, with `DATABASE_URL` pointing at the migrated scratch database.
+4. Run the regular seed twice there: `pnpm exec tsx prisma/seed.ts`.
+5. Run the suite: `pnpm --filter @firmivra/db exec vitest run` (about 2 minutes). To start from a clean test database, drop it first: `DROP DATABASE IF EXISTS firmivra_r0_test WITH (FORCE)`.
+   - Tests that call `app_delete_business_data` use their own database (`prepareTestDatabase('<suffix>')`), with a long setup timeout.
+6. Typecheck `packages/db` (`tsc --noEmit`) and `apps/api` (`pnpm typecheck`, about 3 minutes, needs the 8 GB heap). Build `@firmivra/db` first if its dist is stale.
+
+**Open items:**
+- R1: the `platform/exports/*` S3 prefix needs an IAM grant and a 7-day lifecycle rule (B1 note).
+- Trim the Prisma types `apps/api` instantiates, so typecheck fits in memory again.
+- `set-module.mjs` should take the migrate task's `DB_*` variables.
+- The dev SUPER_ADMIN emails were never needed by code.
+
 ## Demo path check (Oct 10)
 
 Main at b3fb7698 (#372), local: a fresh database (`pnpm db:migrate`, `pnpm db:seed`), the API with `AUTH_MODE=local`, `STRIPE_MODE=fake`, `SCAN_MODE=local`, emails in Mailpit. Calls through the dev token route (bearer) as Octavia's roles, plus the cookie flows (Begin Online drafts, portal sign-up and sign-in) with each site's `Origin`, as the browser sends them. The seed has no Firm Admin login, so LVP's Owner (`owner@lvp.test`) stood in for the Admin.

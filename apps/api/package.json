@@ -6,7 +6,7 @@
     "build": "nest build",
     "dev": "nest start --watch --preserveWatchOutput",
     "start": "node dist/main.js",
-    "lint": "eslint .",
+    "lint": "node --max-old-space-size=8192 ./node_modules/eslint/bin/eslint.js .",
     "typecheck": "node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc --noEmit",
     "test": "vitest run"
   },
