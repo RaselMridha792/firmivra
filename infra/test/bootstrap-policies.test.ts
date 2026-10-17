@@ -262,6 +262,7 @@ describe('bootstrap policies', () => {
       'rds.amazonaws.com',
       'vpcorigin.cloudfront.amazonaws.com',
       'email.cognito-idp.amazonaws.com',
+      'pullthroughcache.ecr.amazonaws.com',
     ]);
     for (const doc of [exec, boundary]) {
       const statements = doc.Statement.filter((s) =>
