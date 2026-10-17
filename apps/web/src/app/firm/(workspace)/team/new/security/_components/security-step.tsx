@@ -21,14 +21,15 @@ import { WizardHeader } from '../../_components/wizard-header';
 import { ACCESS_LEVELS, levelForRole, stepHref } from '../../_components/wizard-parts';
 import { AccountPreview, WizardNotes, previewFromDraft } from '../../_components/wizard-side';
 
-const METHODS: [StaffAuthMethod, string][] = [
+/** Shared with Access & Security's Login & Security tab. */
+export const METHODS: [StaffAuthMethod, string][] = [
   ['AUTHENTICATOR_APP', 'Authenticator App (e.g., Google Authenticator)'],
   ['SMS', 'SMS (Text Message)'],
   ['EMAIL', 'Email Verification'],
   ['BACKUP_CODES', 'Backup Codes (recommended)'],
 ];
 
-const NOTICES = [
+export const NOTICES = [
   ['newDeviceLogin', 'Successful logins (new device)'],
   ['failedLogins', 'Failed login attempts'],
   ['passwordChanges', 'Password changes'],
@@ -36,9 +37,9 @@ const NOTICES = [
   ['lockouts', 'Account lockouts'],
 ] as const;
 
-const LOGOUT_MINUTES = [15, 30, 60, 120, 240, 480];
+export const LOGOUT_MINUTES = [15, 30, 60, 120, 240, 480];
 
-const list = (text: string) =>
+export const list = (text: string) =>
   text
     .split(/[\s,]+/)
     .map((x) => x.trim())
@@ -114,7 +115,7 @@ function toAccess(f: Form): AccessInput {
   };
 }
 
-const MESSAGES: Record<string, string> = {
+export const MESSAGES: Record<string, string> = {
   allowedAuthMethods: 'Choose at least one sign-in method.',
   allowedIps: 'Use IP addresses or networks like 203.0.113.0/24, separated by commas.',
   allowedCountries: 'Use two-letter country codes like US, CA, separated by commas.',

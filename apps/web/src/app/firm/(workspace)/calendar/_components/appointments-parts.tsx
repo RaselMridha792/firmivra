@@ -16,7 +16,7 @@ import {
   type Icon,
   Plus,
   UserPlus,
-  XCircle,
+  X,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { type ReactNode, createElement } from 'react';
@@ -73,27 +73,28 @@ export const initials = (name: string) =>
     .map((w) => w[0]?.toUpperCase())
     .join('');
 
-/**
- * The top of every Appointments view (appointments.jpg): the title and line, and New
- * Appointment, which opens Schedule Appointment.
- */
+/** The top of every Appointments view (appointments.jpg): the title and its line. */
 export function AppointmentsHeader() {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4">
-      <div className="min-w-0">
-        <h1 data-testid="page-title" className="text-3xl font-bold text-heading">
-          Appointments
-        </h1>
-        <p className="text-base text-link">Schedule, manage, and track meetings in one place.</p>
-      </div>
-      <Link
-        href="/calendar/new"
-        className="inline-flex min-h-11 items-center gap-2 rounded-control bg-action px-5 text-sm font-semibold text-on-action hover:bg-action-hover"
-      >
-        <Plus aria-hidden weight="bold" className="size-4" />
-        New Appointment
-      </Link>
+    <header className="min-w-0">
+      <h1 data-testid="page-title" className="text-4xl font-bold text-heading">
+        Appointments
+      </h1>
+      <p className="text-base text-heading">Schedule, manage, and track meetings in one place.</p>
     </header>
+  );
+}
+
+/** New Appointment: opens Schedule Appointment. */
+export function NewAppointmentLink() {
+  return (
+    <Link
+      href="/calendar/new"
+      className="inline-flex min-h-11 items-center gap-2 rounded-control bg-action px-5 text-sm font-semibold whitespace-nowrap text-on-action hover:bg-action-hover"
+    >
+      <Plus aria-hidden weight="bold" className="size-4" />
+      New Appointment
+    </Link>
   );
 }
 
@@ -111,9 +112,12 @@ function Kpi({
   note,
   delta,
   good,
+  weight = 'fill',
 }: {
   label: string;
   icon: Icon;
+  /** Canceled's plain X is bold (its fill is a square). */
+  weight?: 'fill' | 'bold';
   tone: TileTone;
   value: ReactNode;
   note: string;
@@ -125,34 +129,30 @@ function Kpi({
   return (
     <section
       aria-label={label}
-      className="flex items-center gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm"
+      className="flex items-center gap-3 rounded-xl border border-divider bg-surface px-3 py-4 shadow-sm"
     >
       <span
         aria-hidden
         className={`flex size-14 shrink-0 items-center justify-center rounded-full ${tileTones[tone]}`}
       >
-        {createElement(icon, { weight: 'fill', className: 'size-7' })}
+        {createElement(icon, { weight, className: 'size-7' })}
       </span>
-      <div className="min-w-0">
+      <div className="flex min-w-0 flex-col items-start gap-0.5">
         <div className="text-2xl font-bold text-heading">{value}</div>
-        <h2 className="text-sm text-link">{label}</h2>
+        <h2 className="text-sm text-heading">{label}</h2>
         {delta ? (
-          <p className="flex flex-wrap items-center gap-1 text-xs text-muted">
-            <span
-              className={`inline-flex items-center gap-0.5 rounded px-1 font-semibold ${positive ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}
-            >
-              {delta.up ? (
-                <ArrowUp aria-hidden weight="bold" className="size-3" />
-              ) : (
-                <ArrowDown aria-hidden weight="bold" className="size-3" />
-              )}
-              {delta.text}
-            </span>
-            {note}
-          </p>
-        ) : (
-          <p className="text-xs text-muted">{note}</p>
-        )}
+          <span
+            className={`inline-flex items-center gap-0.5 rounded px-1 text-xs font-semibold ${positive ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}
+          >
+            {delta.up ? (
+              <ArrowUp aria-hidden weight="bold" className="size-3" />
+            ) : (
+              <ArrowDown aria-hidden weight="bold" className="size-3" />
+            )}
+            {delta.text}
+          </span>
+        ) : null}
+        {note ? <p className="text-sm text-heading">{note}</p> : null}
       </div>
     </section>
   );
@@ -180,11 +180,11 @@ export function SummaryCards() {
         good="up"
       />
       <Kpi
-        label="Upcoming (Next 7 Days)"
+        label="Upcoming"
         icon={UserPlus}
         tone="amber"
         value={n(s?.upcoming)}
-        note={s ? '' : note}
+        note={summary.isError ? note : '(Next 7 Days)'}
       />
       <Kpi
         label="Completed"
@@ -206,7 +206,8 @@ export function SummaryCards() {
       />
       <Kpi
         label="Canceled"
-        icon={XCircle}
+        icon={X}
+        weight="bold"
         tone="red"
         value={n(s?.canceled.value)}
         note={note}
@@ -223,8 +224,10 @@ const VIEWS = [
   { id: 'today', label: 'Today', href: '/calendar/today' },
 ] as const;
 
+export type AppointmentsView = (typeof VIEWS)[number]['id'];
+
 /** Calendar, List and Today: each view is its own page (PAGE-MAP), so these are links. */
-export function ViewSwitch({ current }: { current: (typeof VIEWS)[number]['id'] }) {
+export function ViewSwitch({ current }: { current: AppointmentsView }) {
   return (
     <nav aria-label="Appointment views" className="flex gap-2">
       {VIEWS.map((v) => {
@@ -241,5 +244,28 @@ export function ViewSwitch({ current }: { current: (typeof VIEWS)[number]['id'] 
         );
       })}
     </nav>
+  );
+}
+
+/**
+ * The row under the KPIs (appointments.jpg): the view switch, the view's own controls (the
+ * calendar's period and range, the list's search and filters), and New Appointment.
+ */
+export function AppointmentsToolbar({
+  current,
+  children,
+}: {
+  current: AppointmentsView;
+  children?: ReactNode;
+}) {
+  return (
+    <div
+      data-testid="appointments-toolbar"
+      className="flex flex-wrap items-center justify-between gap-3"
+    >
+      <ViewSwitch current={current} />
+      <div className="flex flex-wrap items-center gap-3">{children}</div>
+      <NewAppointmentLink />
+    </div>
   );
 }
