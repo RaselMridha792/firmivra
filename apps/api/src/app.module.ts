@@ -35,6 +35,7 @@ import { MessagesModule } from './messages/messages.module.js';
 import { SettingsModule } from './settings/settings.controller.js';
 import { AgreementsModule } from './agreements/agreements.controller.js';
 import { AppointmentsModule } from './appointments/appointments.module.js';
+import { CatalogModule } from './catalog/catalog.module.js';
 import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
 import { CalculatorsModule } from './calculators/calculators.controller.js';
 import { ContentModule } from './content/content.controller.js';
@@ -42,6 +43,8 @@ import { SupportAccessModule } from './support-access/support-access.controller.
 import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
+import { ScanQueueModule } from './storage/scan-queue/scan-queue.module.js';
+import { ScanRouterModule } from './storage/scan-queue/scan-router.js';
 import { BeginOnlineModule } from './begin-online/begin-online.controller.js';
 import { DashboardModule } from './dashboard/dashboard.controller.js';
 import { CheckoutModule } from './payments/checkout/checkout.controller.js';
@@ -110,11 +113,14 @@ export class AppModule {
         CalculatorsModule,
         ContentModule,
         AppointmentsModule,
+        CatalogModule,
         AuditViewerModule,
         SupportAccessModule,
         WorkspacesModule,
         DashboardModule,
         DocumentsModule,
+        ScanRouterModule,
+        ScanQueueModule,
         InvoicesModule,
         CheckoutModule,
         StripeWebhookModule,
