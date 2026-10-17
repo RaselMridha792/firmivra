@@ -107,6 +107,8 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
     value: '1',
     routes: /\/esign\/templates\/:templateId\/versions\/:version\/restore$/,
   },
+  // Each automation rule record has a version 1 (cases/automations.ts).
+  { param: 'version', value: '1', routes: /\/automations\/rules\/:id\/versions\/:version$/ },
 ];
 const fixedOf = (path: string): Record<string, string> =>
   Object.fromEntries(
