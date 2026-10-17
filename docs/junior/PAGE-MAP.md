@@ -269,7 +269,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/admin/sign-in/`, `admin/forgot-password/`, `admin/reset-password/`
 - `apps/web/src/app/firm/sign-in/`, `firm/forgot-password/`, `firm/reset-password/`, `firm/activate/`
 - `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's, and `clients/[id]/messages/`, Nahid's), `invoices/`, `sign-ups/`, `workspaces/`
-- Five Services & Pricing pages (Rasel, Oct 15), in `apps/web/src/app/firm/(workspace)/`: `services-pricing/new/`, `services-pricing/[id]/` (with its `edit/`), `services-pricing/inactive/` and `services-pricing/packages/new/`; and `apps/web/src/mocks/services-pricing.ts` and `mocks/services-pricing-*.ts` (shared with Arfan)
+- Five Services & Pricing pages (Rasel, Oct 15), in `apps/web/src/app/firm/(workspace)/`: `services-pricing/new/`, `services-pricing/[id]/` (with its `edit/`), `services-pricing/inactive/` and `services-pricing/packages/new/`; from Oct 17 also `services-pricing/categories/`, `services-pricing/packages/` (all package pages) and `services-pricing/promotions/`; and `apps/web/src/mocks/services-pricing.ts` and `mocks/services-pricing-*.ts` (shared with Arfan)
 - `apps/web/e2e/fahad-*.spec.ts`, `apps/web/e2e/mock/fahad-*.spec.ts`, `docs/tasks/FAHAD.md`
 
 **Tumit** (Staff Management, Settings and Appointments, from Oct 14)
@@ -279,6 +279,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/firm/(workspace)/team/` (Staff Management, 20 routes), `audit-log/`, `calendar/` (Appointments, 8 routes), `settings/` (all of it except `settings/layout.tsx`, `settings/route.ts`, `settings/payments/` and `settings/tax-statuses/`)
 - `apps/web/src/app/portal/[firmSlug]/(client)/appointments/`
 - `apps/web/src/mocks/team.ts`, `mocks/settings.ts`, `mocks/appointments.ts` and new `mocks/staff-*.ts`, `mocks/settings-*.ts`, `mocks/appointments-*.ts` (synthetic data only; registering a module in `lib/api.ts` is the contract session's)
+- From Oct 17, in `apps/web/src/app/firm/(workspace)/`: `intake-forms/builder/`, `intake-forms/templates/` and `intake-forms/send/` (shared with Arfan); and `apps/web/src/mocks/intake-forms.ts` and `mocks/intake-forms-*.ts`
 - `apps/web/e2e/tumit-*.spec.ts`, `apps/web/e2e/mock/tumit-*.spec.ts`, `docs/tasks/TUMIT.md`
 
 **Nahid** (F10's messages, from Oct 9; its invoices pages went to Fahad on Oct 10; the portal pages moved to R17)

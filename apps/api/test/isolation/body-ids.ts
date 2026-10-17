@@ -27,6 +27,21 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     routes: /^POST \/api\/v1\/business\/clients\/:id\/message-threads$/,
     why: 'echoed back on the thread as a link; the service never reads the record it names',
   },
+  {
+    field: 'lineItems.id',
+    routes: /^POST \/api\/v1\/business\/catalog\/services$/,
+    why: 'a new service has no lines yet: the service refuses any line id (400), so the field names no record (R55)',
+  },
+  {
+    field: 'addOns.id',
+    routes: /^POST \/api\/v1\/business\/catalog\/(services|packages)$/,
+    why: 'a new service or package has no add-ons yet: any add-on id is refused (400), so the field names no record (R55)',
+  },
+  {
+    field: 'addOns.linkedServiceId',
+    routes: /^(POST|PATCH) \/api\/v1\/business\/catalog\/packages(\/:id)?$/,
+    why: 'package add-ons cannot link a service yet (service_package_add_ons links a service add-on row): any value is refused (400) (R55)',
+  },
   ...['signature.agreements.agreementId', 'signature.acknowledgments.agreementId'].map((field) => ({
     field,
     routes:
