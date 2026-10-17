@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { Prisma } from '@firmivra/db';
 import type {
   MemberRef,
@@ -42,6 +46,17 @@ export const templateErrors = {
     new ForbiddenException({
       code: 'NOT_THE_OWNER',
       message: 'Only its owner, an Owner or an Admin can change this template',
+    }),
+  testRefused: () =>
+    new BadRequestException({
+      code: 'TEST_SEND_REFUSED',
+      message: 'A test goes only to your own address or number',
+    }),
+  testUnavailable: () =>
+    new ServiceUnavailableException({
+      code: 'TEST_SEND_UNAVAILABLE',
+      message: 'Test messages are not available yet',
+      retryAfter: 60,
     }),
   /** A request that passed the contract but names something that is not the firm's. */
   invalid: (path: string, message: string) =>
