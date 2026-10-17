@@ -48,6 +48,7 @@ import { BeginOnlineSweep } from './begin-online-sweep.js';
 import { BeginOnlineService } from './begin-online.service.js';
 import { DraftSubmitService } from './draft-submit.service.js';
 import { DRAFT_UPLOAD_PROVIDERS, DraftUploadsService } from './draft-uploads.service.js';
+import { LeadScanHandler } from './lead-scan-handler.js';
 import { DraftCookies } from './drafts.js';
 import { ResumeLinksService } from './resume-links.service.js';
 
@@ -250,6 +251,7 @@ export class BeginOnlineController {
     ResumeLinksService,
     DraftUploadsService,
     DraftSubmitService,
+    LeadScanHandler,
     ...DRAFT_UPLOAD_PROVIDERS,
     {
       provide: DraftCookies,

@@ -17,6 +17,7 @@ import { PrismaCompletionRepository } from './completion/prisma-completion.repos
 import { EsignCompletionJob } from './completion/completion.job.js';
 import { EsignCompletionService } from './completion/completion.service.js';
 import { EsignEngineModule } from './engine/engine.module.js';
+import { EsignScanHandler } from './esign-scan-handler.js';
 import { EsignApprovalsService } from './extras/approvals.service.js';
 import { EsignExtrasController } from './extras/extras.controller.js';
 import { EXTRAS_REPOSITORY } from './extras/extras.repository.js';
@@ -96,6 +97,7 @@ import { EsignSignerService } from './signer/signer.service.js';
   providers: [
     EsignRequestsService,
     EsignDocumentsService,
+    EsignScanHandler,
     EsignPrepareService,
     EsignListService,
     EsignSendService,

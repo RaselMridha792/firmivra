@@ -26,6 +26,7 @@ Branch `rasel/R55-catalog-documents-api`. Local ports: API 4550, web 3550, datab
 
 - [x] 1. Services & Pricing under `/business/catalog`: services (list, create, get, update, activate, deactivate, archive, duplicate, delete, usage), packages (list, create, get, update, pricing panel, activate, deactivate, duplicate, archive), summary, categories (list, create, update, reorder, merge, delete) and promotions (list, create, update, end).
 - [x] 2. Documents: compared with `createDocumentsClient` and `createMyDocumentsClient`; nothing is missing, so no code was added (list below).
+- [x] 3. Scan handlers for the `leads`, `esign` and `agreements` prefixes of the scan router (they were UNKNOWN, so their results went to the dead-letter queue).
 
 ## Documents: what already existed and what was added
 
@@ -68,3 +69,4 @@ The tables from R36 cover the catalog, but a few contract fields do not map one 
 
 Shared test file touched: `apps/api/test/isolation/body-ids.ts` got three `NOT_RECORDS` entries (a new service or package refuses any line or add-on id; package add-on `linkedServiceId` is refused), each with its reason.
 - 2026-10-17: #685 CI red was Docker Hub's pull rate limit on test shard 1 (shard 2 cancelled with it), not code. The four download routes answering 409 in the isolation suite come from the s3mock container running on this laptop: the same four fail on clean origin/main here, and all 19 isolation tests pass on this branch with S3 unreachable, as in CI.
+- 2026-10-17: step 3, scan handlers. `LeadScanHandler` (lead_uploads, and the converted Document with the same key), `EsignScanHandler` (esign_documents for `source/`, esign_attachments for `attachments/`; the objects the server writes are IGNORED), `AgreementScanHandler` (over AgreementFilesService.recordScan). They share `storage/scan-record.ts` (lock, `scanVerdict`, audit ids and codes only) and the documents handler's orphan window: a result with no row waits for the confirm, then is acknowledged and logged. No new column was needed.

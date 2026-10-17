@@ -38,6 +38,7 @@ import {
   S3DocumentStorage,
 } from '../storage/document-storage.js';
 import { AgreementFilesService, AgreementUploadTokens } from './agreement-files.service.js';
+import { AgreementScanHandler } from './agreement-scan-handler.js';
 import { AGREEMENTS_CONFIG, agreementsConfig, AgreementsService } from './agreements.service.js';
 import { IntakeSignaturesService } from './intake-signatures.service.js';
 
@@ -209,6 +210,7 @@ export class MyIntakeAgreementsController {
   providers: [
     AgreementsService,
     AgreementFilesService,
+    AgreementScanHandler,
     IntakeSignaturesService,
     // The documents bucket and settings, as DocumentsModule builds them (that module exports none).
     { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
