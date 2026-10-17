@@ -6,7 +6,7 @@ import {
   type CatalogServiceRow,
   type PackagePricingRequest,
 } from '@firmivra/types';
-import { Button, Input, Modal, Select, Textarea, Toggle } from '@firmivra/ui';
+import { Button, Checkbox, IconButton, Input, Modal, Select, Textarea, Toggle } from '@firmivra/ui';
 import { ArrowLeft, Cube, FileText, Gear, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -18,18 +18,23 @@ import {
   type FieldPath,
   type FieldPathValue,
 } from 'react-hook-form';
-import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { money } from '../../../_components/catalog-shared';
 import {
-  money,
   PackageIcon,
   PackagePreview,
   Panel,
   SelectedServices,
   ServicePicker,
 } from './package-parts';
+
+const SETTINGS = [
+  ['visibleToClients', 'Visible to Clients'],
+  ['allowClientAddOns', 'Allow Client to Add Optional Add-Ons'],
+  ['displayOnWebsite', 'Display on Website/Portal'],
+] as const;
 
 type Values = CreateServicePackageRequest;
 type AddOn = NonNullable<Values['addOns']>[number];
@@ -47,7 +52,7 @@ export function PackageBuilder() {
       shortDescription: '',
       icon: 'briefcase',
       services: [],
-      packagePriceCents: 0,
+      packagePriceCents: null,
       discountType: 'NONE',
       discountValue: null,
       addOns: [],
@@ -97,6 +102,8 @@ export function PackageBuilder() {
     const row = knownServices[item.serviceId];
     return row ? [{ row, included: item.included ?? true }] : [];
   });
+  const addOns = value.addOns ?? [];
+  const allOffered = addOns.length > 0 && addOns.every((a) => !!a.offered);
   const save = useApiMutation((body: Values) => api.servicesPricing.createPackage(body), {
     invalidate: ['services-pricing'],
   });
@@ -148,7 +155,7 @@ export function PackageBuilder() {
             </div>
           </div>
           <Button variant="outline" onClick={back}>
-            <ArrowLeft className="size-4" />
+            <ArrowLeft aria-hidden weight="bold" className="size-4" />
             Back to Packages
           </Button>
         </div>
@@ -207,8 +214,13 @@ export function PackageBuilder() {
                 <PackageIcon value={value.icon} onChange={(next) => put('icon', next)} />
               </div>
             </div>
-            {categories.isError || categories.isPending ? (
-              <PageState query={categories}>{() => null}</PageState>
+            {categories.isError ? (
+              <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-muted">
+                <span>Categories are unavailable right now.</span>
+                <Button variant="ghost" onClick={() => void categories.refetch()}>
+                  Try again
+                </Button>
+              </div>
             ) : null}
           </Panel>
           <Panel
@@ -216,7 +228,7 @@ export function PackageBuilder() {
             marker={2}
             action={
               <Button variant="outline" onClick={() => setPicker(true)}>
-                <Plus className="size-4" />
+                <Plus aria-hidden weight="bold" className="size-4" />
                 Add Service
               </Button>
             }
@@ -235,6 +247,12 @@ export function PackageBuilder() {
                   (value.services ?? []).map((s) => (s.serviceId === id ? { ...s, included } : s)),
                 )
               }
+              onToggleAll={(included) =>
+                put(
+                  'services',
+                  (value.services ?? []).map((s) => ({ ...s, included })),
+                )
+              }
             />
           </Panel>
           <Panel title="Package Pricing" marker={3}>
@@ -249,65 +267,98 @@ export function PackageBuilder() {
                 </p>
                 <p className="mt-1 text-xs text-muted">Based on current individual prices.</p>
               </div>
-              <Input
-                label="Package Price *"
-                type="number"
-                min={0}
-                step="0.01"
-                value={value.packagePriceCents == null ? '' : value.packagePriceCents / 100}
-                onChange={(e) =>
-                  put(
-                    'packagePriceCents',
-                    e.target.value === '' ? null : Math.round(Number(e.target.value) * 100),
-                  )
-                }
-                error={errors.packagePriceCents?.message}
-                data-testid="package-price"
-              />
-              <div className="space-y-2">
-                <Select
-                  label="Discount (Optional)"
-                  value={value.discountType ?? 'NONE'}
-                  options={[
-                    { value: 'NONE', label: 'None' },
-                    { value: 'PERCENTAGE', label: 'Percentage' },
-                    { value: 'FIXED', label: 'Fixed Amount' },
-                  ]}
-                  onChange={(e) => {
-                    put('discountType', e.target.value as Values['discountType']);
-                    put('discountValue', e.target.value === 'NONE' ? null : 0);
-                  }}
-                />
-                {value.discountType !== 'NONE' ? (
-                  <Input
-                    label={
-                      value.discountType === 'PERCENTAGE'
-                        ? 'Discount percentage'
-                        : 'Discount amount'
-                    }
-                    type="number"
-                    min={0}
-                    max={value.discountType === 'PERCENTAGE' ? 100 : undefined}
-                    step="0.01"
-                    value={(value.discountValue ?? 0) / 100}
-                    onChange={(e) => put('discountValue', Math.round(Number(e.target.value) * 100))}
+              <div className="flex min-w-0 flex-col gap-1">
+                <p aria-hidden className="text-sm font-medium text-text">
+                  Package Price *
+                </p>
+                <div className="flex items-start gap-2">
+                  <span className="py-2 text-muted">$</span>
+                  <div className="min-w-0 grow">
+                    <Input
+                      label="Package Price *"
+                      hideLabel
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={value.packagePriceCents == null ? '' : value.packagePriceCents / 100}
+                      onChange={(e) =>
+                        put(
+                          'packagePriceCents',
+                          e.target.value === '' ? null : Math.round(Number(e.target.value) * 100),
+                        )
+                      }
+                      error={errors.packagePriceCents?.message}
+                      data-testid="package-price"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="min-w-0 space-y-2">
+                <div className="grid grid-cols-2 items-end gap-2">
+                  <Select
+                    label="Discount (Optional)"
+                    value={value.discountType ?? 'NONE'}
+                    options={[
+                      { value: 'NONE', label: 'None' },
+                      { value: 'PERCENTAGE', label: 'Percentage' },
+                      { value: 'FIXED', label: 'Fixed Amount' },
+                    ]}
+                    onChange={(e) => {
+                      put('discountType', e.target.value as Values['discountType']);
+                      put('discountValue', e.target.value === 'NONE' ? null : 0);
+                    }}
                   />
-                ) : null}
+                  <div className="flex min-w-0 items-center gap-2">
+                    {value.discountType === 'FIXED' ? <span className="text-muted">$</span> : null}
+                    <div className="min-w-0 grow">
+                      <Input
+                        label={
+                          value.discountType === 'PERCENTAGE'
+                            ? 'Discount percentage'
+                            : value.discountType === 'FIXED'
+                              ? 'Discount amount'
+                              : 'Discount value'
+                        }
+                        hideLabel
+                        type="number"
+                        min={0}
+                        max={value.discountType === 'PERCENTAGE' ? 100 : undefined}
+                        step="0.01"
+                        disabled={value.discountType === 'NONE'}
+                        value={value.discountValue == null ? '' : value.discountValue / 100}
+                        onChange={(e) =>
+                          put(
+                            'discountValue',
+                            e.target.value === '' ? null : Math.round(Number(e.target.value) * 100),
+                          )
+                        }
+                      />
+                    </div>
+                    {value.discountType === 'FIXED' ? null : <span className="text-muted">%</span>}
+                  </div>
+                </div>
+                <p
+                  className="rounded-control bg-success-soft px-3 py-2 text-center text-sm text-success"
+                  data-testid="package-savings"
+                >
+                  Client Savings: {money(totals?.savingsCents)}
+                  {totals?.savingsPercent != null ? ` (${totals.savingsPercent}%)` : ''}
+                </p>
               </div>
             </div>
-            <p
-              className="rounded-control bg-success-soft px-3 py-2 text-center text-sm text-success"
-              data-testid="package-savings"
-            >
-              Client Savings: {money(totals?.savingsCents)}
-              {totals?.savingsPercent != null ? ` (${totals.savingsPercent}%)` : ''}
-            </p>
             {totals?.variablePrice ? (
               <p role="status" className="text-sm text-warning">
                 Variable-price services are included. Savings are an estimate, not guaranteed.
               </p>
             ) : null}
-            <PageState query={pricing}>{() => null}</PageState>
+            {pricing.isError ? (
+              <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-muted">
+                <span>Totals are unavailable right now.</span>
+                <Button variant="ghost" onClick={() => void pricing.refetch()}>
+                  Try again
+                </Button>
+              </div>
+            ) : null}
           </Panel>
           <Panel
             title="Optional Add-Ons (Client Can Choose)"
@@ -321,12 +372,26 @@ export function PackageBuilder() {
                   setAddon({ index: null, value: { ...blankAddon } });
                 }}
               >
-                + Add Add-On
+                <Plus aria-hidden weight="bold" className="size-4" />
+                Add Add-On
               </Button>
             }
           >
-            <div className="hidden grid-cols-12 gap-2 border-b border-divider pb-2 text-xs font-semibold text-heading md:grid">
-              <span className="col-span-4">Add-On Name</span>
+            <div className="hidden grid-cols-12 items-center gap-2 border-b border-divider pb-2 text-xs font-semibold text-heading md:grid">
+              <span className="col-span-4 flex items-center gap-1">
+                <Checkbox
+                  label=""
+                  aria-label="Offer every add-on"
+                  checked={allOffered}
+                  disabled={!addonFields.fields.length}
+                  onChange={(e) =>
+                    addonFields.fields.forEach((_, i) =>
+                      put(`addOns.${i}.offered`, e.target.checked),
+                    )
+                  }
+                />
+                Add-On Name
+              </span>
               <span className="col-span-4">Description</span>
               <span className="col-span-2">Price</span>
               <span className="col-span-2">Actions</span>
@@ -340,36 +405,33 @@ export function PackageBuilder() {
                     className="grid min-w-0 gap-2 border-b border-divider pb-2 text-sm md:grid-cols-12 md:items-center"
                     data-testid="package-addon-row"
                   >
-                    <div className="flex min-w-0 items-center gap-2 md:col-span-4">
-                      <Toggle
-                        label={`Offer ${item?.name ?? 'add-on'}`}
+                    <div className="flex min-w-0 items-center gap-1 md:col-span-4">
+                      <Checkbox
+                        label=""
+                        aria-label={`Offer ${item?.name ?? 'add-on'}`}
                         checked={!!item?.offered}
-                        onChange={(next) => put(`addOns.${i}.offered`, next)}
+                        onChange={(e) => put(`addOns.${i}.offered`, e.target.checked)}
                       />
                       <span className="break-words">{item?.name}</span>
                     </div>
                     <p className="break-words text-muted md:col-span-4">{item?.description}</p>
                     <span className="md:col-span-2">{money(item?.priceCents)}</span>
-                    <div className="flex gap-1 md:col-span-2">
-                      <Button
-                        variant="ghost"
-                        className="px-2"
-                        aria-label={`Edit add-on ${i + 1}`}
+                    <div className="flex gap-2 md:col-span-2">
+                      <IconButton
+                        icon={PencilSimple}
+                        tone="action"
+                        label={`Edit add-on ${i + 1}`}
                         onClick={() => {
                           setAddonError('');
                           if (item) setAddon({ index: i, value: item });
                         }}
-                      >
-                        <PencilSimple weight="fill" className="size-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="px-2 text-danger"
-                        aria-label={`Remove add-on ${i + 1}`}
+                      />
+                      <IconButton
+                        icon={Trash}
+                        tone="danger"
+                        label={`Remove add-on ${i + 1}`}
                         onClick={() => addonFields.remove(i)}
-                      >
-                        <Trash weight="fill" className="size-4" />
-                      </Button>
+                      />
                     </div>
                   </div>
                 );
@@ -402,27 +464,20 @@ export function PackageBuilder() {
             <p className="text-right text-xs text-muted">{value.internalNotes?.length ?? 0}/500</p>
           </Panel>
           <Panel title="Package Settings" marker={<Gear weight="fill" className="size-4" />}>
-            {[
-              { key: 'visibleToClients', label: 'Visible to Clients' },
-              { key: 'allowClientAddOns', label: 'Allow Client to Add Optional Add-Ons' },
-              { key: 'displayOnWebsite', label: 'Display on Website/Portal' },
-            ].map((setting) => (
-              <div key={setting.key} className="flex items-center justify-between gap-3 text-sm">
-                <span>{setting.label}</span>
-                <Toggle
-                  label={setting.label}
-                  checked={
-                    !!value[
-                      setting.key as 'visibleToClients' | 'allowClientAddOns' | 'displayOnWebsite'
-                    ]
-                  }
-                  onChange={(next) =>
-                    put(
-                      setting.key as 'visibleToClients' | 'allowClientAddOns' | 'displayOnWebsite',
-                      next,
-                    )
-                  }
-                />
+            {SETTINGS.map(([key, label]) => (
+              <div
+                key={key}
+                className="flex items-center justify-between gap-3 border-b border-divider pb-2 text-sm last:border-0 last:pb-0"
+              >
+                <span>{label}</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <Toggle
+                    label={label}
+                    checked={!!value[key]}
+                    onChange={(next) => put(key, next)}
+                  />
+                  <span className="w-6">{value[key] ? 'Yes' : 'No'}</span>
+                </span>
               </div>
             ))}
           </Panel>
@@ -436,12 +491,13 @@ export function PackageBuilder() {
               Check the highlighted fields before saving.
             </p>
           ) : null}
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="secondary" onClick={back}>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" className="grow" onClick={back}>
               Cancel
             </Button>
             <Button
               variant="outline"
+              className="grow"
               disabled={save.isPending}
               onClick={() => submit(false)}
               data-testid="package-save-draft"
@@ -449,6 +505,7 @@ export function PackageBuilder() {
               Save as Draft
             </Button>
             <Button
+              className="grow"
               disabled={save.isPending}
               onClick={() => submit(true)}
               data-testid="package-save-activate"
@@ -458,17 +515,19 @@ export function PackageBuilder() {
           </div>
         </aside>
       </form>
-      <ServicePicker
-        open={picker}
-        onClose={() => setPicker(false)}
-        selected={(value.services ?? []).map((s) => s.serviceId)}
-        categories={categories.data ?? []}
-        onAdd={(row) => {
-          if (value.services?.some((s) => s.serviceId === row.id)) return;
-          setKnownServices((current) => ({ ...current, [row.id]: row }));
-          put('services', [...(value.services ?? []), { serviceId: row.id, included: true }]);
-        }}
-      />
+      {picker ? (
+        <ServicePicker
+          open
+          onClose={() => setPicker(false)}
+          selected={(value.services ?? []).map((s) => s.serviceId)}
+          categories={categories.data ?? []}
+          onAdd={(row) => {
+            if (value.services?.some((s) => s.serviceId === row.id)) return;
+            setKnownServices((current) => ({ ...current, [row.id]: row }));
+            put('services', [...(value.services ?? []), { serviceId: row.id, included: true }]);
+          }}
+        />
+      ) : null}
       <Modal
         open={cancel}
         title="Unsaved package changes"

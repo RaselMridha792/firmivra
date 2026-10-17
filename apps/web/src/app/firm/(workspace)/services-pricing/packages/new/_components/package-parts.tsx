@@ -1,42 +1,29 @@
 'use client';
 
-import {
-  BookOpen,
-  Briefcase,
-  ChartBar,
-  CheckCircle,
-  Cube,
-  Eye,
-  FileText,
-  PlusCircle,
-  Tag,
-  User,
-  type Icon,
-} from '@phosphor-icons/react';
+import { CheckCircle, Cube, Eye, PlusCircle, Trash } from '@phosphor-icons/react';
 import type {
   CatalogServiceRow,
   CreateServicePackageRequest,
   ServiceCategory,
 } from '@firmivra/types';
-import { Badge, Button, Card, Checkbox, Input, Modal, Pagination, Select } from '@firmivra/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  IconButton,
+  Input,
+  Modal,
+  Pagination,
+  Select,
+  Toggle,
+} from '@firmivra/ui';
 import { useDeferredValue, useState, type ReactNode } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { PageState } from '../../../../../../../components/page-state';
+import { CATALOG_ICONS, IconTile, money, tone } from '../../../_components/catalog-shared';
 
-export const money = (cents: number | null | undefined) =>
-  cents == null
-    ? '—'
-    : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
-export const icons: Record<string, Icon> = {
-  briefcase: Briefcase,
-  cube: Cube,
-  user: User,
-  book: BookOpen,
-  'chart-bar': ChartBar,
-  'file-text': FileText,
-  tag: Tag,
-};
 export function Panel({
   title,
   marker,
@@ -74,36 +61,38 @@ export function PackageIcon({
   onChange: (value: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const Glyph = icons[value ?? ''] ?? Cube;
+  // The catalog's approved icon keys; a cube when there is none.
+  const meta = value ? CATALOG_ICONS[value] : undefined;
+  const Glyph = meta?.glyph ?? Cube;
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">Package Icon</p>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="flex size-16 items-center justify-center rounded-lg bg-info-soft text-action">
-          <Glyph weight="fill" className="size-9" />
+          <Glyph aria-hidden weight="fill" className="size-9" />
         </span>
-        <div>
+        <div className="flex flex-col items-center">
           <Button variant="outline" onClick={() => setOpen(true)}>
             Change Icon
           </Button>
-          <Button variant="ghost" onClick={() => onChange(null)}>
+          <Button variant="ghost" className="underline" onClick={() => onChange(null)}>
             Remove
           </Button>
         </div>
       </div>
       <Modal open={open} title="Choose package icon" onClose={() => setOpen(false)}>
         <div className="grid grid-cols-3 gap-3">
-          {Object.entries(icons).map(([key, Icon]) => (
+          {Object.entries(CATALOG_ICONS).map(([key, choice]) => (
             <Button
               key={key}
               variant="secondary"
-              aria-label={`Choose ${key} icon`}
+              aria-label={`Choose ${choice.label} icon`}
               onClick={() => {
                 onChange(key);
                 setOpen(false);
               }}
             >
-              <Icon weight="fill" className="size-6" />
+              <choice.glyph aria-hidden weight="fill" className="size-6" />
             </Button>
           ))}
         </div>
@@ -228,7 +217,8 @@ export function PackagePreview({
   selected: CatalogServiceRow[];
 }) {
   const [full, setFull] = useState(false);
-  const Glyph = icons[value.icon ?? ''] ?? Cube;
+  const meta = value.icon ? CATALOG_ICONS[value.icon] : undefined;
+  const Glyph = meta?.glyph ?? Cube;
   const content = (expanded: boolean) => (
     <Card
       className="min-w-0 space-y-4 p-4"
@@ -269,8 +259,8 @@ export function PackagePreview({
           <ul className="mt-2 space-y-2">
             {value.addOns
               .filter((a) => a.offered)
-              .map((a) => (
-                <li key={a.name} className="flex gap-2 text-sm">
+              .map((a, i) => (
+                <li key={`${a.name}-${i}`} className="flex gap-2 text-sm">
                   <PlusCircle weight="fill" className="size-5 shrink-0 text-action" />
                   <span className="break-words">
                     {a.name} (+{money(a.priceCents)})
@@ -293,12 +283,8 @@ export function PackagePreview({
         title="Package Preview (Client View)"
         marker={<Eye weight="fill" className="size-4" />}
         action={
-          <Button
-            className="min-h-8 px-2 py-1 text-xs"
-            variant="outline"
-            onClick={() => setFull(true)}
-          >
-            <Eye weight="fill" className="size-4" />
+          <Button className="text-xs" variant="outline" onClick={() => setFull(true)}>
+            <Eye aria-hidden weight="fill" className="size-4" />
             View Full Page
           </Button>
         }
@@ -316,19 +302,31 @@ export function SelectedServices({
   rows,
   onRemove,
   onToggle,
+  onToggleAll,
 }: {
   rows: { row: CatalogServiceRow; included: boolean }[];
   onRemove: (id: string) => void;
   onToggle: (id: string, included: boolean) => void;
+  onToggleAll: (included: boolean) => void;
 }) {
+  const allIncluded = rows.length > 0 && rows.every((r) => r.included);
   return (
     <div className="space-y-2">
-      <div className="hidden grid-cols-12 gap-2 border-b border-divider pb-2 text-xs font-semibold text-heading lg:grid">
-        <span className="col-span-4">Service Name</span>
+      <div className="hidden grid-cols-12 items-center gap-2 border-b border-divider pb-2 text-xs font-semibold text-heading lg:grid">
+        <span className="col-span-5 flex items-center gap-1">
+          <Checkbox
+            label=""
+            aria-label="Include every service"
+            checked={allIncluded}
+            disabled={!rows.length}
+            onChange={(e) => onToggleAll(e.target.checked)}
+          />
+          Service Name
+        </span>
         <span className="col-span-2">Category</span>
         <span className="col-span-2">Individual Price</span>
-        <span className="col-span-3">Included in Package</span>
-        <span>Actions</span>
+        <span className="col-span-2">Included in Package</span>
+        <span className="text-right">Actions</span>
       </div>
       {rows.length ? (
         rows.map(({ row, included }) => (
@@ -337,36 +335,37 @@ export function SelectedServices({
             className="grid min-w-0 gap-2 border-b border-divider pb-2 lg:grid-cols-12 lg:items-center"
             data-testid="selected-package-service"
           >
-            <div className="min-w-0 lg:col-span-4">
+            <div className="flex min-w-0 items-center gap-1 lg:col-span-5">
               <Checkbox
-                label={row.name}
+                label=""
+                aria-label={`Include ${row.name}`}
                 checked={included}
                 onChange={(e) => onToggle(row.id, e.target.checked)}
-                className="text-sm [&>span]:break-words"
               />
+              <IconTile icon={row.icon} />
+              <span className="ml-2 min-w-0 break-words text-sm text-heading">{row.name}</span>
             </div>
             <span className="lg:col-span-2">
-              <Badge tone="info">{row.category?.name ?? 'Uncategorized'}</Badge>
+              <Badge tone={tone(row.category?.tone)}>{row.category?.name ?? 'Uncategorized'}</Badge>
             </span>
             <span className="text-sm lg:col-span-2">
               {row.price.type === 'CUSTOM_QUOTE' ? 'Quote required' : money(row.price.amountCents)}
             </span>
-            <div className="lg:col-span-3">
-              <Checkbox
-                label={included ? 'Yes' : 'No'}
-                aria-label={`Included in package: ${row.name}`}
+            <span className="flex items-center gap-2 text-sm lg:col-span-2">
+              <Toggle
+                label={`Included in package: ${row.name}`}
                 checked={included}
-                onChange={(e) => onToggle(row.id, e.target.checked)}
+                onChange={(next) => onToggle(row.id, next)}
               />
-            </div>
-            <Button
-              variant="ghost"
-              className="justify-self-start px-2"
-              aria-label={`Remove ${row.name}`}
+              {included ? 'Yes' : 'No'}
+            </span>
+            <IconButton
+              icon={Trash}
+              tone="danger"
+              label={`Remove ${row.name}`}
+              className="justify-self-start lg:justify-self-end"
               onClick={() => onRemove(row.id)}
-            >
-              ×
-            </Button>
+            />
           </div>
         ))
       ) : (

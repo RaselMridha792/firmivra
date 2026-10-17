@@ -25,7 +25,7 @@ test('package picks unique services, uses API savings, keeps notes private and s
   await expect(
     page.getByText('Variable-price services are included.', { exact: false }),
   ).toBeVisible();
-  await page.getByRole('button', { name: '+ Add Add-On', exact: true }).click();
+  await page.getByRole('button', { name: 'Add Add-On', exact: true }).click();
   await page.getByLabel('Add-On Name *').fill('Extra annual review');
   await page.getByLabel('Add-On Price', { exact: true }).fill('50');
   await page.getByRole('button', { name: 'Save Add-On', exact: true }).click();
