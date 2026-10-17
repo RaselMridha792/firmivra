@@ -4,11 +4,12 @@ Notes for the Integrations contract (contract-only PR; the API comes later in th
 
 ## Steps
 
-- [ ] 6. Integrations. 6a [x]: contract (`packages/types/src/integrations/`, `createIntegrationsClient` as `api.integrations`). 6b: API.
+- [x] 6. Integrations. 6a [x]: contract (`packages/types/src/integrations/`, `createIntegrationsClient` as `api.integrations`). 6b [x]: API (`apps/api/src/integrations/`).
 
 ## Progress
 
 - 2026-10-18: step 6a, the Integrations contract: main page (summary cards, tabs, Live/Test mode, health, data-mapping summary, recent activity), marketplace (categories, featured, sort, search), provider definitions (what each can sync, sign-in method, permissions in plain words, options, credential fields, mapping fields), connect and reconnect (OAuth redirect or write-only credentials), the Manage page (overview, sync settings, sync now, pause, resume, test, health, history, run detail, mappings, permissions, disconnect), requests for an integration not listed, and Custom API and Webhooks.
+- 2026-10-18: step 6b, the Integrations API: the catalog of 18 providers (code), the main page and marketplace, provider definitions, connect and reconnect (OAuth with a state bound to the browser by an HttpOnly cookie, write-only credentials, built-in providers), settings checked against the provider, Sync Now with runs, pause and resume, the connection test and health, disconnect, mappings, permissions, requests, and Custom API & Webhooks (signed test event to a public https endpoint). Tests: 19 e2e, 10 unit, isolation cases for every connection route.
 
 ### Integrations (step 6)
 
@@ -21,3 +22,14 @@ Notes for the Integrations contract (contract-only PR; the API comes later in th
 7. **Disconnect**: the connection stays (status DISCONNECTED), imported records and history stay, the secret is removed and the provider's access revoked. At most one connection per provider and environment, except providers marked `multipleConnections`.
 8. **Roles**: Owner and Admin always; the permission grid's INTEGRATIONS capabilities for the others (`canManage` tells the screen). Staff-level access is read-only by default.
 9. **No mock** yet: the client is real-API only in `apps/web/src/lib/api.ts`. A mock is a frontend task (Ibrahim).
+
+### API notes (step 6b)
+
+10. **No outside provider is connectable yet.** The registry joins the catalog with adapters (`INTEGRATION_ADAPTERS`); none is registered for an outside provider, so QuickBooks, Microsoft 365 and the rest answer 409 `COMING_SOON` (`comingSoon` true in their definition). `website_forms` and `custom_api` need no outside account and connect at once. The e2e suite registers fake adapters (an OAuth one, an API-key one) to prove the flows. A real adapter is one file implementing `ProviderAdapter` (authorizeUrl, exchange or verifyCredentials, test, sync, revoke) and the provider's app credentials.
+11. **Secrets.** The secret goes to a `SecretStore`: AWS Secrets Manager (`SECRETS_MODE=aws`, the production default) under `firmivra/tenant/<business>/integrations/<connection>`, or an in-memory store in development and tests (refused in production). `secret_ref` holds only that name. **Needs from others (infra, Rasel):** the API task role needs `secretsmanager:CreateSecret`, `PutSecretValue`, `GetSecretValue` and `DeleteSecret` on `firmivra/tenant/*/integrations/*`, and each provider's OAuth redirect address must be registered with it: `<APP_BASE_URL>/api/v1/integrations/callback`. The dependency `@aws-sdk/client-secrets-manager` was added.
+12. **The callback** (`GET /api/v1/integrations/callback`, public) redirects to `<APP_BASE_URL>/integrations/<provider>/setup?result=connected|failed` and never puts the code, the state or an error text in the address. It connects only when its sealed, 10-minute state matches the HttpOnly, SameSite=Lax cookie (`fv_int_state`) the connect request set in the same browser. The settings picked before connecting travel in the state, so a failed authorization loses nothing.
+13. **Sync Now** queues one run per enabled object (the connection row is locked, so two clicks queue one set), answers the first run, and runs the adapter in the background; a connection with no sync adapter answers 409 `NOT_SUPPORTED`. A failed run with an expired or revoked authorization, or a missing permission, sets the connection to NEEDS_ATTENTION with the reason. There is no scheduler job for automatic syncs yet (`next_sync_at` is kept for it): a later job reads it.
+14. **Custom API**: the endpoint must be https, public and reached through a checked address (`safe-http.ts`: no credentials in the URL, no localhost or private, loopback, link-local or metadata address, checked on the address the socket really uses, 8 second timeout). The test sends one event signed with HMAC-SHA256 (`x-firmivra-signature`) or with the API key or bearer token as chosen. The reserved `inboundUrl` (`/api/v1/integrations/inbound/<connection>`) has no receiving route yet: receiving website forms and webhooks (signature check, replay protection, lead creation) is a follow-up.
+15. **`multipleConnections`** has no effect: the table is unique per provider and environment, so a provider has one live and one test connection.
+16. **Who may write**: Owner and Admin, or a grid role with the Edit capability on Integrations; the legacy Staff role passes the route's roles but is refused (403) by the service.
+17. **Isolation suite**: a connection record puts its row back to its starting state instead of making a second one (the shared world and each write case's fresh world live in one firm, and a connection is unique per provider and environment); the positive-control test has a 180 s limit (as in the Templates PR).
