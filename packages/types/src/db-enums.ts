@@ -620,6 +620,46 @@ export const PlatformSubscriptionStatus = z.enum([
 ]);
 export type PlatformSubscriptionStatus = z.infer<typeof PlatformSubscriptionStatus>;
 
+/** The Super Admin notification center's categories (Notifications spec). */
+export const PlatformNotificationCategory = z.enum([
+  'FIRMS',
+  'FIRM_APPLICATIONS',
+  'SALES_LEADS',
+  'BILLING_SUBSCRIPTIONS',
+  'SUPPORT',
+  'INTEGRATIONS',
+  'SECURITY',
+  'SYSTEM',
+]);
+export type PlatformNotificationCategory = z.infer<typeof PlatformNotificationCategory>;
+
+export const PlatformNotificationPriority = z.enum(['CRITICAL', 'HIGH', 'NORMAL', 'INFORMATIONAL']);
+export type PlatformNotificationPriority = z.infer<typeof PlatformNotificationPriority>;
+
+/** The spec's five statuses mix two things: read or not (readAt) and whether the item asks for work. The API shows Unread / Read / Action Required / Resolved / Dismissed from the two. */
+export const PlatformNotificationAttention = z.enum([
+  'NONE',
+  'ACTION_REQUIRED',
+  'RESOLVED',
+  'DISMISSED',
+]);
+export type PlatformNotificationAttention = z.infer<typeof PlatformNotificationAttention>;
+
+/** The Super Admin modules that export (Audit, Integration logs, Communications, Reports, ...). */
+export const PlatformExportModule = z.enum([
+  'AUDIT',
+  'BILLING',
+  'COMMUNICATIONS',
+  'INTEGRATION_LOGS',
+  'REPORTS',
+  'SALES',
+  'SUPPORT',
+]);
+export type PlatformExportModule = z.infer<typeof PlatformExportModule>;
+
+export const PlatformExportStatus = z.enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'EXPIRED']);
+export type PlatformExportStatus = z.infer<typeof PlatformExportStatus>;
+
 /** Where a sign-up verification code was sent. */
 export const VerificationChannel = z.enum(['EMAIL', 'PHONE']);
 export type VerificationChannel = z.infer<typeof VerificationChannel>;
