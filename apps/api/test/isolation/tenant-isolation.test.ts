@@ -119,6 +119,14 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
     value: 'quickbooks',
     routes: /\/business\/integrations\/providers\/:provider(\/connect)?$/,
   },
+  // Each tax plan record has a version 1 (cases/tax-planning.ts).
+  { param: 'version', value: '1', routes: /\/tax-planning\/plans\/:id\/versions\/:version$/ },
+  // A resource of the approved catalog (kept in code), not a record.
+  {
+    param: 'key',
+    value: 'year-end-planning-checklist',
+    routes: /\/tax-planning\/resources\/:key\/send$/,
+  },
 ];
 const fixedOf = (path: string): Record<string, string> =>
   Object.fromEntries(

@@ -43,6 +43,7 @@ import { ContentModule } from './content/content.controller.js';
 import { SupportAccessModule } from './support-access/support-access.controller.js';
 import { TeamModule } from './team/team.controller.js';
 import { TasksModule } from './tasks/tasks.module.js';
+import { TaxPlanningModule } from './tax-planning/tax-planning.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
 import { ScanQueueModule } from './storage/scan-queue/scan-queue.module.js';
@@ -147,6 +148,7 @@ export class AppModule {
         ComplianceModule,
         TemplatesModule,
         IntegrationsModule,
+        TaxPlanningModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
         BookkeepingModule,
       ],
