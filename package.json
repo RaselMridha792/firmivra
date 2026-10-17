@@ -15,6 +15,9 @@
     "format:check": "prettier --check .",
     "db:migrate": "pnpm --filter @firmivra/db db:migrate",
     "db:seed": "pnpm --filter @firmivra/db db:seed",
+    "db:seed:demo": "pnpm --filter @firmivra/db db:seed:demo",
+    "db:unseed:demo": "pnpm --filter @firmivra/db db:unseed:demo",
+    "db:bootstrap-platform-org": "pnpm --filter @firmivra/db db:bootstrap-platform-org",
     "db:studio": "pnpm --filter @firmivra/db db:studio",
     "prepare": "husky"
   },
