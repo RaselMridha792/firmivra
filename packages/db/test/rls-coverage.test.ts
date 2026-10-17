@@ -52,6 +52,8 @@ describe('row-level security coverage', () => {
       'client_status_history',
       'platform_user_signups',
       'platform_owner_invites',
+      // Only support_next_ticket_number() (owner-run) moves the ticket counter.
+      'support_ticket_counters',
     ];
     expect(app.filter((r) => !r.select).map((r) => r.table)).toEqual([]);
     expect(app.filter((r) => !r.insert && !readOnly.includes(r.table)).map((r) => r.table)).toEqual(

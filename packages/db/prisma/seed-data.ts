@@ -367,6 +367,15 @@ export const SEED_PLATFORM_IDS = {
   // Stage B1: a Super Admin notification about LVP's approved application, and an audit export.
   notification: '00000000-0000-4005-8000-000000000021',
   exportJob: '00000000-0000-4005-8000-000000000022',
+  // Stage B2: LVP's ticket with Firmivra support, its conversation, note, file and history.
+  supportTicket: '00000000-0000-4005-8000-000000000031',
+  supportStaffReply: '00000000-0000-4005-8000-000000000032',
+  supportFirmReply: '00000000-0000-4005-8000-000000000033',
+  supportNote: '00000000-0000-4005-8000-000000000034',
+  supportAttachment: '00000000-0000-4005-8000-000000000035',
+  supportEvent: '00000000-0000-4005-8000-000000000036',
+  supportHoliday: '00000000-0000-4005-8000-000000000037',
+  supportCannedResponse: '00000000-0000-4005-8000-000000000038',
 } as const;
 
 /**
