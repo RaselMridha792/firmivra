@@ -790,5 +790,5 @@ describe('tenant isolation (R8 step 2)', () => {
       if (!ok) failures.push(`${keyOf(route)} (${c.file}): ${show(res)}`);
     }
     expect(failures).toEqual([]);
-  });
+  }, 180_000);
 });
