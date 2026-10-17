@@ -1642,6 +1642,40 @@ async function main() {
         },
       });
     }
+    // Stage B1: the Super Admin's bell item for the approval, and an audit export they asked for.
+    if (
+      !(await tx.platformNotification.findUnique({ where: { id: SEED_PLATFORM_IDS.notification } }))
+    ) {
+      await tx.platformNotification.create({
+        data: {
+          id: SEED_PLATFORM_IDS.notification,
+          recipientUserId: SEED_USERS.superAdmin.id,
+          category: 'FIRM_APPLICATIONS',
+          type: 'firm_application.approved',
+          priority: 'NORMAL',
+          title: 'Firm application approved',
+          body: 'LVP Accounting & Taxes was approved and its owner was invited.',
+          sourceType: 'firm_application',
+          sourceId: SEED_PLATFORM_IDS.lvpApplication,
+          sourceLabel: SEED_BUSINESSES.lvp.name,
+          businessId: businesses.lvp,
+          eventKey: `firm_application.approved:${SEED_PLATFORM_IDS.lvpApplication}`,
+        },
+      });
+    }
+    if (!(await tx.platformExportJob.findUnique({ where: { id: SEED_PLATFORM_IDS.exportJob } }))) {
+      await tx.platformExportJob.create({
+        data: {
+          id: SEED_PLATFORM_IDS.exportJob,
+          requestedByUserId: SEED_USERS.superAdmin.id,
+          module: 'AUDIT',
+          format: 'CSV',
+          title: 'Audit events, last 30 days',
+          filters: { range: 'LAST_30_DAYS' },
+          columns: ['occurredAt', 'actor', 'action', 'firm'],
+        },
+      });
+    }
     if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.platformEvent } }))) {
       await tx.auditLog.create({
         data: {
@@ -1660,6 +1694,26 @@ async function main() {
       data: { businessId: businesses.lvp },
     }),
   );
+  // The export worker's part (platform scope): the sample export ran and is ready to download.
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    const id = SEED_PLATFORM_IDS.exportJob;
+    await tx.platformExportJob.updateMany({
+      where: { id, status: 'QUEUED' },
+      data: { status: 'RUNNING', startedAt: new Date() },
+    });
+    const finishedAt = new Date();
+    await tx.platformExportJob.updateMany({
+      where: { id, status: 'RUNNING' },
+      data: {
+        status: 'COMPLETED',
+        finishedAt,
+        rowCount: 42,
+        sizeBytes: 6144,
+        s3Key: `platform/exports/${id}/audit-events.csv`,
+        expiresAt: new Date(finishedAt.getTime() + 7 * 86_400_000),
+      },
+    });
+  });
   // The activation link Firmivra sent LVP's owner on approval, sent in platform scope (so the
   // database marks it and the Super Admin sees a copy) and already accepted.
   const lvpOwnerMembership = await runInScope(
