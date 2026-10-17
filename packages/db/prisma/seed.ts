@@ -1586,6 +1586,97 @@ async function main() {
         },
       });
     }
+    // Stage B2: LVP's ticket with Firmivra support, as the team works it (admin scope): raised by
+    // email about LVP's owner, assigned, answered with a screenshot, with a note and its history.
+    if (!(await tx.supportTicket.findUnique({ where: { id: SEED_PLATFORM_IDS.supportTicket } }))) {
+      const category = await tx.supportCategory.findUniqueOrThrow({
+        where: { name: 'Account Access' },
+      });
+      const priority = await tx.supportPriority.findUniqueOrThrow({ where: { code: 'HIGH' } });
+      await tx.supportTicket.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportTicket,
+          businessId: businesses.lvp,
+          contactUserId: SEED_USERS.lvpOwner.id,
+          subject: 'Staff member cannot finish MFA setup',
+          description:
+            'Our new preparer gets "code expired" every time she scans the QR code. Can you help?',
+          categoryId: category.id,
+          priorityId: priority.id,
+          source: 'EMAIL',
+          assignedUserId: SEED_USERS.superAdmin.id,
+          createdByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      await tx.supportTicketMessage.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportStaffReply,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.superAdmin.id,
+          authorSide: 'STAFF',
+          body: 'Thanks for reaching out. Her phone clock looks out of sync; the screenshot shows where to turn on automatic time.',
+          deliveryChannel: 'EMAIL',
+        },
+      });
+      await tx.supportTicketAttachment.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportAttachment,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          messageId: SEED_PLATFORM_IDS.supportStaffReply,
+          uploadedByUserId: SEED_USERS.superAdmin.id,
+          fileName: 'automatic-time-setting.png',
+          contentType: 'image/png',
+          sizeBytes: 84213,
+          sha256: createHash('sha256').update('sample support screenshot').digest('hex'),
+          s3Key: `tenant/${businesses.lvp}/support/${SEED_PLATFORM_IDS.supportAttachment}`,
+        },
+      });
+      await tx.supportTicketNote.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportNote,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.superAdmin.id,
+          body: 'Third clock-drift case this month; worth a help article.',
+        },
+      });
+      await tx.supportTicketEvent.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportEvent,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          actorUserId: SEED_USERS.superAdmin.id,
+          actorType: 'USER',
+          action: 'ticket.assigned',
+          newValue: SEED_USERS.superAdmin.name,
+        },
+      });
+      await tx.supportTicket.update({
+        where: { id: SEED_PLATFORM_IDS.supportTicket },
+        data: { status: 'WAITING_ON_CUSTOMER', firstRespondedAt: new Date() },
+      });
+    }
+    await tx.supportHoliday.upsert({
+      where: { id: SEED_PLATFORM_IDS.supportHoliday },
+      update: {},
+      create: {
+        id: SEED_PLATFORM_IDS.supportHoliday,
+        date: new Date('2026-11-26'),
+        name: 'Thanksgiving',
+      },
+    });
+    await tx.supportCannedResponse.upsert({
+      where: { id: SEED_PLATFORM_IDS.supportCannedResponse },
+      update: {},
+      create: {
+        id: SEED_PLATFORM_IDS.supportCannedResponse,
+        title: 'MFA code expired',
+        body: 'An "expired" code usually means the phone clock is off. Turn on automatic date and time, then scan the code again.',
+        createdByUserId: SEED_USERS.superAdmin.id,
+      },
+    });
     if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.platformEvent } }))) {
       await tx.auditLog.create({
         data: {
@@ -1624,6 +1715,38 @@ async function main() {
       },
     });
   });
+  // Stage B2: LVP's owner answers from the firm's side (business scope, as himself), and the
+  // scanner clears the screenshot (platform scope).
+  await runInScope(
+    prisma,
+    { kind: 'business', businessId: businesses.lvp, actorUserId: SEED_USERS.lvpOwner.id },
+    async (tx) => {
+      if (
+        await tx.supportTicketMessage.findUnique({
+          where: { id: SEED_PLATFORM_IDS.supportFirmReply },
+        })
+      ) {
+        return;
+      }
+      await tx.supportTicketMessage.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportFirmReply,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.lvpOwner.id,
+          authorSide: 'CUSTOMER',
+          body: 'That fixed it, thank you!',
+        },
+      });
+    },
+  );
+  await runInScope(prisma, { kind: 'platform' }, (tx) =>
+    tx.supportTicketAttachment.updateMany({
+      where: { id: SEED_PLATFORM_IDS.supportAttachment, scanStatus: 'PENDING' },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+    }),
+  );
+
   // The activation link Firmivra sent LVP's owner on approval, sent in platform scope (so the
   // database marks it and the Super Admin sees a copy) and already accepted.
   const lvpOwnerMembership = await runInScope(
