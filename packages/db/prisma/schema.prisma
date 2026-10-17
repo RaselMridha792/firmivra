@@ -824,6 +824,8 @@ model Business {
   clientAccounts       ClientAccount[]
   supportAccessGrants  SupportAccessGrant[]
   auditLogs            AuditLog[]
+  /// R0 stage B4: security alerts about this firm.
+  securityAlerts       SecurityAlert[]
   firmApplication      FirmApplication?
   settings             BusinessSettings?
   legalDocuments       FirmLegalDocument[]
@@ -1131,14 +1133,17 @@ model PlatformAdmin {
   role      PlatformRole @default(SUPER_ADMIN)
   createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  user                   User                   @relation(fields: [userId], references: [id])
+  user                   User                     @relation(fields: [userId], references: [id])
   /// R0 stage A: the org-chart row for this admin, if one exists yet (CREATING_TEAM 20261016_r0).
   member                 PlatformMember?
   /// R0 stage B1: this admin's notification center and export jobs.
   notifications          PlatformNotification[]
   exportJobs             PlatformExportJob[]
   /// R0 stage B2: support tickets assigned to this team member.
-  supportTicketsAssigned SupportTicket[]        @relation("SupportTicketAssignee")
+  supportTicketsAssigned SupportTicket[]          @relation("SupportTicketAssignee")
+  /// R0 stage B4
+  securityAlertsAssigned SecurityAlert[]          @relation("SecurityAlertAssignee")
+  investigationNotes     AuditInvestigationNote[] @relation("AuditInvestigationNoteAuthor")
 
   @@map("platform_admins")
 }
@@ -1842,25 +1847,201 @@ model SupportAccessGrant {
 
 /// Append-only. business_id is null for platform events. The app role cannot update or delete rows.
 model AuditLog {
-  id          String   @id @default(uuid(7)) @db.Uuid
-  businessId  String?  @map("business_id") @db.Uuid
-  actorUserId String?  @map("actor_user_id") @db.Uuid
-  action      String
-  entityType  String   @map("entity_type")
-  entityId    String?  @map("entity_id")
-  metadata    Json?
-  ip          String?
-  userAgent   String?  @map("user_agent")
-  requestId   String?  @map("request_id")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  id                String          @id @default(uuid(7)) @db.Uuid
+  businessId        String?         @map("business_id") @db.Uuid
+  actorUserId       String?         @map("actor_user_id") @db.Uuid
+  action            String
+  entityType        String          @map("entity_type")
+  entityId          String?         @map("entity_id")
+  metadata          Json?
+  ip                String?
+  userAgent         String?         @map("user_agent")
+  requestId         String?         @map("request_id")
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// R0 stage B4 (Audit & Security): the normalized event fields. All optional, so every existing
+  /// writer keeps working; a row with a category also carries its severity, outcome and actor type.
+  category          AuditCategory?
+  severity          AuditSeverity?
+  outcome           AuditOutcome?
+  actorType         AuditActorType? @map("actor_type")
+  /// Snapshots at the time of the action (names and roles change later).
+  actorName         String?         @map("actor_name")
+  actorRole         String?         @map("actor_role")
+  sessionId         String?         @map("session_id")
+  /// How the actor signed in, e.g. "password", "password_totp", "api_key". Never a credential.
+  authMethod        String?         @map("auth_method")
+  /// The target's display label at the time, e.g. a firm's or a user's name.
+  targetLabel       String?         @map("target_label")
+  /// The user acted on, when not the actor. No foreign key: the history outlives the login.
+  subjectUserId     String?         @map("subject_user_id") @db.Uuid
+  /// The firm a platform row is about (a firm's own row may only name itself). No foreign key:
+  /// the history outlives the firm.
+  subjectBusinessId String?         @map("subject_business_id") @db.Uuid
+  /// A bulk operation's parent event, or the event a response action answers.
+  parentEventId     String?         @map("parent_event_id") @db.Uuid
+  riskScore         Int?            @map("risk_score") @db.SmallInt
+  ruleId            String?         @map("rule_id")
+  /// What detected it, e.g. "rules_engine", "sign_in".
+  detectionSource   String?         @map("detection_source")
+  /// A bulk operation's item count.
+  itemCount         Int?            @map("item_count")
 
   // Restrict: a business delete must never turn its audit rows into platform rows.
-  business Business? @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  business           Business?                @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  /// R0 stage B4
+  parentEvent        AuditLog?                @relation("AuditLogParent", fields: [parentEventId], references: [id], onDelete: SetNull)
+  childEvents        AuditLog[]               @relation("AuditLogParent")
+  securityAlerts     SecurityAlert[]
+  investigationNotes AuditInvestigationNote[]
 
   @@index([businessId, createdAt])
   // R37: a record's history (an intake's, a document's, a return's) and a settings page's changes.
   @@index([businessId, entityType, entityId, createdAt])
+  // R0 stage B4: the cross-firm dashboard, related events and an alert chain.
+  @@index([createdAt])
+  @@index([category, createdAt])
+  @@index([severity, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([subjectBusinessId, createdAt])
+  @@index([sessionId])
+  @@index([parentEventId])
   @@map("audit_logs")
+}
+
+// ---------- R0 stage B4: Super Admin Audit & Security ----------
+// One trail: audit_logs gains the normalized event fields above (all optional, so every existing
+// writer keeps working). Alerts, investigation notes and the security policy are platform data:
+// only the Super Admin team and the platform's jobs reach them. Contract note:
+// docs/work/R0-stage-b4-audit.md.
+
+enum AuditCategory {
+  AUTHENTICATION
+  AUTHORIZATION
+  DATA
+  INTEGRATION
+  SECURITY
+  SYSTEM
+}
+
+/// Info: routine success. Low: minor signal. Medium: suspicious or privileged. High: probable risk
+/// or a major privilege change. Critical: confirmed or immediate threat.
+enum AuditSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AuditOutcome {
+  SUCCESS
+  FAILURE
+  DENIED
+}
+
+/// Who acted: a firm's staff member, a firm's client, a Super Admin team member, an integration or
+/// API key, the platform itself (jobs, rules), or someone not signed in (a failed sign-in).
+enum AuditActorType {
+  STAFF
+  CLIENT
+  PLATFORM
+  SERVICE
+  SYSTEM
+  ANONYMOUS
+}
+
+enum SecurityAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+/// A rule matched an audit event. Raised once per `eventKey` (a second raise finds the first).
+/// The content is fixed; only the status (OPEN -> ACKNOWLEDGED -> RESOLVED or DISMISSED, or
+/// straight to a final state), the assignee and the closing note change. The database stamps who
+/// acknowledged and who closed it, and when.
+model SecurityAlert {
+  id                   String              @id @default(uuid(7)) @db.Uuid
+  /// The event that raised it.
+  auditLogId           String              @map("audit_log_id") @db.Uuid
+  /// The firm it is about, if any: the event's firm or the firm a platform event is about. The
+  /// alert is deleted with that firm's data.
+  businessId           String?             @map("business_id") @db.Uuid
+  /// The rule that raised it, e.g. "login.failed_burst".
+  ruleId               String              @map("rule_id")
+  severity             AuditSeverity
+  title                String
+  /// Why it was raised and why this severity. Safe text only: never secrets or document contents.
+  summary              String?
+  riskScore            Int?                @map("risk_score") @db.SmallInt
+  eventKey             String              @unique @map("event_key")
+  status               SecurityAlertStatus @default(OPEN)
+  assignedToUserId     String?             @map("assigned_to_user_id") @db.Uuid
+  acknowledgedAt       DateTime?           @map("acknowledged_at") @db.Timestamptz(3)
+  acknowledgedByUserId String?             @map("acknowledged_by_user_id") @db.Uuid
+  /// Set when the alert is resolved or dismissed.
+  closedAt             DateTime?           @map("closed_at") @db.Timestamptz(3)
+  closedByUserId       String?             @map("closed_by_user_id") @db.Uuid
+  resolutionNote       String?             @map("resolution_note")
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  auditLog AuditLog       @relation(fields: [auditLogId], references: [id], onDelete: Cascade)
+  business Business?      @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  assignee PlatformAdmin? @relation("SecurityAlertAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([severity, createdAt])
+  @@index([auditLogId])
+  @@index([businessId, createdAt])
+  @@index([assignedToUserId, status])
+  @@map("security_alerts")
+}
+
+/// A team member's investigation note on an audit event. Additive: a note's text never changes.
+/// An edit is a new note that supersedes the earlier one (by the same author, at most once); a
+/// delete retracts the note (the text stays for the record). The API writes an audit row for each.
+model AuditInvestigationNote {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  auditLogId       String    @map("audit_log_id") @db.Uuid
+  authorUserId     String    @map("author_user_id") @db.Uuid
+  body             String
+  supersedesNoteId String?   @unique @map("supersedes_note_id") @db.Uuid
+  retractedAt      DateTime? @map("retracted_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  auditLog     AuditLog                @relation(fields: [auditLogId], references: [id], onDelete: Cascade)
+  author       PlatformAdmin           @relation("AuditInvestigationNoteAuthor", fields: [authorUserId], references: [userId], onDelete: Restrict)
+  supersedes   AuditInvestigationNote? @relation("AuditInvestigationNoteEdit", fields: [auditLogId, supersedesNoteId], references: [auditLogId, id], onDelete: Cascade)
+  supersededBy AuditInvestigationNote? @relation("AuditInvestigationNoteEdit")
+
+  @@unique([auditLogId, id])
+  @@unique([auditLogId, supersedesNoteId])
+  @@index([auditLogId, createdAt])
+  @@map("audit_investigation_notes")
+}
+
+/// One row (id 1): the platform's security policy (Security Settings & Policies). Each section is
+/// a JSON object whose shape the contract note fixes; the database checks the safety floors. Every
+/// save adds 1 to `version` (the database does it): the API saves with `where: { id: 1, version }`,
+/// so two admins never silently overwrite each other. The migration inserts the defaults.
+model PlatformSecurityPolicy {
+  id              Int      @id @default(1)
+  version         Int      @default(1)
+  mfa             Json     @default("{}")
+  password        Json     @default("{}")
+  session         Json     @default("{}")
+  loginProtection Json     @default("{}") @map("login_protection")
+  adminAccess     Json     @default("{}") @map("admin_access")
+  apiIntegrations Json     @default("{}") @map("api_integrations")
+  auditRetention  Json     @default("{}") @map("audit_retention")
+  exportControls  Json     @default("{}") @map("export_controls")
+  alertRouting    Json     @default("{}") @map("alert_routing")
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("platform_security_policy")
 }
 
 /// A firm's application to join Firmivra. Platform data: only Super Admin sees it.

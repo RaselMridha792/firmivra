@@ -49,6 +49,8 @@ const MIGRATION_REFERENCE_TABLES = [
   'support_priorities',
   'support_escalation_rules',
   'support_notification_rules',
+  // r0_platform_audit_security (stage B4)
+  'platform_security_policy',
 ];
 
 /**

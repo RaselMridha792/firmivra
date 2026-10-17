@@ -690,6 +690,37 @@ export const SupportEscalationKind = z.enum([
 ]);
 export type SupportEscalationKind = z.infer<typeof SupportEscalationKind>;
 
+export const AuditCategory = z.enum([
+  'AUTHENTICATION',
+  'AUTHORIZATION',
+  'DATA',
+  'INTEGRATION',
+  'SECURITY',
+  'SYSTEM',
+]);
+export type AuditCategory = z.infer<typeof AuditCategory>;
+
+/** Info: routine success. Low: minor signal. Medium: suspicious or privileged. High: probable risk or a major privilege change. Critical: confirmed or immediate threat. */
+export const AuditSeverity = z.enum(['INFO', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
+export type AuditSeverity = z.infer<typeof AuditSeverity>;
+
+export const AuditOutcome = z.enum(['SUCCESS', 'FAILURE', 'DENIED']);
+export type AuditOutcome = z.infer<typeof AuditOutcome>;
+
+/** Who acted: a firm's staff member, a firm's client, a Super Admin team member, an integration or API key, the platform itself (jobs, rules), or someone not signed in (a failed sign-in). */
+export const AuditActorType = z.enum([
+  'STAFF',
+  'CLIENT',
+  'PLATFORM',
+  'SERVICE',
+  'SYSTEM',
+  'ANONYMOUS',
+]);
+export type AuditActorType = z.infer<typeof AuditActorType>;
+
+export const SecurityAlertStatus = z.enum(['OPEN', 'ACKNOWLEDGED', 'RESOLVED', 'DISMISSED']);
+export type SecurityAlertStatus = z.infer<typeof SecurityAlertStatus>;
+
 /** Where a sign-up verification code was sent. */
 export const VerificationChannel = z.enum(['EMAIL', 'PHONE']);
 export type VerificationChannel = z.infer<typeof VerificationChannel>;
