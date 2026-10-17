@@ -25,6 +25,7 @@ export * from './content/index.js';
 export * from './calculators/index.js';
 export * from './documents/index.js';
 export * from './tasks/index.js';
+export * from './templates/index.js';
 export * from './workspaces/index.js';
 export * from './audit-log/index.js';
 export * from './support-access/index.js';
