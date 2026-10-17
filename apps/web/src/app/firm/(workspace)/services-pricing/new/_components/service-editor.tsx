@@ -3,10 +3,19 @@
 import { ServiceAddOns } from './service-addons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CreateCatalogServiceRequest, type CatalogService } from '@firmivra/types';
-import { Button, Input, Modal, RichTextEditor, Select, Textarea, Toggle } from '@firmivra/ui';
-import { Gear, Plus, Trash, ArrowUp, ArrowDown } from '@phosphor-icons/react';
+import {
+  Button,
+  IconButton,
+  Input,
+  Modal,
+  RichTextEditor,
+  Select,
+  Textarea,
+  Toggle,
+} from '@firmivra/ui';
+import { Gear, Info, Plus, Trash, ArrowUp, ArrowDown } from '@phosphor-icons/react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   useFieldArray,
   useForm,
@@ -56,6 +65,22 @@ const frequencies = [
   { value: 'SEMIANNUAL', label: 'Semiannual' },
   { value: 'ANNUAL', label: 'Annual' },
 ];
+
+/** Quantity × rate of one line, in cents (spec §6: calculated automatically). */
+const lineCents = (line?: { quantity?: number; rateCents?: number }) =>
+  Math.round(
+    (typeof line?.quantity === 'number' && Number.isFinite(line.quantity) ? line.quantity : 0) *
+      (line?.rateCents ?? 0),
+  );
+
+/** The column name above a line item field on small screens; the table header shows it on lg. */
+function LineLabel({ children }: { children: ReactNode }) {
+  return (
+    <p aria-hidden className="mb-1 text-sm font-medium text-text lg:hidden">
+      {children}
+    </p>
+  );
+}
 
 export function ServiceEditor({
   initial,
@@ -131,13 +156,7 @@ export function ServiceEditor({
       .map((c) => ({ value: c.id, label: c.name })),
   ];
   const currency = money(value.basePriceCents);
-  const savedLineTotal = (index: number) => {
-    const line = value.lineItems?.[index];
-    const saved = initial?.lineItems.find((item) => item.id === line?.id);
-    return saved && saved.quantity === line?.quantity && saved.rateCents === line?.rateCents
-      ? money(saved.totalCents)
-      : '—';
-  };
+  const linesTotal = (value.lineItems ?? []).reduce((sum, line) => sum + lineCents(line), 0);
   const previewPrice =
     value.pricingType === 'CUSTOM_QUOTE'
       ? 'Quote required'
@@ -159,7 +178,7 @@ export function ServiceEditor({
           e.preventDefault();
           submit(active);
         }}
-        className="grid min-w-0 grid-cols-1 items-start gap-3 xl:grid-cols-3 lg:[&_input]:py-1 lg:[&_input]:text-sm lg:[&_select]:py-1 lg:[&_select]:text-sm lg:[&_textarea]:text-sm"
+        className="grid min-w-0 grid-cols-1 items-start gap-3 xl:grid-cols-3"
         data-testid="service-form"
       >
         <div className="min-w-0 space-y-3 xl:col-span-2">
@@ -177,7 +196,12 @@ export function ServiceEditor({
                     label="Service Category *"
                     options={categoryOptions}
                     {...register('categoryId')}
-                    error={errors.categoryId?.message}
+                    error={
+                      errors.categoryId?.message ??
+                      (categories.isError && !categories.data
+                        ? 'Categories could not load. Try again in a moment.'
+                        : undefined)
+                    }
                     data-testid="service-category"
                   />
                   <div>
@@ -199,13 +223,15 @@ export function ServiceEditor({
                   <p className="text-sm font-medium text-text">Status</p>
                   <div className="flex items-center gap-2">
                     <Toggle label="Active service" checked={active} onChange={setActive} />
-                    <span className="text-sm">{active ? 'Active' : 'Draft'}</span>
+                    <span className={`text-sm ${active ? 'text-success' : 'text-muted'}`}>
+                      {active ? 'Active' : 'Draft'}
+                    </span>
                   </div>
                 </div>
                 <IconPicker value={value.icon} onChange={(next) => put('icon', next)} />
               </div>
             </div>
-            {!categories.data?.length || categories.isError ? (
+            {categories.data?.length === 0 ? (
               <PageState
                 query={categories}
                 empty="No categories available. A category is needed before saving."
@@ -218,38 +244,57 @@ export function ServiceEditor({
             <div className="grid gap-3 sm:grid-cols-3">
               <Select label="Pricing Type *" options={priceOptions} {...register('pricingType')} />
               {value.pricingType !== 'CUSTOM_QUOTE' ? (
-                <Input
-                  label="Base Price *"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={(value.basePriceCents ?? 0) / 100}
-                  onChange={(e) =>
-                    put(
-                      'basePriceCents',
-                      e.target.value === '' ? null : Math.round(Number(e.target.value) * 100),
-                    )
-                  }
-                  error={errors.basePriceCents?.message}
-                  data-testid="service-price"
-                />
+                <div className="relative min-w-0">
+                  <Input
+                    label="Base Price *"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    className="pl-7"
+                    value={(value.basePriceCents ?? 0) / 100}
+                    onChange={(e) =>
+                      put(
+                        'basePriceCents',
+                        e.target.value === '' ? null : Math.round(Number(e.target.value) * 100),
+                      )
+                    }
+                    error={errors.basePriceCents?.message}
+                    data-testid="service-price"
+                  />
+                  {/* Below the label line (top-6), as tall as the input (h-10.5). */}
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute top-6 left-3 flex h-10.5 items-center text-base text-muted"
+                  >
+                    $
+                  </span>
+                </div>
               ) : (
                 <p className="self-center text-sm text-muted">Quote required before billing.</p>
               )}
-              <Select
-                label="Billing Frequency"
-                options={
-                  value.pricingType === 'RECURRING'
-                    ? frequencies.filter((f) => f.value !== 'ONE_TIME')
-                    : frequencies
-                }
-                disabled={value.pricingType !== 'RECURRING'}
-                value={value.billingFrequency ?? 'ONE_TIME'}
-                onChange={(e) =>
-                  put('billingFrequency', e.target.value as Values['billingFrequency'])
-                }
-                error={errors.billingFrequency?.message}
-              />
+              <div className="flex min-w-0 flex-col gap-1">
+                <p aria-hidden className="flex items-center gap-1 text-sm font-medium text-text">
+                  Billing Frequency
+                  <span title="Used when the pricing type is Recurring" className="text-action">
+                    <Info weight="fill" className="size-4" />
+                  </span>
+                </p>
+                <Select
+                  label="Billing Frequency"
+                  hideLabel
+                  options={
+                    value.pricingType === 'RECURRING'
+                      ? frequencies.filter((f) => f.value !== 'ONE_TIME')
+                      : frequencies
+                  }
+                  disabled={value.pricingType !== 'RECURRING'}
+                  value={value.billingFrequency ?? 'ONE_TIME'}
+                  onChange={(e) =>
+                    put('billingFrequency', e.target.value as Values['billingFrequency'])
+                  }
+                  error={errors.billingFrequency?.message}
+                />
+              </div>
             </div>
             <div className="flex flex-wrap gap-6">
               <label className="flex items-center gap-2 text-sm">
@@ -283,7 +328,7 @@ export function ServiceEditor({
                   <p className="text-sm text-danger">{errors.fullDescription.message}</p>
                 ) : null}
               </div>
-              <div className="min-w-0 space-y-4 lg:col-span-2">
+              <div className="min-w-0 space-y-4 rounded-lg border border-divider p-3 lg:col-span-2">
                 <TextList
                   label="What's Included"
                   items={value.included ?? []}
@@ -307,10 +352,13 @@ export function ServiceEditor({
               ]}
               onChange={(e) => put('lineItemsMode', e.target.value as Values['lineItemsMode'])}
             />
-            <div className="hidden grid-cols-12 gap-2 border-b border-divider pb-2 text-xs font-semibold lg:grid">
-              <span className="col-span-3">Item Name</span>
-              <span className="col-span-3">Description</span>
-              <span>Qty</span>
+            <div className="hidden grid-cols-12 gap-2 rounded-control bg-table-head px-2 py-2 text-xs font-semibold text-heading lg:grid">
+              <span>#</span>
+              <span className="col-span-3">
+                Item Name <span className="text-danger">*</span>
+              </span>
+              <span className="col-span-2">Description</span>
+              <span>Quantity</span>
               <span className="col-span-2">Price</span>
               <span>Total</span>
               <span className="col-span-2">Actions</span>
@@ -319,74 +367,91 @@ export function ServiceEditor({
               lines.fields.map((line, i) => (
                 <div
                   key={line.id}
-                  className="grid min-w-0 gap-2 border-b border-divider py-2 sm:grid-cols-2 lg:grid-cols-12 lg:[&>div:nth-child(1)]:col-span-3 lg:[&>div:nth-child(2)]:col-span-3 lg:[&>div:nth-child(4)]:col-span-2 lg:[&_label]:sr-only"
+                  className="grid min-w-0 gap-2 border-b border-divider px-2 py-2 sm:grid-cols-2 lg:grid-cols-12"
                   data-testid="service-line"
                 >
-                  <Input
-                    label={`Item Name ${i + 1} *`}
-                    {...register(`lineItems.${i}.name`)}
-                    error={errors.lineItems?.[i]?.name?.message}
-                  />
-                  <Input
-                    label={`Description ${i + 1}`}
-                    {...register(`lineItems.${i}.description`)}
-                  />
-                  <Input
-                    label={`Quantity ${i + 1}`}
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    {...register(`lineItems.${i}.quantity`, { valueAsNumber: true })}
-                    error={errors.lineItems?.[i]?.quantity?.message}
-                  />
-                  <Input
-                    label={`Price ${i + 1}`}
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={(value.lineItems?.[i]?.rateCents ?? 0) / 100}
-                    onChange={(e) =>
-                      put(
-                        `lineItems`,
-                        (value.lineItems ?? []).map((x, index) =>
-                          index === i
-                            ? { ...x, rateCents: Math.round(Number(e.target.value) * 100) }
-                            : x,
-                        ),
-                      )
-                    }
-                    error={errors.lineItems?.[i]?.rateCents?.message}
-                  />
-                  <p
-                    className="self-center text-xs text-muted"
-                    title="Saved line total; recalculated by the API on save"
-                  >
-                    {savedLineTotal(i)}
+                  <p className="self-center text-sm text-text sm:col-span-2 lg:col-span-1">
+                    <span className="lg:hidden">Line </span>
+                    {i + 1}
                   </p>
-                  <div className="flex flex-wrap gap-1 sm:col-span-2 lg:col-span-2 [&>button]:min-h-8 [&>button]:px-1 [&>button]:py-1">
-                    <Button
-                      variant="ghost"
+                  <div className="min-w-0 lg:col-span-3">
+                    <LineLabel>
+                      Item Name <span className="text-danger">*</span>
+                    </LineLabel>
+                    <Input
+                      label={`Item Name ${i + 1} *`}
+                      hideLabel
+                      {...register(`lineItems.${i}.name`)}
+                      error={errors.lineItems?.[i]?.name?.message}
+                    />
+                  </div>
+                  <div className="min-w-0 lg:col-span-2">
+                    <LineLabel>Description</LineLabel>
+                    <Input
+                      label={`Description ${i + 1}`}
+                      hideLabel
+                      {...register(`lineItems.${i}.description`)}
+                    />
+                  </div>
+                  <div className="min-w-0 lg:col-span-1">
+                    <LineLabel>Quantity</LineLabel>
+                    <Input
+                      label={`Quantity ${i + 1}`}
+                      hideLabel
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      {...register(`lineItems.${i}.quantity`, { valueAsNumber: true })}
+                      error={errors.lineItems?.[i]?.quantity?.message}
+                    />
+                  </div>
+                  <div className="min-w-0 lg:col-span-2">
+                    <LineLabel>Price</LineLabel>
+                    <Input
+                      label={`Price ${i + 1}`}
+                      hideLabel
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={(value.lineItems?.[i]?.rateCents ?? 0) / 100}
+                      onChange={(e) =>
+                        put(
+                          `lineItems`,
+                          (value.lineItems ?? []).map((x, index) =>
+                            index === i
+                              ? { ...x, rateCents: Math.round(Number(e.target.value) * 100) }
+                              : x,
+                          ),
+                        )
+                      }
+                      error={errors.lineItems?.[i]?.rateCents?.message}
+                    />
+                  </div>
+                  <p className="min-w-0 self-center wrap-break-word text-sm text-text lg:col-span-1">
+                    <span className="lg:hidden">Total: </span>
+                    {money(lineCents(value.lineItems?.[i]))}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1 sm:col-span-2 lg:col-span-2">
+                    <IconButton
+                      icon={ArrowUp}
+                      tone="action"
+                      label={`Move line ${i + 1} up`}
                       disabled={i === 0}
                       onClick={() => lines.move(i, i - 1)}
-                      aria-label={`Move line ${i + 1} up`}
-                    >
-                      <ArrowUp className="size-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
+                    />
+                    <IconButton
+                      icon={ArrowDown}
+                      tone="action"
+                      label={`Move line ${i + 1} down`}
                       disabled={i === lines.fields.length - 1}
                       onClick={() => lines.move(i, i + 1)}
-                      aria-label={`Move line ${i + 1} down`}
-                    >
-                      <ArrowDown className="size-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
+                    />
+                    <IconButton
+                      icon={Trash}
+                      tone="danger"
+                      label={`Remove line ${i + 1}`}
                       onClick={() => setRemoveLine(i)}
-                      aria-label={`Remove line ${i + 1}`}
-                    >
-                      <Trash className="size-4" />
-                    </Button>
+                    />
                   </div>
                 </div>
               ))
@@ -401,14 +466,12 @@ export function ServiceEditor({
                   lines.append({ name: '', description: '', quantity: 1, rateCents: 0 })
                 }
               >
-                <Plus className="size-4" />
+                <Plus weight="bold" className="size-4" />
                 Add Line Item
               </Button>
-              <p className="text-sm">
+              <p className="text-base">
                 Total Price:{' '}
-                <strong>
-                  {value.lineItemsMode === 'ADDITIVE' ? 'Calculated on save' : currency}
-                </strong>
+                <strong>{value.lineItemsMode === 'ADDITIVE' ? money(linesTotal) : currency}</strong>
               </p>
             </div>
           </Panel>
@@ -450,12 +513,14 @@ export function ServiceEditor({
           <div className="flex flex-wrap justify-end gap-2">
             <Button
               variant="secondary"
+              className="grow"
               onClick={() => (isDirty ? setCancel(true) : router.push('/services-pricing'))}
             >
               Cancel
             </Button>
             <Button
               variant="outline"
+              className="grow"
               disabled={save.isPending}
               onClick={() => submit(false)}
               data-testid="save-draft"
@@ -463,6 +528,7 @@ export function ServiceEditor({
               Save as Draft
             </Button>
             <Button
+              className="grow"
               disabled={save.isPending}
               onClick={() => submit(true)}
               data-testid="save-activate"

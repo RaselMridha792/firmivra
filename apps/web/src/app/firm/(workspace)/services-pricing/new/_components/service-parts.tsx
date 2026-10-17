@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowDown,
   ArrowUp,
+  CaretRight,
   CheckCircle,
   Eye,
   Tag,
@@ -16,7 +17,7 @@ import {
   FileText,
   type Icon,
 } from '@phosphor-icons/react';
-import { Button, Card, Input, Modal } from '@firmivra/ui';
+import { Button, Card, IconButton, Input, Modal } from '@firmivra/ui';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 
@@ -37,9 +38,9 @@ export const money = (cents: number | null | undefined) =>
 export function CatalogHeader({ edit = false, onBack }: { edit?: boolean; onBack?: () => void }) {
   return (
     <header className="space-y-4">
-      <nav aria-label="Breadcrumb" className="text-sm text-action">
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-action">
         <Link href="/services-pricing">Services &amp; Pricing</Link>
-        <span className="mx-2 text-muted">›</span>
+        <CaretRight weight="fill" aria-hidden className="size-3 text-muted" />
         <span className="text-heading">{edit ? 'Edit Service' : 'Add New Service'}</span>
       </nav>
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -51,7 +52,7 @@ export function CatalogHeader({ edit = false, onBack }: { edit?: boolean; onBack
             <h1 className="font-display text-3xl font-bold text-heading sm:text-4xl">
               {edit ? 'Edit Service' : 'Add New Service'}
             </h1>
-            <p className="mt-1 text-muted">
+            <p className="mt-1 text-action">
               {edit
                 ? 'Update your service, pricing, and what’s included.'
                 : 'Create a new service, set pricing, and define what’s included.'}
@@ -84,14 +85,14 @@ export function Panel({
       className="min-w-0 overflow-hidden rounded-xl border border-divider bg-surface"
       data-testid={`panel-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`}
     >
-      <header className="flex flex-wrap items-center justify-between gap-2 bg-table-head px-3 py-2">
-        <div className="flex items-center gap-3">
+      <header className="flex items-center justify-between gap-2 bg-table-head px-3 py-2">
+        <div className="flex min-w-0 items-center gap-3">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-action text-sm font-bold text-on-action">
             {marker}
           </span>
-          <h2 className="text-xs font-bold text-heading">{title}</h2>
+          <h2 className="min-w-0 wrap-break-word text-base font-semibold text-heading">{title}</h2>
         </div>
-        {action}
+        {action ? <div className="shrink-0">{action}</div> : null}
       </header>
       <div className="min-w-0 space-y-3 p-3">{children}</div>
     </section>
@@ -118,7 +119,7 @@ export function IconPicker({
           <Button variant="outline" onClick={() => setOpen(true)}>
             Change Icon
           </Button>
-          <Button variant="ghost" onClick={() => onChange(null)}>
+          <Button variant="ghost" className="text-xs underline" onClick={() => onChange(null)}>
             Remove
           </Button>
         </div>
@@ -206,40 +207,34 @@ export function TextList({
                 }
               />
             </div>
-            <Button
-              variant="ghost"
-              aria-label={`Move ${label} item ${index + 1} up`}
+            <IconButton
+              icon={ArrowUp}
+              tone="action"
+              label={`Move ${label} item ${index + 1} up`}
               disabled={index === 0}
-              className="px-1"
               onClick={() => {
                 const next = [...items];
                 [next[index - 1], next[index]] = [next[index]!, next[index - 1]!];
                 onChange(next);
               }}
-            >
-              <ArrowUp className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              aria-label={`Move ${label} item ${index + 1} down`}
+            />
+            <IconButton
+              icon={ArrowDown}
+              tone="action"
+              label={`Move ${label} item ${index + 1} down`}
               disabled={index === items.length - 1}
-              className="px-1"
               onClick={() => {
                 const next = [...items];
                 [next[index], next[index + 1]] = [next[index + 1]!, next[index]!];
                 onChange(next);
               }}
-            >
-              <ArrowDown className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              aria-label={`Remove ${label} item ${index + 1}`}
-              className="px-1"
+            />
+            <IconButton
+              icon={Trash}
+              tone="danger"
+              label={`Remove ${label} item ${index + 1}`}
               onClick={() => onChange(items.filter((_, i) => i !== index))}
-            >
-              <Trash className="size-4" />
-            </Button>
+            />
           </div>
         ))}
         <Button
@@ -273,7 +268,9 @@ export function ClientPreview({
 }) {
   const [full, setFull] = useState(false);
   const Glyph = iconChoices[icon ?? ''] ?? Tag;
-  const content = (
+  // The card matches the design (What's Included, then Book This Service); the full page adds
+  // the full description and the add-ons.
+  const content = (expanded: boolean) => (
     <Card className="space-y-4" data-testid="client-preview">
       <div className="flex items-start gap-3">
         <span className="flex size-16 shrink-0 items-center justify-center rounded-lg bg-danger-soft text-danger">
@@ -284,9 +281,11 @@ export function ClientPreview({
             {name || 'Service Preview'}
           </h3>
           <p className="text-lg font-bold text-action">{price}</p>
-          <p className="break-words text-sm text-muted">
-            {description || 'Add a short description to show your clients.'}
-          </p>
+          {description ? (
+            <p className="wrap-break-word text-xs text-action">{description}</p>
+          ) : (
+            <p className="text-sm text-muted">Add a short description to show your clients.</p>
+          )}
         </div>
       </div>
       <div>
@@ -304,12 +303,12 @@ export function ClientPreview({
           <p className="text-sm text-muted">No included items yet.</p>
         )}
       </div>
-      {full && fullDescription ? (
+      {expanded && fullDescription ? (
         <p className="whitespace-pre-wrap break-words text-sm text-text">
           {fullDescription.replace(/<[^>]*>/g, ' ')}
         </p>
       ) : null}
-      {addons.length ? (
+      {expanded && addons.length ? (
         <div className="border-t border-divider pt-3">
           <h4 className="font-semibold text-heading">Optional Add-Ons:</h4>
           <ul className="mt-2 space-y-2 text-sm">
@@ -321,7 +320,8 @@ export function ClientPreview({
           </ul>
         </div>
       ) : null}
-      <Button className="w-full" disabled title="Client booking is not part of this staff preview">
+      {/* Looks like the client's button; booking is not part of this staff preview. */}
+      <Button className="pointer-events-none w-full" aria-disabled="true" tabIndex={-1}>
         Book This Service
       </Button>
     </Card>
@@ -332,20 +332,16 @@ export function ClientPreview({
         title="Service Preview (Client View)"
         marker={<Eye weight="fill" className="size-4" />}
         action={
-          <Button
-            className="min-h-8 px-2 py-1 text-xs"
-            variant="outline"
-            onClick={() => setFull(true)}
-          >
+          <Button className="text-xs" variant="outline" onClick={() => setFull(true)}>
             <Eye weight="fill" className="size-4" />
             View Full Page
           </Button>
         }
       >
-        {content}
+        {content(false)}
       </Panel>
       <Modal open={full} title="Service Preview (Client View)" onClose={() => setFull(false)}>
-        {full ? content : null}
+        {full ? content(true) : null}
       </Modal>
     </>
   );
@@ -354,7 +350,7 @@ export function ClientPreview({
 export function BackLabel() {
   return (
     <>
-      <ArrowLeft className="size-4" />
+      <ArrowLeft weight="fill" className="size-4" />
       Back to Services
     </>
   );
