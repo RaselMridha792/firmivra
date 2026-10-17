@@ -44,6 +44,7 @@ import { SupportAccessModule } from './support-access/support-access.controller.
 import { TeamModule } from './team/team.controller.js';
 import { TasksModule } from './tasks/tasks.module.js';
 import { TaxPlanningModule } from './tax-planning/tax-planning.module.js';
+import { AdvisoryModule } from './advisory/advisory.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
 import { ScanQueueModule } from './storage/scan-queue/scan-queue.module.js';
@@ -149,6 +150,7 @@ export class AppModule {
         TemplatesModule,
         IntegrationsModule,
         TaxPlanningModule,
+        AdvisoryModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
         BookkeepingModule,
       ],

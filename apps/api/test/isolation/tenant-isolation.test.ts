@@ -127,6 +127,14 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
     value: 'year-end-planning-checklist',
     routes: /\/tax-planning\/resources\/:key\/send$/,
   },
+  // Each advisory plan record has a version 1 (cases/advisory.ts).
+  { param: 'version', value: '1', routes: /\/advisory\/plans\/:id\/versions\/:version$/ },
+  // A resource of the approved library (kept in code), not a record.
+  {
+    param: 'key',
+    value: 'funding-readiness-checklist',
+    routes: /\/advisory\/resources\/:key\/send$/,
+  },
 ];
 const fixedOf = (path: string): Record<string, string> =>
   Object.fromEntries(
