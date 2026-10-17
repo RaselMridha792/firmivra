@@ -3,6 +3,7 @@ import type { IConstruct } from 'constructs';
 import { type EnvConfig, resourceName } from './config';
 import { firmKeyArns } from './firm-key-policy';
 import type { createStacks } from './stacks';
+import { ECR_PUBLIC_CACHE_PREFIX } from './stacks/ci-stack';
 import { GUARDDUTY_MANAGED_RULE } from './stacks/malware-scan';
 
 /**
@@ -171,4 +172,14 @@ export function addNagSuppressions(
     `IAM5[Resource::arn:aws:cloudformation:${arn}:stack/firmivra-${config.envName}-*/*]`,
     "Read outputs of this environment's stacks only (stack ids end in a generated suffix).",
   );
+  const cachedImages = `IAM5[Resource::arn:aws:ecr:${arn}:repository/${ECR_PUBLIC_CACHE_PREFIX}/*]`;
+  const cachedReason =
+    'The pull-through cache makes one repository per upstream image (ecr-public/docker/library/node, .../postgres) on the first pull; pull and first-pull import only, no push.';
+  ack(role, cachedImages, cachedReason);
+  ack(
+    ci.pullRequestRole,
+    'IAM5[Resource::*]',
+    'ecr:GetAuthorizationToken has no resource-level permissions.',
+  );
+  ack(ci.pullRequestRole, cachedImages, cachedReason);
 }
