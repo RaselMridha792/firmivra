@@ -191,8 +191,14 @@ export function useBrandDraft() {
     if (!draft || !initial) return;
     const parts = patches(draft, initial);
     const found: Record<string, string> = {};
+    // The contract's website rule opens the address with `new URL`, which throws on text that is
+    // no address at all; such text gets the contract's message here and is left out of the check.
+    const { website, ...rest } = parts.settings;
+    if (typeof website === 'string' && !URL.canParse(website)) {
+      found.website = 'Enter a web address that starts with https://';
+    }
     if (Object.keys(parts.settings).length) {
-      const r = UpdateFirmSettingsRequest.safeParse(parts.settings);
+      const r = UpdateFirmSettingsRequest.safeParse(found.website ? rest : parts.settings);
       if (!r.success) for (const i of r.error.issues) found[fieldOf(i.path[0])] ??= i.message;
     }
     if (Object.keys(parts.branding).length && branding.data) {

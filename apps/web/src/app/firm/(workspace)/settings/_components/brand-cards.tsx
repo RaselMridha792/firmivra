@@ -669,14 +669,17 @@ function Previews({
     login: 'Login Page',
     emails: 'Emails',
   };
+  // On a phone the four tabs wrap to a second line instead of scrolling sideways.
   return (
-    <Tabs
-      label="Preview"
-      variant="underline"
-      value={tab}
-      onChange={(id) => onTab(id as PreviewTab)}
-      items={PREVIEWS.map((id) => ({ id, label: labels[id], content: content[id] }))}
-    />
+    <div className="max-sm:[&_[role=tablist]]:flex-wrap max-sm:[&_[role=tablist]]:gap-x-4">
+      <Tabs
+        label="Preview"
+        variant="underline"
+        value={tab}
+        onChange={(id) => onTab(id as PreviewTab)}
+        items={PREVIEWS.map((id) => ({ id, label: labels[id], content: content[id] }))}
+      />
+    </div>
   );
 }
 
