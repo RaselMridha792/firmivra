@@ -196,7 +196,7 @@ export function TasksTab() {
         title="Open Tasks"
         testId="card-open-tasks"
         action={
-          <Link href="/modules/tasks" className="text-sm font-medium text-link underline">
+          <Link href="/tasks/new" className="text-sm font-medium text-link underline">
             Add Task
           </Link>
         }
