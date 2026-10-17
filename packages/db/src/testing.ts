@@ -52,6 +52,8 @@ const MIGRATION_REFERENCE_TABLES = [
   // r0_platform_billing (stage B3)
   'platform_billing_settings',
   'platform_billing_counters',
+  // r0_platform_communications (stage B6)
+  'comm_template_categories',
 ];
 
 /**

@@ -382,6 +382,182 @@ async function seedEsignDraft(tx: TxClient, businessId: string) {
   });
 }
 
+/** Stage B6: Firmivra's communications with LVP (see main). Idempotent by fixed ids. */
+async function seedCommunications(lvp: string) {
+  const ids = SEED_PLATFORM_IDS;
+  const owner = SEED_USERS.lvpOwner;
+  const asAdmin = { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id } as const;
+  if (
+    await runInScope(prisma, asAdmin, (tx) =>
+      tx.commConversation.findUnique({ where: { id: ids.commConversation } }),
+    )
+  ) {
+    return;
+  }
+  await runInScope(prisma, asAdmin, async (tx) => {
+    const onboarding = await tx.commTemplateCategory.findUniqueOrThrow({
+      where: { systemKey: 'onboarding' },
+    });
+    await tx.commMedia.create({
+      data: {
+        id: ids.commImage,
+        kind: 'INLINE_IMAGE',
+        fileName: 'firmivra-logo.png',
+        contentType: 'image/png',
+        sizeBytes: 18_432,
+        sha256: createHash('sha256').update('firmivra-logo.png').digest('hex'),
+        s3Key: `platform/communications/${ids.commImage}/firmivra-logo.png`,
+      },
+    });
+    await tx.commTemplate.create({
+      data: {
+        id: ids.commTemplate,
+        categoryId: onboarding.id,
+        name: 'Welcome to Firmivra',
+        channel: 'EMAIL',
+        subject: 'Welcome to Firmivra, {{firm.name}}',
+        body: '<p>Hi {{contact.first_name}},</p><p>Your workspace is ready. Your onboarding call is on {{onboarding.call_date}}.</p>',
+        mergeFields: ['firm.name', 'contact.first_name', 'onboarding.call_date'],
+      },
+    });
+    await tx.commConversation.create({
+      data: {
+        id: ids.commConversation,
+        contactType: 'FIRM',
+        linkedBusinessId: lvp,
+        contactUserId: owner.id,
+        contactName: owner.name,
+        contactEmail: owner.email,
+        subject: 'Welcome to Firmivra',
+        assignedToUserId: SEED_USERS.superAdmin.id,
+        tags: ['onboarding'],
+      },
+    });
+    await tx.commMessage.create({
+      data: {
+        id: ids.commWelcome,
+        conversationId: ids.commConversation,
+        channel: 'EMAIL',
+        direction: 'OUTBOUND',
+        subject: `Welcome to Firmivra, ${SEED_BUSINESSES.lvp.name}`,
+        body: '<p>Your workspace is ready. Your onboarding call is on Tuesday at 10:00.</p>',
+        templateId: ids.commTemplate,
+        recipients: {
+          create: [
+            {
+              contactType: 'FIRM',
+              linkedBusinessId: lvp,
+              contactUserId: owner.id,
+              name: owner.name,
+              address: owner.email,
+            },
+          ],
+        },
+      },
+    });
+    // Send now: written as a draft with its recipients, then handed to the dispatcher.
+    await tx.commMessage.update({ where: { id: ids.commWelcome }, data: { status: 'SENDING' } });
+    await tx.commSegment.create({
+      data: {
+        id: ids.commSegment,
+        name: 'Active firms on Team Pro',
+        definition: { contactTypes: ['FIRM'], firmStatuses: ['ACTIVE'], planCodes: ['TEAM_PRO'] },
+        lastCount: 1,
+      },
+    });
+    await tx.commBroadcast.create({
+      data: {
+        id: ids.commBroadcast,
+        name: 'October product update',
+        segmentId: ids.commSegment,
+        recipientCount: 1,
+        channels: {
+          create: [
+            {
+              channel: 'EMAIL',
+              subject: 'What is new in Firmivra this October',
+              body: '<p>Firm Sign is live for every plan, and the client portal has a new look.</p>',
+            },
+          ],
+        },
+      },
+    });
+    await tx.commBroadcast.update({
+      where: { id: ids.commBroadcast },
+      data: { status: 'SENDING' },
+    });
+  });
+  // The dispatcher and the inbound mailbox (platform scope).
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    await tx.commMedia.update({ where: { id: ids.commImage }, data: { scanStatus: 'CLEAN' } });
+    await tx.commMessageRecipient.updateMany({
+      where: { messageId: ids.commWelcome },
+      data: { status: 'SENT', providerMessageId: 'seed-ses-0001' },
+    });
+    await tx.commMessage.update({ where: { id: ids.commWelcome }, data: { status: 'SENT' } });
+    await tx.commMessage.create({
+      data: {
+        id: ids.commReply,
+        conversationId: ids.commConversation,
+        channel: 'EMAIL',
+        direction: 'INBOUND',
+        status: 'RECEIVED',
+        subject: 'Re: Welcome to Firmivra',
+        body: 'Thanks! Tuesday works. Can two of my preparers join the call?',
+        fromAddress: owner.email,
+      },
+    });
+    const recipient = await tx.commBroadcastRecipient.create({
+      data: {
+        broadcastId: ids.commBroadcast,
+        channel: 'EMAIL',
+        contactType: 'FIRM',
+        linkedBusinessId: lvp,
+        contactUserId: owner.id,
+        name: owner.name,
+        address: owner.email,
+      },
+    });
+    await tx.commBroadcastRecipient.update({
+      where: { id: recipient.id },
+      data: { status: 'SENT', providerMessageId: 'seed-ses-0002' },
+    });
+    await tx.commBroadcastChannel.updateMany({
+      where: { broadcastId: ids.commBroadcast },
+      data: { status: 'SENDING' },
+    });
+    await tx.commBroadcastChannel.updateMany({
+      where: { broadcastId: ids.commBroadcast },
+      data: { status: 'SENT', sentCount: 1 },
+    });
+    await tx.commBroadcast.update({ where: { id: ids.commBroadcast }, data: { status: 'SENT' } });
+  });
+  // The team's internal note, mentioning the Super Admin, and their read mark.
+  await runInScope(prisma, asAdmin, async (tx) => {
+    await tx.commMessage.create({
+      data: {
+        id: ids.commNote,
+        conversationId: ids.commConversation,
+        channel: 'INTERNAL',
+        direction: 'INTERNAL',
+        status: 'SENT',
+        body: 'Owner asked to bring two preparers to the onboarding call. Send them the guest link.',
+        mentions: { create: [{ userId: SEED_USERS.superAdmin.id }] },
+      },
+    });
+    await tx.commMediaLink.create({
+      data: { mediaId: ids.commImage, usage: 'INLINE_IMAGE', templateId: ids.commTemplate },
+    });
+    await tx.commConversationRead.create({
+      data: {
+        conversationId: ids.commConversation,
+        userId: SEED_USERS.superAdmin.id,
+        lastReadAt: new Date(),
+      },
+    });
+  });
+}
+
 async function main() {
   const businesses = await runInScope(prisma, { kind: 'platform' }, async (tx) => {
     for (const u of Object.values(SEED_USERS)) {
@@ -2099,6 +2275,11 @@ async function main() {
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
     seedR37(tx, businesses.lvp),
   );
+
+  // Stage B6: Firmivra's communications. The Super Admin welcomes LVP's owner by email (admin
+  // scope), the dispatcher sends it and records the reply (platform scope), and the team keeps an
+  // internal note; an onboarding template with its logo, an audience and a sent broadcast.
+  await seedCommunications(businesses.lvp);
 
   // R0 stage A: Firmivra's own org chart and the plan ladder (platform reference data, not
   // tenant data). No subscription rows: no backfill for existing firms (Rasel's change C).

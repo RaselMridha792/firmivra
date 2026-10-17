@@ -376,6 +376,15 @@ export const SEED_PLATFORM_IDS = {
   supportEvent: '00000000-0000-4005-8000-000000000036',
   supportHoliday: '00000000-0000-4005-8000-000000000037',
   supportCannedResponse: '00000000-0000-4005-8000-000000000038',
+  // Stage B6: Firmivra's welcome thread with LVP's owner, a template, an image and a broadcast.
+  commConversation: '00000000-0000-4005-8000-000000000071',
+  commWelcome: '00000000-0000-4005-8000-000000000072',
+  commReply: '00000000-0000-4005-8000-000000000073',
+  commNote: '00000000-0000-4005-8000-000000000074',
+  commTemplate: '00000000-0000-4005-8000-000000000075',
+  commImage: '00000000-0000-4005-8000-000000000076',
+  commSegment: '00000000-0000-4005-8000-000000000077',
+  commBroadcast: '00000000-0000-4005-8000-000000000078',
   // Stage B3: what Firmivra billed LVP.
   billingPaidInvoice: '00000000-0000-4005-8000-000000000041',
   billingCreditedInvoice: '00000000-0000-4005-8000-000000000042',
