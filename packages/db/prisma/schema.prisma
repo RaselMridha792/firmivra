@@ -871,11 +871,17 @@ model Business {
   documentSettings         DocumentSettings?
 
   /// R0 stage A: null until a subscription is set (no backfill for existing firms).
-  platformFirmSubscription PlatformFirmSubscription?
+  platformFirmSubscription  PlatformFirmSubscription?
+  /// R0 stage B3: what Firmivra bills this firm (Super Admin Billing).
+  platformBillingProfile    PlatformFirmBillingProfile?
+  platformInvoices          PlatformInvoice[]
+  platformRecurringInvoices PlatformRecurringInvoice[]
+  platformEstimates         PlatformEstimate[]
+  platformCreditNotes       PlatformCreditNote[]
   /// R0 stage B1: Super Admin notifications about this firm (nullable link, platform data).
-  platformNotifications    PlatformNotification[]
+  platformNotifications     PlatformNotification[]
   /// R0 stage B2: the firm's tickets with Firmivra support (Super Admin Support module).
-  supportTickets           SupportTicket[]
+  supportTickets            SupportTicket[]
 
   @@map("businesses")
 }
@@ -1385,8 +1391,12 @@ model PlatformFirmSubscription {
   createdAt           DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business     @relation(fields: [businessId], references: [id])
-  plan     PlatformPlan @relation(fields: [planId], references: [id])
+  business          Business                     @relation(fields: [businessId], references: [id])
+  plan              PlatformPlan                 @relation(fields: [planId], references: [id])
+  /// R0 stage B3
+  invoices          PlatformInvoice[]
+  recurringInvoices PlatformRecurringInvoice[]
+  changes           PlatformSubscriptionChange[]
 
   @@map("platform_firm_subscriptions")
 }
@@ -1826,6 +1836,474 @@ model SupportNotificationRule {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("support_notification_rules")
+}
+
+// ---------- R0 stage B3: Super Admin Billing (Firmivra bills firms) ----------
+// Money is integer cents in USD. Line amounts, document totals and an invoice's paid, credited
+// and refunded sums are kept by the database. A firm reads its own issued documents (never
+// drafts, never Firmivra's settings). Contract note: docs/work/R0-stage-b3-billing.md.
+
+/// Stored lifecycle. Overdue is not stored: an issued invoice past its due date with a balance.
+enum PlatformInvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  VOIDED
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+enum PlatformRecurringStatus {
+  ACTIVE
+  PAUSED
+  CANCELED
+}
+
+enum PlatformRecurringFrequency {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  ANNUAL
+  CUSTOM
+}
+
+enum PlatformEstimateStatus {
+  DRAFT
+  SENT
+  PENDING
+  APPROVED
+  DECLINED
+  EXPIRED
+  CONVERTED
+}
+
+enum PlatformPaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+enum PlatformPaymentMethod {
+  CARD
+  ACH
+  WIRE
+  CHECK
+  CASH
+  CREDIT_BALANCE
+  OTHER
+}
+
+enum PlatformRefundStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum PlatformCreditNoteStatus {
+  DRAFT
+  AVAILABLE
+  PARTIALLY_APPLIED
+  APPLIED
+  REFUNDED
+  VOIDED
+}
+
+enum PlatformBillingDocType {
+  INVOICE
+  ESTIMATE
+  CREDIT_NOTE
+}
+
+enum PlatformSubscriptionChangeKind {
+  CREATED
+  UPGRADED
+  DOWNGRADED
+  SEATS_CHANGED
+  CYCLE_CHANGED
+  STATUS_CHANGED
+  RENEWED
+  CANCEL_REQUESTED
+  CANCELED
+}
+
+/// Firmivra's billing settings, one row (Billing Settings' General, Invoices & Estimates,
+/// Payments, Taxes & Fees, Reminders and Templates tabs; Numbering is platform_billing_counters,
+/// Permissions are billing.* keys in platform_role_permissions).
+model PlatformBillingSettings {
+  id                     Int      @id @default(1)
+  currency               String   @default("usd")
+  defaultPaymentTermDays Int      @default(30) @map("default_payment_term_days")
+  defaultTaxRateBps      Int      @default(0) @map("default_tax_rate_bps")
+  estimateValidDays      Int      @default(30) @map("estimate_valid_days")
+  allowPartialPayments   Boolean  @default(true) @map("allow_partial_payments")
+  lateFeeBps             Int      @default(0) @map("late_fee_bps")
+  lateFeeGraceDays       Int      @default(0) @map("late_fee_grace_days")
+  /// Reminder schedule, e.g. { "beforeDueDays": [3], "afterDueDays": [1, 7, 14] }.
+  reminders              Json     @default("{}")
+  /// Document template choices (invoice, estimate, credit note, receipt).
+  templates              Json     @default("{}")
+  invoiceFooter          String?  @map("invoice_footer")
+  updatedByUserId        String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("platform_billing_settings")
+}
+
+/// Per-firm billing details and overrides of the settings above.
+model PlatformFirmBillingProfile {
+  businessId          String   @id @map("business_id") @db.Uuid
+  billingContactName  String   @map("billing_contact_name")
+  billingContactEmail String   @map("billing_contact_email")
+  paymentTermDays     Int?     @map("payment_term_days")
+  taxExempt           Boolean  @default(false) @map("tax_exempt")
+  taxRateBps          Int?     @map("tax_rate_bps")
+  autoPay             Boolean  @default(false) @map("auto_pay")
+  notes               String?
+  updatedByUserId     String?  @map("updated_by_user_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@map("platform_firm_billing_profiles")
+}
+
+/// The last number given per document type (INV-, EST-, CN-). Moved only by the database's own
+/// function, so numbers are never reused, even after a void.
+model PlatformBillingCounter {
+  docType    PlatformBillingDocType @id @map("doc_type")
+  prefix     String
+  lastNumber Int                    @map("last_number")
+
+  @@map("platform_billing_counters")
+}
+
+model PlatformInvoice {
+  id                  String                @id @default(uuid(7)) @db.Uuid
+  /// "INV-1001": given by the database on insert, never reused.
+  number              String                @unique @default("")
+  businessId          String                @map("business_id") @db.Uuid
+  subscriptionId      String?               @map("subscription_id") @db.Uuid
+  recurringId         String?               @map("recurring_id") @db.Uuid
+  /// The recurring schedule's occurrence this invoice is for (one invoice per occurrence).
+  recurringOccurrence DateTime?             @map("recurring_occurrence") @db.Date
+  sourceEstimateId    String?               @unique @map("source_estimate_id") @db.Uuid
+  status              PlatformInvoiceStatus @default(DRAFT)
+  invoiceDate         DateTime              @map("invoice_date") @db.Date
+  dueDate             DateTime              @map("due_date") @db.Date
+  periodStart         DateTime?             @map("period_start") @db.Date
+  periodEnd           DateTime?             @map("period_end") @db.Date
+  /// Who it is addressed to at the firm, as of sending.
+  billToName          String                @map("bill_to_name")
+  billToEmail         String                @map("bill_to_email")
+  reference           String?
+  notes               String?
+  internalNote        String?               @map("internal_note")
+  currency            String                @default("usd")
+  discountCents       Int                   @default(0) @map("discount_cents")
+  subtotalCents       Int                   @default(0) @map("subtotal_cents")
+  taxCents            Int                   @default(0) @map("tax_cents")
+  totalCents          Int                   @default(0) @map("total_cents")
+  paidCents           Int                   @default(0) @map("paid_cents")
+  creditedCents       Int                   @default(0) @map("credited_cents")
+  refundedCents       Int                   @default(0) @map("refunded_cents")
+  allowOnlinePayment  Boolean               @default(true) @map("allow_online_payment")
+  sentAt              DateTime?             @map("sent_at") @db.Timestamptz(3)
+  /// The last send's failure, kept apart from the status.
+  sendError           String?               @map("send_error")
+  paidAt              DateTime?             @map("paid_at") @db.Timestamptz(3)
+  voidedAt            DateTime?             @map("voided_at") @db.Timestamptz(3)
+  voidReason          String?               @map("void_reason")
+  createdByUserId     String                @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business           Business                    @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  subscription       PlatformFirmSubscription?   @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  recurring          PlatformRecurringInvoice?   @relation(fields: [recurringId], references: [id], onDelete: Restrict)
+  sourceEstimate     PlatformEstimate?           @relation("PlatformEstimateConverted", fields: [sourceEstimateId], references: [id], onDelete: Restrict)
+  lines              PlatformInvoiceLine[]
+  payments           PlatformPayment[]
+  creditApplications PlatformCreditApplication[]
+  creditNotes        PlatformCreditNote[]
+
+  @@unique([businessId, id])
+  @@unique([recurringId, recurringOccurrence])
+  @@index([businessId, status])
+  @@index([status, dueDate])
+  @@map("platform_invoices")
+}
+
+model PlatformInvoiceLine {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  invoiceId   String   @map("invoice_id") @db.Uuid
+  description String
+  quantity    Decimal  @default(1) @db.Decimal(10, 2)
+  unitCents   Int      @map("unit_cents")
+  taxRateBps  Int      @default(0) @map("tax_rate_bps")
+  /// quantity x unit, rounded; and its tax. Set by the database.
+  amountCents Int      @default(0) @map("amount_cents")
+  taxCents    Int      @default(0) @map("tax_cents")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  invoice PlatformInvoice @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([invoiceId, sortOrder])
+  @@map("platform_invoice_lines")
+}
+
+/// A schedule that makes invoices (the line items are a template, copied onto each invoice).
+model PlatformRecurringInvoice {
+  id              String                     @id @default(uuid(7)) @db.Uuid
+  businessId      String                     @map("business_id") @db.Uuid
+  subscriptionId  String?                    @map("subscription_id") @db.Uuid
+  description     String
+  frequency       PlatformRecurringFrequency
+  /// For CUSTOM: every this many days.
+  intervalDays    Int?                       @map("interval_days")
+  /// [{ description, quantity, unitCents, taxRateBps }]
+  lineTemplate    Json                       @default("[]") @map("line_template")
+  amountCents     Int                        @map("amount_cents")
+  startDate       DateTime                   @map("start_date") @db.Date
+  nextInvoiceDate DateTime?                  @map("next_invoice_date") @db.Date
+  endDate         DateTime?                  @map("end_date") @db.Date
+  autoSend        Boolean                    @default(true) @map("auto_send")
+  autoPay         Boolean                    @default(false) @map("auto_pay")
+  status          PlatformRecurringStatus    @default(ACTIVE)
+  createdByUserId String                     @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business     Business                  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  subscription PlatformFirmSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  invoices     PlatformInvoice[]
+
+  @@index([status, nextInvoiceDate])
+  @@index([businessId])
+  @@map("platform_recurring_invoices")
+}
+
+model PlatformEstimate {
+  id              String                 @id @default(uuid(7)) @db.Uuid
+  /// "EST-1001": given by the database on insert, never reused.
+  number          String                 @unique @default("")
+  businessId      String                 @map("business_id") @db.Uuid
+  status          PlatformEstimateStatus @default(DRAFT)
+  issueDate       DateTime               @map("issue_date") @db.Date
+  expirationDate  DateTime               @map("expiration_date") @db.Date
+  contactName     String                 @map("contact_name")
+  contactEmail    String                 @map("contact_email")
+  contactPhone    String?                @map("contact_phone")
+  reference       String?
+  notes           String?
+  currency        String                 @default("usd")
+  discountCents   Int                    @default(0) @map("discount_cents")
+  subtotalCents   Int                    @default(0) @map("subtotal_cents")
+  taxCents        Int                    @default(0) @map("tax_cents")
+  totalCents      Int                    @default(0) @map("total_cents")
+  /// The Super Admin team member it is assigned to.
+  assignedUserId  String?                @map("assigned_user_id") @db.Uuid
+  sentAt          DateTime?              @map("sent_at") @db.Timestamptz(3)
+  decidedAt       DateTime?              @map("decided_at") @db.Timestamptz(3)
+  createdByUserId String                 @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business         Business               @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  lines            PlatformEstimateLine[]
+  convertedInvoice PlatformInvoice?       @relation("PlatformEstimateConverted")
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@map("platform_estimates")
+}
+
+model PlatformEstimateLine {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  estimateId  String   @map("estimate_id") @db.Uuid
+  description String
+  quantity    Decimal  @default(1) @db.Decimal(10, 2)
+  unitCents   Int      @map("unit_cents")
+  taxRateBps  Int      @default(0) @map("tax_rate_bps")
+  amountCents Int      @default(0) @map("amount_cents")
+  taxCents    Int      @default(0) @map("tax_cents")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  estimate PlatformEstimate @relation(fields: [businessId, estimateId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([estimateId, sortOrder])
+  @@map("platform_estimate_lines")
+}
+
+/// A payment from a firm on one invoice. Counts toward the invoice once COMPLETED.
+model PlatformPayment {
+  id               String                @id @default(uuid(7)) @db.Uuid
+  businessId       String                @map("business_id") @db.Uuid
+  invoiceId        String                @map("invoice_id") @db.Uuid
+  amountCents      Int                   @map("amount_cents")
+  refundedCents    Int                   @default(0) @map("refunded_cents")
+  method           PlatformPaymentMethod
+  status           PlatformPaymentStatus @default(PENDING)
+  paidOn           DateTime              @map("paid_on") @db.Date
+  /// The processor's id (e.g. Stripe payment intent) or the check number.
+  reference        String?
+  processorRef     String?               @unique @map("processor_ref")
+  failureReason    String?               @map("failure_reason")
+  notes            String?
+  receiptSentAt    DateTime?             @map("receipt_sent_at") @db.Timestamptz(3)
+  recordedByUserId String?               @map("recorded_by_user_id") @db.Uuid
+  idempotencyKey   String                @unique @map("idempotency_key") @db.Uuid
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  invoice PlatformInvoice  @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  refunds PlatformRefund[]
+
+  @@unique([businessId, id])
+  @@index([businessId, invoiceId])
+  @@index([status, paidOn])
+  @@map("platform_payments")
+}
+
+/// Money back to a firm, on one payment. Final only once the processor confirms (COMPLETED).
+model PlatformRefund {
+  id                String               @id @default(uuid(7)) @db.Uuid
+  businessId        String               @map("business_id") @db.Uuid
+  paymentId         String               @map("payment_id") @db.Uuid
+  amountCents       Int                  @map("amount_cents")
+  status            PlatformRefundStatus @default(PENDING)
+  reason            String
+  internalNote      String?              @map("internal_note")
+  processorRef      String?              @unique @map("processor_ref")
+  requestedByUserId String               @map("requested_by_user_id") @db.Uuid
+  completedAt       DateTime?            @map("completed_at") @db.Timestamptz(3)
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  payment PlatformPayment @relation(fields: [businessId, paymentId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, paymentId])
+  @@map("platform_refunds")
+}
+
+/// Credit given to a firm, applied to invoices or refunded. Invariant: applied + refunded +
+/// remaining = total.
+model PlatformCreditNote {
+  id               String                   @id @default(uuid(7)) @db.Uuid
+  /// "CN-1001": given by the database on insert, never reused.
+  number           String                   @unique @default("")
+  businessId       String                   @map("business_id") @db.Uuid
+  relatedInvoiceId String?                  @map("related_invoice_id") @db.Uuid
+  status           PlatformCreditNoteStatus @default(DRAFT)
+  issueDate        DateTime                 @map("issue_date") @db.Date
+  reason           String
+  customerNote     String?                  @map("customer_note")
+  internalNote     String?                  @map("internal_note")
+  currency         String                   @default("usd")
+  subtotalCents    Int                      @default(0) @map("subtotal_cents")
+  taxCents         Int                      @default(0) @map("tax_cents")
+  totalCents       Int                      @default(0) @map("total_cents")
+  appliedCents     Int                      @default(0) @map("applied_cents")
+  refundedCents    Int                      @default(0) @map("refunded_cents")
+  issuedAt         DateTime?                @map("issued_at") @db.Timestamptz(3)
+  voidedAt         DateTime?                @map("voided_at") @db.Timestamptz(3)
+  voidReason       String?                  @map("void_reason")
+  createdByUserId  String                   @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business       Business                    @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  relatedInvoice PlatformInvoice?            @relation(fields: [businessId, relatedInvoiceId], references: [businessId, id], onDelete: Restrict)
+  lines          PlatformCreditNoteLine[]
+  applications   PlatformCreditApplication[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@map("platform_credit_notes")
+}
+
+model PlatformCreditNoteLine {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  creditNoteId String   @map("credit_note_id") @db.Uuid
+  description  String
+  quantity     Decimal  @default(1) @db.Decimal(10, 2)
+  unitCents    Int      @map("unit_cents")
+  taxRateBps   Int      @default(0) @map("tax_rate_bps")
+  amountCents  Int      @default(0) @map("amount_cents")
+  taxCents     Int      @default(0) @map("tax_cents")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  creditNote PlatformCreditNote @relation(fields: [businessId, creditNoteId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([creditNoteId, sortOrder])
+  @@map("platform_credit_note_lines")
+}
+
+/// Part of a credit note applied to an invoice of the same firm. Never edited; reversed only by
+/// voiding the credit note before anything is applied.
+model PlatformCreditApplication {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  creditNoteId    String   @map("credit_note_id") @db.Uuid
+  invoiceId       String   @map("invoice_id") @db.Uuid
+  amountCents     Int      @map("amount_cents")
+  appliedByUserId String   @map("applied_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  creditNote PlatformCreditNote @relation(fields: [businessId, creditNoteId], references: [businessId, id], onDelete: Restrict)
+  invoice    PlatformInvoice    @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, invoiceId])
+  @@map("platform_credit_applications")
+}
+
+/// A processor webhook, recorded once (its event id is unique), so a retried webhook is skipped.
+model PlatformPaymentEvent {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  processor   String    @default("stripe")
+  eventId     String    @map("event_id")
+  type        String
+  paymentId   String?   @map("payment_id") @db.Uuid
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(3)
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(3)
+
+  @@unique([processor, eventId])
+  @@map("platform_payment_events")
+}
+
+/// The history of a firm's subscription: every plan, seat, cycle and status change (the
+/// Subscriptions page's history, and Reports' upgrades and downgrades).
+model PlatformSubscriptionChange {
+  id              String                         @id @default(uuid(7)) @db.Uuid
+  businessId      String                         @map("business_id") @db.Uuid
+  subscriptionId  String                         @map("subscription_id") @db.Uuid
+  kind            PlatformSubscriptionChangeKind
+  fromPlanId      String?                        @map("from_plan_id") @db.Uuid
+  toPlanId        String?                        @map("to_plan_id") @db.Uuid
+  fromStatus      PlatformSubscriptionStatus?    @map("from_status")
+  toStatus        PlatformSubscriptionStatus?    @map("to_status")
+  fromSeats       Int?                           @map("from_seats")
+  toSeats         Int?                           @map("to_seats")
+  reason          String?
+  effectiveAt     DateTime                       @default(now()) @map("effective_at") @db.Timestamptz(3)
+  changedByUserId String?                        @map("changed_by_user_id") @db.Uuid
+  createdAt       DateTime                       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  subscription PlatformFirmSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, effectiveAt])
+  @@index([kind, effectiveAt])
+  @@map("platform_subscription_changes")
 }
 
 /// Owner-approved, time-limited access for a Super Admin to one business (Tumit, Sprint 3).

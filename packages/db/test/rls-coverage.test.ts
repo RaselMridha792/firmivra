@@ -54,6 +54,8 @@ describe('row-level security coverage', () => {
       'platform_owner_invites',
       // Only support_next_ticket_number() (owner-run) moves the ticket counter.
       'support_ticket_counters',
+      // Only platform_billing_next_number() (owner-run) moves the document counters.
+      'platform_billing_counters',
       // One row, inserted by its migration; the app only saves it.
       'platform_security_policy',
     ];
