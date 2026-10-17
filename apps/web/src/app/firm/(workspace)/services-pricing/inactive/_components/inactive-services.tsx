@@ -6,18 +6,18 @@ import {
   Badge,
   Button,
   Card,
-  Input,
+  IconButton,
   KpiCard,
   Modal,
   PageHeader,
   Pagination,
+  SearchField,
   Select,
   Table,
   type Column,
   type TableSort,
 } from '@firmivra/ui';
 import {
-  Lightbulb,
   Archive,
   CheckCircle,
   Clock,
@@ -30,7 +30,6 @@ import {
   Plus,
   Tag,
   Trash,
-  User,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -40,17 +39,20 @@ import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { useFirm } from '../../../../../../components/firm-context';
+import { CATALOG_ICONS, dayText } from '../../_components/catalog-shared';
 
-function ServiceGlyph({ name }: { name: string | null }) {
-  const Glyph =
-    name === 'pencil'
-      ? PencilSimple
-      : name === 'lightbulb'
-        ? Lightbulb
-        : name === 'user'
-          ? User
-          : Tag;
-  return <Glyph weight="fill" className="size-6" />;
+/** The service's icon tile: its approved icon in its tone, or a cube when it has none. */
+function ServiceMark({ icon }: { icon: string | null }) {
+  const meta = icon ? CATALOG_ICONS[icon] : undefined;
+  const Glyph = meta?.glyph ?? Cube;
+  return (
+    <span
+      aria-hidden
+      className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${meta?.tone ?? 'bg-info-soft text-info'}`}
+    >
+      <Glyph weight="fill" className="size-6" />
+    </span>
+  );
 }
 const tabs = [
   { label: 'Active Services', href: '/services-pricing' },
@@ -145,6 +147,23 @@ export function InactiveServices() {
     api.servicesPricing.services(query),
   );
   const rows = list.isError ? [] : (list.data?.items ?? []);
+  const emptyTitle = list.isError
+    ? 'Services couldn’t load'
+    : search || categoryId
+      ? 'No matching services'
+      : 'No inactive services yet';
+  const retry = list.isError ? (
+    <Button
+      variant="secondary"
+      onClick={() => {
+        void summary.refetch();
+        void categories.refetch();
+        void list.refetch();
+      }}
+    >
+      Try again
+    </Button>
+  ) : undefined;
   const change = useApiMutation(
     async ({ row, type }: { row: CatalogServiceRow; type: 'activate' | 'archive' | 'delete' }) => {
       if (type === 'activate') return api.servicesPricing.activateService(row.id);
@@ -157,33 +176,31 @@ export function InactiveServices() {
     invalidate: ['services-pricing'],
   });
   const rowActions = (row: CatalogServiceRow) => (
-    <div className="flex flex-wrap items-center justify-end gap-1">
+    <div className="flex items-center justify-end gap-2">
       <Button
-        variant="outline"
-        className="min-h-8 px-2 py-1 text-xs"
+        variant="ghost"
+        className="min-w-24 bg-info-soft"
         onClick={() => router.push(`/services-pricing/${row.id}/edit`)}
       >
-        <PencilSimple weight="fill" className="size-3" />
+        <PencilSimple aria-hidden weight="fill" className="size-4" />
         Edit
       </Button>
       {manage ? (
-        <Button
-          variant="secondary"
-          className="min-h-8 px-2 py-1"
-          aria-label={`Duplicate ${row.name}`}
+        <IconButton
+          icon={Copy}
+          label={`Duplicate ${row.name}`}
           disabled={duplicate.isPending}
           onClick={() =>
             duplicate.mutate(row.id, {
               onSuccess: (copy) => router.push(`/services-pricing/${copy.id}/edit`),
             })
           }
-        >
-          <Copy weight="fill" className="size-4" />
-        </Button>
+        />
       ) : null}
       <ActionMenu
         label={`Actions for ${row.name}`}
-        trigger={<DotsThreeVertical weight="fill" className="size-4" />}
+        trigger={<DotsThreeVertical aria-hidden weight="fill" className="size-4" />}
+        className="[&>button]:size-8 [&>button]:min-h-8 [&>button]:justify-center [&>button]:px-0 [&>button>svg:last-child]:hidden"
         sections={[
           {
             items: [
@@ -240,18 +257,16 @@ export function InactiveServices() {
       sortable: true,
       className: 'w-1/4',
       cell: (row) => (
-        <div className="flex min-w-0 items-start gap-2">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-danger-soft text-danger">
-            <ServiceGlyph name={row.icon} />
-          </span>
+        <div className="flex min-w-0 items-center gap-3">
+          <ServiceMark icon={row.icon} />
           <div className="min-w-0">
             <Link
-              className="break-words font-semibold text-heading"
+              className="break-words text-sm font-semibold text-heading hover:text-action"
               href={`/services-pricing/${row.id}`}
             >
               {row.name}
             </Link>
-            <p className="mt-1 break-words text-xs text-muted">{row.shortDescription}</p>
+            <p className="mt-0.5 break-words text-xs text-muted">{row.shortDescription}</p>
           </div>
         </div>
       ),
@@ -280,7 +295,11 @@ export function InactiveServices() {
       id: 'price',
       label: 'Pricing',
       sortable: true,
-      cell: (row) => <span className="break-words">{formatPrice(row)}</span>,
+      cell: (row) => (
+        <span className="whitespace-nowrap text-sm font-semibold text-heading">
+          {formatPrice(row)}
+        </span>
+      ),
     },
     {
       id: 'status',
@@ -295,9 +314,13 @@ export function InactiveServices() {
       label: 'Last Updated',
       sortable: true,
       cell: (row) => (
-        <div>
-          {new Date(row.updatedAt).toLocaleDateString('en-US')}
-          <p className="text-xs text-muted">{row.updatedBy ? `by ${row.updatedBy}` : ''}</p>
+        <div className="whitespace-nowrap">
+          <time className="text-sm" dateTime={row.updatedAt}>
+            {dayText(row.updatedAt)}
+          </time>
+          <p className="mt-0.5 text-xs text-muted">
+            {row.updatedBy ? `by ${row.updatedBy}` : ''}
+          </p>
         </div>
       ),
     },
@@ -312,9 +335,9 @@ export function InactiveServices() {
           manage ? (
             <Link
               href="/services-pricing/new"
-              className="inline-flex min-h-11 items-center gap-2 rounded-control bg-action px-5 text-sm text-on-action"
+              className="inline-flex min-h-11 items-center gap-2 rounded-control bg-action px-6 text-base font-medium text-on-action hover:bg-action-hover"
             >
-              <Plus weight="fill" className="size-4" />
+              <Plus aria-hidden weight="bold" className="size-5" />
               Add New Service
             </Link>
           ) : undefined
@@ -327,16 +350,15 @@ export function InactiveServices() {
               key={tab.href}
               href={tab.href}
               aria-current={tab.label === 'Inactive Services' ? 'page' : undefined}
-              className={`inline-flex min-h-11 items-center border-b-2 px-3 text-sm ${tab.label === 'Inactive Services' ? 'border-action bg-table-head font-semibold text-heading' : 'border-transparent text-action'}`}
+              className={`inline-flex min-h-11 shrink-0 items-center whitespace-nowrap border-b-2 px-3 text-sm ${tab.label === 'Inactive Services' ? 'border-action bg-table-head font-semibold text-heading' : 'border-transparent font-medium text-action hover:bg-table-head'}`}
             >
               {tab.label}
             </Link>
           ))}
         </nav>
-        <div className="flex min-w-0 flex-col gap-3 sm:flex-row">
-          <Input
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row xl:ml-auto">
+          <SearchField
             label="Search services"
-            hideLabel
             placeholder="Search services..."
             maxLength={100}
             value={searchText}
@@ -347,23 +369,27 @@ export function InactiveServices() {
             }}
             data-testid="inactive-search"
           />
-          <Select
-            label="Category"
-            hideLabel
-            value={categoryId}
-            options={[
-              { value: '', label: 'All Categories' },
-              ...(categories.data ?? [])
-                .filter((c) => c.status === 'ACTIVE')
-                .map((c) => ({ value: c.id, label: c.name })),
-            ]}
-            onChange={(e) => {
-              setCategoryId(e.target.value);
-              setPage(1);
-              setSelected([]);
-            }}
-            data-testid="inactive-category"
-          />
+          <div className="min-w-0 sm:w-48">
+            <Select
+              label="Category"
+              hideLabel
+              value={categoryId}
+              disabled={categories.data === undefined}
+              className="min-h-10 text-sm"
+              options={[
+                { value: '', label: 'All Categories' },
+                ...(categories.data ?? [])
+                  .filter((c) => c.status === 'ACTIVE')
+                  .map((c) => ({ value: c.id, label: c.name })),
+              ]}
+              onChange={(e) => {
+                setCategoryId(e.target.value);
+                setPage(1);
+                setSelected([]);
+              }}
+              data-testid="inactive-category"
+            />
+          </div>
         </div>
       </div>
       <div
@@ -383,27 +409,30 @@ export function InactiveServices() {
           />
         ))}
       </div>
-      {summary.isError ? <PageState query={summary}>{() => null}</PageState> : null}
-      {categories.isError ? <PageState query={categories}>{() => null}</PageState> : null}
-      <Card className="min-w-0 space-y-3 p-3" data-testid="inactive-list-frame">
+      <section
+        className="min-w-0 overflow-hidden rounded-card border border-border bg-surface shadow-card"
+        data-testid="inactive-list-frame"
+      >
         <h2 className="sr-only">Inactive Services</h2>
-        <PageState query={list} isEmpty={() => false}>
-          {() => null}
-        </PageState>
-        <div className="hidden xl:block">
+        <div className={`hidden xl:block ${rows.length || list.isPending ? '' : 'p-4'}`}>
           <Table
             rows={rows}
             columns={columns}
             rowKey={(row) => row.id}
             caption="Inactive services"
             dense
-            tableClassName="table-fixed [&_th:last-child]:w-48 [&_td:last-child]:w-48"
+            tableClassName="table-fixed [&_thead_th]:text-sm [&_thead_th]:font-semibold [&_th:last-child]:w-56 [&_td:last-child]:w-56"
             selection={{ selected, onChange: setSelected }}
             rowActions={rowActions}
             loading={list.isPending}
             showPagination={false}
-            emptyTitle={search || categoryId ? 'No matching services' : 'No inactive services yet'}
-            emptyText="Inactive services remain available for editing and reactivation."
+            emptyTitle={emptyTitle}
+            emptyText={
+              list.isError
+                ? errorMessage(list.error)
+                : 'Inactive services remain available for editing and reactivation.'
+            }
+            emptyAction={retry}
             server={{
               page,
               hasNext: page * 8 < (list.data?.total ?? 0),
@@ -418,7 +447,7 @@ export function InactiveServices() {
             }}
           />
         </div>
-        <div className="space-y-3 xl:hidden">
+        <div className="space-y-3 p-4 xl:hidden">
           {rows.map((row) => (
             <Card
               key={row.id}
@@ -449,29 +478,34 @@ export function InactiveServices() {
                 <Badge tone="neutral">Inactive</Badge>
               </div>
               <p className="text-sm">{formatPrice(row)}</p>
-              <p className="text-xs text-muted">
-                Updated {new Date(row.updatedAt).toLocaleDateString('en-US')}
-              </p>
+              <p className="text-xs text-muted">Updated {dayText(row.updatedAt)}</p>
               {rowActions(row)}
             </Card>
           ))}
           {!rows.length && !list.isPending ? (
-            <p className="p-4 text-sm text-muted">
-              {search || categoryId ? 'No matching services' : 'No inactive services yet'}
-            </p>
+            <div className="flex flex-col items-start gap-3 p-4 text-sm text-muted">
+              <p>{emptyTitle}</p>
+              {retry}
+            </div>
           ) : null}
         </div>
-        <Pagination
-          page={page}
-          pageCount={Math.max(1, Math.ceil((list.data?.total ?? 0) / 8))}
-          onPage={setPage}
-          summary={
-            list.data
-              ? `Showing ${rows.length ? (page - 1) * 8 + 1 : 0}–${Math.min(page * 8, list.data.total)} of ${list.data.total} services`
-              : 'Service list unavailable'
-          }
-        />
-      </Card>
+        <div className="p-4">
+          <Pagination
+            page={page}
+            pageCount={Math.max(1, Math.ceil((list.data?.total ?? 0) / 8))}
+            onPage={setPage}
+            summary={
+              list.data
+                ? list.data.total && rows.length
+                  ? `Showing ${(page - 1) * 8 + 1}–${Math.min(page * 8, list.data.total)} of ${list.data.total} services`
+                  : 'No services to show'
+                : list.isError
+                  ? 'Service list unavailable'
+                  : 'Loading services…'
+            }
+          />
+        </div>
+      </section>
       {duplicate.error ? (
         <p role="alert" className="text-sm text-danger">
           {errorMessage(duplicate.error)}
