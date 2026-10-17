@@ -58,6 +58,7 @@ import { EsignModule } from './esign/esign.module.js';
 import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
 import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
 import { ComplianceModule } from './compliance/compliance.module.js';
+import { TemplatesModule } from './templates/templates.module.js';
 import { BookkeepingModule } from './bookkeeping/bookkeeping.module.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
@@ -143,6 +144,7 @@ export class AppModule {
         BusinessModule,
         BeginOnlineModule,
         ComplianceModule,
+        TemplatesModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
         BookkeepingModule,
       ],

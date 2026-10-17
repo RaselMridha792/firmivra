@@ -107,6 +107,12 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
     value: '1',
     routes: /\/esign\/templates\/:templateId\/versions\/:version\/restore$/,
   },
+  // Each message template record has version 1 (cases/templates.ts).
+  {
+    param: 'version',
+    value: '1',
+    routes: /\/business\/templates\/:id\/versions\/:version(\/restore)?$/,
+  },
 ];
 const fixedOf = (path: string): Record<string, string> =>
   Object.fromEntries(
@@ -790,5 +796,5 @@ describe('tenant isolation (R8 step 2)', () => {
       if (!ok) failures.push(`${keyOf(route)} (${c.file}): ${show(res)}`);
     }
     expect(failures).toEqual([]);
-  });
+  }, 180_000);
 });
