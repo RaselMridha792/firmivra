@@ -359,7 +359,8 @@ export type ReorderChecklistRequest = z.input<typeof ReorderChecklistRequest>;
  * POST /business/tasks/bulk: one action on up to 100 tasks. Tasks the caller does not reach are
  * left out like any 404 (counted in `skipped` with the reason NOT_FOUND). A task the action does
  * not fit (completing a task with an open required item or prerequisite, reassigning to someone
- * who cannot take the client) is skipped with a safe reason code, the rest still change.
+ * who cannot take the client) is skipped with a safe reason code, the rest still change. When
+ * none of the tasks is found, the answer is 404 NOT_FOUND, as for one task that is not found.
  */
 export const BulkTaskRequest = z
   .discriminatedUnion('action', [
