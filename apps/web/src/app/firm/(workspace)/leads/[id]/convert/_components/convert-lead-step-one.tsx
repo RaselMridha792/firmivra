@@ -394,14 +394,19 @@ function ClientDetails({
   lead,
   query,
   services,
+  highlighted = false,
 }: {
   lead: LeadProfile | undefined;
   query: UseQueryResult<LeadOptions>;
   services: LeadOptions['services'] | undefined;
+  highlighted?: boolean;
 }) {
   const selectedIds = new Set(lead?.services.map((service) => service.id) ?? []);
   return (
-    <Card className="p-3" data-testid="convert-lead-client-fields">
+    <Card
+      className={highlighted ? 'border-2 border-info-soft p-3' : 'p-3'}
+      data-testid="convert-lead-client-fields"
+    >
       <SectionTitle
         icon={Buildings}
         title="Client Details & Services"
@@ -476,13 +481,18 @@ function StaffAssignment({
   lead,
   query,
   staff,
+  highlighted = false,
 }: {
   lead: LeadProfile | undefined;
   query: UseQueryResult<LeadOptions>;
   staff: LeadOptions['staff'] | undefined;
+  highlighted?: boolean;
 }) {
   return (
-    <Card className="p-3" data-testid="convert-lead-staff-assignment">
+    <Card
+      className={highlighted ? 'border-2 border-info-soft p-3' : 'p-3'}
+      data-testid="convert-lead-staff-assignment"
+    >
       <SectionTitle
         icon={UsersThree}
         title="Assign Staff"
@@ -633,25 +643,44 @@ export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: Con
         />
       </div>
 
-      <section
-        aria-label="Lead conversion information"
-        className={`grid min-w-0 gap-4 ${activeStep === 'portal' ? 'w-full xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]' : 'xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)_minmax(0,1fr)]'}`}
-      >
-        <div data-testid="convert-lead-profile-step-column" className="flex min-w-0 flex-col gap-3">
-          <LeadOverview lead={profile} query={lead} onEdit={() => router.push(`/leads/${id}`)} />
-          <LeadDetails lead={profile} query={lead} />
-        </div>
-        {activeStep !== 'portal' ? (
+      {activeStep === 'details' ? (
+        <section
+          aria-label="Client details and staff assignment"
+          className="grid min-w-0 gap-4 xl:grid-cols-2"
+          data-testid="convert-lead-details-step-column"
+        >
+          <ClientDetails
+            lead={profile}
+            query={options}
+            services={optionData?.services}
+            highlighted
+          />
+          <StaffAssignment lead={profile} query={options} staff={optionData?.staff} highlighted />
+        </section>
+      ) : (
+        <section
+          aria-label="Lead conversion information"
+          className={`grid min-w-0 gap-4 ${activeStep === 'portal' ? 'w-full xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]' : 'xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)_minmax(0,1fr)]'}`}
+        >
           <div
-            data-testid="convert-lead-details-step-column"
-            className={`flex min-w-0 flex-col gap-3 rounded-card ${activeStep === 'details' ? 'border-2 border-info-soft p-2' : ''}`}
+            data-testid="convert-lead-profile-step-column"
+            className="flex min-w-0 flex-col gap-3"
           >
-            <ClientDetails lead={profile} query={options} services={optionData?.services} />
-            <StaffAssignment lead={profile} query={options} staff={optionData?.staff} />
+            <LeadOverview lead={profile} query={lead} onEdit={() => router.push(`/leads/${id}`)} />
+            <LeadDetails lead={profile} query={lead} />
           </div>
-        ) : null}
-        <LeadConversionRightRail highlighted={activeStep === 'portal'} />
-      </section>
+          {activeStep !== 'portal' ? (
+            <div
+              data-testid="convert-lead-details-step-column"
+              className="flex min-w-0 flex-col gap-3"
+            >
+              <ClientDetails lead={profile} query={options} services={optionData?.services} />
+              <StaffAssignment lead={profile} query={options} staff={optionData?.staff} />
+            </div>
+          ) : null}
+          <LeadConversionRightRail highlighted={activeStep === 'portal'} />
+        </section>
+      )}
 
       <footer className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
         <Button
