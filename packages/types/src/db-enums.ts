@@ -660,6 +660,36 @@ export type PlatformExportModule = z.infer<typeof PlatformExportModule>;
 export const PlatformExportStatus = z.enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'EXPIRED']);
 export type PlatformExportStatus = z.infer<typeof PlatformExportStatus>;
 
+/** Spec: Open by default, In Progress, Waiting on Customer, Resolved, and Closed (distinct from resolved). Overdue and Escalated are flags and tabs, not statuses; a merged ticket is CLOSED with mergedIntoTicketId set. */
+export const SupportTicketStatus = z.enum([
+  'OPEN',
+  'IN_PROGRESS',
+  'WAITING_ON_CUSTOMER',
+  'RESOLVED',
+  'CLOSED',
+]);
+export type SupportTicketStatus = z.infer<typeof SupportTicketStatus>;
+
+/** How the ticket came in; stored permanently. */
+export const SupportTicketSource = z.enum(['PORTAL', 'EMAIL', 'PHONE', 'INTERNAL', 'WEB_FORM']);
+export type SupportTicketSource = z.infer<typeof SupportTicketSource>;
+
+export const SupportAuthorSide = z.enum(['STAFF', 'CUSTOMER']);
+export type SupportAuthorSide = z.infer<typeof SupportAuthorSide>;
+
+export const SupportActorType = z.enum(['USER', 'SYSTEM']);
+export type SupportActorType = z.infer<typeof SupportActorType>;
+
+export const SupportSlaMode = z.enum(['BUSINESS_HOURS', 'CALENDAR']);
+export type SupportSlaMode = z.infer<typeof SupportSlaMode>;
+
+export const SupportEscalationKind = z.enum([
+  'SLA_BREACH',
+  'HIGH_PRIORITY_UNRESOLVED',
+  'CRITICAL_IMMEDIATE',
+]);
+export type SupportEscalationKind = z.infer<typeof SupportEscalationKind>;
+
 /** Where a sign-up verification code was sent. */
 export const VerificationChannel = z.enum(['EMAIL', 'PHONE']);
 export type VerificationChannel = z.infer<typeof VerificationChannel>;

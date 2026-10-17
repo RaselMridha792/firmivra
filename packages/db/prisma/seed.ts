@@ -2,7 +2,6 @@
 // Test Firm B for isolation checks. Safe to run again. Runs as the owner role, inside the same
 // scopes the app uses, so it also works where the owner is not a superuser.
 import { createHash, randomBytes } from 'node:crypto';
-import { INTAKE_FORMS } from '@firmivra/types';
 import { config } from 'dotenv';
 import { createPrismaClient, runInScope, type TxClient } from '../src/client.js';
 import {
@@ -29,18 +28,18 @@ import {
   SEED_LVP_APPLICATION_FORM,
   SEED_LVP_APPLICATION_OLD_DATA,
   SEED_MEETING_URLS,
-  seedFormDefinition,
   SEED_AGREEMENT_IDS,
   SAMPLE_AGREEMENT,
   SEED_ESIGN_IDS,
   SAMPLE_ESIGN_CONSENT,
 } from './seed-data.js';
 import {
-  byName,
   seedAppointmentTypes,
   seedClient,
   seedDocumentCategories,
+  seedFirmAgreement,
   seedFirmBasics,
+  seedIntakeForms,
   seedServices,
 } from './seed-helpers.js';
 import { seedR36 } from './seed-r36.js';
@@ -59,95 +58,6 @@ if (!url) throw new Error('DATABASE_URL is not set (copy .env.example to .env)')
 const prisma = createPrismaClient(url, {
   transactionOptions: { maxWait: 15_000, timeout: 60_000 },
 });
-
-/** Settings, Terms and Privacy v1 and tax statuses for one firm (business scope). */
-async function seedIntakeForms(
-  tx: TxClient,
-  businessId: string,
-  service: (name: string) => string,
-  serviceNames: readonly string[],
-) {
-  const ids = new Map<string, string>();
-  for (const name of serviceNames) {
-    const serviceId = service(name);
-    const { kind } = await tx.service.findUniqueOrThrow({ where: { id: serviceId } });
-    // The database files a new form under the service's default template (R37).
-    const found = await tx.intakeForm.findFirst({ where: { businessId, serviceId, version: 1 } });
-    const row =
-      found ??
-      (await tx.intakeForm.create({
-        data: {
-          businessId,
-          serviceId,
-          version: 1,
-          title: `${name} intake`,
-          // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in, so
-          // the seeded lead's answers and upload slot fit their form (real forms: r0_followups).
-          definition:
-            kind === 'ANNUAL_TAX' && INTAKE_FORMS.ANNUAL_TAX
-              ? INTAKE_FORMS.ANNUAL_TAX
-              : seedFormDefinition(kind, `${name} intake`),
-          // Deprecated: the agreement comes from the firm's intake agreements (seedFirmAgreement).
-          agreementText: null,
-          status: 'PUBLISHED',
-          publishedAt: new Date(),
-        },
-      }));
-    ids.set(name, row.id);
-  }
-  return byName('intake form', ids);
-}
-
-/** The firm-wide intake agreement with a synthetic v1 and a CLEAN PDF row (no file in S3). */
-async function seedFirmAgreement(
-  tx: TxClient,
-  businessId: string,
-  ownerId: string,
-  ids: { agreement: string; file: string; version: string },
-) {
-  await tx.firmAgreement.upsert({
-    where: { id: ids.agreement },
-    update: {},
-    create: { id: ids.agreement, businessId, scope: 'ALL_INTAKES', createdByUserId: ownerId },
-  });
-  const sha256 = createHash('sha256').update(`sample agreement pdf ${businessId}`).digest('hex');
-  await tx.firmAgreementFile.upsert({
-    where: { id: ids.file },
-    update: {},
-    create: {
-      id: ids.file,
-      businessId,
-      fileName: SAMPLE_AGREEMENT.pdf.fileName,
-      sizeBytes: SAMPLE_AGREEMENT.pdf.sizeBytes,
-      sha256,
-      s3Key: `tenant/${businessId}/agreements/${ids.file}`,
-      uploadedByUserId: ownerId,
-    },
-  });
-  await tx.firmAgreementFile.updateMany({
-    where: { id: ids.file, scanStatus: 'PENDING' },
-    data: { scanStatus: 'CLEAN', scannedAt: new Date() },
-  });
-  // Versions are insert-only (an upsert may update), so create it once.
-  if (!(await tx.firmAgreementVersion.findUnique({ where: { id: ids.version } }))) {
-    await tx.firmAgreementVersion.create({
-      data: {
-        id: ids.version,
-        businessId,
-        agreementId: ids.agreement,
-        version: 1,
-        title: SAMPLE_AGREEMENT.title,
-        bodyMarkdown: SAMPLE_AGREEMENT.body,
-        acknowledgments: SAMPLE_AGREEMENT.acknowledgments.map((a) => ({ ...a })),
-        pdfFileId: ids.file,
-        pdfSha256: sha256,
-        publishedByUserId: ownerId,
-      },
-    });
-  }
-}
-
-/** The firm's appointment types; returns their ids by name. */
 
 const hex = (label: string) => createHash('sha256').update(label).digest('hex');
 /** Never a usable link, code or upload token: only a hash of random bytes is stored. */
@@ -1676,6 +1586,97 @@ async function main() {
         },
       });
     }
+    // Stage B2: LVP's ticket with Firmivra support, as the team works it (admin scope): raised by
+    // email about LVP's owner, assigned, answered with a screenshot, with a note and its history.
+    if (!(await tx.supportTicket.findUnique({ where: { id: SEED_PLATFORM_IDS.supportTicket } }))) {
+      const category = await tx.supportCategory.findUniqueOrThrow({
+        where: { name: 'Account Access' },
+      });
+      const priority = await tx.supportPriority.findUniqueOrThrow({ where: { code: 'HIGH' } });
+      await tx.supportTicket.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportTicket,
+          businessId: businesses.lvp,
+          contactUserId: SEED_USERS.lvpOwner.id,
+          subject: 'Staff member cannot finish MFA setup',
+          description:
+            'Our new preparer gets "code expired" every time she scans the QR code. Can you help?',
+          categoryId: category.id,
+          priorityId: priority.id,
+          source: 'EMAIL',
+          assignedUserId: SEED_USERS.superAdmin.id,
+          createdByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      await tx.supportTicketMessage.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportStaffReply,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.superAdmin.id,
+          authorSide: 'STAFF',
+          body: 'Thanks for reaching out. Her phone clock looks out of sync; the screenshot shows where to turn on automatic time.',
+          deliveryChannel: 'EMAIL',
+        },
+      });
+      await tx.supportTicketAttachment.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportAttachment,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          messageId: SEED_PLATFORM_IDS.supportStaffReply,
+          uploadedByUserId: SEED_USERS.superAdmin.id,
+          fileName: 'automatic-time-setting.png',
+          contentType: 'image/png',
+          sizeBytes: 84213,
+          sha256: createHash('sha256').update('sample support screenshot').digest('hex'),
+          s3Key: `tenant/${businesses.lvp}/support/${SEED_PLATFORM_IDS.supportAttachment}`,
+        },
+      });
+      await tx.supportTicketNote.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportNote,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.superAdmin.id,
+          body: 'Third clock-drift case this month; worth a help article.',
+        },
+      });
+      await tx.supportTicketEvent.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportEvent,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          actorUserId: SEED_USERS.superAdmin.id,
+          actorType: 'USER',
+          action: 'ticket.assigned',
+          newValue: SEED_USERS.superAdmin.name,
+        },
+      });
+      await tx.supportTicket.update({
+        where: { id: SEED_PLATFORM_IDS.supportTicket },
+        data: { status: 'WAITING_ON_CUSTOMER', firstRespondedAt: new Date() },
+      });
+    }
+    await tx.supportHoliday.upsert({
+      where: { id: SEED_PLATFORM_IDS.supportHoliday },
+      update: {},
+      create: {
+        id: SEED_PLATFORM_IDS.supportHoliday,
+        date: new Date('2026-11-26'),
+        name: 'Thanksgiving',
+      },
+    });
+    await tx.supportCannedResponse.upsert({
+      where: { id: SEED_PLATFORM_IDS.supportCannedResponse },
+      update: {},
+      create: {
+        id: SEED_PLATFORM_IDS.supportCannedResponse,
+        title: 'MFA code expired',
+        body: 'An "expired" code usually means the phone clock is off. Turn on automatic date and time, then scan the code again.',
+        createdByUserId: SEED_USERS.superAdmin.id,
+      },
+    });
     if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.platformEvent } }))) {
       await tx.auditLog.create({
         data: {
@@ -1714,6 +1715,38 @@ async function main() {
       },
     });
   });
+  // Stage B2: LVP's owner answers from the firm's side (business scope, as himself), and the
+  // scanner clears the screenshot (platform scope).
+  await runInScope(
+    prisma,
+    { kind: 'business', businessId: businesses.lvp, actorUserId: SEED_USERS.lvpOwner.id },
+    async (tx) => {
+      if (
+        await tx.supportTicketMessage.findUnique({
+          where: { id: SEED_PLATFORM_IDS.supportFirmReply },
+        })
+      ) {
+        return;
+      }
+      await tx.supportTicketMessage.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportFirmReply,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.lvpOwner.id,
+          authorSide: 'CUSTOMER',
+          body: 'That fixed it, thank you!',
+        },
+      });
+    },
+  );
+  await runInScope(prisma, { kind: 'platform' }, (tx) =>
+    tx.supportTicketAttachment.updateMany({
+      where: { id: SEED_PLATFORM_IDS.supportAttachment, scanStatus: 'PENDING' },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+    }),
+  );
+
   // The activation link Firmivra sent LVP's owner on approval, sent in platform scope (so the
   // database marks it and the Super Admin sees a copy) and already accepted.
   const lvpOwnerMembership = await runInScope(
