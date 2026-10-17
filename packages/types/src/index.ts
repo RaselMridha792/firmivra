@@ -73,3 +73,4 @@ export { DocumentRequestStatus } from './schemas.js';
 // SidebarPosition and ReminderChannel have the same values; the scheduling form's
 // RecurrenceFrequency adds NONE and CUSTOM, which the contract's own schemas keep using.
 export { RecurrenceFrequency, ReminderChannel, SidebarPosition, SidebarStyle } from './schemas.js';
+export * from './bookkeeping/index.js';
