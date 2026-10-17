@@ -151,7 +151,7 @@ const DELAYS = [
 /** /automations/new and /automations/[id]/edit: the five-step rule builder. */
 export function RuleBuilderScreen({ id }: { id?: string }) {
   const detail = useApiQuery([...AUTOMATIONS_KEY, 'rule', id ?? 'new'], async () =>
-    id ? api.automations.rule(id) : undefined,
+    id ? api.automations.rule(id) : null,
   );
   const catalog = useApiQuery([...AUTOMATIONS_KEY, 'catalog'], () => api.automations.catalog());
   if ((id && !detail.data) || !catalog.data) {
@@ -169,7 +169,9 @@ export function RuleBuilderScreen({ id }: { id?: string }) {
       </div>
     );
   }
-  return <Builder key={id ?? 'new'} id={id} initial={detail.data} catalog={catalog.data} />;
+  return (
+    <Builder key={id ?? 'new'} id={id} initial={detail.data ?? undefined} catalog={catalog.data} />
+  );
 }
 
 function Builder({
@@ -583,7 +585,7 @@ function Builder({
                       onChange={(e) => setAct(a.id, { type: e.target.value, config: {} })}
                       options={catalog.actions.map((x) => ({ value: x.type, label: x.label }))}
                     />
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2">
                       {(info?.fields ?? []).map((fld) => (
                         <ActionField
                           key={fld.key}

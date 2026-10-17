@@ -367,7 +367,7 @@ function LogDetails({
 }) {
   const [tab, setTab] = useState<'log' | 'config' | 'related'>('log');
   const q = useApiQuery([...AUTOMATIONS_KEY, 'run', id ?? 'none'], async () =>
-    id ? api.automations.runDetail(id) : undefined,
+    id ? api.automations.runDetail(id) : null,
   );
   const d = q.data;
   return (
@@ -529,7 +529,7 @@ function LogDetails({
 
 function RuleInformation({ id }: { id: string | undefined }) {
   const q = useApiQuery([...AUTOMATIONS_KEY, 'rule', id ?? 'none'], async () =>
-    id ? api.automations.rule(id) : undefined,
+    id ? api.automations.rule(id) : null,
   );
   const r = q.data;
   return (

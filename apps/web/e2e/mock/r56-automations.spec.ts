@@ -55,6 +55,7 @@ test('Row menu: test, duplicate, archive', async ({ page }) => {
   await page.getByRole('button', { name: 'Actions for Send Extension Reminder' }).click();
   await page.getByRole('menuitem', { name: 'Archive' }).click();
   await expect(page.getByText('Send Extension Reminder archived.')).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Search rules' }).fill('mark overdue');
   await page.getByRole('button', { name: 'Actions for Mark Overdue & Notify' }).click();
   await page.getByRole('menuitem', { name: 'Duplicate' }).click();
   await expect(page).toHaveURL(/\/automations\/[0-9a-f-]{36}\/edit$/);
@@ -85,7 +86,7 @@ test('Builder: validation, a full rule, the live review and activation', async (
   await expect(page.getByTestId('rule-summary')).toContainText('Business Reminder – 14 Days');
   await page.getByTestId('save-activate').click();
   await expect(page).toHaveURL(/\/automations\/[0-9a-f-]{36}\/edit$/);
-  await expect(page.getByText('Business Reminder – 14 Days is active.')).toBeVisible();
+  await expect(page.getByTestId('rule-summary')).toContainText('Active');
 });
 
 test('Builder: an action with no template blocks activation', async ({ page }) => {
