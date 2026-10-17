@@ -12,7 +12,6 @@ import {
 } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { api } from '../../../../../../lib/api';
-import { moduleHref } from '../../../../../../lib/firm-modules';
 import { useApiQuery } from '../../../../../../lib/query';
 import {
   CardLink,
@@ -137,7 +136,7 @@ export function SecurityScreen() {
             Connections are managed in Integrations. Keys and secrets are stored encrypted and are
             never shown again after they are saved.
           </p>
-          <CardLink href={moduleHref('integrations')}>Open Integrations</CardLink>
+          <CardLink href={'/integrations'}>Open Integrations</CardLink>
         </SettingsCard>
 
         <SettingsCard
