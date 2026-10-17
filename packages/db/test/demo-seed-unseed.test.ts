@@ -1,24 +1,41 @@
 // R0, PART 2: the demo seed and unseed round-trip, over every stage (seedDemo). Proves that a second
 // `pnpm db:seed:demo` changes no row count in any table, that `pnpm db:unseed:demo` removes exactly
 // what the seed created (table by table, plus the business row and the synthetic users) and
-// nothing else, that it is safe to call again once there is nothing left, and that deleting a
-// whole firm this way never weakens memberships_keep_an_owner for an ordinary firm that keeps
-// existing (R0-schema's r0_last_owner rule). Tables are found from the catalog, so a later stage's
-// new module is covered without editing this file.
-import { afterAll, describe, expect, inject, it } from 'vitest';
+// nothing else, that it is safe to call again once there is nothing left, that it works as the
+// migrate role works on RDS (no superuser, no BYPASSRLS) and puts every RLS and trigger setting back
+// as it was, and that deleting a whole firm this way never weakens memberships_keep_an_owner for an
+// ordinary firm that keeps existing (R0-schema's r0_last_owner rule). Tables are found from the
+// catalog, so a later stage's new module is covered without editing this file.
+//
+// Its own database (not the suite's shared `dbUrls`): app_delete_business_data takes ACCESS
+// EXCLUSIVE locks on every firm table while it runs, which would stall or deadlock other files'
+// transactions in a shared database.
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createPrismaClient, runInScope } from '../src/client.js';
-import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
+import { prepareTestDatabase, TEST_CLIENT_OPTIONS } from '../src/testing.js';
 import { seedDemo } from '../prisma/seed-demo-all.js';
 import { SEED_DEMO_BUSINESS, SEED_DEMO_USERS } from '../prisma/seed-demo-data.js';
-import { unseedDemoOrg } from '../prisma/unseed-demo-org.js';
+import { demoUserIds, unseedDemoOrg } from '../prisma/unseed-demo-org.js';
 
-const urls = inject('dbUrls');
-const owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
-const SLOW = 180_000;
+let owner: ReturnType<typeof createPrismaClient>;
+let appUrl: string;
+const SLOW = 240_000;
+
+beforeAll(async () => {
+  const urls = await prepareTestDatabase('demo_seed');
+  owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
+  appUrl = urls.app;
+}, SLOW);
+
+afterAll(async () => {
+  await unseedDemoOrg(owner);
+  await owner.$disconnect();
+});
 
 /**
  * Rows per table for one business, every table with a business_id column (non-zero only). The
- * owner role bypasses row-level security, so each count filters by business_id itself.
+ * test owner is a superuser and skips RLS, so each count filters by business_id itself.
  */
 async function rowsOf(businessId: string): Promise<Record<string, number>> {
   const tables = await owner.$queryRaw<{ table_name: string }[]>`
@@ -41,10 +58,18 @@ async function rowsOf(businessId: string): Promise<Record<string, number>> {
   return counts;
 }
 
-afterAll(async () => {
-  // Leave the shared test database as it found it, in case a later assertion throws early.
-  await unseedDemoOrg(owner);
-});
+/** Every public table's FORCE RLS flag and every user trigger's enabled mode. */
+const settings = () =>
+  owner.$queryRaw<{ name: string; value: string }[]>`
+    SELECT c.relname || ':force' AS name, c.relforcerowsecurity::text AS value
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind = 'r'
+    UNION ALL
+    SELECT c.relname || ':' || tg.tgname, tg.tgenabled::text
+    FROM pg_trigger tg JOIN pg_class c ON c.oid = tg.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND NOT tg.tgisinternal
+    ORDER BY 1`;
 
 describe('demo seed and unseed', () => {
   it(
@@ -88,16 +113,58 @@ describe('demo seed and unseed', () => {
         tx.business.findUnique({ where: { slug: SEED_DEMO_BUSINESS.slug } }),
       );
       expect(business).toBeNull();
-      const ownerUser = await runInScope(owner, { kind: 'platform' }, (tx) =>
-        tx.user.findUnique({ where: { id: SEED_DEMO_USERS.owner.id } }),
-      );
-      expect(ownerUser).toBeNull();
+      expect(await owner.user.count({ where: { id: { in: demoUserIds() } } })).toBe(0);
     },
     SLOW,
   );
 
   it('is a no-op once there is nothing left to unseed', async () => {
     await expect(unseedDemoOrg(owner)).resolves.toBeNull();
+  });
+
+  it(
+    'works as the migrate role on RDS (no superuser, no BYPASSRLS) and puts every setting back',
+    async () => {
+      const seeded = await seedDemo(owner);
+      const before = await settings();
+      const created = await rowsOf(seeded.businessId);
+      const role = `fv_unseed_${randomUUID().slice(0, 8)}`;
+      const [me] = await owner.$queryRaw<{ owner: string }[]>`SELECT current_user AS owner`;
+      await owner.$executeRawUnsafe(`CREATE ROLE ${role} NOSUPERUSER NOBYPASSRLS NOLOGIN`);
+      await owner.$executeRawUnsafe(`GRANT "${me!.owner}" TO ${role}`);
+      try {
+        const rows = await owner.$transaction(
+          async (tx) => {
+            await tx.$executeRawUnsafe(`SET LOCAL ROLE ${role}`);
+            return tx.$queryRaw<{ table_name: string; deleted: bigint }[]>`
+              SELECT * FROM app_delete_business_data(${seeded.businessId}::uuid,
+                ${demoUserIds()}::uuid[])`;
+          },
+          { timeout: SLOW },
+        );
+        const deleted = Object.fromEntries(rows.map((r) => [r.table_name, Number(r.deleted)]));
+        // Including what firm-scope policies alone never let it delete: append-only history and
+        // payments, the business itself and the staff logins.
+        expect(deleted).toEqual({ ...created, businesses: 1, users: 8 });
+      } finally {
+        await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${role}`);
+      }
+      expect(await rowsOf(seeded.businessId)).toEqual({});
+      expect(await owner.user.count({ where: { id: { in: demoUserIds() } } })).toBe(0);
+      expect(await settings()).toEqual(before);
+    },
+    SLOW,
+  );
+
+  it('the app role cannot run it', async () => {
+    const app = createPrismaClient(appUrl, TEST_CLIENT_OPTIONS);
+    try {
+      await expect(
+        app.$queryRaw`SELECT * FROM app_delete_business_data(${randomUUID()}::uuid)`,
+      ).rejects.toThrow(/permission denied/);
+    } finally {
+      await app.$disconnect();
+    }
   });
 
   it(
