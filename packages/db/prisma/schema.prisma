@@ -870,6 +870,8 @@ model Business {
 
   /// R0 stage A: null until a subscription is set (no backfill for existing firms).
   platformFirmSubscription PlatformFirmSubscription?
+  /// R0 stage B2: the firm's tickets with Firmivra support (Super Admin Support module).
+  supportTickets           SupportTicket[]
 
   @@map("businesses")
 }
@@ -1066,6 +1068,8 @@ model Membership {
   leadActivities            LeadActivity[]            @relation("LeadActivityActor")
   availabilityOverrides     AvailabilityOverride[]    @relation("OverrideStaff")
   appointmentSeriesCreated  AppointmentSeries[]       @relation("SeriesCreatedBy")
+  /// R0 stage B2: support tickets about this member.
+  supportTickets            SupportTicket[]           @relation("SupportTicketContact")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1125,9 +1129,11 @@ model PlatformAdmin {
   role      PlatformRole @default(SUPER_ADMIN)
   createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  user   User            @relation(fields: [userId], references: [id])
+  user                   User            @relation(fields: [userId], references: [id])
   /// R0 stage A: the org-chart row for this admin, if one exists yet (CREATING_TEAM 20261016_r0).
-  member PlatformMember?
+  member                 PlatformMember?
+  /// R0 stage B2: support tickets assigned to this team member.
+  supportTicketsAssigned SupportTicket[] @relation("SupportTicketAssignee")
 
   @@map("platform_admins")
 }
@@ -1373,6 +1379,325 @@ model PlatformFirmSubscription {
   plan     PlatformPlan @relation(fields: [planId], references: [id])
 
   @@map("platform_firm_subscriptions")
+}
+
+// ---------- R0 stage B2: Super Admin Support (tickets from firms) ----------
+
+/// Spec: Open by default, In Progress, Waiting on Customer, Resolved, and Closed (distinct from
+/// resolved). Overdue and Escalated are flags and tabs, not statuses; a merged ticket is CLOSED
+/// with mergedIntoTicketId set.
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+/// How the ticket came in; stored permanently.
+enum SupportTicketSource {
+  PORTAL
+  EMAIL
+  PHONE
+  INTERNAL
+  WEB_FORM
+}
+
+enum SupportAuthorSide {
+  STAFF
+  CUSTOMER
+}
+
+enum SupportActorType {
+  USER
+  SYSTEM
+}
+
+enum SupportSlaMode {
+  BUSINESS_HOURS
+  CALENDAR
+}
+
+enum SupportEscalationKind {
+  SLA_BREACH
+  HIGH_PRIORITY_UNRESOLVED
+  CRITICAL_IMMEDIATE
+}
+
+/// Reference data, managed in Support settings. An inactive category stays on old tickets.
+model SupportCategory {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tickets         SupportTicket[]
+  cannedResponses SupportCannedResponse[]
+
+  @@map("support_categories")
+}
+
+/// Reference data with the SLA targets: Critical 1 hour, High 4 hours, Medium 1 business day,
+/// Low 2 business days (as seeded).
+model SupportPriority {
+  id                      String   @id @default(uuid(7)) @db.Uuid
+  code                    String   @unique
+  name                    String
+  description             String?
+  color                   String
+  responseTargetMinutes   Int      @map("response_target_minutes")
+  resolutionTargetMinutes Int?     @map("resolution_target_minutes")
+  /// The targets count business hours (support_settings) rather than calendar time.
+  businessTime            Boolean  @default(true) @map("business_time")
+  sortOrder               Int      @default(0) @map("sort_order")
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tickets         SupportTicket[]
+  escalationRules SupportEscalationRule[]
+
+  @@map("support_priorities")
+}
+
+/// A firm's ticket with Firmivra support. Super Admin sees every ticket; a firm's own members see
+/// their firm's tickets and replies (never internal notes) and may raise one from the portal.
+model SupportTicket {
+  id                 String              @id @default(uuid(7)) @db.Uuid
+  /// Shown as "#1001": given by the database on insert (a caller's value is ignored), never reused.
+  number             Int                 @unique @default(0)
+  businessId         String              @map("business_id") @db.Uuid
+  /// The firm's person the ticket is about: a member of that firm.
+  contactUserId      String              @map("contact_user_id") @db.Uuid
+  subject            String
+  /// The opening message as the requester wrote it.
+  description        String
+  categoryId         String              @map("category_id") @db.Uuid
+  priorityId         String              @map("priority_id") @db.Uuid
+  status             SupportTicketStatus @default(OPEN)
+  source             SupportTicketSource
+  /// A Super Admin team member; null = in the queue.
+  assignedUserId     String?             @map("assigned_user_id") @db.Uuid
+  createdByUserId    String              @map("created_by_user_id") @db.Uuid
+  isEscalated        Boolean             @default(false) @map("is_escalated")
+  escalatedAt        DateTime?           @map("escalated_at") @db.Timestamptz(3)
+  escalatedByUserId  String?             @map("escalated_by_user_id") @db.Uuid
+  escalationReason   String?             @map("escalation_reason")
+  firstResponseDueAt DateTime?           @map("first_response_due_at") @db.Timestamptz(3)
+  firstRespondedAt   DateTime?           @map("first_responded_at") @db.Timestamptz(3)
+  resolutionDueAt    DateTime?           @map("resolution_due_at") @db.Timestamptz(3)
+  /// Set while the SLA clock is paused (e.g. waiting on the customer); paused time adds up.
+  slaPausedAt        DateTime?           @map("sla_paused_at") @db.Timestamptz(3)
+  slaPausedSeconds   Int                 @default(0) @map("sla_paused_seconds")
+  resolvedAt         DateTime?           @map("resolved_at") @db.Timestamptz(3)
+  resolvedByUserId   String?             @map("resolved_by_user_id") @db.Uuid
+  closedAt           DateTime?           @map("closed_at") @db.Timestamptz(3)
+  closedByUserId     String?             @map("closed_by_user_id") @db.Uuid
+  reopenedCount      Int                 @default(0) @map("reopened_count")
+  mergedIntoTicketId String?             @map("merged_into_ticket_id") @db.Uuid
+  lastActivityAt     DateTime            @default(now()) @map("last_activity_at") @db.Timestamptz(3)
+  /// A retried submit with the same key is refused, not a second ticket.
+  idempotencyKey     String?             @unique @map("idempotency_key") @db.Uuid
+  /// Optimistic concurrency: the API updates with the version it read, and bumps it.
+  version            Int                 @default(1)
+  /// Soft delete (permissioned); deleted tickets stay for audit and reports.
+  deletedAt          DateTime?           @map("deleted_at") @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business    Business                  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  /// The contact is a member of this firm (a composite key, checked whatever the scope).
+  contact     Membership                @relation("SupportTicketContact", fields: [businessId, contactUserId], references: [businessId, userId], onDelete: Restrict)
+  category    SupportCategory           @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  priority    SupportPriority           @relation(fields: [priorityId], references: [id], onDelete: Restrict)
+  assignee    PlatformAdmin?            @relation("SupportTicketAssignee", fields: [assignedUserId], references: [userId], onDelete: Restrict)
+  mergedInto  SupportTicket?            @relation("SupportTicketMerge", fields: [mergedIntoTicketId], references: [id], onDelete: Restrict)
+  mergedFrom  SupportTicket[]           @relation("SupportTicketMerge")
+  messages    SupportTicketMessage[]
+  notes       SupportTicketNote[]
+  attachments SupportTicketAttachment[]
+  events      SupportTicketEvent[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@index([status, lastActivityAt])
+  @@index([assignedUserId, status])
+  @@map("support_tickets")
+}
+
+/// The conversation: what support and the firm's people write to each other. Never edited.
+model SupportTicketMessage {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  businessId      String            @map("business_id") @db.Uuid
+  ticketId        String            @map("ticket_id") @db.Uuid
+  authorUserId    String            @map("author_user_id") @db.Uuid
+  authorSide      SupportAuthorSide @map("author_side")
+  body            String
+  /// How a staff reply reached the firm (e.g. "EMAIL"); null = portal only.
+  deliveryChannel String?           @map("delivery_channel")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  ticket      SupportTicket             @relation(fields: [businessId, ticketId], references: [businessId, id], onDelete: Restrict)
+  attachments SupportTicketAttachment[]
+
+  @@unique([businessId, id])
+  @@index([businessId, ticketId, createdAt])
+  @@map("support_ticket_messages")
+}
+
+/// Staff-only internal notes: no firm scope ever reads them. Never edited.
+model SupportTicketNote {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  ticketId     String   @map("ticket_id") @db.Uuid
+  authorUserId String   @map("author_user_id") @db.Uuid
+  body         String
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  ticket      SupportTicket             @relation(fields: [businessId, ticketId], references: [businessId, id], onDelete: Restrict)
+  attachments SupportTicketAttachment[]
+
+  @@unique([businessId, id])
+  @@index([businessId, ticketId, createdAt])
+  @@map("support_ticket_notes")
+}
+
+/// A file on a message or a note (at most 10 MB), stored under the firm's own S3 prefix
+/// (tenant/<firm>/support/...). A note's files are staff-only, like the note.
+model SupportTicketAttachment {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  businessId       String     @map("business_id") @db.Uuid
+  ticketId         String     @map("ticket_id") @db.Uuid
+  messageId        String?    @map("message_id") @db.Uuid
+  noteId           String?    @map("note_id") @db.Uuid
+  uploadedByUserId String     @map("uploaded_by_user_id") @db.Uuid
+  fileName         String     @map("file_name")
+  contentType      String     @map("content_type")
+  sizeBytes        Int        @map("size_bytes")
+  sha256           String
+  s3Key            String     @unique @map("s3_key")
+  scanStatus       ScanStatus @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?  @map("scanned_at") @db.Timestamptz(3)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  ticket  SupportTicket         @relation(fields: [businessId, ticketId], references: [businessId, id], onDelete: Restrict)
+  message SupportTicketMessage? @relation(fields: [businessId, messageId], references: [businessId, id], onDelete: Restrict)
+  note    SupportTicketNote?    @relation(fields: [businessId, noteId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, ticketId])
+  @@map("support_ticket_attachments")
+}
+
+/// The ticket's activity history, append-only: who did what and when (creation, assignment,
+/// status, priority and category changes, escalation, SLA events, resolve, reopen, close, merge).
+model SupportTicketEvent {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  businessId  String           @map("business_id") @db.Uuid
+  ticketId    String           @map("ticket_id") @db.Uuid
+  actorUserId String?          @map("actor_user_id") @db.Uuid
+  actorType   SupportActorType @map("actor_type")
+  /// e.g. "ticket.assigned", "ticket.status_changed", "sla.breached".
+  action      String
+  oldValue    String?          @map("old_value")
+  newValue    String?          @map("new_value")
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  ticket SupportTicket @relation(fields: [businessId, ticketId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, ticketId, createdAt])
+  @@map("support_ticket_events")
+}
+
+/// The last ticket number given (one row). Bumped only by the database's own function, so
+/// numbers stay platform-wide and in order whichever scope raises the ticket.
+model SupportTicketCounter {
+  id         Int @id @default(1)
+  lastNumber Int @default(1000) @map("last_number")
+
+  @@map("support_ticket_counters")
+}
+
+/// Support settings, one row: business hours for the SLA clock and the assignment rules.
+model SupportSettings {
+  id                   Int            @id @default(1)
+  /// ISO weekdays the team works, 1 = Monday.
+  workingDays          Int[]          @default([1, 2, 3, 4, 5]) @map("working_days")
+  opensAt              DateTime       @default(dbgenerated("'09:00:00'::time without time zone")) @map("opens_at") @db.Time(0)
+  closesAt             DateTime       @default(dbgenerated("'17:00:00'::time without time zone")) @map("closes_at") @db.Time(0)
+  timeZone             String         @default("America/New_York") @map("time_zone")
+  slaMode              SupportSlaMode @default(BUSINESS_HOURS) @map("sla_mode")
+  pauseWhileWaiting    Boolean        @default(true) @map("pause_while_waiting")
+  roundRobin           Boolean        @default(false) @map("round_robin")
+  lastAssignedUserId   String?        @map("last_assigned_user_id") @db.Uuid
+  reassignAfterMinutes Int?           @map("reassign_after_minutes")
+  updatedByUserId      String?        @map("updated_by_user_id") @db.Uuid
+  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("support_settings")
+}
+
+/// Holidays pause the business-hours SLA clock.
+model SupportHoliday {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  date      DateTime @unique @db.Date
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("support_holidays")
+}
+
+model SupportEscalationRule {
+  id               String                @id @default(uuid(7)) @db.Uuid
+  kind             SupportEscalationKind
+  /// For HIGH_PRIORITY_UNRESOLVED: which priority, and after how long.
+  priorityId       String?               @map("priority_id") @db.Uuid
+  thresholdMinutes Int?                  @map("threshold_minutes")
+  /// Who is told: a team member, or (when null) the people the API's rule picks.
+  notifyUserId     String?               @map("notify_user_id") @db.Uuid
+  /// EMAIL, IN_APP, SMS.
+  channels         String[]              @default([])
+  isActive         Boolean               @default(true) @map("is_active")
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  priority SupportPriority? @relation(fields: [priorityId], references: [id], onDelete: Restrict)
+
+  @@map("support_escalation_rules")
+}
+
+/// Saved replies; inserting one into a reply never sends it by itself.
+model SupportCannedResponse {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  title           String
+  body            String
+  categoryId      String?  @map("category_id") @db.Uuid
+  isActive        Boolean  @default(true) @map("is_active")
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  category SupportCategory? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@map("support_canned_responses")
+}
+
+/// Who hears about which ticket event, and how.
+model SupportNotificationRule {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  /// e.g. "ticket.created", "ticket.assigned", "sla.warning", "ticket.customer_replied".
+  event          String   @unique
+  notifyAssignee Boolean  @default(true) @map("notify_assignee")
+  /// Platform permission keys whose holders are told as well (e.g. "support.view_all").
+  notifyRoleKeys String[] @default([]) @map("notify_role_keys")
+  /// EMAIL, IN_APP, SMS.
+  channels       String[] @default([])
+  isActive       Boolean  @default(true) @map("is_active")
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("support_notification_rules")
 }
 
 /// Owner-approved, time-limited access for a Super Admin to one business (Tumit, Sprint 3).
