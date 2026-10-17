@@ -1,11 +1,15 @@
 // Reusable seed helpers shared by seed.ts (LVP, Test Firm B) and the demo seed (seed-demo-*.ts). A
 // plain module, never run on its own: importing anything from seed.ts itself would execute its
 // top-level main() as a side effect, so these live here instead.
+import { createHash } from 'node:crypto';
+import { INTAKE_FORMS } from '@firmivra/types';
 import type { TxClient } from '../src/client.js';
-import type {
-  SEED_APPOINTMENT_TYPES,
-  SEED_DOCUMENT_CATEGORIES,
-  SEED_SERVICES,
+import {
+  SAMPLE_AGREEMENT,
+  seedFormDefinition,
+  type SEED_APPOINTMENT_TYPES,
+  type SEED_DOCUMENT_CATEGORIES,
+  type SEED_SERVICES,
 } from './seed-data.js';
 
 export async function seedFirmBasics(
@@ -152,4 +156,91 @@ export function byName(kind: string, ids: Map<string, string>) {
     if (!id) throw new Error(`Seed ${kind} ${name} is missing`);
     return id;
   };
+}
+
+/** A published v1 intake form per service (the real Annual Tax form; a small stand-in for the rest). */
+export async function seedIntakeForms(
+  tx: TxClient,
+  businessId: string,
+  service: (name: string) => string,
+  serviceNames: readonly string[],
+) {
+  const ids = new Map<string, string>();
+  for (const name of serviceNames) {
+    const serviceId = service(name);
+    const { kind } = await tx.service.findUniqueOrThrow({ where: { id: serviceId } });
+    // The database files a new form under the service's default template (R37).
+    const found = await tx.intakeForm.findFirst({ where: { businessId, serviceId, version: 1 } });
+    const row =
+      found ??
+      (await tx.intakeForm.create({
+        data: {
+          businessId,
+          serviceId,
+          version: 1,
+          title: `${name} intake`,
+          // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in, so
+          // the seeded lead's answers and upload slot fit their form (real forms: r0_followups).
+          definition:
+            kind === 'ANNUAL_TAX' && INTAKE_FORMS.ANNUAL_TAX
+              ? INTAKE_FORMS.ANNUAL_TAX
+              : seedFormDefinition(kind, `${name} intake`),
+          // Deprecated: the agreement comes from the firm's intake agreements (seedFirmAgreement).
+          agreementText: null,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+        },
+      }));
+    ids.set(name, row.id);
+  }
+  return byName('intake form', ids);
+}
+
+/** The firm-wide intake agreement with a synthetic v1 and a CLEAN PDF row (no file in S3). */
+export async function seedFirmAgreement(
+  tx: TxClient,
+  businessId: string,
+  ownerId: string,
+  ids: { agreement: string; file: string; version: string },
+) {
+  await tx.firmAgreement.upsert({
+    where: { id: ids.agreement },
+    update: {},
+    create: { id: ids.agreement, businessId, scope: 'ALL_INTAKES', createdByUserId: ownerId },
+  });
+  const sha256 = createHash('sha256').update(`sample agreement pdf ${businessId}`).digest('hex');
+  await tx.firmAgreementFile.upsert({
+    where: { id: ids.file },
+    update: {},
+    create: {
+      id: ids.file,
+      businessId,
+      fileName: SAMPLE_AGREEMENT.pdf.fileName,
+      sizeBytes: SAMPLE_AGREEMENT.pdf.sizeBytes,
+      sha256,
+      s3Key: `tenant/${businessId}/agreements/${ids.file}`,
+      uploadedByUserId: ownerId,
+    },
+  });
+  await tx.firmAgreementFile.updateMany({
+    where: { id: ids.file, scanStatus: 'PENDING' },
+    data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+  });
+  // Versions are insert-only (an upsert may update), so create it once.
+  if (!(await tx.firmAgreementVersion.findUnique({ where: { id: ids.version } }))) {
+    await tx.firmAgreementVersion.create({
+      data: {
+        id: ids.version,
+        businessId,
+        agreementId: ids.agreement,
+        version: 1,
+        title: SAMPLE_AGREEMENT.title,
+        bodyMarkdown: SAMPLE_AGREEMENT.body,
+        acknowledgments: SAMPLE_AGREEMENT.acknowledgments.map((a) => ({ ...a })),
+        pdfFileId: ids.file,
+        pdfSha256: sha256,
+        publishedByUserId: ownerId,
+      },
+    });
+  }
 }
