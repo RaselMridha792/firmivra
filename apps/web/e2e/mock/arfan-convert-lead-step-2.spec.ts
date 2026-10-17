@@ -80,22 +80,24 @@ function stopMockServer(server: ChildProcess | undefined) {
 }
 
 async function expectFrames(page: Page) {
-  for (const id of ['convert-lead-client-fields', 'convert-lead-staff-assignment']) {
-    await expect(page.getByTestId(id)).toBeVisible();
-  }
   for (const id of [
     'convert-lead-lead-info',
     'convert-lead-details',
+    'convert-lead-client-fields',
+    'convert-lead-staff-assignment',
     'convert-lead-carry-over',
     'convert-lead-portal-access',
     'convert-lead-after-conversion',
   ]) {
-    await expect(page.getByTestId(id)).toHaveCount(0);
+    await expect(page.getByTestId(id)).toBeVisible();
   }
   await expect(page.getByRole('list', { name: 'Convert lead progress' })).toBeVisible();
   await expect(
     page.getByRole('listitem').filter({ has: page.getByText('Client Details & Services') }),
   ).toHaveAttribute('aria-current', 'step');
+  await expect(
+    page.getByRole('listitem').filter({ has: page.getByText('Review Lead Information') }),
+  ).toContainText('completed');
   await expect(page.getByTestId('convert-lead-details-step-column')).toHaveClass(
     /border-info-soft/,
   );
