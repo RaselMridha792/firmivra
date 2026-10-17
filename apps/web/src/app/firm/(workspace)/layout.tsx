@@ -8,6 +8,7 @@ import {
 } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
 import {
+  ArrowsClockwise,
   Briefcase,
   CalendarDots,
   CheckSquare,
@@ -86,7 +87,7 @@ const items: (NavItem & { managers?: true })[] = [
   link('Messages', ChatCircleDots, '/messages'),
   mod('communications'),
   link('Tasks', CheckSquare, '/tasks'),
-  mod('automations'),
+  link('Automations', ArrowsClockwise, '/automations'),
   mod('compliance'),
   mod('reports'),
   mod('templates'),
