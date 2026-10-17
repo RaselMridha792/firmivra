@@ -285,15 +285,17 @@ describe('the conversation, notes, history and files', () => {
         ),
       ),
     ).toMatch(/row-level security/);
+    // One at a time: each attempt starts only when the loop reaches it, so no rejection goes unhandled.
     for (const attempt of [
-      asAdmin((tx) =>
-        tx.supportTicketNote.update({ where: { id: note.id }, data: { body: 'Edited' } }),
-      ),
-      asAdmin((tx) => tx.supportTicketNote.deleteMany({ where: { id: note.id } })),
-      asAdmin((tx) => tx.supportTicketEvent.deleteMany({ where: { ticketId: t.id } })),
-      asAdmin((tx) => tx.supportTicketMessage.deleteMany({ where: { ticketId: t.id } })),
+      () =>
+        asAdmin((tx) =>
+          tx.supportTicketNote.update({ where: { id: note.id }, data: { body: 'Edited' } }),
+        ),
+      () => asAdmin((tx) => tx.supportTicketNote.deleteMany({ where: { id: note.id } })),
+      () => asAdmin((tx) => tx.supportTicketEvent.deleteMany({ where: { ticketId: t.id } })),
+      () => asAdmin((tx) => tx.supportTicketMessage.deleteMany({ where: { ticketId: t.id } })),
     ]) {
-      expect(await outcome(attempt)).toMatch(/permission denied/i);
+      expect(await outcome(attempt())).toMatch(/permission denied/i);
     }
   });
 
