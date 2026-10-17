@@ -64,19 +64,14 @@ export async function prepareTestDatabase(
   const owner = new pg.Client({ connectionString: urls.owner });
   await owner.connect();
   try {
-    await owner.query(`TRUNCATE businesses, users, memberships, client_accounts, platform_admins,
-      support_access_grants, audit_logs, firm_applications, business_settings,
-      firm_legal_documents, tax_statuses, invites, clients, client_profiles, client_tax_statuses,
-      client_tax_status_history, services, engagements, engagement_status_history, tasks, notes,
-      engagement_reports, document_categories, documents, document_requests, intake_forms, intakes,
-      intake_submissions, leads, lead_uploads, notifications, notification_deliveries, legal_acceptances,
-      notification_preferences, appointment_types, working_hours, blocked_times, appointments,
-      message_threads, messages, message_attachments, client_private_notes, client_note_reminders,
-      invoices, invoice_lines, payments, payment_events, content_items, calculator_definitions,
-      stripe_accounts, firm_application_status_history, verification_codes, tax_returns,
-      payment_refunds, platform_user_signups, platform_owner_invites, firm_agreements,
-      firm_agreement_files, firm_agreement_versions, intake_signatures, intake_signature_agreements,
-      offline_payments, platform_departments, platform_role_definitions, platform_plans CASCADE`);
+    // Every table, from the catalog: a hand-kept list missed tables with no foreign-key path to
+    // the listed ones (compliance_calendars, for one), so on a reused local test database a fixed
+    // seed id survived from the last run and broke the next seed.
+    const { rows } = await owner.query<{ name: string }>(
+      `SELECT quote_ident(tablename) AS name FROM pg_tables
+       WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`,
+    );
+    await owner.query(`TRUNCATE ${rows.map((r) => r.name).join(', ')} CASCADE`);
   } finally {
     await owner.end();
   }
