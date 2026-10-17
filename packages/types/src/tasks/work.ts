@@ -755,6 +755,8 @@ export const TaskWorkErrorCode = z.enum([
   'SERIES_NOT_ACTIVE',
   /** 409: the occurrence is already made or skipped. */
   'OCCURRENCE_CLOSED',
+  /** 409: the task is done, cancelled or archived: reopen or restore it before this change. */
+  'TASK_CLOSED',
   /** 409: the document is not one of the task's client's, or is internal and made visible. */
   'ATTACHMENT_NOT_ALLOWED',
 ]);
