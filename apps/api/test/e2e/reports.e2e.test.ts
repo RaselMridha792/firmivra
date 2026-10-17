@@ -61,6 +61,7 @@ const people = {
 type Who = (typeof people)[keyof typeof people];
 const firms = {} as Record<'a' | 'b', string>;
 const clients = {} as Record<'c1' | 'c2' | 'c3' | 'cB', string>;
+let serviceId = '';
 
 let app: INestApplication;
 const tokens = new Map<string, string>();
@@ -200,6 +201,7 @@ beforeAll(async () => {
       data: { businessId, kind: 'BOOKKEEPING', name: 'Bookkeeping' },
       select: { id: true },
     });
+    serviceId = service.id;
     const client = async (key: 'c1' | 'c2' | 'c3', name: string, over: object) => {
       clients[key] = (
         await tx.client.create({
@@ -529,7 +531,15 @@ describe('quick reports and the run path', () => {
     expect(searched.table.total).toBe(1);
     const withTax = await quick('invoices_by_status', { includeTaxRevenue: true });
     expect(withTax.notices).not.toContain('Amounts exclude tax.');
-    const ignored = await quick('new_clients', { quick: { serviceId: randomUUID() } });
+    expectError(
+      await runReport({
+        target: { kind: 'SYSTEM', key: 'new_clients' },
+        quick: { serviceId: randomUUID() },
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    const ignored = await quick('new_clients', { quick: { serviceId } });
     expect(ignored.notices.join(' ')).toMatch(/service filter does not apply/);
     expectError(
       await runReport(
