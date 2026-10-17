@@ -25,7 +25,26 @@ Branch `rasel/R55-catalog-documents-api`. Local ports: API 4550, web 3550, datab
 ## Steps
 
 - [x] 1. Services & Pricing under `/business/catalog`: services (list, create, get, update, activate, deactivate, archive, duplicate, delete, usage), packages (list, create, get, update, pricing panel, activate, deactivate, duplicate, archive), summary, categories (list, create, update, reorder, merge, delete) and promotions (list, create, update, end).
-- [ ] 2. Documents: `/business/documents`, uploads and confirm, `/business/document-categories`, `/business/document-requests` and every other method `createDocumentsClient` lists.
+- [x] 2. Documents: compared with `createDocumentsClient` and `createMyDocumentsClient`; nothing is missing, so no code was added (list below).
+
+## Documents: what already existed and what was added
+
+Compared on 2026-10-17 with `packages/types/src/documents/client.ts`. Firm routes are in `apps/api/src/storage/documents.controller.ts` (`@Access('DOCUMENTS')`, Owner, Admin, Staff), portal routes in `my-documents.controller.ts`.
+
+| Client method | Route | Status |
+| --- | --- | --- |
+| `list` | `GET /business/clients/:clientId/documents` | existed |
+| `get` | `GET /business/documents/:id` | existed |
+| `createUpload` | `POST /business/clients/:clientId/documents/uploads` | existed |
+| `confirmUpload` | `POST /business/documents/uploads/confirm` | existed |
+| `download` | `GET /business/documents/:id/download` | existed |
+| `categories` | `GET /business/document-categories` | existed |
+| `requests` | `GET /business/clients/:clientId/document-requests` | existed |
+| `createRequest` | `POST /business/clients/:clientId/document-requests` | existed |
+| `acceptRequest`, `rejectRequest`, `cancelRequest` | `POST /business/document-requests/:id/accept`, `/reject`, `/cancel` | existed |
+| `myDocuments`: `list`, `get`, `uploadTargets`, `createUpload`, `confirmUpload`, `download`, `categories`, `requests`, `notAvailable` | `/portal/:firmSlug/me/documents...`, `/document-categories`, `/document-requests...` | existed |
+
+Added: nothing. The firm Documents page (`/documents`) calls only these routes plus `api.clients.list` and the audit log. The brief also named update and delete of a document and `document-requests/{id}` as a read; no client method or contract schema has them, so they were not built. Say if the screens need them and a contract is agreed first.
 
 ## Progress log
 
