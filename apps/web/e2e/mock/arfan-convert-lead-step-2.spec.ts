@@ -80,16 +80,17 @@ function stopMockServer(server: ChildProcess | undefined) {
 }
 
 async function expectFrames(page: Page) {
+  for (const id of ['convert-lead-client-fields', 'convert-lead-staff-assignment']) {
+    await expect(page.getByTestId(id)).toBeVisible();
+  }
   for (const id of [
     'convert-lead-lead-info',
     'convert-lead-details',
-    'convert-lead-client-fields',
-    'convert-lead-staff-assignment',
     'convert-lead-carry-over',
     'convert-lead-portal-access',
     'convert-lead-after-conversion',
   ]) {
-    await expect(page.getByTestId(id)).toBeVisible();
+    await expect(page.getByTestId(id)).toHaveCount(0);
   }
   await expect(page.getByRole('list', { name: 'Convert lead progress' })).toBeVisible();
   await expect(
@@ -111,7 +112,7 @@ async function captureStepTwo(page: Page, filename: string) {
   });
 }
 
-test('shows the complete step 2 screen with mock data and fits mobile widths', async ({ page }) => {
+test('shows only step 2 fields with mock data and fits mobile widths', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(url(basePort));
 
@@ -119,6 +120,12 @@ test('shows the complete step 2 screen with mock data and fits mobile widths', a
   await expectFrames(page);
   await expect(page.getByText('Avery Lawson', { exact: true }).first()).toBeVisible();
   await expect(page.getByLabel('Full Name *')).toHaveValue('Avery Lawson');
+  const clientCard = await page.getByTestId('convert-lead-client-fields').boundingBox();
+  const staffCard = await page.getByTestId('convert-lead-staff-assignment').boundingBox();
+  expect(clientCard).not.toBeNull();
+  expect(staffCard).not.toBeNull();
+  if (!clientCard || !staffCard) throw new Error('Step 2 cards are missing their layout bounds');
+  expect(staffCard.x).toBeGreaterThanOrEqual(clientCard.x + clientCard.width);
   await captureStepTwo(page, 'convert-lead-step-2-data-1440.png');
 
   await page.setViewportSize({ width: 375, height: 812 });
@@ -130,7 +137,7 @@ test('shows the complete step 2 screen with mock data and fits mobile widths', a
   await captureStepTwo(page, 'convert-lead-step-2-data-375.png');
 });
 
-test('keeps every section frame when lead data is empty', async ({ page }) => {
+test('keeps step 2 fields visible when lead data is empty', async ({ page }) => {
   const port = await unusedPort();
   const server = await startMockServer('empty', port);
   try {
@@ -146,7 +153,7 @@ test('keeps every section frame when lead data is empty', async ({ page }) => {
   }
 });
 
-test('keeps every section frame when the lead API is unreachable', async ({ page }) => {
+test('keeps step 2 fields visible when the lead API is unreachable', async ({ page }) => {
   const port = await unusedPort();
   const server = await startMockServer('unreachable', port);
   try {

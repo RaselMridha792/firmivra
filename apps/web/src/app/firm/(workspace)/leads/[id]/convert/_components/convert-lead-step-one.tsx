@@ -631,20 +631,22 @@ export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: Con
 
       <section
         aria-label="Lead conversion information"
-        className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)_minmax(0,1fr)]"
+        className={`grid min-w-0 gap-4 ${activeStep === 'review' ? 'xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)_minmax(0,1fr)]' : 'mx-auto w-full max-w-5xl xl:grid-cols-1'}`}
       >
-        <div className="flex min-w-0 flex-col gap-3">
-          <LeadOverview lead={profile} query={lead} onEdit={() => router.push(`/leads/${id}`)} />
-          <LeadDetails lead={profile} query={lead} />
-        </div>
+        {activeStep === 'review' ? (
+          <div className="flex min-w-0 flex-col gap-3">
+            <LeadOverview lead={profile} query={lead} onEdit={() => router.push(`/leads/${id}`)} />
+            <LeadDetails lead={profile} query={lead} />
+          </div>
+        ) : null}
         <div
           data-testid="convert-lead-details-step-column"
-          className={`flex min-w-0 flex-col gap-3 rounded-card ${activeStep === 'details' ? 'border-2 border-info-soft p-2' : ''}`}
+          className={`grid min-w-0 gap-3 rounded-card ${activeStep === 'details' ? 'border-2 border-info-soft p-2 xl:grid-cols-[minmax(0,1.55fr)_minmax(16rem,0.85fr)]' : 'grid-cols-1'}`}
         >
           <ClientDetails lead={profile} query={options} services={optionData?.services} />
           <StaffAssignment lead={profile} query={options} staff={optionData?.staff} />
         </div>
-        <LeadConversionRightRail />
+        {activeStep === 'review' ? <LeadConversionRightRail /> : null}
       </section>
 
       <footer className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
