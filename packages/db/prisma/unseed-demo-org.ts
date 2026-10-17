@@ -6,8 +6,10 @@ import type { createPrismaClient } from '../src/client.js';
 import { runInScope } from '../src/client.js';
 import {
   demoId,
+  demoSignupUserId,
   SEED_DEMO_BUSINESS,
   SEED_DEMO_CLIENTS,
+  SEED_DEMO_SIGNUPS,
   SEED_DEMO_USERS,
 } from './seed-demo-data.js';
 
@@ -20,10 +22,11 @@ export interface UnseedDemoOrgResult {
   deletedUsers: number;
 }
 
-/** The demo's own logins: the owner, the six staff and the portal client. */
+/** The demo's own logins: the owner, the six staff, the portal client and the sign-ups. */
 export const demoUserIds = (): string[] => [
   ...Object.values(SEED_DEMO_USERS).map((u) => u.id),
   ...SEED_DEMO_CLIENTS.filter((c) => c.portal).map((c) => demoId(`user:client:${c.key}`)),
+  ...SEED_DEMO_SIGNUPS.map((s) => demoSignupUserId(s.key)),
 ];
 
 /** Finds the `demo` business by slug and deletes it and its synthetic users. `null` if there is none. */

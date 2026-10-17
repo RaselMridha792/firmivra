@@ -364,3 +364,28 @@ export const SEED_DEMO_CLIENTS: readonly {
 
 /** The one demo client with a working portal login (coverage rule). */
 export const SEED_DEMO_PORTAL_CLIENT = SEED_DEMO_CLIENTS.find((c) => c.portal)!;
+
+/**
+ * People who signed up on the demo firm's portal and are waiting for the firm (Sign-ups page):
+ * a CLIENT login each, with a verified email. One was declined. Unseed removes these logins too.
+ */
+export const SEED_DEMO_SIGNUPS: readonly {
+  key: string;
+  name: string;
+  email: string;
+  accountType: 'INDIVIDUAL' | 'BUSINESS';
+  declined?: string;
+}[] = [
+  { key: 'su1', name: 'Rachel Kim', email: 'rachel.kim@demo.test', accountType: 'INDIVIDUAL' },
+  { key: 'su2', name: 'Tomas Rivera', email: 'tomas.rivera@demo.test', accountType: 'INDIVIDUAL' },
+  { key: 'su3', name: 'Jasmine Ford', email: 'jasmine.ford@demo.test', accountType: 'BUSINESS' },
+  {
+    key: 'su4',
+    name: 'Victor Hale',
+    email: 'victor.hale@demo.test',
+    accountType: 'INDIVIDUAL',
+    declined: 'We could not match this sign-up to a client of the firm.',
+  },
+];
+
+export const demoSignupUserId = (key: string): string => demoId(`user:signup:${key}`);

@@ -92,6 +92,15 @@ describe('demo seed and unseed', () => {
         'documents',
         'message_threads',
         'messages',
+        // Stage 3
+        'intake_forms',
+        'intakes',
+        'intake_signatures',
+        'leads',
+        'lead_activities',
+        'esign_requests',
+        'esign_events',
+        'notifications',
       ]) {
         expect(first[table], table).toBeGreaterThan(0);
       }
@@ -102,7 +111,9 @@ describe('demo seed and unseed', () => {
 
       const result = await unseedDemoOrg(owner);
       expect(result?.businessId).toBe(seeded.businessId);
-      expect(result?.deletedUsers).toBe(Object.keys(SEED_DEMO_USERS).length + 1); // + the portal client
+      // The owner, 6 staff, the portal client and the sign-ups.
+      expect(result?.deletedUsers).toBe(demoUserIds().length);
+      expect(demoUserIds()).toHaveLength(Object.keys(SEED_DEMO_USERS).length + 1 + 4);
       const deleted = Object.fromEntries(
         result!.tables.map((r) => [r.table_name, Number(r.deleted)]),
       );
@@ -145,7 +156,7 @@ describe('demo seed and unseed', () => {
         const deleted = Object.fromEntries(rows.map((r) => [r.table_name, Number(r.deleted)]));
         // Including what firm-scope policies alone never let it delete: append-only history and
         // payments, the business itself and the staff logins.
-        expect(deleted).toEqual({ ...created, businesses: 1, users: 8 });
+        expect(deleted).toEqual({ ...created, businesses: 1, users: demoUserIds().length });
       } finally {
         await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${role}`);
       }
