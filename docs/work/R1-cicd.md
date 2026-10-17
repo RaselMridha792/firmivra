@@ -71,6 +71,23 @@ Questions for Rasel (Oct 8 evening; BOARD.md is closed, so they live here):
 
 - R8: the notes in R8-hardening.md "Decisions and notes (Oct 8)" (prod SES, sign-up and SMS alarms, KMS key count).
 
+## Handoff (R1 session, Oct 17)
+
+For a fresh R1 window. Newer than the Oct 8 handoff below; where they differ, this one wins.
+
+- **Live on dev AWS (all with Rasel's go):**
+  - **Bootstrap policies:** `firmivra-cdk-cfn-exec` **v5** (v4 added the `EcrRegistrySettings` statement, v5 the service-linked role `pullthroughcache.ecr.amazonaws.com`), `firmivra-permissions-boundary` **v4** (the same service name). v1 to v3 of each are kept; IAM allows 5 versions, so delete the oldest non-default one before the next.
+  - **`firmivra-dev-ci`** (manual stack, deployed Oct 17): the ECR pull-through cache rule `ecr-public` → `public.ecr.aws` (no repository creation template: Rasel chose least privilege), the pull-only OIDC role `firmivra-dev-github-ci-pull` (this repo's `pull_request` subject only), and the same pull rights on the deploy role. ECR made `ecr-public/docker/library/postgres` and `.../node` on the first pull; they have no lifecycle rule.
+  - **GuardDuty malware scan** (#324, #326 merged): plan `ACTIVE`; the 3 objects from before the plan were rescanned (`NO_THREATS_FOUND`).
+  - **Alarm topic `firmivra-dev-alarms`:** one email subscription, confirmed by Rasel (Oct 17). The address is not in the repo. The path test (forced `firmivra-dev-malware-scan-rejected`) sent the email.
+  - **Platform team migrations** (#677): the trigger `platform_members_ceo_role_check` exists; `platform_admins` has 2 `SUPER_ADMIN` rows and `platform_members` is empty until R0's bootstrap task runs.
+- **Open:**
+  - #707 (this cache, infra code) and #708 (`ci.yml`, Deploy dev and the three Dockerfiles use the cache; fork PRs fall back to `mirror.gcr.io`). Rasel merges both. After #708, ask R0, R55 and R56 to merge `origin/main` into their PRs, and give Rasel the developer PRs (#671 to #676, #681, #689, #696).
+  - Scan prefixes `esign`, `agreements` and `leads` have no handler yet: their results dead-letter and trip `dead-letters`. Purge only on Rasel's yes.
+  - The real-event check (plain and password-protected PDF through the portal) waits for the Documents API; never ask for or read a login.
+  - Demo seed and the platform org bootstrap on dev (R0's `demo-seed-task` image stage): RDS snapshot first, then Rasel's separate yes.
+- **Rules unchanged:** only R1 starts, cancels or re-runs Deploy dev, with Rasel's yes; any AWS change needs his go after the diff; no Co-Authored-By or Generated-with lines.
+
 ## Handoff (R1 session, Oct 8 evening)
 
 Where R1 stands, for a fresh session or after a context reset. Newest state first.
