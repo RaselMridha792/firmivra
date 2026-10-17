@@ -55,6 +55,7 @@ import {
   createTasksClient,
   createTaskWorkClient,
   createTemplatesClient,
+  createReportsClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
@@ -303,6 +304,11 @@ export const api = {
    * templates. Real API only until its mock is written.
    */
   templates: createTemplatesClient(request),
+  /**
+   * Reports (R55): the dashboard, report detail, custom builder, saved reports, exports and
+   * schedules. Real API only until its mock is written.
+   */
+  reports: createReportsClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
   workspaces:
     dev && mocked('workspaces')
