@@ -668,7 +668,7 @@ describe('the list, the overview and the exports with data', () => {
       await call('get', `/clients/${pcs.turner}/runs`, people.ownerA),
     );
     expect(completed.total).toBe(3);
-    expect(completed.items[0]?.payDate >= (completed.items[1]?.payDate ?? '')).toBe(true);
+    expect((completed.items[0]?.payDate ?? '') >= (completed.items[1]?.payDate ?? '')).toBe(true);
   });
 
   it('lists runs across the firm, with the upcoming and pay-date filters', async () => {
