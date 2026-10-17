@@ -84,13 +84,7 @@ const recurrence = (status: 'ACTIVE' | 'PAUSED'): RecordDef => ({
 });
 
 export const records: CaseModule['records'] = {
-  taskTemplate: {
-    async create({ tx, businessId }) {
-      return (
-        await tx.taskTemplate.create({ data: { businessId, name: `Fake template ${tag()}` } })
-      ).id;
-    },
-  },
+  // `taskTemplate` is defined in tasks.ts.
   complianceDeadline: { clientPrivate: true, create: (ctx) => makeDeadline(ctx) },
   /** A second deadline of client X, to relate. */
   complianceDeadlineLinked: { clientPrivate: true, create: (ctx) => makeDeadline(ctx) },
