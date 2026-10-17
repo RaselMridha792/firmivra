@@ -44,13 +44,17 @@ describe('seed', () => {
       WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname <> '_prisma_migrations'`);
     expect(tables.length).toBeGreaterThan(40);
 
+    // platform_firm_subscriptions: no backfill for existing firms (R0 stage A, Rasel's change C);
+    // a missing row means no plan limits until stage B or the demo seed adds one. The seed also
+    // gives the mapped CEO no individual permission override, so that table stays empty too.
+    const knownEmpty = ['platform_firm_subscriptions', 'platform_member_permission_overrides'];
     const empty: string[] = [];
     for (const t of tables) {
       const sql = t.tenant
         ? `SELECT count(*)::int AS n FROM "${t.name}" WHERE business_id = $1`
         : `SELECT count(*)::int AS n FROM "${t.name}"`;
       const { rows } = await client.query<{ n: number }>(sql, t.tenant ? [lvpId] : []);
-      if (rows[0]!.n === 0) empty.push(t.name);
+      if (rows[0]!.n === 0 && !knownEmpty.includes(t.name)) empty.push(t.name);
     }
     expect(empty).toEqual([]);
 
