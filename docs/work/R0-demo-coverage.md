@@ -13,11 +13,14 @@ Stages (one PR each, in Rasel's priority order: pages whose backend already exis
 
 - **Stage 1** (#679): the firm, its settings and reference data, owner and 6 staff, 3 departments,
   3 teams, 25 clients, one client portal login (Harper Coleman, `harper.coleman@demo.test`).
-- **Stage 2** (this map's update): engagements, tasks, notes, tax returns, invoices and payments,
-  calendar, documents and requests, message threads.
-- **Stage 3** (next): leads in every pipeline stage, Begin Online submissions, Firm Sign requests
+- **Stage 2** (#704): engagements, tasks, notes, tax returns, invoices and payments, calendar,
+  documents and requests, message threads.
+- **Stage 3**: leads in every pipeline stage, Begin Online submissions, Firm Sign requests
   (completed and pending), intake forms and submissions, client sign-ups, the notification bell.
-- **Stage 4**: Super Admin: 8 firms in different statuses, applications, subscriptions.
+- **Stage 4**: Super Admin: 8 more firms (`demo-` slugs) in every status, their applications and
+  plan subscriptions, 4 applications still under review. Run the platform-org bootstrap
+  (`bootstrap-platform-org-task.mjs`) first: stage 4 needs the plan ladder and acts as the earliest
+  SUPER_ADMIN (decisions and subscriptions show that person as the reviewer, Rasel's choice).
 - **Stage 5**: work modules with tables but no screens yet (bookkeeping, tax planning, compliance,
   automations, payroll, advisory), services and pricing detail (packages, promotions), audit and
   login history.
@@ -32,6 +35,22 @@ Stages (one PR each, in Rasel's priority order: pages whose backend already exis
 | `seed-demo-documents.ts` | 16 document requests (requested, submitted, accepted, rejected, not available), 24 documents: 9 client uploads, 13 filed 2024 returns shared with clients (linked to their tax return), 2 internal workpapers. Records only: no file behind them |
 | `seed-demo-messages.ts` | 10 threads, 13 messages (read and unread; one with an attachment; one archived thread). Client-sent messages come only from the portal client, the one client with a login |
 
+## What Stage 3 seeds
+
+| Module file | Rows |
+| --- | --- |
+| `seed-demo-intake.ts` | a published intake form per service (Begin Online and the portal), the firm's intake agreement v1, Firm Sign and calculators switched on, 4 portal intakes (2 sent, 1 in progress, 1 signed and submitted by Harper) |
+| `seed-demo-leads.ts` | 14 leads, LD-10001 to LD-10014: draft, submitted, in review, declined, contacted, in follow-up, appointment scheduled, qualified, lost; from Begin Online, a referral, the website, Google, Facebook, Instagram, an event, a call, a walk-in and email; owners, priorities, next follow-ups, a second service on two, and an activity trail (the database adds created, status and assignment entries). The 4 submitted Begin Online leads carry a signed submission |
+| `seed-demo-esign.ts` | Firm Sign settings, consent v1, 2 managers, 3 templates, 9 requests: 2 completed (signed final PDF and certificate filed in the client's Documents), 2 sent, 1 viewed, 1 declined, 1 expired, 1 voided, 1 draft; 28 events. Harper signs through her login (portal Signatures: one completed, one waiting) |
+| `seed-demo-signups.ts` | 4 portal sign-ups: 3 waiting for approval, 1 declined |
+| `seed-demo-notifications.ts` | 15 bell items: 10 for staff (new leads, sign-ups, uploads, a payment, a message, a booking, a submitted intake), 5 for Harper (a request, an invoice, a message, today's appointment, her shared return); some read |
+
+## What Stage 4 seeds
+
+| Module file | Rows |
+| --- | --- |
+| `seed-demo-platform.ts` | 8 firms: 5 active (one on trial, one past due), 1 pending setup, 1 suspended, 1 closed; each with an owner login, settings, services, its approved application (with history) and a plan subscription (every plan; active, trial, past due, suspended, cancelled; monthly and annual). 4 applications without a firm: 2 pending review, 1 info requested, 1 declined. The demo firm gets a Business plan subscription |
+
 Dates are relative to the day the seed runs (overdue stays overdue, "today" is today). Run it again
 and nothing changes; `pnpm db:unseed:demo` removes all of it.
 
@@ -39,9 +58,9 @@ and nothing changes; `pnpm db:unseed:demo` removes all of it.
 
 | Page | Seed rows | Backend | Stage |
 | --- | --- | --- | --- |
-| `/admin/(console)/page.tsx` (dashboard) | Stage 4 firms and applications | yes | 4 |
-| `/admin/(console)/applications`, `/[id]` | `firm_applications` | yes | 4 |
-| `/admin/(console)/firms`, `/[id]` | 8 firms, subscriptions | yes | 4 |
+| `/admin/(console)/page.tsx` (dashboard) | 9 demo firms by status, 12 applications | yes | 4 |
+| `/admin/(console)/applications`, `/[id]` | 12 applications: 8 approved, 2 pending review, 1 info requested, 1 declined | yes | 4 |
+| `/admin/(console)/firms`, `/[id]` | 9 firms in every status, each with its plan subscription | yes | 4 |
 | `/admin/sign-in`, `forgot-password`, `reset-password` | real dev Super Admin logins | yes | n/a |
 
 ## Firm workspace (`app.firmivra.com`)
@@ -54,18 +73,18 @@ and nothing changes; `pnpm db:unseed:demo` removes all of it.
 | `clients/[id]/documents` | requests and documents of that client | yes | 2 |
 | `clients/[id]/invoices` | that client's invoices | yes | 2 |
 | `clients/[id]/messages` | that client's threads | yes | 2 |
-| `clients/[id]/signatures` | Firm Sign requests | yes | 3 |
+| `clients/[id]/signatures` | the client's Firm Sign requests (Harper, Blue Ridge, and 6 more) | yes | 3 |
 | **Workspaces** `workspaces`, `workspaces/[engagementId]` | 56 engagements with tasks, notes, documents | yes | 2 |
 | **Invoices** `/invoices` | 21 invoices in every state, 8 payments | yes | 2 |
 | **Messages** `/messages` | 10 threads, read and unread | yes | 2 |
 | **Documents** `/documents` | 24 documents, 16 requests | part | 2 |
 | **Calendar** `/calendar`, `calendar/[id]`, `calendar/types`, `calendar/availability` | 18 appointments, 3 types, working hours, a closure | yes | 2 |
 | `calendar/list`, `calendar/today`, `calendar/new`, `calendar/[id]/edit` | same appointments | part (newer scheduling calls mocked) | 2 |
-| **Leads** `/leads`, `leads/[id]` | leads in every stage | part (pipeline parts mocked) | 3 |
-| `leads/[id]/*` tabs, `leads/[id]/convert/*` | lead activity, notes, documents | no (mocked) | 3 |
-| **Intake forms** `/intake-forms` and every sub-page | forms, submissions | no (mocked) | 3 |
-| **Firm Sign** `/firm-sign` and every sub-page, `(kiosk)/firm-sign/in-person*` | completed and pending requests, templates | yes | 3 |
-| `sign-ups` | client sign-ups waiting for approval | yes | 3 |
+| **Leads** `/leads`, `leads/[id]` | 14 leads in every pipeline status, owners, follow-ups | part (pipeline parts mocked) | 3 |
+| `leads/[id]/*` tabs, `leads/[id]/convert/*` | lead activity (seeded); the tabs' API is not on main | no (mocked) | 3 |
+| **Intake forms** `/intake-forms` and every sub-page | 6 published forms, 8 intakes (4 portal, 4 Begin Online) | no (mocked) | 3 |
+| **Firm Sign** `/firm-sign` and every sub-page, `(kiosk)/firm-sign/in-person*` | 9 requests in every state, 3 templates, events | yes | 3 |
+| `sign-ups` | 3 sign-ups waiting, 1 declined | yes | 3 |
 | `audit-log` | audit rows | yes | 5 |
 | **Team** `/team`, `team/[id]`, `team/[id]/created` | owner and 6 staff, profiles | yes | 1 |
 | `team/departments`, `team/org-chart`, `team/teams`, `team/roles`, `team/settings`, `team/activity`, `team/import`, `team/new/*` | 3 departments, 3 teams | no (R54's staff-org API unmerged; mocked) | 1 |
@@ -90,10 +109,10 @@ Sign in as the portal client, Harper Coleman (client `01`). Her account has rows
 | `(client)/appointments` | 3 appointments (one past, one today, one in 2 weeks) | yes | 2 |
 | `(client)/services` | her engagements | yes | 2 |
 | `(client)/profile` | her profile | yes | 1 |
-| `(client)/(tabs)/intake`, `intake/[form]` | intake submissions | yes | 3 |
-| `(client)/signatures`, `(signing)/sign*` | Firm Sign requests | yes | 3 |
-| `(client)/notifications` | notification bell items | yes | 3 |
-| `(public)/begin/*` | Begin Online forms (submissions show on the firm's Leads page) | yes | 3 |
+| `(client)/(tabs)/intake`, `intake/[form]` | her 2025 tax intake in progress, her planning intake submitted | yes | 3 |
+| `(client)/signatures`, `(signing)/sign*` | her completed engagement letter, her Form 8879 waiting | yes | 3 |
+| `(client)/notifications` | 5 bell items, 2 read | yes | 3 |
+| `(public)/begin/*` | the 6 published forms and the intake agreement (submissions show on the firm's Leads page) | yes | 3 |
 | `(public)/calculators/*`, `(client)/calculator/*`, `(client)/resources/*` | static content and calculators | yes | n/a |
 
 ## Marketing

@@ -38,6 +38,7 @@ export * from './services-pricing/index.js';
 export * from './messages/index.js';
 export * from './agreements/index.js';
 export * from './dashboard/index.js';
+export * from './payroll/index.js';
 export * from './compliance/index.js';
 // The same values as the database enums in db-enums.ts (exported through ./schemas.js). These
 // modules define their own copies, so name the ones the root exports.
