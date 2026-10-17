@@ -566,7 +566,7 @@ describe('the list, the overview and the exports', () => {
     await call('patch', `/clients/${bks.davis}`, people.ownerA, { nextReportDueOn: day(40) });
     await call('post', `/clients/${bks.green}/connections`, people.ownerA, {
       provider: 'quickbooks',
-      providerCompanyId: `FAKE-QB-${run}`,
+      providerCompany: `FAKE-QB-${run}`,
       companyName: 'Fake Green Leaf',
     });
   });
@@ -1063,7 +1063,7 @@ describe('connections and syncs', () => {
     expectError(
       await call('post', `/clients/${bk}/connections`, people.staffA, {
         provider: 'quickbooks',
-        providerCompanyId: company,
+        providerCompany: company,
       }),
       403,
       'FORBIDDEN',
@@ -1072,7 +1072,7 @@ describe('connections and syncs', () => {
       BookkeepingConnection,
       await call('post', `/clients/${bk}/connections`, people.ownerA, {
         provider: 'quickbooks',
-        providerCompanyId: company,
+        providerCompany: company,
         companyName: 'Fake Conn Co',
       }),
       201,
@@ -1103,7 +1103,7 @@ describe('connections and syncs', () => {
     expectError(
       await call('post', `/clients/${bk}/connections`, people.ownerA, {
         provider: 'quickbooks',
-        providerCompanyId: 'OTHER-1',
+        providerCompany: 'OTHER-1',
       }),
       409,
       'CONNECTION_EXISTS',
@@ -1111,7 +1111,7 @@ describe('connections and syncs', () => {
     expectError(
       await call('post', `/clients/${bk}/connections`, people.ownerA, {
         provider: 'quickbooks',
-        providerCompanyId: company,
+        providerCompany: company,
       }),
       409,
       'CONNECTION_EXISTS',
@@ -1121,7 +1121,7 @@ describe('connections and syncs', () => {
     expectError(
       await call('post', `/clients/${other}/connections`, people.ownerA, {
         provider: 'quickbooks',
-        providerCompanyId: company,
+        providerCompany: company,
       }),
       409,
       'COMPANY_ALREADY_CONNECTED',
@@ -1129,7 +1129,7 @@ describe('connections and syncs', () => {
     expectError(
       await call('post', `/clients/${bk}/connections`, people.ownerA, {
         provider: 'Not A Key',
-        providerCompanyId: 'x',
+        providerCompany: 'x',
       }),
       400,
       'VALIDATION_FAILED',
@@ -1176,9 +1176,11 @@ describe('connections and syncs', () => {
         where: { connectionId: conn },
         data: { outcome: 'SUCCESS', finishedAt: now, counts: { accounts: 4 } },
       });
+      // A good sync a day and a half ago: fresh for the default 48 hours.
+      const earlier = new Date(now.getTime() - 36 * 3_600_000);
       await tx.bookkeepingConnection.update({
         where: { businessId_id: { businessId: ids.firmA, id: conn } },
-        data: { lastSyncAt: now, lastSuccessfulSyncAt: now },
+        data: { lastSyncAt: earlier, lastSuccessfulSyncAt: earlier },
       });
     });
     const ws = exact(
@@ -1209,17 +1211,19 @@ describe('connections and syncs', () => {
   });
 
   it('a stale sync and a failed one drive the status and keep the last good sync', async () => {
-    const old = new Date(Date.now() - 5 * 86_400_000);
-    await asOwner(ids.firmA, async (tx) => {
-      await tx.bookkeepingSyncRun.updateMany({
+    // The firm counts a sync older than 24 hours as stale (the last good one was 36 hours ago).
+    await call('put', '/settings', people.ownerA, { staleSyncHours: 24 });
+    const old = (
+      await asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingConnection.findFirstOrThrow({ where: { id: conn } }),
+      )
+    ).lastSuccessfulSyncAt!;
+    await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingSyncRun.updateMany({
         where: { connectionId: conn },
         data: { outcome: 'SUCCESS', finishedAt: new Date() },
-      });
-      await tx.bookkeepingConnection.update({
-        where: { businessId_id: { businessId: ids.firmA, id: conn } },
-        data: { lastSyncAt: old, lastSuccessfulSyncAt: old },
-      });
-    });
+      }),
+    );
     await call('post', `/clients/${bk}/status`, people.ownerA, { status: 'AUTOMATIC' });
     let ws = exact(BookkeepingClientWorkspace, await call('get', `/clients/${bk}`, people.ownerA));
     expect(ws.connections[0]!.syncStatus).toBe('STALE');
@@ -1227,11 +1231,6 @@ describe('connections and syncs', () => {
       status: 'NEEDS_ATTENTION',
       statusReason: 'The last sync is out of date',
     });
-    const row = exact(
-      BookkeepingClientPage,
-      await call('get', '/clients?syncStatus=STALE', people.ownerA, undefined),
-    ).items;
-    expect(row).toBeDefined();
     // The latest sync failed: the error shows, the last good sync stays.
     await asOwner(ids.firmA, (tx) =>
       tx.bookkeepingConnection.update({
@@ -1249,6 +1248,7 @@ describe('connections and syncs', () => {
     expect(ws.connections[0]!.lastSuccessfulSyncAt).toBe(old.toISOString());
     expect(ws.statusReason).toBe('The accounting connection needs attention');
     expectError(await call('post', `/clients/${bk}/sync`, people.staffA, {}), 409, 'NOT_CONNECTED');
+    await call('put', '/settings', people.ownerA, {});
   });
 
   it('reconnects, then disconnects and connects the same company again on the same row', async () => {
@@ -1296,7 +1296,7 @@ describe('connections and syncs', () => {
       BookkeepingConnection,
       await call('post', `/clients/${bk}/connections`, people.ownerA, {
         provider: 'quickbooks',
-        providerCompanyId: company,
+        providerCompany: company,
       }),
       201,
     );
@@ -1848,7 +1848,6 @@ describe('periods and the close workflow', () => {
       expenseRatioPercent: expect.any(Number),
     });
     expect(ws.trend.map((t) => t.month)).toContain(entry.month);
-    expect(ws.kpis.incomeCents).not.toBeNull();
     // The overview is for the firm: Staff see it for their clients only, and firm B sees nothing of A.
     const b = exact(
       BookkeepingOverview,

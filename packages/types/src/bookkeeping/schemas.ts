@@ -653,7 +653,8 @@ export type BookkeepingConnectionList = z.infer<typeof BookkeepingConnectionList
  */
 export const ConnectBookkeepingRequest = z.strictObject({
   provider: BookkeepingProviderKey,
-  providerCompanyId: text(120),
+  /** The company's id at the provider (a realm id, an organisation id). */
+  providerCompany: text(120),
   companyName: optionalText(200),
 });
 export type ConnectBookkeepingRequest = z.input<typeof ConnectBookkeepingRequest>;

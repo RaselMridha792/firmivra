@@ -7,7 +7,7 @@ import {
   type StatusRules,
 } from '@firmivra/types';
 import { addActivity, iso } from './bookkeeping.mappers.js';
-import { addDays, day, isoDay, nextReportDue, suggestStatus, toDay } from './bookkeeping.shared.js';
+import { day, isoDay, nextReportDue, suggestStatus, toDay } from './bookkeeping.shared.js';
 
 /** The firm's bookkeeping settings, or the defaults when it never saved any. */
 export async function readSettings(tx: TxClient, businessId: string): Promise<BookkeepingSettings> {
@@ -121,7 +121,9 @@ export class BookkeepingStatusService {
     if (!profile) return false;
     const settings = settingsIn ?? (await readSettings(tx, businessId));
     const today = isoDay(now);
-    const missingCutoff = addDays(now, -(settings.statusRules.missingDocumentsAfterDays ?? 0));
+    const missingCutoff = new Date(
+      now.getTime() - (settings.statusRules.missingDocumentsAfterDays ?? 0) * 86_400_000,
+    );
     const [periods, reports, connections, requests] = await Promise.all([
       tx.bookkeepingPeriod.findMany({
         where: { businessId, engagementId },

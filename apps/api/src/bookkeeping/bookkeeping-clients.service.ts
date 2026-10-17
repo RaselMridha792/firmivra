@@ -28,7 +28,13 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
-import { checkAssignee, isUniqueViolation, memberNames, sentFields } from '../workspaces/common.js';
+import {
+  checkAssignee,
+  isUniqueViolation,
+  memberNames,
+  notAMember,
+  sentFields,
+} from '../workspaces/common.js';
 import {
   addActivity,
   type BookkeepingActor,
@@ -679,9 +685,7 @@ export class BookkeepingClientsService {
       SELECT status::text AS status FROM memberships
       WHERE business_id = ${businessId}::uuid AND user_id = ${userId}::uuid
       FOR SHARE`;
-    if (!member || member.status !== 'ACTIVE') {
-      throw errors.invalid('reviewerUserId', 'The reviewer is not an active member of the firm');
-    }
+    if (!member || member.status !== 'ACTIVE') throw notAMember();
   }
 
   // ---------- Workspace ----------

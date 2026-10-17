@@ -26,6 +26,7 @@ const period = (state: PeriodState, stepsDone: boolean): RecordDef => ({
   clientPrivate: true,
   async create({ tx, businessId, owner, get }) {
     const stamp = new Date('2030-01-01T00:00:00.000Z');
+    await get('bookkeepingClient');
     const row = await tx.bookkeepingPeriod.create({
       data: {
         businessId,
@@ -54,6 +55,7 @@ const period = (state: PeriodState, stepsDone: boolean): RecordDef => ({
 const account = (name: string): RecordDef => ({
   clientPrivate: true,
   async create({ tx, businessId, get }) {
+    await get('bookkeepingClient');
     return (
       await tx.bookkeepingAccount.create({
         data: {
@@ -71,6 +73,7 @@ const account = (name: string): RecordDef => ({
 const reconciliation = (state: 'IN_PROGRESS' | 'READY_FOR_REVIEW'): RecordDef => ({
   clientPrivate: true,
   async create({ tx, businessId, get }) {
+    await get('bookkeepingClient');
     const accountRow = await tx.bookkeepingAccount.create({
       data: {
         businessId,
@@ -105,6 +108,7 @@ const report = (state: ReportState): RecordDef => ({
   clientPrivate: true,
   async create({ tx, businessId, owner, get }) {
     reports += 1;
+    await get('bookkeepingClient');
     const stamp = new Date('2030-01-01T00:00:00.000Z');
     const row = await tx.bookkeepingReport.create({
       data: {
@@ -274,7 +278,7 @@ export const cases: CaseModule['cases'] = {
   [`GET ${BASE}/clients/:id/connections`]: { params: client },
   [`POST ${BASE}/clients/:id/connections`]: {
     params: client,
-    body: { provider: 'zoho_books', providerCompanyId: 'FAKE-ZOHO-1', companyName: 'Fake Co' },
+    body: { provider: 'zoho_books', providerCompany: 'FAKE-ZOHO-1', companyName: 'Fake Co' },
   },
   [`PATCH ${BASE}/connections/:id`]: {
     params: connection,
