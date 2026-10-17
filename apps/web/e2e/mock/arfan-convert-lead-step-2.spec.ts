@@ -120,12 +120,6 @@ test('shows only step 2 fields with mock data and fits mobile widths', async ({ 
   await expectFrames(page);
   await expect(page.getByText('Avery Lawson', { exact: true }).first()).toBeVisible();
   await expect(page.getByLabel('Full Name *')).toHaveValue('Avery Lawson');
-  const clientCard = await page.getByTestId('convert-lead-client-fields').boundingBox();
-  const staffCard = await page.getByTestId('convert-lead-staff-assignment').boundingBox();
-  expect(clientCard).not.toBeNull();
-  expect(staffCard).not.toBeNull();
-  if (!clientCard || !staffCard) throw new Error('Step 2 cards are missing their layout bounds');
-  expect(staffCard.x).toBeGreaterThanOrEqual(clientCard.x + clientCard.width);
   await captureStepTwo(page, 'convert-lead-step-2-data-1440.png');
 
   await page.setViewportSize({ width: 375, height: 812 });

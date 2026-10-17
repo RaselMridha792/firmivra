@@ -631,7 +631,7 @@ export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: Con
 
       <section
         aria-label="Lead conversion information"
-        className={`grid min-w-0 gap-4 ${activeStep === 'review' ? 'xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)_minmax(0,1fr)]' : 'mx-auto w-full max-w-5xl xl:grid-cols-1'}`}
+        className={`grid min-w-0 gap-4 ${activeStep === 'review' ? 'xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)_minmax(0,1fr)]' : 'mx-auto w-full max-w-2xl xl:grid-cols-1'}`}
       >
         {activeStep === 'review' ? (
           <div className="flex min-w-0 flex-col gap-3">
@@ -641,7 +641,7 @@ export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: Con
         ) : null}
         <div
           data-testid="convert-lead-details-step-column"
-          className={`grid min-w-0 gap-3 rounded-card ${activeStep === 'details' ? 'border-2 border-info-soft p-2 xl:grid-cols-[minmax(0,1.55fr)_minmax(16rem,0.85fr)]' : 'grid-cols-1'}`}
+          className={`flex min-w-0 flex-col gap-3 rounded-card ${activeStep === 'details' ? 'border-2 border-info-soft p-2' : ''}`}
         >
           <ClientDetails lead={profile} query={options} services={optionData?.services} />
           <StaffAssignment lead={profile} query={options} staff={optionData?.staff} />
