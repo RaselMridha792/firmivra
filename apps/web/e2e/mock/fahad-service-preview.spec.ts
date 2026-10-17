@@ -20,7 +20,10 @@ test('service preview and full view contain only public service content', async 
 });
 test('missing service retains the preview, details and exclusions frames', async ({ page }) => {
   await page.goto(url.replace('000000000001', '999999999999'));
-  await expect(page.getByTestId('page-not-found')).toBeVisible();
+  await expect(page.getByTestId('service-preview-unavailable')).toContainText(
+    'This service could not be found.',
+  );
+  await expect(page.getByTestId('page-not-found')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Service Details', exact: true })).toBeVisible();
   await expect(page.getByTestId('service-client-preview')).toBeVisible();
 });
