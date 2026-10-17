@@ -10,6 +10,7 @@ import { Button } from '@firmivra/ui';
 import {
   Briefcase,
   CalendarDots,
+  CheckSquare,
   ChatCircleDots,
   ClipboardText,
   Files,
@@ -84,7 +85,7 @@ const items: (NavItem & { managers?: true })[] = [
   link('Invoices & Payments', Receipt, '/invoices'),
   link('Messages', ChatCircleDots, '/messages'),
   mod('communications'),
-  mod('tasks'),
+  link('Tasks', CheckSquare, '/tasks'),
   mod('automations'),
   mod('compliance'),
   mod('reports'),

@@ -53,6 +53,7 @@ import {
   createStaffClient,
   createSupportAccessClient,
   createTasksClient,
+  createTaskWorkClient,
   createTemplatesClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
@@ -113,6 +114,7 @@ import {
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createTasksMock } from '../mocks/tasks';
+import { createTaskWorkMock } from '../mocks/tasks-work';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
@@ -288,6 +290,14 @@ export const api = {
       : createMyDocumentsClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
   tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
+  /**
+   * Tasks module (R55): overview, create/edit, checklist, templates and recurring series. Mock:
+   * NEXT_PUBLIC_API_MOCK=taskWork (mocks/tasks-work.ts, R56).
+   */
+  taskWork:
+    dev && mocked('taskWork')
+      ? createTaskWorkMock({ role: MOCK_ROLE, empty: mockedEmpty('taskWork') })
+      : createTaskWorkClient(request),
   /**
    * Templates (R55): the library, categories, merge fields, branding, import and the starter
    * templates. Real API only until its mock is written.
