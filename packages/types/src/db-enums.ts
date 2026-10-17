@@ -690,6 +690,91 @@ export const SupportEscalationKind = z.enum([
 ]);
 export type SupportEscalationKind = z.infer<typeof SupportEscalationKind>;
 
+/** Stored lifecycle. Overdue is not stored: an issued invoice past its due date with a balance. */
+export const PlatformInvoiceStatus = z.enum([
+  'DRAFT',
+  'SENT',
+  'PARTIALLY_PAID',
+  'PAID',
+  'VOIDED',
+  'PARTIALLY_REFUNDED',
+  'REFUNDED',
+]);
+export type PlatformInvoiceStatus = z.infer<typeof PlatformInvoiceStatus>;
+
+export const PlatformRecurringStatus = z.enum(['ACTIVE', 'PAUSED', 'CANCELED']);
+export type PlatformRecurringStatus = z.infer<typeof PlatformRecurringStatus>;
+
+export const PlatformRecurringFrequency = z.enum([
+  'WEEKLY',
+  'MONTHLY',
+  'QUARTERLY',
+  'SEMIANNUAL',
+  'ANNUAL',
+  'CUSTOM',
+]);
+export type PlatformRecurringFrequency = z.infer<typeof PlatformRecurringFrequency>;
+
+export const PlatformEstimateStatus = z.enum([
+  'DRAFT',
+  'SENT',
+  'PENDING',
+  'APPROVED',
+  'DECLINED',
+  'EXPIRED',
+  'CONVERTED',
+]);
+export type PlatformEstimateStatus = z.infer<typeof PlatformEstimateStatus>;
+
+export const PlatformPaymentStatus = z.enum([
+  'PENDING',
+  'COMPLETED',
+  'FAILED',
+  'PARTIALLY_REFUNDED',
+  'REFUNDED',
+]);
+export type PlatformPaymentStatus = z.infer<typeof PlatformPaymentStatus>;
+
+export const PlatformPaymentMethod = z.enum([
+  'CARD',
+  'ACH',
+  'WIRE',
+  'CHECK',
+  'CASH',
+  'CREDIT_BALANCE',
+  'OTHER',
+]);
+export type PlatformPaymentMethod = z.infer<typeof PlatformPaymentMethod>;
+
+export const PlatformRefundStatus = z.enum(['PENDING', 'COMPLETED', 'FAILED']);
+export type PlatformRefundStatus = z.infer<typeof PlatformRefundStatus>;
+
+export const PlatformCreditNoteStatus = z.enum([
+  'DRAFT',
+  'AVAILABLE',
+  'PARTIALLY_APPLIED',
+  'APPLIED',
+  'REFUNDED',
+  'VOIDED',
+]);
+export type PlatformCreditNoteStatus = z.infer<typeof PlatformCreditNoteStatus>;
+
+export const PlatformBillingDocType = z.enum(['INVOICE', 'ESTIMATE', 'CREDIT_NOTE']);
+export type PlatformBillingDocType = z.infer<typeof PlatformBillingDocType>;
+
+export const PlatformSubscriptionChangeKind = z.enum([
+  'CREATED',
+  'UPGRADED',
+  'DOWNGRADED',
+  'SEATS_CHANGED',
+  'CYCLE_CHANGED',
+  'STATUS_CHANGED',
+  'RENEWED',
+  'CANCEL_REQUESTED',
+  'CANCELED',
+]);
+export type PlatformSubscriptionChangeKind = z.infer<typeof PlatformSubscriptionChangeKind>;
+
 /** Where a sign-up verification code was sent. */
 export const VerificationChannel = z.enum(['EMAIL', 'PHONE']);
 export type VerificationChannel = z.infer<typeof VerificationChannel>;

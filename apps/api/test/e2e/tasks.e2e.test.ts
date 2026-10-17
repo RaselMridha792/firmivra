@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, type Database, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
-import { MemberRef, Task as TaskShape } from '@firmivra/types';
+import { MemberRef, Task as TaskShape, TaskDetail as DetailShape } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { DATABASE } from '../../src/database/database.module.js';
@@ -104,10 +104,18 @@ const ok = (res: Response, status = 200) => {
   expect(res.status, JSON.stringify(res.body)).toBe(status);
   return res;
 };
+// Create and change answer a TaskDetail (R55): the strict shape of the whole detail, then the
+// task's own fields, which is what this file checks. The detail's extras are tested in
+// tasks-work.e2e.test.ts.
+const TaskDetail = z.strictObject(DetailShape.shape);
+const taskOf = (body: unknown): Task => {
+  const detail = TaskDetail.parse(body) as Record<string, unknown>;
+  return Task.parse(Object.fromEntries(Object.keys(Task.shape).map((k) => [k, detail[k]])));
+};
 const create = async (body: object, who: Person = people.ownerA, firm: 'a' | 'b' = 'a') =>
-  Task.parse(ok(await call('post', '', who, firm, body), 201).body);
+  taskOf(ok(await call('post', '', who, firm, body), 201).body);
 const update = async (id: string, body: object, who: Person = people.ownerA) =>
-  Task.parse(ok(await call('patch', `/${id}`, who, 'a', body)).body);
+  taskOf(ok(await call('patch', `/${id}`, who, 'a', body)).body);
 const list = async (query: string, who: Person = people.ownerA, firm: 'a' | 'b' = 'a') =>
   TaskList.parse(ok(await call('get', query, who, firm)).body);
 const ids = async (query: string, who: Person = people.ownerA) =>

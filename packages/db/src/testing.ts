@@ -49,6 +49,9 @@ const MIGRATION_REFERENCE_TABLES = [
   'support_priorities',
   'support_escalation_rules',
   'support_notification_rules',
+  // r0_platform_billing (stage B3)
+  'platform_billing_settings',
+  'platform_billing_counters',
 ];
 
 /**
