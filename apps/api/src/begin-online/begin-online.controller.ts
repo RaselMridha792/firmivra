@@ -36,6 +36,7 @@ import {
 import { Public } from '../auth/decorators.js';
 import { poolSecrets } from '../auth/sealed.js';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
+import { ScanRouterModule } from '../storage/scan-queue/scan-router.js';
 import { requestContext } from '../common/request-context.js';
 import { networkOf } from '../common/network.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
@@ -243,7 +244,7 @@ export class BeginOnlineController {
 }
 
 @Module({
-  imports: [PortalInfoModule, FieldEncryptionModule, IntakesModule],
+  imports: [PortalInfoModule, FieldEncryptionModule, IntakesModule, ScanRouterModule],
   controllers: [BeginOnlineController],
   providers: [
     BeginOnlineService,

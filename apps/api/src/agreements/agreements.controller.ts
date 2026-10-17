@@ -27,6 +27,7 @@ import {
 } from '../auth/decorators.js';
 import { poolSecrets } from '../auth/sealed.js';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
+import { ScanRouterModule } from '../storage/scan-queue/scan-router.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
@@ -205,7 +206,7 @@ export class MyIntakeAgreementsController {
 }
 
 @Module({
-  imports: [PortalInfoModule],
+  imports: [PortalInfoModule, ScanRouterModule],
   controllers: [AgreementsController, PublicAgreementsController, MyIntakeAgreementsController],
   providers: [
     AgreementsService,

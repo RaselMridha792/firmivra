@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
+import { ScanRouterModule } from '../storage/scan-queue/scan-router.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { ModulesModule } from '../common/modules/requires-module.js';
 import { EsignBulkController } from './bulk/bulk.controller.js';
@@ -78,7 +79,14 @@ import { EsignSignerService } from './signer/signer.service.js';
  * ones over r0_esign's tables, each in the firm's own scope.
  */
 @Module({
-  imports: [ModulesModule, EsignEngineModule, PortalInfoModule, FieldEncryptionModule],
+  imports: [
+    ModulesModule,
+    EsignEngineModule,
+    PortalInfoModule,
+    FieldEncryptionModule,
+    // The scan results router (global in the app; named here so this module also stands alone).
+    ScanRouterModule,
+  ],
   controllers: [
     EsignStatusController,
     EsignRequestsController,
