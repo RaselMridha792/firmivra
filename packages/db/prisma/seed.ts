@@ -2,7 +2,6 @@
 // Test Firm B for isolation checks. Safe to run again. Runs as the owner role, inside the same
 // scopes the app uses, so it also works where the owner is not a superuser.
 import { createHash, randomBytes } from 'node:crypto';
-import { INTAKE_FORMS } from '@firmivra/types';
 import { config } from 'dotenv';
 import { createPrismaClient, runInScope, type TxClient } from '../src/client.js';
 import {
@@ -29,18 +28,18 @@ import {
   SEED_LVP_APPLICATION_FORM,
   SEED_LVP_APPLICATION_OLD_DATA,
   SEED_MEETING_URLS,
-  seedFormDefinition,
   SEED_AGREEMENT_IDS,
   SAMPLE_AGREEMENT,
   SEED_ESIGN_IDS,
   SAMPLE_ESIGN_CONSENT,
 } from './seed-data.js';
 import {
-  byName,
   seedAppointmentTypes,
   seedClient,
   seedDocumentCategories,
+  seedFirmAgreement,
   seedFirmBasics,
+  seedIntakeForms,
   seedServices,
 } from './seed-helpers.js';
 import { seedR36 } from './seed-r36.js';
@@ -59,95 +58,6 @@ if (!url) throw new Error('DATABASE_URL is not set (copy .env.example to .env)')
 const prisma = createPrismaClient(url, {
   transactionOptions: { maxWait: 15_000, timeout: 60_000 },
 });
-
-/** Settings, Terms and Privacy v1 and tax statuses for one firm (business scope). */
-async function seedIntakeForms(
-  tx: TxClient,
-  businessId: string,
-  service: (name: string) => string,
-  serviceNames: readonly string[],
-) {
-  const ids = new Map<string, string>();
-  for (const name of serviceNames) {
-    const serviceId = service(name);
-    const { kind } = await tx.service.findUniqueOrThrow({ where: { id: serviceId } });
-    // The database files a new form under the service's default template (R37).
-    const found = await tx.intakeForm.findFirst({ where: { businessId, serviceId, version: 1 } });
-    const row =
-      found ??
-      (await tx.intakeForm.create({
-        data: {
-          businessId,
-          serviceId,
-          version: 1,
-          title: `${name} intake`,
-          // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in, so
-          // the seeded lead's answers and upload slot fit their form (real forms: r0_followups).
-          definition:
-            kind === 'ANNUAL_TAX' && INTAKE_FORMS.ANNUAL_TAX
-              ? INTAKE_FORMS.ANNUAL_TAX
-              : seedFormDefinition(kind, `${name} intake`),
-          // Deprecated: the agreement comes from the firm's intake agreements (seedFirmAgreement).
-          agreementText: null,
-          status: 'PUBLISHED',
-          publishedAt: new Date(),
-        },
-      }));
-    ids.set(name, row.id);
-  }
-  return byName('intake form', ids);
-}
-
-/** The firm-wide intake agreement with a synthetic v1 and a CLEAN PDF row (no file in S3). */
-async function seedFirmAgreement(
-  tx: TxClient,
-  businessId: string,
-  ownerId: string,
-  ids: { agreement: string; file: string; version: string },
-) {
-  await tx.firmAgreement.upsert({
-    where: { id: ids.agreement },
-    update: {},
-    create: { id: ids.agreement, businessId, scope: 'ALL_INTAKES', createdByUserId: ownerId },
-  });
-  const sha256 = createHash('sha256').update(`sample agreement pdf ${businessId}`).digest('hex');
-  await tx.firmAgreementFile.upsert({
-    where: { id: ids.file },
-    update: {},
-    create: {
-      id: ids.file,
-      businessId,
-      fileName: SAMPLE_AGREEMENT.pdf.fileName,
-      sizeBytes: SAMPLE_AGREEMENT.pdf.sizeBytes,
-      sha256,
-      s3Key: `tenant/${businessId}/agreements/${ids.file}`,
-      uploadedByUserId: ownerId,
-    },
-  });
-  await tx.firmAgreementFile.updateMany({
-    where: { id: ids.file, scanStatus: 'PENDING' },
-    data: { scanStatus: 'CLEAN', scannedAt: new Date() },
-  });
-  // Versions are insert-only (an upsert may update), so create it once.
-  if (!(await tx.firmAgreementVersion.findUnique({ where: { id: ids.version } }))) {
-    await tx.firmAgreementVersion.create({
-      data: {
-        id: ids.version,
-        businessId,
-        agreementId: ids.agreement,
-        version: 1,
-        title: SAMPLE_AGREEMENT.title,
-        bodyMarkdown: SAMPLE_AGREEMENT.body,
-        acknowledgments: SAMPLE_AGREEMENT.acknowledgments.map((a) => ({ ...a })),
-        pdfFileId: ids.file,
-        pdfSha256: sha256,
-        publishedByUserId: ownerId,
-      },
-    });
-  }
-}
-
-/** The firm's appointment types; returns their ids by name. */
 
 const hex = (label: string) => createHash('sha256').update(label).digest('hex');
 /** Never a usable link, code or upload token: only a hash of random bytes is stored. */
@@ -1642,6 +1552,292 @@ async function main() {
         },
       });
     }
+    // Stage B1: the Super Admin's bell item for the approval, and an audit export they asked for.
+    if (
+      !(await tx.platformNotification.findUnique({ where: { id: SEED_PLATFORM_IDS.notification } }))
+    ) {
+      await tx.platformNotification.create({
+        data: {
+          id: SEED_PLATFORM_IDS.notification,
+          recipientUserId: SEED_USERS.superAdmin.id,
+          category: 'FIRM_APPLICATIONS',
+          type: 'firm_application.approved',
+          priority: 'NORMAL',
+          title: 'Firm application approved',
+          body: 'LVP Accounting & Taxes was approved and its owner was invited.',
+          sourceType: 'firm_application',
+          sourceId: SEED_PLATFORM_IDS.lvpApplication,
+          sourceLabel: SEED_BUSINESSES.lvp.name,
+          businessId: businesses.lvp,
+          eventKey: `firm_application.approved:${SEED_PLATFORM_IDS.lvpApplication}`,
+        },
+      });
+    }
+    if (!(await tx.platformExportJob.findUnique({ where: { id: SEED_PLATFORM_IDS.exportJob } }))) {
+      await tx.platformExportJob.create({
+        data: {
+          id: SEED_PLATFORM_IDS.exportJob,
+          requestedByUserId: SEED_USERS.superAdmin.id,
+          module: 'AUDIT',
+          format: 'CSV',
+          title: 'Audit events, last 30 days',
+          filters: { range: 'LAST_30_DAYS' },
+          columns: ['occurredAt', 'actor', 'action', 'firm'],
+        },
+      });
+    }
+    // Stage B2: LVP's ticket with Firmivra support, as the team works it (admin scope): raised by
+    // email about LVP's owner, assigned, answered with a screenshot, with a note and its history.
+    if (!(await tx.supportTicket.findUnique({ where: { id: SEED_PLATFORM_IDS.supportTicket } }))) {
+      const category = await tx.supportCategory.findUniqueOrThrow({
+        where: { name: 'Account Access' },
+      });
+      const priority = await tx.supportPriority.findUniqueOrThrow({ where: { code: 'HIGH' } });
+      await tx.supportTicket.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportTicket,
+          businessId: businesses.lvp,
+          contactUserId: SEED_USERS.lvpOwner.id,
+          subject: 'Staff member cannot finish MFA setup',
+          description:
+            'Our new preparer gets "code expired" every time she scans the QR code. Can you help?',
+          categoryId: category.id,
+          priorityId: priority.id,
+          source: 'EMAIL',
+          assignedUserId: SEED_USERS.superAdmin.id,
+          createdByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      await tx.supportTicketMessage.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportStaffReply,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.superAdmin.id,
+          authorSide: 'STAFF',
+          body: 'Thanks for reaching out. Her phone clock looks out of sync; the screenshot shows where to turn on automatic time.',
+          deliveryChannel: 'EMAIL',
+        },
+      });
+      await tx.supportTicketAttachment.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportAttachment,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          messageId: SEED_PLATFORM_IDS.supportStaffReply,
+          uploadedByUserId: SEED_USERS.superAdmin.id,
+          fileName: 'automatic-time-setting.png',
+          contentType: 'image/png',
+          sizeBytes: 84213,
+          sha256: createHash('sha256').update('sample support screenshot').digest('hex'),
+          s3Key: `tenant/${businesses.lvp}/support/${SEED_PLATFORM_IDS.supportAttachment}`,
+        },
+      });
+      await tx.supportTicketNote.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportNote,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.superAdmin.id,
+          body: 'Third clock-drift case this month; worth a help article.',
+        },
+      });
+      await tx.supportTicketEvent.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportEvent,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          actorUserId: SEED_USERS.superAdmin.id,
+          actorType: 'USER',
+          action: 'ticket.assigned',
+          newValue: SEED_USERS.superAdmin.name,
+        },
+      });
+      await tx.supportTicket.update({
+        where: { id: SEED_PLATFORM_IDS.supportTicket },
+        data: { status: 'WAITING_ON_CUSTOMER', firstRespondedAt: new Date() },
+      });
+    }
+    await tx.supportHoliday.upsert({
+      where: { id: SEED_PLATFORM_IDS.supportHoliday },
+      update: {},
+      create: {
+        id: SEED_PLATFORM_IDS.supportHoliday,
+        date: new Date('2026-11-26'),
+        name: 'Thanksgiving',
+      },
+    });
+    await tx.supportCannedResponse.upsert({
+      where: { id: SEED_PLATFORM_IDS.supportCannedResponse },
+      update: {},
+      create: {
+        id: SEED_PLATFORM_IDS.supportCannedResponse,
+        title: 'MFA code expired',
+        body: 'An "expired" code usually means the phone clock is off. Turn on automatic date and time, then scan the code again.',
+        createdByUserId: SEED_USERS.superAdmin.id,
+      },
+    });
+    // Stage B3: what Firmivra billed LVP (admin scope). The database numbers the documents, works
+    // out the totals and keeps the paid, refunded and credited sums and statuses.
+    if (
+      !(await tx.platformInvoice.findUnique({
+        where: { id: SEED_PLATFORM_IDS.billingPaidInvoice },
+      }))
+    ) {
+      const billTo = {
+        billToName: SEED_USERS.lvpOwner.name,
+        billToEmail: SEED_USERS.lvpOwner.email,
+      };
+      await tx.platformFirmBillingProfile.create({
+        data: {
+          businessId: businesses.lvp,
+          billingContactName: billTo.billToName,
+          billingContactEmail: billTo.billToEmail,
+          paymentTermDays: 15,
+        },
+      });
+      // September: Team Pro, paid by card, then $20 refunded as a goodwill credit.
+      await tx.platformInvoice.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingPaidInvoice,
+          businessId: businesses.lvp,
+          invoiceDate: new Date('2026-09-01'),
+          dueDate: new Date('2026-09-16'),
+          periodStart: new Date('2026-09-01'),
+          periodEnd: new Date('2026-09-30'),
+          ...billTo,
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [
+              { description: 'Team Pro plan, September 2026', unitCents: 19900 },
+              { description: 'Additional seat', quantity: 2, unitCents: 2900, sortOrder: 1 },
+            ],
+          },
+        },
+      });
+      await tx.platformInvoice.update({
+        where: { id: SEED_PLATFORM_IDS.billingPaidInvoice },
+        data: { status: 'SENT' },
+      });
+      await tx.platformPayment.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingPayment,
+          businessId: businesses.lvp,
+          invoiceId: SEED_PLATFORM_IDS.billingPaidInvoice,
+          amountCents: 25700,
+          method: 'CARD',
+          status: 'COMPLETED',
+          paidOn: new Date('2026-09-03'),
+          reference: 'Visa ending 4242',
+          recordedByUserId: SEED_USERS.superAdmin.id,
+          idempotencyKey: SEED_PLATFORM_IDS.billingPaymentKey,
+        },
+      });
+      await tx.platformRefund.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingRefund,
+          businessId: businesses.lvp,
+          paymentId: SEED_PLATFORM_IDS.billingPayment,
+          amountCents: 2000,
+          reason: 'Goodwill credit for the September portal outage.',
+          requestedByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      await tx.platformRefund.update({
+        where: { id: SEED_PLATFORM_IDS.billingRefund },
+        data: { status: 'COMPLETED' },
+      });
+      // October: sent, part settled by a $50 credit note.
+      await tx.platformInvoice.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingCreditedInvoice,
+          businessId: businesses.lvp,
+          invoiceDate: new Date('2026-10-01'),
+          dueDate: new Date('2026-10-16'),
+          periodStart: new Date('2026-10-01'),
+          periodEnd: new Date('2026-10-31'),
+          ...billTo,
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [{ description: 'Team Pro plan, October 2026', unitCents: 19900 }],
+          },
+        },
+      });
+      await tx.platformInvoice.update({
+        where: { id: SEED_PLATFORM_IDS.billingCreditedInvoice },
+        data: { status: 'SENT' },
+      });
+      await tx.platformCreditNote.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingCreditNote,
+          businessId: businesses.lvp,
+          relatedInvoiceId: SEED_PLATFORM_IDS.billingPaidInvoice,
+          issueDate: new Date('2026-10-02'),
+          reason: 'Service credit for the September outage.',
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [{ description: 'Service credit', unitCents: 5000 }],
+          },
+        },
+      });
+      await tx.platformCreditNote.update({
+        where: { id: SEED_PLATFORM_IDS.billingCreditNote },
+        data: { status: 'AVAILABLE' },
+      });
+      await tx.platformCreditApplication.create({
+        data: {
+          businessId: businesses.lvp,
+          creditNoteId: SEED_PLATFORM_IDS.billingCreditNote,
+          invoiceId: SEED_PLATFORM_IDS.billingCreditedInvoice,
+          amountCents: 5000,
+          appliedByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      // An upgrade quote, and the monthly schedule.
+      await tx.platformEstimate.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingEstimate,
+          businessId: businesses.lvp,
+          issueDate: new Date('2026-10-05'),
+          expirationDate: new Date('2026-11-04'),
+          contactName: billTo.billToName,
+          contactEmail: billTo.billToEmail,
+          notes: 'Business plan for up to 10 staff, billed annually.',
+          assignedUserId: SEED_USERS.superAdmin.id,
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [{ description: 'Business plan, 12 months', quantity: 12, unitCents: 49900 }],
+          },
+        },
+      });
+      await tx.platformEstimate.update({
+        where: { id: SEED_PLATFORM_IDS.billingEstimate },
+        data: { status: 'SENT' },
+      });
+      await tx.platformRecurringInvoice.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingRecurring,
+          businessId: businesses.lvp,
+          description: 'Team Pro plan, monthly',
+          frequency: 'MONTHLY',
+          lineTemplate: [
+            { description: 'Team Pro plan', quantity: 1, unitCents: 19900, taxRateBps: 0 },
+          ],
+          amountCents: 19900,
+          startDate: new Date('2026-09-01'),
+          nextInvoiceDate: new Date('2026-11-01'),
+          createdByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      await tx.platformPaymentEvent.create({
+        data: {
+          eventId: 'evt_seed_platform_payment',
+          type: 'payment_intent.succeeded',
+          paymentId: SEED_PLATFORM_IDS.billingPayment,
+          processedAt: new Date(),
+        },
+      });
+    }
     if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.platformEvent } }))) {
       await tx.auditLog.create({
         data: {
@@ -1660,6 +1856,58 @@ async function main() {
       data: { businessId: businesses.lvp },
     }),
   );
+  // The export worker's part (platform scope): the sample export ran and is ready to download.
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    const id = SEED_PLATFORM_IDS.exportJob;
+    await tx.platformExportJob.updateMany({
+      where: { id, status: 'QUEUED' },
+      data: { status: 'RUNNING', startedAt: new Date() },
+    });
+    const finishedAt = new Date();
+    await tx.platformExportJob.updateMany({
+      where: { id, status: 'RUNNING' },
+      data: {
+        status: 'COMPLETED',
+        finishedAt,
+        rowCount: 42,
+        sizeBytes: 6144,
+        s3Key: `platform/exports/${id}/audit-events.csv`,
+        expiresAt: new Date(finishedAt.getTime() + 7 * 86_400_000),
+      },
+    });
+  });
+  // Stage B2: LVP's owner answers from the firm's side (business scope, as himself), and the
+  // scanner clears the screenshot (platform scope).
+  await runInScope(
+    prisma,
+    { kind: 'business', businessId: businesses.lvp, actorUserId: SEED_USERS.lvpOwner.id },
+    async (tx) => {
+      if (
+        await tx.supportTicketMessage.findUnique({
+          where: { id: SEED_PLATFORM_IDS.supportFirmReply },
+        })
+      ) {
+        return;
+      }
+      await tx.supportTicketMessage.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportFirmReply,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.lvpOwner.id,
+          authorSide: 'CUSTOMER',
+          body: 'That fixed it, thank you!',
+        },
+      });
+    },
+  );
+  await runInScope(prisma, { kind: 'platform' }, (tx) =>
+    tx.supportTicketAttachment.updateMany({
+      where: { id: SEED_PLATFORM_IDS.supportAttachment, scanStatus: 'PENDING' },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+    }),
+  );
+
   // The activation link Firmivra sent LVP's owner on approval, sent in platform scope (so the
   // database marks it and the Super Admin sees a copy) and already accepted.
   const lvpOwnerMembership = await runInScope(

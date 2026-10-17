@@ -1,11 +1,12 @@
-// R0, PART 2: the demo seed and unseed round-trip, over every stage (seedDemo). Proves that a second
-// `pnpm db:seed:demo` changes no row count in any table, that `pnpm db:unseed:demo` removes exactly
-// what the seed created (table by table, plus the business row and the synthetic users) and
-// nothing else, that it is safe to call again once there is nothing left, that it works as the
-// migrate role works on RDS (no superuser, no BYPASSRLS) and puts every RLS and trigger setting back
-// as it was, and that deleting a whole firm this way never weakens memberships_keep_an_owner for an
-// ordinary firm that keeps existing (R0-schema's r0_last_owner rule). Tables are found from the
-// catalog, so a later stage's new module is covered without editing this file.
+// R0, PART 2: the demo seed and unseed round-trip, over every stage (seedDemo) and every demo firm
+// (`demo` and the 8 `demo-` firms of stage 4). Proves that a second `pnpm db:seed:demo` changes no
+// row count in any table, that `pnpm db:unseed:demo` removes exactly what the seed created (table
+// by table across the firms, plus the business rows, the standalone applications and the synthetic
+// users) and nothing else, that it is safe to call again once there is nothing left, that it works
+// as the migrate role works on RDS (no superuser, no BYPASSRLS) and puts every RLS and trigger
+// setting back as it was, and that deleting a whole firm this way never weakens
+// memberships_keep_an_owner for an ordinary firm that keeps existing (r0_last_owner). Tables are
+// found from the catalog, so a later stage's new module is covered without editing this file.
 //
 // Its own database (not the suite's shared `dbUrls`): app_delete_business_data takes ACCESS
 // EXCLUSIVE locks on every firm table while it runs, which would stall or deadlock other files'
@@ -15,17 +16,40 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createPrismaClient, runInScope } from '../src/client.js';
 import { prepareTestDatabase, TEST_CLIENT_OPTIONS } from '../src/testing.js';
 import { seedDemo } from '../prisma/seed-demo-all.js';
-import { SEED_DEMO_BUSINESS, SEED_DEMO_USERS } from '../prisma/seed-demo-data.js';
-import { demoUserIds, unseedDemoOrg } from '../prisma/unseed-demo-org.js';
+import { SEED_DEMO_BUSINESS, SEED_DEMO_FIRMS } from '../prisma/seed-demo-data.js';
+import { seedPlatformPlans } from '../prisma/seed-platform-plans.js';
+import {
+  demoApplicationIds,
+  demoUserIds,
+  unseedDemoIn,
+  unseedDemoOrg,
+} from '../prisma/unseed-demo-org.js';
 
 let owner: ReturnType<typeof createPrismaClient>;
 let appUrl: string;
-const SLOW = 240_000;
+const SLOW = 300_000;
+const SLUGS = [SEED_DEMO_BUSINESS.slug, ...SEED_DEMO_FIRMS.map((f) => f.slug)];
 
 beforeAll(async () => {
   const urls = await prepareTestDatabase('demo_seed');
   owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
   appUrl = urls.app;
+  // Stage 4 acts as the earliest SUPER_ADMIN and needs the plan ladder; a fresh database has
+  // neither (on dev, the real admins and the platform-org bootstrap provide them).
+  const admin = randomUUID();
+  await runInScope(owner, { kind: 'platform' }, async (tx) => {
+    await tx.user.create({
+      data: {
+        id: admin,
+        cognitoSub: admin,
+        pool: 'ADMIN',
+        email: `${admin}@sup.test`,
+        name: 'Reviewer',
+      },
+    });
+    await tx.platformAdmin.create({ data: { userId: admin, role: 'SUPER_ADMIN' } });
+  });
+  await seedPlatformPlans(owner);
 }, SLOW);
 
 afterAll(async () => {
@@ -33,11 +57,18 @@ afterAll(async () => {
   await owner.$disconnect();
 });
 
+const firmIds = async () =>
+  (await owner.business.findMany({ where: { slug: { in: SLUGS } }, select: { id: true } })).map(
+    (b) => b.id,
+  );
+
 /**
- * Rows per table for one business, every table with a business_id column (non-zero only). The
- * test owner is a superuser and skips RLS, so each count filters by business_id itself.
+ * Every row the demo owns: per firm table, summed over the demo firms (non-zero only), plus the
+ * business rows, the standalone applications with their history, and the demo's logins. The test
+ * owner is a superuser and skips RLS, so each count filters by business_id itself.
  */
-async function rowsOf(businessId: string): Promise<Record<string, number>> {
+async function demoRows(): Promise<Record<string, number>> {
+  const ids = await firmIds();
   const tables = await owner.$queryRaw<{ table_name: string }[]>`
     SELECT c.table_name FROM information_schema.columns c
     JOIN information_schema.tables t
@@ -49,11 +80,26 @@ async function rowsOf(businessId: string): Promise<Record<string, number>> {
   for (const { table_name } of tables) {
     // The name comes from the catalog, not from input.
     const [row] = await owner.$queryRawUnsafe<{ n: bigint }[]>(
-      `SELECT count(*) AS n FROM "${table_name}" WHERE business_id = $1::uuid`,
-      businessId,
+      `SELECT count(*) AS n FROM "${table_name}" WHERE business_id = ANY ($1::uuid[])`,
+      ids,
     );
-    const n = Number(row!.n);
-    if (n > 0) counts[table_name] = n;
+    if (Number(row!.n) > 0) counts[table_name] = Number(row!.n);
+  }
+  const apps = demoApplicationIds();
+  const [standalone] = await owner.$queryRaw<{ apps: bigint; history: bigint }[]>`
+    SELECT (SELECT count(*) FROM firm_applications WHERE id = ANY (${apps}::uuid[])) AS apps,
+           (SELECT count(*) FROM firm_application_status_history h
+             JOIN firm_applications a ON a.id = h.application_id
+             WHERE a.id = ANY (${apps}::uuid[]) OR a.business_id = ANY (${ids}::uuid[])) AS history`;
+  const extra: Record<string, number> = {
+    businesses: ids.length,
+    firm_applications: (counts['firm_applications'] ?? 0) + Number(standalone!.apps),
+    firm_application_status_history: Number(standalone!.history),
+    users: await owner.user.count({ where: { id: { in: demoUserIds() } } }),
+  };
+  for (const [k, v] of Object.entries(extra)) {
+    if (v > 0) counts[k] = v;
+    else delete counts[k];
   }
   return counts;
 }
@@ -71,49 +117,55 @@ const settings = () =>
     WHERE n.nspname = 'public' AND NOT tg.tgisinternal
     ORDER BY 1`;
 
+const asTotals = (r: {
+  tables: { table_name: string; deleted: bigint }[];
+  deletedUsers: number;
+}) => ({
+  ...Object.fromEntries(r.tables.map((t) => [t.table_name, Number(t.deleted)])),
+  users: r.deletedUsers,
+});
+
 describe('demo seed and unseed', () => {
   it(
     'seeds every stage; a second run changes nothing; unseed removes exactly what was created',
     async () => {
       const seeded = await seedDemo(owner);
-      const first = await rowsOf(seeded.businessId);
-      // Stage 1 (the firm) and stage 2 (client work) are both there.
-      expect(first).toMatchObject({ memberships: 7, clients: 25, departments: 3, teams: 3 });
+      const first = await demoRows();
+      expect(first).toMatchObject({
+        businesses: SLUGS.length,
+        memberships: 7 + 7, // the demo firm's 7, and one owner in each firm past setup
+        clients: 25,
+        users: demoUserIds().length,
+        firm_applications: SEED_DEMO_FIRMS.length + demoApplicationIds().length,
+      });
       for (const table of [
         'engagements',
         'tasks',
-        'notes',
-        'tax_returns',
         'invoices',
         'offline_payments',
         'appointments',
-        'working_hours',
-        'document_requests',
         'documents',
-        'message_threads',
         'messages',
+        'intakes',
+        'intake_signatures',
+        'leads',
+        'lead_activities',
+        'esign_requests',
+        'notifications',
+        'platform_firm_subscriptions',
+        'firm_application_status_history',
       ]) {
         expect(first[table], table).toBeGreaterThan(0);
       }
 
       const again = await seedDemo(owner);
       expect(again.businessId).toBe(seeded.businessId);
-      expect(await rowsOf(seeded.businessId)).toEqual(first);
+      expect(await demoRows()).toEqual(first);
 
       const result = await unseedDemoOrg(owner);
       expect(result?.businessId).toBe(seeded.businessId);
-      expect(result?.deletedUsers).toBe(Object.keys(SEED_DEMO_USERS).length + 1); // + the portal client
-      const deleted = Object.fromEntries(
-        result!.tables.map((r) => [r.table_name, Number(r.deleted)]),
-      );
-      expect(deleted).toEqual({ ...first, businesses: 1 });
-      expect(await rowsOf(seeded.businessId)).toEqual({});
-
-      const business = await runInScope(owner, { kind: 'platform' }, (tx) =>
-        tx.business.findUnique({ where: { slug: SEED_DEMO_BUSINESS.slug } }),
-      );
-      expect(business).toBeNull();
-      expect(await owner.user.count({ where: { id: { in: demoUserIds() } } })).toBe(0);
+      expect(asTotals(result!)).toEqual(first);
+      expect(await demoRows()).toEqual({});
     },
     SLOW,
   );
@@ -125,42 +177,41 @@ describe('demo seed and unseed', () => {
   it(
     'works as the migrate role on RDS (no superuser, no BYPASSRLS) and puts every setting back',
     async () => {
-      const seeded = await seedDemo(owner);
+      await seedDemo(owner);
+      const created = await demoRows();
       const before = await settings();
-      const created = await rowsOf(seeded.businessId);
       const role = `fv_unseed_${randomUUID().slice(0, 8)}`;
       const [me] = await owner.$queryRaw<{ owner: string }[]>`SELECT current_user AS owner`;
       await owner.$executeRawUnsafe(`CREATE ROLE ${role} NOSUPERUSER NOBYPASSRLS NOLOGIN`);
       await owner.$executeRawUnsafe(`GRANT "${me!.owner}" TO ${role}`);
       try {
-        const rows = await owner.$transaction(
+        const result = await owner.$transaction(
           async (tx) => {
             await tx.$executeRawUnsafe(`SET LOCAL ROLE ${role}`);
-            return tx.$queryRaw<{ table_name: string; deleted: bigint }[]>`
-              SELECT * FROM app_delete_business_data(${seeded.businessId}::uuid,
-                ${demoUserIds()}::uuid[])`;
+            return unseedDemoIn(tx);
           },
           { timeout: SLOW },
         );
-        const deleted = Object.fromEntries(rows.map((r) => [r.table_name, Number(r.deleted)]));
-        // Including what firm-scope policies alone never let it delete: append-only history and
-        // payments, the business itself and the staff logins.
-        expect(deleted).toEqual({ ...created, businesses: 1, users: 8 });
+        // Including what policies alone never let it delete: append-only history and payments,
+        // the businesses, the applications and the staff logins.
+        expect(asTotals(result!)).toEqual(created);
       } finally {
         await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${role}`);
       }
-      expect(await rowsOf(seeded.businessId)).toEqual({});
-      expect(await owner.user.count({ where: { id: { in: demoUserIds() } } })).toBe(0);
+      expect(await demoRows()).toEqual({});
       expect(await settings()).toEqual(before);
     },
     SLOW,
   );
 
-  it('the app role cannot run it', async () => {
+  it('the app role can run neither function', async () => {
     const app = createPrismaClient(appUrl, TEST_CLIENT_OPTIONS);
     try {
       await expect(
         app.$queryRaw`SELECT * FROM app_delete_business_data(${randomUUID()}::uuid)`,
+      ).rejects.toThrow(/permission denied/);
+      await expect(
+        app.$queryRaw`SELECT * FROM app_delete_firm_applications(${[randomUUID()]}::uuid[])`,
       ).rejects.toThrow(/permission denied/);
     } finally {
       await app.$disconnect();

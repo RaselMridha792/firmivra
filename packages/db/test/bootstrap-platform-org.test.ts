@@ -27,10 +27,11 @@ beforeAll(async () => {
       await tx.platformAdmin.create({ data: { userId: id, role: 'SUPER_ADMIN' } });
     }
   });
-});
+  // Building its own database takes a while next to the rest of the suite.
+}, 300_000);
 
 afterAll(async () => {
-  await owner.$disconnect();
+  await owner?.$disconnect();
 });
 
 const mappedIn = (rows: { userId: string }[] | undefined) =>
