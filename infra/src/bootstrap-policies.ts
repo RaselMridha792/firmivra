@@ -170,6 +170,23 @@ export function cfnExecPolicy(account: string, region: string): PolicyDocument {
         Resource: a.plans,
       },
       {
+        // The ci stack's pull-through cache of public base images and its repository creation
+        // template are registry settings: ECR has no resource ARN for them.
+        Sid: 'EcrRegistrySettings',
+        Effect: 'Allow',
+        Action: [
+          'ecr:CreatePullThroughCacheRule',
+          'ecr:DeletePullThroughCacheRule',
+          'ecr:DescribePullThroughCacheRules',
+          'ecr:UpdatePullThroughCacheRule',
+          'ecr:CreateRepositoryCreationTemplate',
+          'ecr:DeleteRepositoryCreationTemplate',
+          'ecr:DescribeRepositoryCreationTemplates',
+          'ecr:UpdateRepositoryCreationTemplate',
+        ],
+        Resource: '*',
+      },
+      {
         Sid: 'NamedResources',
         Effect: 'Allow',
         Action: [
