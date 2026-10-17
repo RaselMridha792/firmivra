@@ -42,6 +42,13 @@ export function testDatabaseUrls(suffix = 'test'): { owner: string; app: string 
  * inserts rows the app relies on.
  */
 const MIGRATION_REFERENCE_TABLES = [
+  // r0_platform_support (stage B2)
+  'support_settings',
+  'support_ticket_counters',
+  'support_categories',
+  'support_priorities',
+  'support_escalation_rules',
+  'support_notification_rules',
   // r0_platform_billing (stage B3)
   'platform_billing_settings',
   'platform_billing_counters',
