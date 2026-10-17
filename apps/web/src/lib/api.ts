@@ -54,6 +54,7 @@ import {
   createSupportAccessClient,
   createTasksClient,
   createTaskWorkClient,
+  createTemplatesClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
@@ -297,6 +298,11 @@ export const api = {
     dev && mocked('taskWork')
       ? createTaskWorkMock({ role: MOCK_ROLE, empty: mockedEmpty('taskWork') })
       : createTaskWorkClient(request),
+  /**
+   * Templates (R55): the library, categories, merge fields, branding, import and the starter
+   * templates. Real API only until its mock is written.
+   */
+  templates: createTemplatesClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
   workspaces:
     dev && mocked('workspaces')
