@@ -26,7 +26,7 @@ Branch `rasel/R55-catalog-documents-api`. Local ports: API 4550, web 3550, datab
 
 - [x] 1. Services & Pricing under `/business/catalog`: services (list, create, get, update, activate, deactivate, archive, duplicate, delete, usage), packages (list, create, get, update, pricing panel, activate, deactivate, duplicate, archive), summary, categories (list, create, update, reorder, merge, delete) and promotions (list, create, update, end).
 - [x] 2. Documents: compared with `createDocumentsClient` and `createMyDocumentsClient`; nothing is missing, so no code was added (list below).
-- [ ] 4. Tasks module (the Task models, 9 tables). 4a: contract (`packages/types/src/tasks/work.ts`, `createTaskWorkClient` as `api.taskWork`). 4b: API core: overview, summary, calendar, detail, create/edit with checklist, reminders, dependency, attachments and visibility, row and bulk actions, task types. 4c: templates and recurring series (preview, edit scopes, idempotent generation job).
+- [ ] 4. Tasks module (the Task models, 9 tables). 4a [x]: contract (`packages/types/src/tasks/work.ts`, `createTaskWorkClient` as `api.taskWork`). 4b [x]: API core: overview, summary, calendar, detail, create/edit with checklist, reminders, dependency, attachments and visibility, row and bulk actions, task types. 4c: templates and recurring series (preview, edit scopes, idempotent generation job).
 
 ## Documents: what already existed and what was added
 
@@ -77,3 +77,4 @@ Shared test file touched: `apps/api/test/isolation/body-ids.ts` got three `NOT_R
 2. **`tasks.details`** is capped at 2000 characters by the database, but the older contract allows 5000 (a longer text is a 500 today). The new contract and the API use 2000.
 3. **Holidays**: "Adjust for holidays" needs a holiday list. None is stored, so the first version treats weekends as the only non-business days (`holidayRule` NEXT_BUSINESS_DAY or PREVIOUS_BUSINESS_DAY).
 4. **Series `startOn` and client** cannot change after creation (database rule); the contract says so.
+- 2026-10-17: step 4b, the Tasks API core, in `apps/api/src/tasks/` (`TasksModule`). Moved the `/business/tasks` controller out of WorkspacesModule (the older list still calls its `TasksService`); create and change now answer a `TaskDetail`, and the older e2e parses that strictly, then the task's own fields. New routes: summary, overview, calendar, detail, complete, reopen, cancel, progress, duplicate, archive, restore, checklist (complete, reopen, order), attachments (add, approve, remove), bulk, and task types. Bulk answers 404 when no task is found, and refuses a non-member assignee for the whole request (the isolation suite's rule: a foreign id in a body is a 4xx). Templates and recurring series are 4c.
