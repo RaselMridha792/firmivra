@@ -58,6 +58,7 @@ import { EsignModule } from './esign/esign.module.js';
 import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
 import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
 import { IntegrationsModule } from './integrations/integrations.module.js';
+import { BookkeepingModule } from './bookkeeping/bookkeeping.module.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -143,6 +144,7 @@ export class AppModule {
         BeginOnlineModule,
         IntegrationsModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
+        BookkeepingModule,
       ],
       // Run in this order on every request. Each skips @Public() routes.
       providers: [
