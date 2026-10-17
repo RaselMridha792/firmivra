@@ -456,10 +456,12 @@ export function ClientMenu({
   row,
   onNotice,
   canManage = true,
+  triggerLabel,
 }: {
   row: Row;
   onNotice: Notice;
   canManage?: boolean;
+  triggerLabel?: string;
 }) {
   const router = useRouter();
   const act = useAct(onNotice);
@@ -535,7 +537,13 @@ export function ClientMenu({
     <>
       <ActionMenu
         label={`Actions for ${row.client.displayName}`}
-        trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-5" />}
+        trigger={
+          triggerLabel ? (
+            <span className="px-1 text-sm font-medium">{triggerLabel}</span>
+          ) : (
+            <DotsThreeVertical aria-hidden weight="bold" className="size-5" />
+          )
+        }
         sections={[{ items }, ...(manage.length ? [{ items: manage }] : [])]}
         align="right"
       />

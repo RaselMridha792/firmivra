@@ -168,7 +168,7 @@ export function ClientWorkspace({ id }: { id: string }) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <ClientMenu row={row} onNotice={notice} />
+          <ClientMenu row={row} onNotice={notice} triggerLabel="Client Actions" />
           <button
             type="button"
             aria-label="Previous client"

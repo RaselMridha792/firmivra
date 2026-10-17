@@ -33,10 +33,13 @@ test('Overview: status tab, search, filters and Clear All', async ({ page }) => 
   await expect(page.getByTestId('bk-clients').getByTestId('bk-link')).toHaveCount(1);
   await expect(page.getByTestId('bk-clients')).toContainText('Jordan Services');
   await page.getByRole('tab', { name: 'All Clients' }).click();
-  await page.getByLabel('Search clients', { exact: true }).fill('turner');
+  await page.getByTestId('bk-clients').getByLabel('Search clients').fill('turner');
   await expect(page.getByTestId('bk-clients').getByTestId('bk-link')).toHaveCount(1);
   await page.getByRole('button', { name: 'Clear All' }).click();
-  await page.getByLabel('Accounting Software').selectOption({ label: 'Xero' });
+  await page
+    .getByTestId('bk-filters')
+    .getByLabel('Accounting Software')
+    .selectOption({ label: 'Xero' });
   await expect(page.getByTestId('bk-clients').getByTestId('bk-link')).toHaveCount(1);
 });
 
@@ -121,7 +124,7 @@ test('Close: checklist, figures, reconciliation and the review steps', async ({ 
   await expect(page.getByTestId('checklist')).toContainText('Categorization complete');
   await page.getByRole('button', { name: 'Mark Ready for Review' }).click();
   await expect(page.getByText('Finish the required checklist steps first.')).toBeVisible();
-  await page.getByLabel('Refunds reviewed').check();
+  await page.getByLabel('Adjustments posted').click();
   await expect(page.getByText('Step done.')).toBeVisible();
   await page.getByRole('button', { name: 'Enter figures' }).click();
   await page.getByRole('dialog').getByLabel('Total income ($)').fill('30000');
@@ -154,7 +157,7 @@ test('Reports: the firm list, the upcoming tab and the review steps', async ({ p
 
 test('Settings: the checklists and a saved change', async ({ page }) => {
   await page.goto(`${base}/settings`);
-  await expect(page.getByTestId('close-checklist')).toContainText('Categorization complete');
+  await expect(page.getByLabel('Step 1', { exact: true })).toHaveValue('Categorization complete');
   await page.getByLabel('Close by day of month').fill('12');
   await page.getByRole('button', { name: 'Save Settings' }).click();
   await expect(page.getByText('Settings saved.')).toBeVisible();
