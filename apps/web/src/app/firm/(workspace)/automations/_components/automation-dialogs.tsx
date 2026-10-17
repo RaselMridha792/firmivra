@@ -28,6 +28,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { useQueryClient } from '@tanstack/react-query';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { AUTOMATIONS_KEY, AUTOMATION_ERRORS, quiet } from './automations-shared';
 
@@ -46,10 +47,15 @@ export function RuleMenu({
   const options = { invalidate: [...AUTOMATIONS_KEY] };
   const fail = (e: unknown) => onNotice(errorMessage(e, AUTOMATION_ERRORS), 'error');
   const duplicate = useApiMutation(() => api.automations.duplicateRule(row.id), options);
-  const pause = useApiMutation(() => api.automations.pause(row.id), options);
-  const activate = useApiMutation(() => api.automations.activate(row.id), options);
-  const archive = useApiMutation(() => api.automations.archiveRule(row.id), options);
-  const restore = useApiMutation(() => api.automations.restoreRule(row.id), options);
+  const qc = useQueryClient();
+  // The row can leave the list when the change lands, so the notice is shown from here, not from a per-call callback.
+  const act = (change: () => Promise<unknown>, done: string) =>
+    change()
+      .then(() => {
+        onNotice(done, 'success');
+        return qc.invalidateQueries({ queryKey: [...AUTOMATIONS_KEY] });
+      })
+      .catch(fail);
   const item = (
     label: string,
     icon: typeof Copy,
@@ -75,20 +81,14 @@ export function RuleMenu({
           ...(row.status === 'ACTIVE'
             ? [
                 item('Pause', Pause, () =>
-                  pause.mutate(undefined, {
-                    onSuccess: () => onNotice(`${row.name} paused.`, 'success'),
-                    onError: fail,
-                  }),
+                  act(() => api.automations.pause(row.id), `${row.name} paused.`),
                 ),
               ]
             : row.status === 'ARCHIVED'
               ? []
               : [
                   item('Activate', Play, () =>
-                    activate.mutate(undefined, {
-                      onSuccess: () => onNotice(`${row.name} is active.`, 'success'),
-                      onError: fail,
-                    }),
+                    act(() => api.automations.activate(row.id), `${row.name} is active.`),
                   ),
                 ]),
         ]
@@ -99,19 +99,12 @@ export function RuleMenu({
           item('Save as Template', FloppyDisk, () => setDialog('template')),
           row.status === 'ARCHIVED'
             ? item('Restore', ArrowCounterClockwise, () =>
-                restore.mutate(undefined, {
-                  onSuccess: () => onNotice(`${row.name} restored as a draft.`, 'success'),
-                  onError: fail,
-                }),
+                act(() => api.automations.restoreRule(row.id), `${row.name} restored as a draft.`),
               )
             : item(
                 'Archive',
                 Archive,
-                () =>
-                  archive.mutate(undefined, {
-                    onSuccess: () => onNotice(`${row.name} archived.`, 'success'),
-                    onError: fail,
-                  }),
+                () => act(() => api.automations.archiveRule(row.id), `${row.name} archived.`),
                 true,
               ),
         ]
