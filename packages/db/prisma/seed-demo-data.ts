@@ -36,7 +36,7 @@ export const SEED_DEMO_USERS = {
     id: demoId('user:owner'),
     pool: 'STAFF',
     email: 'owner@demo.test',
-    name: 'Jordan Blake (fake)',
+    name: 'Jordan Blake',
   },
   // Six staff across three departments: every firm role used at least once (R35's eight roles,
   // minus OWNER, which the owner above already covers).
@@ -44,37 +44,37 @@ export const SEED_DEMO_USERS = {
     id: demoId('user:admin'),
     pool: 'STAFF',
     email: 'admin@demo.test',
-    name: 'Casey Nguyen (fake)',
+    name: 'Casey Nguyen',
   },
   manager: {
     id: demoId('user:manager'),
     pool: 'STAFF',
     email: 'manager@demo.test',
-    name: 'Riley Thompson (fake)',
+    name: 'Riley Thompson',
   },
   bookkeeper: {
     id: demoId('user:bookkeeper'),
     pool: 'STAFF',
     email: 'bookkeeper@demo.test',
-    name: 'Avery Martinez (fake)',
+    name: 'Avery Martinez',
   },
   taxPreparer: {
     id: demoId('user:tax-preparer'),
     pool: 'STAFF',
     email: 'tax-preparer@demo.test',
-    name: 'Morgan Lee (fake)',
+    name: 'Morgan Lee',
   },
   clientSupport: {
     id: demoId('user:client-support'),
     pool: 'STAFF',
     email: 'client-support@demo.test',
-    name: 'Jamie Patel (fake)',
+    name: 'Jamie Patel',
   },
   readOnly: {
     id: demoId('user:read-only'),
     pool: 'STAFF',
     email: 'read-only@demo.test',
-    name: 'Taylor Brooks (fake)',
+    name: 'Taylor Brooks',
   },
 } as const;
 
@@ -111,7 +111,7 @@ export const SEED_DEMO_STAFF: readonly {
     key: 'readOnly',
     role: 'READ_ONLY',
     department: 'OPERATIONS',
-    title: 'Compliance Observer (read only)',
+    title: 'Compliance Analyst',
   },
 ];
 
@@ -186,9 +186,9 @@ export const SEED_DEMO_CLIENTS: readonly {
 }[] = [
   {
     key: '01',
-    name: 'Harper Collins',
+    name: 'Harper Coleman',
     accountType: 'INDIVIDUAL',
-    email: 'harper.collins@demo.test',
+    email: 'harper.coleman@demo.test',
     assigned: 'manager',
     portal: true,
   },
