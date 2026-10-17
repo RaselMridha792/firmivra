@@ -1,11 +1,13 @@
 'use client';
 
 import type { ComplianceSummary } from '@firmivra/types';
-import { CalendarGrid, type CalendarEvent, DonutChart, type DonutSegment } from '@firmivra/ui';
+import { DonutChart, type DonutSegment, monthWeeks } from '@firmivra/ui';
 import {
   ArrowRight,
   ArrowsClockwise,
   CalendarCheck,
+  CaretLeft,
+  CaretRight,
   ChartPieSlice,
   DownloadSimple,
   FileText,
@@ -47,17 +49,6 @@ function CardHead({ icon: Glyph, title, aside }: { icon: Icon; title: string; as
 }
 const link = 'inline-flex items-center gap-1 text-sm font-medium text-link';
 
-const DAY_TONE = {
-  UPCOMING: 'blue',
-  IN_PROGRESS: 'blue',
-  WAITING_ON_CLIENT: 'blue',
-  DUE_SOON: 'amber',
-  OVERDUE: 'red',
-  COMPLETED: 'green',
-  NOT_APPLICABLE: 'grey',
-  CANCELLED: 'grey',
-} as const;
-
 /** Deadline Calendar: the month with its due dates marked; a date filters the list. */
 export function DeadlineCalendar({
   selected,
@@ -82,16 +73,9 @@ export function DeadlineCalendar({
       ...(filters?.mine ? { mine: true } : {}),
     }),
   );
-  const events: CalendarEvent[] = (cal.data?.days ?? []).flatMap((day) =>
-    day.deadlines.map((d) => ({
-      id: d.id,
-      start: `${day.date}T09:00:00`,
-      end: `${day.date}T10:00:00`,
-      title: d.name,
-      tone: DAY_TONE[d.displayStatus],
-    })),
-  );
-  const [y, m, d] = (selected ?? '').split('-').map(Number);
+  const counts = new Map((cal.data?.days ?? []).map((day) => [day.date, day.counts]));
+  const todayKey = isoDay(new Date());
+  const monthTitle = month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const legend: [string, string][] = [
     ['Upcoming', 'bg-info'],
     ['Overdue', 'bg-danger'],
@@ -101,16 +85,76 @@ export function DeadlineCalendar({
   return (
     <section className={card} data-testid="card-calendar" aria-label="Deadline Calendar">
       <CardHead icon={CalendarCheck} title="Deadline Calendar" />
-      <CalendarGrid
-        view="mini"
-        date={month}
-        events={events}
-        today={new Date()}
-        {...(selected ? { selected: new Date(y ?? 2000, (m ?? 1) - 1, d ?? 1) } : {})}
-        onPrev={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
-        onNext={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
-        onDateClick={(day) => onDate(selected === isoDay(day) ? undefined : isoDay(day))}
-      />
+      <div className="mb-2 flex items-center justify-between">
+        <button
+          type="button"
+          aria-label="Previous month"
+          onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
+          className="flex size-8 items-center justify-center rounded-md text-heading hover:bg-canvas"
+        >
+          <CaretLeft aria-hidden weight="bold" className="size-4" />
+        </button>
+        <span className="text-base font-semibold text-heading">{monthTitle}</span>
+        <button
+          type="button"
+          aria-label="Next month"
+          onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
+          className="flex size-8 items-center justify-center rounded-md text-heading hover:bg-canvas"
+        >
+          <CaretRight aria-hidden weight="bold" className="size-4" />
+        </button>
+      </div>
+      <table className="w-full table-fixed text-center text-sm" data-testid="mini-month">
+        <caption className="sr-only">{monthTitle}</caption>
+        <thead>
+          <tr>
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((w) => (
+              <th key={w} scope="col" className="pb-2 text-xs font-semibold text-heading">
+                {w}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {monthWeeks(month, 0).map((week) => (
+            <tr key={week[0]?.date.getTime()}>
+              {week.map(({ date: day, inMonth }) => {
+                const key = isoDay(day);
+                const c = counts.get(key);
+                const dots: [number | undefined, string, string][] = [
+                  [c?.upcoming, 'bg-info', 'upcoming'],
+                  [c?.overdue, 'bg-danger', 'overdue'],
+                  [c?.dueSoon, 'bg-warning', 'due soon'],
+                  [c?.completed, 'bg-success', 'completed'],
+                ];
+                const on = dots.filter(([n]) => n);
+                const picked = selected === key;
+                return (
+                  <td key={day.getTime()} className="py-0.5">
+                    {inMonth ? (
+                      <button
+                        type="button"
+                        aria-label={`${day.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}${on.length ? `, ${on.map(([n, , label]) => `${n} ${label}`).join(', ')}` : ''}`}
+                        aria-current={key === todayKey ? 'date' : undefined}
+                        aria-pressed={picked}
+                        onClick={() => onDate(picked ? undefined : key)}
+                        className={`mx-auto flex size-9 flex-col items-center justify-center rounded-full ${key === todayKey ? 'bg-action font-bold text-on-action' : picked ? 'text-heading ring-2 ring-action' : 'text-heading hover:bg-canvas'}`}
+                      >
+                        <span className="leading-none">{day.getDate()}</span>
+                        <span aria-hidden className="mt-0.5 flex h-1.5 gap-0.5">
+                          {on.map(([, tone, label]) => (
+                            <span key={label} className={`size-1.5 rounded-full ${tone}`} />
+                          ))}
+                        </span>
+                      </button>
+                    ) : null}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text" aria-label="Legend">
         {legend.map(([label, dot]) => (
           <li key={label} className="flex items-center gap-1.5">
@@ -152,7 +196,7 @@ export function TypesCard({
         <DonutChart
           segments={segments}
           centerLabel="Total"
-          size="md"
+          size="sm"
           emptyText="No deadlines yet."
           label="Deadlines by type"
         />
@@ -238,7 +282,7 @@ export function QuickActions({ onBulk }: { onBulk: () => void }) {
   return (
     <section className={card} data-testid="card-quick" aria-label="Quick Actions">
       <CardHead icon={Lightning} title="Quick Actions" />
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3">
         <Link href="/compliance/new" className={outlined}>
           <Plus aria-hidden weight="bold" className="size-4" /> Add Deadline
         </Link>
@@ -274,7 +318,7 @@ export function ResourcesCard() {
               : 'Publish a government calendar to link its official source here.'}
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3">
           {rows.map((c) => (
             <a
               key={c.id}
@@ -284,7 +328,7 @@ export function ResourcesCard() {
               className={outlined}
             >
               <FileText aria-hidden weight="fill" className="size-4 shrink-0" />
-              <span className="truncate">{c.authority}</span>
+              <span className="truncate">{c.name}</span>
               <span className="sr-only"> (opens the official page)</span>
             </a>
           ))}
