@@ -115,6 +115,7 @@ import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createTasksMock } from '../mocks/tasks';
 import { createTaskWorkMock } from '../mocks/tasks-work';
+import { createTemplatesMock } from '../mocks/templates';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
@@ -300,9 +301,12 @@ export const api = {
       : createTaskWorkClient(request),
   /**
    * Templates (R55): the library, categories, merge fields, branding, import and the starter
-   * templates. Real API only until its mock is written.
+   * templates. Mock: NEXT_PUBLIC_API_MOCK=templates (mocks/templates.ts, R56).
    */
-  templates: createTemplatesClient(request),
+  templates:
+    dev && mocked('templates')
+      ? createTemplatesMock({ role: MOCK_ROLE, empty: mockedEmpty('templates') })
+      : createTemplatesClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
   workspaces:
     dev && mocked('workspaces')
