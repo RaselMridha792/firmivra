@@ -6,7 +6,7 @@
 // Coverage map: docs/work/R0-demo-coverage.md.
 import { config } from 'dotenv';
 import { createPrismaClient } from '../src/client.js';
-import { seedDemoOrg } from './seed-demo-org.js';
+import { seedDemo } from './seed-demo-all.js';
 
 config({ path: '../../.env', quiet: true });
 
@@ -17,10 +17,10 @@ const prisma = createPrismaClient(url, {
 });
 
 async function main() {
-  const org = await seedDemoOrg(prisma);
+  const org = await seedDemo(prisma);
 
   console.warn(
-    `Seeded the demo firm: ${org.businessId}, owner + 6 staff across 3 departments, ${Object.keys(org.clients).length} clients (1 with a portal login).`,
+    `Seeded the demo firm: ${org.businessId}, owner + 6 staff across 3 departments, ${Object.keys(org.clients).length} clients (1 with a portal login), with engagements, tasks, invoices, appointments, documents and messages.`,
   );
 }
 

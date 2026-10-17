@@ -39,6 +39,10 @@ export interface DemoOrgResult {
   clients: Record<string, string>;
   /** The firm's service ids by name (seedServices's lookup; throws for an unknown name). */
   serviceIds: (name: string) => string;
+  /** Document category ids by name (same kind of lookup). */
+  categoryIds: (name: string) => string;
+  /** Appointment type ids by name (same kind of lookup). */
+  appointmentTypeIds: (name: string) => string;
 }
 
 const splitName = (name: string): { firstName: string | null; lastName: string | null } => {
@@ -68,7 +72,7 @@ export async function seedDemoOrg(prisma: Prisma): Promise<DemoOrgResult> {
     return business.id;
   });
 
-  const { memberships, serviceIds } = await runInScope(
+  const { memberships, serviceIds, categoryIds, appointmentTypeIds } = await runInScope(
     prisma,
     { kind: 'business', businessId },
     async (tx) => {
@@ -80,8 +84,16 @@ export async function seedDemoOrg(prisma: Prisma): Promise<DemoOrgResult> {
         taxStatuses: SEED_TAX_STATUSES.lvp,
       });
       const serviceIds = await seedServices(tx, businessId, SEED_SERVICES.lvp);
-      await seedDocumentCategories(tx, businessId, SEED_DOCUMENT_CATEGORIES.lvp);
-      await seedAppointmentTypes(tx, businessId, SEED_APPOINTMENT_TYPES.lvp);
+      const categoryIds = await seedDocumentCategories(
+        tx,
+        businessId,
+        SEED_DOCUMENT_CATEGORIES.lvp,
+      );
+      const appointmentTypeIds = await seedAppointmentTypes(
+        tx,
+        businessId,
+        SEED_APPOINTMENT_TYPES.lvp,
+      );
 
       // Owner, then the six staff, each with a membership, a profile and security settings.
       const ownerMember = await tx.membership.upsert({
@@ -181,7 +193,7 @@ export async function seedDemoOrg(prisma: Prisma): Promise<DemoOrgResult> {
         }
       }
 
-      return { memberships: allMemberships, serviceIds };
+      return { memberships: allMemberships, serviceIds, categoryIds, appointmentTypeIds };
     },
   );
 
@@ -258,7 +270,14 @@ export async function seedDemoOrg(prisma: Prisma): Promise<DemoOrgResult> {
     return ids;
   });
 
-  return { businessId, memberships, clients, serviceIds };
+  return {
+    businessId,
+    memberships,
+    clients,
+    serviceIds,
+    categoryIds,
+    appointmentTypeIds,
+  };
 }
 
 export type { TxClient };
