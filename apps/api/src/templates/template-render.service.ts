@@ -262,7 +262,7 @@ export class TemplateRenderService {
     const body = fill(t.body, values, plain ? 'text' : 'html');
     const subject = t.subject === null ? null : fill(t.subject, values, 'text');
     const preview = t.previewText === null ? null : fill(t.previewText, values, 'text');
-    const unresolved = [...new Set([body, subject, preview].flatMap((r) => r?.unresolved ?? []))];
+    const unresolved = [...new Set([subject, preview, body].flatMap((r) => r?.unresolved ?? []))];
     const text = plain ? stripTags(body.text) : sanitize(body.text).html;
     return {
       subject: subject ? stripTags(subject.text) : null,
