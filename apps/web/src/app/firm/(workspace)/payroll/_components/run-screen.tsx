@@ -213,7 +213,7 @@ export function RunScreen({ id }: { id: string }) {
       {!run ? (
         <p className={`${card} ${quiet}`}>{note}</p>
       ) : (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_19rem]">
           <div className="flex min-w-0 flex-col gap-4">
             <PeriodDetails
               run={run}
@@ -260,7 +260,11 @@ export function RunScreen({ id }: { id: string }) {
                   onClick={() =>
                     ready.mutate(undefined, {
                       onSuccess: ok('Marked ready for review.'),
-                      onError: fail,
+                      // A blocked review still found issues: show them.
+                      onError: (e) => {
+                        fail(e);
+                        check.mutate();
+                      },
                     })
                   }
                 >
@@ -411,7 +415,7 @@ function PeriodDetails({
           </Link>
         }
       />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Input label="Pay Period Start" type="date" value={run.periodStart} readOnly />
         <Input label="Pay Period End" type="date" value={run.periodEnd} readOnly />
         <Input
@@ -481,7 +485,13 @@ function Employees({
       label: 'Employee Name',
       cell: (l) => <span className="font-semibold text-link">{l.worker.displayName}</span>,
     },
-    { id: 'type', label: 'Type', cell: (l) => WORKER_TYPE_LABEL[l.worker.workerType] },
+    {
+      id: 'type',
+      label: 'Type',
+      cell: (l) => (
+        <span className="whitespace-nowrap">{WORKER_TYPE_LABEL[l.worker.workerType]}</span>
+      ),
+    },
     {
       id: 'rate',
       label: 'Pay Rate',

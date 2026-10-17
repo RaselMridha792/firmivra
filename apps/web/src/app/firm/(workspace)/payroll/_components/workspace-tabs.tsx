@@ -254,9 +254,12 @@ export function RunsTab({ id }: { id: string }) {
               : 'Runs appear once a provider is connected and a frequency is set.'
           }
           rowActions={(r) => (
-            <Link href={`/payroll/runs/${r.id}`} className={subtle}>
+            <Link
+              href={`/payroll/runs/${r.id}`}
+              aria-label={`${r.status === 'COMPLETED' ? 'View' : 'Continue'} ${periodText(r.periodStart, r.periodEnd)}`}
+              className={subtle}
+            >
               {r.status === 'COMPLETED' ? 'View' : 'Continue'}
-              <span className="sr-only"> {periodText(r.periodStart, r.periodEnd)}</span>
             </Link>
           )}
           server={{

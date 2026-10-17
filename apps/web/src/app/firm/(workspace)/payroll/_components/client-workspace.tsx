@@ -575,7 +575,7 @@ function Overview({
         ) : null}
       </div>
 
-      <div className="grid items-start gap-4 lg:grid-cols-3">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]">
         <section className={card} data-testid="panel-upcoming" aria-label="Upcoming Payroll Runs">
           <CardHead
             icon={CalendarCheck}
@@ -605,10 +605,11 @@ function Overview({
               rowActions={(r) => (
                 <button
                   type="button"
+                  aria-label={`Open ${periodText(r.periodStart, r.periodEnd)}`}
                   onClick={() => router.push(`/payroll/runs/${r.id}`)}
                   className={subtle}
                 >
-                  Open<span className="sr-only"> {periodText(r.periodStart, r.periodEnd)}</span>
+                  Open
                 </button>
               )}
             />

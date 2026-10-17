@@ -24,6 +24,42 @@ import {
   CardHead,
 } from './payroll-shared';
 
+const DOT: Record<string, string> = {
+  green: 'bg-chart-green',
+  blue: 'bg-chart-blue',
+  yellow: 'bg-chart-yellow',
+  grey: 'bg-chart-grey',
+  red: 'bg-chart-red',
+  purple: 'bg-purple',
+  navy: 'bg-heading',
+};
+/** The ring's legend under it: colour, name, count and share. */
+function Legend({
+  rows,
+}: {
+  rows: { label: string; tone: string; count: string; percent: number }[];
+}) {
+  return (
+    <ul className="mt-3 flex flex-col gap-1 text-sm" aria-label="Legend">
+      {rows.map((r) => (
+        <li key={r.label} className="flex items-center gap-2">
+          <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${DOT[r.tone]}`} />
+          <span className="min-w-0 flex-1 truncate text-heading">{r.label}</span>
+          <span className="font-semibold text-heading">{r.count}</span>
+          <span className="w-10 text-right text-xs text-muted">{r.percent}%</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+const compact = (cents: number) =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(cents / 100);
+
 interface Props {
   data: PayrollOverview | undefined;
   loading: boolean;
@@ -46,14 +82,27 @@ export function StatusCard(p: Props) {
       {p.failed || p.loading ? (
         <p className={quiet}>{note(p, '', 'Payroll status is not available right now.')}</p>
       ) : (
-        <DonutChart
-          segments={segments}
-          centerValue={p.data?.statusBreakdown.total ?? 0}
-          centerLabel="Clients"
-          size="sm"
-          emptyText="No payroll clients yet."
-          label="Payroll clients by status"
-        />
+        <>
+          <DonutChart
+            segments={segments}
+            centerValue={p.data?.statusBreakdown.total ?? 0}
+            centerLabel="Clients"
+            legend={false}
+            size="sm"
+            emptyText="No payroll clients yet."
+            label="Payroll clients by status"
+          />
+          <Legend
+            rows={items.map((i) => ({
+              label: CLIENT_STATUS_LABEL[i.status],
+              tone: STATUS_TONE[i.status],
+              count: String(i.count),
+              percent: p.data?.statusBreakdown.total
+                ? Math.round((i.count / p.data.statusBreakdown.total) * 100)
+                : 0,
+            }))}
+          />
+        </>
       )}
     </section>
   );
@@ -148,14 +197,25 @@ export function ByProviderCard(p: Props) {
       {p.failed || p.loading ? (
         <p className={quiet}>{note(p, '', 'Payroll by provider is not available right now.')}</p>
       ) : (
-        <DonutChart
-          segments={segments}
-          centerValue={moneyShort(p.data?.byProvider.totalCents ?? 0)}
-          centerLabel="Total Payroll"
-          size="sm"
-          emptyText="No confirmed payroll yet."
-          label="Payroll by provider"
-        />
+        <>
+          <DonutChart
+            segments={segments}
+            centerValue={compact(p.data?.byProvider.totalCents ?? 0)}
+            centerLabel="Total Payroll"
+            legend={false}
+            size="sm"
+            emptyText="No confirmed payroll yet."
+            label="Payroll by provider"
+          />
+          <Legend
+            rows={items.map((i, n) => ({
+              label: i.label,
+              tone: PROVIDER_TONES[n % PROVIDER_TONES.length]!,
+              count: compact(i.grossCents),
+              percent: i.sharePercent,
+            }))}
+          />
+        </>
       )}
     </section>
   );

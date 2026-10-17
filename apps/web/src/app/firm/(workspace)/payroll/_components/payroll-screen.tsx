@@ -337,9 +337,9 @@ export function PayrollScreen() {
         )}
       </ul>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="flex min-w-0 flex-col gap-4">
         <div className="flex min-w-0 flex-col gap-4">
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatusCard
               data={overview.data}
               loading={overview.isPending}
@@ -354,6 +354,12 @@ export function PayrollScreen() {
               data={overview.data}
               loading={overview.isPending}
               failed={overview.isError}
+            />
+            <ProvidersCard
+              data={overview.data}
+              loading={overview.isPending}
+              failed={overview.isError}
+              onConnect={() => setDialog('connect')}
             />
           </div>
           <nav
@@ -582,13 +588,7 @@ export function PayrollScreen() {
             </p>
           </section>
         </div>
-        <aside aria-label="Payroll side panels" className="flex min-w-0 flex-col gap-4">
-          <ProvidersCard
-            data={overview.data}
-            loading={overview.isPending}
-            failed={overview.isError}
-            onConnect={() => setDialog('connect')}
-          />
+        <div className="grid gap-4 lg:grid-cols-2">
           <UpcomingCard
             data={overview.data}
             loading={overview.isPending}
@@ -596,7 +596,7 @@ export function PayrollScreen() {
             onAll={() => choose('UPCOMING')}
           />
           <ResourcesCard />
-        </aside>
+        </div>
       </div>
       {dialog === 'settings' ? (
         <SettingsDialog

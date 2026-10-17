@@ -213,7 +213,8 @@ export const outlined =
   'inline-flex min-h-11 items-center gap-2 rounded-control border border-action bg-surface px-4 text-sm font-medium text-action hover:bg-accent-soft disabled:opacity-50';
 export const subtle =
   'inline-flex min-h-10 items-center gap-2 rounded-control border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-canvas disabled:opacity-50';
-export const linkBtn = 'inline-flex items-center gap-1 text-sm font-medium text-link';
+export const linkBtn =
+  'inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-link';
 export const card = 'min-w-0 rounded-xl bg-surface p-4 shadow-md';
 
 export function Selectbox({
