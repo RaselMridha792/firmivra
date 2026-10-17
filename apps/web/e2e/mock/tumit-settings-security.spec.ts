@@ -15,6 +15,6 @@ test('shows the sign-in rules, two-factor status and alerts', async ({ page }) =
   await expect(page.getByTestId('security-alerts')).toContainText('to review');
   await expect(page.getByRole('link', { name: 'Open Integrations' })).toHaveAttribute(
     'href',
-    '/modules/integrations',
+    '/integrations',
   );
 });
