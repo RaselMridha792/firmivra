@@ -389,3 +389,182 @@ export const SEED_DEMO_SIGNUPS: readonly {
 ];
 
 export const demoSignupUserId = (key: string): string => demoId(`user:signup:${key}`);
+
+/**
+ * Stage 4 (Super Admin): eight more firms, every one with a `demo-` slug so they are easy to spot
+ * and the unseed finds exactly these. Each has an owner login, its approved application and a plan
+ * subscription, together covering every firm status and every subscription state.
+ */
+export const SEED_DEMO_FIRMS: readonly {
+  slug: string;
+  name: string;
+  legalName: string;
+  city: string;
+  status: 'ACTIVE' | 'PENDING_SETUP' | 'SUSPENDED' | 'CLOSED';
+  plan: 'SOLO_CORE' | 'SOLO_PRO' | 'SOLO_ELITE' | 'TEAM_PRO' | 'BUSINESS' | 'ENTERPRISE';
+  subscription: 'ACTIVE' | 'TRIAL' | 'PAST_DUE' | 'SUSPENDED' | 'CANCELLED';
+  cycle: 'MONTHLY' | 'ANNUAL';
+  owner: { name: string; email: string };
+  teamSize: number;
+  /** Days since the firm applied. */
+  applied: number;
+}[] = [
+  {
+    slug: 'demo-harborline',
+    name: 'Harborline Tax & Advisory',
+    legalName: 'Harborline Tax & Advisory LLC',
+    city: 'Charleston',
+    status: 'ACTIVE',
+    plan: 'TEAM_PRO',
+    subscription: 'ACTIVE',
+    cycle: 'MONTHLY',
+    owner: { name: 'Leah Donovan', email: 'leah.donovan@harborline.demo.test' },
+    teamSize: 6,
+    applied: 160,
+  },
+  {
+    slug: 'demo-summit-ledger',
+    name: 'Summit Ledger Bookkeeping',
+    legalName: 'Summit Ledger Bookkeeping Inc.',
+    city: 'Denver',
+    status: 'ACTIVE',
+    plan: 'BUSINESS',
+    subscription: 'ACTIVE',
+    cycle: 'ANNUAL',
+    owner: { name: 'Marcus Webb', email: 'marcus.webb@summitledger.demo.test' },
+    teamSize: 14,
+    applied: 140,
+  },
+  {
+    slug: 'demo-oakwood-cpa',
+    name: 'Oakwood CPA Group',
+    legalName: 'Oakwood CPA Group PLLC',
+    city: 'Austin',
+    status: 'ACTIVE',
+    plan: 'ENTERPRISE',
+    subscription: 'ACTIVE',
+    cycle: 'ANNUAL',
+    owner: { name: 'Diana Reyes', email: 'diana.reyes@oakwoodcpa.demo.test' },
+    teamSize: 28,
+    applied: 120,
+  },
+  {
+    slug: 'demo-riverbend-tax',
+    name: 'Riverbend Tax Services',
+    legalName: 'Riverbend Tax Services LLC',
+    city: 'Nashville',
+    status: 'ACTIVE',
+    plan: 'SOLO_PRO',
+    subscription: 'TRIAL',
+    cycle: 'MONTHLY',
+    owner: { name: 'Samuel Ortiz', email: 'samuel.ortiz@riverbendtax.demo.test' },
+    teamSize: 1,
+    applied: 12,
+  },
+  {
+    slug: 'demo-pinecrest',
+    name: 'Pinecrest Financial Partners',
+    legalName: 'Pinecrest Financial Partners LLC',
+    city: 'Raleigh',
+    status: 'ACTIVE',
+    plan: 'TEAM_PRO',
+    subscription: 'PAST_DUE',
+    cycle: 'MONTHLY',
+    owner: { name: 'Olivia Grant', email: 'olivia.grant@pinecrest.demo.test' },
+    teamSize: 4,
+    applied: 95,
+  },
+  {
+    slug: 'demo-bluebird-tax',
+    name: 'Bluebird Tax Prep',
+    legalName: 'Bluebird Tax Prep LLC',
+    city: 'Tampa',
+    status: 'PENDING_SETUP',
+    plan: 'SOLO_CORE',
+    subscription: 'TRIAL',
+    cycle: 'MONTHLY',
+    owner: { name: 'Isaac Moreno', email: 'isaac.moreno@bluebirdtax.demo.test' },
+    teamSize: 1,
+    applied: 4,
+  },
+  {
+    slug: 'demo-meridian',
+    name: 'Meridian Accounting Co.',
+    legalName: 'Meridian Accounting Company',
+    city: 'Phoenix',
+    status: 'SUSPENDED',
+    plan: 'BUSINESS',
+    subscription: 'SUSPENDED',
+    cycle: 'MONTHLY',
+    owner: { name: 'Hannah Pierce', email: 'hannah.pierce@meridianacct.demo.test' },
+    teamSize: 11,
+    applied: 210,
+  },
+  {
+    slug: 'demo-lakeside',
+    name: 'Lakeside Ledger',
+    legalName: 'Lakeside Ledger LLC',
+    city: 'Madison',
+    status: 'CLOSED',
+    plan: 'SOLO_ELITE',
+    subscription: 'CANCELLED',
+    cycle: 'ANNUAL',
+    owner: { name: 'Gavin Holt', email: 'gavin.holt@lakesideledger.demo.test' },
+    teamSize: 2,
+    applied: 300,
+  },
+];
+
+/** Applications still with the Super Admin (no firm yet): pending, info requested, declined. */
+export const SEED_DEMO_APPLICATIONS: readonly {
+  key: string;
+  name: string;
+  legalName: string;
+  city: string;
+  contact: { name: string; email: string };
+  status: 'PENDING_REVIEW' | 'INFO_REQUESTED' | 'DECLINED';
+  reason?: string;
+  teamSize: number;
+}[] = [
+  {
+    key: 'a1',
+    name: 'Copperfield Tax Studio',
+    legalName: 'Copperfield Tax Studio LLC',
+    city: 'Birmingham',
+    contact: { name: 'Nadia Shah', email: 'nadia.shah@copperfield.demo.test' },
+    status: 'PENDING_REVIEW',
+    teamSize: 3,
+  },
+  {
+    key: 'a2',
+    name: 'Northstar Bookkeeping Co.',
+    legalName: 'Northstar Bookkeeping Company',
+    city: 'Minneapolis',
+    contact: { name: 'Erik Lindqvist', email: 'erik.lindqvist@northstarbooks.demo.test' },
+    status: 'PENDING_REVIEW',
+    teamSize: 5,
+  },
+  {
+    key: 'a3',
+    name: 'Evergreen Payroll Services',
+    legalName: 'Evergreen Payroll Services Inc.',
+    city: 'Portland',
+    contact: { name: 'Claire Benson', email: 'claire.benson@evergreenpayroll.demo.test' },
+    status: 'INFO_REQUESTED',
+    reason: 'Please upload your PTIN and a copy of your business license.',
+    teamSize: 8,
+  },
+  {
+    key: 'a4',
+    name: 'Quickfile Tax Express',
+    legalName: 'Quickfile Tax Express LLC',
+    city: 'Las Vegas',
+    contact: { name: 'Brent Novak', email: 'brent.novak@quickfile.demo.test' },
+    status: 'DECLINED',
+    reason: 'We could not verify the preparer credentials provided.',
+    teamSize: 2,
+  },
+];
+
+export const demoFirmOwnerId = (slug: string): string => demoId(`user:firm-owner:${slug}`);
+export const demoApplicationId = (key: string): string => demoId(`firm-application:${key}`);

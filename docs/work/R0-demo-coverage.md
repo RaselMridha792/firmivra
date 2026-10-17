@@ -17,7 +17,10 @@ Stages (one PR each, in Rasel's priority order: pages whose backend already exis
   documents and requests, message threads.
 - **Stage 3**: leads in every pipeline stage, Begin Online submissions, Firm Sign requests
   (completed and pending), intake forms and submissions, client sign-ups, the notification bell.
-- **Stage 4**: Super Admin: 8 firms in different statuses, applications, subscriptions.
+- **Stage 4**: Super Admin: 8 more firms (`demo-` slugs) in every status, their applications and
+  plan subscriptions, 4 applications still under review. Run the platform-org bootstrap
+  (`bootstrap-platform-org-task.mjs`) first: stage 4 needs the plan ladder and acts as the earliest
+  SUPER_ADMIN (decisions and subscriptions show that person as the reviewer, Rasel's choice).
 - **Stage 5**: work modules with tables but no screens yet (bookkeeping, tax planning, compliance,
   automations, payroll, advisory), services and pricing detail (packages, promotions), audit and
   login history.
@@ -42,6 +45,12 @@ Stages (one PR each, in Rasel's priority order: pages whose backend already exis
 | `seed-demo-signups.ts` | 4 portal sign-ups: 3 waiting for approval, 1 declined |
 | `seed-demo-notifications.ts` | 15 bell items: 10 for staff (new leads, sign-ups, uploads, a payment, a message, a booking, a submitted intake), 5 for Harper (a request, an invoice, a message, today's appointment, her shared return); some read |
 
+## What Stage 4 seeds
+
+| Module file | Rows |
+| --- | --- |
+| `seed-demo-platform.ts` | 8 firms: 5 active (one on trial, one past due), 1 pending setup, 1 suspended, 1 closed; each with an owner login, settings, services, its approved application (with history) and a plan subscription (every plan; active, trial, past due, suspended, cancelled; monthly and annual). 4 applications without a firm: 2 pending review, 1 info requested, 1 declined. The demo firm gets a Business plan subscription |
+
 Dates are relative to the day the seed runs (overdue stays overdue, "today" is today). Run it again
 and nothing changes; `pnpm db:unseed:demo` removes all of it.
 
@@ -49,9 +58,9 @@ and nothing changes; `pnpm db:unseed:demo` removes all of it.
 
 | Page | Seed rows | Backend | Stage |
 | --- | --- | --- | --- |
-| `/admin/(console)/page.tsx` (dashboard) | Stage 4 firms and applications | yes | 4 |
-| `/admin/(console)/applications`, `/[id]` | `firm_applications` | yes | 4 |
-| `/admin/(console)/firms`, `/[id]` | 8 firms, subscriptions | yes | 4 |
+| `/admin/(console)/page.tsx` (dashboard) | 9 demo firms by status, 12 applications | yes | 4 |
+| `/admin/(console)/applications`, `/[id]` | 12 applications: 8 approved, 2 pending review, 1 info requested, 1 declined | yes | 4 |
+| `/admin/(console)/firms`, `/[id]` | 9 firms in every status, each with its plan subscription | yes | 4 |
 | `/admin/sign-in`, `forgot-password`, `reset-password` | real dev Super Admin logins | yes | n/a |
 
 ## Firm workspace (`app.firmivra.com`)
