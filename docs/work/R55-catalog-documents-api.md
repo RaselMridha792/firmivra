@@ -48,3 +48,4 @@ The tables from R36 cover the catalog, but a few contract fields do not map one 
 8. **Grid roles** (Manager, Bookkeeper and the others): write routes are Owner and Admin only. Letting the grid's Create, Edit or Manage reach them needs `STAFF` in the write routes' `@Roles`, which also lets the legacy Staff role in. Left for a decision.
 
 Shared test file touched: `apps/api/test/isolation/body-ids.ts` got three `NOT_RECORDS` entries (a new service or package refuses any line or add-on id; package add-on `linkedServiceId` is refused), each with its reason.
+- 2026-10-17: #685 CI red was Docker Hub's pull rate limit on test shard 1 (shard 2 cancelled with it), not code. The four download routes answering 409 in the isolation suite come from the s3mock container running on this laptop: the same four fail on clean origin/main here, and all 19 isolation tests pass on this branch with S3 unreachable, as in CI.
