@@ -7,7 +7,7 @@
     "dev": "nest start --watch --preserveWatchOutput",
     "start": "node dist/main.js",
     "lint": "eslint .",
-    "typecheck": "node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "devDependencies": {
