@@ -1,12 +1,15 @@
 'use client';
 
-import { CaretDown } from '@phosphor-icons/react';
+import { Avatar } from '@firmivra/ui';
+import { CaretDown, X } from '@phosphor-icons/react';
 import { useEffect, useId, useRef, useState } from 'react';
 
 /**
  * A select that keeps several values (Department(s), Service Area(s)). The kit has no multi-select
  * yet, so this small one lives here: a button like the kit's Select that opens a list of
- * checkboxes; Escape or a click outside closes it.
+ * checkboxes; Escape or a click outside closes it. `chips` shows each chosen item as a chip with
+ * a remove button: `people` with their initials (Assigned Staff in Schedule Appointment), `tags`
+ * as plain tags (Service Area(s) in Edit Staff).
  */
 export function MultiPick({
   label,
@@ -16,6 +19,7 @@ export function MultiPick({
   onChange,
   error,
   emptyText = 'Nothing to choose yet.',
+  chips,
 }: {
   label: string;
   placeholder: string;
@@ -24,6 +28,7 @@ export function MultiPick({
   onChange: (next: string[]) => void;
   error?: string;
   emptyText?: string;
+  chips?: 'people' | 'tags';
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -47,24 +52,66 @@ export function MultiPick({
       <span id={`${id}-label`} className="text-sm font-medium text-text">
         {label}
       </span>
-      <button
-        type="button"
-        aria-haspopup="true"
-        aria-expanded={open}
-        aria-labelledby={`${id}-label ${id}-value`}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? `${id}-error` : undefined}
-        onClick={() => setOpen((v) => !v)}
-        className={`flex min-h-11 w-full min-w-0 items-center justify-between gap-2 rounded-control border bg-surface py-2 pr-3 pl-3 text-left text-base ${error ? 'border-danger' : 'border-border'}`}
-      >
-        <span
-          id={`${id}-value`}
-          className={`truncate ${chosen.length ? 'text-text' : 'text-muted'}`}
+      {chips ? (
+        <div
+          className={`flex min-h-11 w-full min-w-0 flex-wrap items-center gap-1.5 rounded-control border bg-surface py-1 pr-1 pl-1.5 ${error ? 'border-danger' : 'border-border'}`}
         >
-          {chosen.length ? chosen.join(', ') : placeholder}
-        </span>
-        <CaretDown aria-hidden weight="bold" className="size-4 shrink-0 text-muted" />
-      </button>
+          {options
+            .filter((o) => value.includes(o.value))
+            .map((o) => (
+              <span
+                key={o.value}
+                className={`inline-flex items-center gap-1.5 rounded-pill py-0.5 pr-1 text-sm ${chips === 'people' ? 'bg-subtle pl-0.5 text-heading' : 'bg-info-soft pl-2.5 text-heading'}`}
+              >
+                {chips === 'people' ? <Avatar name={o.label} size="sm" /> : null}
+                {o.label}
+                <button
+                  type="button"
+                  aria-label={`Remove ${o.label}`}
+                  onClick={() => toggle(o.value, false)}
+                  className="flex size-6 items-center justify-center rounded-full text-muted hover:bg-canvas hover:text-heading"
+                >
+                  <X aria-hidden weight="bold" className="size-3" />
+                </button>
+              </span>
+            ))}
+          <span id={`${id}-value`} className="sr-only">
+            {chosen.join(', ')}
+          </span>
+          <button
+            type="button"
+            aria-haspopup="true"
+            aria-expanded={open}
+            aria-labelledby={`${id}-label ${id}-value`}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? `${id}-error` : undefined}
+            onClick={() => setOpen((v) => !v)}
+            className="ml-auto flex min-h-9 flex-1 items-center justify-end gap-2 rounded-control px-2 text-left text-base text-muted hover:bg-canvas"
+          >
+            {chosen.length ? null : <span className="flex-1 truncate">{placeholder}</span>}
+            <CaretDown aria-hidden weight="bold" className="size-4 shrink-0" />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          aria-haspopup="true"
+          aria-expanded={open}
+          aria-labelledby={`${id}-label ${id}-value`}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : undefined}
+          onClick={() => setOpen((v) => !v)}
+          className={`flex min-h-11 w-full min-w-0 items-center justify-between gap-2 rounded-control border bg-surface py-2 pr-3 pl-3 text-left text-base ${error ? 'border-danger' : 'border-border'}`}
+        >
+          <span
+            id={`${id}-value`}
+            className={`truncate ${chosen.length ? 'text-text' : 'text-muted'}`}
+          >
+            {chosen.length ? chosen.join(', ') : placeholder}
+          </span>
+          <CaretDown aria-hidden weight="bold" className="size-4 shrink-0 text-muted" />
+        </button>
+      )}
       {open ? (
         <div
           role="group"
