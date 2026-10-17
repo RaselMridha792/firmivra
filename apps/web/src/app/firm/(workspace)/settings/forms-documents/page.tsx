@@ -1,8 +1,8 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { FormsDocumentsScreen } from './_components/forms-documents-screen';
 
 export const metadata: Metadata = { title: 'Forms & documents' };
 
 export default function SettingsFormsDocumentsPage() {
-  return <PageHeader title="Forms & Documents" />;
+  return <FormsDocumentsScreen />;
 }
