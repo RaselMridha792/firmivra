@@ -53,6 +53,7 @@ import {
   createStaffClient,
   createSupportAccessClient,
   createTasksClient,
+  createTemplatesClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
@@ -287,6 +288,11 @@ export const api = {
       : createMyDocumentsClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
   tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
+  /**
+   * Templates (R55): the library, categories, merge fields, branding, import and the starter
+   * templates. Real API only until its mock is written.
+   */
+  templates: createTemplatesClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
   workspaces:
     dev && mocked('workspaces')

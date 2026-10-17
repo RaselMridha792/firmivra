@@ -26,6 +26,7 @@ Branch `rasel/R55-catalog-documents-api`. Local ports: API 4550, web 3550, datab
 
 - [x] 1. Services & Pricing under `/business/catalog`: services (list, create, get, update, activate, deactivate, archive, duplicate, delete, usage), packages (list, create, get, update, pricing panel, activate, deactivate, duplicate, archive), summary, categories (list, create, update, reorder, merge, delete) and promotions (list, create, update, end).
 - [x] 2. Documents: compared with `createDocumentsClient` and `createMyDocumentsClient`; nothing is missing, so no code was added (list below).
+- [ ] 5. Templates (the message-template library: categories, templates with versions, attachments, sharing, favourites, uses, branding, custom merge fields, the 48 starter templates). 5a [x]: contract (`packages/types/src/templates/`, `createTemplatesClient` as `api.templates`). 5b: API.
 
 ## Documents: what already existed and what was added
 
@@ -68,3 +69,11 @@ The tables from R36 cover the catalog, but a few contract fields do not map one 
 
 Shared test file touched: `apps/api/test/isolation/body-ids.ts` got three `NOT_RECORDS` entries (a new service or package refuses any line or add-on id; package add-on `linkedServiceId` is refused), each with its reason.
 - 2026-10-17: #685 CI red was Docker Hub's pull rate limit on test shard 1 (shard 2 cancelled with it), not code. The four download routes answering 409 in the isolation suite come from the s3mock container running on this laptop: the same four fail on clean origin/main here, and all 19 isolation tests pass on this branch with S3 unreachable, as in CI.
+- 2026-10-17: step 5a, the Templates contract: summary page (tabs, category cards, recent), the library query, template detail with versions, attachments (the documents upload ticket), shares, favourites and automation impact, preview and test send, bulk actions, categories (reorder, merge), merge fields (built-in and custom), Branding & Letterhead, HTML and text import, and the starter templates. Compliance was reassigned to another session; a draft of its contract is on the local branch `rasel/R55-compliance-contract` (not pushed).
+
+### Templates (step 5)
+
+1. **Delete**: the app role may not delete templates, categories or their versions (grants are select, insert and update), and sends keep the version they used. The contract offers archive and restore only; the guide's "Delete where there is no usage" is not available.
+2. **Active automations**: the contract has `automationCount` and `confirmAutomationImpact`, but no table links an automation to a template (rule versions hold their steps as data). Until Automations has its API the count reads 0.
+3. **DOCX import**: the contract takes HTML and plain text; a .docx must be converted by the screen first.
+4. **Merge fields from live data**: built-in Client, Company, Staff and Custom fields resolve in the first API; Appointment, Invoice, Tax and Workflow fields resolve when the record id is given, and are reported as unresolved otherwise.
