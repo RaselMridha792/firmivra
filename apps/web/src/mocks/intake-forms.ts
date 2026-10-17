@@ -25,6 +25,7 @@ import {
   UpdateIntakeSettingsRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { mockIntakeAnswers } from './intake-forms-answers';
 
 /**
  * Mock data for `api.intakeForms` (R43 contract, the Intake Forms workspace). Synthetic people
@@ -423,14 +424,7 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
     createdAt: r.sentAt ?? new Date().toISOString(),
     updatedAt: r.lastActivityAt ?? new Date().toISOString(),
     definition: INTAKE_FORMS.ANNUAL_TAX!,
-    answers: {
-      firstName: r.recipient.name.split(' ')[0] ?? 'Sample',
-      lastName: r.recipient.name.split(' ')[1] ?? 'Client',
-      email: r.recipient.email ?? 'client@example.test',
-      dateOfBirth: '1991-07-14',
-      ssn: { last4: '4821' },
-      filingStatus: 'SINGLE',
-    },
+    answers: mockIntakeAnswers(r),
     savedSteps: [],
     locked: !['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'].includes(r.status),
     uploads: r.documents.map((d) => ({
