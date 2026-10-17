@@ -39,6 +39,8 @@ import { seedR36 } from './seed-r36.js';
 import { seedR37 } from './seed-r37.js';
 import { seedR39 } from './seed-r39.js';
 import { seedWorkModules } from './seed-r38.js';
+import { seedPlatformPlans } from './seed-platform-plans.js';
+import { seedPlatformTeam } from './seed-platform-team.js';
 
 config({ path: '../../.env', quiet: true });
 
@@ -1987,8 +1989,13 @@ async function main() {
     seedR37(tx, businesses.lvp),
   );
 
+  // R0 stage A: Firmivra's own org chart and the plan ladder (platform reference data, not
+  // tenant data). No subscription rows: no backfill for existing firms (Rasel's change C).
+  await seedPlatformTeam(prisma);
+  await seedPlatformPlans(prisma);
+
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, intake agreements, a signed Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request, sample audit events and Firm Sign (LVP: on, with a sent request; Firm B: off, one draft).`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, intake agreements, a signed Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request, sample audit events, Firm Sign (LVP: on, with a sent request; Firm B: off, one draft), the platform team hierarchy (13 departments, the CEO mapped from Super Admin) and the 6-plan ladder.`,
   );
 }
 
