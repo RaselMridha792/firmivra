@@ -78,7 +78,7 @@ test('an unknown module shows the not-found page', async ({ page }) => {
 test('the module page has no horizontal scroll at 1440 and 390 px', async ({ page }) => {
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(app('/modules/business-advisory'));
+    await page.goto(app('/modules/compliance'));
     await expect(page.getByTestId('module-card')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
