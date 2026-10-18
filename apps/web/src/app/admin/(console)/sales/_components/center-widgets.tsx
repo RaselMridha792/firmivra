@@ -11,6 +11,7 @@ import {
   Lightning,
   Play,
   Target,
+  TrendUp,
   UserPlus,
   Users,
   type Icon,
@@ -51,7 +52,7 @@ export function CenterPipelineCard({ period }: { period: SalesPeriod }) {
   );
   return (
     <Panel
-      icon={ChartLineUp}
+      icon={TrendUp}
       title="Sales Pipeline"
       testId="center-pipeline"
       action={<ViewAll href="/sales/pipeline" label="pipeline" />}

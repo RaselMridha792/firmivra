@@ -236,30 +236,32 @@ export function StageAndHistory({
   const stages = data.pipeline.stages.filter((stage) => stage.active || stage.id === opp.stageId);
   const [target, setTarget] = useState('');
   const [all, setAll] = useState(false);
-  const items: TimelineItem[] = data.activity.slice(0, all ? undefined : 8).map((entry) => {
-    const marker = activityMarker(entry.kind);
-    return {
-      id: entry.id,
-      icon: marker.icon,
-      tone:
-        entry.kind === 'LOST'
-          ? 'red'
-          : entry.kind === 'WON' || entry.kind === 'APPOINTMENT_SCHEDULED'
-            ? 'green'
-            : entry.actor.kind === 'USER'
-              ? 'blue'
-              : 'navy',
-      title: (
-        <>
-          {entry.text}
-          {entry.detail ? <span className="block text-xs text-muted">{entry.detail}</span> : null}
-        </>
-      ),
-      time: dateTimeText(entry.at),
-      dateTime: entry.at,
-      actor: entry.actor.kind === 'USER' ? entry.actor.name : `${entry.actor.name} (system)`,
-    };
-  });
+  const items: TimelineItem[] = data.activity
+    .slice(0, all ? undefined : 8)
+    .map((entry): TimelineItem => {
+      const marker = activityMarker(entry.kind);
+      return {
+        id: entry.id,
+        icon: marker.icon,
+        tone:
+          entry.kind === 'LOST'
+            ? 'red'
+            : entry.kind === 'WON' || entry.kind === 'APPOINTMENT_SCHEDULED'
+              ? 'green'
+              : entry.actor.kind === 'USER'
+                ? 'blue'
+                : 'navy',
+        title: (
+          <>
+            {entry.text}
+            {entry.detail ? <span className="block text-xs text-muted">{entry.detail}</span> : null}
+          </>
+        ),
+        time: dateTimeText(entry.at),
+        dateTime: entry.at,
+        actor: entry.actor.kind === 'USER' ? entry.actor.name : `${entry.actor.name} (system)`,
+      };
+    });
   return (
     <div className="flex flex-col gap-4">
       <ol aria-label="Pipeline stages" className="flex flex-wrap gap-1.5">
