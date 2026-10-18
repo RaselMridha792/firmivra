@@ -80,6 +80,11 @@ test('Auto-Renew off needs the client request confirmation, source and notes', a
 
 test('a failed conversion keeps the firm in Trial', async ({ page }) => {
   await page.goto(admin('/subscriptions'));
+  // The trial firm without a card is row 12 (page 2): find it first.
+  await expect(page.getByTestId('open-subscription').first()).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Search subscriptions' }).fill('riverbend');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByTestId('open-subscription')).toHaveCount(1);
   await page.getByRole('button', { name: 'Actions for Example Riverbend Accounting' }).click();
   await page.getByRole('menuitem', { name: 'Convert to Paid' }).click();
   const dialog = page.getByRole('dialog', { name: 'Convert to Paid' });

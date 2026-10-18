@@ -111,23 +111,26 @@ function PanelBody({
     />
   );
   return (
-    <Tabs
-      variant="underline"
-      label="Subscription details"
-      value={tab}
-      onChange={(id) => onTab(TABS.find((candidate) => candidate === id) ?? 'overview')}
-      items={[
-        {
-          id: 'overview',
-          label: 'Overview',
-          content: <OverviewTab sub={sub} actions={actions} more={more} />,
-        },
-        { id: 'usage', label: 'Usage', content: <UsageTab sub={sub} actions={actions} /> },
-        { id: 'billing', label: 'Billing', content: <BillingTab sub={sub} actions={actions} /> },
-        { id: 'history', label: 'History', content: <HistoryTab sub={sub} actions={actions} /> },
-        { id: 'notes', label: 'Notes', content: <NotesTab sub={sub} actions={actions} /> },
-      ]}
-    />
+    // Below lg the five tabs wrap instead of widening the narrow panel.
+    <div className="min-w-0 max-lg:[&_[role=tablist]]:flex-wrap max-lg:[&_[role=tablist]]:gap-x-4">
+      <Tabs
+        variant="underline"
+        label="Subscription details"
+        value={tab}
+        onChange={(id) => onTab(TABS.find((candidate) => candidate === id) ?? 'overview')}
+        items={[
+          {
+            id: 'overview',
+            label: 'Overview',
+            content: <OverviewTab sub={sub} actions={actions} more={more} />,
+          },
+          { id: 'usage', label: 'Usage', content: <UsageTab sub={sub} actions={actions} /> },
+          { id: 'billing', label: 'Billing', content: <BillingTab sub={sub} actions={actions} /> },
+          { id: 'history', label: 'History', content: <HistoryTab sub={sub} actions={actions} /> },
+          { id: 'notes', label: 'Notes', content: <NotesTab sub={sub} actions={actions} /> },
+        ]}
+      />
+    </div>
   );
 }
 

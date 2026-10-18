@@ -227,7 +227,13 @@ export function SubscriptionsScreen() {
       </div>
 
       <div className="flex min-w-0 flex-col gap-4 2xl:flex-row 2xl:items-start">
-        <Card variant="elevated" data-testid="subscriptions-card" className="min-w-0 flex-1 p-4!">
+        {/* contain-paint: the table's screen-reader-only text is absolutely positioned and would
+            otherwise widen the page past a phone's width, out of the table's own scroll box. */}
+        <Card
+          variant="elevated"
+          data-testid="subscriptions-card"
+          className="min-w-0 flex-1 p-4! contain-paint"
+        >
           {selected.length ? (
             <div className="mb-3">
               <BulkBar
