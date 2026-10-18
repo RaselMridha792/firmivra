@@ -211,8 +211,8 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
   - Fahad's rebuilds: #764 (portal folder tabs, from #473) and #766 (Firm Sign dashboard, from #455)
   - #767: link-dev-users client mode, Rasel's card
 - **#742 (C1):** Rasel merged it at 12:23 UTC.
-- **#743 (C2):** green and mergeable at head `0f781a4a`; waiting for Rasel. It is the last of the eight schema PRs.
-  - Its first CI run failed once in R55's isolation case `cases/templates.ts:72`. That case builds the merge-field key from `tag().replace(/[0-9]/g, 'x')`, so two random tags can collide; the re-run passed. A one-line fix for R55: keep the digits.
+- **#743 (C2):** Rasel merged it. All eight schema PRs are in.
+  - Its first CI run failed once in R55's isolation case `cases/templates.ts:72`: the merge-field key `tag().replace(/[0-9]/g, 'x')` can collide. A one-line fix for R55: keep the digits.
 - **#742 brought a fix in `packages/db/src/client.ts`.** `createDatabase`'s `for*` methods now return `ScopedClient` by name. Without it, the API typecheck fails with TS2589 once C1's tables sit on top of B4 to B9.
 - **#438 (Fahad's notification bell) stays open on purpose.** Main's `FirmBell` (app-shell `firm-controls.tsx`) already shows the unread count and the latest five. Still missing: mark-read on click, mark-all-read (the API has both), and refetch on focus. That belongs in `FirmBell`, which is owned by R1/Tumit. Close #438 once a PR covers it.
 
@@ -225,6 +225,16 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 - **Local load:** under heavy load, `bootstrap-platform-org`, `demo-seed-unseed` and the `*-firm-delete` files time out. Re-run them alone before you call it a failure.
 
 **API test lesson (#724).** The API e2e helpers that read through the test owner (`firmivra`, a superuser in Docker and CI) bypass RLS. Any count there must name its firm (`where: { businessId }`), or it also sees rows that other test files write at the same time.
+
+**Scrum's order after #743 (Oct 18):**
+1. **Portal click-through on dev,** once R1 has created the demo client login after Deploy dev. Sign in as `harper.coleman@demo.test` on `portal.dev.firmivra.com/demo`, open every portal page and `/demo/begin`, and list each page that errors or shows empty data.
+   - Fix API or seed gaps yourself; change screens only if the fix is tiny. Tumit owns the Begin Online form design.
+   - **Needs Rasel's own yes first:** the Oct 18 window ran under "do not run anything on dev or AWS".
+2. **Remaining Super Admin schema stages:** D1 Sales Center targets and lead import batches, D2 Subscriptions extras, D3 R55's gaps (see the Oct 18 morning handoff below).
+   - PRs only, one per stage.
+   - Rasel gives his own yes on a card before any `packages/db/prisma` PR is merged.
+   - Tell Rasel each PR number.
+3. **Demo seed stage 5**, below.
 
 **Next: demo seed stage 5** (Scrum, Oct 18). Synthetic data, `demo` firm only, idempotent with fixed `demoId(...)` ids, one small PR per group, at most 2 open. R1 re-runs the demo seed on dev with Rasel's yes.
 - **How many tables are empty:** on main, after `seed.ts` and `seed-demo.ts` on a fresh database, 206 firm tables have no `demo` rows.
