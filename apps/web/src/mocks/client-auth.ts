@@ -133,6 +133,11 @@ function buildFixtures() {
       sidebarMotto: 'PEOPLE | PLANS | PROSPERITY',
       primaryColor: '#1F3A6B',
       accentColor: '#C9A227',
+      // The LVP mockups' theme: navy sidebar and text, grey-blue secondary text, royal-blue buttons.
+      sidebarColor: '#001F4B',
+      textPrimaryColor: '#001F4B',
+      textSecondaryColor: '#485677',
+      buttonColor: '#006FF0',
       portalName: 'LVP Accounting & Taxes Client Portal',
       header: 'Your Documents. Your Information. All in One Place.',
       welcomeMessage: 'Secure. Convenient. Designed for You.',

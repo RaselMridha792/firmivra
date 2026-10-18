@@ -74,7 +74,7 @@ interface EngineField {
   help?: string;
   text?: string;
   required?: boolean;
-  options?: { label: string }[];
+  options?: { label: string; value?: string }[];
   fields?: EngineField[];
   showIf?: { field: string; equals?: string | boolean };
 }
@@ -89,7 +89,8 @@ interface EngineStep {
   sections: EngineSection[];
 }
 
-const TYPE: Record<string, QuestionType> = {
+/** The builder's question type of each engine field type. */
+export const TYPE_OF_ENGINE: Record<string, QuestionType> = {
   text: 'SHORT_ANSWER',
   ssn: 'SHORT_ANSWER',
   ein: 'SHORT_ANSWER',
@@ -130,6 +131,14 @@ export function questionCount(definition: unknown): number {
  */
 export function sectionsOf(definition: unknown) {
   const steps = ((definition as { steps?: EngineStep[] } | null)?.steps ?? []) as EngineStep[];
+  const fields = new Map(
+    steps.flatMap((s) => s.sections.flatMap((sec) => sec.fields.map((f) => [f.key, f] as const))),
+  );
+  // A choice's condition shows the option's label, as the builder edits it (it saves it back).
+  const shown = (field: string, equals: string | boolean) =>
+    typeof equals === 'string'
+      ? (fields.get(field)?.options?.find((o) => o.value === equals)?.label ?? equals)
+      : equals;
   return steps.flatMap((step) =>
     step.sections.map((section) => ({
       key: section.key,
@@ -137,17 +146,37 @@ export function sectionsOf(definition: unknown) {
       description: section.subtitle ?? null,
       questions: section.fields.map((f) => ({
         key: f.key,
-        type: TYPE[f.type] ?? 'SHORT_ANSWER',
+        type: TYPE_OF_ENGINE[f.type] ?? 'SHORT_ANSWER',
         label: f.label,
         help: f.type === 'info' ? (f.text ?? null) : (f.help ?? null),
         required: f.required === true,
         ...(f.options ? { options: f.options.map((o) => o.label) } : {}),
         ...(f.showIf && f.showIf.equals !== undefined
-          ? { showIf: { questionKey: f.showIf.field, equals: f.showIf.equals } }
+          ? {
+              showIf: {
+                questionKey: f.showIf.field,
+                equals: shown(f.showIf.field, f.showIf.equals),
+              },
+            }
           : {}),
       })),
     })),
   );
+}
+
+/** The form's description (the definition's subtitle) and its Form Settings, as saved. */
+export function formMetaOf(definition: unknown): {
+  description: string | null;
+  settings: Record<string, unknown>;
+} {
+  const d = (definition ?? {}) as { subtitle?: unknown; formSettings?: unknown };
+  return {
+    description: typeof d.subtitle === 'string' ? d.subtitle : null,
+    settings:
+      d.formSettings && typeof d.formSettings === 'object'
+        ? (d.formSettings as Record<string, unknown>)
+        : {},
+  };
 }
 
 // ---------- Upload types ----------
