@@ -2,7 +2,7 @@
 
 import { CheckCircle } from '@phosphor-icons/react';
 import { Button, Callout, PageHeader, Skeleton } from '@firmivra/ui';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useApiQuery } from '../../../../../../lib/query';
 import {
   adminTeam,
@@ -13,6 +13,7 @@ import {
   FormLayout,
   FormSkeleton,
   MemberForm,
+  MemberFormFrame,
   SideCard,
   TeamBreadcrumb,
 } from '../../_components/member-form';
@@ -30,35 +31,40 @@ export function NewMemberScreen() {
   const [round, setRound] = useState(0);
 
   const failed = (viewer.isError && !viewer.data) || (options.isError && !options.data);
-  const quiet = (text: string) => ({
-    form: <QuietLine testId="new-member-quiet">{text}</QuietLine>,
-    aside: (
-      <SideCard title="Review">
-        <p className="text-sm text-muted">{text}</p>
-      </SideCard>
-    ),
-  });
-  const frames =
-    viewer.isPending || options.isPending
-      ? {
-          form: <FormSkeleton />,
-          aside: (
-            <SideCard title="Review">
-              <div aria-hidden className="flex flex-col gap-3">
-                <Skeleton />
-                <Skeleton className="w-2/3" />
-                <Skeleton className="w-3/4" />
-              </div>
-            </SideCard>
-          ),
+  let body: ReactNode = null;
+  if (viewer.isPending || options.isPending)
+    body = (
+      <FormLayout
+        form={<FormSkeleton />}
+        aside={
+          <SideCard title="Review">
+            <div aria-hidden className="flex flex-col gap-3">
+              <Skeleton />
+              <Skeleton className="w-2/3" />
+              <Skeleton className="w-3/4" />
+            </div>
+          </SideCard>
         }
-      : failed
-        ? quiet(UNREACHABLE)
-        : !viewer.data?.can.add
-          ? quiet(
-              "You don't have permission to add team members. Ask your department head or the CEO.",
-            )
-          : null;
+      />
+    );
+  // The API is unreachable: the form's frame stays, empty and disabled, under the quiet line.
+  else if (failed)
+    body = <MemberFormFrame mode="create" message={UNREACHABLE} testId="new-member-quiet" />;
+  else if (!viewer.data?.can.add) {
+    const text =
+      "You don't have permission to add team members. Ask your department head or the CEO.";
+    body = (
+      <FormLayout
+        form={<QuietLine testId="new-member-quiet">{text}</QuietLine>}
+        aside={
+          <SideCard title="Review">
+            <p className="text-sm text-muted">{text}</p>
+          </SideCard>
+        }
+      />
+    );
+  } else if (options.data && !added)
+    body = <MemberForm key={round} mode="create" options={options.data} onSaved={setAdded} />;
 
   return (
     <div data-testid="new-member-screen" className="flex min-w-0 flex-col gap-5">
@@ -93,11 +99,7 @@ export function NewMemberScreen() {
           </span>
         </Callout>
       ) : null}
-      {frames ? (
-        <FormLayout form={frames.form} aside={frames.aside} />
-      ) : options.data && !added ? (
-        <MemberForm key={round} mode="create" options={options.data} onSaved={setAdded} />
-      ) : null}
+      {body}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
   FormLayout,
   FormSkeleton,
   MemberForm,
+  MemberFormFrame,
   SideCard,
   TeamBreadcrumb,
 } from '../../../_components/member-form';
@@ -78,6 +79,10 @@ export function EditMemberScreen({ memberId }: { memberId: string }) {
       }
     />
   );
+  // The API is unreachable: the form's frame stays, empty and disabled, with the person's activity.
+  const frame = (text: string) => (
+    <MemberFormFrame mode="edit" message={text} testId="edit-member-quiet" aside={activityCard} />
+  );
 
   let body: ReactNode = null;
   if (member.isPending || options.isPending)
@@ -92,13 +97,14 @@ export function EditMemberScreen({ memberId }: { memberId: string }) {
       />
     );
   else if (member.isError && !member.data)
-    body = quiet(
+    body =
       errorCode(member.error) === 'NOT_FOUND'
-        ? "We couldn't find this team member. They may have been removed, or the link is wrong."
-        : UNREACHABLE,
-    );
+        ? quiet(
+            "We couldn't find this team member. They may have been removed, or the link is wrong.",
+          )
+        : frame(UNREACHABLE);
   else if (options.isError && !options.data)
-    body = quiet(errorMessage(options.error, TEAM_ERROR_MESSAGES));
+    body = frame(errorMessage(options.error, TEAM_ERROR_MESSAGES));
   else if (member.data && !member.data.allowed.edit)
     body = quiet(
       `You can't edit ${member.data.name}: only someone above them in the hierarchy can.`,

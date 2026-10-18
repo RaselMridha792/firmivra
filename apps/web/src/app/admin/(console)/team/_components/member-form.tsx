@@ -132,6 +132,48 @@ function CheckLine({
 
 const byLevel = (a: FormRole, b: FormRole) => a.level - b.level || a.title.localeCompare(b.title);
 
+/** Nothing to choose from: the frame's choices when the form's data could not load. */
+const NO_OPTIONS: MemberFormOptions = {
+  departments: [],
+  departmentLocked: false,
+  roles: [],
+  supervisors: [],
+  locations: [],
+  teams: [],
+  scopes: [],
+  viewerPermissions: {},
+  unrestricted: false,
+  canCustomize: false,
+  statuses: [],
+};
+
+/**
+ * The form's frame when its data could not load: every section with empty, disabled fields, the
+ * module grid unchecked and the submit button disabled, under the quiet line that Review repeats.
+ */
+export function MemberFormFrame({
+  mode,
+  message,
+  testId,
+  aside,
+}: {
+  mode: 'create' | 'edit';
+  message: string;
+  testId: string;
+  /** Extra side cards under Review (the edit page's activity). */
+  aside?: ReactNode;
+}) {
+  return (
+    <MemberForm
+      mode={mode}
+      options={NO_OPTIONS}
+      unavailable={{ message, testId }}
+      aside={aside}
+      onSaved={() => undefined}
+    />
+  );
+}
+
 /**
  * The one Add / Edit Team Member form (creating-team docx §4, §21, §24). Every choice comes from
  * `options`, which the API cuts to the signed-in admin's authority: a lower level sees fewer
@@ -142,6 +184,7 @@ export function MemberForm({
   options,
   member,
   aside,
+  unavailable,
   onSaved,
 }: {
   mode: 'create' | 'edit';
@@ -149,11 +192,15 @@ export function MemberForm({
   member?: AdminTeamMember;
   /** Extra side cards under Review (the edit page's activity). */
   aside?: ReactNode;
+  /** The form's data could not load: this line tops the form and fills Review; nothing is editable. */
+  unavailable?: { message: string; testId: string };
   onSaved: (saved: AdminTeamMember) => void;
 }) {
+  const disabled = Boolean(unavailable);
   const [values, setValues] = useState<SaveTeamMember>(() => {
     if (member) return memberToSave(member);
     const blank = blankMember();
+    if (disabled) return { ...blank, status: '', invite: { email: false, sms: false } };
     const only = options.departments.length === 1 ? options.departments[0]?.id : undefined;
     return only ? { ...blank, departmentId: only } : blank;
   });
@@ -168,8 +215,8 @@ export function MemberForm({
   );
 
   const self = Boolean(member?.isYou);
-  const lockRole = self || (member ? !member.allowed.changeRole : false);
-  const lockStatus = self || (member ? !member.allowed.changeStatus : false);
+  const lockRole = disabled || self || (member ? !member.allowed.changeRole : false);
+  const lockStatus = disabled || self || (member ? !member.allowed.changeStatus : false);
   const lockDepartment = lockRole || (mode === 'create' && options.departmentLocked);
   const lockPermissions = self || lockRole || !options.canCustomize;
 
@@ -182,9 +229,10 @@ export function MemberForm({
     : [];
   const teams = options.teams.filter((team) => team.departmentId === values.departmentId);
   const template: TeamPermissions = values.roleId ? roleTemplate(values.roleId) : {};
+  // The frame lists every module as it is (unchecked and disabled), not as out of reach.
   const ceiling = values.roleId
     ? grantable(values.roleId, options.viewerPermissions, options.unrestricted)
-    : options.unrestricted
+    : options.unrestricted || disabled
       ? grantable('ceo', {}, true)
       : options.viewerPermissions;
   const custom = Boolean(values.roleId) && !samePermissions(values.permissions, template);
@@ -255,6 +303,7 @@ export function MemberForm({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (disabled) return;
     const found = checkMember(values, mode);
     setErrors(found);
     if (Object.values(found).some(Boolean)) {
@@ -289,6 +338,11 @@ export function MemberForm({
       aria-label={mode === 'create' ? 'Add Team Member' : 'Edit Team Member'}
       className="flex flex-col gap-5"
     >
+      {unavailable ? (
+        <p data-testid={unavailable.testId} className="text-sm text-muted">
+          {unavailable.message}
+        </p>
+      ) : null}
       {self ? (
         <Callout icon={LockSimple} surface="info" size="compact">
           This is you. You can update your name, phone and job title; your role, access and status
@@ -307,6 +361,7 @@ export function MemberForm({
           autoComplete="off"
           maxLength={50}
           value={values.firstName}
+          disabled={disabled}
           error={errors.firstName}
           onChange={(event) => change({ firstName: event.target.value })}
         />
@@ -316,6 +371,7 @@ export function MemberForm({
           autoComplete="off"
           maxLength={50}
           value={values.lastName}
+          disabled={disabled}
           error={errors.lastName}
           onChange={(event) => change({ lastName: event.target.value })}
         />
@@ -327,7 +383,7 @@ export function MemberForm({
         autoComplete="off"
         maxLength={254}
         value={values.email}
-        disabled={mode === 'edit'}
+        disabled={disabled || mode === 'edit'}
         error={errors.email}
         onChange={(event) => change({ email: event.target.value })}
       />
@@ -344,6 +400,7 @@ export function MemberForm({
           autoComplete="off"
           maxLength={20}
           value={values.phone}
+          disabled={disabled}
           error={errors.phone}
           onChange={(event) => change({ phone: event.target.value })}
         />
@@ -352,6 +409,7 @@ export function MemberForm({
           placeholder={role ? role.title : 'Shown in the directory'}
           maxLength={80}
           value={values.jobTitle}
+          disabled={disabled}
           error={errors.jobTitle}
           onChange={(event) => change({ jobTitle: event.target.value })}
         />
@@ -433,6 +491,7 @@ export function MemberForm({
         <Select
           label="Location / Office"
           value={values.locationId}
+          disabled={disabled}
           error={errors.locationId}
           onChange={(event) => change({ locationId: event.target.value })}
           options={[
@@ -443,7 +502,7 @@ export function MemberForm({
         <Select
           label="Team"
           value={values.teamId}
-          disabled={!values.departmentId}
+          disabled={disabled || !values.departmentId}
           error={errors.teamId}
           onChange={(event) => change({ teamId: event.target.value })}
           options={[
@@ -486,11 +545,11 @@ export function MemberForm({
         onChange={(permissions) => change({ permissions })}
         template={template}
         ceiling={ceiling}
-        unrestricted={options.unrestricted}
+        unrestricted={options.unrestricted || disabled}
         readOnly={lockPermissions}
         custom={custom}
         note={
-          self
+          self || disabled
             ? undefined
             : lockPermissions
               ? "Permissions come from the role's template. Only admins who may customize permissions change them."
@@ -510,12 +569,14 @@ export function MemberForm({
             onChange={(on) => change({ invite: { ...values.invite, email: on } })}
             label="Send an invitation email to this team member"
             description="They'll receive an email with setup instructions."
+            disabled={disabled}
           />
           <CheckLine
             checked={values.invite.sms}
             onChange={(on) => change({ invite: { ...values.invite, sms: on } })}
             label="Also send a text message invitation"
             description="Sent to the phone number above."
+            disabled={disabled}
           />
           {errors.invite ? <p className="text-xs text-danger">{errors.invite}</p> : null}
         </section>
@@ -531,7 +592,7 @@ export function MemberForm({
         <ButtonLink href="/team" variant="secondary">
           Cancel
         </ButtonLink>
-        <Button type="submit" disabled={save.isPending}>
+        <Button type="submit" disabled={disabled || save.isPending}>
           {mode === 'create' ? 'Add Team Member' : 'Save Changes'}
         </Button>
       </div>
@@ -587,7 +648,13 @@ export function MemberForm({
         form={form}
         aside={
           <>
-            {review}
+            {unavailable ? (
+              <SideCard title="Review">
+                <p className="text-sm text-muted">{unavailable.message}</p>
+              </SideCard>
+            ) : (
+              review
+            )}
             {aside}
           </>
         }
