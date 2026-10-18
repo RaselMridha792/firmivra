@@ -8,9 +8,9 @@ import {
   Envelope,
   Hash,
   type Icon,
+  PencilLine,
   Phone,
   RadioButton,
-  Signature,
   SquareSplitVertical,
   TextAa,
   TextAlignLeft,
@@ -23,7 +23,11 @@ export interface QuestionLook {
   icon: Icon;
 }
 
-/** Each question type's name and icon, as Add Questions draws them. */
+/**
+ * Each question type's name and icon, as Add Questions draws them (create-new-intake-form.jpg).
+ * Not exact: Paragraph (the design's lines start with a dot), Dropdown (the design's caret sits in
+ * a square; Phosphor has it only in a circle).
+ */
 export const QUESTION_LOOKS: Record<QuestionType, QuestionLook> = {
   SHORT_ANSWER: { label: 'Short Answer', icon: TextAa },
   PARAGRAPH: { label: 'Paragraph', icon: TextAlignLeft },
@@ -37,7 +41,7 @@ export const QUESTION_LOOKS: Record<QuestionType, QuestionLook> = {
   EMAIL: { label: 'Email', icon: Envelope },
   PHONE: { label: 'Phone', icon: Phone },
   YES_NO: { label: 'Yes / No', icon: ToggleLeft },
-  SIGNATURE: { label: 'Signature', icon: Signature },
+  SIGNATURE: { label: 'Signature', icon: PencilLine },
   SECTION_BREAK: { label: 'Section Break', icon: SquareSplitVertical },
   INSTRUCTION_TEXT: { label: 'Instruction Text', icon: TextT },
 };
