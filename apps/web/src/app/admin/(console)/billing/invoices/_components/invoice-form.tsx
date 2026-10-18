@@ -735,22 +735,25 @@ function InvoiceForm({
             {fieldErrors['lines'] ? (
               <p className="text-sm text-danger">{fieldErrors['lines']}</p>
             ) : null}
-            <div className="rounded-lg border border-divider">
+            {/* One row per line once the box itself is wide enough (container query): a flexible
+                description, fixed Qty, Rate and Tax, then the amount and the delete button. The
+                header uses the same widths, so its labels line up with the inputs. */}
+            <div className="@container rounded-lg border border-divider">
               <div
                 aria-hidden
-                className="hidden grid-cols-12 gap-3 rounded-t-lg bg-table-head px-3 py-3 text-sm font-semibold text-heading md:grid"
+                className="hidden items-center gap-2 rounded-t-lg bg-table-head px-2 py-3 text-sm font-semibold text-heading @xl:flex"
               >
-                <span className="col-span-4">
+                <span className="min-w-0 flex-1">
                   Description <span className="text-danger">*</span>
                 </span>
-                <span className="col-span-2">
+                <span className="w-14 shrink-0">
                   Qty <span className="text-danger">*</span>
                 </span>
-                <span className="col-span-2">
+                <span className="w-24 shrink-0">
                   Rate <span className="text-danger">*</span>
                 </span>
-                <span className="col-span-2">Tax</span>
-                <span className="col-span-2">Amount</span>
+                <span className="w-28 shrink-0">Tax</span>
+                <span className="min-w-32 shrink-0">Amount</span>
               </div>
               <ul className="flex flex-col divide-y divide-divider">
                 {draft.lines.map((line, index) => {
@@ -763,9 +766,9 @@ function InvoiceForm({
                     <li
                       key={line.key}
                       data-testid="invoice-line"
-                      className="flex flex-col gap-1 p-3"
+                      className="flex flex-col gap-1 p-3 @xl:px-2"
                     >
-                      <div className="grid grid-cols-2 items-center gap-3 md:grid-cols-12">
+                      <div className="grid grid-cols-2 items-center gap-3 @xl:flex @xl:gap-2">
                         <input
                           aria-label={`Description, line ${n}`}
                           value={line.description}
@@ -775,7 +778,7 @@ function InvoiceForm({
                           onChange={(event) =>
                             setLine(line.key, { description: event.target.value })
                           }
-                          className={`${inputClass(Boolean(errors.description))} col-span-2 md:col-span-4`}
+                          className={`${inputClass(Boolean(errors.description))} col-span-2 @xl:flex-1`}
                         />
                         <input
                           aria-label={`Quantity, line ${n}`}
@@ -784,7 +787,7 @@ function InvoiceForm({
                           placeholder="1"
                           aria-invalid={Boolean(errors.quantity) || undefined}
                           onChange={(event) => setLine(line.key, { quantity: event.target.value })}
-                          className={`${inputClass(Boolean(errors.quantity))} md:col-span-2`}
+                          className={`${inputClass(Boolean(errors.quantity))} @xl:w-14 @xl:flex-none`}
                         />
                         <input
                           aria-label={`Rate, line ${n}`}
@@ -793,12 +796,13 @@ function InvoiceForm({
                           placeholder="0.00"
                           aria-invalid={Boolean(errors.rate) || undefined}
                           onChange={(event) => setLine(line.key, { rate: event.target.value })}
-                          className={`${inputClass(Boolean(errors.rate))} md:col-span-2`}
+                          className={`${inputClass(Boolean(errors.rate))} @xl:w-24 @xl:flex-none`}
                         />
-                        <div className="md:col-span-2">
+                        <div className="min-w-0 @xl:w-28 @xl:flex-none">
                           <SelectControl
                             aria-label={`Tax, line ${n}`}
                             value={line.taxRateId}
+                            className="truncate"
                             options={[
                               { value: '', label: 'None' },
                               ...rates.map((rate) => ({
@@ -811,8 +815,11 @@ function InvoiceForm({
                             }
                           />
                         </div>
-                        <div className="flex items-center justify-between gap-2 md:col-span-2">
-                          <span data-testid="line-amount" className="text-base text-text">
+                        <div className="flex items-center justify-between gap-2 @xl:min-w-32 @xl:flex-none">
+                          <span
+                            data-testid="line-amount"
+                            className="text-base whitespace-nowrap text-text"
+                          >
                             {formatMoney(totals.lines[index]?.amountCents ?? 0, draft.currency)}
                           </span>
                           <button
@@ -826,7 +833,7 @@ function InvoiceForm({
                                 lines: now.lines.filter((row) => row.key !== line.key),
                               }))
                             }
-                            className="inline-flex size-10 items-center justify-center rounded-lg text-heading hover:bg-canvas disabled:cursor-not-allowed disabled:text-disabled-text"
+                            className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-heading hover:bg-canvas disabled:cursor-not-allowed disabled:text-disabled-text"
                           >
                             <Trash aria-hidden weight="fill" className="size-5" />
                           </button>
