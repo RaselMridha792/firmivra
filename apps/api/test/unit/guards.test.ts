@@ -9,7 +9,7 @@ import { Reflector } from '@nestjs/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { Database } from '@firmivra/db';
 import { AuthGuard } from '../../src/auth/auth.guard.js';
-import { Public, Roles } from '../../src/auth/decorators.js';
+import { Access, Public, Roles } from '../../src/auth/decorators.js';
 import { RolesGuard } from '../../src/auth/roles.guard.js';
 import { TenantGuard } from '../../src/auth/tenant.guard.js';
 import { TokenService } from '../../src/auth/token.service.js';
@@ -320,5 +320,69 @@ describe('config', () => {
   it('defaults to Cognito and then requires the pool settings', () => {
     const { AUTH_MODE: _ignored, ...rest } = env;
     expect(() => loadEnv(rest as never)).toThrow(/COGNITO_STAFF_USER_POOL_ID/);
+  });
+});
+
+// Staff Management's per-member changes (member_permissions, R55): the guard asks for the
+// member's own cell of the route; none means the role decides exactly as before.
+class GridProbe {
+  @Access('TAX_RETURNS') @Roles('OWNER', 'ADMIN', 'STAFF') view() {}
+  @Roles('OWNER', 'ADMIN', 'STAFF') noModule() {}
+}
+const gridCtx = (method: keyof GridProbe, req: Req): ExecutionContext =>
+  ({
+    getHandler: () => GridProbe.prototype[method],
+    getClass: () => GridProbe,
+    switchToHttp: () => ({ getRequest: () => ({ method: 'GET', ...req }) }),
+  }) as unknown as ExecutionContext;
+
+describe('RolesGuard and a member’s own permissions', () => {
+  const guardWith = (own: boolean | undefined, roleCanIt = true) => {
+    const grants = {
+      memberCell: vi.fn().mockResolvedValue(own),
+      can: vi.fn().mockResolvedValue(roleCanIt),
+    };
+    return { guard: new RolesGuard(reflector, fakeDb({}), grants as never), grants };
+  };
+  const as = (role: string) => ({
+    auth: { userId: 'u1' },
+    tenant: { kind: 'staff', role, businessId: FIRM },
+  });
+
+  it('keeps a member without own changes as before', async () => {
+    const { guard, grants } = guardWith(undefined);
+    await expect(guard.canActivate(gridCtx('view', as('STAFF')))).resolves.toBe(true);
+    await expect(guard.canActivate(gridCtx('view', as('MANAGER')))).resolves.toBe(true);
+    expect(grants.memberCell).toHaveBeenCalledWith(FIRM, 'u1', 'TAX_RETURNS', 'VIEW');
+  });
+
+  it("refuses a Staff or Admin member whose own change takes the route's cell away", async () => {
+    const { guard } = guardWith(false);
+    await expect(guard.canActivate(gridCtx('view', as('STAFF')))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    await expect(guard.canActivate(gridCtx('view', as('ADMIN')))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it("lets a grid role in by its own grant when the role's grid says no", async () => {
+    const { guard } = guardWith(true, false);
+    await expect(guard.canActivate(gridCtx('view', as('BOOKKEEPER')))).resolves.toBe(true);
+  });
+
+  it("refuses a grid role whose own change takes away what the role's grid gives", async () => {
+    const { guard, grants } = guardWith(false, true);
+    await expect(guard.canActivate(gridCtx('view', as('MANAGER')))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(grants.can).not.toHaveBeenCalled();
+  });
+
+  it('never asks for an Owner, a client, or a route that names no module', async () => {
+    const { guard, grants } = guardWith(false);
+    await expect(guard.canActivate(gridCtx('view', as('OWNER')))).resolves.toBe(true);
+    await expect(guard.canActivate(gridCtx('noModule', as('STAFF')))).resolves.toBe(true);
+    expect(grants.memberCell).not.toHaveBeenCalled();
   });
 });

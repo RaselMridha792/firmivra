@@ -41,7 +41,11 @@ export class RolesGuard implements CanActivate {
 
     const req = ctx.switchToHttp().getRequest<Request>();
     if (roles.includes('AUTHENTICATED') && req.auth) return true;
-    if (req.tenant && roles.includes(req.tenant.role)) return true;
+    if (req.tenant && roles.includes(req.tenant.role)) {
+      // The member's own change to this route's cell (Staff Management) can only take away here.
+      if ((await this.memberCell(ctx, req)) === false) throw forbidden();
+      return true;
+    }
     if (
       req.tenant?.kind === 'staff' &&
       isGridFirmRole(req.tenant.role) &&
@@ -52,10 +56,19 @@ export class RolesGuard implements CanActivate {
       const access = accessFor(this.reflector, ctx);
       const capability = access?.capability ?? capabilityOfMethod(req.method);
       if (access && capability) {
-        // The firm's own changes to the role's grid, over the default (Settings > Users & Roles).
-        const allowed = this.grants
-          ? await this.grants.can(req.tenant.businessId, req.tenant.role, access.module, capability)
-          : roleCan(req.tenant.role, access.module, capability);
+        // The member's own change first, then the firm's changes to the role's grid, over the
+        // default (Settings > Users & Roles).
+        const own = await this.memberCell(ctx, req);
+        const allowed =
+          own ??
+          (this.grants
+            ? await this.grants.can(
+                req.tenant.businessId,
+                req.tenant.role,
+                access.module,
+                capability,
+              )
+            : roleCan(req.tenant.role, access.module, capability));
         if (allowed) return true;
       }
     }
@@ -73,5 +86,24 @@ export class RolesGuard implements CanActivate {
       }
     }
     throw forbidden();
+  }
+
+  /**
+   * A staff member's own grant or refusal of the route's cell (`member_permissions`, set in
+   * Staff Management), or undefined: none, an Owner (never changed), a client, or a route that
+   * names no module. A member without rows is decided exactly as before.
+   */
+  private async memberCell(ctx: ExecutionContext, req: Request): Promise<boolean | undefined> {
+    if (!this.grants || req.tenant?.kind !== 'staff' || req.tenant.role === 'OWNER' || !req.auth)
+      return undefined;
+    const access = accessFor(this.reflector, ctx);
+    const capability = access?.capability ?? capabilityOfMethod(req.method);
+    if (!access || !capability) return undefined;
+    return this.grants.memberCell(
+      req.tenant.businessId,
+      req.auth.userId,
+      access.module,
+      capability,
+    );
   }
 }

@@ -50,6 +50,40 @@ export class PermissionGrantsService {
     return changed;
   }
 
+  /** Forgets the members' own changes of one firm (after Staff Management saved one). */
+  invalidateMember(businessId: string): void {
+    for (const key of [...this.cache.keys()])
+      if (key.startsWith(`${businessId}:user:`)) this.cache.delete(key);
+  }
+
+  /**
+   * The member's own change to one cell (`member_permissions`, Staff Management), or undefined
+   * when they have none and their role's grid decides.
+   */
+  async memberCell(
+    businessId: string,
+    userId: string,
+    module: PermissionModule,
+    capability: PermissionCapability,
+  ): Promise<boolean | undefined> {
+    const key = `${businessId}:user:${userId}`;
+    let entry = this.cache.get(key);
+    if (!entry || Date.now() - entry.at >= TTL_MS) {
+      const rows = await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+        tx.memberPermission.findMany({
+          where: { businessId, member: { userId } },
+          select: { module: true, capability: true, granted: true },
+        }),
+      );
+      entry = {
+        at: Date.now(),
+        changed: new Map(rows.map((r) => [`${r.module}:${r.capability}`, r.granted])),
+      };
+      this.cache.set(key, entry);
+    }
+    return entry.changed.get(`${module}:${capability}`);
+  }
+
   async can(
     businessId: string,
     role: MembershipRole,
