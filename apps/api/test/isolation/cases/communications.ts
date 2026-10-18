@@ -11,6 +11,39 @@ const ETAG = STAMP.toISOString();
 const PLACEHOLDER = randomUUID();
 
 export const records: CaseModule['records'] = {
+  /** An email draft holding one file. */
+  communicationWithFile: {
+    async create({ tx, businessId, owner }) {
+      const row = await tx.communication.create({
+        data: {
+          businessId,
+          channel: 'EMAIL',
+          name: `Fake campaign with file ${tag()}`,
+          createdByUserId: owner.id,
+          attachments: [
+            {
+              id: randomUUID(),
+              fileName: 'fake.pdf',
+              contentType: 'application/pdf',
+              sizeBytes: 100,
+              s3Key: `tenant/${businessId}/communications/${randomUUID()}`,
+            },
+          ],
+        },
+      });
+      return row.id;
+    },
+  },
+  /** The file's id. */
+  communicationFile: {
+    async create({ tx, businessId, get }) {
+      const row = await tx.communication.findFirstOrThrow({
+        where: { businessId, id: await get('communicationWithFile') },
+        select: { attachments: true },
+      });
+      return (row.attachments as { id: string }[])[0]!.id;
+    },
+  },
   /** An active email template, for a draft to take a snapshot of. */
   communicationTemplate: {
     async create({ tx, businessId, owner }) {
@@ -36,6 +69,8 @@ export const records: CaseModule['records'] = {
           businessId,
           channel: 'EMAIL',
           name: `Fake campaign ${tag()}`,
+          subject: 'Fake subject',
+          body: '<p>Fake body</p>',
           createdByUserId: owner.id,
           updatedAt: STAMP,
         },
@@ -154,6 +189,25 @@ export const cases: CaseModule['cases'] = {
     expect: 409,
   },
   [`POST ${BASE}/:id/expire`]: { params: { id: 'communication' }, expect: 409 },
+  // No email provider is connected in the world: a test cannot be sent (409 for P's own people).
+  [`POST ${BASE}/:id/test-send`]: { params: { id: 'communication' }, body: {}, expect: 409 },
+  [`POST ${BASE}/:id/save-as-template`]: {
+    params: { id: 'communication' },
+    bodyIds: { categoryId: 'templateCategory' },
+    body: () => ({ name: `Fake saved template ${tag()}`, categoryId: PLACEHOLDER }),
+  },
+  [`POST ${BASE}/:id/attachments/uploads`]: {
+    params: { id: 'communication' },
+    body: {
+      fileName: 'fake.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 100,
+      sha256: 'a'.repeat(64),
+    },
+  },
+  [`DELETE ${BASE}/:id/attachments/:attachmentId`]: {
+    params: { id: 'communicationWithFile', attachmentId: 'communicationFile' },
+  },
   [`GET ${BASE}/segments/:id`]: { params: { id: 'communicationSegment' } },
   [`PATCH ${BASE}/segments/:id`]: {
     params: { id: 'communicationSegment' },

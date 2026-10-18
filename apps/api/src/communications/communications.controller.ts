@@ -1,10 +1,26 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import {
   type AnnouncementLocationList,
   type AudienceCandidatePage,
   type AudienceSummary,
   CommunicationId,
+  type CommunicationAttachment,
+  CommunicationAttachmentId,
   type CommunicationDetail,
+  type MessageTemplateDetail,
+  type OkResponse,
+  type UploadTicket,
   type CommunicationActivityPage,
   type CommunicationExport,
   type CommunicationPage,
@@ -28,6 +44,10 @@ import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/d
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import {
+  ConfirmUploadBody,
+  SaveAsTemplateBody,
+  StartAttachmentBody,
+  TestSendBody,
   ActivityQ,
   AudienceCandidatesQ,
   ExportBody,
@@ -54,6 +74,7 @@ import {
   UpdateSegmentBody,
 } from './communications-input.js';
 import { CommunicationSegmentsService } from './communications-segments.service.js';
+import { CommunicationExtrasService } from './communications-extras.service.js';
 import { CommunicationResultsService } from './communications-results.service.js';
 import { CommunicationsService } from './communications.service.js';
 
@@ -80,6 +101,7 @@ export class CommunicationsController {
     private readonly segments: CommunicationSegmentsService,
     private readonly campaigns: CommunicationsService,
     private readonly results: CommunicationResultsService,
+    private readonly extras: CommunicationExtrasService,
   ) {}
 
   // ----- Overview, lists, readiness -----
@@ -105,6 +127,17 @@ export class CommunicationsController {
   @Get('announcement-locations')
   announcementLocations(): AnnouncementLocationList {
     return this.campaigns.announcementLocations();
+  }
+
+  @Post('attachments/uploads/confirm')
+  @HttpCode(200)
+  confirmAttachment(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(ConfirmUploadBody)) body: Out<typeof ConfirmUploadBody>,
+  ): Promise<CommunicationAttachment> {
+    const w = who(auth, tenant);
+    return this.extras.confirm(w.tenant, w.userId, body);
   }
 
   @Get()
@@ -539,5 +572,51 @@ export class CommunicationsController {
   ): Promise<CommunicationDetail> {
     const w = who(auth, tenant);
     return this.results.expire(w.tenant, w.userId, id);
+  }
+
+  @Post(':id/test-send')
+  @HttpCode(200)
+  testSend(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(TestSendBody)) body: Out<typeof TestSendBody>,
+  ): Promise<OkResponse> {
+    const w = who(auth, tenant);
+    return this.extras.testSend(w.tenant, w.userId, id, body);
+  }
+
+  @Post(':id/save-as-template')
+  saveAsTemplate(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(SaveAsTemplateBody)) body: Out<typeof SaveAsTemplateBody>,
+  ): Promise<MessageTemplateDetail> {
+    const w = who(auth, tenant);
+    return this.extras.saveAsTemplate(w.tenant, w.userId, id, body);
+  }
+
+  @Post(':id/attachments/uploads')
+  @HttpCode(200)
+  startAttachment(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(StartAttachmentBody)) body: Out<typeof StartAttachmentBody>,
+  ): Promise<UploadTicket> {
+    const w = who(auth, tenant);
+    return this.extras.ticket(w.tenant, w.userId, id, body);
+  }
+
+  @Delete(':id/attachments/:attachmentId')
+  removeAttachment(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('attachmentId', new ZodValidationPipe(CommunicationAttachmentId)) attachmentId: string,
+  ): Promise<OkResponse> {
+    const w = who(auth, tenant);
+    return this.extras.remove(w.tenant, w.userId, id, attachmentId);
   }
 }

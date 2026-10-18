@@ -1,5 +1,9 @@
+import { ConfirmUploadRequest } from '@firmivra/types';
 import {
   AudienceCandidatesQuery,
+  SaveAsTemplateRequest,
+  StartCommunicationAttachmentRequest,
+  TestSendCommunicationRequest,
   CommunicationActivityQuery,
   CommunicationRecipientsQuery,
   ExportCommunicationRequest,
@@ -70,3 +74,7 @@ export const ExportBody = clean(ExportCommunicationRequest);
 export const FollowUpBody = clean(FollowUpRequest);
 export const PreviewBody = clean(PreviewCommunicationRequest);
 export const UseTemplateBody = clean(UseTemplateRequest);
+export const TestSendBody = clean(TestSendCommunicationRequest);
+export const SaveAsTemplateBody = clean(SaveAsTemplateRequest);
+export const StartAttachmentBody = clean(StartCommunicationAttachmentRequest);
+export const ConfirmUploadBody = clean(ConfirmUploadRequest);

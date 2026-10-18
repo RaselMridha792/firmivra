@@ -2,7 +2,7 @@
 // lists and consent step: the criteria catalog, dynamic segments counted each time, saved lists,
 // masked members, archiving, and consent. Staff reach only the clients assigned to them; a reader
 // cannot change anything; firm B sees none of firm A's. No audit row holds an address or a name.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -11,6 +11,9 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
+  CommunicationAttachment,
+  MessageTemplateDetail,
+  UploadTicket,
   CommunicationActivityPage,
   CommunicationExport,
   CommunicationRecipientPage,
@@ -45,6 +48,38 @@ import {
   type DeliveryMessage,
 } from '../../src/communications/communications-provider.js';
 import { REPORT_FILES, type ReportFiles } from '../../src/reports/report-files.js';
+import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+
+const sha256 = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
+class MemoryStorage implements DocumentStorage {
+  readonly objects = new Map<string, Buffer>();
+  presignUpload(file: { key: string; contentType: string }) {
+    return Promise.resolve({
+      url: `memory:${file.key}`,
+      headers: { 'content-type': file.contentType },
+    });
+  }
+  head(key: string) {
+    const b = this.objects.get(key);
+    return Promise.resolve(
+      b ? { sizeBytes: b.length, sha256: sha256(b), contentEncoding: null } : null,
+    );
+  }
+  read(key: string) {
+    return Promise.resolve(this.objects.get(key) ?? null);
+  }
+  remove(key: string) {
+    this.objects.delete(key);
+    return Promise.resolve();
+  }
+  presignDownload(file: { key: string }) {
+    return Promise.resolve(`memory:${file.key}?download`);
+  }
+  put(ticket: UploadTicket, bytes: Buffer) {
+    this.objects.set(ticket.url.slice('memory:'.length), bytes);
+  }
+}
+const storage = new MemoryStorage();
 
 /** A Gmail stand-in that records what it was given and can refuse an address. */
 class FakeGmail implements CommunicationProvider {
@@ -235,6 +270,8 @@ beforeAll(async () => {
     .useValue([gmail])
     .overrideProvider(REPORT_FILES)
     .useValue(files)
+    .overrideProvider(DOCUMENT_STORAGE)
+    .useValue(storage)
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -1475,5 +1512,152 @@ describe('a provider with no adapter', () => {
       verified: false,
       providerHealthy: true,
     });
+  });
+});
+
+// ---------- Test send, save as template, files ----------
+
+describe('test send, templates and files', () => {
+  const pdf = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF');
+  const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
+  const start = (id: string, bytes: Buffer, over: object = {}, who: Who = ownerA) =>
+    call('post', `/${id}/attachments/uploads`, who, {
+      fileName: 'guide.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: bytes.length,
+      sha256: sha(bytes),
+      ...over,
+    });
+
+  it('sends a test only to the caller, marked as a test, and records nothing', async () => {
+    const d = await draft({ name: mark('Test') });
+    await edit(d.id, {
+      subject: 'About [Client First Name]',
+      body: '<p>Dear [Client Full Name]</p>',
+    });
+    gmail.sent.length = 0;
+    ok(await call('post', `/${d.id}/test-send`, ownerA, {}));
+    expect(gmail.sent).toHaveLength(1);
+    expect(gmail.sent[0]).toMatchObject({ to: ownerA.email, subject: '[Test] About Fake' });
+    expect(gmail.sent[0]?.body).toContain('Dear Fake R55c ownerA');
+    expect(gmail.sent[0]?.reference).toMatch(/^test-/);
+    // Not a recipient, not in the results, not in the activity.
+    expect(await recipientsOf(d.id)).toHaveLength(0);
+    expectError(
+      await call('post', `/${d.id}/test-send`, ownerA, { toEmail: 'someone@else.test' }),
+      400,
+      'TEST_SEND_REFUSED',
+    );
+    ok(await call('post', `/${d.id}/test-send`, ownerA, { toEmail: ownerA.email.toUpperCase() }));
+    expect(gmail.sent).toHaveLength(2);
+    const rows = await auditRows(d.id);
+    expect(rows.map((r) => r.action)).toContain('communication.test_sent');
+    expect(JSON.stringify(rows)).not.toContain(ownerA.email);
+    // A provider refusal is a gateway error, not a crash.
+    gmail.fail.set(ownerA.email, new DeliveryError('mailbox_full', false));
+    expectError(await call('post', `/${d.id}/test-send`, ownerA, {}), 502, 'PROVIDER_ERROR');
+    gmail.fail.clear();
+    const ann = await draft({ channel: 'ANNOUNCEMENT' });
+    expect((await call('post', `/${ann.id}/test-send`, ownerA, {})).status).toBe(400);
+    expectError(await call('post', `/${d.id}/test-send`, staffA, {}), 404, 'NOT_FOUND');
+  });
+
+  it('turns a draft into a NEW template and leaves the rest alone', async () => {
+    const d = await draft();
+    await edit(d.id, { subject: 'Reusable', body: '<p>Reusable body</p>', previewText: 'pre' });
+    const t = MessageTemplateDetail.parse(
+      ok(
+        await call('post', `/${d.id}/save-as-template`, ownerA, { name: mark('From draft') }),
+        201,
+      ),
+    );
+    expect(t).toMatchObject({ kind: 'EMAIL', status: 'DRAFT', subject: 'Reusable', version: 1 });
+    expect(t.body).toBe('<p>Reusable body</p>');
+    expect((await getDetail(d.id)).template).toBeNull();
+    expect((await call('post', `/${d.id}/save-as-template`, ownerA, { name: '' })).status).toBe(
+      400,
+    );
+    expect(
+      (
+        await call('post', `/${d.id}/save-as-template`, ownerA, {
+          name: 'x',
+          categoryId: randomUUID(),
+        })
+      ).status,
+    ).toBeGreaterThanOrEqual(400);
+    const rows = await auditRows(d.id);
+    expect(rows.map((r) => r.action)).toContain('communication.saved_as_template');
+  });
+
+  it('uploads a file in three steps, keeps the etag valid, and removes it', async () => {
+    const d = await draft();
+    const ticket = UploadTicket.parse(ok(await start(d.id, pdf)));
+    storage.put(ticket, pdf);
+    const before = (await getDetail(d.id)).etag;
+    const att = CommunicationAttachment.parse(
+      ok(
+        await call('post', '/attachments/uploads/confirm', ownerA, {
+          uploadToken: ticket.uploadToken,
+        }),
+      ),
+    );
+    expect(att).toMatchObject({ fileName: 'guide.pdf', sizeBytes: pdf.length });
+    const after = await getDetail(d.id);
+    expect(after.attachments.map((a) => a.id)).toEqual([att.id]);
+    // The autosave that follows an upload still works.
+    expect(after.etag).toBe(before);
+    ok(await call('patch', `/${d.id}`, ownerA, { etag: before, name: mark('With file') }));
+    // The same ticket cannot be confirmed twice.
+    expectError(
+      await call('post', '/attachments/uploads/confirm', ownerA, {
+        uploadToken: ticket.uploadToken,
+      }),
+      410,
+      'UPLOAD_EXPIRED',
+    );
+    ok(await call('delete', `/${d.id}/attachments/${att.id}`, ownerA));
+    expect((await getDetail(d.id)).attachments).toHaveLength(0);
+    expectError(await call('delete', `/${d.id}/attachments/${att.id}`, ownerA), 404, 'NOT_FOUND');
+    const rows = await auditRows(d.id);
+    expect(rows.map((r) => r.action)).toEqual(
+      expect.arrayContaining([
+        'communication_attachment.added',
+        'communication_attachment.removed',
+      ]),
+    );
+    expect(JSON.stringify(rows)).not.toContain('guide.pdf');
+  });
+
+  it('checks the stored bytes and the channel', async () => {
+    const d = await draft();
+    const wrong = UploadTicket.parse(ok(await start(d.id, pdf)));
+    storage.put(wrong, Buffer.from('not the same bytes at all!!!!!!!!!'));
+    expectError(
+      await call('post', '/attachments/uploads/confirm', ownerA, {
+        uploadToken: wrong.uploadToken,
+      }),
+      409,
+      'UPLOAD_MISMATCH',
+    );
+    const notPdf = Buffer.from('hello, I am plain text');
+    const fake = UploadTicket.parse(ok(await start(d.id, notPdf)));
+    storage.put(fake, notPdf);
+    expect(
+      (
+        await call('post', '/attachments/uploads/confirm', ownerA, {
+          uploadToken: fake.uploadToken,
+        })
+      ).status,
+    ).toBe(409);
+    expect((await start(d.id, pdf, { fileName: 'guide.png' })).status).toBe(400);
+    // Another person's token is not valid for you; a staff member cannot touch the owner's draft.
+    const mine = UploadTicket.parse(ok(await start(d.id, pdf)));
+    storage.put(mine, pdf);
+    expectError(
+      await call('post', '/attachments/uploads/confirm', staffA, { uploadToken: mine.uploadToken }),
+      410,
+      'UPLOAD_EXPIRED',
+    );
+    expectError(await start(d.id, pdf, {}, staffA), 404, 'NOT_FOUND');
   });
 });

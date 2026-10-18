@@ -1,5 +1,19 @@
 import { Module } from '@nestjs/common';
+import { poolSecrets } from '../auth/sealed.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { ReportsModule } from '../reports/reports.module.js';
+import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
+import {
+  createS3Client,
+  DOCUMENT_STORAGE,
+  S3DocumentStorage,
+} from '../storage/document-storage.js';
+import { TemplatesModule } from '../templates/templates.module.js';
+import {
+  CommunicationExtrasService,
+  CommunicationUploadTokens,
+} from './communications-extras.service.js';
 import {
   COMMUNICATION_PROVIDERS,
   CommunicationProviders,
@@ -19,14 +33,28 @@ import { CommunicationsService } from './communications.service.js';
  * file store (tenant/<business>/reports/).
  */
 @Module({
-  imports: [ReportsModule],
+  imports: [ReportsModule, TemplatesModule],
   controllers: [CommunicationsController],
   providers: [
     CommunicationSegmentsService,
     CommunicationAudienceService,
     CommunicationsService,
     CommunicationResultsService,
+    CommunicationExtrasService,
     CommunicationDelivery,
+    // The documents bucket and settings, as DocumentsModule builds them (that module exports none).
+    { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
+    {
+      provide: DOCUMENT_STORAGE,
+      inject: [DOCUMENTS_CONFIG],
+      useFactory: (config: DocumentsConfig) =>
+        new S3DocumentStorage(createS3Client(config), config.bucket),
+    },
+    {
+      provide: CommunicationUploadTokens,
+      inject: [ENV],
+      useFactory: (env: Env) => new CommunicationUploadTokens(poolSecrets(env)),
+    },
     CommunicationProviders,
     {
       // No adapter ships yet for Gmail, Outlook or Textmagic: until one is registered here, those
