@@ -40,12 +40,14 @@ export function FirmSignDashboard() {
 
 function Dashboard({ role }: { role: EsignAccessRole | null }) {
   return (
-    <div className="flex flex-col gap-6" data-testid="firm-sign-dashboard">
+    <div className="flex min-w-0 flex-col gap-3" data-testid="firm-sign-dashboard">
       <Hero />
       <StartTiles role={role} />
       <Counters />
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 2xl:grid-cols-[minmax(0,1fr)_18rem]">
-        <RecentDocuments />
+      <div className="grid min-w-0 grid-cols-1 gap-3 xl:grid-cols-4">
+        <div className="min-w-0 xl:col-span-3">
+          <RecentDocuments />
+        </div>
         <QuickActions role={role} />
       </div>
       <HowItWorks />
@@ -55,14 +57,19 @@ function Dashboard({ role }: { role: EsignAccessRole | null }) {
 
 function Hero() {
   return (
-    <section className="flex flex-wrap items-center justify-between gap-6 rounded-card border border-border bg-surface p-6 shadow-card sm:p-8">
-      <div className="flex max-w-2xl flex-col gap-3">
-        <h1 data-testid="page-title" className="font-display text-4xl text-heading">
+    <section className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-border bg-gradient-to-r from-surface via-subtle to-brand-50 px-6 py-4 shadow-card">
+      <div className="flex max-w-lg flex-col gap-2">
+        <h1
+          data-testid="page-title"
+          className="font-display text-3xl font-bold text-heading sm:text-4xl"
+        >
           Firm Sign
         </h1>
-        <span aria-hidden="true" className="h-1 w-24 rounded-pill bg-firm-accent" />
-        <p className="font-display text-2xl text-heading">Send. Sign. Secure. All in One Place.</p>
-        <p className="text-muted">
+        <span aria-hidden="true" className="h-0.5 w-24 rounded-pill bg-warning" />
+        <p className="font-display text-xl font-semibold text-heading">
+          Send. Sign. Secure. All in One Place.
+        </p>
+        <p className="max-w-sm text-sm text-muted">
           Create, send, and track documents for e-signature with a simple, secure, and professional
           experience.
         </p>
@@ -143,7 +150,7 @@ function StartTiles({ role }: { role: EsignAccessRole | null }) {
     <div
       role="group"
       aria-label="Start a request"
-      className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5"
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5"
     >
       {TILES.map(({ title, text, icon: Icon, href, primary, soon }) => {
         const body = (
@@ -151,21 +158,20 @@ function StartTiles({ role }: { role: EsignAccessRole | null }) {
             <span
               className={`rounded-pill p-2 ${primary ? 'bg-white text-platform-navy' : 'bg-surface text-brand-700'}`}
             >
-              <Icon aria-hidden className="size-6" />
+              <Icon aria-hidden className="size-5" />
             </span>
-            <span className="font-semibold">{title}</span>
-            <span className={`text-sm ${primary ? 'text-white' : 'text-muted'}`}>{text}</span>
-            {soon && <span className="text-xs font-semibold text-muted">Soon</span>}
+            <span className="text-sm font-semibold">{title}</span>
+            <span className={`text-xs ${primary ? 'text-white' : 'text-muted'}`}>{text}</span>
           </>
         );
-        const look = `flex flex-col items-center gap-2 rounded-card border p-5 text-center shadow-card ${
+        const look = `flex min-w-0 flex-col items-center gap-1 rounded-card border px-3 py-3 text-center shadow-card ${
           primary
-            ? 'border-platform-navy bg-platform-navy text-white'
+            ? 'border-platform-navy bg-gradient-to-b from-platform-navy-raised to-platform-navy text-white'
             : 'border-border bg-brand-50 text-heading'
         }`;
         if (soon) {
           return (
-            <div key={title} className={look}>
+            <div key={title} className={look} aria-disabled="true">
               {body}
             </div>
           );
@@ -216,7 +222,7 @@ function Counters() {
     <PageState query={summary} isEmpty={() => false}>
       {(s) => (
         <nav aria-label="Requests by status">
-          <ul className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-5 xl:grid-cols-9">
+          <ul className="grid grid-cols-3 gap-2 sm:grid-cols-5 xl:grid-cols-9">
             {ESIGN_COUNTERS.map((key) => {
               const Icon = COUNTER_ICON[key];
               const label = ESIGN_STATUS_LABELS[key];
@@ -226,7 +232,7 @@ function Counters() {
                     href={`/firm-sign/requests?status=${key}`}
                     data-testid={`counter-${key}`}
                     aria-label={`${s.counts[key]} ${label}`}
-                    className={`flex h-full flex-col items-center gap-1 rounded-card border p-3 text-center focus-visible:outline-2 focus-visible:outline-focus ${
+                    className={`flex h-full min-w-0 flex-col items-center gap-1 rounded-card border px-2 py-3 text-center focus-visible:outline-2 focus-visible:outline-focus ${
                       // The mockup's Voided tile is grey.
                       key === 'VOIDED'
                         ? 'border-border bg-disabled text-muted'
@@ -235,10 +241,10 @@ function Counters() {
                   >
                     <Icon
                       aria-hidden
-                      className={`size-6 ${STATUS_TONE[key] === 'accent' ? 'text-accent' : ''}`}
+                      className={`size-5 ${STATUS_TONE[key] === 'accent' ? 'text-accent' : ''}`}
                     />
-                    <span className="text-lg font-semibold">{s.counts[key]}</span>
-                    <span className="text-sm">{label}</span>
+                    <span className="text-sm font-semibold">{s.counts[key]}</span>
+                    <span className="text-xs">{label}</span>
                   </Link>
                 </li>
               );

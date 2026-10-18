@@ -261,7 +261,7 @@ function JoinedPart({
           <Icon aria-hidden="true" className="size-5 shrink-0 fill-accent-soft text-accent" />
         )}
         <span className="font-display text-base font-bold text-heading">{main}</span>
-        {bracket && <span className="text-xs text-firm-primary">{bracket}</span>}
+        {bracket && <span className="text-sm text-firm-primary">{bracket}</span>}
       </h3>
       {children}
     </div>
@@ -317,7 +317,7 @@ export function StepSections({ step, shown, look = NO_LOOK, ...props }: StepProp
   }
   const drawn = new Set<number>();
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
+    <div data-intake-panels className="grid gap-3 lg:grid-cols-2">
       {panels.map((p, i) => {
         const stack = stackOf.get(p.key);
         if (stack === undefined) return renderPanel(p, span[i] === true);

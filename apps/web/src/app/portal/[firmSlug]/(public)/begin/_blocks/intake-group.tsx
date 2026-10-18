@@ -50,7 +50,7 @@ export function GroupInput({
         {field.help ? (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <p className="font-display text-lg font-bold text-heading">{fill(field.label)}</p>
-            <p className="flex min-w-48 flex-1 items-start gap-2 rounded-control bg-folder-surface px-2 py-1 text-xs">
+            <p className="flex min-w-48 flex-1 items-start gap-2 rounded-control bg-folder-surface px-2 py-1 text-sm">
               <Info aria-hidden="true" className="size-5 shrink-0 fill-action text-surface" />
               {fill(field.help)}
             </p>
@@ -59,7 +59,10 @@ export function GroupInput({
           <p className="sr-only">{fill(field.label)}</p>
         )}
         <div className="relative overflow-x-auto rounded-control border border-folder-border">
-          <table className="w-full min-w-xl border-collapse text-left text-xs lg:min-w-0">
+          <table
+            data-intake-table
+            className="w-full min-w-xl border-collapse text-left text-sm lg:min-w-0"
+          >
             <thead className="bg-folder-surface text-heading">
               <tr>
                 {field.fields.map((sub) => (
@@ -81,7 +84,11 @@ export function GroupInput({
                   className="border-t border-folder-border"
                 >
                   {field.fields.map((sub) => (
-                    <td key={sub.key} className="px-1 py-1 align-middle">
+                    <td
+                      key={sub.key}
+                      data-label={fill(sub.label)}
+                      className="px-1 py-1 align-middle"
+                    >
                       {intakeConditionHolds(sub.showIf, row) && (
                         <ScalarInput
                           field={sub}
@@ -101,7 +108,7 @@ export function GroupInput({
                         variant="ghost"
                         aria-label={`Remove ${item.toLowerCase()} ${index + 1}`}
                         onClick={() => onChange(rows.filter((_, i) => i !== index))}
-                        className="min-h-7! px-1! py-1!"
+                        className="min-h-7 px-1! py-1!"
                       >
                         <Trash2 aria-hidden="true" className="size-4" />
                       </Button>
@@ -112,12 +119,12 @@ export function GroupInput({
             </tbody>
           </table>
         </div>
-        {groupError && <p className="text-xs text-danger">{groupError}</p>}
+        {groupError && <p className="text-sm text-danger">{groupError}</p>}
         {rows.length < field.maxItems && (
           <Button
             variant="outline"
             onClick={() => onChange([...rows, emptyRow(field.fields)])}
-            className="w-full border-heading! text-xs! text-heading! sm:min-h-8!"
+            className="w-full border-heading! text-sm! text-heading! sm:min-h-8"
           >
             <Plus aria-hidden="true" className="size-4" />
             {fill(field.addLabel)}
@@ -128,11 +135,11 @@ export function GroupInput({
   }
   return (
     <div className="min-w-0 space-y-2" data-group={field.key} data-rows={rows.length}>
-      <p className={look ? 'sr-only' : 'text-xs font-medium text-firm-primary'}>
+      <p className={look ? 'sr-only' : 'text-sm font-medium text-firm-primary'}>
         {fill(field.label)}
         {field.required ? ' *' : ''}
       </p>
-      {field.help && <p className="text-xs text-muted">{fill(field.help)}</p>}
+      {field.help && <p className="text-sm text-muted">{fill(field.help)}</p>}
       {rows.map((row, index) => (
         <details
           key={row.id}
@@ -141,7 +148,7 @@ export function GroupInput({
           className={bare ? '' : 'rounded-control border border-folder-border'}
         >
           <summary
-            className={`flex cursor-pointer items-center gap-2 rounded-t-control bg-folder-surface px-2 py-1 text-xs font-semibold text-heading ${bare ? 'sr-only' : ''}`}
+            className={`flex cursor-pointer items-center gap-2 rounded-t-control bg-folder-surface px-2 py-1 text-sm font-semibold text-heading ${bare ? 'sr-only' : ''}`}
           >
             <ChevronDown aria-hidden="true" className="size-4" />
             {item} {index + 1}
@@ -153,7 +160,7 @@ export function GroupInput({
                   event.preventDefault();
                   onChange(rows.filter((_, i) => i !== index));
                 }}
-                className="ml-auto min-h-7! px-1! py-1!"
+                className="ml-auto min-h-7 px-1! py-1!"
               >
                 <Trash2 aria-hidden="true" className="size-4" />
               </Button>
@@ -203,13 +210,13 @@ export function GroupInput({
           )}
         </details>
       ))}
-      {groupError && <p className="text-xs text-danger">{groupError}</p>}
+      {groupError && <p className="text-sm text-danger">{groupError}</p>}
       {rows.length < field.maxItems && (
         <div className={look?.bare ? 'flex justify-end' : ''}>
           <Button
             variant="outline"
             onClick={() => onChange([...rows, emptyRow(field.fields)])}
-            className={`w-full border-dashed text-xs! sm:min-h-7! ${look?.bare ? 'sm:w-1/3' : ''}`}
+            className={`w-full border-dashed text-sm! sm:min-h-7 ${look?.bare ? 'sm:w-1/3' : ''}`}
           >
             <Plus aria-hidden="true" className="size-4" />
             {fill(field.addLabel)}

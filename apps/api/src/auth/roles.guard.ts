@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
@@ -12,6 +13,7 @@ import type { Database } from '@firmivra/db';
 import { capabilityOfMethod, isGridFirmRole, roleCan } from '@firmivra/types';
 import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { accessFor, isPublic, rolesFor } from './decorators.js';
 
 const forbidden = () =>
@@ -25,6 +27,7 @@ export class RolesGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     @Inject(DATABASE) private readonly db: Database,
+    @Optional() private readonly grants?: PermissionGrantsService,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -48,7 +51,13 @@ export class RolesGuard implements CanActivate {
       // and only for routes Staff may use and that name their module (@Access).
       const access = accessFor(this.reflector, ctx);
       const capability = access?.capability ?? capabilityOfMethod(req.method);
-      if (access && capability && roleCan(req.tenant.role, access.module, capability)) return true;
+      if (access && capability) {
+        // The firm's own changes to the role's grid, over the default (Settings > Users & Roles).
+        const allowed = this.grants
+          ? await this.grants.can(req.tenant.businessId, req.tenant.role, access.module, capability)
+          : roleCan(req.tenant.role, access.module, capability);
+        if (allowed) return true;
+      }
     }
     if (roles.includes('SUPER_ADMIN') && req.auth?.pool === 'ADMIN') {
       const admin = await this.db

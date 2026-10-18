@@ -3,6 +3,10 @@
 //   command: ["node", "scripts/link-dev-users.mjs"]
 //   LINK_USERS: JSON list of { sub, role }; role SUPER_ADMIN, OWNER, ADMIN or STAFF
 //   LINK_FIRM_SLUG (default lvp), LINK_FIRM_NAME (only when the firm is created)
+// Client mode, instead of LINK_USERS (Rasel, Oct 18; the demo firm's seeded clients only):
+//   LINK_CLIENT_ACCOUNT: JSON { sub, firmSlug: "demo", accountEmail: "<seeded @demo.test address>" }
+//   COGNITO_CLIENTS_USER_POOL_ID: the clients pool, passed as an override (the task definition
+//   names only the staff and admins pools; the role may already ListUsers in all three)
 // Overrides are recorded in CloudTrail, so they hold no emails or names: the task reads them from
 // Cognito (ListUsers with the filter sub = "<sub>", the only Cognito permission of the migrate
 // task role). Our pools sign in by username, and AdminGetUser does not take the sub there.
@@ -13,7 +17,13 @@ import {
   ListUsersCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { createPrismaClient } from '../dist/index.js';
-import { linkUsers, parseLinkUsers, resolveLinkUsers } from '../dist/link-users.js';
+import {
+  linkClientAccount,
+  linkUsers,
+  parseLinkClient,
+  parseLinkUsers,
+  resolveLinkUsers,
+} from '../dist/link-users.js';
 
 function required(name) {
   const value = process.env[name];
@@ -29,16 +39,20 @@ const sslmode = process.env['DB_SSLMODE'] ?? 'verify-full';
 if (sslmode !== 'verify-full' && sslmode !== 'disable') {
   throw new Error(`DB_SSLMODE must be verify-full or disable, not ${sslmode}`);
 }
-const entries = parseLinkUsers(required('LINK_USERS'));
+const clientInput = process.env['LINK_CLIENT_ACCOUNT'];
+const clientEntry = clientInput ? parseLinkClient(clientInput) : null;
+const entries = clientEntry ? [] : parseLinkUsers(required('LINK_USERS'));
 const firm = {
   slug: process.env['LINK_FIRM_SLUG'] ?? 'lvp',
   name: process.env['LINK_FIRM_NAME'] ?? 'LVP Accounting & Taxes',
 };
 
-const pools = {
-  STAFF: required('COGNITO_STAFF_USER_POOL_ID'),
-  ADMIN: required('COGNITO_ADMINS_USER_POOL_ID'),
-};
+const pools = clientEntry
+  ? { CLIENT: required('COGNITO_CLIENTS_USER_POOL_ID') }
+  : {
+      STAFF: required('COGNITO_STAFF_USER_POOL_ID'),
+      ADMIN: required('COGNITO_ADMINS_USER_POOL_ID'),
+    };
 const cognito = new CognitoIdentityProviderClient({});
 /** The user with this sub in the pool. parseLinkUsers already checked that sub is a UUID. */
 async function lookup(pool, sub) {
@@ -53,22 +67,33 @@ async function lookup(pool, sub) {
   return { email: attr('email'), name: attr('name') };
 }
 
-const users = await resolveLinkUsers(entries, lookup);
 const url =
   `postgresql://${encodeURIComponent(required('DB_OWNER_USER'))}:${encodeURIComponent(required('DB_OWNER_PASSWORD'))}` +
   `@${required('DB_HOST')}:${process.env['DB_PORT'] ?? '5432'}/${required('DB_NAME')}?sslmode=${sslmode}`;
 
 const owner = createPrismaClient(url);
 try {
-  const result = await linkUsers(owner, firm, users);
-  say(
-    `Firm ${firm.slug}: ${result.businessId}${result.businessCreated ? ' (created, ACTIVE)' : ''}`,
-  );
-  // User ids and roles only: no emails or names in the task log.
-  for (const u of result.users) {
-    say(`${u.created ? 'Created' : 'Updated'} user ${u.userId} as ${u.role}`);
+  if (clientEntry) {
+    // Only checks that the login exists in the clients pool: its email and name stay in Cognito.
+    await lookup('CLIENT', clientEntry.sub);
+    const result = await linkClientAccount(owner, clientEntry);
+    // Ids only: no emails or names in the task log.
+    say(
+      `${result.changed ? 'Linked' : 'Already linked:'} client account ${result.clientAccountId} ` +
+        `(user ${result.userId}) in firm ${clientEntry.firmSlug} to its Cognito login`,
+    );
+  } else {
+    const users = await resolveLinkUsers(entries, lookup);
+    const result = await linkUsers(owner, firm, users);
+    say(
+      `Firm ${firm.slug}: ${result.businessId}${result.businessCreated ? ' (created, ACTIVE)' : ''}`,
+    );
+    // User ids and roles only: no emails or names in the task log.
+    for (const u of result.users) {
+      say(`${u.created ? 'Created' : 'Updated'} user ${u.userId} as ${u.role}`);
+    }
+    say(`Linked ${result.users.length} user(s)`);
   }
-  say(`Linked ${result.users.length} user(s)`);
 } finally {
   await owner.$disconnect();
 }
