@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { ProfileSettings } from './_components/profile-settings';
+import { ProfileScreen } from './_components/profile-screen';
 
 export const metadata: Metadata = { title: 'Firm profile' };
 
 export default function FirmProfilePage() {
-  return <ProfileSettings />;
+  return <ProfileScreen />;
 }
