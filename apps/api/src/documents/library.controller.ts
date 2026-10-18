@@ -1,6 +1,14 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import type {
   BulkDocumentsResult,
+  BulkRequestPacketsResult,
+  DocumentAccess,
+  DocumentShare,
+  RequestPacketDetail,
+  RequestPacketPage,
+  RequestPacketSummary,
+  RequestTemplate,
+  RequestTemplateList,
   DocumentActivityList,
   DocumentCategory,
   DocumentFolder,
@@ -19,8 +27,23 @@ import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/d
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { DocumentFoldersService } from './folders.service.js';
+import { DocumentPacketsService } from './packets.service.js';
+import { DocumentSharesService } from './shares.service.js';
+import { DocumentTemplatesService } from './templates.service.js';
 import {
   BulkBody,
+  BulkPacketsBody,
+  CreateItemBody,
+  CreatePacketBody,
+  CreateShareBody,
+  CreateTemplateBody,
+  PacketsQ,
+  ReorderItemsBody,
+  TemplatesQ,
+  UpdateItemBody,
+  UpdatePacketBody,
+  UpdateShareBody,
+  UpdateTemplateBody,
   CreateCategoryBody,
   CreateFolderBody,
   FolderIdParam,
@@ -47,7 +70,10 @@ const idPipe = new ZodValidationPipe(IdParam);
 @Access('DOCUMENTS')
 @Roles(...FIRM_STAFF)
 export class DocumentLibraryController {
-  constructor(private readonly library: DocumentLibraryService) {}
+  constructor(
+    private readonly library: DocumentLibraryService,
+    private readonly shares: DocumentSharesService,
+  ) {}
 
   @Get()
   list(
@@ -188,6 +214,48 @@ export class DocumentLibraryController {
     return { items: await this.library.activity(tenant, auth.userId, id, true) };
   }
 
+  @Get(':id/access')
+  access(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<DocumentAccess> {
+    return this.shares.access(tenant, auth.userId, id);
+  }
+
+  @Post(':id/shares')
+  share(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(CreateShareBody)) body: Out<typeof CreateShareBody>,
+  ): Promise<DocumentShare> {
+    return this.shares.share(tenant, auth.userId, id, body);
+  }
+
+  @Patch(':id/shares/:shareId')
+  updateShare(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('shareId', idPipe) shareId: string,
+    @Body(new ZodValidationPipe(UpdateShareBody)) body: Out<typeof UpdateShareBody>,
+  ): Promise<DocumentShare> {
+    return this.shares.update(tenant, auth.userId, id, shareId, body);
+  }
+
+  @Post(':id/shares/:shareId/revoke')
+  @HttpCode(200)
+  @Access('DOCUMENTS', 'EDIT')
+  revokeShare(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('shareId', idPipe) shareId: string,
+  ): Promise<OkResponse> {
+    return this.shares.revoke(tenant, auth.userId, id, shareId);
+  }
+
   @Get(':id/preview')
   preview(
     @CurrentAuth() auth: AuthContext,
@@ -279,5 +347,217 @@ export class DocumentFoldersController {
     @Body(new ZodValidationPipe(UpdateSettingsBody)) body: Out<typeof UpdateSettingsBody>,
   ): Promise<DocumentSettings> {
     return this.folders.updateSettings(tenant, body);
+  }
+}
+
+/** The requests dashboard and Create Document Request (R55). Static routes before ':id'. */
+@Controller('business/document-request-packets')
+@Access('DOCUMENTS')
+@Roles(...FIRM_STAFF)
+export class DocumentPacketsController {
+  constructor(private readonly packets: DocumentPacketsService) {}
+
+  @Get()
+  list(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(PacketsQ)) q: Out<typeof PacketsQ>,
+  ): Promise<RequestPacketPage> {
+    return this.packets.list(tenant, auth.userId, q);
+  }
+
+  @Get('summary')
+  summary(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<RequestPacketSummary> {
+    return this.packets.summary(tenant, auth.userId);
+  }
+
+  @Post()
+  create(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(CreatePacketBody)) body: Out<typeof CreatePacketBody>,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.create(tenant, auth.userId, body);
+  }
+
+  @Post('bulk')
+  @HttpCode(200)
+  @Access('DOCUMENTS', 'EDIT')
+  bulk(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(BulkPacketsBody)) body: Out<typeof BulkPacketsBody>,
+  ): Promise<BulkRequestPacketsResult> {
+    return this.packets.bulk(tenant, auth.userId, body);
+  }
+
+  @Get(':id')
+  get(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.get(tenant, auth.userId, id);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(UpdatePacketBody)) body: Out<typeof UpdatePacketBody>,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.update(tenant, auth.userId, id, body);
+  }
+
+  @Post(':id/send')
+  @HttpCode(200)
+  @Access('DOCUMENTS', 'EDIT')
+  send(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.send(tenant, auth.userId, id);
+  }
+
+  @Post(':id/resend')
+  @HttpCode(200)
+  @Access('DOCUMENTS', 'EDIT')
+  resend(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.nudge(tenant, auth.userId, id, 'resent');
+  }
+
+  @Post(':id/remind')
+  @HttpCode(200)
+  @Access('DOCUMENTS', 'EDIT')
+  remind(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.nudge(tenant, auth.userId, id, 'reminded');
+  }
+
+  @Post(':id/complete')
+  @HttpCode(200)
+  @Access('DOCUMENTS', 'EDIT')
+  complete(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.complete(tenant, auth.userId, id);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @Access('DOCUMENTS', 'EDIT')
+  cancel(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.cancel(tenant, auth.userId, id);
+  }
+
+  @Post(':id/items/reorder')
+  @HttpCode(200)
+  @Access('DOCUMENTS', 'EDIT')
+  reorderItems(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(ReorderItemsBody)) body: Out<typeof ReorderItemsBody>,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.reorderItems(tenant, auth.userId, id, body);
+  }
+
+  @Post(':id/items')
+  @HttpCode(200)
+  @Access('DOCUMENTS', 'EDIT')
+  addItem(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(CreateItemBody)) body: Out<typeof CreateItemBody>,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.addItem(tenant, auth.userId, id, body);
+  }
+
+  @Patch(':id/items/:itemId')
+  updateItem(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('itemId', idPipe) itemId: string,
+    @Body(new ZodValidationPipe(UpdateItemBody)) body: Out<typeof UpdateItemBody>,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.updateItem(tenant, auth.userId, id, itemId, body);
+  }
+
+  @Delete(':id/items/:itemId')
+  @Access('DOCUMENTS', 'EDIT')
+  removeItem(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('itemId', idPipe) itemId: string,
+  ): Promise<RequestPacketDetail> {
+    return this.packets.removeItem(tenant, auth.userId, id, itemId);
+  }
+}
+
+/** Request types and "My saved lists" (R55). */
+@Controller('business/document-request-templates')
+@Access('DOCUMENTS')
+@Roles(...FIRM_STAFF)
+export class DocumentTemplatesController {
+  constructor(private readonly templates: DocumentTemplatesService) {}
+
+  @Get()
+  async list(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(TemplatesQ)) q: Out<typeof TemplatesQ>,
+  ): Promise<RequestTemplateList> {
+    return { items: await this.templates.list(tenant, auth.userId, q) };
+  }
+
+  @Post()
+  create(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(CreateTemplateBody)) body: Out<typeof CreateTemplateBody>,
+  ): Promise<RequestTemplate> {
+    return this.templates.create(tenant, auth.userId, body);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(UpdateTemplateBody)) body: Out<typeof UpdateTemplateBody>,
+  ): Promise<RequestTemplate> {
+    return this.templates.update(tenant, auth.userId, id, body);
+  }
+
+  @Post(':id/archive')
+  @HttpCode(200)
+  @Access('DOCUMENTS', 'EDIT')
+  archive(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<OkResponse> {
+    return this.templates.archive(tenant, auth.userId, id);
   }
 }
