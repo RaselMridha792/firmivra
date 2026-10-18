@@ -548,7 +548,18 @@ export class AppStack extends Stack {
         protocol: elbv2.ApplicationProtocol.HTTP,
         targetType: elbv2.TargetType.IP,
         deregistrationDelay: Duration.seconds(30),
-        healthCheck: { path: healthPath, healthyHttpCodes: '200', interval: Duration.seconds(30) },
+        // A new task is healthy after 2 checks 10 s apart (20 s, was 5 x 30 s), which shortens each
+        // rollout. A task still turns unhealthy only after 60 s of failures, as before (6 x 10 s,
+        // was the default 2 x 30 s), so a slow request does not flap it; the timeout stays 5 s,
+        // and the service's 60 s grace period still covers a cold start.
+        healthCheck: {
+          path: healthPath,
+          healthyHttpCodes: '200',
+          interval: Duration.seconds(10),
+          timeout: Duration.seconds(5),
+          healthyThresholdCount: 2,
+          unhealthyThresholdCount: 6,
+        },
       });
     const apiTargets = targetGroup('api', 4000, '/api/v1/health');
     const webTargets = targetGroup('web', 3000, '/healthz');

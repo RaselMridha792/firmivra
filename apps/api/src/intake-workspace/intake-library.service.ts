@@ -12,7 +12,7 @@ import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { memberNames, memberRef, notFound } from '../workspaces/common.js';
 import type { FormsQ } from './workspace-input.js';
-import { categoryOf, iso, questionCount, sectionsOf } from './workspace.common.js';
+import { categoryOf, formMetaOf, iso, questionCount, sectionsOf } from './workspace.common.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -78,7 +78,7 @@ export class IntakeLibraryService {
       name: (live ?? newest)?.title ?? t.service.name,
       category: categoryOf(t.service.kind),
       service: { id: t.service.id, name: t.service.name },
-      description: null,
+      description: formMetaOf((live ?? newest)?.definition).description,
       isTemplate: t.serviceDefault,
       custom: (t.createdByUserId ?? newest?.createdByUserId ?? null) !== null,
       status: live ? 'PUBLISHED' : (newest?.status ?? 'DRAFT'),
@@ -165,21 +165,34 @@ export class IntakeLibraryService {
         tx.intakeSettings.findUnique({ where: { businessId } }),
       ]);
       const item = this.item(t, use.get(t.id), memberRef(names, ownerOf(t)));
-      const shown = t.forms.find((f) => f.status === 'PUBLISHED') ?? t.forms[0];
+      // The builder edits the newest version: a draft over a published one shows the draft.
+      const shown = t.forms[0];
       const definition = shown?.definition;
+      const meta = formMetaOf(definition);
+      const saved = meta.settings;
+      const flag = (key: string, fallback: boolean) =>
+        typeof saved[key] === 'boolean' ? (saved[key] as boolean) : fallback;
       const hasUpload = JSON.stringify(definition ?? {}).includes('"type":"upload"');
       return {
         ...item,
-        description: null,
+        name: shown?.title ?? item.name,
+        status: shown?.status ?? item.status,
+        description: meta.description,
         internalNotes: t.internalNotes,
         sections: sectionsOf(definition),
         settings: {
-          requireAllQuestions: false,
-          allowFileUploads: hasUpload,
-          requireSignature: settings?.requireSignature ?? true,
-          showProgressBar: settings?.showProgressBar ?? true,
-          expiresAfterDays: settings?.defaultExpiryDays ?? 14,
-          successMessage: settings?.thankYouMessage ?? null,
+          requireAllQuestions: flag('requireAllQuestions', false),
+          allowFileUploads: flag('allowFileUploads', hasUpload),
+          requireSignature: flag('requireSignature', settings?.requireSignature ?? true),
+          showProgressBar: flag('showProgressBar', settings?.showProgressBar ?? true),
+          expiresAfterDays:
+            saved['expiresAfterDays'] === null || typeof saved['expiresAfterDays'] === 'number'
+              ? (saved['expiresAfterDays'] as number | null)
+              : (settings?.defaultExpiryDays ?? 14),
+          successMessage:
+            typeof saved['successMessage'] === 'string' || saved['successMessage'] === null
+              ? (saved['successMessage'] as string | null)
+              : (settings?.thankYouMessage ?? null),
         },
         version: shown?.version ?? 1,
         publishedAt: iso(shown?.publishedAt),
