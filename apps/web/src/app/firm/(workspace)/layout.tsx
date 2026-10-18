@@ -10,6 +10,7 @@ import { Button } from '@firmivra/ui';
 import {
   Briefcase,
   CalendarDots,
+  Calculator,
   ChartLineUp,
   ChartPieSlice,
   CheckSquare,
@@ -85,7 +86,7 @@ const items: (NavItem & { managers?: true })[] = [
   link('Documents', Files, '/documents'),
   mod('client-portal'),
   mod('tax-returns'),
-  mod('bookkeeping'),
+  link('Bookkeeping', Calculator, '/bookkeeping'),
   link('Payroll', CurrencyDollar, '/payroll'),
   link('Tax Planning & Strategy', ChartPieSlice, '/tax-planning'),
   link('Business Advisory & Development', Briefcase, '/business-advisory'),
