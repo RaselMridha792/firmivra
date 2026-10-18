@@ -771,7 +771,7 @@ function EstimateForm({
                               onChange={(event) =>
                                 setLine(line.key, { description: event.target.value })
                               }
-                              className={`${inputClass(Boolean(errors.description))} col-span-11 md:flex-1`}
+                              className={`${inputClass(Boolean(errors.description))} col-span-9 md:flex-1`}
                             />
                             <input
                               aria-label={`Quantity, line ${n}`}
@@ -795,7 +795,7 @@ function EstimateForm({
                             />
                             <span
                               data-testid="line-amount"
-                              className="col-span-3 flex min-h-11 min-w-0 items-center rounded-control bg-canvas px-3 text-base text-muted md:w-32 md:flex-none"
+                              className="col-span-5 flex min-h-11 min-w-0 items-center overflow-hidden rounded-control bg-canvas px-3 text-base text-muted md:w-32 md:flex-none"
                             >
                               <span className="sr-only">Amount, line {n}: </span>
                               {plainAmount(totals.lines[index]?.amountCents ?? 0)}
@@ -811,7 +811,7 @@ function EstimateForm({
                                   lines: now.lines.filter((row) => row.key !== line.key),
                                 }))
                               }
-                              className="col-span-2 inline-flex size-10 items-center justify-center justify-self-end rounded-lg text-danger hover:bg-danger-soft disabled:cursor-not-allowed disabled:text-disabled-text md:shrink-0"
+                              className="col-span-2 col-start-11 row-start-1 inline-flex size-10 items-center justify-center justify-self-end rounded-lg text-danger hover:bg-danger-soft disabled:cursor-not-allowed disabled:text-disabled-text md:shrink-0"
                             >
                               <Trash aria-hidden weight="fill" className="size-5" />
                             </button>
