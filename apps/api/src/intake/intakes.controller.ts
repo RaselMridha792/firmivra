@@ -7,6 +7,7 @@ import {
   Inject,
   Module,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -33,7 +34,12 @@ import {
   SubmitIntakeRequest,
   type UploadTicket,
   type AssignedFormPage,
+  type AssignedFormRecord,
+  type FormFileLink,
+  type FormNote,
   type IntakeDashboardSummary,
+  type SendDraft,
+  type SendIntakeFormResult,
 } from '@firmivra/types';
 import {
   Access,
@@ -52,7 +58,16 @@ import {
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { IntakeWorkspaceModule } from '../intake-workspace/intake-workspace.module.js';
 import { IntakeWorkspaceService } from '../intake-workspace/intake-workspace.service.js';
-import { AssignedFormsQ } from '../intake-workspace/workspace-input.js';
+import { IntakeRecordService } from '../intake-workspace/intake-record.service.js';
+import { IntakeSendService } from '../intake-workspace/intake-send.service.js';
+import {
+  AssignedFormsQ,
+  DraftIdParam,
+  NoteBody,
+  SendBody,
+  SendDraftBody,
+  UpdateAssignedBody,
+} from '../intake-workspace/workspace-input.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { DocumentsModule } from '../storage/documents.controller.js';
 import { AgreementsModule } from '../agreements/agreements.controller.js';
@@ -235,6 +250,8 @@ export class IntakesController {
   constructor(
     private readonly intakes: IntakesService,
     private readonly workspace: IntakeWorkspaceService,
+    private readonly sender: IntakeSendService,
+    private readonly records: IntakeRecordService,
   ) {}
 
   // The Intake Forms workspace: static routes come before ':id'.
@@ -253,6 +270,43 @@ export class IntakesController {
     @Query(new ZodValidationPipe(AssignedFormsQ)) q: z.output<typeof AssignedFormsQ>,
   ): Promise<AssignedFormPage> {
     return this.workspace.list(tenant, auth.userId, q);
+  }
+
+  @Post('send')
+  @HttpCode(200)
+  sendForm(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(SendBody)) body: z.output<typeof SendBody>,
+  ): Promise<SendIntakeFormResult> {
+    return this.sender.send(tenant, auth.userId, body);
+  }
+
+  @Get('send-drafts')
+  sendDrafts(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<{ items: SendDraft[] }> {
+    return this.sender.drafts(tenant, auth.userId);
+  }
+
+  @Post('send-drafts')
+  createSendDraft(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(SendDraftBody)) body: z.output<typeof SendDraftBody>,
+  ): Promise<SendDraft> {
+    return this.sender.saveDraft(tenant, auth.userId, body);
+  }
+
+  @Put('send-drafts/:draftId')
+  saveSendDraft(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('draftId', new ZodValidationPipe(DraftIdParam)) draftId: string,
+    @Body(new ZodValidationPipe(SendDraftBody)) body: z.output<typeof SendDraftBody>,
+  ): Promise<SendDraft> {
+    return this.sender.saveDraft(tenant, auth.userId, body, draftId);
   }
 
   @Get(':id')
@@ -306,6 +360,74 @@ export class IntakesController {
     @Param('id', idPipe) id: string,
   ): Promise<IntakeView> {
     return this.intakes.reopen(tenant.businessId, staff(auth, tenant), id, null);
+  }
+  // One assigned form (the Intake Forms workspace's detail and row More menu).
+  @Get(':id/record')
+  record(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<AssignedFormRecord> {
+    return this.records.record(tenant, auth.userId, id);
+  }
+
+  @Post(':id/notes')
+  addNote(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(NoteBody)) _body: z.output<typeof NoteBody>,
+  ): Promise<FormNote> {
+    return this.records.addNote(tenant, auth.userId, id);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(UpdateAssignedBody)) body: z.output<typeof UpdateAssignedBody>,
+  ): Promise<AssignedFormRecord> {
+    return this.records.update(tenant, auth.userId, id, body);
+  }
+
+  @Post(':id/resend')
+  @HttpCode(200)
+  resend(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<AssignedFormRecord> {
+    return this.records.resend(tenant, auth.userId, id);
+  }
+
+  @Post(':id/remind')
+  @HttpCode(200)
+  remind(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<AssignedFormRecord> {
+    return this.records.remind(tenant, auth.userId, id);
+  }
+
+  @Post(':id/archive')
+  @HttpCode(200)
+  archive(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<AssignedFormRecord> {
+    return this.records.archive(tenant, auth.userId, id);
+  }
+
+  @Get(':id/pdf')
+  pdf(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<FormFileLink> {
+    return this.records.pdf(tenant, auth.userId, id);
   }
 }
 
