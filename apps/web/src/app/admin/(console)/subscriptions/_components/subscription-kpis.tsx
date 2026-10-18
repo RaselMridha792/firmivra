@@ -63,7 +63,9 @@ interface Kpi {
 function kpis(stats: SubscriptionStats | undefined): Kpi[] {
   const count = (figure: Figure | undefined) =>
     figure ? figure.value.toLocaleString('en-US') : '—';
-  const amount = (figure: Figure | undefined) => (figure ? money(figure.value) : '—');
+  // Whole dollars, as the design's cards show them ("$12,480"); the trend still uses the cents.
+  const amount = (figure: Figure | undefined) =>
+    figure ? money(Math.round(figure.value / 100) * 100) : '—';
   const month = 'vs. last month';
   return [
     {
@@ -181,7 +183,7 @@ export function SubscriptionKpis({
               ) : (
                 <span
                   data-testid={`kpi-${kpi.key}-value`}
-                  className="text-lg leading-tight font-bold wrap-anywhere text-heading 2xl:text-xl"
+                  className="text-lg leading-tight font-bold whitespace-nowrap text-heading min-[1440px]:text-base 2xl:text-xl"
                 >
                   {kpi.value}
                 </span>
