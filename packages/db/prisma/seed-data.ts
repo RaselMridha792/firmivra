@@ -392,6 +392,18 @@ export const SEED_PLATFORM_IDS = {
   commImage: '00000000-0000-4005-8000-000000000076',
   commSegment: '00000000-0000-4005-8000-000000000077',
   commBroadcast: '00000000-0000-4005-8000-000000000078',
+  // Stage B7: the platform logo, a legal hold, a retention dry run and a maintenance window.
+  settingsLogo: '00000000-0000-4005-8000-000000000081',
+  settingsHold: '00000000-0000-4005-8000-000000000082',
+  settingsRun: '00000000-0000-4005-8000-000000000083',
+  settingsWindow: '00000000-0000-4005-8000-000000000084',
+  // Stage B8: Firmivra's Stripe connection, a catalog entry, an API key and a webhook endpoint.
+  integrationStripe: '00000000-0000-4005-8000-000000000091',
+  integrationCatalog: '00000000-0000-4005-8000-000000000092',
+  integrationApiKey: '00000000-0000-4005-8000-000000000093',
+  integrationWebhook: '00000000-0000-4005-8000-000000000094',
+  // Stage B9: the Super Admin's saved firm report.
+  savedReport: '00000000-0000-4005-8000-0000000000a1',
   // Stage B3: what Firmivra billed LVP.
   billingPaidInvoice: '00000000-0000-4005-8000-000000000041',
   billingCreditedInvoice: '00000000-0000-4005-8000-000000000042',
