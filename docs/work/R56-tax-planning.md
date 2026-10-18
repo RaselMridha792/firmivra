@@ -46,6 +46,9 @@ The firm Tax Planning screens on the R55 contract (`api.taxPlanning`, `createTax
 - **Schedule Client Discussion** records the date on the opportunity; it does not make an appointment (the contract takes an optional appointment id).
 - The savings **Reports** tab lists plans with their projected savings; the contract has no separate report call.
 
+- **Bookkeeping Terms and Transactions** (R0 / R55): still no contract on main (Oct 18). The bookkeeping contract says Terms, transactions, refunds and settlements need tables that do not exist yet; R56 builds them once a schema and contract land.
+- **Tax Returns workspace and firm-wide Documents** (R55): no module contract on main yet (checked Oct 18 after #801).
+
 ## Progress log
 
 - 2026-10-18: Tax Planning built on the R55 contract with a new mock; 7-test spec passes; screenshots committed.
