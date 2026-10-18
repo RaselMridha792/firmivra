@@ -53,6 +53,7 @@ import {
   createStaffClient,
   createSupportAccessClient,
   createTasksClient,
+  createBookkeepingClient,
   createPayrollClient,
   createTaskWorkClient,
   createComplianceClient,
@@ -122,6 +123,7 @@ import {
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createTasksMock } from '../mocks/tasks';
+import { createBookkeepingMock } from '../mocks/bookkeeping';
 import { createAutomationsMock } from '../mocks/automations';
 import { createComplianceMock } from '../mocks/compliance';
 import { createPayrollMock } from '../mocks/payroll';
@@ -334,6 +336,11 @@ export const api = {
     dev && mocked('templates')
       ? createTemplatesMock({ role: MOCK_ROLE, empty: mockedEmpty('templates') })
       : createTemplatesClient(request),
+  /** Bookkeeping (R38): clients, connections, periods and the close, reconciliations and reports. Mock: NEXT_PUBLIC_API_MOCK=bookkeeping (mocks/bookkeeping.ts, R56). */
+  bookkeeping:
+    dev && mocked('bookkeeping')
+      ? createBookkeepingMock({ role: MOCK_ROLE, empty: mockedEmpty('bookkeeping') })
+      : createBookkeepingClient(request),
   /**
    * Automations (R55): overview, rules and their versions, rule templates, logs and settings.
    * Mock: NEXT_PUBLIC_API_MOCK=automations (mocks/automations.ts, R56).

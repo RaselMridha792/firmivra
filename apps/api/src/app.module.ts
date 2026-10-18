@@ -46,6 +46,7 @@ import { TasksModule } from './tasks/tasks.module.js';
 import { AutomationsModule } from './automations/automations.module.js';
 import { TaxPlanningModule } from './tax-planning/tax-planning.module.js';
 import { AdvisoryModule } from './advisory/advisory.module.js';
+import { RolesModule } from './roles/roles.module.js';
 import { CommunicationsModule } from './communications/communications.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
@@ -155,6 +156,7 @@ export class AppModule {
         IntegrationsModule,
         TaxPlanningModule,
         AdvisoryModule,
+        RolesModule,
         CommunicationsModule,
         ReportsModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),

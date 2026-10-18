@@ -6,7 +6,9 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
 import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 import {
+  linkClientAccount,
   linkUsers,
+  parseLinkClient,
   parseLinkUsers,
   resolveLinkUsers,
   type LinkUser,
@@ -184,5 +186,115 @@ describe('linkUsers', () => {
     const other = db.forBusiness(otherFirmId);
     expect(await other.membership.count()).toBe(0);
     expect(await other.businessSettings.count()).toBe(0);
+  });
+});
+
+// Client mode: a seeded demo client gets a real clients-pool login (Rasel, Oct 18, demo only).
+describe('parseLinkClient', () => {
+  const entry = { sub: randomUUID(), firmSlug: 'demo', accountEmail: 'harper.coleman@demo.test' };
+  const parse = (value: unknown) => () => parseLinkClient(JSON.stringify(value));
+
+  it('accepts the sub, the demo firm and a seeded address, in lower case', () => {
+    expect(
+      parseLinkClient(JSON.stringify({ ...entry, accountEmail: ' Harper.Coleman@Demo.TEST ' })),
+    ).toEqual(entry);
+  });
+
+  it('refuses another firm, a real address and any other key', () => {
+    expect(parse({ ...entry, firmSlug: 'lvp' })).toThrow(/firmSlug must be demo/);
+    expect(parse({ ...entry, firmSlug: 'demo-north' })).toThrow(/firmSlug must be demo/);
+    expect(parse({ ...entry, accountEmail: 'someone@example.com' })).toThrow(/seeded @demo\.test/);
+    expect(parse({ ...entry, name: 'Harper' })).toThrow(/not name/);
+    expect(parse({ ...entry, sub: 'nope' })).toThrow(/sub must be a UUID/);
+    expect(() => parseLinkClient('[]')).toThrow(/must be an object/);
+  });
+});
+
+describe('linkClientAccount', () => {
+  const accountEmail = `harper.coleman.${run}@demo.test`;
+  const firms = { a: '', b: '' };
+  const seeded = { a: { userId: '', sub: '' }, b: { userId: '', sub: '' } };
+  const slugs = { a: `link-demo-${run}`, b: `link-demo-other-${run}` };
+
+  beforeAll(async () => {
+    for (const key of ['a', 'b'] as const) {
+      const sub = `seed-${key}-${randomUUID()}`;
+      const ids = await runInScope(owner, { kind: 'platform' }, async (tx) => {
+        const business = await tx.business.create({
+          data: { slug: slugs[key], name: `Demo ${key}`, status: 'ACTIVE' },
+        });
+        const user = await tx.user.create({
+          data: { cognitoSub: sub, pool: 'CLIENT', email: accountEmail, name: 'Fake Harper' },
+        });
+        return { businessId: business.id, userId: user.id };
+      });
+      firms[key] = ids.businessId;
+      seeded[key] = { userId: ids.userId, sub };
+      // The same seeded email in both firms: only firm A's account may change.
+      await runInScope(owner, { kind: 'business', businessId: ids.businessId }, (tx) =>
+        tx.clientAccount.create({
+          data: {
+            businessId: ids.businessId,
+            userId: ids.userId,
+            email: accountEmail,
+            status: 'ACTIVE',
+          },
+        }),
+      );
+    }
+  });
+
+  const userOf = (key: 'a' | 'b') =>
+    platform().user.findUniqueOrThrow({ where: { id: seeded[key].userId } });
+
+  it('gives firm A account its new login, and leaves the same email in firm B alone', async () => {
+    const sub = randomUUID();
+    const result = await linkClientAccount(owner, { sub, firmSlug: slugs.a, accountEmail });
+    expect(result).toMatchObject({ businessId: firms.a, userId: seeded.a.userId, changed: true });
+    expect((await userOf('a')).cognitoSub).toBe(sub);
+    expect((await userOf('b')).cognitoSub).toBe(seeded.b.sub);
+
+    const inA = db.forBusiness(firms.a);
+    expect(
+      await inA.auditLog.findMany({
+        where: { businessId: firms.a, action: 'dev.client_login_linked' },
+        select: { entityId: true, metadata: true },
+      }),
+    ).toEqual([{ entityId: result.clientAccountId, metadata: { userId: seeded.a.userId } }]);
+    expect(
+      await db.forBusiness(firms.b).auditLog.count({
+        where: { businessId: firms.b, action: 'dev.client_login_linked' },
+      }),
+    ).toBe(0);
+    // The account itself is unchanged: the same user, so every row it owns stays with it.
+    expect(
+      await inA.clientAccount.findUniqueOrThrow({ where: { id: result.clientAccountId } }),
+    ).toMatchObject({ userId: seeded.a.userId, email: accountEmail, status: 'ACTIVE' });
+
+    // Again: nothing to do.
+    expect(await linkClientAccount(owner, { sub, firmSlug: slugs.a, accountEmail })).toMatchObject({
+      changed: false,
+    });
+  });
+
+  it('refuses a missing firm, no matching account, and a sub that is already someone else', async () => {
+    const sub = randomUUID();
+    await expect(
+      linkClientAccount(owner, { sub, firmSlug: `missing-${run}`, accountEmail }),
+    ).rejects.toThrow(/not found/);
+    await expect(
+      linkClientAccount(owner, {
+        sub,
+        firmSlug: slugs.a,
+        accountEmail: `nobody.${run}@demo.test`,
+      }),
+    ).rejects.toThrow(/has 0 client accounts with that email; expected 1/);
+    // Firm B's seeded sub belongs to firm B's user: firm A's account cannot take it.
+    const before = (await userOf('a')).cognitoSub;
+    await expect(
+      linkClientAccount(owner, { sub: seeded.b.sub, firmSlug: slugs.a, accountEmail }),
+    ).rejects.toThrow(`is already linked to user ${seeded.b.userId}`);
+    expect((await userOf('a')).cognitoSub).toBe(before);
+    expect((await userOf('b')).cognitoSub).toBe(seeded.b.sub);
   });
 });
