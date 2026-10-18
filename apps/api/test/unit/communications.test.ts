@@ -72,9 +72,12 @@ describe('segment criteria', () => {
     ['a missing value', { field: 'client.status', op: 'IS_ANY_OF', value: [] }, 'CLIENTS'],
     ['a bad date', { field: 'client.clientSince', op: 'BEFORE', value: 'soon' }, 'CLIENTS'],
     ['a field of the other audience', { field: 'lead.status', op: 'IS', value: 'LOST' }, 'CLIENTS'],
-  ] as const)('refuses %s', (_why, cond, audience) => {
-    expect(() => validateCriteria(crit({ conditions: [{ ...cond }] }), audience)).toThrow();
-  });
+  ] as [string, Criteria['conditions'][number], 'CLIENTS'][])(
+    'refuses %s',
+    (_why, cond, audience) => {
+      expect(() => validateCriteria(crit({ conditions: [cond] }), audience)).toThrow();
+    },
+  );
 
   it('summarizes in plain words', () => {
     expect(
