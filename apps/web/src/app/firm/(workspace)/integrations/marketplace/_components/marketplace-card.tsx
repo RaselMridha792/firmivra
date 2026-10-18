@@ -1,9 +1,10 @@
 'use client';
 
 import type { IntegrationCard } from '@firmivra/types';
-import { ActionMenu, Badge, Card } from '@firmivra/ui';
+import { ActionMenu, Badge, Button, Card } from '@firmivra/ui';
 import { DotsThreeVertical } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { useId } from 'react';
 import { actionLink, categoryLabel } from './marketplace-shared';
 
 export function integrationDestination(item: IntegrationCard): string {
@@ -47,7 +48,6 @@ export function MarketplaceCard({
   list?: boolean;
   onDetails: (item: IntegrationCard) => void;
 }) {
-  const connected = item.connections.length > 0;
   return (
     <Card
       data-testid={featured ? 'featured-integration' : 'marketplace-integration'}
@@ -84,20 +84,59 @@ export function MarketplaceCard({
           </Badge>
         ) : null}
       </div>
-      {canManage || connected ? (
-        item.provider.comingSoon && !connected ? (
-          <p className="mt-auto text-xs text-muted">Not available to connect yet.</p>
-        ) : (
-          <Link
-            href={integrationDestination(item)}
-            className={`${actionLink} ${featured ? '!bg-action !text-on-action hover:!bg-action-hover' : ''} ${list ? 'sm:shrink-0' : 'mt-auto w-full'}`}
-          >
-            {integrationAction(item)}
-          </Link>
-        )
-      ) : (
-        <p className="mt-auto text-xs text-muted">Ask your administrator to connect.</p>
-      )}
+      <MarketplaceAction item={item} canManage={canManage} featured={featured} list={list} />
     </Card>
+  );
+}
+
+/** Unavailable providers retain their action frame without starting an unsupported connection. */
+export function MarketplaceAction({
+  item,
+  canManage,
+  featured = false,
+  list = false,
+}: {
+  item: IntegrationCard;
+  canManage: boolean;
+  featured?: boolean;
+  list?: boolean;
+}) {
+  const reasonId = useId();
+  const connected = item.connections.length > 0;
+  const reason =
+    item.provider.comingSoon && !connected
+      ? 'Not available to connect yet.'
+      : !canManage && !connected
+        ? 'Ask your administrator to connect.'
+        : null;
+  const placement = list ? 'sm:shrink-0' : 'mt-auto w-full';
+  if (reason) {
+    return (
+      <div className={'flex flex-col gap-1 ' + placement}>
+        <Button
+          variant={featured ? 'primary' : 'outline'}
+          disabled
+          aria-describedby={reasonId}
+          className="min-h-9 w-full !py-1.5"
+        >
+          {integrationAction(item)}
+        </Button>
+        <p id={reasonId} className="text-xs text-muted">
+          {reason}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <Link
+      href={integrationDestination(item)}
+      className={
+        actionLink +
+        (featured ? ' !bg-action !text-on-action hover:!bg-action-hover ' : ' ') +
+        placement
+      }
+    >
+      {integrationAction(item)}
+    </Link>
   );
 }

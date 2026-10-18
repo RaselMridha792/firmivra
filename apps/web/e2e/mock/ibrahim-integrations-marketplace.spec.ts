@@ -11,7 +11,7 @@ const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const url = `http://app.localhost:${port}/integrations/marketplace`;
 async function mockCatalog(
   page: Page,
-  state: 'data' | 'empty' | 'offline' | 'forbidden' | 'readonly' = 'data',
+  state: 'data' | 'empty' | 'offline' | 'forbidden' | 'readonly' | 'unavailable' = 'data',
 ) {
   await page.route('**/api/v1/business/integrations**', async (route) => {
     if (state === 'offline') return route.abort('connectionfailed');
@@ -23,7 +23,10 @@ async function mockCatalog(
     const request = new URL(route.request().url());
     if (request.pathname.endsWith('/marketplace')) {
       const query = IntegrationMarketplaceQuery.parse(Object.fromEntries(request.searchParams));
-      return route.fulfill({ json: marketplaceFixture(query, state === 'empty') });
+      const result = marketplaceFixture(query, state === 'empty');
+      if (state === 'unavailable')
+        for (const item of [...result.items, ...result.featured]) item.provider.comingSoon = true;
+      return route.fulfill({ json: result });
     }
     return route.fulfill({ json: marketplacePermissions(state !== 'readonly') });
   });
@@ -217,3 +220,48 @@ for (const state of ['empty', 'offline', 'forbidden', 'readonly'] as const) {
     });
   });
 }
+
+test('page heading uses the site sans font rather than the display font', async ({ page }) => {
+  await mockCatalog(page);
+  await page.goto(url);
+  const heading = page.getByRole('heading', { name: 'Add Integration', exact: true });
+  await expect(heading).toBeVisible();
+  const fonts = await heading.evaluate((element) => ({
+    heading: getComputedStyle(element).fontFamily,
+    body: getComputedStyle(document.body).fontFamily,
+  }));
+  expect(fonts.heading).toBe(fonts.body);
+});
+
+test('unavailable providers keep visible disabled actions in featured, catalog and details', async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await mockCatalog(page, 'unavailable');
+  await page.goto(url);
+  await expect(page.getByTestId('marketplace-integration')).toHaveCount(18);
+  for (const id of ['featured-integration', 'marketplace-integration']) {
+    const cards = page.getByTestId(id);
+    for (let index = 0; index < (await cards.count()); index++) {
+      const card = cards.nth(index);
+      if (await card.getByRole('heading', { name: 'QuickBooks Online', exact: true }).count()) {
+        await expect(card.getByRole('link', { name: 'Manage', exact: true })).toBeVisible();
+      } else {
+        const action = card.getByRole('button', { name: /^(Connect|Configure)$/ });
+        await expect(action).toBeVisible();
+        await expect(action).toBeDisabled();
+        await expect(action).toHaveAttribute('aria-describedby', /.+/);
+        await expect(card.getByRole('link', { name: /^(Connect|Configure)$/ })).toHaveCount(0);
+      }
+    }
+  }
+  await page.screenshot({
+    path: info.outputPath('marketplace-unavailable-desktop.png'),
+    fullPage: true,
+  });
+  await page.getByRole('button', { name: 'Options for Google Workspace', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'View details' }).click();
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }),
+  ).toBeDisabled();
+});

@@ -30,8 +30,8 @@ import { PageState } from '../../../../../../components/page-state';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
-import { MarketplaceCard, integrationAction, integrationDestination } from './marketplace-card';
-import { actionLink, categories, categoryOptions, categoryLabel } from './marketplace-shared';
+import { MarketplaceCard, MarketplaceAction } from './marketplace-card';
+import { categories, categoryOptions, categoryLabel } from './marketplace-shared';
 import { RequestIntegrationModal } from './request-integration-modal';
 
 export function MarketplaceScreen() {
@@ -78,11 +78,13 @@ export function MarketplaceScreen() {
         </span>
       </nav>
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <PageHeader
-          title="Add Integration"
-          subtitle={`Connect another tool to ${firm.name} and streamline your workflow.`}
-          icon={PuzzlePiece}
-        />
+        <div className="[&_h1]:font-sans">
+          <PageHeader
+            title="Add Integration"
+            subtitle={`Connect another tool to ${firm.name} and streamline your workflow.`}
+            icon={PuzzlePiece}
+          />
+        </div>
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-3">
           <SearchField
             label="Search integrations"
@@ -335,17 +337,7 @@ export function MarketplaceScreen() {
               {categoryLabel(details.provider.category)}
             </p>
             <p className="text-sm text-muted">{details.provider.summary}</p>
-            {details.provider.comingSoon && !details.connections.length ? (
-              <p className="text-sm text-muted">This provider is not available to connect yet.</p>
-            ) : canManage || details.connections.length ? (
-              <Link className={actionLink} href={integrationDestination(details)}>
-                {integrationAction(details)}
-              </Link>
-            ) : (
-              <p className="text-sm text-muted">
-                Ask your administrator to connect this integration.
-              </p>
-            )}
+            <MarketplaceAction item={details} canManage={canManage} />
           </div>
         ) : null}
       </Modal>
