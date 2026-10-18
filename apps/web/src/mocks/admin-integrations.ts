@@ -1570,6 +1570,28 @@ function runTest(
       logId: log.id,
       requestId: log.requestId,
     };
+  // The health check's view: a failed test puts a running service in Error; a passing one clears
+  // a credential problem (not a provider's slowness, which the health checks clear on their own).
+  if (!outcome.ok && integration.status === 'ACTIVE') {
+    integration.status = 'ERROR';
+    integration.statusReason = {
+      code: outcome.errorCode ?? 'TEST_FAILED',
+      message: outcome.message,
+      recommendedAction:
+        outcome.kind === 'PROVIDER_UNAVAILABLE'
+          ? "View the provider's status and retry later. Your credentials are unchanged."
+          : 'Update the credentials in Connection Settings, then test again.',
+    };
+  } else if (
+    outcome.ok &&
+    (integration.status === 'ERROR' || integration.status === 'NEEDS_ATTENTION') &&
+    integration.statusReason?.code !== 'ELEVATED_LATENCY' &&
+    integration.statusReason?.code !== 'CREDENTIAL_EXPIRING'
+  ) {
+    integration.status = 'ACTIVE';
+    integration.statusReason = null;
+    integration.latestError = null;
+  }
   return {
     ...outcome,
     at,
@@ -2370,16 +2392,14 @@ export const adminIntegrations = {
     const entries = Object.entries(body.values).filter(([, value]) => value.trim() !== '');
     if (!entries.length) throw invalid('Enter at least one credential.');
     const now = nowIso();
-    const changed: string[] = [];
-    let rejected = false;
+    // Check every value first, so a refused one leaves the saved credentials as they were.
+    const updates: { field: ConnectionValue; display: string | null; rejects: boolean }[] = [];
     for (const [key, raw] of entries) {
       const field = integration.connection.fields.find((item) => item.key === key);
       if (!field) throw invalid(`Unknown connection field: ${key}.`);
       const value = raw.trim();
       if (value.length > 500) throw invalid(`${field.label} is too long.`);
-      if (field.kind === 'url') {
-        field.display = cleanUrl(value, field.label.toLowerCase());
-      } else if (field.prefix) {
+      if (field.kind !== 'url' && field.prefix) {
         const wanted = field.prefix[integration.environment];
         const other = field.prefix[integration.environment === 'LIVE' ? 'TEST' : 'LIVE'];
         if (wanted !== other && value.startsWith(other))
@@ -2388,16 +2408,21 @@ export const adminIntegrations = {
           );
         if (!value.startsWith(wanted)) throw invalid(`${field.label} should start with ${wanted}.`);
       }
-      if (field.secret) {
-        if (value.length < 8) throw invalid(`${field.label} looks too short.`);
-        field.display = maskSecret(value, field.prefix?.[integration.environment] ?? null);
-      } else if (field.kind !== 'url') {
-        field.display = value;
-      }
-      if (/invalid/i.test(value)) rejected = true;
-      field.updatedAt = now;
-      changed.push(field.label);
+      if (field.secret && value.length < 8) throw invalid(`${field.label} looks too short.`);
+      const display =
+        field.kind === 'url'
+          ? cleanUrl(value, field.label.toLowerCase())
+          : field.secret
+            ? maskSecret(value, field.prefix?.[integration.environment] ?? null)
+            : value;
+      updates.push({ field, display, rejects: /invalid/i.test(value) });
     }
+    for (const update of updates) {
+      update.field.display = update.display;
+      update.field.updatedAt = now;
+    }
+    const changed = updates.map((update) => update.field.label);
+    const rejected = updates.some((update) => update.rejects);
     s.rejected = s.rejected.filter((item) => item !== id);
     if (rejected) s.rejected.push(id);
     const rotation = integration.status !== 'DRAFT';
@@ -2405,6 +2430,14 @@ export const adminIntegrations = {
     integration.connection.complete = connectionComplete(integration.connection);
     integration.lastCheckOk = null;
     integration.lastCheckMessage = 'Credentials changed: test the connection.';
+    if (
+      ['CREDENTIAL_EXPIRING', 'CREDENTIALS_REQUIRED'].includes(integration.statusReason?.code ?? '')
+    )
+      integration.statusReason = {
+        code: 'TEST_REQUIRED',
+        message: 'Credentials changed: test the connection to confirm them.',
+        recommendedAction: 'Test the connection.',
+      };
     bump(integration);
     audit(s, {
       action: rotation ? 'credentials.rotated' : 'credentials.set',
