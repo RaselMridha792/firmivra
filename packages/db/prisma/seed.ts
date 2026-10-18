@@ -2129,6 +2129,68 @@ async function main() {
         },
       });
     }
+    // Stage B4: a normalized event in the firm's log: six failed sign-ins in a row on LVP's
+    // portal for one email, from one address (documentation range).
+    if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.securityEvent } }))) {
+      await tx.auditLog.create({
+        data: {
+          id: SEED_PLATFORM_IDS.securityEvent,
+          businessId: businesses.lvp,
+          action: 'login.failed',
+          entityType: 'login',
+          metadata: { pool: 'clients', attempts: 6 },
+          ip: '203.0.113.24',
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/131.0',
+          category: 'AUTHENTICATION',
+          severity: 'MEDIUM',
+          outcome: 'FAILURE',
+          actorType: 'ANONYMOUS',
+          authMethod: 'password',
+          targetLabel: SEED_USERS.lvpClient.email,
+          subjectUserId: SEED_USERS.lvpClient.id,
+          detectionSource: 'sign_in',
+        },
+      });
+    }
+  });
+  // Stage B4: the rules engine raises an alert on it (platform scope); the Super Admin takes it,
+  // acknowledges it and notes what they found (admin scope).
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    if (!(await tx.securityAlert.findUnique({ where: { id: SEED_PLATFORM_IDS.securityAlert } }))) {
+      await tx.securityAlert.create({
+        data: {
+          id: SEED_PLATFORM_IDS.securityAlert,
+          auditLogId: SEED_PLATFORM_IDS.securityEvent,
+          businessId: businesses.lvp,
+          ruleId: 'login.failed_burst',
+          severity: 'HIGH',
+          title: 'Repeated failed sign-ins on a client account',
+          summary: 'Six failed sign-ins in 4 minutes for one client of LVP from one IP address.',
+          riskScore: 72,
+          eventKey: `login.failed_burst:${SEED_PLATFORM_IDS.securityEvent}`,
+        },
+      });
+    }
+  });
+  await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
+    await tx.securityAlert.updateMany({
+      where: { id: SEED_PLATFORM_IDS.securityAlert, status: 'OPEN' },
+      data: { status: 'ACKNOWLEDGED', assignedToUserId: SEED_USERS.superAdmin.id },
+    });
+    if (
+      !(await tx.auditInvestigationNote.findUnique({
+        where: { id: SEED_PLATFORM_IDS.securityNote },
+      }))
+    ) {
+      await tx.auditInvestigationNote.create({
+        data: {
+          id: SEED_PLATFORM_IDS.securityNote,
+          auditLogId: SEED_PLATFORM_IDS.securityEvent,
+          authorUserId: SEED_USERS.superAdmin.id,
+          body: 'The client confirmed they forgot their password and reset it. No other activity from this address.',
+        },
+      });
+    }
   });
 
   // The client's private note: written as the client, the only one the database shows it to.
