@@ -40,7 +40,10 @@ describe('templates', () => {
       expect(all).not.toContain(bad);
     }
     if (out.channel === 'sms') {
-      expect(out.text).toBe(`482913 is your ${FIRM_NAME} verification code. Never share it.`);
+      expect(out.text).toContain(FIRM_NAME);
+      if (t === 'client.signup-sms-code') {
+        expect(out.text).toBe(`482913 is your ${FIRM_NAME} verification code. Never share it.`);
+      }
       return;
     }
     expect(out.subject).not.toMatch(/[\r\n]/);
