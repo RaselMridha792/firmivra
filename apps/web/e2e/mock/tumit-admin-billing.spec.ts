@@ -38,7 +38,9 @@ test('the Billing dashboard lists invoices with totals, tabs, filters and quick 
   await expect(rows.first()).toContainText('Taylor Corporate');
   await page.getByRole('searchbox', { name: 'Search invoices' }).clear();
 
-  await page.getByLabel('Status', { exact: true }).selectOption({ label: 'Overdue' });
+  await page
+    .getByRole('combobox', { name: 'Status', exact: true })
+    .selectOption({ label: 'Overdue' });
   await expect(rows).toHaveCount(4);
   for (const badge of await rows.getByTestId('status-badge').all()) {
     await expect(badge).toHaveText('Overdue');
