@@ -30,6 +30,87 @@ Paths below are inside `apps/web/src/app/`. Mockups are in `docs/mockups/`. A fo
 
 Sidebar: Dashboard, Firm Applications (pending count), Firms. Then Sales, Leads / CRM, Team, Subscriptions, Billing, Support, Reports & Analytics, Notifications, Audit & Security and System Settings with a "Soon" badge: they open nothing.
 
+### Super Admin console modules: Audit & Security, Billing, Subscriptions, Sales, Team and Support (Tumit); Communications, Integrations, Notifications, Reports & Analytics and System Settings (Arfan)
+
+Rasel's decision, Oct 18. Octavia's designs and docx are in `docs/mockups/super-admin/<module>/source/` (`SOURCE-INDEX.md` maps the original names). Every route below exists on main as a title-only placeholder in `apps/web/src/app/admin/(console)/`. The same three route rules as the firm workspace apply: a page gets a route, a tab with its own content gets a route, each wizard step gets a route; modals, drawers, side panels and form panels get none (the docx says which ones). The sidebar items are Tumit's, in the console layout. Pace: 10 pages a day on Oct 18 and Oct 19.
+
+| URL | Folder | Owner | Design file | Docx |
+| --- | --- | --- | --- | --- |
+| `/audit-security` | `(console)/audit-security/` | Tumit | `audit-security/source/audit-and-security-dashboard.jpg` | `audit-security/source/firmivra-audit-and-security-developer-instructions.docx` §2 (Page A); the supporting areas of §5 are filters of this page |
+| `/audit-security/events/[eventId]` | `(console)/audit-security/events/[eventId]/` | Tumit | `audit-security/source/firmivra-security-event-details.jpg`, `audit-security/source/firmivra-audit-security-event-dashboard.jpg` | `audit-security/source/firmivra-audit-and-security-developer-instructions.docx` §3 (Page B) |
+| `/audit-security/settings` | `(console)/audit-security/settings/` | Tumit | `audit-security/source/firmivra-security-settings-dashboard.jpg` | `audit-security/source/firmivra-audit-and-security-developer-instructions.docx` §4 (Page C) |
+| `/billing` | `(console)/billing/` | Tumit | `billing/source/modern-saas-billing-dashboard.jpg`, `billing/source/firmivra-billing-developer-handoff-mockup.jpg` | `billing/source/firmivra-billing-developer-instructions.docx` §6 (Invoices tab) |
+| `/billing/invoices/new` | `(console)/billing/invoices/new/` | Tumit | `billing/source/firmivra-create-invoice-dashboard.jpg` | `billing/source/firmivra-billing-developer-instructions.docx` §7 |
+| `/billing/invoices/[invoiceId]` | `(console)/billing/invoices/[invoiceId]/` | Tumit | `billing/source/firmivra-invoice-dashboard.jpg` | `billing/source/firmivra-billing-developer-instructions.docx` §8 |
+| `/billing/invoices/[invoiceId]/edit` | `(console)/billing/invoices/[invoiceId]/edit/` | Tumit | `billing/source/firmivra-create-invoice-dashboard.jpg` (edit mode) | `billing/source/firmivra-billing-developer-instructions.docx` §7, §8.2 |
+| `/billing/recurring` | `(console)/billing/recurring/` | Tumit | `billing/source/firmivra-recurring-invoices-dashboard.jpg` | `billing/source/firmivra-billing-developer-instructions.docx` §9; create and edit are a drawer |
+| `/billing/estimates` | `(console)/billing/estimates/` | Tumit | `billing/source/firmivra-estimates-dashboard.jpg` | `billing/source/firmivra-billing-developer-instructions.docx` §10; details are a drawer |
+| `/billing/estimates/new` | `(console)/billing/estimates/new/` | Tumit | `billing/source/modern-estimate-creation-dashboard.jpg` | `billing/source/firmivra-billing-developer-instructions.docx` §11 |
+| `/billing/estimates/[estimateId]/edit` | `(console)/billing/estimates/[estimateId]/edit/` | Tumit | `billing/source/modern-estimate-creation-dashboard.jpg` (edit mode) | `billing/source/firmivra-billing-developer-instructions.docx` §10.2, §11 |
+| `/billing/payments` | `(console)/billing/payments/` | Tumit | `billing/source/firmivra-payments-dashboard.jpg` | `billing/source/firmivra-billing-developer-instructions.docx` §12; payment details are a side panel |
+| `/billing/credit-notes` | `(console)/billing/credit-notes/` | Tumit | `billing/source/firmivra-credit-notes-dashboard.jpg` | `billing/source/firmivra-billing-developer-instructions.docx` §13; details are a drawer |
+| `/billing/credit-notes/new` | `(console)/billing/credit-notes/new/` | Tumit | `billing/source/credit-note-creation-dashboard.jpg` | `billing/source/firmivra-billing-developer-instructions.docx` §14 |
+| `/billing/settings` | `(console)/billing/settings/` | Tumit | `billing/source/firmivra-billing-settings-dashboard.jpg` | `billing/source/firmivra-billing-developer-instructions.docx` §15 |
+| `/subscriptions` | `(console)/subscriptions/` | Tumit | `subscriptions/source/firmivra-subscription-management-dashboard.jpg`, `subscriptions/source/firmivra-subscriptions-admin-ui-mockup.jpg` | `subscriptions/source/firmivra-subscriptions-developer-package.docx` §2 to §5; the subscription detail is a panel (§4) |
+| `/sales` | `(console)/sales/` | Tumit | `sales/source/firmivra-sales-center-dashboard-3.jpg` | `sales/source/firmivra-sales-pipeline-developer-instructions.docx` §2, §3, §18 to §21 |
+| `/sales/pipeline` | `(console)/sales/pipeline/` | Tumit | `sales/source/firmivra-sales-pipeline-dashboard-3.jpg` | `sales/source/firmivra-sales-pipeline-developer-instructions.docx` §4 to §12 (card and list view are one page) |
+| `/sales/pipeline/builder` | `(console)/sales/pipeline/builder/` | Tumit | none (no frame) | `sales/source/firmivra-sales-pipeline-developer-instructions.docx` §15 |
+| `/sales/opportunities/[opportunityId]` | `(console)/sales/opportunities/[opportunityId]/` | Tumit | none (no frame) | `sales/source/firmivra-sales-pipeline-developer-instructions.docx` §22; Add Lead (§16) is a form panel on the pipeline |
+| `/team` | `(console)/team/` | Tumit | `team/source/firmivra-team-management-dashboard-1.jpg`, `team/source/firmivra-team-management-dashboard-2.jpg` | `team/source/firmivre-team-section-developer-instructions.docx` §3; the message modals have no route |
+| `/team/new` | `(console)/team/new/` | Tumit | `team/source/creating-team-firmivra-add-team-member-portal.jpg` | `team/source/creating-team-firmivira-team-developer-instructions-download-1.docx` §4, §24 (one form; lower levels see fewer options) |
+| `/team/[memberId]/edit` | `(console)/team/[memberId]/edit/` | Tumit | none (no frame) | `team/source/creating-team-firmivira-team-developer-instructions-download-1.docx` §21 |
+| `/support` | `(console)/support/` | Tumit | `support/source/modern-saas-support-ticket-dashboard.jpg` | `support/source/firmivra-support-module-developer-instructions-separated-sections.docx` §1 to §2; Create New Support Ticket is a modal (`support/source/create-new-support-ticket-modal.jpg`) |
+| `/support/tickets/[ticketId]` | `(console)/support/tickets/[ticketId]/` | Tumit | `support/source/support-ticket-management-dashboard.jpg` | `support/source/firmivra-support-module-developer-instructions-separated-sections.docx` §3 |
+| `/support/settings` | `(console)/support/settings/` | Tumit | `support/source/support-settings-admin-dashboard.jpg` | `support/source/firmivra-support-module-developer-instructions-separated-sections.docx` §4 |
+| `/communications` | `(console)/communications/` | Arfan | `communications/source/firmivra-communications-dashboard.jpg` | `communications/source/firmivra-communications-developer-handoff.docx` §2 (the Inbox, Assigned, Unassigned, Mentions, All and Scheduled tabs filter one list) |
+| `/communications/new` | `(console)/communications/new/` | Arfan | `communications/source/firmivra-new-message-dashboard.jpg` | `communications/source/firmivra-communications-developer-handoff.docx` §6 |
+| `/communications/templates` | `(console)/communications/templates/` | Arfan | `communications/source/firmivra-communications-template-dashboard.jpg` | `communications/source/firmivra-communications-developer-handoff.docx` §4 |
+| `/communications/templates/new` | `(console)/communications/templates/new/` | Arfan | none (Insert Image is a modal: `communications/source/create-template-image-modal.jpg`) | `communications/source/firmivra-communications-developer-handoff.docx` §5 |
+| `/communications/templates/[templateId]/edit` | `(console)/communications/templates/[templateId]/edit/` | Arfan | none (edit mode of Create Template) | `communications/source/firmivra-communications-developer-handoff.docx` §5 |
+| `/communications/broadcasts` | `(console)/communications/broadcasts/` | Arfan | `communications/source/broadcasts-dashboard-and-creation-panel.jpg` | `communications/source/firmivra-communications-developer-handoff.docx` §3.1 |
+| `/communications/broadcasts/new` | `(console)/communications/broadcasts/new/` | Arfan | `communications/source/firmivra-create-broadcast-dashboard.jpg`, `communications/source/create-broadcast-all-channels-setup.jpg` (step 1) | `communications/source/firmivra-communications-developer-handoff.docx` §3.2 |
+| `/communications/broadcasts/new/audience` | `(console)/communications/broadcasts/new/audience/` | Arfan | `communications/source/firmivra-broadcast-audience-dashboard.jpg` (step 2) | `communications/source/firmivra-communications-developer-handoff.docx` §3.2 |
+| `/communications/broadcasts/new/message` | `(console)/communications/broadcasts/new/message/` | Arfan | none (step 3) | `communications/source/firmivra-communications-developer-handoff.docx` §3.2 |
+| `/communications/broadcasts/new/review` | `(console)/communications/broadcasts/new/review/` | Arfan | `communications/source/create-broadcast-review-dashboard.jpg` (step 4) | `communications/source/firmivra-communications-developer-handoff.docx` §3.2, §3.3 |
+| `/integrations` | `(console)/integrations/` | Arfan | `integrations/source/firmivra-integrations-admin-dashboard.jpg` | `integrations/source/firmivra-integrations-developer-guide.docx` §2, §13 (the docx names these routes) |
+| `/integrations/platform` | `(console)/integrations/platform/` | Arfan | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §3 |
+| `/integrations/platform/new` | `(console)/integrations/platform/new/` | Arfan | `integrations/source/firmivra-integration-setup-dashboard.jpg` (step 1) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
+| `/integrations/platform/new/connection` | `(console)/integrations/platform/new/connection/` | Arfan | none (step 2) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
+| `/integrations/platform/new/settings` | `(console)/integrations/platform/new/settings/` | Arfan | none (step 3) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
+| `/integrations/platform/new/review` | `(console)/integrations/platform/new/review/` | Arfan | none (step 4) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
+| `/integrations/platform/[integrationId]` | `(console)/integrations/platform/[integrationId]/` | Arfan | `integrations/source/stripe-integration-admin-dashboard.jpg`, `integrations/source/stripe-integration-admin-dashboard-1.jpg` (Stripe as the example) | `integrations/source/firmivra-integrations-developer-guide.docx` §5 |
+| `/integrations/catalog` | `(console)/integrations/catalog/` | Arfan | `integrations/source/customer-integration-catalog-dashboard.jpg` | `integrations/source/firmivra-integrations-developer-guide.docx` §6 |
+| `/integrations/catalog/[catalogId]` | `(console)/integrations/catalog/[catalogId]/` | Arfan | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §7 |
+| `/integrations/api-webhooks` | `(console)/integrations/api-webhooks/` | Arfan | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §8 |
+| `/integrations/logs` | `(console)/integrations/logs/` | Arfan | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §9 |
+| `/integrations/usage` | `(console)/integrations/usage/` | Arfan | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §10 |
+| `/notifications` | `(console)/notifications/` | Arfan | `notifications/source/firmivra-notifications-dashboard.jpg` | `notifications/source/firmivra-notifications-page-developer-instructions.docx` §1 to §14 (the category tabs filter one list) |
+| `/reports` | `(console)/reports/` | Arfan | `reports/source/reports-and-analytics-dashboard.jpg` (Overview tab) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §1 |
+| `/reports/firms` | `(console)/reports/firms/` | Arfan | `reports/source/reports-and-analytics-dashboard.jpg` (Firms tab, named only) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §2 |
+| `/reports/revenue` | `(console)/reports/revenue/` | Arfan | `reports/source/reports-and-analytics-dashboard.jpg` (Revenue tab, named only) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §7 |
+| `/reports/users` | `(console)/reports/users/` | Arfan | `reports/source/reports-and-analytics-dashboard.jpg` (Users tab, named only) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §8 |
+| `/reports/feature-usage` | `(console)/reports/feature-usage/` | Arfan | `reports/source/reports-and-analytics-dashboard.jpg` (Feature Usage tab, named only) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §9 |
+| `/reports/support` | `(console)/reports/support/` | Arfan | `reports/source/reports-and-analytics-dashboard.jpg` (Support tab, named only) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §10 |
+| `/reports/firms/[businessId]` | `(console)/reports/firms/[businessId]/` | Arfan | `reports/source/firm-report-detail-dashboard.jpg` (Overview tab) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §3 |
+| `/reports/firms/[businessId]/users` | `(console)/reports/firms/[businessId]/users/` | Arfan | `reports/source/firm-report-detail-dashboard.jpg` (Users tab, named only) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §3 |
+| `/reports/firms/[businessId]/subscriptions` | `(console)/reports/firms/[businessId]/subscriptions/` | Arfan | `reports/source/firm-report-detail-dashboard.jpg` (Subscriptions tab, named only) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §3 |
+| `/reports/firms/[businessId]/feature-usage` | `(console)/reports/firms/[businessId]/feature-usage/` | Arfan | `reports/source/firm-report-detail-dashboard.jpg` (Feature Usage tab, named only) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §3 |
+| `/reports/firms/[businessId]/activity` | `(console)/reports/firms/[businessId]/activity/` | Arfan | `reports/source/firm-report-detail-dashboard.jpg` (Activity tab, named only) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §3 |
+| `/reports/firms/[businessId]/support` | `(console)/reports/firms/[businessId]/support/` | Arfan | `reports/source/firm-report-detail-dashboard.jpg` (Support tab, named only) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §3 |
+| `/reports/builder` | `(console)/reports/builder/` | Arfan | `reports/source/custom-report-builder-dashboard.jpg` (step 1) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §4 |
+| `/reports/builder/fields` | `(console)/reports/builder/fields/` | Arfan | `reports/source/custom-report-builder-dashboard.jpg` (step 2) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §4 |
+| `/reports/builder/filters` | `(console)/reports/builder/filters/` | Arfan | `reports/source/custom-report-builder-dashboard.jpg` (step 3) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §4 |
+| `/reports/builder/run` | `(console)/reports/builder/run/` | Arfan | `reports/source/custom-report-builder-dashboard.jpg` (step 4) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §4, §5 |
+| `/reports/saved` | `(console)/reports/saved/` | Arfan | none (no frame) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §6 |
+| `/system-settings` | `(console)/system-settings/` | Arfan | `system-settings/source/firmivra-system-settings-dashboard.jpg` | `system-settings/source/firmivra-system-settings-developer-instructions.docx` "System Settings Main Page" |
+| `/system-settings/general` | `(console)/system-settings/general/` | Arfan | `system-settings/source/firmivra-general-settings-dashboard.jpg` | `system-settings/source/firmivra-system-settings-developer-instructions.docx` "General Settings" |
+| `/system-settings/branding` | `(console)/system-settings/branding/` | Arfan | `system-settings/source/firmivra-branding-and-appearance-dashboard.jpg` | `system-settings/source/firmivra-system-settings-developer-instructions.docx` "Branding & Appearance" |
+| `/system-settings/email-notifications` | `(console)/system-settings/email-notifications/` | Arfan | `system-settings/source/firmivra-email-and-notifications-settings.jpg` | `system-settings/source/firmivra-system-settings-developer-instructions.docx` "Email & Notifications" |
+| `/system-settings/features` | `(console)/system-settings/features/` | Arfan | `system-settings/source/firmivra-feature-management-dashboard.jpg`, `system-settings/source/firmivra-feature-management-dashboard-1.jpg` | `system-settings/source/firmivra-system-settings-developer-instructions.docx` "Feature Management" |
+| `/system-settings/data-retention` | `(console)/system-settings/data-retention/` | Arfan | `system-settings/source/firmivra-data-and-retention-settings.jpg` | `system-settings/source/firmivra-system-settings-developer-instructions.docx` "Data & Retention" |
+| `/system-settings/configuration` | `(console)/system-settings/configuration/` | Arfan | `system-settings/source/system-configuration-dashboard.jpg` | `system-settings/source/firmivra-system-settings-developer-instructions.docx` "System Configuration & Maintenance" |
+| `/system-settings/defaults` | `(console)/system-settings/defaults/` | Arfan | `system-settings/source/firmivra-default-settings-dashboard.jpg` | `system-settings/source/firmivra-system-settings-developer-instructions.docx` "Default User & Firm Settings" |
+
 ## Firm workspace: app.dev.firmivra.com
 
 Pages without the sidebar:
@@ -335,7 +416,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 
 **Tumit** (Staff Management, Settings and Appointments, from Oct 14)
 - `apps/web/src/components/app-shell/`
-- `apps/web/src/app/admin/(console)/`
+- `apps/web/src/app/admin/(console)/` (all of it except Arfan's five Super Admin modules: `communications/`, `integrations/`, `notifications/`, `reports/`, `system-settings/`); from Oct 18 that includes `audit-security/`, `billing/`, `subscriptions/`, `sales/`, `team/` and `support/` (26 routes), and new `apps/web/src/mocks/admin-*.ts` for them
 - `apps/web/src/app/firm/welcome/`, `firm/apply/`, `firm/setup/`
 - `apps/web/src/app/firm/(workspace)/team/` (Staff Management, 20 routes), `audit-log/`, `calendar/` (Appointments, 8 routes), `settings/` (all of it except `settings/layout.tsx`, `settings/route.ts`, `settings/payments/` and `settings/tax-statuses/`)
 - `apps/web/src/app/portal/[firmSlug]/(client)/appointments/`
@@ -352,6 +433,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/portal/[firmSlug]/(public)/begin/`
 - `apps/web/src/app/firm/(workspace)/leads/` (the list, the lead profile `leads/[id]/` and its tabs and convert steps; 14 routes), `intake-forms/` (13 routes), `services-pricing/` (6 routes: the list, categories, packages list, `packages/[id]`, `packages/[id]/edit` and promotions; `new`, `[id]`, `[id]/edit`, `inactive` and `packages/new` moved to Fahad on Oct 15)
 - `apps/web/src/mocks/leads.ts`, `mocks/intake-forms.ts`, `mocks/services-pricing.ts` and new `mocks/leads-*.ts`, `mocks/intake-forms-*.ts`, `mocks/services-pricing-*.ts` (synthetic data only; registering a module in `lib/api.ts` is the contract session's)
+- From Oct 18, the Super Admin console in `apps/web/src/app/admin/(console)/`: `communications/`, `integrations/`, `notifications/`, `reports/` and `system-settings/` (48 routes), and new `apps/web/src/mocks/admin-communications*.ts`, `mocks/admin-integrations*.ts`, `mocks/admin-notifications*.ts`, `mocks/admin-reports*.ts`, `mocks/admin-system-settings*.ts`
 - `apps/web/e2e/` (all tests, mock-mode ones too: you lead testing), `docs/tasks/ARFAN.md`
 
 **Ibrahim** (Integrations, Reports, Tax Planning & Strategy and Business Advisory & Development, from Oct 17)

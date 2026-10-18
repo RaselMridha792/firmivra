@@ -43,6 +43,7 @@ import { ContentModule } from './content/content.controller.js';
 import { SupportAccessModule } from './support-access/support-access.controller.js';
 import { TeamModule } from './team/team.controller.js';
 import { TasksModule } from './tasks/tasks.module.js';
+import { AutomationsModule } from './automations/automations.module.js';
 import { TaxPlanningModule } from './tax-planning/tax-planning.module.js';
 import { AdvisoryModule } from './advisory/advisory.module.js';
 import { CommunicationsModule } from './communications/communications.module.js';
@@ -148,6 +149,7 @@ export class AppModule {
         ClientSignUpsModule,
         BusinessModule,
         BeginOnlineModule,
+        AutomationsModule,
         ComplianceModule,
         TemplatesModule,
         IntegrationsModule,

@@ -102,6 +102,108 @@ Locally, with mock mode off: Annual Tax from start to the success page; validati
 
 You take the portal and Begin Online; Tumit takes the Super Admin site and the firm workspace. Use the checklist in Tumit's Q03 card.
 
+## Super Admin console (Oct 18-19, Rasel)
+
+Octavia's Super Admin designs are in `docs/mockups/super-admin/<module>/source/` with their docx (`SOURCE-INDEX.md` maps the original names). Your 48 routes exist as title-only placeholders in `apps/web/src/app/admin/(console)/`; PAGE-MAP.md lists each one with its design file and docx section. Build mock first on new `apps/web/src/mocks/admin-<module>*.ts` files (synthetic data only), following `docs/design-match.md`. Tumit builds Audit & Security, Billing, Subscriptions, Sales, Team and Support. The sidebar items are Tumit's (the console layout). Pace: 10 pages a day on Oct 18 and Oct 19; a wizard counts as one page with its steps, a page with tabs as one page with its tabs.
+
+| Ticket | Day | Module | Routes |
+| --- | --- | --- | --- |
+| S07 | Oct 18 | System Settings | 8 |
+| S08 | Oct 18 | Notifications | 1 |
+| S09 | Oct 18 | Integrations | 12 |
+| S10 | Oct 19 | Communications | 10 |
+| S11 | Oct 19 | Reports & Analytics | 17 |
+
+### S07 · Oct 18 · Super Admin System Settings
+
+- **Pages** (in `admin/(console)/system-settings/`): `/system-settings`, `/system-settings/general`, `/system-settings/branding`, `/system-settings/email-notifications`, `/system-settings/features`, `/system-settings/data-retention`, `/system-settings/configuration`, `/system-settings/defaults`.
+- **Mockups and docx:** `docs/mockups/super-admin/system-settings/source/`; the PAGE-MAP row of each route names its frame and docx section. Modals, drawers and side panels named there get no route: build them on their page.
+- **API:** none yet. Build on the typed mocks; when a contract lands in `packages/types`, switch to it without changing the page frame.
+
+Checklist:
+
+- [ ] Every part of the design was cropped and enlarged, and its elements listed and counted (rule 1)
+- [ ] Every element is built; no widget was dropped (rule 2)
+- [ ] Where there is no data, the widget shows its frame with a quiet empty state: no invented numbers, no "Coming soon" inside a widget (rule 2)
+- [ ] The page was checked in three states (with data, empty, API unreachable) and every widget's frame shows in each (rule 2)
+- [ ] Icons are solid Phosphor icons; every icon that is not exact is listed in the PR (rule 3)
+- [ ] Colours and sizes were measured from the image and come from `packages/ui` tokens; a new token only where the design colour has none (rule 4)
+- [ ] The page was rendered at 1440 px and compared region by region, and the fixes repeated until no difference is visible (rule 5)
+- [ ] The PR shows screenshots next to the design and lists every difference that could not be removed, and why (rule 6)
+- [ ] Components come from `docs/ui-kit.md`; a kit addition was requested only for a design element the kit lacks
+
+### S08 · Oct 18 · Super Admin Notifications
+
+- **Pages** (in `admin/(console)/notifications/`): `/notifications`.
+- **Mockups and docx:** `docs/mockups/super-admin/notifications/source/`; the PAGE-MAP row of each route names its frame and docx section. Modals, drawers and side panels named there get no route: build them on their page.
+- **API:** none yet. Build on the typed mocks; when a contract lands in `packages/types`, switch to it without changing the page frame.
+
+Checklist:
+
+- [ ] Every part of the design was cropped and enlarged, and its elements listed and counted (rule 1)
+- [ ] Every element is built; no widget was dropped (rule 2)
+- [ ] Where there is no data, the widget shows its frame with a quiet empty state: no invented numbers, no "Coming soon" inside a widget (rule 2)
+- [ ] The page was checked in three states (with data, empty, API unreachable) and every widget's frame shows in each (rule 2)
+- [ ] Icons are solid Phosphor icons; every icon that is not exact is listed in the PR (rule 3)
+- [ ] Colours and sizes were measured from the image and come from `packages/ui` tokens; a new token only where the design colour has none (rule 4)
+- [ ] The page was rendered at 1440 px and compared region by region, and the fixes repeated until no difference is visible (rule 5)
+- [ ] The PR shows screenshots next to the design and lists every difference that could not be removed, and why (rule 6)
+- [ ] Components come from `docs/ui-kit.md`; a kit addition was requested only for a design element the kit lacks
+
+### S09 · Oct 18 · Super Admin Integrations
+
+- **Pages** (in `admin/(console)/integrations/`): `/integrations`, `/integrations/platform`, `/integrations/platform/new`, `/integrations/platform/new/connection`, `/integrations/platform/new/settings`, `/integrations/platform/new/review`, `/integrations/platform/[integrationId]`, `/integrations/catalog`, `/integrations/catalog/[catalogId]`, `/integrations/api-webhooks`, `/integrations/logs`, `/integrations/usage`.
+- **Mockups and docx:** `docs/mockups/super-admin/integrations/source/`; the PAGE-MAP row of each route names its frame and docx section. Modals, drawers and side panels named there get no route: build them on their page.
+- **API:** none yet. Build on the typed mocks; when a contract lands in `packages/types`, switch to it without changing the page frame.
+
+Checklist:
+
+- [ ] Every part of the design was cropped and enlarged, and its elements listed and counted (rule 1)
+- [ ] Every element is built; no widget was dropped (rule 2)
+- [ ] Where there is no data, the widget shows its frame with a quiet empty state: no invented numbers, no "Coming soon" inside a widget (rule 2)
+- [ ] The page was checked in three states (with data, empty, API unreachable) and every widget's frame shows in each (rule 2)
+- [ ] Icons are solid Phosphor icons; every icon that is not exact is listed in the PR (rule 3)
+- [ ] Colours and sizes were measured from the image and come from `packages/ui` tokens; a new token only where the design colour has none (rule 4)
+- [ ] The page was rendered at 1440 px and compared region by region, and the fixes repeated until no difference is visible (rule 5)
+- [ ] The PR shows screenshots next to the design and lists every difference that could not be removed, and why (rule 6)
+- [ ] Components come from `docs/ui-kit.md`; a kit addition was requested only for a design element the kit lacks
+
+### S10 · Oct 19 · Super Admin Communications
+
+- **Pages** (in `admin/(console)/communications/`): `/communications`, `/communications/new`, `/communications/templates`, `/communications/templates/new`, `/communications/templates/[templateId]/edit`, `/communications/broadcasts`, `/communications/broadcasts/new`, `/communications/broadcasts/new/audience`, `/communications/broadcasts/new/message`, `/communications/broadcasts/new/review`.
+- **Mockups and docx:** `docs/mockups/super-admin/communications/source/`; the PAGE-MAP row of each route names its frame and docx section. Modals, drawers and side panels named there get no route: build them on their page.
+- **API:** none yet. Build on the typed mocks; when a contract lands in `packages/types`, switch to it without changing the page frame.
+
+Checklist:
+
+- [ ] Every part of the design was cropped and enlarged, and its elements listed and counted (rule 1)
+- [ ] Every element is built; no widget was dropped (rule 2)
+- [ ] Where there is no data, the widget shows its frame with a quiet empty state: no invented numbers, no "Coming soon" inside a widget (rule 2)
+- [ ] The page was checked in three states (with data, empty, API unreachable) and every widget's frame shows in each (rule 2)
+- [ ] Icons are solid Phosphor icons; every icon that is not exact is listed in the PR (rule 3)
+- [ ] Colours and sizes were measured from the image and come from `packages/ui` tokens; a new token only where the design colour has none (rule 4)
+- [ ] The page was rendered at 1440 px and compared region by region, and the fixes repeated until no difference is visible (rule 5)
+- [ ] The PR shows screenshots next to the design and lists every difference that could not be removed, and why (rule 6)
+- [ ] Components come from `docs/ui-kit.md`; a kit addition was requested only for a design element the kit lacks
+
+### S11 · Oct 19 · Super Admin Reports & Analytics
+
+- **Pages** (in `admin/(console)/reports/`): `/reports`, `/reports/firms`, `/reports/revenue`, `/reports/users`, `/reports/feature-usage`, `/reports/support`, `/reports/firms/[businessId]`, `/reports/firms/[businessId]/users`, `/reports/firms/[businessId]/subscriptions`, `/reports/firms/[businessId]/feature-usage`, `/reports/firms/[businessId]/activity`, `/reports/firms/[businessId]/support`, `/reports/builder`, `/reports/builder/fields`, `/reports/builder/filters`, `/reports/builder/run`, `/reports/saved`.
+- **Mockups and docx:** `docs/mockups/super-admin/reports/source/`; the PAGE-MAP row of each route names its frame and docx section. Modals, drawers and side panels named there get no route: build them on their page.
+- **API:** none yet. Build on the typed mocks; when a contract lands in `packages/types`, switch to it without changing the page frame.
+
+Checklist:
+
+- [ ] Every part of the design was cropped and enlarged, and its elements listed and counted (rule 1)
+- [ ] Every element is built; no widget was dropped (rule 2)
+- [ ] Where there is no data, the widget shows its frame with a quiet empty state: no invented numbers, no "Coming soon" inside a widget (rule 2)
+- [ ] The page was checked in three states (with data, empty, API unreachable) and every widget's frame shows in each (rule 2)
+- [ ] Icons are solid Phosphor icons; every icon that is not exact is listed in the PR (rule 3)
+- [ ] Colours and sizes were measured from the image and come from `packages/ui` tokens; a new token only where the design colour has none (rule 4)
+- [ ] The page was rendered at 1440 px and compared region by region, and the fixes repeated until no difference is visible (rule 5)
+- [ ] The PR shows screenshots next to the design and lists every difference that could not be removed, and why (rule 6)
+- [ ] Components come from `docs/ui-kit.md`; a kit addition was requested only for a design element the kit lacks
+
 ## Dev sites
 
 - https://portal.dev.firmivra.com/lvp (LVP client portal)
