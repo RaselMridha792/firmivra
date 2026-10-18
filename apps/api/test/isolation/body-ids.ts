@@ -17,6 +17,21 @@ export interface BodyIdField {
  * and any field named `...Id`, `...Ids` or `ids`, is a record id and needs the case's `bodyIds`.
  */
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
+  ...(
+    [
+      'taxReturnId',
+      'bookkeepingEngagementId',
+      'invoiceId',
+      'taskId',
+      'intakeFormId',
+      'documentRequestId',
+    ] as const
+  ).map((name) => ({
+    field: `related.${name}`,
+    routes:
+      /^(POST \/api\/v1\/business\/appointments\/schedule|PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
+    why: 'appointments keep no link to a related item yet: any value is refused 400 and never read (R58)',
+  })),
   {
     field: 'senderId',
     routes: /^PATCH \/api\/v1\/business\/communications\/:id$/,
