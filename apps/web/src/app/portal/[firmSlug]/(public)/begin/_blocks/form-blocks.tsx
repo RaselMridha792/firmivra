@@ -4,7 +4,7 @@ import { Button, Card, Checkbox, Input, Radio } from '@firmivra/ui';
 import { ArrowRight, ChevronDown, Eye, EyeOff, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 
-export const compactInput = 'min-h-11 w-full px-2! py-1! text-xs! sm:min-h-7';
+export const compactInput = 'min-h-11 w-full px-2! py-1! text-sm! sm:min-h-7';
 
 export function SectionPanel({
   number,
@@ -59,6 +59,7 @@ export function SectionPanel({
   const bracket = /^(.*\S)\s+(\([a-z][^()]*\))$/.exec(title);
   return (
     <Card
+      data-intake-panel
       aria-labelledby={titleId}
       className={`min-w-0 border-folder-border! p-3! shadow-none! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${bar ? 'bg-accent-soft! sm:flex sm:items-center sm:gap-4' : ''} ${tint ? 'bg-accent-soft!' : ''} ${plain ? 'border-0! bg-transparent! px-0!' : ''} ${tone === 'danger' ? 'border-danger! bg-danger-soft!' : tone === 'warm' ? 'border-accent! bg-accent-soft!' : ''} ${className}`}
     >
@@ -95,7 +96,7 @@ export function SectionPanel({
             {bracket ? (
               <>
                 {bracket[1]}{' '}
-                <span className="font-sans text-xs font-normal text-firm-primary">
+                <span className="font-sans text-sm font-normal text-firm-primary">
                   {bracket[2]}
                 </span>
               </>
@@ -104,7 +105,7 @@ export function SectionPanel({
             )}
           </h2>
           {subtitle && (
-            <p className={`text-firm-primary ${size === 'intro' ? 'mt-1 text-sm' : 'text-xs'}`}>
+            <p className={`text-firm-primary ${size === 'intro' ? 'mt-1 text-sm' : 'text-sm'}`}>
               {subtitle}
             </p>
           )}
@@ -158,9 +159,9 @@ export function ChoiceGroup({
       aria-describedby={error ? `${id}-error` : undefined}
       className={`min-w-0 ${compact ? 'flex flex-wrap items-center justify-between gap-x-2' : ''}`}
     >
-      <legend className={compact ? 'sr-only' : 'mb-1 text-xs text-firm-primary'}>{label}</legend>
+      <legend className={compact ? 'sr-only' : 'mb-1 text-sm text-firm-primary'}>{label}</legend>
       {compact && (
-        <span aria-hidden="true" className="flex-1 text-xs text-firm-primary">
+        <span aria-hidden="true" className="flex-1 text-sm text-firm-primary">
           {label}
         </span>
       )}
@@ -171,7 +172,7 @@ export function ChoiceGroup({
               key={option}
               name={id}
               label={option}
-              className="gap-2! text-xs! sm:min-h-6!"
+              className="gap-2! text-sm! sm:min-h-6"
               checked={selected.includes(option)}
               onChange={(event) =>
                 onChange(
@@ -186,7 +187,7 @@ export function ChoiceGroup({
               key={option}
               name={id}
               label={option}
-              className="gap-2! text-xs! sm:min-h-6!"
+              className="gap-2! text-sm! sm:min-h-6"
               checked={value === option}
               onChange={() => onChange(option)}
             />
@@ -194,7 +195,7 @@ export function ChoiceGroup({
         )}
       </div>
       {error && (
-        <p id={`${id}-error`} className="w-full text-xs text-danger">
+        <p id={`${id}-error`} className="w-full text-sm text-danger">
           {error}
         </p>
       )}
@@ -229,7 +230,7 @@ export function MaskedInput({
       ? value.replace(/^(\d{3})(\d{2})(\d{1,4})$/, '$1-$2-$3')
       : value.replace(/^(\d{2})(\d{1,7})$/, '$1-$2');
   return (
-    <div className="relative [&_label]:text-xs">
+    <div className="relative [&_label]:text-sm">
       <Input
         label={label}
         value={visible ? displayed : value}
@@ -249,7 +250,7 @@ export function MaskedInput({
         aria-label={`${visible ? 'Hide' : 'Show'} ${label.replace(/\s\*$/, '')}`}
         aria-pressed={visible}
         onClick={() => setVisible(!visible)}
-        className="absolute top-5 right-1 min-h-7! px-1! py-1!"
+        className="absolute top-5 right-1 min-h-7 px-1! py-1!"
       >
         {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
       </Button>
@@ -283,7 +284,7 @@ export function Repeater({
           data-testid={`${title.toLowerCase()}-${index + 1}`}
           className="rounded-control border border-folder-border"
         >
-          <summary className="flex cursor-pointer items-center gap-2 rounded-t-control bg-folder-surface px-2 py-1 text-xs font-semibold text-heading">
+          <summary className="flex cursor-pointer items-center gap-2 rounded-t-control bg-folder-surface px-2 py-1 text-sm font-semibold text-heading">
             <ChevronDown aria-hidden="true" className="size-4" />
             {title} {index + 1}
             <Button
@@ -294,7 +295,7 @@ export function Repeater({
                 event.preventDefault();
                 onRemove(index);
               }}
-              className="ml-auto min-h-7! px-1! py-1!"
+              className="ml-auto min-h-7 px-1! py-1!"
             >
               <Trash2 aria-hidden="true" className="size-4" />
             </Button>
@@ -302,12 +303,12 @@ export function Repeater({
           <div className="space-y-2 p-2">{children(index)}</div>
         </details>
       ))}
-      {error && <p className="text-xs text-danger">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
       <Button
         variant="outline"
         disabled={disabled}
         onClick={onAdd}
-        className="w-full border-dashed text-xs! sm:min-h-7!"
+        className="w-full border-dashed text-sm! sm:min-h-7"
       >
         <Plus aria-hidden="true" className="size-4" />
         Add Another {title}
@@ -348,7 +349,7 @@ export function IntakeStepper({
             disabled={id > current || skipped}
             onClick={() => onEdit(id)}
             aria-label={skipped ? `${label} (not needed)` : `Go to ${label}`}
-            className={`relative min-h-8! w-8 rounded-full! p-0! text-sm! font-bold! ${current === id ? 'bg-action! text-on-action!' : boxed ? 'bg-muted! text-on-action!' : 'bg-folder-surface! text-firm-primary!'} ${skipped ? 'opacity-50' : ''}`}
+            className={`relative min-h-8 w-8 rounded-full! p-0! text-sm! font-bold! ${current === id ? 'bg-action! text-on-action!' : boxed ? 'bg-muted! text-on-action!' : 'bg-folder-surface! text-firm-primary!'} ${skipped ? 'opacity-50' : ''}`}
           >
             <span aria-hidden="true">{index + 1}</span>
           </Button>
@@ -356,9 +357,9 @@ export function IntakeStepper({
             {label}
           </span>
           {hint && !skipped && (
-            <span className="hidden px-1 text-xs font-normal sm:block">{hint}</span>
+            <span className="hidden px-1 text-sm font-normal sm:block">{hint}</span>
           )}
-          {skipped && <span className="text-xs text-muted">Not needed</span>}
+          {skipped && <span className="text-sm text-muted">Not needed</span>}
         </li>
       ))}
     </ol>
@@ -387,7 +388,7 @@ export function ReviewCard({
           variant="outline"
           onClick={onEdit}
           aria-label={`Edit ${title}`}
-          className="min-h-8! gap-1! px-3! py-1! text-xs!"
+          className="min-h-8 gap-1! px-3! py-1! text-sm!"
         >
           <Pencil aria-hidden="true" className="size-3" />
           Edit
@@ -401,7 +402,7 @@ export function ReviewCard({
 /** Label, answer, an optional key (when two labels read the same) and `wide` for a table answer. */
 export function ReviewRows({ rows }: { rows: [string, ReactNode, string?, boolean?][] }) {
   return (
-    <dl className="overflow-hidden rounded-control border border-folder-border text-xs">
+    <dl className="overflow-hidden rounded-control border border-folder-border text-sm">
       {rows.map(([label, value, id, wide]) => (
         <div
           key={id ?? label}

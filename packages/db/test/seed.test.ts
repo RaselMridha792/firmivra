@@ -52,6 +52,9 @@ describe('seed', () => {
       'platform_member_permission_overrides',
       // Stage B3: no subscription, so no subscription history (no backfill, change C).
       'platform_subscription_changes',
+      // Stage C1: a settlement's items are the processor's own payments, refunds and fees, which come
+      // with a processor connection; the sample client's settlement is matched to its bank deposit only.
+      'bookkeeping_settlement_items',
     ];
     const empty: string[] = [];
     for (const t of tables) {
