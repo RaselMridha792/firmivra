@@ -52,7 +52,7 @@ The firm Tax Planning screens on the R55 contract (`api.taxPlanning`, `createTax
 
 ## Handoff for a fresh session (written Oct 18, for the next window)
 
-**Done (merged or open, one module per PR):** Compliance #723, Payroll #729, Templates #749, Bookkeeping #750, Communications #762, Automations #771 (all merged), Reports #780 (green, waiting for a merge), and this Tax Planning PR.
+**Done (merged or open, one module per PR):** Compliance #723, Payroll #729, Templates #749, Bookkeeping #750, Communications #762, Automations #771, Reports #780 (merged), and this Tax Planning PR.
 
 **Not built, in order:**
 1. **Messages** (firm `/messages`): a three-pane screen is on the local branch `rasel/R56-messages` (commit "wip: firm Messages three-pane screen"). One of my tests fails: after "Mark unread" the "Mark read" button does not show (the open thread comes from the inbox list, whose `unreadCount` the mock does not raise for a firm message). Fix the mock or the button, run `r56-messages` and `nahid-client-messages`, replace the deleted `nahid-messages-inbox.spec.ts` (already replaced by `r56-messages.spec.ts`), open the PR.
