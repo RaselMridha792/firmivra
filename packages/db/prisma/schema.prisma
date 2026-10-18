@@ -3055,8 +3055,14 @@ model Engagement {
   taxPlans               TaxPlan[]
 
   // R39
-  payrollClient  PayrollClient?
-  advisoryClient AdvisoryClient?
+  payrollClient           PayrollClient?
+  advisoryClient          AdvisoryClient?
+  /// R0 stage C1: bookkeeping transactions, categories, refunds, settlements and terms.
+  bookkeepingCategories   BookkeepingCategory[]    @relation("BookkeepingCategories")
+  bookkeepingTransactions BookkeepingTransaction[] @relation("BookkeepingTransactions")
+  bookkeepingRefunds      BookkeepingRefund[]      @relation("BookkeepingRefunds")
+  bookkeepingSettlements  BookkeepingSettlement[]  @relation("BookkeepingSettlements")
+  bookkeepingTerms        BookkeepingTerms[]       @relation("BookkeepingTerms")
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -3322,6 +3328,12 @@ model Document {
   taxReturnDocuments          TaxReturnDocument[]
 
   // Target of message attachments.
+  /// R0 stage C1
+  bookkeepingReceiptFor     BookkeepingTransaction[]   @relation("BookkeepingTransactionReceipt")
+  bookkeepingReportFiles    BookkeepingReportVersion[] @relation("BookkeepingReportVersionFile")
+  bookkeepingTermsAgreement BookkeepingTerms[]         @relation("BookkeepingTermsAgreement")
+  bookkeepingTermsSigned    BookkeepingTerms[]         @relation("BookkeepingTermsSignedAgreement")
+
   @@unique([businessId, id])
   // One document per carried-over lead upload.
   @@unique([businessId, leadUploadId])
@@ -5007,6 +5019,8 @@ model EsignRequest {
   uploads             EsignPendingUpload[]
   attachments         EsignAttachment[]
   taxAuthorizations   TaxReturnAuthorization[]
+  /// R0 stage C1
+  bookkeepingTerms    BookkeepingTerms[]       @relation("BookkeepingTermsEsign")
 
   @@unique([businessId, id])
   @@unique([businessId, replacesRequestId])
@@ -9616,10 +9630,15 @@ model BookkeepingConnection {
   createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement Engagement           @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
-  syncRuns   BookkeepingSyncRun[]
-  accounts   BookkeepingAccount[]
+  engagement   Engagement               @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  syncRuns     BookkeepingSyncRun[]
+  accounts     BookkeepingAccount[]
+  /// R0 stage C1
+  categories   BookkeepingCategory[]
+  transactions BookkeepingTransaction[]
+  settlements  BookkeepingSettlement[]
 
+  @@unique([businessId, engagementId, id])
   @@unique([businessId, id])
   @@index([businessId, engagementId])
   @@index([businessId, status])
@@ -9676,7 +9695,10 @@ model BookkeepingAccount {
   engagement                 Engagement                  @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
   connection                 BookkeepingConnection?      @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
   bookkeepingReconciliations BookkeepingReconciliation[]
+  /// R0 stage C1
+  transactions               BookkeepingTransaction[]
 
+  @@unique([businessId, engagementId, id])
   @@unique([businessId, id])
   @@unique([businessId, engagementId, connectionId, sourceAccountId])
   @@index([businessId, engagementId])
@@ -9788,10 +9810,13 @@ model BookkeepingReconciliation {
   createdAt             DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  period    BookkeepingPeriod  @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
-  account   BookkeepingAccount @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict)
-  statement Document?          @relation(fields: [businessId, statementDocumentId], references: [businessId, id], onDelete: Restrict)
+  period              BookkeepingPeriod        @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
+  account             BookkeepingAccount       @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict)
+  statement           Document?                @relation(fields: [businessId, statementDocumentId], references: [businessId, id], onDelete: Restrict)
+  /// R0 stage C1: the transactions cleared in this reconciliation.
+  clearedTransactions BookkeepingTransaction[]
 
+  @@unique([businessId, id])
   @@unique([businessId, periodId, accountId])
   @@index([businessId, status])
   @@map("bookkeeping_reconciliations")
@@ -9828,9 +9853,11 @@ model BookkeepingReport {
   createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement       Engagement         @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
-  period           BookkeepingPeriod? @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
-  engagementReport EngagementReport?  @relation(fields: [engagementReportId], references: [id], onDelete: Restrict)
+  engagement       Engagement                 @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  period           BookkeepingPeriod?         @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
+  engagementReport EngagementReport?          @relation(fields: [engagementReportId], references: [id], onDelete: Restrict)
+  /// R0 stage C1: every generated version.
+  versions         BookkeepingReportVersion[]
 
   @@unique([businessId, id])
   @@unique([engagementReportId])
@@ -12702,4 +12729,482 @@ model PlatformFirmMetricsDaily {
   @@id([day, businessId])
   @@index([businessId, day])
   @@map("platform_firm_metrics_daily")
+}
+
+// ---------- R0 stage C1: Bookkeeping transactions, refunds, settlements, report versions, terms ----------
+// The Bookkeeping API's schema request (#718), from the Bookkeeping developer instructions: the
+// transaction workspace (categorize, split, transfer, match, exclude, receipt), refunds and
+// chargebacks and settlements or payouts as distinct events with source linkage and bank-deposit
+// matching, report versions (snapshots of what was generated and sent), and the client's
+// engagement terms (six tabs; versioned, never overwritten once signed). Firm data: each firm sees
+// only its own; every row stays on one client's bookkeeping engagement (composite keys). A closed
+// period locks its transactions. Contract note: docs/work/R0-stage-c1-bookkeeping.md.
+
+enum BookkeepingCategoryType {
+  INCOME
+  COST_OF_GOODS
+  EXPENSE
+  ASSET
+  LIABILITY
+  EQUITY
+  OTHER
+}
+
+/// From the account's side: DEBIT is money out of a bank account (or a charge on a card), CREDIT is
+/// money in (or a card payment or refund).
+enum BookkeepingTxnDirection {
+  DEBIT
+  CREDIT
+}
+
+enum BookkeepingTxnKind {
+  STANDARD
+  TRANSFER
+  PAYMENT
+  REFUND
+  CHARGEBACK
+  FEE
+  PAYOUT
+  ADJUSTMENT
+}
+
+enum BookkeepingTxnStatus {
+  UNCATEGORIZED
+  CATEGORIZED
+  MATCHED
+  EXCLUDED
+  NEEDS_REVIEW
+}
+
+enum BookkeepingTxnSource {
+  SYNC
+  IMPORT
+  MANUAL
+}
+
+enum BookkeepingRefundKind {
+  /// A vendor refunded the client (link the original expense; not ordinary income).
+  REFUND_RECEIVED
+  /// The client refunded a customer (link the original sale or payment).
+  REFUND_ISSUED
+  CHARGEBACK
+}
+
+enum BookkeepingRefundStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REVERSED
+}
+
+enum BookkeepingDisputeStatus {
+  OPEN
+  WON
+  LOST
+  ACCEPTED
+}
+
+enum BookkeepingNetSource {
+  /// The processor's own net figure.
+  SOURCE
+  /// Gross minus refunds, chargebacks and fees, plus adjustments.
+  CALCULATED
+}
+
+enum BookkeepingSettlementStatus {
+  UNMATCHED
+  PARTIALLY_MATCHED
+  MATCHED
+  NEEDS_REVIEW
+}
+
+enum BookkeepingDeliveryStatus {
+  NOT_SENT
+  SENT
+  FAILED
+}
+
+/// DRAFT (editable) -> SENT -> ACTIVE (signed or accepted; then frozen) -> SUPERSEDED by the next
+/// version, or TERMINATED.
+enum BookkeepingTermsStatus {
+  DRAFT
+  SENT
+  ACTIVE
+  SUPERSEDED
+  TERMINATED
+}
+
+enum BookkeepingRenewalType {
+  AUTO
+  MANUAL
+  FIXED_TERM
+}
+
+enum BookkeepingBillingFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum BookkeepingBillingTiming {
+  ADVANCE
+  ARREARS
+}
+
+enum BookkeepingPaymentTerms {
+  DUE_ON_RECEIPT
+  NET_7
+  NET_15
+  NET_30
+  CUSTOM
+}
+
+enum BookkeepingTermsEventKind {
+  CREATED
+  SENT
+  SIGNED
+  ACTIVATED
+  SUPERSEDED
+  PACKAGE_CHANGED
+  PRICING_CHANGED
+  SCOPE_CHANGED
+  RENEWAL_CHANGED
+  PRICE_CHANGE_NOTICE
+  TERMINATION_NOTICE
+  TERMINATED
+  RENEWED
+  NOTE
+}
+
+/// A client's chart-of-accounts category: synced from its accounting connection (with the
+/// provider's id) or added by hand. Deactivated, never deleted.
+model BookkeepingCategory {
+  id               String                  @id @default(uuid(7)) @db.Uuid
+  businessId       String                  @map("business_id") @db.Uuid
+  engagementId     String                  @map("engagement_id") @db.Uuid
+  connectionId     String?                 @map("connection_id") @db.Uuid
+  sourceCategoryId String?                 @map("source_category_id")
+  name             String
+  type             BookkeepingCategoryType
+  parentId         String?                 @map("parent_id") @db.Uuid
+  isActive         Boolean                 @default(true) @map("is_active")
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement   Engagement                    @relation("BookkeepingCategories", fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  connection   BookkeepingConnection?        @relation(fields: [businessId, engagementId, connectionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  parent       BookkeepingCategory?          @relation("BookkeepingCategoryParent", fields: [businessId, engagementId, parentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  children     BookkeepingCategory[]         @relation("BookkeepingCategoryParent")
+  transactions BookkeepingTransaction[]
+  splits       BookkeepingTransactionSplit[]
+  refunds      BookkeepingRefund[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, id])
+  @@unique([businessId, engagementId, name])
+  @@unique([businessId, connectionId, sourceCategoryId])
+  @@map("bookkeeping_categories")
+}
+
+/// One transaction of a client's bank or card account (the Transactions grid): synced, imported or
+/// entered by hand, with its source id. Categorized (a category, or splits that add up to the
+/// amount), a transfer (linked to its other side), matched to an existing transaction, or excluded
+/// (with a reason). Never deleted (a possible duplicate is flagged, never silently removed). Locked
+/// while its period is closed.
+model BookkeepingTransaction {
+  id                      String                  @id @default(uuid(7)) @db.Uuid
+  businessId              String                  @map("business_id") @db.Uuid
+  engagementId            String                  @map("engagement_id") @db.Uuid
+  accountId               String                  @map("account_id") @db.Uuid
+  connectionId            String?                 @map("connection_id") @db.Uuid
+  sourceTransactionId     String?                 @map("source_transaction_id")
+  transactionDate         DateTime                @map("transaction_date") @db.Date
+  description             String
+  payee                   String?
+  /// Always positive; the direction says which way it went.
+  amountCents             Int                     @map("amount_cents")
+  direction               BookkeepingTxnDirection
+  kind                    BookkeepingTxnKind      @default(STANDARD)
+  status                  BookkeepingTxnStatus    @default(UNCATEGORIZED)
+  /// Null when uncategorized or split.
+  categoryId              String?                 @map("category_id") @db.Uuid
+  classLabel              String?                 @map("class_label")
+  locationLabel           String?                 @map("location_label")
+  /// A transfer's other side (both rows name each other).
+  transferPairId          String?                 @map("transfer_pair_id") @db.Uuid
+  /// The existing transaction this feed item was matched to.
+  matchedToId             String?                 @map("matched_to_id") @db.Uuid
+  excludedReason          String?                 @map("excluded_reason")
+  /// A probable duplicate of this transaction (flagged for review).
+  duplicateOfId           String?                 @map("duplicate_of_id") @db.Uuid
+  receiptDocumentId       String?                 @map("receipt_document_id") @db.Uuid
+  /// The reconciliation it was cleared in.
+  clearedReconciliationId String?                 @map("cleared_reconciliation_id") @db.Uuid
+  clearedAt               DateTime?               @map("cleared_at") @db.Timestamptz(3)
+  source                  BookkeepingTxnSource
+  createdByUserId         String?                 @map("created_by_user_id") @db.Uuid
+  createdAt               DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement            Engagement                    @relation("BookkeepingTransactions", fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  account               BookkeepingAccount            @relation(fields: [businessId, engagementId, accountId], references: [businessId, engagementId, id], onDelete: Restrict)
+  connection            BookkeepingConnection?        @relation(fields: [businessId, engagementId, connectionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  category              BookkeepingCategory?          @relation(fields: [businessId, engagementId, categoryId], references: [businessId, engagementId, id], onDelete: Restrict)
+  transferPair          BookkeepingTransaction?       @relation("BookkeepingTransferPair", fields: [businessId, engagementId, transferPairId], references: [businessId, engagementId, id], onDelete: Restrict)
+  transferPairOf        BookkeepingTransaction[]      @relation("BookkeepingTransferPair")
+  matchedTo             BookkeepingTransaction?       @relation("BookkeepingMatchedTo", fields: [businessId, engagementId, matchedToId], references: [businessId, engagementId, id], onDelete: Restrict)
+  matchedFrom           BookkeepingTransaction[]      @relation("BookkeepingMatchedTo")
+  duplicateOf           BookkeepingTransaction?       @relation("BookkeepingDuplicateOf", fields: [businessId, engagementId, duplicateOfId], references: [businessId, engagementId, id], onDelete: Restrict)
+  duplicates            BookkeepingTransaction[]      @relation("BookkeepingDuplicateOf")
+  receipt               Document?                     @relation("BookkeepingTransactionReceipt", fields: [businessId, engagementId, receiptDocumentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  clearedReconciliation BookkeepingReconciliation?    @relation(fields: [businessId, clearedReconciliationId], references: [businessId, id], onDelete: Restrict)
+  splits                BookkeepingTransactionSplit[]
+  refundsOf             BookkeepingRefund[]           @relation("BookkeepingRefundOriginal")
+  refundsAs             BookkeepingRefund[]           @relation("BookkeepingRefundTransaction")
+  depositFor            BookkeepingSettlement[]
+  settlementItems       BookkeepingSettlementItem[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, id])
+  @@unique([businessId, connectionId, sourceTransactionId])
+  @@index([businessId, engagementId, transactionDate])
+  @@index([businessId, engagementId, status])
+  @@index([businessId, accountId, transactionDate])
+  @@map("bookkeeping_transactions")
+}
+
+/// One part of a split transaction; a split transaction's parts add up to its amount.
+model BookkeepingTransactionSplit {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  engagementId  String   @map("engagement_id") @db.Uuid
+  transactionId String   @map("transaction_id") @db.Uuid
+  categoryId    String   @map("category_id") @db.Uuid
+  amountCents   Int      @map("amount_cents")
+  memo          String?
+  classLabel    String?  @map("class_label")
+  locationLabel String?  @map("location_label")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  transaction BookkeepingTransaction @relation(fields: [businessId, engagementId, transactionId], references: [businessId, engagementId, id], onDelete: Cascade)
+  category    BookkeepingCategory    @relation(fields: [businessId, engagementId, categoryId], references: [businessId, engagementId, id], onDelete: Restrict)
+
+  @@index([businessId, transactionId])
+  @@map("bookkeeping_transaction_splits")
+}
+
+/// A refund received or issued, or a chargeback: its own event, linked to the original transaction
+/// and, when known, to its own transaction and the settlement that carried it.
+model BookkeepingRefund {
+  id                    String                    @id @default(uuid(7)) @db.Uuid
+  businessId            String                    @map("business_id") @db.Uuid
+  engagementId          String                    @map("engagement_id") @db.Uuid
+  kind                  BookkeepingRefundKind
+  /// The payment processor's code ("stripe", "square"), when there is one.
+  processor             String?
+  sourceRefundId        String?                   @map("source_refund_id")
+  originalTransactionId String?                   @map("original_transaction_id") @db.Uuid
+  transactionId         String?                   @map("transaction_id") @db.Uuid
+  refundDate            DateTime                  @map("refund_date") @db.Date
+  amountCents           Int                       @map("amount_cents")
+  reason                String?
+  method                String?
+  status                BookkeepingRefundStatus   @default(PENDING)
+  /// Chargebacks only.
+  disputeStatus         BookkeepingDisputeStatus? @map("dispute_status")
+  resolution            String?
+  /// The category or contra account the firm's rules map it to.
+  categoryId            String?                   @map("category_id") @db.Uuid
+  settlementId          String?                   @map("settlement_id") @db.Uuid
+  includeInReport       Boolean                   @default(true) @map("include_in_report")
+  createdByUserId       String?                   @map("created_by_user_id") @db.Uuid
+  createdAt             DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement          Engagement              @relation("BookkeepingRefunds", fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  originalTransaction BookkeepingTransaction? @relation("BookkeepingRefundOriginal", fields: [businessId, engagementId, originalTransactionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  transaction         BookkeepingTransaction? @relation("BookkeepingRefundTransaction", fields: [businessId, engagementId, transactionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  category            BookkeepingCategory?    @relation(fields: [businessId, engagementId, categoryId], references: [businessId, engagementId, id], onDelete: Restrict)
+  settlement          BookkeepingSettlement?  @relation(fields: [businessId, engagementId, settlementId], references: [businessId, engagementId, id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, processor, sourceRefundId])
+  @@index([businessId, engagementId, refundDate])
+  @@index([businessId, engagementId, status])
+  @@map("bookkeeping_refunds")
+}
+
+/// A processor's settlement or payout batch: gross, refunds, chargebacks, fees and adjustments kept
+/// apart, the net, and the bank deposit it was matched to.
+model BookkeepingSettlement {
+  id                   String                      @id @default(uuid(7)) @db.Uuid
+  businessId           String                      @map("business_id") @db.Uuid
+  engagementId         String                      @map("engagement_id") @db.Uuid
+  connectionId         String?                     @map("connection_id") @db.Uuid
+  processor            String
+  sourceSettlementId   String?                     @map("source_settlement_id")
+  periodStart          DateTime                    @map("period_start") @db.Date
+  periodEnd            DateTime                    @map("period_end") @db.Date
+  payoutDate           DateTime                    @map("payout_date") @db.Date
+  grossCents           Int                         @map("gross_cents")
+  refundsCents         Int                         @default(0) @map("refunds_cents")
+  chargebacksCents     Int                         @default(0) @map("chargebacks_cents")
+  feesCents            Int                         @default(0) @map("fees_cents")
+  /// Signed: a credit adds, a debit subtracts.
+  adjustmentsCents     Int                         @default(0) @map("adjustments_cents")
+  netPayoutCents       Int                         @map("net_payout_cents")
+  netSource            BookkeepingNetSource        @default(SOURCE) @map("net_source")
+  /// The matched bank-feed deposit.
+  depositTransactionId String?                     @map("deposit_transaction_id") @db.Uuid
+  status               BookkeepingSettlementStatus @default(UNMATCHED)
+  matchedAt            DateTime?                   @map("matched_at") @db.Timestamptz(3)
+  matchedByUserId      String?                     @map("matched_by_user_id") @db.Uuid
+  note                 String?
+  createdAt            DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement         Engagement                  @relation("BookkeepingSettlements", fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  connection         BookkeepingConnection?      @relation(fields: [businessId, engagementId, connectionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  depositTransaction BookkeepingTransaction?     @relation(fields: [businessId, engagementId, depositTransactionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  items              BookkeepingSettlementItem[]
+  refunds            BookkeepingRefund[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, id])
+  @@unique([businessId, engagementId, processor, sourceSettlementId])
+  @@index([businessId, engagementId, payoutDate])
+  @@index([businessId, engagementId, status])
+  @@map("bookkeeping_settlements")
+}
+
+/// A payment, refund or fee included in a settlement (the drill-down).
+model BookkeepingSettlementItem {
+  businessId    String   @map("business_id") @db.Uuid
+  engagementId  String   @map("engagement_id") @db.Uuid
+  settlementId  String   @map("settlement_id") @db.Uuid
+  transactionId String   @map("transaction_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  settlement  BookkeepingSettlement  @relation(fields: [businessId, engagementId, settlementId], references: [businessId, engagementId, id], onDelete: Cascade)
+  transaction BookkeepingTransaction @relation(fields: [businessId, engagementId, transactionId], references: [businessId, engagementId, id], onDelete: Restrict)
+
+  @@id([settlementId, transactionId])
+  @@index([businessId, transactionId])
+  @@map("bookkeeping_settlement_items")
+}
+
+/// One generated version of a bookkeeping report (the report's history): its parameters, a summary
+/// of its figures, the generated file, and whether and when it was sent. Numbered per report by the
+/// database; what was generated never changes.
+model BookkeepingReportVersion {
+  id                String                    @id @default(uuid(7)) @db.Uuid
+  businessId        String                    @map("business_id") @db.Uuid
+  engagementId      String                    @map("engagement_id") @db.Uuid
+  reportId          String                    @map("report_id") @db.Uuid
+  version           Int
+  /// Period, basis, comparison and filters used.
+  parameters        Json                      @default("{}")
+  /// The headline figures at generation (totals only, never transaction detail).
+  summary           Json                      @default("{}")
+  documentId        String?                   @map("document_id") @db.Uuid
+  generatedAt       DateTime                  @default(now()) @map("generated_at") @db.Timestamptz(3)
+  generatedByUserId String?                   @map("generated_by_user_id") @db.Uuid
+  deliveryStatus    BookkeepingDeliveryStatus @default(NOT_SENT) @map("delivery_status")
+  sentAt            DateTime?                 @map("sent_at") @db.Timestamptz(3)
+  sentByUserId      String?                   @map("sent_by_user_id") @db.Uuid
+  deliveryError     String?                   @map("delivery_error")
+
+  report   BookkeepingReport @relation(fields: [businessId, reportId], references: [businessId, id], onDelete: Restrict)
+  document Document?         @relation("BookkeepingReportVersionFile", fields: [businessId, engagementId, documentId], references: [businessId, engagementId, id], onDelete: Restrict)
+
+  @@unique([businessId, reportId, version])
+  @@index([businessId, engagementId, generatedAt])
+  @@map("bookkeeping_report_versions")
+}
+
+/// One version of a client's bookkeeping engagement terms (the Terms page's six tabs). Edited only
+/// as a DRAFT; once ACTIVE it never changes and a change is a new version that supersedes it. The
+/// database numbers versions per engagement and keeps one ACTIVE version at a time.
+model BookkeepingTerms {
+  id                        String                      @id @default(uuid(7)) @db.Uuid
+  businessId                String                      @map("business_id") @db.Uuid
+  engagementId              String                      @map("engagement_id") @db.Uuid
+  version                   Int
+  status                    BookkeepingTermsStatus      @default(DRAFT)
+  /// The package name from Services & Pricing at the time (a snapshot).
+  packageName               String?                     @map("package_name")
+  startDate                 DateTime                    @map("start_date") @db.Date
+  endDate                   DateTime?                   @map("end_date") @db.Date
+  renewalType               BookkeepingRenewalType      @default(AUTO) @map("renewal_type")
+  renewalDate               DateTime?                   @map("renewal_date") @db.Date
+  noticeDays                Int?                        @map("notice_days")
+  billingFrequency          BookkeepingBillingFrequency @default(MONTHLY) @map("billing_frequency")
+  billingTiming             BookkeepingBillingTiming    @default(ADVANCE) @map("billing_timing")
+  paymentTerms              BookkeepingPaymentTerms     @default(DUE_ON_RECEIPT) @map("payment_terms")
+  /// For CUSTOM payment terms.
+  paymentTermsDays          Int?                        @map("payment_terms_days")
+  preferredPaymentMethod    String?                     @map("preferred_payment_method")
+  autopay                   Boolean                     @default(false)
+  monthlyFeeCents           Int                         @default(0) @map("monthly_fee_cents")
+  setupFeeCents             Int                         @default(0) @map("setup_fee_cents")
+  /// Additional-service billing, late-fee rule and discounts or credits (the API's schema).
+  additionalBilling         Json                        @default("[]") @map("additional_billing")
+  lateFeeRule               Json?                       @map("late_fee_rule")
+  discounts                 Json                        @default("[]")
+  /// Service Details: included, excluded, add-ons, deliverables and both sides' responsibilities.
+  includedServices          Json                        @default("[]") @map("included_services")
+  excludedServices          Json                        @default("[]") @map("excluded_services")
+  addOns                    Json                        @default("[]") @map("add_ons")
+  deliverables              Json                        @default("[]")
+  clientResponsibilities    Json                        @default("[]") @map("client_responsibilities")
+  firmResponsibilities      Json                        @default("[]") @map("firm_responsibilities")
+  effectiveFrom             DateTime                    @map("effective_from") @db.Date
+  internalNotes             String?                     @map("internal_notes")
+  /// The agreement generated from these terms, the signed copy, and its e-signature request.
+  agreementDocumentId       String?                     @map("agreement_document_id") @db.Uuid
+  signedAgreementDocumentId String?                     @map("signed_agreement_document_id") @db.Uuid
+  esignRequestId            String?                     @map("esign_request_id") @db.Uuid
+  sentAt                    DateTime?                   @map("sent_at") @db.Timestamptz(3)
+  signedAt                  DateTime?                   @map("signed_at") @db.Timestamptz(3)
+  activatedAt               DateTime?                   @map("activated_at") @db.Timestamptz(3)
+  supersededAt              DateTime?                   @map("superseded_at") @db.Timestamptz(3)
+  terminatedAt              DateTime?                   @map("terminated_at") @db.Timestamptz(3)
+  terminationReason         String?                     @map("termination_reason")
+  createdByUserId           String?                     @map("created_by_user_id") @db.Uuid
+  createdAt                 DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                 DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement      Engagement              @relation("BookkeepingTerms", fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  agreement       Document?               @relation("BookkeepingTermsAgreement", fields: [businessId, engagementId, agreementDocumentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  signedAgreement Document?               @relation("BookkeepingTermsSignedAgreement", fields: [businessId, engagementId, signedAgreementDocumentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  esignRequest    EsignRequest?           @relation("BookkeepingTermsEsign", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
+  events          BookkeepingTermsEvent[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, version])
+  @@index([businessId, engagementId, status])
+  @@index([businessId, renewalDate])
+  @@map("bookkeeping_terms")
+}
+
+/// The terms' history (the History tab): package, pricing, scope, agreement, renewal, notice and
+/// termination events. Append-only.
+model BookkeepingTermsEvent {
+  id            String                    @id @default(uuid(7)) @db.Uuid
+  businessId    String                    @map("business_id") @db.Uuid
+  termsId       String                    @map("terms_id") @db.Uuid
+  kind          BookkeepingTermsEventKind
+  effectiveDate DateTime?                 @map("effective_date") @db.Date
+  noticeSentAt  DateTime?                 @map("notice_sent_at") @db.Timestamptz(3)
+  reason        String?
+  /// Ids and old and new values only.
+  details       Json                      @default("{}")
+  actorUserId   String?                   @map("actor_user_id") @db.Uuid
+  createdAt     DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  terms BookkeepingTerms @relation(fields: [businessId, termsId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, termsId, createdAt])
+  @@map("bookkeeping_terms_events")
 }
