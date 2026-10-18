@@ -173,7 +173,7 @@ function hourLines(hours: BusinessHours): [string, string][] {
     if (last && last.text === text) last.to = number;
     else lines.push({ from: number, to: number, text });
   }
-  return lines.map(({ from, to, text }) => [
+  return lines.map(({ from, to, text }): [string, string] => [
     from === to ? (WEEKDAYS[from] ?? '') : `${WEEKDAYS[from] ?? ''} - ${WEEKDAYS[to] ?? ''}`,
     text,
   ]);

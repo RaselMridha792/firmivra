@@ -106,10 +106,10 @@ export function NewTicketModal({
   function submit(event: FormEvent) {
     event.preventDefault();
     if (create.isPending || !directory.data || !settings.data) return;
-    requestId.current ??= crypto.randomUUID();
+    const once = (requestId.current ??= crypto.randomUUID());
     const body: NewTicket = {
       ...draft,
-      requestId: requestId.current,
+      requestId: once,
       attachments: draft.attachments.map((file): AttachmentInput => ({
         name: file.name,
         type: file.type,
@@ -149,12 +149,14 @@ export function NewTicketModal({
           value={draft.firmId}
           error={errors.firmId}
           onChange={(event) => {
-            const next = directory.data?.firms.find((f) => f.id === event.target.value);
+            const firmId = event.target.value;
+            const next = directory.data?.firms.find((f) => f.id === firmId);
             setDraft((current) => ({
               ...current,
-              firmId: event.target.value,
+              firmId,
               contactId: next?.contacts.find((c) => c.primary)?.id ?? '',
             }));
+            setConfirming(false);
           }}
         />
         <SelectField
