@@ -38,3 +38,13 @@ Bookkeeping, Payroll and Compliance were reassigned.
 - Laptop: one heavy command at a time. API `tsc` needs `NODE_OPTIONS=--max-old-space-size=8192` locally until #713. Rebuild `packages/types` (`pnpm --filter @firmivra/types build`) before typechecking web or api.
 - Zod 4: no `.omit()` on refined schemas; use `z.partialRecord` for partial enum records; booleans in queries are `z.union([z.boolean(), z.stringbool()])`; watch name collisions across `export *`.
 - Windows: no Python on the PATH (use node scripts in the scratchpad), use the Write tool for text with quotes.
+
+## Needs from others (infra, for Rasel; nothing is changed in `infra/` by R55)
+
+1. **Secrets Manager (Integrations).** The API task role needs `secretsmanager:CreateSecret`, `PutSecretValue`, `GetSecretValue` and `DeleteSecret` on `firmivra/tenant/*/integrations/*`. Set `SECRETS_MODE=aws` in dev and production (in-memory is refused in production).
+2. **OAuth redirect address (Integrations).** Register `<APP_BASE_URL>/api/v1/integrations/callback` with each provider that connects by OAuth, per environment.
+3. **S3 write for Reports.** `s3:PutObject` on `tenant/*/reports/*` of the documents bucket (the role has Get and Delete for documents only). Set `REPORT_FILES` to the bucket in dev and production.
+4. **S3 write for Automations.** `s3:PutObject` on `tenant/*/automations/*` of the documents bucket (run-log exports).
+5. **Background jobs.** `AUTOMATION_JOBS=on` on exactly the API tasks that should run the 5-minute automation job (the job takes a Postgres advisory lock, so more than one task is safe); `off` elsewhere. The Communications delivery job will use the same pattern (`COMMUNICATION_JOBS`) when it lands.
+6. **Dependency.** `@aws-sdk/client-secrets-manager` was added to `apps/api`; the image build installs it from the lockfile.
+7. **Email and SMS for Communications.** A verified SES identity and an SNS SMS origination number per environment, or the firms' own providers through Integrations; until one is connected the Communications channels answer `CHANNEL_UNAVAILABLE`.
