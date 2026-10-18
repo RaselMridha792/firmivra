@@ -457,13 +457,16 @@ export function CreditNotes({ openId, saved }: { openId: string | null; saved: s
         ) : null}
       </section>
 
+      {/* The table runs edge to edge in its card (no inner border), the pager below it. */}
       <section
         aria-label="Credit notes"
-        className="flex min-w-0 flex-col gap-4 rounded-xl bg-surface p-4 shadow-sm"
+        className="flex min-w-0 flex-col rounded-xl bg-surface shadow-sm"
       >
         <BillingTable
           testId="credit-note-table"
           caption="Credit notes"
+          dense
+          flush
           columns={columns}
           rows={list.data?.items ?? []}
           rowKey={(row) => row.id}
@@ -478,15 +481,17 @@ export function CreditNotes({ openId, saved }: { openId: string | null; saved: s
             <RowMenu label={`Actions for ${row.number}`} sections={actions.menu(row)} />
           )}
         />
-        <BillingPager
-          page={list.data?.page ?? page}
-          pageCount={list.data?.pageCount ?? 1}
-          total={list.data?.total ?? 0}
-          pageSize={PAGE_SIZE}
-          noun="credit notes"
-          onPage={setPage}
-          loading={list.isLoading}
-        />
+        <div className="p-4">
+          <BillingPager
+            page={list.data?.page ?? page}
+            pageCount={list.data?.pageCount ?? 1}
+            total={list.data?.total ?? 0}
+            pageSize={PAGE_SIZE}
+            noun="credit notes"
+            onPage={setPage}
+            loading={list.isLoading}
+          />
+        </div>
       </section>
 
       <CreditNoteDrawer noteId={viewing} actions={actions} onClose={closeDrawer} />
