@@ -75,11 +75,11 @@ function Group({ legend, help, children }: { legend: string; help: string; child
   );
 }
 
-/** The signature box the client signs in; here it takes nothing. */
+/** The box the client signs in, drawn like the upload drop area; here it takes nothing. */
 function SignatureBox() {
   return (
-    <div className="flex min-h-24 items-center justify-center gap-2 rounded-lg border border-dashed border-control-border bg-subtle p-4 text-sm text-muted">
-      <Signature aria-hidden weight="fill" className="size-6 text-heading" />
+    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-folder-border bg-subtle px-6 py-8 text-center text-sm font-semibold text-muted">
+      <Signature aria-hidden weight="fill" className="size-9 text-muted" />
       Sign here
     </div>
   );
@@ -110,7 +110,8 @@ function PreviewQuestion({
       {help}
     </p>
   ) : null;
-  const choices = q.options.filter((o) => o.trim());
+  // A choice typed twice is one answer, so it shows once; its text keys it.
+  const choices = [...new Set(q.options.map((o) => o.trim()).filter(Boolean))];
   const noChoices = <p className="text-sm text-muted">No choices yet.</p>;
 
   let body: ReactNode;
@@ -144,8 +145,8 @@ function PreviewQuestion({
       body = (
         <Group legend={label} help={help}>
           {choices.length
-            ? choices.map((o, i) => (
-                <Radio key={`${o}-${i}`} name={`preview-${q.key}`} label={o} disabled />
+            ? choices.map((o) => (
+                <Radio key={`${q.key}-${o}`} name={`preview-${q.key}`} label={o} disabled />
               ))
             : noChoices}
         </Group>
@@ -155,7 +156,7 @@ function PreviewQuestion({
       body = (
         <Group legend={label} help={help}>
           {choices.length
-            ? choices.map((o, i) => <Checkbox key={`${o}-${i}`} label={o} disabled />)
+            ? choices.map((o) => <Checkbox key={`${q.key}-${o}`} label={o} disabled />)
             : noChoices}
         </Group>
       );
@@ -168,7 +169,7 @@ function PreviewQuestion({
             defaultValue=""
             options={[
               { value: '', label: choices.length ? 'Choose…' : 'No choices yet' },
-              ...choices.map((o, i) => ({ value: String(i + 1), label: o })),
+              ...choices.map((o) => ({ value: o, label: o })),
             ]}
           />
           {helpLine}
@@ -241,8 +242,8 @@ function PreviewQuestion({
   );
 }
 
-const CARD =
-  'flex min-w-0 flex-col gap-4 rounded-lg border border-divider bg-surface p-4 shadow-sm';
+/** A white card on the tab's light panel, as the Form Builder tab draws its section rows. */
+const CARD = 'flex min-w-0 flex-col gap-4 rounded-lg bg-surface p-4 shadow-sm';
 
 /**
  * The Preview tab (guide Frame 1): the unsaved draft as the client sees it, with its
@@ -264,9 +265,9 @@ export function FormPreview({ state }: { state: BuilderState }) {
     <section
       aria-label="Form preview"
       data-testid="form-preview"
-      className="flex min-w-0 flex-col gap-3 rounded-lg border border-divider bg-canvas p-3"
+      className="flex min-w-0 flex-col gap-3 rounded-xl bg-canvas p-3 sm:p-4"
     >
-      <Callout icon={Eye} tone="navy" surface="plain" size="compact">
+      <Callout icon={Eye} tone="blue" surface="info" size="compact">
         This is how your client sees the form. Nothing is sent from the preview.
       </Callout>
 
@@ -351,7 +352,7 @@ export function FormPreview({ state }: { state: BuilderState }) {
           </div>
         </>
       ) : (
-        <p className={QUIET}>
+        <p className="rounded-lg bg-surface p-3 text-sm text-muted">
           No sections yet. Add one in the Form Builder tab and it shows here as your client sees it.
         </p>
       )}
