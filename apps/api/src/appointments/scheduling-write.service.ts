@@ -307,7 +307,6 @@ export class SchedulingWriteService {
   ): Promise<AppointmentRecord> {
     const outcome = await this.write(businessId, async (tx) => {
       const current = await this.openForChange(tx, businessId, actor, id);
-      if (body.version !== versionOf(current.updatedAt)) throw errors.saveConflict();
       if (
         body.contact &&
         !(body.contact.kind === 'CLIENT' && body.contact.id === current.clientId)
@@ -457,6 +456,8 @@ export class SchedulingWriteService {
         body.reminders !== undefined &&
         (await this.replaceReminders(tx, businessId, current, body.reminders));
       if (remindersChanged) fields.add('reminders');
+      // After the lookups above, so an id of another firm is 404 before a stale version is 409.
+      if (body.version !== versionOf(current.updatedAt)) throw errors.saveConflict();
       if (fields.size === 0)
         return { record: await this.recordIn(tx, businessId, actor, id), notify: false };
 
