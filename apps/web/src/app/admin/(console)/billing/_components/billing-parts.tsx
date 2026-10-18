@@ -318,9 +318,14 @@ export interface Notice {
   tone: 'success' | 'error';
   message: string;
 }
-/** `[notice, show, clear]` for BillingNotice; a success clears itself after a few seconds. */
-export function useNotice(): [Notice | null, (notice: Notice) => void, () => void] {
-  const [notice, setNotice] = useState<Notice | null>(null);
+/**
+ * `[notice, show, clear]` for BillingNotice; a shown success clears itself after a few seconds.
+ * `initial` is a notice to start with (a save on the previous page).
+ */
+export function useNotice(
+  initial: Notice | null = null,
+): [Notice | null, (notice: Notice) => void, () => void] {
+  const [notice, setNotice] = useState<Notice | null>(initial);
   const show = (next: Notice) => {
     setNotice(next);
     if (next.tone === 'success')
