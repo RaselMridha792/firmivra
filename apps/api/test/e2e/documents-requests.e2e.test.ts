@@ -399,6 +399,16 @@ describe('request packets', () => {
     expectError(
       await call('post', '/document-request-packets', ownerA, {
         idempotencyKey: randomUUID(),
+        clientId: ids.c1,
+        title: 'For a member',
+        recipient: { kind: 'MEMBER', userId: ownerB.id },
+      }),
+      409,
+      'NOT_A_MEMBER',
+    );
+    expectError(
+      await call('post', '/document-request-packets', ownerA, {
+        idempotencyKey: randomUUID(),
         clientId: ids.c2,
         title: 'x',
       }),

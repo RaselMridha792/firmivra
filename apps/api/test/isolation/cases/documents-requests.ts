@@ -85,7 +85,8 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/documents/:id/access': { params: { id: 'document' } },
   'POST /api/v1/business/documents/:id/shares': {
     params: { id: 'document' },
-    bodyIds: { 'recipient.clientAccountId': 'esignLogin', 'recipient.userId': 'adminUser' },
+    // The CLIENT variant; the MEMBER variant's userId is in body-ids.ts' NOT_RECORDS.
+    bodyIds: { 'recipient.clientAccountId': 'esignLogin' },
     body: { recipient: { kind: 'CLIENT', clientAccountId: PLACEHOLDER } },
   },
   'PATCH /api/v1/business/documents/:id/shares/:shareId': {
@@ -104,7 +105,6 @@ export const cases: CaseModule['cases'] = {
       serviceId: 'engagement',
       templateId: 'requestTemplate',
       assignedUserId: 'adminUser',
-      'recipient.userId': 'adminUser',
       'items.categoryId': 'documentCategory',
     },
     body: () => ({

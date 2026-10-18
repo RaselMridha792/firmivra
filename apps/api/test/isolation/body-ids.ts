@@ -32,6 +32,11 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     routes: /^POST \/api\/v1\/business\/documents\/bulk$/,
     why: "records of the other bulk actions (RECLASSIFY, ASSIGN_REVIEWER): one case per route carries MOVE; documents-library.e2e refuses another firm's category and reviewer (R55)",
   })),
+  {
+    field: 'recipient.userId',
+    routes: /^POST \/api\/v1\/business\/(documents\/:id\/shares|document-request-packets)$/,
+    why: "the MEMBER recipient variant's member: one case per route carries the CLIENT variant (a body has one variant, so a swap of the other's field would change nothing); documents-requests.e2e refuses another firm's member for both (NOT_A_MEMBER) (R55)",
+  },
   ...(
     [
       'taxReturnId',
