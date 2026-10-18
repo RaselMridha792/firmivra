@@ -51,6 +51,14 @@ export const PortalInfo = z.object({
     sidebarMotto: z.string().nullable(),
     primaryColor: HexColor,
     accentColor: HexColor,
+    /**
+     * The firm's theme colours (FirmSettings): sidebar, headings and main text, secondary text,
+     * primary buttons. Null: derive from `primaryColor` (the look before these existed).
+     */
+    sidebarColor: HexColor.nullable(),
+    textPrimaryColor: HexColor.nullable(),
+    textSecondaryColor: HexColor.nullable(),
+    buttonColor: HexColor.nullable(),
     /** For example "LVP Accounting & Taxes Client Portal". */
     portalName: z.string(),
     /** Heading on the landing page; null shows the default. */

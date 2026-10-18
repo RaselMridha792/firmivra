@@ -18,18 +18,31 @@ import {
 } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { IntakeBuilderService } from './intake-builder.service.js';
 import { IntakeLibraryService } from './intake-library.service.js';
 import { IntakeSettingsService } from './intake-settings.service.js';
-import { FormIdParam, FormsQ, ResetSettingsBody, UpdateSettingsBody } from './workspace-input.js';
+import {
+  DuplicateFormBody,
+  FormIdParam,
+  FormsQ,
+  ResetSettingsBody,
+  SaveExistingFormBody,
+  SaveFormBody,
+  UpdateSettingsBody,
+} from './workspace-input.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
+const formIdPipe = new ZodValidationPipe(FormIdParam);
 
-/** The form library (Form Templates). Static routes before ':id'. */
+/** The form library (Form Templates) and the builder. Static routes before ':id'. */
 @Controller('business/intake-forms')
 @Access('INTAKE_FORMS')
 @Roles(...FIRM_STAFF)
 export class IntakeFormsController {
-  constructor(private readonly library: IntakeLibraryService) {}
+  constructor(
+    private readonly library: IntakeLibraryService,
+    private readonly builder: IntakeBuilderService,
+  ) {}
 
   @Get()
   list(
@@ -44,12 +57,64 @@ export class IntakeFormsController {
     return this.library.summary(tenant);
   }
 
+  @Post()
+  @Roles(...FIRM_MANAGERS)
+  create(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(SaveFormBody)) body: Out<typeof SaveFormBody>,
+  ): Promise<IntakeFormDetail> {
+    return this.builder.create(tenant, auth.userId, body);
+  }
+
   @Get(':id')
   get(
     @CurrentTenant() tenant: TenantContext,
-    @Param('id', new ZodValidationPipe(FormIdParam)) id: string,
+    @Param('id', formIdPipe) id: string,
   ): Promise<IntakeFormDetail> {
     return this.library.detail(tenant, id);
+  }
+
+  @Put(':id')
+  @Roles(...FIRM_MANAGERS)
+  save(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', formIdPipe) id: string,
+    @Body(new ZodValidationPipe(SaveExistingFormBody)) body: Out<typeof SaveExistingFormBody>,
+  ): Promise<IntakeFormDetail> {
+    return this.builder.save(tenant, auth.userId, id, body);
+  }
+
+  @Post(':id/publish')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  publish(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', formIdPipe) id: string,
+  ): Promise<IntakeFormDetail> {
+    return this.builder.publish(tenant, id);
+  }
+
+  @Post(':id/duplicate')
+  @Roles(...FIRM_MANAGERS)
+  duplicate(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', formIdPipe) id: string,
+    @Body(new ZodValidationPipe(DuplicateFormBody)) body: Out<typeof DuplicateFormBody>,
+  ): Promise<IntakeFormDetail> {
+    return this.builder.duplicate(tenant, auth.userId, id, body.asTemplate);
+  }
+
+  @Post(':id/archive')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  archive(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', formIdPipe) id: string,
+  ): Promise<IntakeFormDetail> {
+    return this.builder.archive(tenant, id);
   }
 }
 

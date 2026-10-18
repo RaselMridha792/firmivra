@@ -22,6 +22,11 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     routes: /^PUT \/api\/v1\/business\/intake-settings$/,
     why: 'a switch (give each submission a number), not a record (R55)',
   },
+  {
+    field: 'idempotencyKey',
+    routes: /^POST \/api\/v1\/business\/intakes\/send$/,
+    why: "the sender's retry key, not a record (R55)",
+  },
   ...(
     [
       'taxReturnId',
