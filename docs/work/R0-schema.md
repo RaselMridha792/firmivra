@@ -229,7 +229,8 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 **Scrum's order after #743 (Oct 18):**
 1. **Portal click-through on dev,** once R1 has created the demo client login after Deploy dev. Sign in as `harper.coleman@demo.test` on `portal.dev.firmivra.com/demo`, open every portal page and `/demo/begin`, and list each page that errors or shows empty data.
    - Fix API or seed gaps yourself; change screens only if the fix is tiny. Tumit owns the Begin Online form design.
-   - **Needs Rasel's own yes first:** the Oct 18 window ran under "do not run anything on dev or AWS".
+   - **Rasel's decision (Oct 18):** do it locally first. Start the web app and API locally on a fresh database with migrate, `seed.ts` and `seed-demo.ts`. Sign in as Harper through `AUTH_MODE=local` (`POST /api/v1/dev/token`). Then list the portal pages and the `/demo/begin` steps that error or show empty data, and fix the gaps.
+   - Nothing on dev until Rasel says so: the Oct 18 window ran under "do not run anything on dev or AWS".
 2. **Remaining Super Admin schema stages:** D1 to D3, found on Oct 18.
    - **D1 Sales Center:**
      - sales targets and goals per rep, team or company and period (metric, target, period), for targets and attainment
