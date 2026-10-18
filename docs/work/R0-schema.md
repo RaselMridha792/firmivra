@@ -230,7 +230,22 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 1. **Portal click-through on dev,** once R1 has created the demo client login after Deploy dev. Sign in as `harper.coleman@demo.test` on `portal.dev.firmivra.com/demo`, open every portal page and `/demo/begin`, and list each page that errors or shows empty data.
    - Fix API or seed gaps yourself; change screens only if the fix is tiny. Tumit owns the Begin Online form design.
    - **Needs Rasel's own yes first:** the Oct 18 window ran under "do not run anything on dev or AWS".
-2. **Remaining Super Admin schema stages:** D1 Sales Center targets and lead import batches, D2 Subscriptions extras, D3 R55's gaps (see the Oct 18 morning handoff below).
+2. **Remaining Super Admin schema stages:** D1 to D3, found on Oct 18.
+   - **D1 Sales Center:**
+     - sales targets and goals per rep, team or company and period (metric, target, period), for targets and attainment
+     - lead import batches (file, counts imported, duplicates found, skipped), for the CRM's import and dedupe
+   - **D2 Subscriptions extras:**
+     - promotions and promo codes (amount or percent, duration, plans, redemption limit, valid dates)
+     - a firm subscription's applied discounts (reason, who, from and to)
+     - trial extensions and overrides of plan limits (seats, storage, entitlements, with reason and expiry)
+     - Stage A's `platform_firm_subscriptions` and B3's subscription history already carry the lifecycle.
+   - **D3 R55's recorded gaps:**
+     - starter automation templates
+     - per-rule failure-alert recipients
+     - a link from automations to the templates they use
+     - `tasks.request_key` for an idempotent "Save & Create Another"
+     - Check main first: `automation_templates` may already cover the starters.
+   - **Already covered:** R54's staff and org; Advisory, Tax Planning and Tax Returns; Super Admin Team, Firms, Applications and Dashboard.
    - PRs only, one per stage.
    - Rasel gives his own yes on a card before any `packages/db/prisma` PR is merged.
    - Tell Rasel each PR number.
