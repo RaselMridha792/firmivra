@@ -52,6 +52,8 @@ const MIGRATION_REFERENCE_TABLES = [
   // r0_platform_billing (stage B3)
   'platform_billing_settings',
   'platform_billing_counters',
+  // r0_platform_audit_security (stage B4)
+  'platform_security_policy',
 ];
 
 /**
