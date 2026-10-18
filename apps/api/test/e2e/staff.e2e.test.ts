@@ -302,7 +302,7 @@ describe('summary, options and the template', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/csv/);
     expect(res.headers['content-disposition']).toMatch(/attachment/);
-    const text = res.text.replace(/^Feff/, '');
+    const text = res.text.charCodeAt(0) === 0xfeff ? res.text.slice(1) : res.text;
     expect(text.split('\r\n')[0]).toBe(
       'firstName,lastName,email,phone,jobTitle,role,department,employmentType,office,hireDate,employeeId',
     );
