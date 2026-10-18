@@ -178,17 +178,18 @@ function ConnectionForm({ draft }: { draft: PlatformIntegrationDetail }) {
   const [attempted, setAttempted] = useState<'all' | 'typed' | null>(null);
   const [result, setResult] = useState<ConnectionTestResult | null>(null);
   const [copied, setCopied] = useState(false);
-  // A save bumps the version: the boxes show what is saved now (secrets empty again), and a test
-  // result from before no longer applies.
+  // A save bumps the version: the boxes show what is saved now (secrets empty again).
   if (draft.version !== synced) {
     setSynced(draft.version);
     setValues(valuesOf(draft));
-    setResult(null);
   }
+  // A test result applies to the version it tested; saving new values makes it old news.
+  const shownResult = result?.integration.version === draft.version ? result : null;
 
   const { plain, secrets } = pendingOf(draft, values);
   const dirty = Object.keys(plain).length + Object.keys(secrets).length > 0;
-  const canSecrets = access.data?.canManageSecrets ?? false;
+  // Secrets are Super Admin only (docx §12); the API checks too, so only a refusal locks them.
+  const canSecrets = access.data ? access.data.canManageSecrets : !access.isError;
 
   const save = useApiMutation(
     (setupStep: SetupStep | null) => saveConnection(draft, values, setupStep ?? undefined),
@@ -411,7 +412,7 @@ function ConnectionForm({ draft }: { draft: PlatformIntegrationDetail }) {
         </div>
         <TestResult
           integration={draft}
-          result={result}
+          result={shownResult}
           retrying={test.isPending}
           onRetry={() => runTest('test')}
         />
