@@ -45,10 +45,10 @@ jobs:
           const RASEL = ['RaselMridha792'];
           const WEB = 'apps/web/src/app/';
           const MOCKS = 'apps/web/src/mocks/';
-          // Arfan's Super Admin console modules (Rasel, Oct 18); the rest of the console is Tumit's.
+          // Arfan's Super Admin console modules (Rasel, Oct 18); the rest of the console is Tumit's,
+          // including Integrations (moved to Tumit, Rasel, Oct 18).
           const ARFAN_CONSOLE = [
             'communications',
-            'integrations',
             'notifications',
             'reports',
             'system-settings',
@@ -115,11 +115,13 @@ jobs:
                 ),
                 `${MOCKS}intake-forms.ts`,
                 `${MOCKS}intake-forms-*.ts`,
-                // Super Admin console mocks (Rasel, Oct 18); Arfan's five modules are in except.
+                // Super Admin console mocks (Rasel, Oct 18); Arfan's four modules are in except.
                 `${MOCKS}admin-*.ts`,
+                // Begin Online, shared with Arfan (Rasel, Oct 18).
+                `${WEB}portal/[firmSlug]/(public)/begin/`,
               ],
               // The Settings menu and its /settings redirect are R1's; Payments is R16's and the
-              // Tax statuses screen is the reference screen. Five Super Admin modules are Arfan's
+              // Tax statuses screen is the reference screen. Four Super Admin modules are Arfan's
               // (Rasel, Oct 18).
               except: [
                 `${WEB}firm/(workspace)/settings/layout.tsx`,
@@ -152,7 +154,7 @@ jobs:
                   (f) => `${MOCKS}${f}`,
                 ),
                 'apps/web/e2e/',
-                // Five Super Admin console modules (Rasel, Oct 18).
+                // Four Super Admin console modules (Rasel, Oct 18).
                 ...ARFAN_CONSOLE.map((m) => `${WEB}admin/(console)/${m}/`),
                 ...ARFAN_CONSOLE.map((m) => `${MOCKS}admin-${m}*.ts`),
               ],
@@ -174,13 +176,14 @@ jobs:
           };
           // Three tickets, each adding extra paths on top of its developer's normal list, for
           // that branch only; the normal list and except both still apply, every other branch
-          // keeps today's lists unchanged. Temporary: delete this block and its use below after
-          // the night of 13 Oct 2026 (Dhaka).
-          const TEMP_EXPIRES = new Date('2026-10-14T00:00:00+06:00');
+          // keeps today's lists unchanged. Temporary: each one ends at its own date (Dhaka); delete
+          // this block and its use below once all have ended. Fahad's and Arfan's ended after the
+          // night of 13 Oct; Tumit's was extended through 25 Oct (Rasel, Oct 18).
+          const UNTIL_OCT_13 = new Date('2026-10-14T00:00:00+06:00');
           const TEMP_OVERRIDES = [
-            { dev: 'fahad', prefix: 'fahad/FIR-444-', extra: [WEB, 'apps/web/src/components/', 'packages/ui/'] },
-            { dev: 'arfan', prefix: 'arfan/FIR-445-', extra: [WEB, 'apps/web/src/components/', 'apps/web/e2e/'] },
-            { dev: 'tumit', prefix: 'tumit/FIR-445-', extra: [`${WEB}portal/[firmSlug]/(public)/begin/`, 'apps/web/e2e/mock/'] },
+            { dev: 'fahad', prefix: 'fahad/FIR-444-', expires: UNTIL_OCT_13, extra: [WEB, 'apps/web/src/components/', 'packages/ui/'] },
+            { dev: 'arfan', prefix: 'arfan/FIR-445-', expires: UNTIL_OCT_13, extra: [WEB, 'apps/web/src/components/', 'apps/web/e2e/'] },
+            { dev: 'tumit', prefix: 'tumit/FIR-445-', expires: new Date('2026-10-26T00:00:00+06:00'), extra: [`${WEB}portal/[firmSlug]/(public)/begin/`, 'apps/web/e2e/mock/'] },
           ];
           // Everyone: their own tests (also the mock-mode ones) and their task file.
           for (const [name, dev] of Object.entries(DEVELOPERS)) {
@@ -223,9 +226,9 @@ jobs:
           }
           const dev = DEVELOPERS[name];
           const extra =
-            (Date.now() < TEMP_EXPIRES.getTime() &&
-              TEMP_OVERRIDES.find((o) => o.dev === name && branch.startsWith(o.prefix))?.extra) ||
-            [];
+            TEMP_OVERRIDES.find(
+              (o) => o.dev === name && branch.startsWith(o.prefix) && Date.now() < o.expires.getTime(),
+            )?.extra ?? [];
           const files = [...dev.files, ...extra];
           const except = dev.except ?? [];
           const allowed = (file) => files.some((p) => matches(p, file)) && !except.some((p) => matches(p, file));

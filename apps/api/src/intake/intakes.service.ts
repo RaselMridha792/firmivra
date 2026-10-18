@@ -274,7 +274,12 @@ export class IntakesService {
 
   private async row(tx: TxClient, businessId: string, reach: IntakeReach, id: string) {
     const row = await tx.intake.findFirst({
-      where: { businessId, id, engagement: { client: this.clientWhere(reach) } },
+      where: {
+        businessId,
+        id,
+        engagement: { client: this.clientWhere(reach) },
+        ...(reach.kind === 'client' ? { sentAt: { not: null } } : {}),
+      },
       select: summarySelect,
     });
     if (!row?.engagement) throw notFound();
@@ -352,7 +357,8 @@ export class IntakesService {
   async listMine(businessId: string, who: PortalClient): Promise<MyIntakeListItem[]> {
     const rows = await this.inFirm(businessId, (tx) =>
       tx.intake.findMany({
-        where: { businessId, engagement: { clientId: who.clientId } },
+        // A form never sent (a send draft) is not the client's to see.
+        where: { businessId, engagement: { clientId: who.clientId }, sentAt: { not: null } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: 200,
         select: listSelect,
