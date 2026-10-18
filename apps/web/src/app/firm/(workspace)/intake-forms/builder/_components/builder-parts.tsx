@@ -1,6 +1,7 @@
 'use client';
 
 import type { IntakeFormDetail, QuestionType } from '@firmivra/types';
+import { Skeleton } from '@firmivra/ui';
 import type { ReactNode } from 'react';
 import type { FormDraft } from './builder-draft';
 
@@ -55,18 +56,18 @@ export function BuilderCard({
   );
 }
 
-/** A card's frame while the form loads or when it could not load. */
+/** A card's frame while the form loads (grey bars) or when it could not load (one quiet line). */
 export function CardFrame({ title, loading }: { title: string; loading: boolean }) {
   return (
     <BuilderCard title={title}>
       {loading ? (
-        <div aria-busy="true" className="flex flex-col gap-2">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-10 animate-pulse rounded-control bg-subtle" />
+        <div aria-busy="true" className="flex flex-col gap-3">
+          {['first', 'second', 'third'].map((bar) => (
+            <Skeleton key={bar} className="h-10" />
           ))}
         </div>
       ) : (
-        <p className="rounded-lg bg-subtle p-3 text-sm text-muted">{NOT_LOADED}</p>
+        <p className="rounded-lg bg-canvas p-3 text-sm text-muted">{NOT_LOADED}</p>
       )}
     </BuilderCard>
   );

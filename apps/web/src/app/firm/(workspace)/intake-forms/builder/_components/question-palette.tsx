@@ -2,17 +2,20 @@
 
 import { Input, Textarea, Toggle } from '@firmivra/ui';
 import { CaretDown, CaretUp } from '@phosphor-icons/react';
-import { createElement, useState } from 'react';
+import { useState } from 'react';
 import type { DraftSettings } from './builder-draft';
 import { type BuilderState, BuilderCard } from './builder-parts';
 import { PALETTE, QUESTION_LOOKS, TILE_DRAG } from './question-types';
 
 /**
  * 3. Add Questions: one tile per question type. A click adds the question to the chosen section
- * (the last one if none is chosen); a tile can also be dragged onto a section.
+ * (the last one if none is chosen); a tile can also be dragged onto a section. While the form
+ * loads or could not load, the tiles keep their frame and do nothing.
  */
 export function AddQuestionsCard({ state }: { state: BuilderState | null }) {
-  const target = state?.draft.sections.find((s) => s.key === state.active);
+  const sections = state?.draft.sections ?? [];
+  const target = sections.find((s) => s.key === state?.active) ?? sections.at(-1);
+  const chosen = Boolean(state?.active && target?.key === state.active);
   return (
     <BuilderCard
       title="3. Add Questions"
@@ -22,6 +25,7 @@ export function AddQuestionsCard({ state }: { state: BuilderState | null }) {
       <ul className="grid grid-cols-6 gap-2">
         {PALETTE.map((type, i) => {
           const look = QUESTION_LOOKS[type];
+          const Glyph = look.icon;
           const wide = i >= PALETTE.length - 2;
           return (
             <li key={type} className={wide ? 'col-span-3' : 'col-span-2'}>
@@ -35,13 +39,9 @@ export function AddQuestionsCard({ state }: { state: BuilderState | null }) {
                   ev.dataTransfer.setData(TILE_DRAG, type);
                   ev.dataTransfer.effectAllowed = 'copy';
                 }}
-                className="flex min-h-20 w-full flex-col items-center justify-center gap-1 rounded-lg border border-divider bg-canvas px-1 py-2 text-center text-sm text-heading hover:border-action hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex min-h-16 w-full flex-col items-center justify-center gap-1 rounded-lg border border-transparent bg-canvas px-1 py-2 text-center text-sm text-heading hover:border-action hover:bg-info-soft disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-transparent disabled:hover:bg-canvas"
               >
-                {createElement(look.icon, {
-                  'aria-hidden': true,
-                  weight: 'bold',
-                  className: 'size-7 text-action',
-                })}
+                <Glyph aria-hidden weight="fill" className="size-7 shrink-0 text-action" />
                 <span>{look.label}</span>
               </button>
             </li>
@@ -49,17 +49,23 @@ export function AddQuestionsCard({ state }: { state: BuilderState | null }) {
         })}
       </ul>
       {state ? (
-        <p className="text-xs text-muted">
-          {target
-            ? `Adds to ${target.title || 'the chosen section'}.`
-            : 'Adds to the last section. Click a section to choose it.'}
+        <p data-testid="add-target" className="text-xs text-muted">
+          {!target
+            ? 'Adds Section 1 with the question.'
+            : chosen
+              ? `Adds to ${target.title || 'the chosen section'}.`
+              : `Adds to ${target.title || 'the last section'}. Click a section to choose another.`}
         </p>
       ) : null}
     </BuilderCard>
   );
 }
 
-const SWITCHES: { key: keyof DraftSettings; label: string }[] = [
+/** The on/off settings (every setting but the days and the message). */
+type Switch = {
+  [K in keyof DraftSettings]: DraftSettings[K] extends boolean ? K : never;
+}[keyof DraftSettings];
+const SWITCHES: { key: Switch; label: string }[] = [
   { key: 'requireAllQuestions', label: 'Require all questions to be completed' },
   { key: 'allowFileUploads', label: 'Allow file uploads' },
   { key: 'requireSignature', label: 'Require e-signature' },
@@ -67,7 +73,10 @@ const SWITCHES: { key: keyof DraftSettings; label: string }[] = [
   { key: 'expires', label: 'Set expiration date' },
 ];
 
-/** 4. Form Settings: folds away (guide Frame 1); the firm's defaults fill a new form. */
+/**
+ * 4. Form Settings: folds away (guide Frame 1: collapsible); the firm's defaults (Frame 5) fill a
+ * new form. Set expiration date asks for the number of days after sending.
+ */
 export function FormSettingsCard({ state }: { state: BuilderState }) {
   const [open, setOpen] = useState(true);
   const s = state.draft.settings;
@@ -82,7 +91,7 @@ export function FormSettingsCard({ state }: { state: BuilderState }) {
         <button
           type="button"
           aria-expanded={open}
-          aria-label={open ? 'Fold Form Settings' : 'Open Form Settings'}
+          aria-label={open ? 'Collapse Form Settings' : 'Expand Form Settings'}
           onClick={() => setOpen(!open)}
           className="flex size-10 items-center justify-center rounded-control text-heading hover:bg-canvas"
         >
@@ -98,13 +107,11 @@ export function FormSettingsCard({ state }: { state: BuilderState }) {
         <>
           <ul className="flex flex-col gap-1">
             {SWITCHES.map((sw) => (
-              <li key={sw.key} className="flex min-h-10 items-center gap-3">
-                <Toggle
-                  label={sw.label}
-                  checked={Boolean(s[sw.key])}
-                  onChange={(on) => set(sw.key, on)}
-                />
-                <span className="text-sm text-heading">{sw.label}</span>
+              <li key={sw.key}>
+                <label className="flex min-h-9 cursor-pointer items-center gap-3">
+                  <Toggle label={sw.label} checked={s[sw.key]} onChange={(on) => set(sw.key, on)} />
+                  <span className="text-sm text-heading">{sw.label}</span>
+                </label>
               </li>
             ))}
           </ul>
