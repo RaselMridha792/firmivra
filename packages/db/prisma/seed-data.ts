@@ -392,6 +392,10 @@ export const SEED_PLATFORM_IDS = {
   billingCreditNote: '00000000-0000-4005-8000-000000000046',
   billingEstimate: '00000000-0000-4005-8000-000000000047',
   billingRecurring: '00000000-0000-4005-8000-000000000048',
+  // Stage B4: failed sign-ins on LVP's portal, the alert they raised and the team's note on it.
+  securityEvent: '00000000-0000-4005-8000-000000000051',
+  securityAlert: '00000000-0000-4005-8000-000000000052',
+  securityNote: '00000000-0000-4005-8000-000000000053',
 } as const;
 
 /**

@@ -56,6 +56,8 @@ describe('row-level security coverage', () => {
       'support_ticket_counters',
       // Only platform_billing_next_number() (owner-run) moves the document counters.
       'platform_billing_counters',
+      // One row, inserted by its migration; the app only saves it.
+      'platform_security_policy',
       // Written only by the owner-run sales_opportunities_history() trigger.
       'sales_stage_history',
       'sales_assignment_history',
@@ -114,6 +116,9 @@ describe('row-level security coverage', () => {
                    ('intake_signatures', 'UPDATE'), ('intake_signatures', 'DELETE'),
                    ('intake_signature_agreements', 'UPDATE'),
                    ('intake_signature_agreements', 'DELETE'),
+                   ('security_alerts', 'DELETE'), ('audit_investigation_notes', 'DELETE'),
+                   ('platform_security_policy', 'INSERT'),
+                   ('platform_security_policy', 'DELETE'),
                    ('sales_pipelines', 'DELETE'), ('sales_opportunities', 'DELETE'),
                    ('sales_follow_ups', 'DELETE'),
                    ('sales_activities', 'UPDATE'), ('sales_activities', 'DELETE'),
