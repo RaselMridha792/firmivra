@@ -29,18 +29,30 @@ import {
 export const hasReceipt = (payment: Pick<BillingPayment, 'status'>) =>
   payment.status !== 'FAILED' && payment.status !== 'PENDING';
 
-/** "10/10/2026 2:15 PM" in the platform time zone. */
-function formatStamp(iso: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: '2-digit',
-    day: '2-digit',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'America/New_York',
-  })
-    .format(new Date(iso))
-    .replace(',', '');
+const STAMP_DATE = new Intl.DateTimeFormat('en-US', {
+  month: '2-digit',
+  day: '2-digit',
+  year: 'numeric',
+  timeZone: 'America/New_York',
+});
+const STAMP_TIME = new Intl.DateTimeFormat('en-US', {
+  hour: 'numeric',
+  minute: '2-digit',
+  timeZone: 'America/New_York',
+});
+
+/**
+ * "10/10/2026 2:15 PM" in the platform time zone. The date and the time each stay on one line,
+ * so a narrow panel can only break the value between them.
+ */
+function Stamp({ iso }: { iso: string }) {
+  const at = new Date(iso);
+  return (
+    <>
+      <span className="whitespace-nowrap">{STAMP_DATE.format(at)}</span>{' '}
+      <span className="whitespace-nowrap">{STAMP_TIME.format(at)}</span>
+    </>
+  );
 }
 
 const outlineLink =
@@ -155,7 +167,9 @@ function PaymentDetails({
           <DetailRow label="Refunded">{formatMoney(payment.refundedCents, c)}</DetailRow>
         ) : null}
         <DetailRow label="Recorded By">{payment.recordedBy}</DetailRow>
-        <DetailRow label="Recorded On">{formatStamp(payment.recordedAt)}</DetailRow>
+        <DetailRow label="Recorded On">
+          <Stamp iso={payment.recordedAt} />
+        </DetailRow>
         <DetailRow label="Notes">{payment.notes || '—'}</DetailRow>
       </dl>
       {payment.refunds.length ? (

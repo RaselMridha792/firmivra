@@ -410,7 +410,7 @@ export function PaymentsCenter() {
 
       <div className="flex min-w-0 flex-col gap-6 min-[1440px]:flex-row min-[1440px]:items-start">
         <section aria-label="Payments" className="flex min-w-0 flex-1 flex-col gap-4">
-          <BillingTabs active="payments" />
+          <BillingTabs active="payments" compact />
           <div data-testid="payment-filters" className="flex flex-col gap-3">
             <FilterBar
               onApply={() => {

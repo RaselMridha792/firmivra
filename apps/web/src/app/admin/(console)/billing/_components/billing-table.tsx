@@ -28,7 +28,8 @@ const alignClass = { left: 'text-left', right: 'text-right', center: 'text-cente
 
 /**
  * A bordered list table. Loading draws skeleton rows; `error` and an empty list draw one quiet
- * line inside the same frame, so the table's header always shows.
+ * line inside the same frame, so the table's header always shows. `dense` and `flush` are opt-in
+ * for a wide list in a card (Credit Notes).
  */
 export function BillingTable<T>({
   caption,
@@ -43,6 +44,8 @@ export function BillingTable<T>({
   actions,
   selection,
   testId,
+  dense = false,
+  flush = false,
 }: {
   caption: string;
   columns: BillingColumn<T>[];
@@ -58,16 +61,29 @@ export function BillingTable<T>({
   /** Row checkboxes (Recurring). */
   selection?: { selected: string[]; onChange: (keys: string[]) => void; label: (row: T) => string };
   testId?: string;
+  /** Denser cells (px-3), so a wide list keeps every column inside its card at 1440 px. */
+  dense?: boolean;
+  /**
+   * The table sits flush in its card: no border or rounded box of its own, a line under the last
+   * row, and a sideways scroll inside the card below 1440 px (where it fits, row menus are not
+   * clipped), so a wide list never widens the page.
+   */
+  flush?: boolean;
 }) {
   const span = columns.length + (actions ? 1 : 0) + (selection ? 1 : 0);
   const keys = rows.map(rowKey);
   const picked = new Set(selection?.selected ?? []);
   const all = keys.length > 0 && keys.every((key) => picked.has(key));
-  const cell = 'px-4 py-3';
+  const inset = dense ? 'px-3' : 'px-4';
+  const cell = `${inset} py-3`;
   return (
     <div
       data-testid={testId}
-      className="min-w-0 overflow-x-auto rounded-xl border border-divider bg-surface xl:overflow-visible"
+      className={
+        flush
+          ? 'min-w-0 overflow-x-auto rounded-t-xl border-b border-divider min-[1440px]:overflow-visible'
+          : 'min-w-0 overflow-x-auto rounded-xl border border-divider bg-surface xl:overflow-visible'
+      }
     >
       <table className="w-full min-w-3xl border-collapse text-sm text-text">
         <caption className="sr-only">{caption}</caption>
@@ -144,7 +160,7 @@ export function BillingTable<T>({
             ))
           ) : error || rows.length === 0 ? (
             <tr className="border-t border-divider">
-              <td colSpan={span} className="px-4">
+              <td colSpan={span} className={inset}>
                 <QuietLine testId={error ? 'table-error' : 'table-empty'}>
                   {error ? quietErrorText(error) : emptyText}
                 </QuietLine>

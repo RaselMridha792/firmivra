@@ -129,7 +129,7 @@ function RangeEdge({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="relative flex min-w-0 flex-1 items-center sm:w-28 sm:flex-none">
+    <label className="relative flex min-w-0 flex-1 items-center sm:w-24 sm:flex-none">
       <span className="sr-only">{label}</span>
       <input
         type="date"
@@ -369,7 +369,7 @@ export function CreditNotes({ openId, saved }: { openId: string | null; saved: s
         className="flex flex-col gap-3 rounded-xl bg-surface p-4 shadow-sm"
       >
         <div className="flex flex-wrap items-center gap-3">
-          <label className="relative block w-full min-w-0 lg:w-auto lg:flex-1">
+          <label className="relative block w-full min-w-0 lg:w-auto lg:min-w-72 lg:flex-1">
             <span className="sr-only">Search credit notes</span>
             <MagnifyingGlass
               aria-hidden
@@ -405,7 +405,7 @@ export function CreditNotes({ openId, saved }: { openId: string | null; saved: s
               className="pointer-events-none absolute top-1/2 right-4 size-4 -translate-y-1/2 text-heading"
             />
           </label>
-          <label className="relative block min-w-0 flex-1 sm:w-56 sm:flex-none">
+          <label className="relative block min-w-0 flex-1 sm:w-48 sm:flex-none">
             <span className="sr-only">Customer</span>
             <select
               value={clientId}
@@ -428,7 +428,7 @@ export function CreditNotes({ openId, saved }: { openId: string | null; saved: s
           <div
             role="group"
             aria-label="Date issued"
-            className="flex h-11 w-full min-w-0 items-center gap-3 rounded-lg border border-divider bg-surface px-4 focus-within:outline-2 focus-within:outline-focus sm:w-auto"
+            className="flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-divider bg-surface px-4 focus-within:outline-2 focus-within:outline-focus sm:w-auto"
           >
             <CalendarBlank aria-hidden weight="fill" className="size-5 shrink-0 text-heading" />
             <RangeEdge label="Start date" value={from} max={to} onChange={reset(setFrom)} />
@@ -438,7 +438,7 @@ export function CreditNotes({ openId, saved }: { openId: string | null; saved: s
           <button
             type="button"
             onClick={clearAll}
-            className="inline-flex h-11 items-center justify-center rounded-lg border border-divider bg-surface px-5 text-base font-semibold text-action hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-focus lg:ml-auto"
+            className="inline-flex h-11 items-center justify-center rounded-lg border border-divider bg-surface px-4 text-base font-semibold text-action hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-focus lg:ml-auto"
           >
             Clear
           </button>
@@ -457,13 +457,16 @@ export function CreditNotes({ openId, saved }: { openId: string | null; saved: s
         ) : null}
       </section>
 
+      {/* The table runs edge to edge in its card (no inner border), the pager below it. */}
       <section
         aria-label="Credit notes"
-        className="flex min-w-0 flex-col gap-4 rounded-xl bg-surface p-4 shadow-sm"
+        className="flex min-w-0 flex-col rounded-xl bg-surface shadow-sm"
       >
         <BillingTable
           testId="credit-note-table"
           caption="Credit notes"
+          dense
+          flush
           columns={columns}
           rows={list.data?.items ?? []}
           rowKey={(row) => row.id}
@@ -478,15 +481,17 @@ export function CreditNotes({ openId, saved }: { openId: string | null; saved: s
             <RowMenu label={`Actions for ${row.number}`} sections={actions.menu(row)} />
           )}
         />
-        <BillingPager
-          page={list.data?.page ?? page}
-          pageCount={list.data?.pageCount ?? 1}
-          total={list.data?.total ?? 0}
-          pageSize={PAGE_SIZE}
-          noun="credit notes"
-          onPage={setPage}
-          loading={list.isLoading}
-        />
+        <div className="p-4">
+          <BillingPager
+            page={list.data?.page ?? page}
+            pageCount={list.data?.pageCount ?? 1}
+            total={list.data?.total ?? 0}
+            pageSize={PAGE_SIZE}
+            noun="credit notes"
+            onPage={setPage}
+            loading={list.isLoading}
+          />
+        </div>
       </section>
 
       <CreditNoteDrawer noteId={viewing} actions={actions} onClose={closeDrawer} />

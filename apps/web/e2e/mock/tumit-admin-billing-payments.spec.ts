@@ -83,6 +83,11 @@ test('Payments shows totals, filters the list and records a payment', async ({ p
   ]);
   expect((side?.x ?? 0) > (table?.x ?? 0) + (table?.width ?? 0) - 1).toBe(true);
   expect(await noSidewaysScroll(page)).toBe(true);
+  // All seven Billing tabs fit beside the panel; Settings never hides behind a sideways scroll.
+  await expect(tabs.getByRole('link', { name: 'Settings' })).toBeVisible();
+  expect(await tabs.locator('ul').evaluate((list) => list.scrollWidth <= list.clientWidth)).toBe(
+    true,
+  );
 
   await page
     .getByRole('combobox', { name: 'Status', exact: true })
@@ -120,13 +125,18 @@ test('Payments shows totals, filters the list and records a payment', async ({ p
 });
 
 test('Credit Notes shows totals and refunds the credit left on a note', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(admin('/billing/credit-notes'));
   await expect(page.getByTestId('page-title')).toHaveText('Credit Notes');
   await expect(page.getByTestId('kpi-count-value')).toHaveText('12');
   await expect(page.getByTestId('kpi-available-value')).toHaveText('$925.00');
-  const rows = page.getByTestId('credit-note-table').locator('tbody tr');
+  const table = page.getByTestId('credit-note-table');
+  const rows = table.locator('tbody tr');
   await expect(rows).toHaveCount(10);
   await expect(page.getByText('Showing 1–10 of 12 credit notes')).toBeVisible();
+  // At 1440 px the whole list, Actions included, fits inside its card; nothing scrolls sideways.
+  expect(await table.evaluate((frame) => frame.scrollWidth <= frame.clientWidth)).toBe(true);
+  expect(await noSidewaysScroll(page)).toBe(true);
 
   await page
     .getByRole('combobox', { name: 'Status', exact: true })

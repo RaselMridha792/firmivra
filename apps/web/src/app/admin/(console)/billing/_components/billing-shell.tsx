@@ -125,11 +125,22 @@ export function billingTabOf(pathname: string): BillingTabId {
 
 /**
  * The Billing tab bar: links to each section's page, the current one underlined in blue.
- * `icons={false}` for the designs that draw the tabs as text only (Estimates).
+ * `icons={false}` for the designs that draw the tabs as text only (Estimates). `compact` draws
+ * smaller tabs (text-sm, tighter padding, size-4 icons) for a narrower column, so all seven
+ * fit beside the Payments details panel at 1440 px.
  */
-export function BillingTabs({ active, icons = true }: { active?: BillingTabId; icons?: boolean }) {
+export function BillingTabs({
+  active,
+  icons = true,
+  compact = false,
+}: {
+  active?: BillingTabId;
+  icons?: boolean;
+  compact?: boolean;
+}) {
   const pathname = usePathname();
   const current = active ?? billingTabOf(pathname);
+  const size = compact ? 'gap-1.5 px-2.5 text-sm 2xl:px-3' : 'gap-2 px-3 text-base md:px-4';
   return (
     <nav aria-label="Billing sections" className="border-b border-divider">
       <ul className="-mb-px flex gap-1 overflow-x-auto">
@@ -140,9 +151,11 @@ export function BillingTabs({ active, icons = true }: { active?: BillingTabId; i
               <Link
                 href={href}
                 aria-current={on ? 'page' : undefined}
-                className={`inline-flex min-h-12 items-center gap-2 border-b-2 px-3 text-base font-medium whitespace-nowrap md:px-4 ${on ? 'border-action text-action' : 'border-transparent text-muted hover:text-heading'}`}
+                className={`inline-flex min-h-12 items-center border-b-2 font-medium whitespace-nowrap ${size} ${on ? 'border-action text-action' : 'border-transparent text-muted hover:text-heading'}`}
               >
-                {icons ? <Glyph aria-hidden weight="fill" className="size-5" /> : null}
+                {icons ? (
+                  <Glyph aria-hidden weight="fill" className={compact ? 'size-4' : 'size-5'} />
+                ) : null}
                 {label}
               </Link>
             </li>
