@@ -65,8 +65,8 @@ export function BillingTable<T>({
   dense?: boolean;
   /**
    * The table sits flush in its card: no border or rounded box of its own, a line under the last
-   * row, and a sideways scroll inside the card at every width, so a wide list never widens the
-   * page. (The bordered table lets its content overflow from `xl` so row menus are not clipped.)
+   * row, and a sideways scroll inside the card below 1440 px (where it fits, row menus are not
+   * clipped), so a wide list never widens the page.
    */
   flush?: boolean;
 }) {
@@ -81,7 +81,7 @@ export function BillingTable<T>({
       data-testid={testId}
       className={
         flush
-          ? 'min-w-0 overflow-x-auto rounded-t-xl border-b border-divider'
+          ? 'min-w-0 overflow-x-auto rounded-t-xl border-b border-divider min-[1440px]:overflow-visible'
           : 'min-w-0 overflow-x-auto rounded-xl border border-divider bg-surface xl:overflow-visible'
       }
     >
