@@ -25,7 +25,7 @@ function Count({ value, max }: { value: string; max: number }) {
  * internal notes (never shown to the client), and Form Template: start from scratch, or copy the
  * sections of a template or of another form into this draft.
  */
-export function FormDetailsCard({ state }: { state: BuilderState }) {
+export function FormDetailsCard({ state, className }: { state: BuilderState; className?: string }) {
   const { draft: d, errors: e, update } = state;
   const [picked, setPicked] = useState('');
   const [note, setNote] = useState('');
@@ -53,7 +53,7 @@ export function FormDetailsCard({ state }: { state: BuilderState }) {
   };
 
   return (
-    <BuilderCard title="1. Form Details" testId="form-details">
+    <BuilderCard title="1. Form Details" testId="form-details" className={className}>
       <Input
         label="Form Name *"
         maxLength={120}
@@ -71,7 +71,7 @@ export function FormDetailsCard({ state }: { state: BuilderState }) {
       <div className="flex flex-col gap-1">
         <Textarea
           label="Description (visible to client)"
-          rows={4}
+          rows={3}
           maxLength={500}
           placeholder="Tell the client what this form is for and what to have ready."
           value={d.description}
@@ -83,7 +83,7 @@ export function FormDetailsCard({ state }: { state: BuilderState }) {
       <div className="flex flex-col gap-1">
         <Textarea
           label="Internal Notes (optional)"
-          rows={3}
+          rows={2}
           maxLength={500}
           placeholder="Add internal notes for your team…"
           value={d.internalNotes}

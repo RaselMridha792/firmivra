@@ -22,7 +22,7 @@ export function AddQuestionsCard({ state }: { state: BuilderState | null }) {
       subtitle="Drag and drop a field type into your form."
       testId="add-questions"
     >
-      <ul className="grid grid-cols-6 gap-2">
+      <ul className="grid grid-cols-6 gap-2.5">
         {PALETTE.map((type, i) => {
           const look = QUESTION_LOOKS[type];
           const Glyph = look.icon;
@@ -39,9 +39,9 @@ export function AddQuestionsCard({ state }: { state: BuilderState | null }) {
                   ev.dataTransfer.setData(TILE_DRAG, type);
                   ev.dataTransfer.effectAllowed = 'copy';
                 }}
-                className="flex min-h-16 w-full flex-col items-center justify-center gap-1 rounded-lg border border-transparent bg-canvas px-1 py-2 text-center text-sm text-heading hover:border-action hover:bg-info-soft disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-transparent disabled:hover:bg-canvas"
+                className="flex h-full min-h-16 w-full flex-col items-center justify-center gap-1 rounded-lg border border-divider bg-canvas px-1 py-2 text-center text-xs text-heading shadow-sm hover:border-action hover:bg-info-soft disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-divider disabled:hover:bg-canvas"
               >
-                <Glyph aria-hidden weight="fill" className="size-7 shrink-0 text-action" />
+                <Glyph aria-hidden weight="fill" className="size-6 shrink-0 text-action" />
                 <span>{look.label}</span>
               </button>
             </li>
@@ -77,7 +77,13 @@ const SWITCHES: { key: Switch; label: string }[] = [
  * 4. Form Settings: folds away (guide Frame 1: collapsible); the firm's defaults (Frame 5) fill a
  * new form. Set expiration date asks for the number of days after sending.
  */
-export function FormSettingsCard({ state }: { state: BuilderState }) {
+export function FormSettingsCard({
+  state,
+  className,
+}: {
+  state: BuilderState;
+  className?: string;
+}) {
   const [open, setOpen] = useState(true);
   const s = state.draft.settings;
   const e = state.errors;
@@ -87,13 +93,14 @@ export function FormSettingsCard({ state }: { state: BuilderState }) {
     <BuilderCard
       title="4. Form Settings"
       testId="form-settings"
+      className={className}
       action={
         <button
           type="button"
           aria-expanded={open}
           aria-label={open ? 'Collapse Form Settings' : 'Expand Form Settings'}
           onClick={() => setOpen(!open)}
-          className="flex size-10 items-center justify-center rounded-control text-heading hover:bg-canvas"
+          className="flex size-8 shrink-0 items-center justify-center rounded-control text-heading hover:bg-canvas"
         >
           {open ? (
             <CaretUp aria-hidden weight="bold" className="size-5" />
@@ -105,10 +112,10 @@ export function FormSettingsCard({ state }: { state: BuilderState }) {
     >
       {open ? (
         <>
-          <ul className="flex flex-col gap-1">
+          <ul className="flex flex-col gap-0.5">
             {SWITCHES.map((sw) => (
               <li key={sw.key}>
-                <label className="flex min-h-9 cursor-pointer items-center gap-3">
+                <label className="flex min-h-7 cursor-pointer items-center gap-3">
                   <Toggle label={sw.label} checked={s[sw.key]} onChange={(on) => set(sw.key, on)} />
                   <span className="text-sm text-heading">{sw.label}</span>
                 </label>
@@ -129,7 +136,7 @@ export function FormSettingsCard({ state }: { state: BuilderState }) {
           <div className="flex flex-col gap-1">
             <Textarea
               label="Custom Success Message"
-              rows={3}
+              rows={2}
               maxLength={200}
               placeholder="Thank you! We've received your information and will be in touch soon."
               value={s.successMessage}
