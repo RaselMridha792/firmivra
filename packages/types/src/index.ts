@@ -41,6 +41,7 @@ export * from './messages/index.js';
 export * from './agreements/index.js';
 export * from './dashboard/index.js';
 export * from './payroll/index.js';
+export * from './compliance/index.js';
 // The same values as the database enums in db-enums.ts (exported through ./schemas.js). These
 // modules define their own copies, so name the ones the root exports.
 export { AppointmentStatus, LocationKind } from './appointments/index.js';
@@ -74,3 +75,4 @@ export { DocumentRequestStatus } from './schemas.js';
 // SidebarPosition and ReminderChannel have the same values; the scheduling form's
 // RecurrenceFrequency adds NONE and CUSTOM, which the contract's own schemas keep using.
 export { RecurrenceFrequency, ReminderChannel, SidebarPosition, SidebarStyle } from './schemas.js';
+export * from './bookkeeping/index.js';
