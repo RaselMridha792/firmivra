@@ -626,9 +626,30 @@ export class TaxReturnWorkspaceService {
             });
           }
         }
+        // Filed and accepted returns carry their filed date (tax_returns_filed_on): the first
+        // transmission or paper filing, else today.
+        let filedOn: Date | undefined;
+        if ((to === 'TRANSMITTED' || to === 'ACCEPTED') && !r.filedOn) {
+          const first = await tx.taxReturnFilingAttempt.findFirst({
+            where: { businessId, filing: { taxReturnId: id } },
+            orderBy: { transmittedAt: 'asc' },
+            select: { transmittedAt: true },
+          });
+          const paper = await tx.taxReturnFiling.findFirst({
+            where: { businessId, taxReturnId: id, paperFiledOn: { not: null } },
+            orderBy: { paperFiledOn: 'asc' },
+            select: { paperFiledOn: true },
+          });
+          const dates = [first?.transmittedAt, paper?.paperFiledOn].filter((d): d is Date => !!d);
+          const earliest = dates.length
+            ? new Date(Math.min(...dates.map((d) => d.getTime())))
+            : new Date();
+          filedOn = toDay(earliest.toISOString().slice(0, 10));
+        }
         await tx.taxReturn.update({
           where: { id },
           data: {
+            ...(filedOn ? { filedOn } : {}),
             workflowStatus: to,
             ...(body.reason ? { statusReason: body.reason } : {}),
             updatedByUserId: userId,

@@ -15,6 +15,8 @@ import type { ClientsActor } from '../clients/clients.service.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { TaxReturnsService } from './tax-returns.service.js';
+import { ReportsModule } from '../reports/reports.module.js';
+import { TaxReturnReviewService } from './review.service.js';
 import { TaxReturnWorkspaceController } from './workspace.controller.js';
 import { TaxReturnWorkspaceService } from './workspace.service.js';
 
@@ -108,6 +110,8 @@ export class MyTaxReturnsController {
 }
 
 @Module({
+  // The export writes under the firm's reports prefix (ReportsModule's file store).
+  imports: [ReportsModule],
   // The workspace (R55) first: its static routes (summary) before any ':id'.
   controllers: [
     TaxReturnWorkspaceController,
@@ -115,6 +119,6 @@ export class MyTaxReturnsController {
     TaxReturnsController,
     MyTaxReturnsController,
   ],
-  providers: [TaxReturnsService, TaxReturnWorkspaceService],
+  providers: [TaxReturnsService, TaxReturnWorkspaceService, TaxReturnReviewService],
 })
 export class TaxReturnsModule {}

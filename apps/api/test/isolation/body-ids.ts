@@ -23,6 +23,16 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     why: 'a switch (give each submission a number), not a record (R55)',
   },
   {
+    field: 'submissionId',
+    routes: /^POST \/api\/v1\/business\/tax-returns\/:id\/filings\/:filingId\/attempts$/,
+    why: "the tax authority's submission number (free text), not a record (R55)",
+  },
+  {
+    field: 'assignedUserId',
+    routes: /^POST \/api\/v1\/business\/tax-returns\/export$/,
+    why: "the list's filter (preparer or reviewer): another firm's member matches no return of this firm, so nothing of theirs is read (R55)",
+  },
+  {
     field: 'idempotencyKey',
     routes: /^POST \/api\/v1\/business\/intakes\/send$/,
     why: "the sender's retry key, not a record (R55)",
