@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CommunicationsController } from './communications.controller.js';
+import { CommunicationAudienceService } from './communications-audience.service.js';
+import { CommunicationsService } from './communications.service.js';
 import { CommunicationSegmentsService } from './communications-segments.service.js';
 
 /**
@@ -8,6 +10,6 @@ import { CommunicationSegmentsService } from './communications-segments.service.
  */
 @Module({
   controllers: [CommunicationsController],
-  providers: [CommunicationSegmentsService],
+  providers: [CommunicationSegmentsService, CommunicationAudienceService, CommunicationsService],
 })
 export class CommunicationsModule {}

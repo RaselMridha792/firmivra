@@ -1,5 +1,15 @@
 import {
+  AudienceCandidatesQuery,
+  CancelCommunicationRequest,
+  CommunicationsQuery,
   ConsentQuery,
+  CreateCommunicationRequest,
+  RescheduleCommunicationRequest,
+  ScheduleCommunicationRequest,
+  SelectAllAudienceRequest,
+  SendCommunicationRequest,
+  SetAudienceRequest,
+  UpdateCommunicationRequest,
   CreateSegmentRequest,
   PreviewSegmentRequest,
   SegmentMembersQuery,
@@ -37,3 +47,14 @@ export const SegmentMembersQ = clean(SegmentMembersQuery);
 export const SetSegmentMembersBody = clean(SetSegmentMembersRequest);
 export const SetConsentBody = clean(SetConsentRequest);
 export const ConsentQ = clean(ConsentQuery);
+
+export const CommunicationsQ = clean(CommunicationsQuery);
+export const CreateCommunicationBody = clean(CreateCommunicationRequest);
+export const UpdateCommunicationBody = clean(UpdateCommunicationRequest);
+export const AudienceCandidatesQ = clean(AudienceCandidatesQuery);
+export const SelectAllAudienceBody = clean(SelectAllAudienceRequest);
+export const SetAudienceBody = clean(SetAudienceRequest);
+export const SendBody = clean(SendCommunicationRequest);
+export const ScheduleBody = clean(ScheduleCommunicationRequest);
+export const RescheduleBody = clean(RescheduleCommunicationRequest);
+export const CancelBody = clean(CancelCommunicationRequest);

@@ -87,19 +87,67 @@ export class CommunicationSegmentsService {
   }
 
   /** The clients and leads the caller may see. */
-  private clientReach(ctx: SegCtx): Prisma.ClientWhereInput {
+  clientReach(ctx: SegCtx): Prisma.ClientWhereInput {
     return {
       businessId: ctx.businessId,
       archivedAt: null,
       ...(ctx.reachOnly ? { assignedUserId: ctx.userId } : {}),
     };
   }
-  private leadReach(ctx: SegCtx): Prisma.LeadWhereInput {
+  leadReach(ctx: SegCtx): Prisma.LeadWhereInput {
     return {
       businessId: ctx.businessId,
       archivedAt: null,
       ...(ctx.reachOnly ? { assignedUserId: ctx.userId } : {}),
     };
+  }
+
+  /** The ids of the clients and leads a segment holds now, within the caller's reach. */
+  async peopleOf(
+    ctx: SegCtx,
+    segmentId: string,
+  ): Promise<{ name: string; criteria: unknown; clientIds: string[]; leadIds: string[] } | null> {
+    const s = await ctx.tx.communicationSegment.findFirst({
+      where: { businessId: ctx.businessId, id: segmentId },
+    });
+    if (!s) return null;
+    if (s.type === 'STATIC') {
+      const [c, l] = await Promise.all([
+        ctx.tx.communicationSegmentMember.findMany({
+          where: { segmentId: s.id, clientId: { not: null }, client: this.clientReach(ctx) },
+          select: { clientId: true },
+        }),
+        ctx.tx.communicationSegmentMember.findMany({
+          where: { segmentId: s.id, leadId: { not: null }, lead: this.leadReach(ctx) },
+          select: { leadId: true },
+        }),
+      ]);
+      return {
+        name: s.name,
+        criteria: s.criteria,
+        clientIds: c.map((m) => m.clientId as string),
+        leadIds: l.map((m) => m.leadId as string),
+      };
+    }
+    const { clientWhere, leadWhere } = await this.matches(ctx, s.audience, asCriteria(s.criteria));
+    const [c, l] = await Promise.all([
+      s.audience === 'LEADS'
+        ? []
+        : ctx.tx.client.findMany({ where: clientWhere, select: { id: true }, take: 20_000 }),
+      s.audience === 'CLIENTS'
+        ? []
+        : ctx.tx.lead.findMany({ where: leadWhere, select: { id: true }, take: 20_000 }),
+    ]);
+    return {
+      name: s.name,
+      criteria: s.criteria,
+      clientIds: c.map((x) => x.id),
+      leadIds: l.map((x) => x.id),
+    };
+  }
+
+  withCtx<T>(tenant: TenantContext, userId: string, fn: (ctx: SegCtx) => Promise<T>): Promise<T> {
+    return this.run(tenant, userId, fn);
   }
 
   fields(tenant: TenantContext, audience?: SegmentAudience): SegmentFieldList {

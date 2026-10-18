@@ -11,6 +11,21 @@ const ETAG = STAMP.toISOString();
 const PLACEHOLDER = randomUUID();
 
 export const records: CaseModule['records'] = {
+  /** An email draft of the firm. */
+  communication: {
+    async create({ tx, businessId, owner }) {
+      const row = await tx.communication.create({
+        data: {
+          businessId,
+          channel: 'EMAIL',
+          name: `Fake campaign ${tag()}`,
+          createdByUserId: owner.id,
+          updatedAt: STAMP,
+        },
+      });
+      return row.id;
+    },
+  },
   /** A saved list holding the world's client. */
   communicationSegment: {
     async create({ tx, businessId, owner, get }) {
@@ -33,6 +48,73 @@ export const records: CaseModule['records'] = {
 };
 
 export const cases: CaseModule['cases'] = {
+  [`GET ${BASE}/:id`]: { params: { id: 'communication' } },
+  [`PATCH ${BASE}/:id`]: {
+    params: { id: 'communication' },
+    body: { etag: ETAG, name: 'Fake renamed campaign' },
+  },
+  [`POST ${BASE}`]: {
+    params: {},
+    bodyIds: { templateId: 'tpl' },
+    body: { channel: 'EMAIL', templateId: PLACEHOLDER },
+    // No email provider is connected in the world.
+    expect: 409,
+  },
+  [`GET ${BASE}/:id/audience`]: { params: { id: 'communication' } },
+  [`PUT ${BASE}/:id/audience`]: {
+    params: { id: 'communication' },
+    bodyIds: {
+      segmentIds: 'communicationSegment',
+      clientIds: 'client',
+      leadIds: 'lead',
+      excludeClientIds: 'client',
+      excludeLeadIds: 'lead',
+    },
+    body: {
+      etag: ETAG,
+      segmentIds: [PLACEHOLDER],
+      clientIds: [PLACEHOLDER],
+      leadIds: [PLACEHOLDER],
+      excludeClientIds: [PLACEHOLDER],
+      excludeLeadIds: [PLACEHOLDER],
+    },
+  },
+  [`POST ${BASE}/audience/select-all`]: {
+    params: {},
+    bodyIds: { communicationId: 'communication', serviceId: 'service' },
+    body: { communicationId: PLACEHOLDER, serviceId: PLACEHOLDER },
+  },
+  [`GET ${BASE}/:id/review`]: { params: { id: 'communication' } },
+  // No email provider is connected in the world: sending, scheduling and copying are refused
+  // the same way for P's own people (409), and refused as not found for anyone else.
+  [`POST ${BASE}/:id/send`]: {
+    params: { id: 'communication' },
+    body: () => ({ idempotencyKey: randomUUID(), etag: ETAG }),
+    expect: 409,
+  },
+  [`POST ${BASE}/:id/schedule`]: {
+    params: { id: 'communication' },
+    body: () => ({
+      idempotencyKey: randomUUID(),
+      etag: ETAG,
+      scheduledFor: new Date(Date.now() + 86_400_000).toISOString(),
+    }),
+    expect: 409,
+  },
+  [`POST ${BASE}/:id/reschedule`]: {
+    params: { id: 'communication' },
+    body: () => ({
+      etag: ETAG,
+      scheduledFor: new Date(Date.now() + 86_400_000).toISOString(),
+    }),
+    expect: 409,
+  },
+  [`POST ${BASE}/:id/cancel`]: { params: { id: 'communication' }, body: {} },
+  [`POST ${BASE}/:id/pause`]: { params: { id: 'communication' }, expect: 409 },
+  [`POST ${BASE}/:id/resume`]: { params: { id: 'communication' }, expect: 409 },
+  [`POST ${BASE}/:id/archive`]: { params: { id: 'communication' } },
+  [`POST ${BASE}/:id/restore`]: { params: { id: 'communication' } },
+  [`POST ${BASE}/:id/duplicate`]: { params: { id: 'communication' }, expect: 409 },
   [`GET ${BASE}/segments/:id`]: { params: { id: 'communicationSegment' } },
   [`PATCH ${BASE}/segments/:id`]: {
     params: { id: 'communicationSegment' },

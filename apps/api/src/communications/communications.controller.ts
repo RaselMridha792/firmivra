@@ -1,7 +1,17 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import {
+  type AnnouncementLocationList,
+  type AudienceCandidatePage,
+  type AudienceSummary,
+  CommunicationId,
+  type CommunicationDetail,
+  type CommunicationPage,
+  type CommunicationReview,
+  type CommunicationSenderList,
+  type CommunicationsOverview,
   type ConsentView,
   CommunicationSegmentId,
+  type SelectAllAudienceResult,
   type SegmentDetail,
   type SegmentFieldList,
   type SegmentMemberPage,
@@ -13,7 +23,17 @@ import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/d
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import {
+  AudienceCandidatesQ,
+  CancelBody,
+  CommunicationsQ,
   ConsentQ,
+  CreateCommunicationBody,
+  RescheduleBody,
+  ScheduleBody,
+  SelectAllAudienceBody,
+  SendBody,
+  SetAudienceBody,
+  UpdateCommunicationBody,
   CreateSegmentBody,
   PreviewSegmentBody,
   SegmentMembersQ,
@@ -23,10 +43,12 @@ import {
   UpdateSegmentBody,
 } from './communications-input.js';
 import { CommunicationSegmentsService } from './communications-segments.service.js';
+import { CommunicationsService } from './communications.service.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
 const segmentPipe = new ZodValidationPipe(CommunicationSegmentId);
+const idPipe = new ZodValidationPipe(CommunicationId);
 
 const who = (auth: AuthContext, tenant: TenantContext) => {
   if (tenant.kind !== 'staff') throw new Error('firm routes are for firm members');
@@ -42,7 +64,78 @@ const who = (auth: AuthContext, tenant: TenantContext) => {
 @Access('COMMUNICATIONS')
 @Roles(...FIRM_STAFF)
 export class CommunicationsController {
-  constructor(private readonly segments: CommunicationSegmentsService) {}
+  constructor(
+    private readonly segments: CommunicationSegmentsService,
+    private readonly campaigns: CommunicationsService,
+  ) {}
+
+  // ----- Overview, lists, readiness -----
+
+  @Get('overview')
+  overview(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<CommunicationsOverview> {
+    const w = who(auth, tenant);
+    return this.campaigns.overview(w.tenant, w.userId);
+  }
+
+  @Get('senders')
+  senders(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<CommunicationSenderList> {
+    const w = who(auth, tenant);
+    return this.campaigns.senders(w.tenant, w.userId);
+  }
+
+  @Get('announcement-locations')
+  announcementLocations(): AnnouncementLocationList {
+    return this.campaigns.announcementLocations();
+  }
+
+  @Get()
+  list(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(CommunicationsQ)) q: Out<typeof CommunicationsQ>,
+  ): Promise<CommunicationPage> {
+    const w = who(auth, tenant);
+    return this.campaigns.list(w.tenant, w.userId, q);
+  }
+
+  @Post()
+  create(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(CreateCommunicationBody)) body: Out<typeof CreateCommunicationBody>,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.create(w.tenant, w.userId, body);
+  }
+
+  // ----- Audience (Choose Recipients) -----
+
+  @Get('audience/candidates')
+  candidates(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(AudienceCandidatesQ)) q: Out<typeof AudienceCandidatesQ>,
+  ): Promise<AudienceCandidatePage> {
+    const w = who(auth, tenant);
+    return this.campaigns.candidates(w.tenant, w.userId, q);
+  }
+
+  @Post('audience/select-all')
+  @HttpCode(200)
+  selectAll(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(SelectAllAudienceBody)) body: Out<typeof SelectAllAudienceBody>,
+  ): Promise<SelectAllAudienceResult> {
+    const w = who(auth, tenant);
+    return this.campaigns.selectAll(w.tenant, w.userId, body);
+  }
 
   // ----- Segments and lists -----
 
@@ -177,5 +270,161 @@ export class CommunicationsController {
   ): Promise<ConsentView> {
     const w = who(auth, tenant);
     return this.segments.setConsent(w.tenant, w.userId, body);
+  }
+
+  // ----- One communication (these come last: ':id' must not shadow the routes above) -----
+
+  @Get(':id')
+  get(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.get(w.tenant, w.userId, id);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(UpdateCommunicationBody)) body: Out<typeof UpdateCommunicationBody>,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.update(w.tenant, w.userId, id, body);
+  }
+
+  @Get(':id/audience')
+  audience(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<AudienceSummary> {
+    const w = who(auth, tenant);
+    return this.campaigns.audienceOf(w.tenant, w.userId, id);
+  }
+
+  @Put(':id/audience')
+  setAudience(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(SetAudienceBody)) body: Out<typeof SetAudienceBody>,
+  ): Promise<AudienceSummary> {
+    const w = who(auth, tenant);
+    return this.campaigns.setAudience(w.tenant, w.userId, id, body);
+  }
+
+  @Get(':id/review')
+  review(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<CommunicationReview> {
+    const w = who(auth, tenant);
+    return this.campaigns.review(w.tenant, w.userId, id);
+  }
+
+  @Post(':id/send')
+  @HttpCode(200)
+  send(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(SendBody)) body: Out<typeof SendBody>,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.send(w.tenant, w.userId, id, body);
+  }
+
+  @Post(':id/schedule')
+  @HttpCode(200)
+  schedule(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(ScheduleBody)) body: Out<typeof ScheduleBody>,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.schedule(w.tenant, w.userId, id, body);
+  }
+
+  @Post(':id/reschedule')
+  @HttpCode(200)
+  reschedule(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(RescheduleBody)) body: Out<typeof RescheduleBody>,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.reschedule(w.tenant, w.userId, id, body);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  cancel(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(CancelBody)) body: Out<typeof CancelBody>,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.cancel(w.tenant, w.userId, id, body);
+  }
+
+  @Post(':id/pause')
+  @HttpCode(200)
+  pause(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.setPaused(w.tenant, w.userId, id, true);
+  }
+
+  @Post(':id/resume')
+  @HttpCode(200)
+  resume(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.setPaused(w.tenant, w.userId, id, false);
+  }
+
+  @Post(':id/archive')
+  @HttpCode(200)
+  archive(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.setArchived(w.tenant, w.userId, id, true);
+  }
+
+  @Post(':id/restore')
+  @HttpCode(200)
+  restore(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.setArchived(w.tenant, w.userId, id, false);
+  }
+
+  @Post(':id/duplicate')
+  duplicate(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.duplicate(w.tenant, w.userId, id);
   }
 }

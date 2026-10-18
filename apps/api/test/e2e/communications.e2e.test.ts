@@ -11,9 +11,17 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
+  AudienceCandidatePage,
+  AudienceSummary,
+  CommunicationDetail,
+  CommunicationPage,
+  CommunicationReview,
+  CommunicationSenderList,
+  CommunicationsOverview,
   ConsentView,
   SegmentDetail,
   SegmentFieldList,
+  SelectAllAudienceResult,
   SegmentMemberPage,
   SegmentPage,
   SegmentPreview,
@@ -479,5 +487,548 @@ describe('consent', () => {
       400,
     );
     expect((await call('get', '/consent', ownerA)).status).toBe(400);
+  });
+});
+
+// ---------- Campaigns ----------
+
+const detailOf = (res: Response, status = 200) => CommunicationDetail.parse(ok(res, status));
+const draft = async (over: object = {}, who: Who = ownerA) =>
+  detailOf(await call('post', '', who, { channel: 'EMAIL', name: mark('Campaign'), ...over }), 201);
+const edit = async (id: string, body: object, who: Who = ownerA) =>
+  call('patch', `/${id}`, who, { etag: (await getDetail(id, who)).etag, ...body });
+const getDetail = async (id: string, who: Who = ownerA) =>
+  detailOf(await call('get', `/${id}`, who));
+const audienceOf = async (id: string, body: object = {}, who: Who = ownerA) =>
+  call('put', `/${id}/audience`, who, { etag: (await getDetail(id, who)).etag, ...body });
+const key = () => randomUUID();
+const people2 = {} as Record<'p1' | 'p2' | 'p3' | 'p4' | 'p5', string>;
+let leadSame = '';
+
+describe('campaigns', () => {
+  beforeAll(async () => {
+    await inFirm('a', async (tx) => {
+      const mk = async (
+        k: keyof typeof people2,
+        name: string,
+        over: { email?: string | null; phone?: string | null; assignedUserId?: string } = {},
+      ) => {
+        people2[k] = (
+          await tx.client.create({
+            data: {
+              businessId: firms.a,
+              displayName: name,
+              email: over.email === undefined ? `${k}-${run}@camp.test` : over.email,
+              phone: over.phone === undefined ? '(555) 010-2030' : over.phone,
+              assignedUserId: over.assignedUserId,
+            },
+            select: { id: true },
+          })
+        ).id;
+      };
+      await mk('p1', 'Pat One (fake)', { assignedUserId: staffA.id });
+      await mk('p2', 'Pat Two (fake)');
+      await mk('p3', 'Pat Three (fake)', { email: null });
+      await mk('p4', 'Pat Four (fake)');
+      await mk('p5', 'Pat Five (fake)', { email: 'not-an-address' });
+      // A lead who writes from the same address as Pat One.
+      const service = await tx.service.create({
+        data: { businessId: firms.a, kind: 'BUSINESS_DEVELOPMENT', name: `Camp service ${run}` },
+        select: { id: true },
+      });
+      leadSame = (
+        await tx.lead.create({
+          data: {
+            businessId: firms.a,
+            serviceId: service.id,
+            firstName: 'Lee',
+            lastName: 'Lead (fake)',
+            email: `p1-${run}@camp.test`,
+          },
+          select: { id: true },
+        })
+      ).id;
+    });
+  });
+
+  it('is not ready until a provider is connected, then lists its sender', async () => {
+    const before = CommunicationsOverview.parse(ok(await call('get', '/overview', ownerA)));
+    const email = before.channels.find((c) => c.channel === 'EMAIL');
+    expect(email).toMatchObject({ ready: false, route: 'INTEGRATIONS', senderCount: 0 });
+    expect(before.channels.find((c) => c.channel === 'ANNOUNCEMENT')?.ready).toBe(true);
+    expectError(await call('post', '', ownerA, { channel: 'EMAIL' }), 409, 'CHANNEL_UNAVAILABLE');
+    await inFirm('a', (tx) =>
+      tx.integrationConnection.create({
+        data: {
+          businessId: firms.a,
+          provider: 'gmail',
+          status: 'CONNECTED',
+          accountLabel: 'Fake Firm Mail',
+        },
+      }),
+    );
+    const after = CommunicationsOverview.parse(ok(await call('get', '/overview', ownerA)));
+    expect(after.channels.find((c) => c.channel === 'EMAIL')).toMatchObject({
+      ready: true,
+      senderCount: 1,
+    });
+    const senders = CommunicationSenderList.parse(ok(await call('get', '/senders', ownerA)));
+    expect(senders.items).toMatchObject([
+      { channel: 'EMAIL', label: 'Fake Firm Mail', verified: true, isDefault: true },
+    ]);
+    // No SMS provider: a text cannot be started.
+    expectError(await call('post', '', ownerA, { channel: 'SMS' }), 409, 'CHANNEL_UNAVAILABLE');
+    // A reader cannot start anything.
+    expectError(await call('post', '', readerA, { channel: 'EMAIL' }), 403, 'FORBIDDEN');
+  });
+
+  it('takes a sender only from the firm’s own healthy connections', async () => {
+    const other = await inFirm('b', (tx) =>
+      tx.integrationConnection.create({
+        data: {
+          businessId: firms.b,
+          provider: 'gmail',
+          status: 'CONNECTED',
+          accountLabel: 'B mail',
+        },
+      }),
+    );
+    const d = await draft();
+    expect((await edit(d.id, { senderId: other.id })).status).toBe(400);
+    expect((await edit(d.id, { senderId: randomUUID() })).status).toBe(400);
+    const mine = (await getDetail(d.id)).sender;
+    expect(detailOf(await edit(d.id, { senderId: null })).sender).toBeNull();
+    expect(detailOf(await edit(d.id, { senderId: mine?.id })).sender?.id).toBe(mine?.id);
+  });
+
+  it('starts a draft, autosaves with an etag, and refuses a stale save', async () => {
+    const d = await draft();
+    expect(d).toMatchObject({ status: 'DRAFT', editable: true, canSend: true, opens: 'COMPOSER' });
+    expect(d.sender?.label).toBe('Fake Firm Mail');
+    const saved = detailOf(
+      await call('patch', `/${d.id}`, ownerA, {
+        etag: d.etag,
+        subject: 'Hello [Client First Name]',
+        body: '<p>Dear [Client First Name], <script>alert(1)</script>welcome to [Business Name]. [Mystery Field]</p>',
+        previewText: 'A short preview',
+      }),
+    );
+    expect(saved.body).not.toContain('<script>');
+    expect(saved.mergeFields.used).toEqual(['Client First Name', 'Business Name', 'Mystery Field']);
+    expect(saved.mergeFields.unknown).toEqual(['Mystery Field']);
+    expectError(
+      await call('patch', `/${d.id}`, ownerA, { etag: d.etag, name: 'again' }),
+      409,
+      'SAVE_CONFLICT',
+    );
+    const rows = await auditRows(d.id);
+    expect(rows.map((r) => r.action)).toEqual(['communication.created', 'communication.updated']);
+    expect(JSON.stringify(rows)).not.toMatch(/Hello|welcome|Mystery/);
+    expect((await call('patch', `/${d.id}`, ownerA, { etag: saved.etag })).status).toBe(400);
+    expect((await call('patch', `/${d.id}`, ownerA, { etag: saved.etag, sms: 'x' })).status).toBe(
+      400,
+    );
+  });
+
+  it('refuses a template of the wrong kind and copies a good one as a snapshot', async () => {
+    const t = await inFirm('a', (tx) =>
+      tx.messageTemplate.create({
+        data: {
+          businessId: firms.a,
+          kind: 'EMAIL',
+          name: mark('Tpl'),
+          subject: 'From the template',
+          body: '<p>Template body</p>',
+          status: 'ACTIVE',
+          ownerUserId: ownerA.id,
+          version: 3,
+        },
+      }),
+    );
+    const sms = await inFirm('a', (tx) =>
+      tx.messageTemplate.create({
+        data: {
+          businessId: firms.a,
+          kind: 'SMS',
+          name: mark('Sms'),
+          body: 'text',
+          status: 'ACTIVE',
+          ownerUserId: ownerA.id,
+        },
+      }),
+    );
+    expectError(
+      await call('post', '', ownerA, { channel: 'EMAIL', templateId: sms.id }),
+      409,
+      'TEMPLATE_NOT_ALLOWED',
+    );
+    const d = await draft({ templateId: t.id });
+    expect(d).toMatchObject({ subject: 'From the template', template: { id: t.id, version: 3 } });
+    expect(d.body).toBe('<p>Template body</p>');
+    // The master is untouched by editing the draft.
+    await edit(d.id, { body: '<p>Changed</p>' });
+    const master = await inFirm('a', (tx) =>
+      tx.messageTemplate.findUniqueOrThrow({ where: { id: t.id } }),
+    );
+    expect(master.body).toBe('<p>Template body</p>');
+  });
+
+  it('keeps the channel’s rules: no subject on an announcement’s reply, content loss needs a yes', async () => {
+    const d = await draft();
+    const withSubject = detailOf(
+      await call('patch', `/${d.id}`, ownerA, {
+        etag: d.etag,
+        subject: 'Subject',
+        replyTo: 'reply@camp.test',
+        body: '<p>Hi</p>',
+      }),
+    );
+    expectError(
+      await call('patch', `/${d.id}`, ownerA, { etag: withSubject.etag, channel: 'ANNOUNCEMENT' }),
+      409,
+      'CONTENT_WOULD_BE_LOST',
+    );
+    const ann = detailOf(
+      await call('patch', `/${d.id}`, ownerA, {
+        etag: withSubject.etag,
+        channel: 'ANNOUNCEMENT',
+        confirmStripContent: true,
+      }),
+    );
+    expect(ann).toMatchObject({ channel: 'ANNOUNCEMENT', replyTo: null, sender: null });
+    expect(ann.subject).toBe('Subject');
+    expect(
+      (
+        await edit(d.id, {
+          publishStartsAt: '2030-01-02T00:00:00Z',
+          publishEndsAt: '2030-01-01T00:00:00Z',
+        })
+      ).status,
+    ).toBe(400);
+    const ok1 = detailOf(
+      await edit(d.id, {
+        publishStartsAt: '2030-01-01T00:00:00Z',
+        publishEndsAt: '2030-01-02T00:00:00Z',
+        visibility: 'dashboard',
+      }),
+    );
+    expect(ok1.visibility).toBe('dashboard');
+    expect((await edit(d.id, { previewText: 'x' })).status).toBe(400);
+  });
+
+  it('works out the audience: duplicates, missing and bad addresses, opt-outs, manual exclusions', async () => {
+    const d = await draft({ name: mark('Audience') });
+    const set = AudienceSummary.parse(
+      ok(
+        await audienceOf(d.id, {
+          clientIds: [people2.p1, people2.p2, people2.p3, people2.p4, people2.p5],
+          leadIds: [leadSame],
+          excludeClientIds: [people2.p2],
+        }),
+      ),
+    );
+    // The lead shares Pat One's address (the lead is left out), p3 has no email, p5 has a bad one,
+    // p2 is out by hand.
+    expect(set).toMatchObject({
+      selectedCount: 6,
+      manualExcludedCount: 1,
+      finalCount: 2,
+      autoExcluded: { duplicate: 1, missingChannel: 1, invalid: 1, unsubscribed: 0 },
+    });
+    expect(set.chips.map((c) => c.kind).sort()).toEqual([
+      'CLIENT',
+      'CLIENT',
+      'CLIENT',
+      'CLIENT',
+      'CLIENT',
+      'EXCLUDE_CLIENT',
+      'LEAD',
+    ]);
+    // Opting Pat One out lets the lead have that address.
+    ok(
+      await call('put', '/consent', ownerA, {
+        clientId: people2.p1,
+        channel: 'EMAIL',
+        status: 'OPTED_OUT',
+      }),
+    );
+    const again = AudienceSummary.parse(ok(await call('get', `/${d.id}/audience`, ownerA)));
+    expect(again).toMatchObject({ finalCount: 2, autoExcluded: { unsubscribed: 1, duplicate: 0 } });
+    // A segment adds its members; a person in two places counts once.
+    const seg = SegmentDetail.parse(
+      ok(
+        await call('post', '/segments', ownerA, {
+          name: mark('Camp list'),
+          type: 'STATIC',
+          clientIds: [people2.p2, people2.p4],
+        }),
+        201,
+      ),
+    );
+    const withSeg = AudienceSummary.parse(
+      ok(await audienceOf(d.id, { segmentIds: [seg.id], clientIds: [people2.p4] })),
+    );
+    expect(withSeg.selectedCount).toBe(2);
+    expect(withSeg.chips.find((c) => c.kind === 'SEGMENT')).toMatchObject({ id: seg.id, count: 2 });
+    // Other firms' people and unknown segments are refused.
+    expect((await audienceOf(d.id, { clientIds: [clients.cB] })).status).toBe(400);
+    expect((await audienceOf(d.id, { segmentIds: [randomUUID()] })).status).toBe(400);
+  });
+
+  it('lists candidates for the channel with their standing, masked', async () => {
+    const d = await draft();
+    const page = AudienceCandidatePage.parse(
+      ok(await call('get', `/audience/candidates?communicationId=${d.id}&search=Pat`, ownerA)),
+    );
+    const by = (n: string) => page.items.find((i) => i.label.startsWith(n));
+    expect(by('Pat Two')).toMatchObject({ eligible: true, ineligibleReason: null });
+    expect(by('Pat Two')?.secondary).toMatch(/^p\*\*\*@camp\.test$/);
+    expect(by('Pat One')).toMatchObject({ eligible: false, ineligibleReason: 'UNSUBSCRIBED' });
+    expect(by('Pat Three')).toMatchObject({ eligible: false, ineligibleReason: 'MISSING_CHANNEL' });
+    expect(by('Pat Five')).toMatchObject({ eligible: false, ineligibleReason: 'INVALID' });
+    expect(JSON.stringify(page)).not.toContain(`p2-${run}@`);
+    const all = SelectAllAudienceResult.parse(
+      ok(
+        await call('post', '/audience/select-all', ownerA, {
+          communicationId: d.id,
+          search: 'Pat',
+        }),
+      ),
+    );
+    expect(all.clientIds).toContain(people2.p2);
+    expect(all.clientIds).not.toContain(people2.p1);
+    expect(all.clientIds).not.toContain(people2.p3);
+    expect(all.truncated).toBe(false);
+    // Staff see only their own client.
+    const mine = await draft({}, staffA);
+    const staffPage = AudienceCandidatePage.parse(
+      ok(await call('get', `/audience/candidates?communicationId=${mine.id}&search=Pat`, staffA)),
+    );
+    expect(staffPage.items.map((i) => i.id)).toEqual([people2.p1]);
+    expectError(
+      await call('get', `/audience/candidates?communicationId=${d.id}`, staffA),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
+  it('reviews, blocks what is missing, and sends once however many times it is asked', async () => {
+    const d = await draft({ name: mark('Send') });
+    const empty = CommunicationReview.parse(ok(await call('get', `/${d.id}/review`, ownerA)));
+    expect(empty.canSend).toBe(false);
+    expect(
+      empty.checks
+        .filter((c) => c.severity === 'BLOCK')
+        .map((c) => c.code)
+        .sort(),
+    ).toEqual(['EMPTY_BODY', 'MISSING_SUBJECT', 'NO_RECIPIENTS']);
+    const k = key();
+    const blocked = await call('post', `/${d.id}/send`, ownerA, {
+      idempotencyKey: k,
+      etag: d.etag,
+    });
+    expectError(blocked, 409, 'NOT_READY');
+    await edit(d.id, {
+      subject: 'Hello [Client First Name]',
+      body: '<p>Hi [Client First Name], see [Appointment Date]</p>',
+    });
+    ok(await audienceOf(d.id, { clientIds: [people2.p2, people2.p4] }));
+    const review = CommunicationReview.parse(ok(await call('get', `/${d.id}/review`, ownerA)));
+    expect(review.canSend).toBe(true);
+    expect(review.checks.find((c) => c.code === 'UNRESOLVED_FIELDS')?.severity).toBe('WARN');
+    expect(review.audience.finalCount).toBe(2);
+    expect(review.preview.subject).toMatch(/^Hello Pat$/);
+    const fresh = await getDetail(d.id);
+    // The count moved since it was shown.
+    expectError(
+      await call('post', `/${d.id}/send`, ownerA, {
+        idempotencyKey: key(),
+        etag: fresh.etag,
+        expectedFinalCount: 5,
+      }),
+      409,
+      'AUDIENCE_CHANGED',
+    );
+    const sent = detailOf(
+      await call('post', `/${d.id}/send`, ownerA, {
+        idempotencyKey: k,
+        etag: fresh.etag,
+        expectedFinalCount: 2,
+      }),
+    );
+    expect(sent).toMatchObject({
+      status: 'SENDING',
+      editable: false,
+      finalCount: 2,
+      opens: 'RESULTS',
+    });
+    expect(sent.audience).toMatchObject({ finalCount: 2, selectedCount: 2 });
+    // A double click or a retry answers the same campaign and sends nothing more.
+    const retry = detailOf(
+      await call('post', `/${d.id}/send`, ownerA, { idempotencyKey: k, etag: fresh.etag }),
+    );
+    expect(retry.id).toBe(d.id);
+    const recipients = await inFirm('a', (tx) =>
+      tx.communicationRecipient.findMany({ where: { communicationId: d.id } }),
+    );
+    expect(recipients.map((r) => r.status)).toEqual(['QUEUED', 'QUEUED']);
+    expect(recipients.every((r) => /\*\*\*/.test(r.addressMask))).toBe(true);
+    // Another key on the same campaign is not a new send.
+    expectError(
+      await call('post', `/${d.id}/send`, ownerA, { idempotencyKey: key(), etag: fresh.etag }),
+      409,
+      'NOT_EDITABLE',
+    );
+    // A sent campaign no longer changes.
+    expectError(
+      await call('patch', `/${d.id}`, ownerA, { etag: sent.etag, name: 'later' }),
+      409,
+      'NOT_EDITABLE',
+    );
+    expectError(
+      await call('put', `/${d.id}/audience`, ownerA, { etag: sent.etag, clientIds: [] }),
+      409,
+      'NOT_EDITABLE',
+    );
+    const rows = await auditRows(d.id);
+    expect(rows.map((r) => r.action)).toContain('communication.sent');
+    expect(JSON.stringify(rows)).not.toMatch(/camp\.test|Hello|Pat /);
+    // It moves to the sent history and can be cancelled while sending: what is queued stops.
+    const cancelled = detailOf(
+      await call('post', `/${d.id}/cancel`, ownerA, { reason: 'Wrong list' }),
+    );
+    expect(cancelled).toMatchObject({ status: 'CANCELLED' });
+    const stopped = await inFirm('a', (tx) =>
+      tx.communicationRecipient.findMany({ where: { communicationId: d.id } }),
+    );
+    expect(stopped.map((r) => [r.status, r.failureCode])).toEqual([
+      ['NOT_SENT', 'cancelled'],
+      ['NOT_SENT', 'cancelled'],
+    ]);
+  });
+
+  it('schedules for later, reschedules before the lock, and cancels', async () => {
+    const d = await draft({ name: mark('Later') });
+    await edit(d.id, { subject: 'Later', body: '<p>Later</p>' });
+    ok(await audienceOf(d.id, { clientIds: [people2.p2] }));
+    const soon = new Date(Date.now() + 60_000).toISOString();
+    expectError(
+      await call('post', `/${d.id}/schedule`, ownerA, {
+        idempotencyKey: key(),
+        scheduledFor: soon,
+        etag: (await getDetail(d.id)).etag,
+      }),
+      409,
+      'SCHEDULE_IN_PAST',
+    );
+    const at = new Date(Date.now() + 3 * 3_600_000).toISOString();
+    const k = key();
+    const etag = (await getDetail(d.id)).etag;
+    const sch = detailOf(
+      await call('post', `/${d.id}/schedule`, ownerA, {
+        idempotencyKey: k,
+        scheduledFor: at,
+        etag,
+      }),
+    );
+    expect(sch).toMatchObject({ status: 'SCHEDULED', opens: 'SCHEDULED_DETAIL', editable: true });
+    expect(sch.lockedAt).toBe(new Date(Date.parse(at) - 5 * 60_000).toISOString());
+    expect(
+      detailOf(
+        await call('post', `/${d.id}/schedule`, ownerA, {
+          idempotencyKey: k,
+          scheduledFor: at,
+          etag,
+        }),
+      ).id,
+    ).toBe(d.id);
+    const later = new Date(Date.now() + 5 * 3_600_000).toISOString();
+    const moved = detailOf(
+      await call('post', `/${d.id}/reschedule`, ownerA, { scheduledFor: later, etag: sch.etag }),
+    );
+    expect(moved.scheduledFor).toBe(later);
+    const list = CommunicationPage.parse(ok(await call('get', '/?tab=scheduled', ownerA)));
+    expect(list.items.map((r) => r.id)).toContain(d.id);
+    // A scheduled campaign can still be edited before its lock.
+    ok(await edit(d.id, { name: mark('Renamed') }));
+    // Inside the lock it is fixed.
+    await inFirm('a', (tx) =>
+      tx.communication.update({
+        where: { id: d.id },
+        data: { scheduledFor: new Date(Date.now() + 2 * 60_000) },
+      }),
+    );
+    expectError(
+      await call('post', `/${d.id}/reschedule`, ownerA, {
+        scheduledFor: later,
+        etag: (await getDetail(d.id)).etag,
+      }),
+      409,
+      'LOCKED',
+    );
+    expectError(await edit(d.id, { name: 'no' }), 409, 'LOCKED');
+    const gone = detailOf(await call('post', `/${d.id}/cancel`, ownerA, {}));
+    expect(gone.status).toBe('CANCELLED');
+    expect(gone.cancelledAt).not.toBeNull();
+    // Cancelling again is a no-op.
+    expect(detailOf(await call('post', `/${d.id}/cancel`, ownerA, {})).status).toBe('CANCELLED');
+  });
+
+  it('publishes an announcement to the eligible clients at once', async () => {
+    const d = await draft({ channel: 'ANNOUNCEMENT', name: mark('News') });
+    await edit(d.id, { subject: 'Office closed Friday', body: '<p>Closed.</p>' });
+    ok(await audienceOf(d.id, { clientIds: [people2.p1, people2.p3] }));
+    const sent = detailOf(
+      await call('post', `/${d.id}/send`, ownerA, {
+        idempotencyKey: key(),
+        etag: (await getDetail(d.id)).etag,
+      }),
+    );
+    // An announcement needs no email address: both clients get it in the portal.
+    expect(sent).toMatchObject({ status: 'SENT', finalCount: 2, sender: null });
+    expect(sent.sentAt).not.toBeNull();
+    const list = CommunicationPage.parse(ok(await call('get', '/?tab=announcements', ownerA)));
+    expect(list.items.map((r) => r.id)).toContain(d.id);
+  });
+
+  it('lists the tabs, filters and archives', async () => {
+    const d = await draft({ name: mark('Findme') });
+    const find = async (q: string, who: Who = ownerA) =>
+      CommunicationPage.parse(ok(await call('get', `/?${q}`, who)));
+    expect(
+      (await find(`tab=drafts&search=${encodeURIComponent(d.name)}`)).items.map((r) => r.id),
+    ).toEqual([d.id]);
+    expect((await find(`tab=sent&search=${encodeURIComponent(d.name)}`)).items).toHaveLength(0);
+    expect((await find('channel=SMS&pageSize=5')).pageSize).toBe(5);
+    expect((await call('get', '/?tab=nope', ownerA)).status).toBe(400);
+    const arch = detailOf(await call('post', `/${d.id}/archive`, ownerA));
+    expect(arch.archived).toBe(true);
+    expect(
+      (await find(`archived=true&search=${encodeURIComponent(d.name)}`)).items.map((r) => r.id),
+    ).toEqual([d.id]);
+    expect(detailOf(await call('post', `/${d.id}/restore`, ownerA)).archived).toBe(false);
+    const copy = detailOf(await call('post', `/${d.id}/duplicate`, ownerA), 201);
+    expect(copy).toMatchObject({ status: 'DRAFT', sourceId: d.id, sourceKind: 'DUPLICATE' });
+    expect(copy.name).toBe(`${d.name} (copy)`);
+  });
+
+  it('shows Staff only their own, and firm B nothing', async () => {
+    const mine = await draft({}, staffA);
+    const theirs = await draft({}, ownerA);
+    ok(await call('get', `/${mine.id}`, staffA));
+    expectError(await call('get', `/${theirs.id}`, staffA), 404, 'NOT_FOUND');
+    expectError(
+      await call('patch', `/${theirs.id}`, staffA, { etag: theirs.etag, name: 'x' }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(await call('post', `/${theirs.id}/cancel`, staffA, {}), 404, 'NOT_FOUND');
+    ok(await call('get', `/${mine.id}`, ownerA));
+    expectError(await call('get', `/${theirs.id}`, ownerB, undefined, 'b'), 404, 'NOT_FOUND');
+    expect(
+      CommunicationPage.parse(ok(await call('get', '/', ownerB, undefined, 'b'))).items,
+    ).toHaveLength(0);
+    expectError(await call('get', `/${randomUUID()}`, ownerA), 404, 'NOT_FOUND');
+    expectError(await call('get', '/not-a-uuid', ownerA), 400, 'VALIDATION_FAILED');
   });
 });
