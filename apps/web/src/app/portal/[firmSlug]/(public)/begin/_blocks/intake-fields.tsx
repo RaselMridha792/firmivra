@@ -730,7 +730,7 @@ function PackageCard({
     <label
       className={`flex min-w-0 cursor-pointer flex-col gap-2 rounded-card border p-4 ${on ? 'border-action bg-accent-soft' : 'border-folder-border bg-folder-surface'}`}
     >
-      <span className="flex items-center gap-3">
+      <span className="flex min-w-0 flex-wrap items-center gap-3">
         {Icon && (
           <Icon
             aria-hidden="true"
