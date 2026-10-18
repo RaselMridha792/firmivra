@@ -203,8 +203,10 @@ export function InvoiceEditor({
 }) {
   const settings = useApiQuery(['admin-billing', 'settings'], () => adminBilling.settings());
   const firms = useApiQuery(['admin-billing', 'firms'], () => adminBilling.firms());
+  // One fetch per visit: a cached number or invoice may already be out of date.
+  const [visit] = useState(() => newKey('visit'));
   const source = useApiQuery(
-    ['admin-billing', 'invoice-source', mode, invoiceId ?? '', estimateId ?? ''],
+    ['admin-billing', 'invoice-source', mode, invoiceId ?? '', estimateId ?? '', visit],
     async () => {
       if (mode === 'edit' && invoiceId)
         return { invoice: await adminBilling.invoice(invoiceId), body: null, number: '' };
@@ -219,8 +221,7 @@ export function InvoiceEditor({
   );
   const failed = settings.error ?? firms.error ?? source.error;
 
-  // Wait for this visit's own fetch: a cached number or invoice may already be out of date.
-  if (settings.data && firms.data && source.data && source.isFetchedAfterMount) {
+  if (settings.data && firms.data && source.data) {
     return (
       <InvoiceForm
         mode={mode}

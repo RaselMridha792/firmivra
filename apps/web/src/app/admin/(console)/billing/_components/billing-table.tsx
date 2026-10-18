@@ -232,7 +232,7 @@ export function BillingPager({
       </p>
       <nav
         aria-label={`${noun[0]?.toUpperCase() ?? ''}${noun.slice(1)} pages`}
-        className="flex gap-2"
+        className="flex flex-wrap gap-2"
       >
         <button
           type="button"

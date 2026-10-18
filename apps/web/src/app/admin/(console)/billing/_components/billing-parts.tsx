@@ -53,6 +53,8 @@ export function BillingTile({
 export function quietErrorText(error: unknown): string {
   if (error instanceof ApiRequestError && error.code === 'FORBIDDEN')
     return "You don't have permission to see this.";
+  if (error instanceof ApiRequestError && error.code === 'NOT_FOUND')
+    return "We couldn't find this. It may have been removed.";
   return 'Could not load this right now. Try again in a moment.';
 }
 
