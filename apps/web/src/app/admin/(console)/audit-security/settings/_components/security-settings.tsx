@@ -50,6 +50,7 @@ import {
   type IpMode,
   type MfaScope,
   type SecuritySettings,
+  type SettingsErrors,
 } from '../../../../../../mocks/admin-audit-security';
 import {
   Breadcrumbs,
@@ -154,8 +155,8 @@ export function SecuritySettingsForm() {
 
   const saved = settings.data;
   const current = draft ?? saved?.settings;
-  const errors = current ? validateSecuritySettings(current) : {};
-  const shown = showErrors ? errors : {};
+  const errors: SettingsErrors = current ? validateSecuritySettings(current) : {};
+  const shown: SettingsErrors = showErrors ? errors : {};
   const changes = saved && current ? describeSettingsChanges(saved.settings, current) : [];
   const highImpact = changes.some((change) => change.highImpact);
 
@@ -333,8 +334,13 @@ export function SecuritySettingsForm() {
                   key={method.key}
                   label={method.label}
                   checked={value.methods[method.key]}
-                  onChange={(event) => patch('methods', { [method.key]: event.target.checked })}
-                  className="text-sm"
+                  onChange={(event) => {
+                    const { checked } = event.target;
+                    change((next) => ({
+                      ...next,
+                      methods: { ...next.methods, [method.key]: checked },
+                    }));
+                  }}
                 />
               ))}
               {shown.methods ? (
@@ -572,10 +578,13 @@ export function SecuritySettingsForm() {
                     key={alert.key}
                     label={alert.label}
                     checked={value.notifications[alert.key]}
-                    onChange={(event) =>
-                      patch('notifications', { [alert.key]: event.target.checked })
-                    }
-                    className="text-sm"
+                    onChange={(event) => {
+                      const { checked } = event.target;
+                      change((next) => ({
+                        ...next,
+                        notifications: { ...next.notifications, [alert.key]: checked },
+                      }));
+                    }}
                   />
                 ))}
               </fieldset>
@@ -584,24 +593,16 @@ export function SecuritySettingsForm() {
                   Send high and critical alerts by
                 </legend>
                 <div className="flex flex-wrap gap-x-6">
-                  <Checkbox
-                    label="In-app (always on)"
-                    checked
-                    disabled
-                    readOnly
-                    className="text-sm"
-                  />
+                  <Checkbox label="In-app (always on)" checked disabled readOnly />
                   <Checkbox
                     label="Email"
                     checked={value.notifications.email}
                     onChange={(event) => patch('notifications', { email: event.target.checked })}
-                    className="text-sm"
                   />
                   <Checkbox
                     label="SMS"
                     checked={value.notifications.sms}
                     onChange={(event) => patch('notifications', { sms: event.target.checked })}
-                    className="text-sm"
                   />
                 </div>
               </fieldset>
