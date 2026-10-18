@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import { IntakePage } from '../_blocks/intake-flow';
+import styles from '../_blocks/intake-scale.module.css';
 
 export const metadata: Metadata = { title: 'Payroll' };
 
 export default async function PayrollPage({ params }: { params: Promise<{ firmSlug: string }> }) {
   const { firmSlug } = await params;
-  return <IntakePage firmSlug={firmSlug} form="PAYROLL" />;
+  return <IntakePage firmSlug={firmSlug} form="PAYROLL" className={styles.scale} />;
 }

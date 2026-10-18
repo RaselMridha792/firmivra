@@ -12,6 +12,7 @@ import { seedDemoIntake } from './seed-demo-intake.js';
 import { seedDemoLeads } from './seed-demo-leads.js';
 import { seedDemoOrg, type DemoOrgResult } from './seed-demo-org.js';
 import { seedDemoPlatform } from './seed-demo-platform.js';
+import { seedDemoPortal } from './seed-demo-portal.js';
 import { seedDemoSignups } from './seed-demo-signups.js';
 
 type Prisma = ReturnType<typeof createPrismaClient>;
@@ -29,6 +30,8 @@ export async function seedDemo(prisma: Prisma): Promise<DemoOrgResult> {
   await seedDemoLeads(prisma, org, form);
   await seedDemoEsign(prisma, org);
   await seedDemoSignups(prisma, org);
+  // Portal gaps from the Oct 18 click-through: tax-year statuses and the firm's content.
+  await seedDemoPortal(prisma, org);
   // Stage 4: the Super Admin side.
   await seedDemoPlatform(prisma, org);
   // Last: bell items point at rows the modules above made.
