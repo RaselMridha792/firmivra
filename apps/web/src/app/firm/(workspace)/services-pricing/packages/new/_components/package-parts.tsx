@@ -259,8 +259,8 @@ export function PackagePreview({
           <ul className="mt-2 space-y-2">
             {value.addOns
               .filter((a) => a.offered)
-              .map((a, i) => (
-                <li key={`${a.name}-${i}`} className="flex gap-2 text-sm">
+              .map((a) => (
+                <li key={a.name} className="flex gap-2 text-sm">
                   <PlusCircle weight="fill" className="size-5 shrink-0 text-action" />
                   <span className="break-words">
                     {a.name} (+{money(a.priceCents)})
