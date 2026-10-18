@@ -104,26 +104,8 @@ export class SettingsService {
   }
 
   async update(businessId: string, patch: SettingsPatch): Promise<FirmSettings> {
-    const {
-      name,
-      primaryColor,
-      ein,
-      sidebarColor,
-      textPrimaryColor,
-      textSecondaryColor,
-      buttonColor,
-      ...rest
-    } = patch;
-    // The theme colours' columns come with R0's r0_firm_theme_colors; until then they are refused,
-    // never silently dropped.
-    if (
-      [sidebarColor, textPrimaryColor, textSecondaryColor, buttonColor].some((c) => c !== undefined)
-    ) {
-      throw new ServiceUnavailableException({
-        code: 'THEME_COLORS_UNAVAILABLE',
-        message: 'Theme colours are not available yet',
-      });
-    }
+    // The theme colours (sidebarColor, textPrimaryColor, ...) are columns of the same name.
+    const { name, primaryColor, ein, ...rest } = patch;
     const fields = Object.keys(patch).sort();
     // The EIN is sealed before the transaction, so a KMS call never holds a pooled connection or
     // the settings row. Null removes it. Only its last 4 digits are stored in the clear.
@@ -374,11 +356,10 @@ export class SettingsService {
       sidebarMotto: s?.sidebarMotto ?? null,
       primaryColor: s?.brandColor ?? null,
       accentColor: s?.accentColor ?? null,
-      // Until R0's r0_firm_theme_colors: derived from the primary colour.
-      sidebarColor: null,
-      textPrimaryColor: null,
-      textSecondaryColor: null,
-      buttonColor: null,
+      sidebarColor: s?.sidebarColor ?? null,
+      textPrimaryColor: s?.textPrimaryColor ?? null,
+      textSecondaryColor: s?.textSecondaryColor ?? null,
+      buttonColor: s?.buttonColor ?? null,
       portalName: s?.portalName ?? null,
       portalHeader: s?.portalHeader ?? null,
       welcomeMessage: s?.welcomeMessage ?? null,
