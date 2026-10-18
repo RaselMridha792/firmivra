@@ -58,6 +58,11 @@ import {
   createComplianceClient,
   createTemplatesClient,
   createAutomationsClient,
+  createReportsClient,
+  createAdvisoryClient,
+  createIntegrationsClient,
+  createTaxPlanningClient,
+  createCommunicationsClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
@@ -337,6 +342,31 @@ export const api = {
     dev && mocked('automations')
       ? createAutomationsMock({ role: MOCK_ROLE, empty: mockedEmpty('automations') })
       : createAutomationsClient(request),
+  /**
+   * Reports (R55): the dashboard, report detail, custom builder, saved reports, exports and
+   * schedules. Real API only until its mock is written.
+   */
+  reports: createReportsClient(request),
+  /**
+   * Business Advisory & Development (R55): overview, advisory clients, business plans, goals,
+   * financial analysis, action plans and resources. Real API only until its mock is written.
+   */
+  advisory: createAdvisoryClient(request),
+  /**
+   * Integrations (R55): the main page, marketplace, connect and configure, manage a connection,
+   * requests and Custom API. Real API only until its mock is written.
+   */
+  integrations: createIntegrationsClient(request),
+  /**
+   * Tax Planning & Strategy (R55): overview, plans, strategy library, opportunities, calculator,
+   * calendar and resources. Real API only until its mock is written.
+   */
+  taxPlanning: createTaxPlanningClient(request),
+  /**
+   * Communications (R55): overview, the composer for email, text and announcements, recipients
+   * and segments, review and send, results and consent. Real API only until its mock is written.
+   */
+  communications: createCommunicationsClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
   workspaces:
     dev && mocked('workspaces')
