@@ -50,7 +50,7 @@ function Panel({
   return (
     <Card className={`grid min-w-0 content-start gap-3 ${className}`}>
       <header className="flex items-start gap-3">
-        <Icon aria-hidden className="size-8 shrink-0 text-firm-primary" />
+        <Icon aria-hidden className="size-8 shrink-0 text-firm-text" />
         <div className="flex-1">
           <h2 id={id} className="font-display text-xl font-bold text-heading">
             {title}
@@ -58,7 +58,7 @@ function Panel({
           <p className="text-sm text-muted">{intro}</p>
         </div>
         {more ? (
-          <Link className="text-sm text-firm-primary underline" href={more.href}>
+          <Link className="text-sm text-firm-text underline" href={more.href}>
             {more.label}
           </Link>
         ) : null}
@@ -94,12 +94,12 @@ export function ActionItems({ slug }: { slug: string }) {
                   key={r.id}
                   className="flex gap-2 border-b border-business-action-items-border/70 pb-2 last:border-0 last:pb-0"
                 >
-                  <CloudUpload aria-hidden className="size-5 shrink-0 text-firm-primary" />
+                  <CloudUpload aria-hidden className="size-5 shrink-0 text-firm-text" />
                   <div className="grid flex-1 gap-1">
                     <span className="text-sm text-text">{r.title}</span>
                     <span className="flex flex-wrap gap-x-4 text-sm">
                       {r.dueOn ? <span className="text-danger">Due {due(r.dueOn)}</span> : null}
-                      <Link className="text-firm-primary underline" href={`/${slug}/documents`}>
+                      <Link className="text-firm-text underline" href={`/${slug}/documents`}>
                         Upload Now
                       </Link>
                     </span>
@@ -141,7 +141,7 @@ export function BusinessServices({ slug }: { slug: string }) {
                       <span className="flex-1 text-sm font-medium text-heading">{s.title}</span>
                       {s.stage ? <span className="text-sm text-muted">{s.stage}</span> : null}
                       <Badge tone={tone}>{label}</Badge>
-                      <ChevronRight aria-hidden className="size-4 text-firm-primary" />
+                      <ChevronRight aria-hidden className="size-4 text-firm-text" />
                     </Link>
                   </li>
                 );
@@ -192,7 +192,7 @@ export function HelpfulResources({ slug, compact = false }: { slug: string; comp
     return (
       <Card className="grid min-w-0 content-start gap-3 p-4">
         <header className="flex items-center gap-2">
-          <BookOpen aria-hidden className="size-6 shrink-0 text-firm-primary" />
+          <BookOpen aria-hidden className="size-6 shrink-0 text-firm-text" />
           <h2 id="helpful-resources" className="flex-1 font-display text-lg font-bold text-heading">
             Helpful Resources
           </h2>
@@ -201,12 +201,12 @@ export function HelpfulResources({ slug, compact = false }: { slug: string; comp
           {RESOURCES.map(([Icon, title, text, path]) => (
             <li key={path} className="border-t border-border first:border-0">
               <Link href={`/${slug}/resources/${path}`} className="flex items-center gap-2 py-2">
-                <Icon aria-hidden className="size-6 shrink-0 text-firm-primary" />
+                <Icon aria-hidden className="size-6 shrink-0 text-firm-text" />
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold text-heading">{title}</span>
                   <span className="block text-xs text-text">{text}</span>
                 </span>
-                <span className="shrink-0 rounded-control border border-firm-primary bg-surface px-2 py-1 text-xs font-medium text-firm-primary transition-colors hover:border-navigation-hover hover:bg-navigation-hover hover:text-on-action">
+                <span className="shrink-0 rounded-control border border-firm-primary bg-surface px-2 py-1 text-xs font-medium text-firm-text transition-colors hover:border-navigation-hover hover:bg-navigation-hover hover:text-on-action">
                   Open
                 </span>
               </Link>
@@ -231,7 +231,7 @@ export function HelpfulResources({ slug, compact = false }: { slug: string; comp
               href={`/${slug}/resources/${path}`}
               className="flex h-full gap-3 rounded-card border border-folder-border p-3 hover:bg-folder-hover"
             >
-              <Icon aria-hidden className="size-8 shrink-0 text-firm-primary" />
+              <Icon aria-hidden className="size-8 shrink-0 text-firm-text" />
               <span>
                 <span className="block font-semibold text-heading">{title}</span>
                 <span className="block text-sm text-text">{text}</span>

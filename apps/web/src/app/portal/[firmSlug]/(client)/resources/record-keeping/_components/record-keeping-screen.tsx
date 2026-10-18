@@ -253,7 +253,7 @@ function RecordTable({ rows }: { rows: RecordRow[] }) {
         <div key={key ?? `${title}-${index}`} className="grid min-w-0 gap-2 md:grid-cols-5">
           <RecordCell label="Record Type">
             <div className="flex items-center gap-2">
-              <span className="grid size-10 shrink-0 place-items-center rounded-full bg-folder-surface text-firm-primary">
+              <span className="grid size-10 shrink-0 place-items-center rounded-full bg-folder-surface text-firm-text">
                 <Icon aria-hidden className="size-6" />
               </span>
               <strong className="font-display text-base leading-tight text-heading">{title}</strong>
@@ -284,7 +284,7 @@ function RecordKeepingDashboard({ slug, items }: { slug: string; items: MyConten
       <header className="min-w-0 lg:col-span-3">
         <Link
           href={`/${slug}/business`}
-          className="inline-flex items-center gap-2 text-firm-primary hover:underline"
+          className="inline-flex items-center gap-2 text-firm-text hover:underline"
         >
           <ArrowLeft aria-hidden className="size-4" /> Back to Resources
         </Link>
@@ -304,7 +304,7 @@ function RecordKeepingDashboard({ slug, items }: { slug: string; items: MyConten
 
       <Card className="grid content-start gap-3 border-folder-border! bg-folder-surface! p-4! lg:col-span-1">
         <div className="flex items-start gap-3">
-          <Lightbulb aria-hidden className="size-8 shrink-0 text-firm-primary" />
+          <Lightbulb aria-hidden className="size-8 shrink-0 text-firm-text" />
           <div>
             <h2 className="font-display text-lg font-bold text-heading">Need Professional Help?</h2>
             <p className="mt-1 text-sm text-text">
@@ -314,7 +314,7 @@ function RecordKeepingDashboard({ slug, items }: { slug: string; items: MyConten
         </div>
         <Link
           href={`/${slug}/appointments`}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-firm-primary px-4 py-2 text-sm font-semibold text-on-action hover:bg-navigation-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-firm-primary"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-firm-button px-4 py-2 text-sm font-semibold text-on-firm-button hover:bg-firm-button-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-firm-primary"
         >
           Schedule an Appointment <ArrowRight aria-hidden className="size-4" />
         </Link>
@@ -328,7 +328,7 @@ function RecordKeepingDashboard({ slug, items }: { slug: string; items: MyConten
         <Card className="flex min-w-0 flex-col gap-3 border-folder-border! bg-folder-surface! p-4! md:flex-row md:items-center">
           <Database
             aria-hidden
-            className="size-12 shrink-0 rounded-full bg-surface p-2.5 text-firm-primary"
+            className="size-12 shrink-0 rounded-full bg-surface p-2.5 text-firm-text"
           />
           <div className="min-w-0 md:flex-1">
             <h2 className="font-display text-2xl font-bold text-heading">
@@ -339,14 +339,14 @@ function RecordKeepingDashboard({ slug, items }: { slug: string; items: MyConten
           <div className="min-w-0 md:flex-1">
             <BulletList items={tips} />
           </div>
-          <p className="font-display text-right text-2xl font-bold text-firm-primary italic md:flex-1">
+          <p className="font-display text-right text-2xl font-bold text-firm-text italic md:flex-1">
             Organize Today
             <br />
             Greater Tomorrow
           </p>
         </Card>
         <Card className="flex flex-col gap-3 border-folder-border! bg-folder-surface! p-4! sm:flex-row sm:items-center">
-          <MessageSquareText aria-hidden className="size-10 shrink-0 text-firm-primary" />
+          <MessageSquareText aria-hidden className="size-10 shrink-0 text-firm-text" />
           <div className="min-w-0 flex-1">
             <h2 className="font-display text-2xl font-bold text-heading">Still Have Questions?</h2>
             <p className="text-base text-text">
@@ -356,7 +356,7 @@ function RecordKeepingDashboard({ slug, items }: { slug: string; items: MyConten
           </div>
           <Link
             href={`/${slug}/appointments`}
-            className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-control bg-firm-primary px-4 py-2 text-base font-semibold text-on-action hover:bg-navigation-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-firm-primary"
+            className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-control bg-firm-button px-4 py-2 text-base font-semibold text-on-firm-button hover:bg-firm-button-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-firm-primary"
           >
             Schedule an Appointment <ArrowRight aria-hidden className="size-4" />
           </Link>

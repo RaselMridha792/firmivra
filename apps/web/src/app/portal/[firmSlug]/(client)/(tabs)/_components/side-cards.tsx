@@ -51,14 +51,14 @@ function LinkCard({
     <Card className="flex gap-3">
       <Icon
         aria-hidden
-        className={`${compactIcon ? 'size-8' : 'size-10'} shrink-0 ${blueAccent ? 'text-firm-primary' : 'text-firm-accent'}`}
+        className={`${compactIcon ? 'size-8' : 'size-10'} shrink-0 ${blueAccent ? 'text-firm-text' : 'text-firm-accent'}`}
       />
       <div className="min-w-0">
         <h2 className="font-display text-lg font-bold text-heading">{title}</h2>
         <div className="my-1 text-sm text-text">{children}</div>
         <Link
           href={href}
-          className={`inline-flex items-center gap-2 underline ${blueAccent ? 'text-firm-primary' : 'text-link'}`}
+          className={`inline-flex items-center gap-2 underline ${blueAccent ? 'text-firm-text' : 'text-link'}`}
         >
           {action} <ArrowRight aria-hidden className="size-4" />
         </Link>
@@ -240,13 +240,13 @@ function ImportantInfoCard() {
   return (
     <Card>
       <div className="flex items-center gap-3">
-        <Info aria-hidden className="size-5 shrink-0 text-firm-primary" />
+        <Info aria-hidden className="size-5 shrink-0 text-firm-text" />
         <h2 className="font-display text-lg font-bold text-heading">Important Info</h2>
       </div>
       <dl className="mt-3 ml-8 divide-y divide-border text-xs">
         {invoiceInfo.map(([question, answer]) => (
           <div key={question} className="py-2 first:pt-0 last:pb-0">
-            <dt className="text-sm font-bold text-firm-primary">{question}</dt>
+            <dt className="text-sm font-bold text-firm-text">{question}</dt>
             <dd className="mt-1 text-text">{answer}</dd>
           </div>
         ))}
@@ -292,7 +292,7 @@ export function QuickLinks({
             >
               <Icon
                 aria-hidden
-                className={`size-8 shrink-0 ${blueAccents ? 'text-firm-primary' : 'text-firm-accent'}`}
+                className={`size-8 shrink-0 ${blueAccents ? 'text-firm-text' : 'text-firm-accent'}`}
               />
               <span className={businessLayout ? 'min-w-0' : 'min-w-0 flex-1'}>
                 <span className="block font-semibold text-heading">{title}</span>
@@ -303,7 +303,7 @@ export function QuickLinks({
               {!businessLayout ? (
                 <ChevronRight
                   aria-hidden
-                  className={`size-5 shrink-0 ${blueAccents ? 'text-firm-primary' : 'text-firm-accent'}`}
+                  className={`size-5 shrink-0 ${blueAccents ? 'text-firm-text' : 'text-firm-accent'}`}
                 />
               ) : null}
             </Link>

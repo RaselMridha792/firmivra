@@ -241,7 +241,7 @@ function GuideRowCard({ row }: { row: GuideRow }) {
       className="grid min-w-0 gap-3 p-3! lg:grid-cols-4 lg:gap-0"
     >
       <div className="flex min-w-0 items-start gap-3 lg:pr-3">
-        <span className="grid size-14 shrink-0 place-items-center rounded-full bg-folder-surface text-firm-primary">
+        <span className="grid size-14 shrink-0 place-items-center rounded-full bg-folder-surface text-firm-text">
           <Icon aria-hidden className="size-8" />
         </span>
         <div className="min-w-0">
@@ -259,7 +259,7 @@ function GuideRowCard({ row }: { row: GuideRow }) {
               key={requirement}
               className="flex items-start gap-1.5 text-sm leading-snug text-text"
             >
-              <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-firm-primary" />
+              <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-firm-text" />
               <span>{requirement}</span>
             </li>
           ))}
@@ -291,7 +291,7 @@ export function StartupGuideScreen() {
       <header className="min-w-0 lg:col-span-3">
         <Link
           href={`/${slug}/business`}
-          className="inline-flex items-center gap-2 text-firm-primary hover:underline"
+          className="inline-flex items-center gap-2 text-firm-text hover:underline"
         >
           <ArrowLeft aria-hidden className="size-4" /> Back to Resources
         </Link>
@@ -307,7 +307,7 @@ export function StartupGuideScreen() {
 
       <Card className="grid content-start gap-3 border-folder-border! bg-folder-surface! p-4! lg:col-span-1">
         <div className="flex items-start gap-3">
-          <Lightbulb aria-hidden className="size-10 shrink-0 text-firm-primary" />
+          <Lightbulb aria-hidden className="size-10 shrink-0 text-firm-text" />
           <div>
             <h2 className="font-display text-xl font-bold text-heading">Need Professional Help?</h2>
             <p className="mt-1 text-sm leading-relaxed text-text">
@@ -318,7 +318,7 @@ export function StartupGuideScreen() {
         </div>
         <ButtonLink
           href={`/${slug}/appointments`}
-          className="bg-firm-primary! hover:bg-navigation-hover!"
+          className="bg-firm-button! hover:bg-firm-button-hover!"
         >
           Schedule an Appointment
         </ButtonLink>
@@ -341,7 +341,7 @@ export function StartupGuideScreen() {
       </section>
 
       <Card className="flex min-w-0 flex-col gap-3 border-folder-border! bg-folder-surface! p-4! sm:flex-row sm:items-center lg:col-span-4">
-        <GraduationCap aria-hidden className="size-12 shrink-0 text-firm-primary" />
+        <GraduationCap aria-hidden className="size-12 shrink-0 text-firm-text" />
         <div className="min-w-0 flex-1">
           <h2 className="font-display text-2xl font-bold text-heading">Still Have Questions?</h2>
           <p className="text-sm text-text">
@@ -351,7 +351,7 @@ export function StartupGuideScreen() {
         </div>
         <ButtonLink
           href={`/${slug}/appointments`}
-          className="bg-firm-primary! hover:bg-navigation-hover! sm:max-w-64"
+          className="bg-firm-button! hover:bg-firm-button-hover! sm:max-w-64"
         >
           Schedule an Appointment
         </ButtonLink>
