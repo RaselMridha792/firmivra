@@ -1,6 +1,19 @@
-import { ForbiddenException, HttpException, Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  HttpException,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
-import type { ConvertLeadRequest, ConvertLeadResponse, DownloadLink } from '@firmivra/types';
+import type {
+  ConvertLeadRequest,
+  ConvertLeadResponse,
+  ConvertLeadToClientRequest,
+  ConvertLeadToClientResult,
+  DownloadLink,
+} from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { lockClientEmails } from '../client-auth/client-records.js';
@@ -13,8 +26,14 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { storageUnavailable } from '../storage/document-records.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
 import { conflict, handled, LeadsService, notFound, OPEN, REVIEWED } from './leads.service.js';
+import { invalid, lockLead, requireActiveMember } from './pipeline.shared.js';
 
 type ConvertBody = z.output<typeof ConvertLeadRequest>;
+type ToClientBody = z.output<typeof ConvertLeadToClientRequest>;
+/** What a CONVERTED activity keeps so a retry with the same key gets the first answer. */
+interface Stored {
+  result: Omit<ConvertLeadToClientResult, 'inviteSent'> & { inviteSent: boolean };
+}
 
 /**
  * Converting a lead (R11 step 4): makes the client (or uses one the member reaches), an ACTIVE
@@ -146,6 +165,271 @@ export class LeadConvertService {
       engagementId: result.engagementId,
       inviteSent,
     };
+  }
+
+  /**
+   * Convert Lead to Client (R57, five steps in one call): the client (or `clientId`), one ACTIVE
+   * engagement per service, the chosen history carried over, the lead kept as CONVERTED and linked.
+   * One transaction; the portal invitation goes out after it commits. Retry-safe: the key is kept
+   * in the CONVERTED activity's metadata, and a repeat with it returns the first result (with
+   * `inviteSent` false: an invitation is never sent twice).
+   */
+  async convertToClient(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: ToClientBody,
+  ): Promise<ConvertLeadToClientResult> {
+    if (actor.role === 'STAFF' && body.primaryStaffUserId !== actor.userId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
+    }
+    if (body.address && body.address.length > 200) throw invalid('Use at most 200 characters');
+    const serviceIds = [...new Set(body.serviceIds)];
+    const email = body.email.toLowerCase();
+    const result = await this.inFirm(businessId, async (tx) => {
+      const lead = await lockLead(tx, businessId, actor, id);
+      if (lead.archivedAt) throw notFound();
+      if (lead.status === 'CONVERTED') {
+        const first = await tx.leadActivity.findFirst({
+          where: {
+            businessId,
+            leadId: id,
+            kind: 'CONVERTED',
+            metadata: { path: ['idempotencyKey'], equals: body.idempotencyKey },
+          },
+          select: { metadata: true },
+        });
+        if (!first) throw conflict('ALREADY_CONVERTED', 'This lead is already a client');
+        const m = first.metadata as unknown as Stored;
+        return { replay: true as const, out: { ...m.result, inviteSent: false } };
+      }
+      const services = await tx.service.findMany({
+        where: { businessId, archivedAt: null, id: { in: serviceIds } },
+        select: { id: true, name: true, billingInterval: true },
+      });
+      if (services.length !== serviceIds.length) throw notFound();
+      await requireActiveMember(tx, businessId, body.primaryStaffUserId);
+      for (const userId of body.additionalStaffUserIds) {
+        await requireActiveMember(tx, businessId, userId);
+      }
+      // leads_rules: the lead's engagement is for the lead's own service, which never changes.
+      if (!serviceIds.includes(lead.serviceId)) {
+        throw conflict(
+          'LEAD_SERVICE_REQUIRED',
+          "The lead's own service must be one of the services",
+        );
+      }
+      const carry = body.carryOver;
+      const clientId = body.clientId
+        ? await this.existingClient(tx, businessId, actor, body.clientId)
+        : await this.createClient(tx, businessId, actor, lead, body, email);
+      const engagementIds: string[] = [];
+      const engagementOf = new Map<string, string>();
+      for (const serviceId of serviceIds) {
+        const service = services.find((s) => s.id === serviceId)!;
+        const year = serviceId === lead.serviceId ? lead.taxYear : null;
+        const engagement = await tx.engagement.create({
+          data: {
+            businessId,
+            clientId,
+            serviceId,
+            title: year ? `${service.name} ${year}` : service.name,
+            taxYear: year,
+            status: 'ACTIVE',
+            billingInterval: service.billingInterval,
+            assignedUserId: body.primaryStaffUserId,
+            updatedByUserId: actor.userId,
+          },
+          select: { id: true },
+        });
+        engagementIds.push(engagement.id);
+        engagementOf.set(serviceId, engagement.id);
+      }
+      await tx.lead.update({
+        where: { id },
+        data: {
+          status: 'CONVERTED',
+          clientId,
+          engagementId: engagementOf.get(lead.serviceId)!,
+          reviewedByUserId: actor.userId,
+          reviewedAt: new Date(),
+          nextActionType: null,
+          nextActionAt: null,
+          nextActionNote: null,
+          updatedByUserId: actor.userId,
+        },
+      });
+      if (carry.tags) {
+        const tags = await tx.leadTag.findMany({
+          where: { businessId, leadId: id, tag: { archivedAt: null } },
+          select: { tagId: true },
+        });
+        await tx.clientTag.createMany({
+          data: tags.map((t) => ({
+            businessId,
+            clientId,
+            tagId: t.tagId,
+            addedByUserId: actor.userId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+      const carried = {
+        notes: 0,
+        // Appointments, tasks and a client-side communications history have nowhere to go yet.
+        communications: 0,
+        appointments: 0,
+        tasks: 0,
+        documents: 0,
+        intakeForms: 0,
+      };
+      if (carry.notes) {
+        const notes = await tx.leadActivity.findMany({
+          where: { businessId, leadId: id, kind: 'NOTE' },
+          orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+          select: { body: true, actorUserId: true, occurredAt: true },
+        });
+        for (const n of notes) {
+          await tx.note.create({
+            data: {
+              businessId,
+              clientId,
+              body: n.body ?? '',
+              authorUserId: n.actorUserId ?? actor.userId,
+              createdAt: n.occurredAt,
+            },
+          });
+        }
+        carried.notes = notes.length;
+      }
+      const intakes = await tx.intake.findMany({
+        where: { businessId, leadId: id },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, form: { select: { serviceId: true } } },
+      });
+      // An intake joins the engagement of its form's service, else the first one.
+      let firstIntake: { id: string; engagementId: string } | null = null;
+      if (carry.intakeForms) {
+        for (const i of intakes) {
+          const engagementId = engagementOf.get(i.form.serviceId) ?? engagementIds[0]!;
+          await tx.intake.update({ where: { id: i.id }, data: { engagementId } });
+          firstIntake ??= { id: i.id, engagementId };
+        }
+        carried.intakeForms = intakes.length;
+      }
+      if (carry.documents) {
+        carried.documents = await this.carryUploads(tx, businessId, id, {
+          clientId,
+          engagementId: firstIntake?.engagementId ?? engagementIds[0]!,
+          intakeId: firstIntake?.id ?? null,
+          taxYear: lead.taxYear,
+        });
+      }
+      const out = { clientId, engagementIds, inviteSent: false, carried };
+      await tx.leadActivity.create({
+        data: {
+          businessId,
+          leadId: id,
+          kind: 'CONVERTED',
+          actorUserId: actor.userId,
+          metadata: { idempotencyKey: body.idempotencyKey, result: out },
+        },
+      });
+      return {
+        replay: false as const,
+        out,
+        newClient: !body.clientId,
+        invite: { name: body.fullName, email, slug: await this.slugOf(tx, businessId) },
+      };
+    });
+    if (result.replay) return result.out;
+    const { out } = result;
+    if (result.newClient) {
+      await this.audit.log(
+        'client.created',
+        { type: 'client', id: out.clientId },
+        { from: 'lead', leadId: id },
+      );
+    }
+    for (const engagementId of out.engagementIds) {
+      await this.audit.log(
+        'engagement.created',
+        { type: 'engagement', id: engagementId },
+        { clientId: out.clientId, from: 'lead', leadId: id },
+      );
+    }
+    await this.audit.log(
+      'lead.converted',
+      { type: 'lead', id },
+      {
+        clientId: out.clientId,
+        engagementIds: out.engagementIds,
+        newClient: result.newClient,
+        carried: out.carried,
+      },
+    );
+    const inviteSent =
+      body.sendPortalInvite && result.newClient
+        ? await this.invite(businessId, result.invite)
+        : false;
+    return { ...out, inviteSent };
+  }
+
+  private async slugOf(tx: TxClient, businessId: string): Promise<string> {
+    const firm = await tx.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { slug: true },
+    });
+    return firm.slug;
+  }
+
+  /** The client from the Convert form's own fields (the member may have changed the lead's). */
+  private async createClient(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    lead: { source: string; sourceDetail?: string | null },
+    body: ToClientBody,
+    email: string,
+  ): Promise<string> {
+    await lockClientEmails(tx, businessId);
+    const taken = await tx.client.findFirst({ where: { businessId, email }, select: { id: true } });
+    if (taken) {
+      throw new ConflictException({
+        code: 'DUPLICATE_EMAIL',
+        message: 'Another client has this email',
+        // Only the people who reach every client are told which one.
+        ...(actor.role === 'STAFF' ? {} : { details: { clientId: taken.id } }),
+      });
+    }
+    const contact = body.carryOver.contactInfo;
+    const business = body.accountType === 'BUSINESS' && body.businessName;
+    const space = body.fullName.lastIndexOf(' ');
+    const client = await tx.client.create({
+      data: {
+        businessId,
+        accountType: body.accountType,
+        displayName: business || body.fullName,
+        email,
+        phone: contact ? body.phone : null,
+        assignedUserId: body.primaryStaffUserId,
+        source: body.carryOver.attribution ? lead.source : null,
+        sourceDetail: body.carryOver.attribution ? (lead.sourceDetail ?? null) : null,
+        updatedByUserId: actor.userId,
+      },
+      select: { id: true },
+    });
+    await tx.clientProfile.create({
+      data: {
+        businessId,
+        clientId: client.id,
+        firstName: space > 0 ? body.fullName.slice(0, space) : body.fullName,
+        lastName: space > 0 ? body.fullName.slice(space + 1) : null,
+        businessName: body.businessName ?? null,
+        addressLine1: contact ? (body.address ?? null) : null,
+      },
+    });
+    return client.id;
   }
 
   /** A 5-minute link to one CLEAN upload of a lead the firm sees. */
