@@ -5,6 +5,7 @@ import { ActionMenu, Button, Skeleton, Timeline, type TimelineItem } from '@firm
 import {
   ArrowCounterClockwise,
   ArrowRight,
+  CaretDown,
   CaretRight,
   CheckCircle,
   Clock,
@@ -246,9 +247,15 @@ function ActionRow({
 function DetailsFrames({ children }: { children: ReactNode }) {
   return (
     <div className="grid items-start gap-6 xl:grid-cols-4">
-      <BillingCard className="xl:col-span-3" testId="invoice-document-card">
-        {children}
-      </BillingCard>
+      <div className="flex min-w-0 flex-col gap-6 xl:col-span-3">
+        <BillingCard testId="invoice-document-card">{children}</BillingCard>
+        <BillingCard title="Payment History" icon={CreditCard}>
+          {children}
+        </BillingCard>
+        <BillingCard title="Activity" icon={Clock}>
+          {children}
+        </BillingCard>
+      </div>
       <div className="flex min-w-0 flex-col gap-6">
         <BillingCard title="Invoice Status" icon={Clock} iconClassName="text-gold">
           {children}
@@ -301,9 +308,35 @@ export function InvoiceDetails({ invoiceId, saved }: { invoiceId: string; saved:
             { label: 'Invoice' },
           ]}
           actions={
-            <Link href="/billing" className="text-sm font-medium text-action hover:underline">
-              Back to Billing
-            </Link>
+            missing ? (
+              <Link href="/billing" className="text-sm font-medium text-action hover:underline">
+                Back to Billing
+              </Link>
+            ) : (
+              // Loading or unreachable: the header keeps its buttons, greyed out until data loads.
+              <>
+                <Button disabled>
+                  <PencilSimple aria-hidden weight="fill" className="size-4" />
+                  Edit
+                </Button>
+                <Button variant="secondary" disabled>
+                  <PaperPlaneTilt aria-hidden weight="fill" className="size-4" />
+                  Send / Resend
+                </Button>
+                <Button variant="secondary" disabled>
+                  <FileText aria-hidden weight="fill" className="size-4" />
+                  Download PDF
+                </Button>
+                <Button variant="secondary" disabled>
+                  <Copy aria-hidden weight="fill" className="size-4" />
+                  Duplicate
+                </Button>
+                <Button variant="secondary" disabled>
+                  More Actions
+                  <CaretDown aria-hidden weight="bold" className="size-3.5" />
+                </Button>
+              </>
+            )
           }
         />
         <DetailsFrames>{line}</DetailsFrames>
