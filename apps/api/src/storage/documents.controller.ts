@@ -35,7 +35,12 @@ import { DocumentFoldersService } from '../documents/folders.service.js';
 import {
   DocumentFoldersController,
   DocumentLibraryController,
+  DocumentPacketsController,
+  DocumentTemplatesController,
 } from '../documents/library.controller.js';
+import { DocumentPacketsService } from '../documents/packets.service.js';
+import { DocumentSharesService } from '../documents/shares.service.js';
+import { DocumentTemplatesService } from '../documents/templates.service.js';
 import { DocumentLibraryService } from '../documents/library.service.js';
 import { MyDocumentsController } from './my-documents.controller.js';
 import { MyDocumentsService } from './my-documents.service.js';
@@ -189,6 +194,8 @@ export class DocumentsController {
   controllers: [
     DocumentLibraryController,
     DocumentFoldersController,
+    DocumentPacketsController,
+    DocumentTemplatesController,
     DocumentsController,
     MyDocumentsController,
   ],
@@ -212,6 +219,9 @@ export class DocumentsController {
     DocumentRequestsService,
     DocumentLibraryService,
     DocumentFoldersService,
+    DocumentSharesService,
+    DocumentPacketsService,
+    DocumentTemplatesService,
     // GuardDuty's results for tenant/{id}/documents/ (storage/scan-queue routes them here).
     ScanResultsService,
     DocumentScanHandler,
