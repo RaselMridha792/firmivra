@@ -56,6 +56,8 @@ describe('row-level security coverage', () => {
       'support_ticket_counters',
       // Only platform_billing_next_number() (owner-run) moves the document counters.
       'platform_billing_counters',
+      // One row, inserted by its migration; the app only saves it.
+      'platform_security_policy',
     ];
     expect(app.filter((r) => !r.select).map((r) => r.table)).toEqual([]);
     expect(app.filter((r) => !r.insert && !readOnly.includes(r.table)).map((r) => r.table)).toEqual(
@@ -109,6 +111,9 @@ describe('row-level security coverage', () => {
                    ('intake_signatures', 'UPDATE'), ('intake_signatures', 'DELETE'),
                    ('intake_signature_agreements', 'UPDATE'),
                    ('intake_signature_agreements', 'DELETE'),
+                   ('security_alerts', 'DELETE'), ('audit_investigation_notes', 'DELETE'),
+                   ('platform_security_policy', 'INSERT'),
+                   ('platform_security_policy', 'DELETE'),
                    ('platform_feature_usage_daily', 'DELETE'),
                    ('platform_firm_metrics_daily', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);

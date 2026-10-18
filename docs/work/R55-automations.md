@@ -1,10 +1,10 @@
 # R55: Automations
 
-Notes for the Automations contract (contract-only PR; the API comes later in the queue). Other notes: `R55-handoff.md`, `R55-templates-api.md`.
+Notes for the Automations contract and API. Other notes: `R55-handoff.md`, `R55-templates-api.md`.
 
 ## Steps
 
-- [ ] 10. Automations. 10a [x]: contract (`packages/types/src/automations/`, `createAutomationsClient` as `api.automations`). 10b: API (with the run engine).
+- [ ] 10. Automations. 10a [x]: contract (`packages/types/src/automations/`, `createAutomationsClient` as `api.automations`). 10b [x]: API with the run engine (`apps/api/src/automations/`).
 
 ## Progress
 
@@ -25,3 +25,19 @@ Notes for the Automations contract (contract-only PR; the API comes later in the
    - **Calendar** ("add to calendar") is a flag in the definition's settings; what it does belongs to Appointments.
 9. **Roles.** Everyone with the AUTOMATIONS view reads rules and logs; creating, editing, activating, testing, retrying, exporting and settings need Create, Edit or Manage; Automation Admin forces a run. Automation never bypasses a source module's permissions: it acts as the rule's owner with the owner's module permissions.
 10. **No mock** yet: the client is real-API only in `apps/web/src/lib/api.ts`.
+
+## Progress (API)
+
+- 2026-10-18: step 10b, the Automations API under `/api/v1/business/automations` (`@Access('AUTOMATIONS')`): catalog, overview, rules (versions, activation checks, pause, copy, archive), dry runs, templates (starters, import and export), the run engine and its job, the logs (list, summary, details, re-run, export) and settings.
+
+### Automations API (step 10b)
+
+11. **What is built in the catalog.** Five events (new client, invoice overdue, deadline approaching, task overdue, appointment coming up) and three actions (create task, send client message, add client note), each with its loader or executor. They call the other modules' own services (`TaskWriteService`, `MessagesService`, `NotesService`) as the rule's owner, so the owner's module permissions apply. A new event is an entry in `catalog.ts` and a loader in `matching.ts`; a new action an entry and a case in `engine.service.ts`. The contract's other modules (Leads, Payroll, Documents...) have no events yet.
+12. **Permissions.** Owner and Admin may always. The grid roles: Create, Edit or Manage write (create, change, test, retry, export route also needs the method's capability), Approve or Manage activate, Export or Manage export, Manage is Automation Admin (settings, forcing a run). The legacy Staff role reads (runs of its own clients and those with none) and cannot write. A rule's owner is an active Owner or Admin.
+13. **Checks.** Structure (unknown event, field, operator, action, setting, merge field, a dependency that is not an earlier action) is 400 `INVALID_DEFINITION` with paths, always. What only blocks activation (409 `NOT_READY`, and a new version of an active rule): a missing required setting, a missing message template, an owner who is no longer a member or may not act in the module, an assignee who is not a member, a rule past its date, a loop or a chain deeper than the firm's limit. An inactive template, a client with no email, no matches and a high count are warnings. Loops are found from what actions bring about (a task due within a day brings `task.overdue`).
+14. **Runs.** The job (`AutomationJob`, every 5 minutes, `AUTOMATION_JOBS=on|off`, advisory lock) scans each active rule, starts one run per (rule, event, record, occurrence), and runs the actions in order. The run id is stable (unique per rule and `source_event_key`); an action's idempotency key is the rule, record, occurrence and action id; the database refuses to move a succeeded action back. A delayed action waits PENDING until its time; an action that depends on a failed one is SKIPPED; a client message waits out the quiet hours (the rule's, else the firm's); the duplicate window and the safety threshold (nothing runs, audited) apply. A rule past its date is paused. Immediate "new client" runs only for clients created after the rule's version was saved. Dry runs write nothing.
+15. **Failures.** A failure a retry cannot fix (no email, an inactive template, the module refused, the owner gone) is `retryable: false` with a safe code; anything else is retryable. A re-run needs a reason and the Write capability; retries only failed retryable actions; asks `confirmRuleChanged` when the rule changed; when the record no longer matches, its failed actions are skipped unless an Automation Admin forces it. Logs hold ids, safe codes and short fixed sentences, never client data.
+16. **Export.** CSV (ids and safe columns only) under `tenant/<business>/automations/exports/`, up to 50,000 rows (`TOO_MANY_ROWS`), audited; a file store error is 503.
+17. **Templates.** Four starters installed once by name. A template keeps no choice of one firm's (message template, person), no secret-looking value and no record id (400). Using one makes a DRAFT rule; one that needs an integration the firm has not connected is 409 `TEMPLATE_UNAVAILABLE`.
+18. **Not built / needs others.** No schema change. Open follow-ups: failure alerts to the people in the settings are not sent yet (no notifier is wired in; the run and the audit row exist); log retention is stored but nothing purges yet; `addToCalendar` is only kept; actions stuck RUNNING after a crash are not recovered; the overview's time saved counts successful actions times the setting. **Infra:** the API task role needs `s3:PutObject` on `tenant/*/automations/*` (with the Reports ask).
+
