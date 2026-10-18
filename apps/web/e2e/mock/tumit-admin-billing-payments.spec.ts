@@ -84,10 +84,14 @@ test('Payments shows totals, filters the list and records a payment', async ({ p
   expect((side?.x ?? 0) > (table?.x ?? 0) + (table?.width ?? 0) - 1).toBe(true);
   expect(await noSidewaysScroll(page)).toBe(true);
 
-  await page.getByLabel('Status', { exact: true }).selectOption({ label: 'Failed' });
+  await page
+    .getByRole('combobox', { name: 'Status', exact: true })
+    .selectOption({ label: 'Failed' });
   await expect(rows).toHaveCount(1);
   await expect(rows.first().getByTestId('status-badge')).toHaveText('Failed');
-  await page.getByLabel('Status', { exact: true }).selectOption({ label: 'All Statuses' });
+  await page
+    .getByRole('combobox', { name: 'Status', exact: true })
+    .selectOption({ label: 'All Statuses' });
   await expect(rows).toHaveCount(10);
 
   await page.getByRole('button', { name: 'Record Payment' }).click();
@@ -124,7 +128,9 @@ test('Credit Notes shows totals and refunds the credit left on a note', async ({
   await expect(rows).toHaveCount(10);
   await expect(page.getByText('Showing 1–10 of 12 credit notes')).toBeVisible();
 
-  await page.getByLabel('Status', { exact: true }).selectOption({ label: 'Available' });
+  await page
+    .getByRole('combobox', { name: 'Status', exact: true })
+    .selectOption({ label: 'Available' });
   await expect(rows).toHaveCount(3);
   await rows.filter({ hasText: 'Mitchell Holdings' }).getByRole('button').first().click();
   const drawer = page.getByRole('dialog', { name: 'Credit Note Details' });
