@@ -18,3 +18,4 @@ connection statuses or API fields were invented to simulate the reference.
 
 To finish the exact per-provider action matrix, the contract owner must supply the supported
 card actions or a documented capability rule. The request is also recorded in PR #761.
+Validation: 7 focused mock browser tests, web TypeScript and changed-file ESLint pass. The local list and marketplace real-API smoke tests pass. Desktop/mobile and empty/offline review screenshots were refreshed.
