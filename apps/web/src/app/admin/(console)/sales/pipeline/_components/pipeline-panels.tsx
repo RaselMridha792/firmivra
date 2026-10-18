@@ -83,14 +83,15 @@ export function UpcomingAppointmentsPanel({
               <li key={item.id} className="border-b border-divider last:border-0">
                 <Link
                   href={`/sales/opportunities/${item.opportunityId}`}
-                  className="grid grid-cols-2 gap-x-3 gap-y-0.5 py-2.5 text-sm text-text hover:text-action sm:grid-cols-12"
+                  className="flex items-start gap-3 py-2.5 text-sm text-text hover:text-action"
                 >
-                  <time dateTime={item.startsAt} className="whitespace-nowrap sm:col-span-3">
-                    {dateText(item.startsAt)}
+                  {/* The time sits under the date, so it never runs into the firm name. */}
+                  <time dateTime={item.startsAt} className="flex min-w-24 shrink-0 flex-col">
+                    <span className="whitespace-nowrap">{dateText(item.startsAt)}</span>{' '}
+                    <span className="whitespace-nowrap">{timeText(item.startsAt)}</span>
                   </time>
-                  <span className="whitespace-nowrap sm:col-span-2">{timeText(item.startsAt)}</span>
-                  <span className="truncate sm:col-span-4">{item.firmName}</span>
-                  <span className="truncate text-muted sm:col-span-3">
+                  <span className="min-w-0 flex-1 truncate">{item.firmName}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted">
                     {appointmentTypeLabel(item.type)}
                   </span>
                 </Link>
