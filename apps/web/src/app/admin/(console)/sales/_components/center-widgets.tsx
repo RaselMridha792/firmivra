@@ -335,7 +335,7 @@ export function UpcomingFollowUpsCard({ onViewAll }: { onViewAll: () => void }) 
       <FrameState query={list} empty="Nothing is booked yet." lines={5}>
         {(items) => (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-sm text-xs text-text 2xl:text-sm">
+            <table className="w-full text-xs text-text 2xl:text-sm">
               <caption className="sr-only">The next appointments and follow-ups</caption>
               <thead className="bg-table-head text-heading">
                 <tr>
@@ -356,9 +356,11 @@ export function UpcomingFollowUpsCard({ onViewAll }: { onViewAll: () => void }) 
               <tbody>
                 {items.map((item) => (
                   <tr key={item.id} className="border-b border-divider last:border-0">
-                    <td className={`${td} whitespace-nowrap`}>
-                      <time dateTime={item.startsAt}>
-                        {dateText(item.startsAt)} {timeText(item.startsAt)}
+                    <td className={td}>
+                      {/* The time sits under the date, so the four columns fit the card. */}
+                      <time dateTime={item.startsAt} className="flex flex-col">
+                        <span className="whitespace-nowrap">{dateText(item.startsAt)}</span>{' '}
+                        <span className="whitespace-nowrap">{timeText(item.startsAt)}</span>
                       </time>
                     </td>
                     <td className={td}>
