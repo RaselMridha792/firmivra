@@ -113,6 +113,9 @@ export function MarketplaceAction({
   if (reason) {
     return (
       <div className={'flex flex-col gap-1 ' + placement}>
+        <p id={reasonId} className="text-xs text-muted">
+          {reason}
+        </p>
         <Button
           variant={featured ? 'primary' : 'outline'}
           disabled
@@ -121,9 +124,6 @@ export function MarketplaceAction({
         >
           {integrationAction(item)}
         </Button>
-        <p id={reasonId} className="text-xs text-muted">
-          {reason}
-        </p>
       </div>
     );
   }
