@@ -209,6 +209,10 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 - Oct 18, portal click-through, local only (Rasel's order), branch `rasel/R0-portal-clickthrough` from main: signed in as Harper with the local dev token and opened every portal page and every Begin Online form. Demo seed fixes: real Begin forms for the demo firm, client tax-year statuses, published content, the demo e-sign consent text (results and what's left: the Oct 18 handoff, item 1).
 
+- Oct 18, merged by Rasel: #782 (the click-through's demo seed fixes), #787 (the demo firm in the LVP mockups' navy `#001F4B` and orange `#E68B18`, set on every seed run so a re-run on dev applies it) and #794 (migration `r0_firm_theme_colors`: `business_settings.sidebar_color`, `text_primary_color`, `text_secondary_color` and `button_color`, optional `#rrggbb`, null derives from the brand colour; the demo firm gets the mockups' look). R55 builds the API and screen on #794.
+
+- Oct 19, Super Admin schema stage D1 (Sales Center), branch `rasel/R0-stage-d1-sales-center` from main (Rasel's go): migration `r0_sales_center`, 3 tables. `sales_targets`: a goal for the company, a team (a platform department) or a rep; a metric (new leads, demos, trials, won deals, revenue won, conversion rate, outbound activities) over a calendar month, quarter, year or a custom range; one live per subject, metric and period; subject, metric and period fixed, archived once. Attainment is the API's, from B5's records. `sales_lead_imports` and `sales_lead_import_rows`: an import batch's lifecycle (PENDING, PROCESSING, then COMPLETED or FAILED, or CANCELLED), the duplicate mode (skip, or attach to the existing contact), one outcome per row with no row data, and counts only the outcomes move. Contract note `docs/work/R0-stage-d1-sales-center.md`. Tests: `test/platform-sales-center.test.ts` (16).
+
 ## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
 
 **Where things stand.**
