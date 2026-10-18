@@ -127,6 +127,7 @@ import { createBookkeepingMock } from '../mocks/bookkeeping';
 import { createAutomationsMock } from '../mocks/automations';
 import { createComplianceMock } from '../mocks/compliance';
 import { createPayrollMock } from '../mocks/payroll';
+import { createReportsMock } from '../mocks/reports';
 import { createTaskWorkMock } from '../mocks/tasks-work';
 import { createTaxPlanningMock } from '../mocks/tax-planning';
 import { createCommunicationsMock } from '../mocks/communications';
@@ -355,7 +356,10 @@ export const api = {
    * Reports (R55): the dashboard, report detail, custom builder, saved reports, exports and
    * schedules. Real API only until its mock is written.
    */
-  reports: createReportsClient(request),
+  reports:
+    dev && mocked('reports')
+      ? createReportsMock({ role: MOCK_ROLE, empty: mockedEmpty('reports') })
+      : createReportsClient(request),
   /**
    * Business Advisory & Development (R55): overview, advisory clients, business plans, goals,
    * financial analysis, action plans and resources. Real API only until its mock is written.
