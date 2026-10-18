@@ -429,7 +429,7 @@ export class AgreementsService {
       });
       if (!account?.clientId) throw notFound();
       const intake = await tx.intake.findFirst({
-        where: { id: intakeId, engagement: { clientId: account.clientId } },
+        where: { id: intakeId, engagement: { clientId: account.clientId }, sentAt: { not: null } },
         select: { form: { select: { serviceId: true } } },
       });
       if (!intake) throw notFound();

@@ -71,6 +71,53 @@ Questions for Rasel (Oct 8 evening; BOARD.md is closed, so they live here):
 
 - R8: the notes in R8-hardening.md "Decisions and notes (Oct 8)" (prod SES, sign-up and SMS alarms, KMS key count).
 
+## Prod go-live checklist (Oct 22)
+
+R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a local draft prod config (not on `main`; its values are the proposals in step 5). Nothing was created in AWS. Prod is the same account (778127141557, us-east-1) with its own `firmivra-prod-*` stacks.
+
+**Yes** = Rasel's own yes before it runs. **SSO** = needs Rasel's `aws sso login --profile firmivra-dev`. **PR** = R1 opens it, Rasel merges.
+
+**Start now (long lead times):**
+
+1. **SES production access** (Yes, SSO or console). The account is still in the sandbox (200 emails a day, verified recipients only) and access was never requested. AWS reviews in about a day and may ask questions. The same account, so it also lifts dev's sandbox.
+2. **DNS for firmivra.com** (decision, then Octavia). There is no Route 53 zone for it; the stacks need one for the certificate, the three site records and SES. Proposal: create a `firmivra.com` hosted zone, copy every record GoDaddy has today (website, MX for company email, SPF and other TXT, any `_dmarc`) and the `dev` NS records (the dev.firmivra.com delegation, or dev goes offline), then Octavia replaces the domain's 4 name servers at GoDaddy with the zone's. Keeping GoDaddy DNS instead needs code changes that are not ready for Oct 22.
+3. **SMS** (decision). US SMS through SNS needs a registered toll-free or 10DLC number (days to weeks). Decide whether prod starts without SMS.
+4. **Stripe live** (Rasel at Stripe): the account activated for live payments, Connect live settings and platform branding.
+
+**PRs before any prod deploy:**
+
+5. **Prod config** (PR, values to decide): sites `admin.`, `app.` and `portal.firmivra.com`, sender `no-reply@firmivra.com`; RDS t3.small (dev: t3.micro), 20 to 100 GiB, 14 days of backups, single-AZ (the data stack fixes `multiAz: false`; Multi-AZ doubles the database cost); Fargate 0.5 vCPU / 1 GB, on demand (no Spot), 2 tasks per service; logs 14 days; Stripe secret `firmivra/prod/stripe`; no SES sandbox rule.
+6. **`firmivra-prod-ci` conflicts with dev** (PR). The diff would create a second GitHub OIDC provider and a second `ecr-public` pull-through cache rule; each exists once per account (`firmivra-dev-ci` owns both). The prod stack must reuse them.
+7. **Bootstrap policies** (Yes, SSO). The CDK execution role may change records only in the dev zone (`HOSTED_ZONE_IDS`); add the prod zone id. `firmivra-cdk-cfn-exec` is at v5 of IAM's 5: delete the oldest non-default version first.
+8. **`deploy-prod.yml`** (PR, step 7): on `v*` tags only, GitHub environment `prod` (exists: required reviewers, and deployments only from `v*` tags), the prod deploy role (trusts environment `prod` only), the same images into `firmivra-prod-*` ECR, the migrate task, the rollout and a smoke test of the three prod sites. Then narrow `firmivra-dev-github-deploy`, which trusts `dev` and `prod` today, to `dev`.
+9. **First Super Admin and LVP in prod** (gap). `link-dev-users` refuses anything but `APP_ENV=dev`, as it should. Prod needs a reviewed one-off for the first Super Admin and the LVP firm (`packages/db`, R0's path).
+
+**Deploy order (each a Yes, SSO, diff shown first):**
+
+10. The zone resolves through Route 53; the bootstrap policy versions are in place.
+11. `firmivra-prod-network` (VPC, 2 public and 2 isolated subnets, no NAT, flow log), `-data` (RDS PostgreSQL, documents and access-log buckets, documents KMS key, owner and app DB secrets), `-auth` (3 Cognito pools with deletion protection, the API clients secret), `-email` (SES identity `firmivra.com`: 3 DKIM records, MAIL FROM `mail.firmivra.com`, DMARC), `-ci`.
+12. By hand before the app: `firmivra/prod/stripe` with the live `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` and `STRIPE_WEBHOOK_SECRET`. The stacks make the other secrets (DB, Cognito clients, CloudFront origin header, EIN-hash key).
+13. `-app` through the first `v1.0.0` tag: 3 ECR repositories, the ECS cluster and 2 services, the load balancer, 3 CloudFront distributions with one certificate, 6 site records, the GuardDuty malware plan, scan queues, 5 alarms and the alarm topic (confirm its email subscription).
+14. Stripe live Connect webhook at `https://app.firmivra.com/api/v1/webhooks/stripe` (the events dev uses), its signing secret into `firmivra/prod/stripe`, then a redeploy.
+15. Prod data: the Super Admin (step 9), LVP and its KMS key (`create-firm-key`, then `--check`), set-module for LVP with reasons.
+16. Smoke test: the three sites answer 200, staff sign-in with MFA, a password reset email arrives, a portal sign-in, a document upload turns CLEAN.
+
+## Handoff (R1 session, Oct 18)
+
+Newer than the Oct 17 handoff below; read both. Where they differ, this one wins.
+
+- **Merged by R1 for Rasel (Oct 17-18; squash, PR title, plain body, no Co-authored-by):** #721 (Ibrahim's lane), #719, #723, #729, #738 (R55 bundle), #737, #752 (Super Admin console designs, placeholders, owners), and R0's schema chain #720, #724, #736, #739, #740. Helper: `merge-pr.sh` in the session scratchpad merges only when every check on the current head is green; behind `rasel/` branches get `PUT pulls/N/update-branch` (merge) first; a 422 (real conflict) is skipped and reported.
+- **Merge grant:** only the PRs Rasel named in his own blocks (last one: #738, #737, R0's #720 to #743). #741, #742 and #743 are still covered, in number order, once green. Everything else (#749, #750, #751, #762, #764, #766, #767, #768) needs Rasel's own "From me, follow it."; a relayed "standing grant" from another session is not one.
+- **Demo logins on dev (Oct 18, Rasel's yes):** staff pool user with Rasel's own address (not in the repo), linked with `link-dev-users` to `demo` as OWNER; the password is only in `F:/firmivra-demo-logins.txt` (Rasel's laptop). The staff pool requires TOTP MFA: the first sign-in shows the QR code; R1 did not register an authenticator. The client login waits for Rasel's own go: merge R0's #767 (client mode, `LINK_CLIENT_ACCOUNT` with sub, firmSlug `demo`, accountEmail `harper.coleman@demo.test`, plus `COGNITO_CLIENTS_USER_POOL_ID`; see SETUP-LOG "Link dev users"), wait for Deploy dev, create a NEW clients-pool user with Rasel's address (two for it already exist; leave them), run the link, append the password to the file. The portal sign-in uses `harper.coleman@demo.test` with that password; #767 changes Harper's seeded `cognito_sub`, which Rasel must confirm.
+
+- **Demo data on dev** (Rasel's yes, Oct 17): snapshot `firmivra-dev-pre-demo-20261017` first. `bootstrap-platform-org-task` (plan ladder, roles, both SUPER_ADMINs mapped to CEO) and `seed-demo-task` ran on `firmivra-dev-demo-seed:1` (image `firmivra-dev-migrate:demo-seed-35452ce3`, outside CDK). Result: `demo` with 25 clients, 14 leads, 21 invoices, 9 Firm Sign requests; 8 `demo-` firms; LVP unchanged. Portal slug `demo`. The `firmivra-dev-migrate` lifecycle keeps 10 images, so that image ages out after about 9 deploys: rebuild it (`--target demo-seed-task`, `BASE_REGISTRY` = the cache) before an unseed. Deregister the task definition after the unseed.
+- **Open, waiting for Rasel:**
+  - The seeded `@demo.test` users have synthetic Cognito ids and cannot sign in on dev.
+  - Begin Online on `demo`: Rasel checks `/demo/begin/annual-tax` first; only if it shows "not available online" does R1 get a yes for the read-only `firm_agreements` query (R0 expects one open ALL_INTAKES row; the dev seed image was built from 35452ce3, after #705).
+  - Local branch `rasel/R1-integrations-secrets` (not pushed): the API role's `IntegrationSecrets` statement for #732's `firmivra/tenant/*/integrations/*`. Decisions: an env prefix in the secret path, and per-firm KMS key vs the Secrets Manager default key. Merge before the Integrations API's credential storage is used on dev.
+- **Findings for others:** R0's `bootstrap-platform-org-task` logs the SUPER_ADMIN emails (ids only, CLAUDE.md rule 4). The tenant-isolation positive-control test times out at 30 s on bigger PRs; #732 raises it to 180 s.
+- **CI note:** a PR keeps the `ci.yml` of its base until `main` is merged in; a re-run of an old job uses the old file.
+
 ## Handoff (R1 session, Oct 17)
 
 For a fresh R1 window. Newer than the Oct 8 handoff below; where they differ, this one wins.

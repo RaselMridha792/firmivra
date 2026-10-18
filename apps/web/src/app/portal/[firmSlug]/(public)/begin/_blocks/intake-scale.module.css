@@ -1,0 +1,220 @@
+.scale {
+  /* One fluid unit: 14/15/16px labels and 40/44/48px controls. */
+  --intake-font: clamp(
+    calc(var(--space-3) + var(--space-0-5)),
+    calc(var(--space-1) * 1.5 + 0.625vw),
+    var(--space-4)
+  );
+  --intake-control: calc(var(--intake-font) * 4 - var(--space-4));
+  --intake-gap: calc(var(--intake-font) * 0.85);
+  --intake-hint: clamp(
+    calc(var(--space-3) + var(--space-1) / 4),
+    calc(var(--intake-font) * 2 - var(--space-4) + var(--space-1) / 4),
+    var(--space-4)
+  );
+  --text-xs: var(--intake-hint);
+  --text-sm: var(--intake-font);
+  --text-base: var(--intake-font);
+  --text-lg: calc(var(--intake-font) * 1.25);
+  --text-xl: calc(var(--intake-font) * 1.5);
+  --text-2xl: calc(var(--intake-font) * 1.75);
+  --text-3xl: calc(var(--intake-font) * 2);
+  --text-4xl: calc(var(--intake-font) * 2.5);
+  --text-5xl: calc(var(--intake-font) * 3);
+  --text-6xl: calc(var(--intake-font) * 4);
+  --color-action: var(--color-orange);
+  --color-accent: var(--color-orange);
+  --color-heading: var(--color-platform-blue);
+  --color-firm-primary: var(--color-platform-blue);
+  --color-navigation: var(--color-platform-navy);
+  --color-focus: var(--color-platform-blue);
+  --color-link: var(--color-platform-blue);
+  --color-accent-500: var(--color-platform-blue);
+  width: 100%;
+  min-width: 0;
+  font-size: var(--intake-font);
+  line-height: var(--text-sm--line-height);
+}
+
+.scale > div,
+.scale .frame {
+  width: calc(100% - var(--space-8));
+  max-width: none;
+  padding-inline: 0;
+}
+
+.scale
+  :is(
+    input:not([type='radio'], [type='checkbox'], [type='file'], [type='hidden']),
+    select,
+    textarea
+  ) {
+  min-width: 0;
+  min-height: var(--intake-control) !important;
+  padding: calc(var(--intake-gap) / 2) var(--intake-gap) !important;
+  border-color: var(--color-control-border);
+  font-size: var(--intake-font) !important;
+}
+
+.scale textarea {
+  width: 100%;
+  min-height: calc(var(--intake-control) * 2) !important;
+}
+
+.scale :is(input, select, textarea)[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.scale button {
+  min-height: var(--intake-control) !important;
+  font-size: var(--intake-font) !important;
+  white-space: normal;
+}
+
+.scale button:is([aria-label^='Show '], [aria-label^='Hide ']) {
+  top: calc(var(--intake-font) * 1.5 + var(--space-1));
+  width: var(--intake-control);
+}
+
+.scale :is(input[type='radio'], input[type='checkbox']) {
+  appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: calc(var(--intake-font) * 1.4);
+  height: calc(var(--intake-font) * 1.4);
+  min-height: 0;
+  border: var(--container-border) solid var(--color-control-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  accent-color: var(--color-action);
+}
+
+.scale input[type='radio'] {
+  border-radius: var(--radius-pill);
+}
+
+.scale :is(input[type='radio'], input[type='checkbox']):checked {
+  border-color: var(--color-action);
+  background: var(--color-action);
+}
+
+.scale input[type='radio']:checked {
+  box-shadow: inset 0 0 0 var(--space-1) var(--color-surface);
+}
+
+.scale input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  inset: 15% 32% 28%;
+  border: solid var(--color-on-action);
+  border-width: 0 var(--container-focus) var(--container-focus) 0;
+  transform: rotate(45deg);
+}
+
+.scale label:has(> input:is([type='radio'], [type='checkbox'])) {
+  min-height: var(--intake-control) !important;
+  gap: calc(var(--intake-gap) * 0.65) !important;
+}
+
+.scale [data-intake-hint] {
+  font-size: var(--intake-hint);
+}
+
+.scale [class~='grid'] {
+  gap: var(--intake-gap);
+}
+
+.scale [data-intake-panels] {
+  gap: calc(var(--intake-gap) * 2);
+}
+
+.scale [data-intake-panel] {
+  padding: calc(var(--intake-gap) * 1.35) !important;
+}
+
+.scale [data-intake-panel] > header {
+  margin-bottom: var(--intake-gap);
+}
+
+.scale [data-section='spouse'] {
+  margin-bottom: calc(var(--intake-gap) * 2);
+}
+
+.scale [data-group] details > :is(summary, div) {
+  padding: var(--intake-gap);
+}
+
+.scale [data-group] details + details {
+  margin-top: var(--intake-gap);
+}
+
+.scale [aria-label='Intake progress'] button {
+  width: var(--intake-control);
+}
+
+.scale [aria-label='Intake progress'] [aria-hidden='true'] {
+  top: calc(var(--intake-control) / 2);
+}
+
+@media (width >= 64rem) {
+  .scale > div,
+  .scale .frame {
+    width: min(calc(100% - var(--space-8)), clamp(0px, calc(87.5vw - var(--space-5)), 85rem));
+  }
+}
+
+@media (width < 64rem) {
+  .scale [class*='grid-cols-'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scale [class*='col-span-'] {
+    grid-column: 1 / -1;
+  }
+
+  .scale [class*='sm:columns-'] {
+    columns: 1;
+  }
+
+  .scale [class*='sm:flex-row'],
+  .scale [data-intake-panel][class*='sm:flex'] {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .scale [class*='sm:w-'] {
+    width: 100%;
+  }
+
+  .scale [data-intake-table],
+  .scale [data-intake-table] :is(tbody, tr, td) {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .scale [data-intake-table] thead {
+    display: none;
+  }
+
+  .scale [data-intake-table] td {
+    padding: calc(var(--intake-gap) / 2) var(--intake-gap);
+  }
+
+  .scale [data-intake-table] td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: calc(var(--intake-gap) / 2);
+    font-weight: var(--font-weight-semibold);
+  }
+}
+
+@media (forced-colors: active) {
+  .scale :is(input[type='radio'], input[type='checkbox']) {
+    appearance: auto;
+  }
+
+  .scale input[type='checkbox']:checked::after {
+    content: none;
+  }
+}

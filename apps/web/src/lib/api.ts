@@ -13,6 +13,7 @@ import {
   createClientsClient,
   createClientSignUpsClient,
   createContentClient,
+  createDocumentLibraryClient,
   createDocumentsClient,
   createEngagementsClient,
   createEsignClient,
@@ -53,6 +54,17 @@ import {
   createStaffClient,
   createSupportAccessClient,
   createTasksClient,
+  createBookkeepingClient,
+  createPayrollClient,
+  createTaskWorkClient,
+  createComplianceClient,
+  createTemplatesClient,
+  createAutomationsClient,
+  createReportsClient,
+  createAdvisoryClient,
+  createIntegrationsClient,
+  createTaxPlanningClient,
+  createCommunicationsClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
@@ -112,6 +124,15 @@ import {
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createTasksMock } from '../mocks/tasks';
+import { createBookkeepingMock } from '../mocks/bookkeeping';
+import { createAutomationsMock } from '../mocks/automations';
+import { createComplianceMock } from '../mocks/compliance';
+import { createPayrollMock } from '../mocks/payroll';
+import { createReportsMock } from '../mocks/reports';
+import { createTaskWorkMock } from '../mocks/tasks-work';
+import { createTaxPlanningMock } from '../mocks/tax-planning';
+import { createCommunicationsMock } from '../mocks/communications';
+import { createTemplatesMock } from '../mocks/templates';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
@@ -280,6 +301,8 @@ export const api = {
     dev && mocked('documents')
       ? createDocumentsMock({ role: MOCK_ROLE })
       : createDocumentsClient(request),
+  /** Documents (R55 contract): the firm-wide library, requests dashboard, folders and settings. */
+  documentLibrary: createDocumentLibraryClient(request),
   /** Documents (R5): the signed-in client's own files and requests, per firm (portal). */
   myDocuments: (firmSlug: string) =>
     dev && mocked('myDocuments')
@@ -287,6 +310,86 @@ export const api = {
       : createMyDocumentsClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
   tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
+  /**
+   * Payroll (R39): payroll clients, workers, runs, filings and reports. Mock:
+   * NEXT_PUBLIC_API_MOCK=payroll (mocks/payroll.ts, R56).
+   */
+  payroll:
+    dev && mocked('payroll')
+      ? createPayrollMock({ role: MOCK_ROLE, empty: mockedEmpty('payroll') })
+      : createPayrollClient(request),
+  /**
+   * Compliance & Deadlines (R57): deadlines, calendars, recurrences, rules, logs, settings. Mock:
+   * NEXT_PUBLIC_API_MOCK=compliance (mocks/compliance.ts, R56).
+   */
+  compliance:
+    dev && mocked('compliance')
+      ? createComplianceMock({ role: MOCK_ROLE, empty: mockedEmpty('compliance') })
+      : createComplianceClient(request),
+  /**
+   * Tasks module (R55): overview, create/edit, checklist, templates and recurring series. Mock:
+   * NEXT_PUBLIC_API_MOCK=taskWork (mocks/tasks-work.ts, R56).
+   */
+  taskWork:
+    dev && mocked('taskWork')
+      ? createTaskWorkMock({ role: MOCK_ROLE, empty: mockedEmpty('taskWork') })
+      : createTaskWorkClient(request),
+  /**
+   * Templates (R55): the library, categories, merge fields, branding, import and the starter
+   * templates. Mock: NEXT_PUBLIC_API_MOCK=templates (mocks/templates.ts, R56).
+   */
+  templates:
+    dev && mocked('templates')
+      ? createTemplatesMock({ role: MOCK_ROLE, empty: mockedEmpty('templates') })
+      : createTemplatesClient(request),
+  /** Bookkeeping (R38): clients, connections, periods and the close, reconciliations and reports. Mock: NEXT_PUBLIC_API_MOCK=bookkeeping (mocks/bookkeeping.ts, R56). */
+  bookkeeping:
+    dev && mocked('bookkeeping')
+      ? createBookkeepingMock({ role: MOCK_ROLE, empty: mockedEmpty('bookkeeping') })
+      : createBookkeepingClient(request),
+  /**
+   * Automations (R55): overview, rules and their versions, rule templates, logs and settings.
+   * Mock: NEXT_PUBLIC_API_MOCK=automations (mocks/automations.ts, R56).
+   */
+  automations:
+    dev && mocked('automations')
+      ? createAutomationsMock({ role: MOCK_ROLE, empty: mockedEmpty('automations') })
+      : createAutomationsClient(request),
+  /**
+   * Reports (R55): the dashboard, report detail, custom builder, saved reports, exports and
+   * schedules. Real API only until its mock is written.
+   */
+  reports:
+    dev && mocked('reports')
+      ? createReportsMock({ role: MOCK_ROLE, empty: mockedEmpty('reports') })
+      : createReportsClient(request),
+  /**
+   * Business Advisory & Development (R55): overview, advisory clients, business plans, goals,
+   * financial analysis, action plans and resources. Real API only until its mock is written.
+   */
+  advisory: createAdvisoryClient(request),
+  /**
+   * Integrations (R55): the main page, marketplace, connect and configure, manage a connection,
+   * requests and Custom API. Real API only until its mock is written.
+   */
+  integrations: createIntegrationsClient(request),
+  /**
+   * Tax Planning & Strategy (R55): overview, plans, strategy library, opportunities, calculator,
+   * calendar and resources. Real API only until its mock is written.
+   */
+  taxPlanning:
+    dev && mocked('taxPlanning')
+      ? createTaxPlanningMock({ role: MOCK_ROLE, empty: mockedEmpty('taxPlanning') })
+      : createTaxPlanningClient(request),
+  /**
+   * Communications (R55): overview, the composer for email, text and announcements, recipients
+   * and segments, review and send, results and consent. Mock: NEXT_PUBLIC_API_MOCK=communications
+   * (mocks/communications.ts, R56).
+   */
+  communications:
+    dev && mocked('communications')
+      ? createCommunicationsMock({ role: MOCK_ROLE, empty: mockedEmpty('communications') })
+      : createCommunicationsClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
   workspaces:
     dev && mocked('workspaces')

@@ -36,7 +36,7 @@ export function IntakeFrame() {
         </div>
       ) : null}
       <p role="status" className="flex gap-2 rounded-card bg-folder-surface p-3 text-sm text-text">
-        <Info aria-hidden className="size-5 shrink-0 text-firm-primary" />
+        <Info aria-hidden className="size-5 shrink-0 text-firm-text" />
         This form isn&apos;t open for you yet. Your firm will send it when your service starts, or
         send us a message to ask for it.
       </p>

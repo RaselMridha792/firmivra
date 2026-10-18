@@ -17,7 +17,6 @@ import { useRouter } from 'next/navigation';
 import { createElement, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
-import { moduleHref } from '../../../../../lib/firm-modules';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { RowMenu, type RowMenuItem } from '../../team/_components/row-menu';
 import { NOT_LOADED, SCHEDULING, initials } from './appointments-parts';
@@ -61,6 +60,12 @@ export function AppointmentsSide({
     api.scheduling.agenda(query),
   );
   const [month, setMonth] = useState(() => dayDate(date ?? today));
+  // The small month follows the day the calendar shows.
+  const [shown, setShown] = useState(date);
+  if (date !== shown) {
+    setShown(date);
+    if (date) setMonth(dayDate(date));
+  }
   const [asking, setAsking] = useState(false);
   const [message, setMessage] = useState('');
   const items = agenda.data?.items ?? [];
@@ -81,8 +86,8 @@ export function AppointmentsSide({
   const quick: [string, Icon, string | (() => void)][] = [
     ['Schedule New Appointment', CalendarPlus, '/calendar/new'],
     ['Send Appointment Reminders', EnvelopeSimple, () => setAsking(true)],
-    ['View Appointment Reports', ChartLine, moduleHref('reports')],
-    ['Sync Calendar (Google, Outlook, etc.)', ArrowsClockwise, moduleHref('integrations')],
+    ['View Appointment Reports', ChartLine, '/reports'],
+    ['Sync Calendar (Google, Outlook, etc.)', ArrowsClockwise, '/integrations'],
     ['Manage Appointment Types', CalendarCheck, '/calendar/types'],
   ];
 

@@ -118,7 +118,7 @@ export function ServicesScreen() {
     <div className="grid min-w-0 gap-4" style={SERVICES_THEME}>
       <header className="flex items-center justify-between gap-6">
         <div className="min-w-0">
-          <h1 className="font-display text-4xl leading-tight font-bold text-firm-primary md:text-5xl">
+          <h1 className="font-display text-4xl leading-tight font-bold text-firm-text md:text-5xl">
             My <span className="text-firm-accent">Services</span>
           </h1>
           <p className="mt-1 text-base text-text">
@@ -184,7 +184,7 @@ export function ServicesScreen() {
                   </Link>
                   <Card variant="elevated" className="border border-folder-border p-4!">
                     <div className="flex items-center gap-3">
-                      <span className="grid size-11 shrink-0 place-items-center rounded-full bg-accent-soft text-firm-primary">
+                      <span className="grid size-11 shrink-0 place-items-center rounded-full bg-accent-soft text-firm-text">
                         <Headphones aria-hidden className="size-6" />
                       </span>
                       <div>
@@ -211,7 +211,7 @@ export function ServicesScreen() {
                         href={'/' + slug + '/' + path}
                         className="flex min-h-11 items-center gap-3 border-t border-folder-border py-2 text-sm text-heading hover:text-link"
                       >
-                        <Icon aria-hidden className="size-4 shrink-0 text-firm-primary" />
+                        <Icon aria-hidden className="size-4 shrink-0 text-firm-text" />
                         <span className="flex-1">{label}</span>
                         <ChevronRight aria-hidden className="size-4 shrink-0 text-muted" />
                       </Link>
@@ -470,7 +470,7 @@ function InsightRow({
     <li className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-folder-border pb-3 text-sm last:border-0 last:pb-0">
       {prefix ?? (
         <span
-          className={`grid size-9 place-items-center rounded-xl ${tone === 'success' ? 'bg-success-soft text-success' : tone === 'accent' ? 'bg-accent-soft text-firm-primary' : 'bg-info-soft text-info'}`}
+          className={`grid size-9 place-items-center rounded-xl ${tone === 'success' ? 'bg-success-soft text-success' : tone === 'accent' ? 'bg-accent-soft text-firm-text' : 'bg-info-soft text-info'}`}
         >
           {Icon ? <Icon aria-hidden className="size-5" /> : null}
         </span>

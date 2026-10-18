@@ -146,7 +146,7 @@ export const FileName = z
   );
 
 /** What `uploadFile()` learns from the file itself and adds to every `createUpload`. */
-const FileFacts = {
+export const UPLOAD_FILE_FACTS = {
   /** FileName; it must end in an ending of its content type (checked with the type). */
   fileName: FileName,
   contentType: UploadContentType,
@@ -158,10 +158,11 @@ const FileFacts = {
   /** SHA-256 of the file, hex; storage refuses the upload if the bytes differ. */
   sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Not a SHA-256'),
 };
+const FileFacts = UPLOAD_FILE_FACTS;
 export type UploadFileFacts = { [K in keyof typeof FileFacts]: z.input<(typeof FileFacts)[K]> };
 
 /** The name's ending must fit the declared type (".pdf" for a PDF), with a name before it. */
-const nameFitsType = (
+export const uploadNameFitsType = (
   body: { fileName: string; contentType: UploadContentType },
   ctx: z.RefinementCtx,
 ) => {
@@ -268,7 +269,7 @@ export const CreateFirmUploadRequest = z
     shareWithClient: z.boolean().optional().default(false),
     ...FileFacts,
   })
-  .superRefine(nameFitsType);
+  .superRefine(uploadNameFitsType);
 export type CreateFirmUploadRequest = z.input<typeof CreateFirmUploadRequest>;
 
 /** GET /business/document-categories: the firm's categories, in order. */
@@ -440,7 +441,7 @@ export const CreateMyUploadRequest = z
     taxYear: TaxYear.nullable().optional(),
     ...FileFacts,
   })
-  .superRefine(nameFitsType);
+  .superRefine(uploadNameFitsType);
 export type CreateMyUploadRequest = z.input<typeof CreateMyUploadRequest>;
 
 /** GET /portal/{firmSlug}/me/document-categories: the firm's active categories, in order. */

@@ -539,6 +539,21 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
+  'lead.message-email': (d, b) => {
+    const subject = field(d, 'subject');
+    const shown = typeof subject === 'string' ? oneLine(subject) : '';
+    return {
+      channel: 'email',
+      subject: shown ? capped(shown, 200) : `A message from ${b.name}`,
+      blocks: [hello(d), text(requiredText(d, 'body'))],
+    };
+  },
+
+  'lead.message-sms': (d, b) => ({
+    channel: 'sms',
+    text: `${b.name}: ${requiredText(d, 'body')}`,
+  }),
+
   'esign.request': (d, b, o) => {
     const firm = b.name;
     const sender = required(d, 'senderName');
