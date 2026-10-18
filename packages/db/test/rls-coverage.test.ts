@@ -56,6 +56,8 @@ describe('row-level security coverage', () => {
       'support_ticket_counters',
       // Only platform_billing_next_number() (owner-run) moves the document counters.
       'platform_billing_counters',
+      // One row, inserted by its migration; the app only saves it.
+      'platform_security_policy',
       // Sections and retention categories are inserted by their migration; the app only saves them.
       'platform_settings',
       'platform_retention_policies',
@@ -112,6 +114,9 @@ describe('row-level security coverage', () => {
                    ('intake_signatures', 'UPDATE'), ('intake_signatures', 'DELETE'),
                    ('intake_signature_agreements', 'UPDATE'),
                    ('intake_signature_agreements', 'DELETE'),
+                   ('security_alerts', 'DELETE'), ('audit_investigation_notes', 'DELETE'),
+                   ('platform_security_policy', 'INSERT'),
+                   ('platform_security_policy', 'DELETE'),
                    ('platform_settings', 'INSERT'), ('platform_settings', 'DELETE'),
                    ('platform_retention_policies', 'INSERT'), ('platform_retention_policies', 'DELETE'),
                    ('platform_brand_assets', 'DELETE'), ('platform_legal_holds', 'DELETE'),
