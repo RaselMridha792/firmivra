@@ -15,6 +15,8 @@ import type { ClientsActor } from '../clients/clients.service.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { TaxReturnsService } from './tax-returns.service.js';
+import { TaxReturnWorkspaceController } from './workspace.controller.js';
+import { TaxReturnWorkspaceService } from './workspace.service.js';
 
 const clientIdPipe = new ZodValidationPipe(ClientId);
 const idPipe = new ZodValidationPipe(TaxReturnId);
@@ -106,7 +108,13 @@ export class MyTaxReturnsController {
 }
 
 @Module({
-  controllers: [ClientTaxReturnsController, TaxReturnsController, MyTaxReturnsController],
-  providers: [TaxReturnsService],
+  // The workspace (R55) first: its static routes (summary) before any ':id'.
+  controllers: [
+    TaxReturnWorkspaceController,
+    ClientTaxReturnsController,
+    TaxReturnsController,
+    MyTaxReturnsController,
+  ],
+  providers: [TaxReturnsService, TaxReturnWorkspaceService],
 })
 export class TaxReturnsModule {}
