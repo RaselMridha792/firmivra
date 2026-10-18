@@ -39,10 +39,11 @@ Stages (one PR each, in Rasel's priority order: pages whose backend already exis
 
 | Module file | Rows |
 | --- | --- |
-| `seed-demo-intake.ts` | a published intake form per service (Begin Online and the portal), the firm's intake agreement v1, Firm Sign and calculators switched on, 4 portal intakes (2 sent, 1 in progress, 1 signed and submitted by Harper) |
+| `seed-demo-intake.ts` | a published intake form per service, the real form of each kind (Begin Online and the portal), the firm's intake agreement v1, Firm Sign and calculators switched on, 4 portal intakes (2 sent, 1 in progress, 1 signed and submitted by Harper) |
 | `seed-demo-leads.ts` | 14 leads, LD-10001 to LD-10014: draft, submitted, in review, declined, contacted, in follow-up, appointment scheduled, qualified, lost; from Begin Online, a referral, the website, Google, Facebook, Instagram, an event, a call, a walk-in and email; owners, priorities, next follow-ups, a second service on two, and an activity trail (the database adds created, status and assignment entries). The 4 submitted Begin Online leads carry a signed submission |
 | `seed-demo-esign.ts` | Firm Sign settings, consent v1, 2 managers, 3 templates, 9 requests: 2 completed (signed final PDF and certificate filed in the client's Documents), 2 sent, 1 viewed, 1 declined, 1 expired, 1 voided, 1 draft; 28 events. Harper signs through her login (portal Signatures: one completed, one waiting) |
 | `seed-demo-signups.ts` | 4 portal sign-ups: 3 waiting for approval, 1 declined |
+| `seed-demo-portal.ts` | 37 client tax-year statuses (2025 by the return's stage, 2024 accepted) for the portal's "Where Your Taxes Stand"; 8 published content items: one resource per resource page, 3 external links, 1 tip (resources and links show to business clients only) |
 | `seed-demo-notifications.ts` | 15 bell items: 10 for staff (new leads, sign-ups, uploads, a payment, a message, a booking, a submitted intake), 5 for Harper (a request, an invoice, a message, today's appointment, her shared return); some read |
 
 ## What Stage 4 seeds
