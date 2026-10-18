@@ -60,6 +60,12 @@ export function AppointmentsSide({
     api.scheduling.agenda(query),
   );
   const [month, setMonth] = useState(() => dayDate(date ?? today));
+  // The small month follows the day the calendar shows.
+  const [shown, setShown] = useState(date);
+  if (date !== shown) {
+    setShown(date);
+    if (date) setMonth(dayDate(date));
+  }
   const [asking, setAsking] = useState(false);
   const [message, setMessage] = useState('');
   const items = agenda.data?.items ?? [];

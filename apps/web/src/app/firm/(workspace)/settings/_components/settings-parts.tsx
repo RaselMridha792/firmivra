@@ -40,7 +40,7 @@ export function SettingsHeader({
         </nav>
       ) : null}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-4">
+        <div className="flex min-w-0 items-center gap-4 xl:flex-1">
           <span className="flex size-16 shrink-0 items-center justify-center rounded-xl bg-action text-on-action">
             {createElement(icon, { 'aria-hidden': true, weight: 'fill', className: 'size-9' })}
           </span>

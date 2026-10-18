@@ -44,6 +44,8 @@ import { SupportAccessModule } from './support-access/support-access.controller.
 import { TeamModule } from './team/team.controller.js';
 import { TasksModule } from './tasks/tasks.module.js';
 import { AutomationsModule } from './automations/automations.module.js';
+import { TaxPlanningModule } from './tax-planning/tax-planning.module.js';
+import { AdvisoryModule } from './advisory/advisory.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
 import { ScanQueueModule } from './storage/scan-queue/scan-queue.module.js';
@@ -59,6 +61,9 @@ import { EsignModule } from './esign/esign.module.js';
 import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
 import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
 import { ComplianceModule } from './compliance/compliance.module.js';
+import { TemplatesModule } from './templates/templates.module.js';
+import { IntegrationsModule } from './integrations/integrations.module.js';
+import { ReportsModule } from './reports/reports.module.js';
 import { BookkeepingModule } from './bookkeeping/bookkeeping.module.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
@@ -145,6 +150,11 @@ export class AppModule {
         BeginOnlineModule,
         AutomationsModule,
         ComplianceModule,
+        TemplatesModule,
+        IntegrationsModule,
+        TaxPlanningModule,
+        AdvisoryModule,
+        ReportsModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
         BookkeepingModule,
       ],
