@@ -44,6 +44,7 @@ import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } fro
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
+import { firmThemeVars } from '../../../../../lib/theme';
 import { uploadLogo } from '../../../../../lib/upload';
 import { BrandPreview } from '../../../setup/_components/brand-preview';
 import { FIRM_SETTINGS } from '../../../setup/_components/shared';
@@ -283,6 +284,54 @@ export function BrandColorsCard({ state }: { state: BrandDraftState }) {
   );
 }
 
+/**
+ * Theme Colors: the sidebar, headings and main text, secondary text and buttons, in the firm
+ * workspace and the portal. Blank derives each from the primary colour (shown in its swatch);
+ * Use default clears a colour back to that.
+ */
+export function ThemeColorsCard({ state }: { state: BrandDraftState }) {
+  const primary = useTokenColour('--color-firm-primary');
+  const muted = useTokenColour('--color-muted');
+  const d = state.draft;
+  if (!d) return null;
+  const base = d.primaryColor || primary;
+  const fields: [keyof BrandDraft & `${string}Color`, string, string][] = [
+    ['sidebarColor', 'Sidebar Color', base],
+    ['textPrimaryColor', 'Primary Text Color', base],
+    ['textSecondaryColor', 'Secondary Text Color', muted],
+    ['buttonColor', 'Button Color', base],
+  ];
+  return (
+    <BrandCard
+      title="Theme Colors"
+      subtitle="The sidebar, text and button colors of your workspace and client portal."
+      testId="theme-colors"
+    >
+      <div className="grid grid-cols-2 gap-3 min-[1700px]:grid-cols-4">
+        {fields.map(([key, label, fallback]) => (
+          <div key={key} className="flex flex-col gap-1">
+            <ColorField
+              label={label}
+              value={d[key] || fallback}
+              error={state.errors[key]}
+              onChange={(hex) => state.set(key, hex)}
+            />
+            {d[key] ? (
+              <button
+                type="button"
+                onClick={() => state.set(key, '')}
+                className="self-start text-xs font-semibold text-action hover:underline"
+              >
+                Use default
+              </button>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </BrandCard>
+  );
+}
+
 /** Theme Options: the mode, the sidebar's style and position, logo text and rounded corners. */
 export function ThemeOptionsCard({ state }: { state: BrandDraftState }) {
   const d = state.draft;
@@ -443,23 +492,53 @@ export function LoginPageCard({
   );
 }
 
-/** Sets the firm colour variables on the preview, so the portal theme draws in the draft's colours. */
-function useFirmColours(primary: string, accent: string) {
+/**
+ * Sets the firm colour variables on the preview, so the portal theme draws in the draft's colours:
+ * the primary and accent colours, and the theme colours unless `withTheme` is false (emails).
+ */
+function useFirmColours(d: BrandDraft, withTheme = true) {
   const ref = useRef<HTMLDivElement>(null);
+  const { primaryColor, accentColor, sidebarColor, textPrimaryColor, textSecondaryColor } = d;
+  const { buttonColor } = d;
   useEffect(() => {
     const style = ref.current?.style;
     if (!style) return;
-    const colours = { '--color-firm-primary': primary, '--color-firm-accent': accent };
-    for (const [property, value] of Object.entries(colours)) {
-      if (/^#[0-9a-f]{6}$/i.test(value)) style.setProperty(property, value);
+    const theme = withTheme
+      ? firmThemeVars({ sidebarColor, textPrimaryColor, textSecondaryColor, buttonColor })
+      : {};
+    const colours: Record<string, string> = {
+      '--color-firm-primary': primaryColor,
+      '--color-firm-accent': accentColor,
+    };
+    for (const property of [...THEME_PROPERTIES, ...Object.keys(colours)]) {
+      const value = theme[property] ?? colours[property] ?? '';
+      if (theme[property] || /^#[0-9a-f]{6}$/i.test(value)) style.setProperty(property, value);
       else style.removeProperty(property);
     }
-  }, [primary, accent]);
+  }, [
+    withTheme,
+    primaryColor,
+    accentColor,
+    sidebarColor,
+    textPrimaryColor,
+    textSecondaryColor,
+    buttonColor,
+  ]);
   return ref;
 }
 
+/** Every variable the theme can set, so a cleared colour is removed from the preview. */
+const THEME_PROPERTIES = Object.keys(
+  firmThemeVars({
+    sidebarColor: '#000000',
+    textPrimaryColor: '#000000',
+    textSecondaryColor: '#000000',
+    buttonColor: '#000000',
+  }),
+);
+
 function DashboardPreview({ d, firm }: { d: BrandDraft; firm: FirmSettings }) {
-  const ref = useFirmColours(d.primaryColor, d.accentColor);
+  const ref = useFirmColours(d);
   const items: [typeof House, string][] = [
     [House, 'Dashboard'],
     [UsersThree, 'Clients'],
@@ -473,7 +552,7 @@ function DashboardPreview({ d, firm }: { d: BrandDraft; firm: FirmSettings }) {
       data-testid="preview-dashboard"
       className={`flex overflow-hidden border border-divider bg-canvas ${d.roundedCorners ? 'rounded-xl' : ''} ${d.sidebarPosition === 'RIGHT' ? 'flex-row-reverse' : ''}`}
     >
-      <div className="flex w-32 shrink-0 flex-col gap-1 bg-navigation p-2 text-on-action">
+      <div className="flex w-32 shrink-0 flex-col gap-1 bg-navigation p-2 text-on-navigation">
         {firm.logoUrl ? (
           <Image
             unoptimized
@@ -541,7 +620,7 @@ function LoginPreview({
   firm: FirmSettings;
   branding: BrandingSettings;
 }) {
-  const ref = useFirmColours(d.primaryColor, d.accentColor);
+  const ref = useFirmColours(d);
   return (
     <div
       ref={ref}
@@ -593,7 +672,8 @@ function EmailPreview({
   firm: FirmSettings;
   branding: BrandingSettings;
 }) {
-  const ref = useFirmColours(d.primaryColor, d.accentColor);
+  // Emails keep the primary and accent colours: the theme colours are for the screens.
+  const ref = useFirmColours(d, false);
   const logo = branding.email.logoUrl ?? firm.logoLightUrl;
   return (
     <div
@@ -725,8 +805,16 @@ export function BrandActionsCard({
   const reset = useApiMutation(
     async (_: void) => {
       await api.branding.reset({ groups: [...BrandingGroup.options], confirm: true });
-      if (firm.primaryColor || firm.accentColor) {
-        await api.settings.update({ primaryColor: null, accentColor: null });
+      const colours = [
+        'primaryColor',
+        'accentColor',
+        'sidebarColor',
+        'textPrimaryColor',
+        'textSecondaryColor',
+        'buttonColor',
+      ] as const;
+      if (colours.some((key) => firm[key])) {
+        await api.settings.update(Object.fromEntries(colours.map((key) => [key, null])));
       }
     },
     { invalidate: FIRM_SETTINGS },
