@@ -17,6 +17,11 @@ export interface BodyIdField {
  * and any field named `...Id`, `...Ids` or `ids`, is a record id and needs the case's `bodyIds`.
  */
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
+  {
+    field: 'general.autoSubmissionId',
+    routes: /^PUT \/api\/v1\/business\/intake-settings$/,
+    why: 'a switch (give each submission a number), not a record (R55)',
+  },
   ...(
     [
       'taxReturnId',
