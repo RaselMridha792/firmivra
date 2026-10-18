@@ -45,6 +45,13 @@ export interface DemoOrgResult {
   appointmentTypeIds: (name: string) => string;
 }
 
+/**
+ * The demo firm's look: Octavia's LVP client portal mockups (docs/mockups/client-portal), navy
+ * sidebar and headings with orange accents, both measured from the mockups. The portal reads
+ * them from business_settings (primary and accent colour).
+ */
+const DEMO_BRAND = { brandColor: '#001F4B', accentColor: '#E68B18' } as const;
+
 const splitName = (name: string): { firstName: string | null; lastName: string | null } => {
   const parts = name.split(' ');
   return { firstName: parts[0] ?? null, lastName: parts.slice(1).join(' ') || null };
@@ -80,9 +87,12 @@ export async function seedDemoOrg(prisma: Prisma): Promise<DemoOrgResult> {
         name: SEED_DEMO_BUSINESS.name,
         ownerId: SEED_DEMO_USERS.owner.id,
         contactEmail: 'hello@demo.test',
-        brandColor: '#2F6F4E',
+        brandColor: DEMO_BRAND.brandColor,
         taxStatuses: SEED_TAX_STATUSES.lvp,
       });
+      // seedFirmBasics sets colours only on a new firm: set them every run, so re-running the
+      // demo seed on a database seeded earlier (dev) gives it the current look.
+      await tx.businessSettings.update({ where: { businessId }, data: DEMO_BRAND });
       const serviceIds = await seedServices(tx, businessId, SEED_SERVICES.lvp);
       const categoryIds = await seedDocumentCategories(
         tx,

@@ -272,6 +272,8 @@ const LEADS: readonly DemoLead[] = [
 ];
 
 const TAX_FORM_SERVICES = new Set(['Annual Tax']);
+/** The real forms that ask for first and last name; the others ask for `fullName`. */
+const FIRST_LAST_SERVICES = new Set(['Annual Tax', 'Bookkeeping']);
 
 export async function seedDemoLeads(prisma: Prisma, org: DemoOrgResult, form: FormLookup) {
   const { businessId } = org;
@@ -323,9 +325,12 @@ export async function seedDemoLeads(prisma: Prisma, org: DemoOrgResult, form: Fo
           key: `lead:${l.key}`,
           intakeId,
           leadId: id,
-          answers: TAX_FORM_SERVICES.has(l.service)
-            ? { firstName: l.first, lastName: l.last }
-            : { fullName: name },
+          answers: {
+            ...(FIRST_LAST_SERVICES.has(l.service)
+              ? { firstName: l.first, lastName: l.last }
+              : { fullName: name }),
+            email,
+          },
           name,
           email,
         });

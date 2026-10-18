@@ -131,6 +131,8 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
   },
   // Each advisory plan record has a version 1 (cases/advisory.ts).
   { param: 'version', value: '1', routes: /\/advisory\/plans\/:id\/versions\/:version$/ },
+  // A role of the firm (code), not a record: its grid is the firm's own (cases in roles e2e).
+  { param: 'role', value: 'MANAGER', routes: /\/business\/roles\/:role\/permissions$/ },
   // A resource of the approved library (kept in code), not a record.
   {
     param: 'key',
