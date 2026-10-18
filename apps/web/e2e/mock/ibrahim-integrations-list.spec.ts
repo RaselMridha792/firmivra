@@ -4,7 +4,10 @@ import { integrationOverviewFixture } from '../../src/mocks/integrations';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const url = `http://app.localhost:${port}/integrations`;
-async function fixture(page: Page, state: 'data' | 'empty' | 'offline' | 'forbidden' = 'data') {
+async function fixture(
+  page: Page,
+  state: 'data' | 'empty' | 'offline' | 'forbidden' | 'manual' | 'readonly' = 'data',
+) {
   await page.route('**/api/v1/business/integrations**', async (route) => {
     if (state === 'offline') return route.abort('connectionfailed');
     if (state === 'forbidden')
@@ -26,6 +29,15 @@ async function fixture(page: Page, state: 'data' | 'empty' | 'offline' | 'forbid
       },
       state === 'empty',
     );
+    if (state === 'readonly') result.canManage = false;
+    if (state === 'manual') {
+      const stripe = result.items.find((item) => item.provider.provider === 'stripe')
+        ?.connections[0];
+      if (stripe) {
+        stripe.syncMode = 'MANUAL';
+        stripe.syncEveryMinutes = null;
+      }
+    }
     if (requestUrl.pathname.endsWith('/activity'))
       return route.fulfill({
         json: { items: result.recent, page: 1, pageSize: 25, total: result.recent.length },
@@ -66,9 +78,9 @@ test('catalog, tabs, search, categories, mode and insight panels', async ({ page
   await page.getByLabel('Integration category').selectOption('PRODUCTIVITY');
   await expect(page.getByTestId('integration-card')).toHaveCount(2);
   await page.getByLabel('Integration category').selectOption('');
-  await page.getByRole('tab', { name: 'Test Mode', exact: true }).click();
+  await page.getByRole('button', { name: 'Test Mode', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Test Mode', exact: true })).toHaveAttribute(
-    'aria-selected',
+    'aria-pressed',
     'true',
   );
   await page.getByRole('button', { name: 'View Health', exact: true }).click();
@@ -119,3 +131,81 @@ for (const state of ['empty', 'offline', 'forbidden'] as const) {
     });
   });
 }
+
+test('Live switch and Test button update the same environment and support keyboard input', async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto(url);
+  const live = page.getByRole('switch', { name: 'Live Mode', exact: true });
+  const testMode = page.getByRole('button', { name: 'Test Mode', exact: true });
+  await expect(live).toBeChecked();
+  const switched = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' && response.url().includes('environment=TEST'),
+  );
+  await live.click();
+  await switched;
+  await expect(live).not.toBeChecked();
+  await expect(testMode).toHaveAttribute('aria-pressed', 'true');
+  await live.focus();
+  await page.keyboard.press('Space');
+  await expect(live).toBeChecked();
+  await expect(testMode).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('connected cards show two aligned actions; available cards offer Connect only', async ({
+  page,
+}) => {
+  await fixture(page);
+  let syncing = false;
+  await page.route('**/connections/*/sync', async (route) => {
+    syncing = true;
+    await route.fulfill({
+      status: 409,
+      json: { error: { code: 'SYNC_IN_PROGRESS', message: 'Already syncing' } },
+    });
+  });
+  await page.goto(url);
+  const connected = page
+    .getByTestId('integration-card')
+    .filter({ has: page.getByRole('heading', { name: 'QuickBooks Online', exact: true }) });
+  await expect(connected.getByRole('link', { name: 'Manage', exact: true })).toBeVisible();
+  const sync = connected.getByRole('button', { name: 'Sync Now', exact: true });
+  await expect(sync).toBeVisible();
+  const manageBox = await connected
+    .getByRole('link', { name: 'Manage', exact: true })
+    .boundingBox();
+  const syncBox = await sync.boundingBox();
+  expect(manageBox).not.toBeNull();
+  expect(syncBox).not.toBeNull();
+  expect(Math.abs((manageBox?.y ?? 0) - (syncBox?.y ?? 0))).toBeLessThan(2);
+  expect(Math.abs((manageBox?.width ?? 0) - (syncBox?.width ?? 0))).toBeLessThan(2);
+  const available = page
+    .getByTestId('integration-card')
+    .filter({ has: page.getByRole('heading', { name: 'Plaid Bank Feeds', exact: true }) });
+  await expect(available.getByRole('link', { name: 'Connect', exact: true })).toBeVisible();
+  await expect(available.getByRole('link', { name: 'Manage', exact: true })).toHaveCount(0);
+  await expect(available.getByRole('button', { name: /Sync Now|Test/ })).toHaveCount(0);
+  await sync.click();
+  await expect(connected.getByRole('alert')).toBeVisible();
+  expect(syncing).toBe(true);
+});
+
+test('manual connected card has Manage and Test; read-only cards hide mutation buttons', async ({
+  page,
+}) => {
+  await fixture(page, 'manual');
+  await page.goto(url);
+  const stripe = page
+    .getByTestId('integration-card')
+    .filter({ has: page.getByRole('heading', { name: 'Stripe', exact: true }) });
+  await expect(stripe.getByRole('link', { name: 'Manage', exact: true })).toBeVisible();
+  await expect(stripe.getByRole('button', { name: 'Test', exact: true })).toBeVisible();
+  await expect(stripe.getByRole('button', { name: 'Sync Now', exact: true })).toHaveCount(0);
+  await fixture(page, 'readonly');
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Sync Now', exact: true })).toHaveCount(0);
+  await expect(stripe.getByRole('button', { name: 'Test', exact: true })).toHaveCount(0);
+  await expect(stripe.getByRole('link', { name: 'Manage', exact: true })).toBeVisible();
+});
