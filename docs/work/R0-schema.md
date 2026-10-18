@@ -210,10 +210,10 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
   - B4 to B9: #720, #724, #736, #739, #740, #741
   - Fahad's rebuilds: #764 (portal folder tabs, from #473) and #766 (Firm Sign dashboard, from #455)
   - #767: link-dev-users client mode, Rasel's card
-- **Open, green, waiting:** Rasel said "no merge" to R1 at about 11:45 UTC, so these wait for Rasel or a fresh R1 grant.
-  - #742: C1 Bookkeeping ledger, head `f2cacf53`
-  - #743: C2 Compliance follow-ups. It needs main merged after #742 lands.
-- **#742 carries a fix in `packages/db/src/client.ts`.** `createDatabase`'s `for*` methods now return `ScopedClient` by name. Without it, the API typecheck fails with TS2589 once C1's tables sit on top of B4 to B9.
+- **#742 (C1):** Rasel merged it at 12:23 UTC.
+- **#743 (C2):** green and mergeable at head `0f781a4a`; waiting for Rasel. It is the last of the eight schema PRs.
+  - Its first CI run failed once in R55's isolation case `cases/templates.ts:72`. That case builds the merge-field key from `tag().replace(/[0-9]/g, 'x')`, so two random tags can collide; the re-run passed. A one-line fix for R55: keep the digits.
+- **#742 brought a fix in `packages/db/src/client.ts`.** `createDatabase`'s `for*` methods now return `ScopedClient` by name. Without it, the API typecheck fails with TS2589 once C1's tables sit on top of B4 to B9.
 - **#438 (Fahad's notification bell) stays open on purpose.** Main's `FirmBell` (app-shell `firm-controls.tsx`) already shows the unread count and the latest five. Still missing: mark-read on click, mark-all-read (the API has both), and refetch on focus. That belongs in `FirmBell`, which is owned by R1/Tumit. Close #438 once a PR covers it.
 
 **Merging main into a stage branch** (each time an earlier stage lands):
