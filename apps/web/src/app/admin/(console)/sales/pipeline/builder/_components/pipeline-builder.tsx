@@ -14,7 +14,7 @@ import {
 } from '@firmivra/ui';
 import { FlowArrow, Info, Kanban, Plus, SlidersHorizontal } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import {
   adminSales,
   fieldErrors,
@@ -370,6 +370,39 @@ function PipelineEditor({
 }
 
 /**
+ * The editor's frames while no pipeline is open (loading, API unreachable, none yet): the same
+ * two panels and buttons, the buttons disabled until there is a pipeline to change.
+ */
+function EditorFrames({ settings, stages }: { settings: ReactNode; stages: ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <Panel icon={SlidersHorizontal} title="Pipeline Settings" testId="pipeline-settings">
+        {settings}
+      </Panel>
+      <Panel
+        icon={Kanban}
+        title="Stages"
+        testId="pipeline-stages"
+        action={
+          <Button variant="secondary" disabled>
+            <Plus aria-hidden weight="bold" className="size-4" />
+            Add Stage
+          </Button>
+        }
+      >
+        {stages}
+      </Panel>
+      <div className="flex flex-wrap justify-end gap-3">
+        <Button variant="secondary" disabled>
+          Discard Changes
+        </Button>
+        <Button disabled>Save Pipeline</Button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Build Pipeline (docx §15): administrators create pipelines and manage their stages. Stage ids
  * never change, so renaming or reordering keeps history; a stage with records moves them first.
  */
@@ -383,6 +416,21 @@ export function PipelineBuilder() {
     pipelines.data?.find((pipeline) => pipeline.id === chosen) ??
     pipelines.data?.find((pipeline) => pipeline.isDefault);
   const allowed = meta.data?.permissions.managePipelines ?? false;
+  /** Without the access check nothing can be shown or changed; every frame says so instead. */
+  const metaDown = meta.isError && !meta.data;
+  const retry = () => {
+    void meta.refetch();
+    void pipelines.refetch();
+  };
+  /** A panel's quiet line while no pipeline is open: loading, the error line or the empty line. */
+  const placeholder = (lines: number) =>
+    metaDown ? (
+      <FrameError onRetry={retry} />
+    ) : (
+      <FrameState query={pipelines} empty="Create a pipeline to manage its stages." lines={lines}>
+        {() => <p className="text-sm text-muted">Choose a pipeline on the left.</p>}
+      </FrameState>
+    );
 
   return (
     <div data-testid="pipeline-builder" className="flex min-w-0 flex-col gap-4">
@@ -407,8 +455,8 @@ export function PipelineBuilder() {
             >
               Back to Pipeline
             </Link>
-            {allowed ? (
-              <Button onClick={() => setCreating(true)}>
+            {allowed || !meta.data ? (
+              <Button disabled={!allowed} onClick={() => setCreating(true)}>
                 <Plus aria-hidden weight="bold" className="size-4" />
                 Create Pipeline
               </Button>
@@ -422,11 +470,7 @@ export function PipelineBuilder() {
       </Callout>
       {toast ? <Toast message={toast} onDismiss={() => setToast(null)} /> : null}
 
-      {meta.isError && !meta.data ? (
-        <div className="rounded-xl bg-surface p-4 shadow-md">
-          <FrameError onRetry={() => void meta.refetch()} />
-        </div>
-      ) : meta.data && !allowed ? (
+      {meta.data && !allowed ? (
         <div data-testid="page-forbidden" className="rounded-xl bg-surface p-4 shadow-md">
           <p className="font-medium text-text">Only administrators can build pipelines.</p>
           <p className="mt-1 text-sm text-muted">Ask an Owner or Super Admin for access.</p>
@@ -435,60 +479,56 @@ export function PipelineBuilder() {
         <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12 xl:items-start">
           <div className="min-w-0 xl:col-span-4">
             <Panel icon={FlowArrow} title="Pipelines" testId="pipeline-list">
-              <FrameState query={pipelines} empty="No pipelines yet." lines={3}>
-                {(list) => (
-                  <ul className="flex flex-col gap-2">
-                    {list.map((pipeline) => {
-                      const records = Object.values(pipeline.recordCounts).reduce(
-                        (sum, n) => sum + n,
-                        0,
-                      );
-                      const active = pipeline.id === selected?.id;
-                      return (
-                        <li key={pipeline.id}>
-                          <button
-                            type="button"
-                            aria-pressed={active}
-                            onClick={() => setChosen(pipeline.id)}
-                            className={`flex w-full flex-col gap-1 rounded-lg border p-3 text-left hover:bg-canvas focus-visible:outline-2 focus-visible:outline-focus ${active ? 'border-action bg-info-soft' : 'border-divider bg-surface'}`}
-                          >
-                            <span className="flex flex-wrap items-center gap-2">
-                              <span className="font-semibold text-heading">{pipeline.name}</span>
-                              {pipeline.isDefault ? <Badge tone="info">Default</Badge> : null}
-                            </span>
-                            <span className="text-sm text-muted">
-                              {pipeline.stages.length} stages · {records}{' '}
-                              {records === 1 ? 'record' : 'records'}
-                            </span>
-                            {pipeline.description ? (
-                              <span className="text-sm text-text">{pipeline.description}</span>
-                            ) : null}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </FrameState>
+              {metaDown ? (
+                <FrameError onRetry={retry} />
+              ) : (
+                <FrameState query={pipelines} empty="No pipelines yet." lines={3}>
+                  {(list) => (
+                    <ul className="flex flex-col gap-2">
+                      {list.map((pipeline) => {
+                        const records = Object.values(pipeline.recordCounts).reduce(
+                          (sum, n) => sum + n,
+                          0,
+                        );
+                        const active = pipeline.id === selected?.id;
+                        return (
+                          <li key={pipeline.id}>
+                            <button
+                              type="button"
+                              aria-pressed={active}
+                              onClick={() => setChosen(pipeline.id)}
+                              className={`flex w-full flex-col gap-1 rounded-lg border p-3 text-left hover:bg-canvas focus-visible:outline-2 focus-visible:outline-focus ${active ? 'border-action bg-info-soft' : 'border-divider bg-surface'}`}
+                            >
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold text-heading">{pipeline.name}</span>
+                                {pipeline.isDefault ? <Badge tone="info">Default</Badge> : null}
+                              </span>
+                              <span className="text-sm text-muted">
+                                {pipeline.stages.length} stages · {records}{' '}
+                                {records === 1 ? 'record' : 'records'}
+                              </span>
+                              {pipeline.description ? (
+                                <span className="text-sm text-text">{pipeline.description}</span>
+                              ) : null}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </FrameState>
+              )}
             </Panel>
           </div>
           <div className="min-w-0 xl:col-span-8">
-            {selected ? (
+            {selected && !metaDown ? (
               <PipelineEditor
                 key={`${selected.id}-${selected.updatedAt}`}
                 pipeline={selected}
                 onSaved={setToast}
               />
             ) : (
-              <Panel icon={Kanban} title="Stages">
-                <FrameState
-                  query={pipelines}
-                  empty="Create a pipeline to manage its stages."
-                  lines={6}
-                >
-                  {() => <p className="text-sm text-muted">Choose a pipeline on the left.</p>}
-                </FrameState>
-              </Panel>
+              <EditorFrames settings={placeholder(2)} stages={placeholder(6)} />
             )}
           </div>
         </div>
