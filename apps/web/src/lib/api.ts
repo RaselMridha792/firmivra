@@ -13,6 +13,7 @@ import {
   createClientsClient,
   createClientSignUpsClient,
   createContentClient,
+  createDocumentLibraryClient,
   createDocumentsClient,
   createEngagementsClient,
   createEsignClient,
@@ -300,6 +301,8 @@ export const api = {
     dev && mocked('documents')
       ? createDocumentsMock({ role: MOCK_ROLE })
       : createDocumentsClient(request),
+  /** Documents (R55 contract): the firm-wide library, requests dashboard, folders and settings. */
+  documentLibrary: createDocumentLibraryClient(request),
   /** Documents (R5): the signed-in client's own files and requests, per firm (portal). */
   myDocuments: (firmSlug: string) =>
     dev && mocked('myDocuments')
