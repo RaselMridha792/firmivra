@@ -821,7 +821,8 @@ function inDays(at: string, from?: string, to?: string) {
   return true;
 }
 
-function matches(ticket: SupportTicket, record: TicketRecord, search: string) {
+/** Number, subject, firm, contact name and email, category and assignee (docx §1 Search). */
+function matches(ticket: SupportTicket, search: string) {
   const words = search.toLowerCase().replace(/#/g, '').split(/\s+/).filter(Boolean);
   const haystack = [
     String(ticket.number),
@@ -832,7 +833,6 @@ function matches(ticket: SupportTicket, record: TicketRecord, search: string) {
     ticket.contact.email,
     ticket.category.name,
     ticket.assignee?.name ?? 'unassigned',
-    record.description,
   ]
     .join(' ')
     .toLowerCase();
@@ -1174,7 +1174,7 @@ export const adminSupport = {
     const search = (query.search ?? '').trim();
     const rows = filtered(query, now)
       .filter(({ ticket }) => inTab(ticket, tab, s.settings, agent.id))
-      .filter(({ ticket, record }) => !search || matches(ticket, record, search))
+      .filter(({ ticket }) => !search || matches(ticket, search))
       .map(({ ticket }) => ticket)
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || b.number - a.number);
     const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 10));
