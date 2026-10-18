@@ -78,3 +78,38 @@ All folders are inside `apps/web/src/app/firm/(workspace)/`; all designs and doc
 - [ ] The PR shows screenshots next to the design and lists every difference that could not be removed, and why (rule 6)
 - [ ] Components come from `docs/ui-kit.md`; a kit addition was requested only for a design element the kit lacks
 - [ ] Works at 375 px with no sideways scroll
+
+## I01 progress: Integrations List (18 Oct 2026)
+
+Scope: only `/integrations` (Frame 1). Marketplace, connection setup and Manage Integration are separate pages and remain untouched.
+
+Design inventory (`integrations/source/intigrations.jpg`, developer instructions section 2):
+- Banner: title, subtitle, shield and credential-masking notice.
+- Four summary cards: Connected, Needs Attention, Available, Last System Check.
+- Four status tabs, provider search, category select and two environment choices.
+- Catalog-driven provider cards: logo fallback, name, status, purpose, last sync, direction/mode, overflow menu and contextual actions. The reference frame has four top cards and eight lower cards; production counts come from the API.
+- Add Integration panel: three checklist items, marketplace button and link.
+- Three lower panels: Integration Health (four metrics and View Health), Data Mapping (mapped scopes and Manage Mapping), Recent Activity (events, View All and View Audit Log).
+
+Implementation uses `api.integrations` and existing UI tokens/components. Synthetic fixtures in `src/mocks/integrations.ts` are used by browser request interception; they are not production fallback data. The shared API client registration remains unchanged.
+
+Validation:
+- Web TypeScript check: passed.
+- Changed-file ESLint: passed.
+- Production web build: passed.
+- Four focused Playwright tests: passed (data/filtering/dialogs/mobile, empty, API unreachable, forbidden).
+- Screenshots: `apps/web/test-results/ibrahim-integrations-list--ac2ed-ies-mode-and-insight-panels-chromium/integrations-data-desktop.png` and `integrations-data-mobile.png`; empty/offline/forbidden screenshots are in the corresponding test-result folders. These are ignored local test artifacts, not committed images.
+
+Known differences / handoff:
+- Provider logo assets are not supplied by the shared kit. Neutral initial tiles are used, as allowed by the contract's unknown-logo fallback. Real brand logos still need approved assets.
+- The shared shell's menu density, global New button and header differ from the source frame. Those files belong to other owners and were not edited.
+- No decorative banner image is supplied by the kit; the banner uses the existing navigation token.
+- The reference image's sample counts/dates are not copied into the page. All displayed metrics come from the contract; test fixtures are synthetic and internally consistent.
+- The four-module ticket uses I01 in this document; a numeric GitHub issue for the list page has not been identified. Working branch: `ibrahim/FIR-I01-integrations-list`.
+- Local `pnpm dev` hit the API compiler's default 4 GB heap limit. Web and API were restarted separately, with `NODE_OPTIONS=--max-old-space-size=8192` for the API process only; no shared configuration was changed.
+
+Review evidence is also saved under the page-owned `_components/review/` folder so a draft PR can show the mockup beside desktop/mobile screenshots without changing another owner's paths. The screenshots use synthetic mock data only.
+
+Repository-wide lint/typecheck were attempted but did not complete: the API lint process exited with a process-out-of-memory error while checks ran concurrently. No unrelated lint rules or source files were changed. A real-API sign-in smoke test initially found P2022 (local database behind latest main); existing repository migrations are being applied before retesting. This is not recorded as a passing real-API test.
+
+Follow-up: the pending `20261017180000_r0_platform_audit_security` migration was applied locally. The real-API smoke test now passes: seeded owner quick sign-in, catalog HTTP 200, provider cards and all three insight panels. Total focused browser tests: 5 passed (4 contract-fixture scenarios plus 1 real-API smoke test).
