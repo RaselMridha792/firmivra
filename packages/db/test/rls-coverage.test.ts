@@ -58,6 +58,11 @@ describe('row-level security coverage', () => {
       'platform_billing_counters',
       // One row, inserted by its migration; the app only saves it.
       'platform_security_policy',
+      // Written only by the owner-run sales_opportunities_history() trigger.
+      'sales_stage_history',
+      'sales_assignment_history',
+      // One row, inserted by its migration; the app only saves it.
+      'sales_attention_settings',
     ];
     expect(app.filter((r) => !r.select).map((r) => r.table)).toEqual([]);
     expect(app.filter((r) => !r.insert && !readOnly.includes(r.table)).map((r) => r.table)).toEqual(
@@ -113,7 +118,16 @@ describe('row-level security coverage', () => {
                    ('intake_signature_agreements', 'DELETE'),
                    ('security_alerts', 'DELETE'), ('audit_investigation_notes', 'DELETE'),
                    ('platform_security_policy', 'INSERT'),
-                   ('platform_security_policy', 'DELETE')) AS p(tbl, privilege)`);
+                   ('platform_security_policy', 'DELETE'),
+                   ('sales_pipelines', 'DELETE'), ('sales_opportunities', 'DELETE'),
+                   ('sales_follow_ups', 'DELETE'),
+                   ('sales_activities', 'UPDATE'), ('sales_activities', 'DELETE'),
+                   ('sales_stage_history', 'INSERT'), ('sales_stage_history', 'UPDATE'),
+                   ('sales_stage_history', 'DELETE'),
+                   ('sales_assignment_history', 'INSERT'), ('sales_assignment_history', 'UPDATE'),
+                   ('sales_assignment_history', 'DELETE'),
+                   ('sales_attention_settings', 'INSERT'),
+                   ('sales_attention_settings', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 
