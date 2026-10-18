@@ -145,7 +145,7 @@ function UnitCell({
       unit.parts.length === 3 ? ['First', 'Middle (if any)', 'Last'] : ['First', 'Last'];
     return (
       <fieldset className="min-w-0">
-        <legend className="mb-1 text-xs font-medium text-firm-primary">
+        <legend className="mb-1 text-sm font-medium text-firm-primary">
           {look.labels?.[unit.key] ?? 'Full Name'}
           {required(unit.parts[0]!)}
         </legend>

@@ -49,14 +49,18 @@ const PLACEHOLDERS: Partial<Record<IntakeScalarField['type'], string>> = {
 
 function ErrorText({ id, error }: { id: string; error?: string | undefined }) {
   return error ? (
-    <p id={id} className="text-xs text-danger">
+    <p id={id} className="text-sm text-danger">
       {error}
     </p>
   ) : null;
 }
 
 function Help({ text }: { text?: string | undefined }) {
-  return text ? <p className="text-xs text-muted">{text}</p> : null;
+  return text ? (
+    <p data-intake-hint className="text-sm text-muted">
+      {text}
+    </p>
+  ) : null;
 }
 
 function OptionList({
@@ -106,7 +110,7 @@ function OptionList({
     );
   const many = options.length > 6;
   const [main, bracket] = splitBracket(label);
-  const choice = `gap-2! text-xs! ${row ? 'sm:min-h-5!' : 'sm:min-h-6!'}`;
+  const choice = `gap-2! text-sm! ${row ? 'sm:min-h-5' : 'sm:min-h-6'}`;
   return (
     <fieldset
       aria-invalid={error ? true : undefined}
@@ -120,16 +124,16 @@ function OptionList({
             <span className="font-display text-lg leading-tight font-bold text-heading">
               {main}
             </span>{' '}
-            {bracket && <span className="text-xs text-firm-primary">{bracket}</span>}
+            {bracket && <span className="text-sm text-firm-primary">{bracket}</span>}
           </span>
         </legend>
       ) : (
-        <legend className={row || quiet ? 'sr-only' : 'mb-1 text-xs font-medium text-firm-primary'}>
+        <legend className={row || quiet ? 'sr-only' : 'mb-1 text-sm font-medium text-firm-primary'}>
           {label}
         </legend>
       )}
       {row && !quiet && (
-        <span aria-hidden="true" className="min-w-0 flex-1 text-xs text-firm-primary">
+        <span aria-hidden="true" className="min-w-0 flex-1 text-sm text-firm-primary">
           {label}
         </span>
       )}
@@ -137,7 +141,7 @@ function OptionList({
         <Checkbox
           name={`${name}-all`}
           label={selectAll}
-          className="mb-1 gap-2! rounded-control bg-folder-surface px-2 text-xs! font-semibold sm:min-h-7!"
+          className="mb-1 gap-2! rounded-control bg-folder-surface px-2 text-sm! font-semibold sm:min-h-7"
           checked={chosen.length === options.length}
           onChange={(event) => onChange(event.target.checked ? options.map((o) => o.value) : [])}
         />
@@ -171,7 +175,7 @@ function OptionList({
                   <span className="block font-display text-base leading-tight font-bold text-heading">
                     {o.label}
                   </span>
-                  {o.help && <span className="block text-xs text-firm-primary">{o.help}</span>}
+                  {o.help && <span className="block text-sm text-firm-primary">{o.help}</span>}
                 </span>
               </label>
             ) : (
@@ -185,7 +189,7 @@ function OptionList({
                 />
                 <span className="min-w-0">
                   <span className="block text-sm font-semibold text-heading">{o.label}</span>
-                  {o.help && <span className="block text-xs text-firm-primary">{o.help}</span>}
+                  {o.help && <span className="block text-sm text-firm-primary">{o.help}</span>}
                 </span>
               </label>
             );
@@ -279,15 +283,15 @@ function MaskedNumberInput({
     const shown = kind === 'SSN' ? `•••-••-${value.last4}` : `••-•••${value.last4}`;
     return (
       <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-firm-primary">{label}</span>
+        <span className="text-sm font-medium text-firm-primary">{label}</span>
         <div className="flex items-center gap-2">
-          <span className="flex-1 rounded-control border border-border px-2 py-1 text-xs">
+          <span className="flex-1 rounded-control border border-border px-2 py-1 text-sm">
             {shown}
           </span>
           <Button
             variant="outline"
             onClick={() => onChange('')}
-            className="min-h-7! px-2! py-1! text-xs!"
+            className="min-h-7 px-2! py-1! text-sm!"
           >
             Change
           </Button>
@@ -296,7 +300,7 @@ function MaskedNumberInput({
     );
   }
   return (
-    <div className="[&_label]:text-xs">
+    <div className="[&_label]:text-sm">
       <MaskedInput
         label={label}
         kind={kind}
@@ -343,7 +347,7 @@ export function ScalarInput({
     'data-type': field.type,
   };
   // The label only for screen readers, or on the left of the input, as the mockup draws it.
-  const wrap = `min-w-0 [&_label]:text-xs [&_label]:text-firm-primary ${look.quiet ? '[&_label]:sr-only' : ''} ${look.inline ? 'sm:[&>div]:flex-row sm:[&>div]:items-center sm:[&>div]:gap-3 [&_input]:flex-1 sm:[&_label]:w-3/5 [&_label]:shrink-0' : ''}`;
+  const wrap = `min-w-0 [&_label]:text-sm [&_label]:text-firm-primary ${look.quiet ? '[&_label]:sr-only' : ''} ${look.inline ? 'sm:[&>div]:flex-row sm:[&>div]:items-center sm:[&>div]:gap-3 [&_input]:flex-1 sm:[&_label]:w-3/5 [&_label]:shrink-0' : ''}`;
   const help = field.help ? <Help text={fill(field.help)} /> : null;
   switch (field.type) {
     case 'text':
@@ -481,7 +485,7 @@ export function ScalarInput({
             name={name}
             label={label}
             // A long label (a certification) starts beside the box, not centred on it.
-            className={`gap-2! text-xs! sm:min-h-6! ${label.length > 80 ? 'items-start! [&_input]:mt-0.5' : ''}`}
+            className={`gap-2! text-sm! sm:min-h-6 ${label.length > 80 ? 'items-start! [&_input]:mt-0.5' : ''}`}
             checked={value === true}
             aria-invalid={error ? true : undefined}
             onChange={(event) => onChange(event.target.checked)}
@@ -558,7 +562,7 @@ function TextareaInput({
     >
       <label
         htmlFor={id}
-        className={`text-xs font-medium text-firm-primary ${look.quiet ? 'sr-only' : ''} ${look.inline ? 'sm:shrink-0' : ''}`}
+        className={`text-sm font-medium text-firm-primary ${look.quiet ? 'sr-only' : ''} ${look.inline ? 'sm:shrink-0' : ''}`}
       >
         {label}
       </label>
@@ -572,12 +576,12 @@ function TextareaInput({
         aria-describedby={`${id}-count${error ? ` ${id}-error` : ''}`}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className={`rounded-control border bg-surface px-2 py-1 text-xs text-text placeholder:text-muted focus:outline-2 focus:outline-accent-500 ${look.inline ? 'sm:min-w-0 sm:flex-1' : ''} ${error ? 'border-danger' : 'border-border'}`}
+        className={`rounded-control border bg-surface px-2 py-1 text-sm text-text placeholder:text-muted focus:outline-2 focus:outline-accent-500 ${look.inline ? 'sm:min-w-0 sm:flex-1' : ''} ${error ? 'border-danger' : 'border-border'}`}
       />
       {/* The count shows once something is typed (the mockups' empty fields have none). */}
       <p
         id={`${id}-count`}
-        className={`text-right text-xs text-muted ${value ? (look.inline ? 'sm:w-full' : '') : 'sr-only'}`}
+        className={`text-right text-sm text-muted ${value ? (look.inline ? 'sm:w-full' : '') : 'sr-only'}`}
       >
         {value.length.toLocaleString('en-US')}/{field.maxLength.toLocaleString('en-US')}
       </p>
@@ -603,7 +607,7 @@ export function InfoNote({
 }) {
   if (card) {
     return (
-      <div className="rounded-control bg-folder-surface p-3 text-xs">
+      <div className="rounded-control bg-folder-surface p-3 text-sm">
         <p className="mb-1 flex items-center gap-2 text-sm font-semibold text-heading">
           <Info aria-hidden="true" className="size-6 shrink-0 fill-action text-surface" />
           {label}
@@ -615,7 +619,7 @@ export function InfoNote({
   if (list) {
     const items = text.split(/(?<=\.)\s+(?=[A-Z"])/);
     return (
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-control bg-accent-soft p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-control bg-accent-soft p-3 text-sm">
         <p className="flex items-center gap-3">
           <Info aria-hidden="true" className="size-10 shrink-0 text-accent" />
           <strong className="font-display text-xl text-heading">{label}:</strong>
@@ -629,7 +633,7 @@ export function InfoNote({
     );
   }
   return (
-    <div className="flex items-start gap-2 rounded-control bg-folder-surface p-2 text-xs">
+    <div className="flex items-start gap-2 rounded-control bg-folder-surface p-2 text-sm">
       <Info aria-hidden="true" className="size-5 shrink-0 text-accent" />
       <p>
         <strong className="text-heading">{label}</strong> {text}
@@ -658,7 +662,7 @@ function StatesInput({
   const chosen = Array.isArray(value) ? value : [];
   const nameOf = (code: string) => STATE_OPTIONS.find((o) => o.value === code)?.label ?? code;
   return (
-    <div className="min-w-0 space-y-1 [&_label]:text-xs [&_label]:text-firm-primary">
+    <div className="min-w-0 space-y-1 [&_label]:text-sm [&_label]:text-firm-primary">
       <Select
         label={label}
         error={error}
@@ -678,7 +682,7 @@ function StatesInput({
           {chosen.map((code) => (
             <li
               key={code}
-              className="flex items-center gap-1 rounded-control border border-folder-border bg-folder-surface px-2 py-0.5 text-xs"
+              className="flex items-center gap-1 rounded-control border border-folder-border bg-folder-surface px-2 py-0.5 text-sm"
             >
               {nameOf(code)}
               <button
@@ -726,7 +730,7 @@ function PackageCard({
     <label
       className={`flex min-w-0 cursor-pointer flex-col gap-2 rounded-card border p-4 ${on ? 'border-action bg-accent-soft' : 'border-folder-border bg-folder-surface'}`}
     >
-      <span className="flex items-center gap-3">
+      <span className="flex min-w-0 flex-wrap items-center gap-3">
         {Icon && (
           <Icon
             aria-hidden="true"
@@ -735,7 +739,7 @@ function PackageCard({
         )}
         <span className="font-display text-xl font-bold text-heading">{o.label}</span>
         {o.badge && (
-          <span className="rounded-control bg-action px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-on-action">
+          <span className="rounded-control bg-action px-2 py-0.5 text-sm font-semibold whitespace-nowrap text-on-action">
             {o.badge}
           </span>
         )}
@@ -821,7 +825,7 @@ function ServiceCard({
         <span className="block font-display text-base leading-tight font-bold text-heading">
           {o.label}
         </span>
-        {o.help && <span className="mt-0.5 block text-xs text-firm-primary">{o.help}</span>}
+        {o.help && <span className="mt-0.5 block text-sm text-firm-primary">{o.help}</span>}
       </span>
     </label>
   );
