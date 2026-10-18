@@ -1734,3 +1734,64 @@ export const LeadActivityKind = z.enum([
   'CAMPAIGN',
 ]);
 export type LeadActivityKind = z.infer<typeof LeadActivityKind>;
+
+export const PlatformIntegrationCategory = z.enum([
+  'PAYMENTS_BILLING',
+  'COMMUNICATION',
+  'EMAIL',
+  'CLOUD_STORAGE',
+  'AI_AUTOMATION',
+  'MLS_DATA',
+  'ESIGN',
+  'SECURITY_INFRASTRUCTURE',
+  'OTHER',
+]);
+export type PlatformIntegrationCategory = z.infer<typeof PlatformIntegrationCategory>;
+
+/** DRAFT until activated (after a passing test); then ACTIVE, INACTIVE, NEEDS_ATTENTION or ERROR as health and admins decide; DISABLED by an admin; REMOVED is the tombstone. */
+export const PlatformIntegrationStatus = z.enum([
+  'DRAFT',
+  'ACTIVE',
+  'INACTIVE',
+  'NEEDS_ATTENTION',
+  'ERROR',
+  'DISABLED',
+  'REMOVED',
+]);
+export type PlatformIntegrationStatus = z.infer<typeof PlatformIntegrationStatus>;
+
+export const PlatformIntegrationRunKind = z.enum(['SYNC', 'TEST']);
+export type PlatformIntegrationRunKind = z.infer<typeof PlatformIntegrationRunKind>;
+
+export const PlatformIntegrationLogSource = z.enum([
+  'PLATFORM_INTEGRATION',
+  'FIRM_CONNECTION',
+  'API',
+  'WEBHOOK',
+]);
+export type PlatformIntegrationLogSource = z.infer<typeof PlatformIntegrationLogSource>;
+
+export const PlatformIntegrationLogSeverity = z.enum(['INFO', 'WARNING', 'ERROR', 'CRITICAL']);
+export type PlatformIntegrationLogSeverity = z.infer<typeof PlatformIntegrationLogSeverity>;
+
+/** ENABLED: visible and connectable; COMING_SOON: visible, not connectable; DISABLED: hidden. */
+export const PlatformCatalogStatus = z.enum(['ENABLED', 'COMING_SOON', 'DISABLED']);
+export type PlatformCatalogStatus = z.infer<typeof PlatformCatalogStatus>;
+
+export const PlatformCatalogPlanAccess = z.enum(['ALL_PLANS', 'SELECTED_PLANS']);
+export type PlatformCatalogPlanAccess = z.infer<typeof PlatformCatalogPlanAccess>;
+
+export const PlatformCatalogFirmAccess = z.enum(['ALLOW', 'DENY']);
+export type PlatformCatalogFirmAccess = z.infer<typeof PlatformCatalogFirmAccess>;
+
+export const PlatformWebhookDirection = z.enum(['OUTBOUND', 'INBOUND']);
+export type PlatformWebhookDirection = z.infer<typeof PlatformWebhookDirection>;
+
+export const PlatformWebhookStatus = z.enum(['ACTIVE', 'DISABLED']);
+export type PlatformWebhookStatus = z.infer<typeof PlatformWebhookStatus>;
+
+export const PlatformDeliveryStatus = z.enum(['PENDING', 'SUCCEEDED', 'FAILED']);
+export type PlatformDeliveryStatus = z.infer<typeof PlatformDeliveryStatus>;
+
+export const PlatformUsageScope = z.enum(['PLATFORM_INTEGRATION', 'CATALOG', 'API']);
+export type PlatformUsageScope = z.infer<typeof PlatformUsageScope>;

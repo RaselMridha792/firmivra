@@ -376,6 +376,11 @@ export const SEED_PLATFORM_IDS = {
   supportEvent: '00000000-0000-4005-8000-000000000036',
   supportHoliday: '00000000-0000-4005-8000-000000000037',
   supportCannedResponse: '00000000-0000-4005-8000-000000000038',
+  // Stage B8: Firmivra's Stripe connection, a catalog entry, an API key and a webhook endpoint.
+  integrationStripe: '00000000-0000-4005-8000-000000000091',
+  integrationCatalog: '00000000-0000-4005-8000-000000000092',
+  integrationApiKey: '00000000-0000-4005-8000-000000000093',
+  integrationWebhook: '00000000-0000-4005-8000-000000000094',
   // Stage B3: what Firmivra billed LVP.
   billingPaidInvoice: '00000000-0000-4005-8000-000000000041',
   billingCreditedInvoice: '00000000-0000-4005-8000-000000000042',
