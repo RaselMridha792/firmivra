@@ -80,3 +80,60 @@ test('Team fits a phone without sideways scrolling', async ({ page }) => {
   await expect(page.getByRole('table', { name: 'Team members' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test('Add Team Member loads the role template and adds the person to the team', async ({
+  page,
+}) => {
+  await page.goto(admin('/team/new'));
+  await expect(page.getByRole('heading', { name: 'Add Team Member', level: 1 })).toBeVisible();
+  const form = page.getByRole('form', { name: 'Add Team Member' });
+  await form.getByRole('button', { name: 'Add Team Member' }).click();
+  await expect(form.getByText('Enter a first name')).toBeVisible();
+  await expect(form.getByText('Choose a department')).toBeVisible();
+
+  await form.getByLabel('First Name').fill('Jamie');
+  await form.getByLabel('Last Name').fill('Rivera');
+  await form.getByLabel('Email Address').fill('jamie.rivera@example.test');
+  await form.getByLabel('Department').selectOption({ label: 'Revenue / Sales' });
+  await form.getByLabel('Role').selectOption({ label: 'Sales Manager' });
+  await expect(form.getByTestId('authority-level')).toHaveText('Authority level 4: Manager');
+  await expect(form.getByLabel('Reports To').locator('option:checked')).toHaveText(
+    'Priya Raman (VP / Director of Sales)',
+  );
+  await expect(form.getByRole('checkbox', { name: /^Sales Center/ })).toBeChecked();
+  await expect(form.getByText('Custom Permissions Applied')).toHaveCount(0);
+  await form.getByRole('checkbox', { name: /^Billing/ }).check();
+  await expect(form.getByText('Custom Permissions Applied')).toBeVisible();
+  await expect(page.getByTestId('member-review')).toContainText('Sales Manager (level 4)');
+
+  await form.getByRole('button', { name: 'Add Team Member' }).click();
+  await expect(page.getByTestId('member-added')).toHaveText(
+    'Sales Manager in Revenue / Sales. Status: Pending Invitation.',
+  );
+  await page.getByRole('link', { name: 'Back to Team' }).click();
+  await expect(page).toHaveURL(admin('/team'));
+  await page.getByLabel('Search team members').fill('jamie');
+  await expect(page.getByRole('article', { name: 'Jamie Rivera' })).toBeVisible();
+});
+
+test('an email already on the team is caught on the email field', async ({ page }) => {
+  await page.goto(admin('/team/new'));
+  const form = page.getByRole('form', { name: 'Add Team Member' });
+  await form.getByLabel('First Name').fill('Morgan');
+  await form.getByLabel('Last Name').fill('Admin');
+  await form.getByLabel('Email Address').fill('morgan.admin@example.test');
+  await form.getByLabel('Department').selectOption({ label: 'Product' });
+  await form.getByLabel('Role').selectOption({ label: 'Product Manager' });
+  await form.getByRole('button', { name: 'Add Team Member' }).click();
+  await expect(form.getByLabel('Email Address')).toHaveAttribute('aria-invalid', 'true');
+  await expect(
+    form.getByText('Someone on the team already uses this email address.').first(),
+  ).toBeVisible();
+});
+
+test('the add form fits a phone without sideways scrolling', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(admin('/team/new'));
+  await expect(page.getByRole('form', { name: 'Add Team Member' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
