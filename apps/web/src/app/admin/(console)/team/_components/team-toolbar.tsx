@@ -12,10 +12,11 @@ import {
   UserMinus,
   Users,
   X,
+  type Icon,
 } from '@phosphor-icons/react';
 import { ActionMenu, Button, Card, Select, type ActionMenuItem } from '@firmivra/ui';
 import type { UseQueryResult } from '@tanstack/react-query';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   ACCESS_LEVELS,
   MEMBER_STATUSES,
@@ -163,6 +164,7 @@ export function SelectionBar({
   pageCount,
   onToggleAll,
   can,
+  rightsUnknown,
   onCommand,
   onClear,
   extraFilters,
@@ -174,6 +176,8 @@ export function SelectionBar({
   pageCount: number;
   onToggleAll: (on: boolean) => void;
   can: TeamCapabilities | undefined;
+  /** The admin's rights could not be loaded: their buttons show disabled instead of hidden. */
+  rightsUnknown: boolean;
   onCommand: (command: BulkCommand) => void;
   onClear: () => void;
   extraFilters: number;
@@ -185,12 +189,18 @@ export function SelectionBar({
   useEffect(() => {
     if (boxRef.current) boxRef.current.indeterminate = count > 0 && !allOn;
   }, [count, allOn]);
-  const button = (command: BulkCommand, icon: ReactNode, label: string) => (
-    <Button variant="secondary" onClick={() => onCommand(command)}>
-      {icon}
-      {label}
-    </Button>
-  );
+  /** A bulk button: hidden from an admin without the right, disabled while the rights are unknown. */
+  const button = (command: BulkCommand, Glyph: Icon, label: string, allowed = true) =>
+    allowed || rightsUnknown ? (
+      <Button variant="secondary" disabled={!allowed} onClick={() => onCommand(command)}>
+        <Glyph
+          aria-hidden
+          weight="fill"
+          className={`size-5 ${allowed ? 'text-action' : 'text-muted'}`}
+        />
+        {label}
+      </Button>
+    ) : null;
   const more: ActionMenuItem[] = [
     { label: 'Resend Invitation', icon: Envelope, onSelect: () => onCommand('resend') },
     ...(can?.remove
@@ -225,32 +235,10 @@ export function SelectionBar({
           {count} selected
         </span>
       </label>
-      {button(
-        'message',
-        <PaperPlaneTilt aria-hidden weight="fill" className="size-5 text-action" />,
-        'Send Message',
-      )}
-      {can?.changeRoles
-        ? button(
-            'department',
-            <Users aria-hidden weight="fill" className="size-5 text-action" />,
-            'Change Department',
-          )
-        : null}
-      {can?.changeRoles
-        ? button(
-            'role',
-            <ShieldCheck aria-hidden weight="fill" className="size-5 text-action" />,
-            'Change Role',
-          )
-        : null}
-      {can?.changeStatus
-        ? button(
-            'status',
-            <ToggleRight aria-hidden weight="fill" className="size-5 text-action" />,
-            'Change Status',
-          )
-        : null}
+      {button('message', PaperPlaneTilt, 'Send Message')}
+      {button('department', Users, 'Change Department', Boolean(can?.changeRoles))}
+      {button('role', ShieldCheck, 'Change Role', Boolean(can?.changeRoles))}
+      {button('status', ToggleRight, 'Change Status', Boolean(can?.changeStatus))}
       <ActionMenu
         label="More actions for the selected team members"
         align="left"

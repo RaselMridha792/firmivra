@@ -95,6 +95,8 @@ export function TeamScreen() {
   );
   const items = list.data?.items ?? [];
   const can = viewer.data?.can;
+  /** The viewer call failed: buttons that depend on the admin's rights show disabled, not hidden. */
+  const rightsUnknown = viewer.isError && !viewer.data;
 
   const report = {
     onSuccess: (text: string) => setFeedback({ ok: true, text }),
@@ -193,6 +195,8 @@ export function TeamScreen() {
 
   const first = list.data && list.data.total ? (list.data.page - 1) * list.data.pageSize + 1 : 0;
   const last = list.data ? first + list.data.items.length - 1 : 0;
+  // A failed list keeps its footer on one page of nothing.
+  const total = list.data?.total ?? 0;
 
   return (
     <div data-testid="team-screen" className="flex min-w-0 flex-col gap-5">
@@ -210,6 +214,11 @@ export function TeamScreen() {
                 <Plus aria-hidden weight="bold" className="size-5" />
                 Add Team Member
               </ButtonLink>
+            ) : rightsUnknown ? (
+              <Button disabled>
+                <Plus aria-hidden weight="bold" className="size-5" />
+                Add Team Member
+              </Button>
             ) : null}
           </>
         }
@@ -246,6 +255,7 @@ export function TeamScreen() {
         pageCount={items.length}
         onToggleAll={(on) => setSelected(on ? items.map((member) => member.id) : [])}
         can={can}
+        rightsUnknown={rightsUnknown}
         onCommand={onBulk}
         onClear={() => setSelected([])}
         extraFilters={extraFilters}
@@ -337,18 +347,16 @@ export function TeamScreen() {
         )}
       </section>
 
-      {list.data ? (
+      {list.isPending ? null : (
         <Pagination
-          page={list.data.page}
-          pageCount={Math.max(1, Math.ceil(list.data.total / list.data.pageSize))}
+          page={list.data?.page ?? 1}
+          pageCount={Math.max(1, Math.ceil(total / (list.data?.pageSize ?? pageSize)))}
           onPage={(next) => {
             setPage(next);
             setSelected([]);
           }}
           summary={
-            list.data.total
-              ? `Showing ${first}–${last} of ${countText(list.data.total)}`
-              : 'Showing 0 team members'
+            total ? `Showing ${first}–${last} of ${countText(total)}` : 'Showing 0 team members'
           }
           pageSize={pageSize}
           pageSizes={PAGE_SIZES}
@@ -357,7 +365,7 @@ export function TeamScreen() {
             restart();
           }}
         />
-      ) : null}
+      )}
 
       <MemberProfile
         member={profileId ? (profile.data ?? null) : null}
