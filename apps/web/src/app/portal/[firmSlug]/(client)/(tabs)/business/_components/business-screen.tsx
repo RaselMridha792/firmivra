@@ -31,7 +31,7 @@ export function BusinessScreen() {
             <header className="flex flex-col gap-4 border-b border-folder-border pb-4 md:flex-row md:items-start">
               <Folder
                 aria-hidden
-                className="size-14 shrink-0 rounded-control bg-folder-surface p-3 text-firm-primary"
+                className="size-14 shrink-0 rounded-control bg-folder-surface p-3 text-firm-text"
               />
               <div className="flex-1">
                 <h1 className="font-display text-2xl font-bold text-heading md:text-3xl">
@@ -45,7 +45,7 @@ export function BusinessScreen() {
               <div className="shrink-0">
                 <ButtonLink
                   href={`/${slug}/documents`}
-                  className="bg-firm-primary! text-on-action! hover:bg-navigation-hover! focus-visible:outline-firm-primary"
+                  className="bg-firm-button! text-on-firm-button! hover:bg-firm-button-hover! focus-visible:outline-firm-primary"
                 >
                   <CloudUpload aria-hidden className="size-5" /> Upload Document
                 </ButtonLink>

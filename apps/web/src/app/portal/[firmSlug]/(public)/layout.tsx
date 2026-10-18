@@ -64,7 +64,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
       'flex min-h-10 items-center px-2 text-sm font-semibold transition-colors lg:border-b-2',
       active
         ? 'text-firm-accent lg:border-firm-accent'
-        : 'text-firm-primary hover:text-firm-accent lg:border-transparent',
+        : 'text-firm-text hover:text-firm-accent lg:border-transparent',
     ].join(' ');
   const dropdown = (
     name: 'services' | 'resources',
@@ -94,7 +94,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
               key={item.href}
               href={item.href}
               onClick={closeMenu}
-              className="flex min-h-10 items-center px-3 py-2 text-sm text-firm-primary hover:bg-folder-surface hover:text-firm-accent"
+              className="flex min-h-10 items-center px-3 py-2 text-sm text-firm-text hover:bg-folder-surface hover:text-firm-accent"
             >
               {item.label}
             </Link>
@@ -116,8 +116,8 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
             href={`/${business.slug}`}
             className={
               isLvp
-                ? 'order-1 flex shrink-0 items-center text-xl font-bold text-firm-primary'
-                : 'flex items-center text-xl font-bold text-firm-primary'
+                ? 'order-1 flex shrink-0 items-center text-xl font-bold text-firm-text'
+                : 'flex items-center text-xl font-bold text-firm-text'
             }
           >
             {isLvp ? (
@@ -148,7 +148,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                 aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
                 aria-controls="lvp-primary-navigation"
                 aria-expanded={menuOpen}
-                className="order-2 inline-flex size-10 items-center justify-center rounded-control border border-border text-firm-primary lg:hidden"
+                className="order-2 inline-flex size-10 items-center justify-center rounded-control border border-border text-firm-text lg:hidden"
                 onClick={() => setMenuOpen(!menuOpen)}
               >
                 {menuOpen ? (

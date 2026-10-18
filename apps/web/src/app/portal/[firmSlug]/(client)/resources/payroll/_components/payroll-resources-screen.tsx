@@ -39,7 +39,7 @@ function CheckList({ items }: { items: string[] }) {
     <ul className="mt-3 grid gap-2 text-sm text-text">
       {items.map((item) => (
         <li key={item} className="flex items-start gap-2">
-          <CheckCircle2 aria-hidden className="mt-0.5 size-4 shrink-0 text-firm-primary" />
+          <CheckCircle2 aria-hidden className="mt-0.5 size-4 shrink-0 text-firm-text" />
           <span>{item}</span>
         </li>
       ))}
@@ -78,12 +78,12 @@ function PayrollDashboard({ items, slug }: { items: MyContentItem[]; slug: strin
         <header className="min-w-0">
           <Link
             href={`/${slug}/business`}
-            className="inline-flex items-center gap-2 text-sm font-medium text-firm-primary hover:underline"
+            className="inline-flex items-center gap-2 text-sm font-medium text-firm-text hover:underline"
           >
             <ArrowLeft aria-hidden className="size-4" /> Back to Resources
           </Link>
           <h1 className="mt-1 font-display text-4xl leading-tight font-bold text-heading md:text-5xl">
-            Payroll <span className="text-firm-primary">Resources</span>
+            Payroll <span className="text-firm-text">Resources</span>
           </h1>
           <h2 className="text-lg font-bold text-heading md:text-xl">
             Set up. Stay Compliant. Pay with Confidence.
@@ -98,7 +98,7 @@ function PayrollDashboard({ items, slug }: { items: MyContentItem[]; slug: strin
 
         <Card className="grid content-start gap-2 border-folder-border! bg-folder-surface! p-4!">
           <div className="flex items-start gap-3">
-            <Lightbulb aria-hidden className="size-8 shrink-0 text-firm-primary" />
+            <Lightbulb aria-hidden className="size-8 shrink-0 text-firm-text" />
             <div>
               <h2 className="font-display text-lg font-bold text-heading">
                 Need Professional Help?
@@ -111,7 +111,7 @@ function PayrollDashboard({ items, slug }: { items: MyContentItem[]; slug: strin
           </div>
           <Link
             href={`/${slug}/appointments`}
-            className="mt-1 inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-firm-primary px-4 py-2 text-sm font-semibold text-on-action hover:bg-navigation-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-firm-primary"
+            className="mt-1 inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-firm-button px-4 py-2 text-sm font-semibold text-on-firm-button hover:bg-firm-button-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-firm-primary"
           >
             Schedule an Appointment <ArrowRight aria-hidden className="size-4" />
           </Link>
@@ -153,7 +153,7 @@ function PayrollDashboard({ items, slug }: { items: MyContentItem[]; slug: strin
               <span className="absolute top-2 left-2 grid size-7 place-items-center rounded-full bg-firm-primary text-sm font-bold text-on-action">
                 {index + 1}
               </span>
-              <Icon aria-hidden className="mx-auto size-7 text-firm-primary" />
+              <Icon aria-hidden className="mx-auto size-7 text-firm-text" />
               <h3 className="text-center text-base leading-tight font-bold text-heading">
                 {title}
               </h3>
@@ -193,7 +193,7 @@ function PayrollDashboard({ items, slug }: { items: MyContentItem[]; slug: strin
           <ul className="mt-3 grid gap-2">
             {forms.map(([name, description]) => (
               <li key={name} className="flex items-start gap-2 text-sm">
-                <FileText aria-hidden className="mt-0.5 size-5 shrink-0 text-firm-primary" />
+                <FileText aria-hidden className="mt-0.5 size-5 shrink-0 text-firm-text" />
                 <span>
                   <strong className="text-heading">{name}</strong>
                   <span className="block text-muted">{description}</span>
@@ -244,7 +244,7 @@ function PayrollDashboard({ items, slug }: { items: MyContentItem[]; slug: strin
         </Card>
         <Card className="min-w-0 p-4!">
           <div className="flex items-start gap-3">
-            <Clock3 aria-hidden className="size-7 shrink-0 text-firm-primary" />
+            <Clock3 aria-hidden className="size-7 shrink-0 text-firm-text" />
             <div className="min-w-0">
               <PanelHeading
                 title="Important Deadlines"
@@ -269,7 +269,7 @@ function PayrollDashboard({ items, slug }: { items: MyContentItem[]; slug: strin
       <div className="grid min-w-0 gap-3 lg:grid-cols-3">
         <Card className="min-w-0 p-4!">
           <div className="flex items-start gap-3">
-            <Folder aria-hidden className="size-7 shrink-0 text-firm-primary" />
+            <Folder aria-hidden className="size-7 shrink-0 text-firm-text" />
             <div className="min-w-0">
               <PanelHeading
                 title="Stay Organized with Recordkeeping"
@@ -281,7 +281,7 @@ function PayrollDashboard({ items, slug }: { items: MyContentItem[]; slug: strin
         </Card>
         <Card className="min-w-0 p-4!">
           <div className="flex items-start gap-3">
-            <Megaphone aria-hidden className="size-7 shrink-0 text-firm-primary" />
+            <Megaphone aria-hidden className="size-7 shrink-0 text-firm-text" />
             <div className="min-w-0">
               <PanelHeading title="Key Reminders" subtitle="A few things to keep in mind:" />
               <CheckList items={reminders} />
@@ -289,7 +289,7 @@ function PayrollDashboard({ items, slug }: { items: MyContentItem[]; slug: strin
           </div>
         </Card>
         <Card className="grid content-start gap-3 border-folder-border! bg-folder-surface! p-4!">
-          <ChartNoAxesCombined aria-hidden className="size-8 text-firm-primary" />
+          <ChartNoAxesCombined aria-hidden className="size-8 text-firm-text" />
           <h2 className="font-display text-xl font-bold text-heading">
             Grow Your Business with Confidence
           </h2>
@@ -298,11 +298,11 @@ function PayrollDashboard({ items, slug }: { items: MyContentItem[]; slug: strin
           </p>
           <Link
             href={`/${slug}/appointments`}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-firm-primary px-4 py-2 text-sm font-semibold text-on-action hover:bg-navigation-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-firm-primary"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-firm-button px-4 py-2 text-sm font-semibold text-on-firm-button hover:bg-firm-button-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-firm-primary"
           >
             Schedule an Appointment <ArrowRight aria-hidden className="size-4" />
           </Link>
-          <p className="text-right font-display text-lg font-semibold italic text-firm-primary">
+          <p className="text-right font-display text-lg font-semibold italic text-firm-text">
             Plan | Prepare | Prosper
           </p>
         </Card>
@@ -341,14 +341,14 @@ function FeatureCard({
 }) {
   return (
     <Card className="flex min-w-0 items-center gap-3 border-folder-border! p-3!">
-      <span className="grid size-12 shrink-0 place-items-center rounded-full bg-folder-surface text-firm-primary">
+      <span className="grid size-12 shrink-0 place-items-center rounded-full bg-folder-surface text-firm-text">
         <Icon aria-hidden className="size-7" />
       </span>
       <span className="min-w-0 flex-1">
         <strong className="block font-display text-lg leading-tight text-heading">{title}</strong>
         <span className="mt-1 block text-sm text-muted">{description}</span>
       </span>
-      <ArrowRight aria-hidden className="size-5 shrink-0 text-firm-primary" />
+      <ArrowRight aria-hidden className="size-5 shrink-0 text-firm-text" />
     </Card>
   );
 }
@@ -365,7 +365,7 @@ function WorkerType({
   return (
     <section className="min-w-0 md:px-3 first:md:pl-0 last:md:pr-0">
       <h3 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
-        <Icon aria-hidden className="size-6 shrink-0 text-firm-primary" /> {title}
+        <Icon aria-hidden className="size-6 shrink-0 text-firm-text" /> {title}
       </h3>
       <ul className="mt-2 grid gap-1.5 text-sm text-text">
         {items.map((item) => (

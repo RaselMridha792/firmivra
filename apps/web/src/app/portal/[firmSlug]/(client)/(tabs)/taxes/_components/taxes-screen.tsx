@@ -110,7 +110,7 @@ export function TaxesScreen() {
         r.document ? (
           <Button
             variant="ghost"
-            className="text-firm-primary! underline"
+            className="text-firm-text! underline"
             disabled={download.isPending}
             onClick={() => r.document && download.mutate(r.document.id)}
             aria-label={`Download ${r.document.fileName}`}
@@ -128,7 +128,7 @@ export function TaxesScreen() {
         <header className="flex flex-col gap-4 md:flex-row md:items-start">
           <FileText
             aria-hidden
-            className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-primary"
+            className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-text"
           />
           <div className="flex-1">
             <h1 className="font-display text-3xl font-bold text-heading">Tax Returns</h1>
@@ -179,7 +179,7 @@ export function TaxesScreen() {
               onClick={() => setKind(kind === k ? null : k)}
               className={`flex items-center gap-3 rounded-card border p-4 text-left hover:bg-folder-hover ${kind === k ? 'border-firm-accent bg-folder-surface' : 'border-folder-border'}`}
             >
-              <Icon aria-hidden className="size-10 shrink-0 text-firm-primary" />
+              <Icon aria-hidden className="size-10 shrink-0 text-firm-text" />
               <span>
                 <span className="block font-display text-lg font-bold text-heading">{title}</span>
                 <span className="block text-sm text-text">{text}</span>
