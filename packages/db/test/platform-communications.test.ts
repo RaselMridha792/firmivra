@@ -407,7 +407,11 @@ describe('communications: broadcasts', () => {
 
 describe('communications: templates and the library', () => {
   it("email templates need a subject, SMS has none; merge fields are tokens; shipped keys are the migration's", async () => {
-    const template = (data: Record<string, unknown>) =>
+    const template = (data: {
+      channel: 'EMAIL' | 'SMS';
+      subject?: string;
+      mergeFields?: string[];
+    }) =>
       asAdmin((tx) =>
         tx.commTemplate.create({
           data: {
