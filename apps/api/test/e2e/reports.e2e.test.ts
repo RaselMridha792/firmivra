@@ -284,7 +284,13 @@ beforeAll(async () => {
       });
     }
     for (const [clientId, filedOn] of [
-      [clients.c1, new Date()],
+      // filed_on is a date: the firm's day (New York here), which is not always the UTC date.
+      [
+        clients.c1,
+        new Date(
+          `${new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())}T00:00:00Z`,
+        ),
+      ],
       [clients.c2, ago(20)],
     ] as const) {
       const ret = await tx.taxReturn.create({
