@@ -43,10 +43,33 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     why: 'package add-ons cannot link a service yet (service_package_add_ons links a service add-on row): any value is refused (400) (R55)',
   },
   {
+    field: 'target.report.sharedWithUserIds',
+    routes: /^POST \/api\/v1\/business\/reports\/schedules$/,
+    why: 'the sharing list of a report saved together with its schedule (target kind NEW, which this case cannot also be SAVED): each person must be a member of the firm (409 NOT_A_MEMBER), checked by the code POST /reports/saved uses, which has its own case (R55)',
+  },
+  {
     field: 'checklist.id',
     routes: /^POST \/api\/v1\/business\/tasks$/,
     why: 'a new task has no checklist steps yet: any step id is refused (400), so the field names no record (R55)',
   },
+  ...[
+    [
+      'userId',
+      'ASSIGN: the assignee is checked against the firm’s active members (409 NOT_A_MEMBER)',
+    ],
+    [
+      'planId',
+      'ADD_TO_PLAN: looked up among the opportunity’s own client’s plans in the firm (404)',
+    ],
+    [
+      'appointmentId',
+      'SCHEDULE_DISCUSSION: looked up among the opportunity’s own client’s appointments (404)',
+    ],
+  ].map(([field, why]) => ({
+    field: field as string,
+    routes: /^POST \/api\/v1\/business\/tax-planning\/opportunities\/:id\/actions$/,
+    why: `one action's id (${why}); each action has its own fields, so one request cannot carry them all: tax-planning.e2e.test.ts sends each (R55)`,
+  })),
   ...['signature.agreements.agreementId', 'signature.acknowledgments.agreementId'].map((field) => ({
     field,
     routes:
