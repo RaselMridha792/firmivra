@@ -61,6 +61,8 @@ describe('settings input contracts', () => {
     });
     expect(ok({ contactEmail: 'not an email' })).toBe(false);
     expect(ok({ accentColor: 'red' })).toBe(false);
+    expect(ok({ sidebarColor: '#001F4B', buttonColor: null, textPrimaryColor: '' })).toBe(true);
+    expect(ok({ textSecondaryColor: 'navy' })).toBe(false);
     expect(ok({ country: 'USA' })).toBe(false);
     expect(ok({ timezone: 'Bad/Zone' })).toBe(false);
     for (const timezone of ['+05:30', 'EST', 'GMT-5', '']) expect(ok({ timezone })).toBe(false);
