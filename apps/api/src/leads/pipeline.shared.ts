@@ -294,6 +294,14 @@ export async function lockLead(tx: TxClient, businessId: string, actor: Pipeline
   const lead = await tx.lead.findFirst({
     where: { AND: [visibleLead(businessId), reach(actor), { id }] },
     select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      phone: true,
+      serviceId: true,
+      taxYear: true,
+      sourceDetail: true,
       status: true,
       source: true,
       updatedAt: true,

@@ -64,6 +64,8 @@ const MIGRATION_REFERENCE_TABLES = [
   'platform_settings',
   'platform_retention_policies',
   'platform_default_sets',
+  // r0_compliance_facts (stage C2)
+  'compliance_holidays',
 ];
 
 /**

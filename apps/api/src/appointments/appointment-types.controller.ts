@@ -1,7 +1,8 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   type AppointmentType,
+  type AppointmentTypeConfig,
   AppointmentTypeId,
   type AppointmentTypeList,
   AppointmentTypesQuery,
@@ -10,6 +11,8 @@ import { Access, CurrentTenant, FIRM_MANAGERS, FIRM_STAFF, Roles } from '../auth
 import type { TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { AppointmentTypesService } from './appointment-types.service.js';
+import { SchedulingConfigService } from './scheduling-config.service.js';
+import { TypeConfigBody } from './scheduling.input.js';
 import { CreateTypeBody, idParam, UpdateTypeBody } from './appointments.input.js';
 
 const idPipe = new ZodValidationPipe(idParam(AppointmentTypeId));
@@ -22,7 +25,10 @@ const idPipe = new ZodValidationPipe(idParam(AppointmentTypeId));
 @Access('APPOINTMENTS')
 @Roles(...FIRM_STAFF)
 export class AppointmentTypesController {
-  constructor(private readonly types: AppointmentTypesService) {}
+  constructor(
+    private readonly types: AppointmentTypesService,
+    private readonly config: SchedulingConfigService,
+  ) {}
 
   @Get()
   async list(
@@ -30,6 +36,25 @@ export class AppointmentTypesController {
     @Query(new ZodValidationPipe(AppointmentTypesQuery)) q: z.output<typeof AppointmentTypesQuery>,
   ): Promise<AppointmentTypeList> {
     return { items: await this.types.list(tenant.businessId, q) };
+  }
+
+  /** Everyone reads a type's configuration; Owner and Admin change it (R58). */
+  @Get(':id/config')
+  typeConfig(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<AppointmentTypeConfig> {
+    return this.config.typeConfig(tenant.businessId, id);
+  }
+
+  @Put(':id/config')
+  @Roles(...FIRM_MANAGERS)
+  setTypeConfig(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(TypeConfigBody)) body: z.output<typeof TypeConfigBody>,
+  ): Promise<AppointmentTypeConfig> {
+    return this.config.setTypeConfig(tenant.businessId, id, body);
   }
 
   @Post()

@@ -24,6 +24,8 @@ import {
 import { LeadConvertService } from './lead-convert.service.js';
 import { LeadMessagesService } from './lead-messages.service.js';
 import { LeadPipelineController } from './lead-pipeline.controller.js';
+import { LeadPipelineTabsController } from './lead-pipeline-tabs.controller.js';
+import { LeadPipelineTabsService } from './lead-pipeline-tabs.service.js';
 import { LeadPipelineService } from './lead-pipeline.service.js';
 import { LeadPipelineWriteService } from './lead-pipeline-write.service.js';
 import { LeadsService } from './leads.service.js';
@@ -110,11 +112,12 @@ export class LeadsController {
 
 @Module({
   // The pipeline controller first: its static paths must match before LeadsController's `:id`.
-  controllers: [LeadPipelineController, LeadsController],
+  controllers: [LeadPipelineController, LeadPipelineTabsController, LeadsController],
   providers: [
     LeadsService,
     LeadConvertService,
     LeadPipelineService,
+    LeadPipelineTabsService,
     LeadPipelineWriteService,
     LeadMessagesService,
     // R5's documents bucket, made the way storage/documents.controller.ts makes it.
