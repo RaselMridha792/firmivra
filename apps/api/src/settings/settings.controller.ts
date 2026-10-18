@@ -22,6 +22,11 @@ import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
+import {
+  BRANDING_PROVIDERS,
+  BrandingController,
+  PortalBrandingController,
+} from './branding.controller.js';
 import { FirmLogoController, LOGO_PROVIDERS, PortalLogoController } from './logo.controller.js';
 import { SettingsService } from './settings.service.js';
 
@@ -109,7 +114,13 @@ export class SettingsController {
 
 @Module({
   imports: [FieldEncryptionModule, PortalInfoModule],
-  controllers: [SettingsController, FirmLogoController, PortalLogoController],
-  providers: [SettingsService, ...LOGO_PROVIDERS],
+  controllers: [
+    SettingsController,
+    FirmLogoController,
+    PortalLogoController,
+    BrandingController,
+    PortalBrandingController,
+  ],
+  providers: [SettingsService, ...LOGO_PROVIDERS, ...BRANDING_PROVIDERS],
 })
 export class SettingsModule {}
