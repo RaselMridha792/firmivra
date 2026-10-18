@@ -158,9 +158,8 @@ jobs:
 
       # Each shard runs every package's test files that vitest assigns to it; the four shards
       # together run the same tests as one full run. A package with fewer test files than shards
-      # (infra has 2) gets none in some shards, which vitest counts as a failure without
-      # --passWithNoTests.
-      - run: pnpm test ${FILTER:+"--filter=$FILTER"} -- --shard="$SHARD"/4 --passWithNoTests
+      # gets none in some shards, so it sets passWithNoTests in its own vitest setup (ui, infra).
+      - run: pnpm test ${FILTER:+"--filter=$FILTER"} -- --shard="$SHARD"/4
         env:
           SHARD: ${{ matrix.shard }}
 
