@@ -112,7 +112,7 @@ const items: (NavItem & { managers?: true })[] = [
 const newLinks = [
   { label: 'New client', href: '/clients' },
   { label: 'New appointment', href: '/calendar' },
-  { label: 'New invoice', href: '/invoices', managers: true },
+  { label: 'New invoice', href: '/invoices/new', managers: true },
   { label: 'New message', href: '/messages' },
 ];
 

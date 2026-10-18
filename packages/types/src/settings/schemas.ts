@@ -84,6 +84,17 @@ export const FirmSettings = z.object({
   /** Portal colours, `#rrggbb`. Null uses Firmivra's default. */
   primaryColor: z.string().nullable(),
   accentColor: z.string().nullable(),
+  /**
+   * Theme colours, `#rrggbb`, for the firm workspace and the portal: the sidebar's background,
+   * headings and main text, secondary (muted) text, and primary buttons. Null derives the colour
+   * from the primary colour, the look before these existed. Text on the sidebar and on buttons is
+   * black or white, whichever reads better on the colour (screens choose it, as `textOn` does in
+   * the API's email templates).
+   */
+  sidebarColor: z.string().nullable(),
+  textPrimaryColor: z.string().nullable(),
+  textSecondaryColor: z.string().nullable(),
+  buttonColor: z.string().nullable(),
   /** Null: the portal is called "{name} Client Portal". */
   portalName: z.string().nullable(),
   /**
@@ -161,6 +172,11 @@ export const UpdateFirmSettingsRequest = z
       }),
     primaryColor: clearable(HexColor),
     accentColor: clearable(HexColor),
+    /** Theme colours; null or '' goes back to the colour derived from the primary colour. */
+    sidebarColor: clearable(HexColor),
+    textPrimaryColor: clearable(HexColor),
+    textSecondaryColor: clearable(HexColor),
+    buttonColor: clearable(HexColor),
     sidebarSlogan: clearable(upTo(80)),
     sidebarMotto: clearable(upTo(80)),
     portalName: clearable(upTo(120)),
