@@ -71,6 +71,19 @@ Questions for Rasel (Oct 8 evening; BOARD.md is closed, so they live here):
 
 - R8: the notes in R8-hardening.md "Decisions and notes (Oct 8)" (prod SES, sign-up and SMS alarms, KMS key count).
 
+## Handoff (R1 session, Oct 18)
+
+Newer than the Oct 17 handoff below; read both. Where they differ, this one wins.
+
+- **Merged by R1 for Rasel (Oct 17-18; squash, PR title, plain body):** #721 (Ibrahim's lane), #719, #723, #729, #738 (R55 bundle), #720 (R0 B4). The merge helper merges only when every check on the current head is green; behind `rasel/` branches get `PUT pulls/N/update-branch` first; a 422 (real conflict) is skipped and reported.
+- **Not merged:** #737 (conflict in `app.module.ts` and the tenant-isolation test; R55 fixes) and R0's #724, #736, #739 to #743 (each conflicts on `docs/work/R0-schema.md`, `packages/db/src/testing.ts` and `rls-coverage.test.ts` once the one before lands; R0 merges `main` in, one at a time). Rasel's yes covers merging them when green.
+- **Demo data on dev** (Rasel's yes, Oct 17): snapshot `firmivra-dev-pre-demo-20261017` first. `bootstrap-platform-org-task` (plan ladder, roles, both SUPER_ADMINs mapped to CEO) and `seed-demo-task` ran on `firmivra-dev-demo-seed:1` (image `firmivra-dev-migrate:demo-seed-35452ce3`, outside CDK). Result: `demo` with 25 clients, 14 leads, 21 invoices, 9 Firm Sign requests; 8 `demo-` firms; LVP unchanged. Portal slug `demo`. The `firmivra-dev-migrate` lifecycle keeps 10 images, so that image ages out after about 9 deploys: rebuild it (`--target demo-seed-task`, `BASE_REGISTRY` = the cache) before an unseed. Deregister the task definition after the unseed.
+- **Open, waiting for Rasel:**
+  - Octavia's firm-workspace login on `demo`: a Cognito staff user with an address he types, linked with `link-dev-users` (`LINK_FIRM_SLUG=demo`, ADMIN). The seeded `@demo.test` users have synthetic Cognito ids and cannot sign in on dev; the portal client (Harper Coleman) has no path without code.
+  - Local branch `rasel/R1-integrations-secrets` (not pushed): the API role's `IntegrationSecrets` statement for #732's `firmivra/tenant/*/integrations/*`. Decisions: an env prefix in the secret path, and per-firm KMS key vs the Secrets Manager default key. Merge before the Integrations API's credential storage is used on dev.
+- **Findings for others:** R0's `bootstrap-platform-org-task` logs the SUPER_ADMIN emails (ids only, CLAUDE.md rule 4). The tenant-isolation positive-control test times out at 30 s on bigger PRs; #732 raises it to 180 s.
+- **CI note:** a PR keeps the `ci.yml` of its base until `main` is merged in; a re-run of an old job uses the old file.
+
 ## Handoff (R1 session, Oct 17)
 
 For a fresh R1 window. Newer than the Oct 8 handoff below; where they differ, this one wins.
