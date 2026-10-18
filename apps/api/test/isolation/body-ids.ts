@@ -27,6 +27,11 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     routes: /^POST \/api\/v1\/business\/intakes\/send$/,
     why: "the sender's retry key, not a record (R55)",
   },
+  ...['categoryId', 'reviewerUserId'].map((field) => ({
+    field,
+    routes: /^POST \/api\/v1\/business\/documents\/bulk$/,
+    why: "records of the other bulk actions (RECLASSIFY, ASSIGN_REVIEWER): one case per route carries MOVE; documents-library.e2e refuses another firm's category and reviewer (R55)",
+  })),
   ...(
     [
       'taxReturnId',

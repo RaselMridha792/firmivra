@@ -31,6 +31,12 @@ import { DocumentRequestsService } from './document-requests.service.js';
 import { DocumentScanHandler } from './document-scan-handler.js';
 import { createS3Client, DOCUMENT_STORAGE, S3DocumentStorage } from './document-storage.js';
 import { FirmDocumentsService } from './firm-documents.service.js';
+import { DocumentFoldersService } from '../documents/folders.service.js';
+import {
+  DocumentFoldersController,
+  DocumentLibraryController,
+} from '../documents/library.controller.js';
+import { DocumentLibraryService } from '../documents/library.service.js';
 import { MyDocumentsController } from './my-documents.controller.js';
 import { MyDocumentsService } from './my-documents.service.js';
 import { ScanResultsService } from './scan-results.service.js';
@@ -179,7 +185,13 @@ export class DocumentsController {
 @Module({
   // R6's Notifier: request and upload events reach the bell (and the email copy) once they commit.
   imports: [NotificationsModule],
-  controllers: [DocumentsController, MyDocumentsController],
+  // The firm-wide library (R55) first: its static routes (documents/summary) before R5's :id.
+  controllers: [
+    DocumentLibraryController,
+    DocumentFoldersController,
+    DocumentsController,
+    MyDocumentsController,
+  ],
   providers: [
     // Settings are checked when the app starts, so a bad SCAN_MODE never reaches a request.
     { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
@@ -198,6 +210,8 @@ export class DocumentsController {
     FirmDocumentsService,
     MyDocumentsService,
     DocumentRequestsService,
+    DocumentLibraryService,
+    DocumentFoldersService,
     // GuardDuty's results for tenant/{id}/documents/ (storage/scan-queue routes them here).
     ScanResultsService,
     DocumentScanHandler,
