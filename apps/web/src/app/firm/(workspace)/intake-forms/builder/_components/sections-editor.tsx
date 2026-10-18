@@ -1,18 +1,18 @@
 'use client';
 
-import type { QuestionType } from '@firmivra/types';
-import { ActionMenu, Badge, Button, Modal } from '@firmivra/ui';
+import { QuestionType } from '@firmivra/types';
+import { Badge, Button, Modal } from '@firmivra/ui';
 import {
   CaretDown,
   CaretRight,
   Copy,
-  DotsThreeVertical,
+  type Icon,
   PencilSimple,
   Plus,
   PlusCircle,
   Trash,
 } from '@phosphor-icons/react';
-import { type DragEvent, createElement, useState } from 'react';
+import { type DragEvent, useState } from 'react';
 import {
   type DraftQuestion,
   type DraftSection,
@@ -20,8 +20,10 @@ import {
   LAYOUT_TYPES,
   answerable,
   newKey,
+  withoutRulesOn,
 } from './builder-draft';
 import type { BuilderState } from './builder-parts';
+import { MoreMenu } from './more-menu';
 import { QuestionEditor, SectionEditor } from './question-editor';
 import { QUESTION_LOOKS, TILE_DRAG } from './question-types';
 
@@ -35,7 +37,9 @@ function move<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
-/** A copy with new keys, so the copy is edited on its own. */
+const plural = (n: number, word: string) => (n === 1 ? `1 ${word}` : `${n} ${word}s`);
+
+/** A copy with new keys and no rule, so the copy is edited on its own. */
 const copyQuestion = (q: DraftQuestion): DraftQuestion => {
   const { showIf: _rule, ...rest } = q;
   return { ...rest, key: newKey('q') };
@@ -43,18 +47,19 @@ const copyQuestion = (q: DraftQuestion): DraftQuestion => {
 const copySection = (s: DraftSection): DraftSection => ({
   ...s,
   key: newKey('s'),
-  title: `${s.title} (copy)`,
+  title: `${s.title} (copy)`.slice(0, 120),
   questions: s.questions.map(copyQuestion),
 });
 
+/** A bare icon button of a section or question row (Duplicate, Edit, Delete). */
 function IconAction({
   label,
-  icon,
+  icon: Glyph,
   danger = false,
   onClick,
 }: {
   label: string;
-  icon: typeof Copy;
+  icon: Icon;
   danger?: boolean;
   onClick: () => void;
 }) {
@@ -67,9 +72,9 @@ function IconAction({
         ev.stopPropagation();
         onClick();
       }}
-      className={`flex size-10 items-center justify-center rounded-control hover:bg-canvas ${danger ? 'text-danger' : 'text-heading'}`}
+      className={`flex size-9 shrink-0 items-center justify-center rounded-control hover:bg-canvas ${danger ? 'text-danger' : 'text-muted hover:text-heading'}`}
     >
-      {createElement(icon, { 'aria-hidden': true, weight: 'bold', className: 'size-5' })}
+      <Glyph aria-hidden weight="fill" className="size-5" />
     </button>
   );
 }
@@ -82,7 +87,8 @@ type Editing =
 
 /**
  * The Form Builder tab: Form Sections (open one to see its questions), each with Duplicate, Edit,
- * Delete and a menu to move it; sections drag to reorder and take a dragged question type.
+ * Delete and a menu to move it; sections drag to reorder and take a dragged question type. With
+ * no sections, a quiet line and Add New Section.
  */
 export function SectionsEditor({ state }: { state: BuilderState }) {
   const { draft, update, errors, active, setActive } = state;
@@ -97,6 +103,7 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
     setSections((list) =>
       list.map((s) => (s.key === key ? { ...s, questions: change(s.questions) } : s)),
     );
+  const openSection = (key: string) => setOpen((now) => new Set(now).add(key));
   const toggle = (key: string) =>
     setOpen((now) => {
       const next = new Set(now);
@@ -105,13 +112,48 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
       return next;
     });
 
+  // A section opens when a question lands in it (a tile click adds to the chosen section), so the
+  // new question shows. Adjusted while rendering, as React suggests for state that follows props.
+  const sizes = new Map(sections.map((s): [string, number] => [s.key, s.questions.length]));
+  const [seen, setSeen] = useState(sizes);
+  if (sizes.size !== seen.size || sections.some((s) => seen.get(s.key) !== s.questions.length)) {
+    setSeen(sizes);
+    const grown = sections.filter(
+      (s) => s.questions.length > (seen.get(s.key) ?? 0) && (seen.has(s.key) || s.key === active),
+    );
+    if (grown.length) {
+      setOpen((now) => new Set([...now, ...grown.map((s) => s.key)]));
+    }
+  }
+
+  const removeQuestion = (sectionKey: string, questionKey: string) =>
+    setSections((list) =>
+      withoutRulesOn(
+        list.map((s) =>
+          s.key === sectionKey
+            ? { ...s, questions: s.questions.filter((q) => q.key !== questionKey) }
+            : s,
+        ),
+        new Set([questionKey]),
+      ),
+    );
+  const removeSection = (section: DraftSection) => {
+    setSections((list) =>
+      withoutRulesOn(
+        list.filter((s) => s.key !== section.key),
+        new Set(section.questions.map((q) => q.key)),
+      ),
+    );
+    if (active === section.key) setActive(null);
+  };
+
   const onDrop = (ev: DragEvent, index: number, key: string) => {
     ev.preventDefault();
     setOver(null);
-    const type = ev.dataTransfer.getData(TILE_DRAG) as QuestionType | '';
-    if (type) {
-      state.addQuestion(type, key);
-      setOpen((now) => new Set(now).add(key));
+    const type = QuestionType.safeParse(ev.dataTransfer.getData(TILE_DRAG));
+    if (type.success) {
+      state.addQuestion(type.data, key);
+      openSection(key);
       return;
     }
     const from = sections.findIndex((s) => s.key === ev.dataTransfer.getData(SECTION_DRAG));
@@ -128,11 +170,11 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
     <div className="flex flex-col gap-3">
       <div
         data-testid="form-sections"
-        className="flex flex-col gap-3 rounded-lg border border-divider bg-canvas p-3"
+        className="flex flex-col gap-3 rounded-xl bg-canvas p-3 sm:p-4"
       >
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <h3 className="text-base font-bold text-heading">Form Sections</h3>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold text-heading">Form Sections</h3>
             <p className="text-sm text-muted">
               Organize your questions into sections. Drag to reorder.
             </p>
@@ -143,12 +185,13 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
           </Button>
         </div>
         {sections.length ? (
-          <ol className="flex flex-col gap-2">
+          <ol aria-label="Form sections" className="flex flex-col gap-2">
             {sections.map((s, index) => {
               const expanded = open.has(s.key);
               const count = answerable(s);
               const chosen = active === s.key;
               const error = errors[`section:${s.key}`];
+              const name = s.title || 'Untitled section';
               return (
                 <li
                   key={s.key}
@@ -160,22 +203,25 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
                   }}
                   onDragOver={(ev) => {
                     ev.preventDefault();
-                    setOver(s.key);
+                    if (over !== s.key) setOver(s.key);
                   }}
-                  onDragLeave={() => setOver(null)}
+                  onDragLeave={(ev) => {
+                    // Moving onto a child of the row is not leaving it.
+                    if (!ev.currentTarget.contains(ev.relatedTarget as Node | null)) setOver(null);
+                  }}
                   onDrop={(ev) => onDrop(ev, index, s.key)}
-                  className={`rounded-lg border bg-surface shadow-sm ${chosen ? 'border-action' : 'border-divider'} ${over === s.key ? 'ring-2 ring-action' : ''}`}
+                  className={`rounded-lg border bg-surface shadow-sm ${chosen ? 'border-action' : 'border-transparent'} ${over === s.key ? 'ring-2 ring-action' : ''}`}
                 >
-                  <div className="flex items-center gap-1 p-2">
+                  <div className="flex items-center gap-1 px-1 py-2 sm:pr-2">
                     <button
                       type="button"
                       aria-expanded={expanded}
-                      aria-label={`${expanded ? 'Close' : 'Open'} ${s.title}`}
+                      aria-label={`${expanded ? 'Close' : 'Open'} ${name}`}
                       onClick={() => {
                         toggle(s.key);
                         setActive(s.key);
                       }}
-                      className="flex size-10 shrink-0 items-center justify-center rounded-control text-heading hover:bg-canvas"
+                      className="flex size-9 shrink-0 items-center justify-center rounded-control text-heading hover:bg-canvas"
                     >
                       {expanded ? (
                         <CaretDown aria-hidden weight="bold" className="size-5" />
@@ -185,19 +231,18 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
                     </button>
                     <button
                       type="button"
+                      aria-pressed={chosen}
                       onClick={() => setActive(s.key)}
-                      className="min-w-0 flex-1 text-left"
+                      className="min-w-0 flex-1 rounded-control py-1 text-left"
                     >
-                      <span className="block truncate font-semibold text-heading">
-                        {s.title || 'Untitled section'}
-                      </span>
-                      <span className="block text-sm text-muted">
-                        {count === 1 ? '1 question' : `${count} questions`}
+                      <span className="block truncate font-semibold text-heading">{name}</span>
+                      <span data-testid="section-count" className="block text-sm text-muted">
+                        {plural(count, 'question')}
                       </span>
                       {error ? <span className="block text-sm text-danger">{error}</span> : null}
                     </button>
                     <IconAction
-                      label={`Duplicate ${s.title}`}
+                      label={`Duplicate ${name}`}
                       icon={Copy}
                       onClick={() =>
                         setSections((list) => [
@@ -208,46 +253,35 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
                       }
                     />
                     <IconAction
-                      label={`Edit ${s.title}`}
+                      label={`Edit ${name}`}
                       icon={PencilSimple}
                       onClick={() => setEditing({ kind: 'section', sectionKey: s.key })}
                     />
                     <IconAction
-                      label={`Delete ${s.title}`}
+                      label={`Delete ${name}`}
                       icon={Trash}
                       danger
                       onClick={() => setEditing({ kind: 'delete', sectionKey: s.key })}
                     />
-                    <ActionMenu
-                      label={`More for ${s.title}`}
-                      align="right"
-                      trigger={
-                        <span className="flex size-10 items-center justify-center rounded-control text-heading hover:bg-canvas">
-                          <DotsThreeVertical aria-hidden weight="bold" className="size-5" />
-                        </span>
-                      }
-                      sections={[
+                    <MoreMenu
+                      label={`More for ${name}`}
+                      items={[
                         {
-                          items: [
-                            {
-                              label: 'Move up',
-                              onSelect: () =>
-                                index > 0 && setSections((list) => move(list, index, index - 1)),
-                            },
-                            {
-                              label: 'Move down',
-                              onSelect: () =>
-                                index < sections.length - 1 &&
-                                setSections((list) => move(list, index, index + 1)),
-                            },
-                            {
-                              label: 'Add questions here',
-                              onSelect: () => {
-                                setActive(s.key);
-                                setOpen((now) => new Set(now).add(s.key));
-                              },
-                            },
-                          ],
+                          label: 'Add questions here',
+                          onSelect: () => {
+                            setActive(s.key);
+                            openSection(s.key);
+                          },
+                        },
+                        {
+                          label: 'Move up',
+                          disabled: index === 0,
+                          onSelect: () => setSections((list) => move(list, index, index - 1)),
+                        },
+                        {
+                          label: 'Move down',
+                          disabled: index === sections.length - 1,
+                          onSelect: () => setSections((list) => move(list, index, index + 1)),
                         },
                       ]}
                     />
@@ -259,6 +293,7 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
                       onEdit={(q) =>
                         setEditing({ kind: 'question', sectionKey: s.key, questionKey: q.key })
                       }
+                      onRemove={(q) => removeQuestion(s.key, q.key)}
                       onChange={(change) => setQuestions(s.key, change)}
                     />
                   ) : null}
@@ -275,9 +310,9 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
       <button
         type="button"
         onClick={state.addSection}
-        className="flex min-h-20 items-center justify-center gap-2 rounded-lg border-2 border-dashed border-action bg-accent-soft font-semibold text-action hover:bg-surface"
+        className="flex min-h-20 items-center justify-center gap-2 rounded-xl border border-dashed border-folder-border bg-canvas px-4 font-semibold text-action hover:border-action hover:bg-info-soft"
       >
-        <PlusCircle aria-hidden weight="bold" className="size-6" />
+        <PlusCircle aria-hidden weight="fill" className="size-7" />
         Add New Section
       </button>
 
@@ -316,8 +351,7 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
               <Button
                 type="button"
                 onClick={() => {
-                  setSections((list) => list.filter((s) => s.key !== editingSection.key));
-                  if (active === editingSection.key) setActive(null);
+                  removeSection(editingSection);
                   setEditing(null);
                 }}
               >
@@ -327,7 +361,7 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
           }
         >
           <p className="text-sm text-text">
-            {`Delete ${editingSection.title || 'this section'} and its ${editingSection.questions.length} questions from the draft? Nothing is removed from forms already sent.`}
+            {`Delete ${editingSection.title || 'this section'} and its ${plural(editingSection.questions.length, 'item')} from this draft? Forms already sent are not changed.`}
           </p>
         </Modal>
       ) : null}
@@ -335,16 +369,18 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
   );
 }
 
-/** An open section's questions: type, label, Required, and Edit, Duplicate, Delete, Move. */
+/** An open section's questions: type, label, Required, and Duplicate, Edit, Delete, Move. */
 function QuestionList({
   section,
   errors,
   onEdit,
+  onRemove,
   onChange,
 }: {
   section: DraftSection;
   errors: Record<string, string>;
   onEdit: (q: DraftQuestion) => void;
+  onRemove: (q: DraftQuestion) => void;
   onChange: (change: (list: DraftQuestion[]) => DraftQuestion[]) => void;
 }) {
   const list = section.questions;
@@ -359,22 +395,20 @@ function QuestionList({
     <ul aria-label={`Questions in ${section.title}`} className="border-t border-divider">
       {list.map((q, i) => {
         const look = QUESTION_LOOKS[q.type];
+        const Glyph = look.icon;
         const error = errors[`question:${q.key}`];
+        const name = q.label || 'Untitled';
         return (
           <li
             key={q.key}
             data-testid="form-question"
-            className="flex items-center gap-2 border-b border-divider px-2 py-2 last:border-b-0"
+            className="flex items-center gap-1 border-b border-divider py-2 pr-1 pl-3 last:border-b-0 sm:gap-2 sm:pr-2"
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-action">
-              {createElement(look.icon, {
-                'aria-hidden': true,
-                weight: 'bold',
-                className: 'size-5',
-              })}
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-info-soft text-action">
+              <Glyph aria-hidden weight="fill" className="size-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-heading">{q.label || 'Untitled'}</p>
+              <p className="truncate text-sm font-medium text-heading">{name}</p>
               <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
                 {look.label}
                 {q.required && !LAYOUT_TYPES.includes(q.type) ? (
@@ -384,40 +418,27 @@ function QuestionList({
               </p>
               {error ? <p className="text-xs text-danger">{error}</p> : null}
             </div>
-            <IconAction label={`Edit ${q.label}`} icon={PencilSimple} onClick={() => onEdit(q)} />
             <IconAction
-              label={`Duplicate ${q.label}`}
+              label={`Duplicate ${name}`}
               icon={Copy}
               onClick={() =>
                 onChange((all) => [...all.slice(0, i + 1), copyQuestion(q), ...all.slice(i + 1)])
               }
             />
-            <IconAction
-              label={`Delete ${q.label}`}
-              icon={Trash}
-              danger
-              onClick={() => onChange((all) => all.filter((x) => x.key !== q.key))}
-            />
-            <ActionMenu
-              label={`More for ${q.label}`}
-              align="right"
-              trigger={
-                <span className="flex size-10 items-center justify-center rounded-control text-heading hover:bg-canvas">
-                  <DotsThreeVertical aria-hidden weight="bold" className="size-5" />
-                </span>
-              }
-              sections={[
+            <IconAction label={`Edit ${name}`} icon={PencilSimple} onClick={() => onEdit(q)} />
+            <IconAction label={`Delete ${name}`} icon={Trash} danger onClick={() => onRemove(q)} />
+            <MoreMenu
+              label={`More for ${name}`}
+              items={[
                 {
-                  items: [
-                    {
-                      label: 'Move up',
-                      onSelect: () => i > 0 && onChange((all) => move(all, i, i - 1)),
-                    },
-                    {
-                      label: 'Move down',
-                      onSelect: () => i < list.length - 1 && onChange((all) => move(all, i, i + 1)),
-                    },
-                  ],
+                  label: 'Move up',
+                  disabled: i === 0,
+                  onSelect: () => onChange((all) => move(all, i, i - 1)),
+                },
+                {
+                  label: 'Move down',
+                  disabled: i === list.length - 1,
+                  onSelect: () => onChange((all) => move(all, i, i + 1)),
                 },
               ]}
             />

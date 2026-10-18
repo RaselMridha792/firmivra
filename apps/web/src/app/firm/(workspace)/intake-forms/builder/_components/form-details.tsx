@@ -36,7 +36,8 @@ export function FormDetailsCard({ state }: { state: BuilderState }) {
       : api.intakeForms.forms({ templates: kind === 'TEMPLATE' ? 'true' : 'false' }),
   );
   const copy = useApiMutation((sourceId: string) => api.intakeForms.form(sourceId));
-  const sources = (choices.data ?? []).filter((f) => f.id !== state.id);
+  // Retired forms are not offered; this form itself is not a source.
+  const sources = (choices.data ?? []).filter((f) => f.id !== state.id && f.status !== 'RETIRED');
 
   const choose = (sourceId: string) => {
     setPicked(sourceId);
