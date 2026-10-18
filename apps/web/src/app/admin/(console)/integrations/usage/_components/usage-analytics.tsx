@@ -369,7 +369,7 @@ export function UsageAnalytics({ address }: { address: AddressQuery }) {
           <button
             type="button"
             onClick={() => pick(item.key)}
-            className="rounded-sm text-left font-semibold text-heading hover:text-action hover:underline"
+            className="relative rounded-sm text-left font-semibold text-heading hover:text-action hover:underline"
           >
             {item.name}
             <span className="sr-only"> (show its usage)</span>

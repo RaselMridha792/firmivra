@@ -110,7 +110,7 @@ export function RowButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex min-h-9 items-center justify-center gap-2 rounded-control border border-border bg-surface px-4 py-1.5 text-sm font-semibold whitespace-nowrap text-action transition-colors hover:bg-canvas focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:text-muted disabled:hover:bg-surface"
+      className="relative inline-flex min-h-9 items-center justify-center gap-2 rounded-control border border-border bg-surface px-4 py-1.5 text-sm font-semibold whitespace-nowrap text-action transition-colors hover:bg-canvas focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:text-muted disabled:hover:bg-surface"
     >
       {children}
     </button>

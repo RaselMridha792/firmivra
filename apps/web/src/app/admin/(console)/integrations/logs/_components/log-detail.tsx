@@ -259,7 +259,7 @@ function RecordBody({ record, onOpen }: { record: LogRecord; onOpen: (id: string
                     </time>
                   </span>
                 </span>
-                <Button variant="ghost" onClick={() => onOpen(item.id)}>
+                <Button variant="ghost" className="relative" onClick={() => onOpen(item.id)}>
                   Open<span className="sr-only"> {item.message}</span>
                 </Button>
               </li>

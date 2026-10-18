@@ -91,7 +91,7 @@ function ViewButton({ label, onClick }: { label: string; onClick: () => void }) 
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex min-h-9 items-center justify-center rounded-control border border-border bg-surface px-5 py-1.5 text-sm font-semibold whitespace-nowrap text-action transition-colors hover:bg-canvas focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+      className="relative inline-flex min-h-9 items-center justify-center rounded-control border border-border bg-surface px-5 py-1.5 text-sm font-semibold whitespace-nowrap text-action transition-colors hover:bg-canvas focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
     >
       View<span className="sr-only"> {label}</span>
     </button>

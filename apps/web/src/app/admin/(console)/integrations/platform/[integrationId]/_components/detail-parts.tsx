@@ -63,7 +63,7 @@ export function OutlineButton({
   return (
     <button
       type={type}
-      className={`inline-flex items-center justify-center gap-2 rounded-control border border-border bg-surface text-sm font-semibold whitespace-nowrap text-action transition-colors hover:bg-canvas focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:text-muted disabled:hover:bg-surface ${OUTLINE_SIZES[size]} ${className}`}
+      className={`relative inline-flex items-center justify-center gap-2 rounded-control border border-border bg-surface text-sm font-semibold whitespace-nowrap text-action transition-colors hover:bg-canvas focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:text-muted disabled:hover:bg-surface ${OUTLINE_SIZES[size]} ${className}`}
       {...props}
     />
   );
