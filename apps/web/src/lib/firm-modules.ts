@@ -1,11 +1,9 @@
 // Server-safe icons: this file is read by the module page (a server component) and the sidebar.
 import {
   ArrowsClockwise,
-  Calculator,
   Envelope,
   Globe,
   IdentificationCard,
-  Layout,
   PaperPlaneTilt,
   UploadSimple,
 } from '@phosphor-icons/react/ssr';
@@ -30,10 +28,8 @@ export const FIRM_MODULES: readonly FirmModule[] = [
   { slug: 'document-requests', label: 'Document Requests', icon: Envelope },
   { slug: 'client-portal', label: 'Client Portal', icon: Globe },
   { slug: 'tax-returns', label: 'Tax Returns', icon: IdentificationCard },
-  { slug: 'bookkeeping', label: 'Bookkeeping', icon: Calculator },
   { slug: 'communications', label: 'Communications', icon: PaperPlaneTilt },
   { slug: 'automations', label: 'Automations', icon: ArrowsClockwise },
-  { slug: 'templates', label: 'Templates', icon: Layout },
 ];
 
 export function findModule(slug: string): FirmModule | undefined {

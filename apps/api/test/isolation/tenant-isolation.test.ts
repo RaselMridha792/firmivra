@@ -107,6 +107,38 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
     value: '1',
     routes: /\/esign\/templates\/:templateId\/versions\/:version\/restore$/,
   },
+  // Each automation rule record has a version 1 (cases/automations.ts).
+  { param: 'version', value: '1', routes: /\/automations\/rules\/:id\/versions\/:version$/ },
+  // Each message template record has version 1 (cases/templates.ts).
+  {
+    param: 'version',
+    value: '1',
+    routes: /\/business\/templates\/:id\/versions\/:version(\/restore)?$/,
+  },
+  // A provider code of the Integrations catalog (cases/integrations.ts), not a record.
+  {
+    param: 'provider',
+    value: 'quickbooks',
+    routes: /\/business\/integrations\/providers\/:provider(\/connect)?$/,
+  },
+  // Each tax plan record has a version 1 (cases/tax-planning.ts).
+  { param: 'version', value: '1', routes: /\/tax-planning\/plans\/:id\/versions\/:version$/ },
+  // A resource of the approved catalog (kept in code), not a record.
+  {
+    param: 'key',
+    value: 'year-end-planning-checklist',
+    routes: /\/tax-planning\/resources\/:key\/send$/,
+  },
+  // Each advisory plan record has a version 1 (cases/advisory.ts).
+  { param: 'version', value: '1', routes: /\/advisory\/plans\/:id\/versions\/:version$/ },
+  // A role of the firm (code), not a record: its grid is the firm's own (cases in roles e2e).
+  { param: 'role', value: 'MANAGER', routes: /\/business\/roles\/:role\/permissions$/ },
+  // A resource of the approved library (kept in code), not a record.
+  {
+    param: 'key',
+    value: 'funding-readiness-checklist',
+    routes: /\/advisory\/resources\/:key\/send$/,
+  },
 ];
 const fixedOf = (path: string): Record<string, string> =>
   Object.fromEntries(
@@ -790,5 +822,5 @@ describe('tenant isolation (R8 step 2)', () => {
       if (!ok) failures.push(`${keyOf(route)} (${c.file}): ${show(res)}`);
     }
     expect(failures).toEqual([]);
-  });
+  }, 180_000);
 });

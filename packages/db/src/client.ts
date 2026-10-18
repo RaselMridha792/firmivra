@@ -167,13 +167,16 @@ export function createPrismaClient(
  * Without a scope the role sees no rows at all.
  */
 export function createDatabase(appConnectionString: string, options: ClientOptions = {}) {
+  // The for* methods name their type (ScopedClient), so the built types say ScopedClient instead
+  // of the whole extended client: the API's checks then compare one name, not a deep structure,
+  // which the compiler gave up on (TS2589) once the schema grew past stage C1.
   const base = createPrismaClient(appConnectionString, options);
   return {
     /**
      * Only one firm's data: everything a firm user or client does. Pass `actorUserId` (the
      * signed-in person) for rows private to one person, such as a client's own notes.
      */
-    forBusiness: (businessId: string, options: { actorUserId?: string } = {}) =>
+    forBusiness: (businessId: string, options: { actorUserId?: string } = {}): ScopedClient =>
       scopedClient(
         base,
         options.actorUserId === undefined
@@ -181,18 +184,20 @@ export function createDatabase(appConnectionString: string, options: ClientOptio
           : { kind: 'business', businessId, actorUserId: options.actorUserId },
       ),
     /** The signed-in person's own memberships and client accounts across firms. */
-    forUser: (userId: string) => scopedClient(base, { kind: 'user', userId }),
+    forUser: (userId: string): ScopedClient => scopedClient(base, { kind: 'user', userId }),
     /** Only the invite with this SHA-256 token hash (hex). Read its businessId, then use forBusiness. */
-    forInvite: (tokenHash: string) => scopedClient(base, { kind: 'invite', tokenHash }),
+    forInvite: (tokenHash: string): ScopedClient =>
+      scopedClient(base, { kind: 'invite', tokenHash }),
     /**
      * Super Admin pages, acting as `adminUserId` (must be a platform admin, else nothing is
      * visible): firm applications and history, firms' status and slug, support grant requests,
      * firm owners' contact, platform audit events. Never firm data: that needs an approved
      * support grant and firm scope.
      */
-    forAdmin: (adminUserId: string) => scopedClient(base, { kind: 'admin', adminUserId }),
+    forAdmin: (adminUserId: string): ScopedClient =>
+      scopedClient(base, { kind: 'admin', adminUserId }),
     /** Identity work: sign-in, invites, activation, firm provisioning. Never firm data. */
-    forPlatform: () => scopedClient(base, { kind: 'platform' }),
+    forPlatform: (): ScopedClient => scopedClient(base, { kind: 'platform' }),
     /**
      * Multi-step transaction in one scope. `limits` (for example `{ timeout: 15_000 }`) applies to
      * this call only.

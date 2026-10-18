@@ -181,7 +181,7 @@ function seed(empty: boolean): Store {
       1,
       'CUSTOM_QUOTE',
       null,
-      'lightbulb',
+      'chart-bar',
       'INACTIVE',
     ],
   ];
