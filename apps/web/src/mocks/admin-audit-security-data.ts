@@ -1028,7 +1028,7 @@ export function seedAuditStore(empty: boolean): AuditStore {
     );
   }
 
-  const accounts: MockAccount[] = people.map((who, i) => ({
+  const accounts = people.map((who, i): MockAccount => ({
     userId: who.actor.id ?? '',
     name: who.actor.name,
     status: who === marcus ? 'LOCKED' : 'ACTIVE',
