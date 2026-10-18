@@ -9,6 +9,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import type { z } from 'zod';
 import {
@@ -31,6 +32,8 @@ import {
   SendIntakeRequest,
   SubmitIntakeRequest,
   type UploadTicket,
+  type AssignedFormPage,
+  type IntakeDashboardSummary,
 } from '@firmivra/types';
 import {
   Access,
@@ -47,6 +50,9 @@ import {
   type TenantContext,
 } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { IntakeWorkspaceModule } from '../intake-workspace/intake-workspace.module.js';
+import { IntakeWorkspaceService } from '../intake-workspace/intake-workspace.service.js';
+import { AssignedFormsQ } from '../intake-workspace/workspace-input.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { DocumentsModule } from '../storage/documents.controller.js';
 import { AgreementsModule } from '../agreements/agreements.controller.js';
@@ -226,7 +232,28 @@ export class ClientIntakesController {
 @Access('INTAKE_FORMS')
 @Roles(...FIRM_STAFF)
 export class IntakesController {
-  constructor(private readonly intakes: IntakesService) {}
+  constructor(
+    private readonly intakes: IntakesService,
+    private readonly workspace: IntakeWorkspaceService,
+  ) {}
+
+  // The Intake Forms workspace: static routes come before ':id'.
+  @Get('summary')
+  summary(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<IntakeDashboardSummary> {
+    return this.workspace.summary(tenant, auth.userId);
+  }
+
+  @Get()
+  assigned(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(AssignedFormsQ)) q: z.output<typeof AssignedFormsQ>,
+  ): Promise<AssignedFormPage> {
+    return this.workspace.list(tenant, auth.userId, q);
+  }
 
   @Get(':id')
   get(
@@ -283,7 +310,13 @@ export class IntakesController {
 }
 
 @Module({
-  imports: [FieldEncryptionModule, DocumentsModule, AgreementsModule, NotificationsModule],
+  imports: [
+    FieldEncryptionModule,
+    DocumentsModule,
+    AgreementsModule,
+    NotificationsModule,
+    IntakeWorkspaceModule,
+  ],
   controllers: [MyIntakesController, ClientIntakesController, IntakesController],
   providers: [IntakesService, IntakeUploadsService, INTAKE_SIGNING_PROVIDER],
   exports: [IntakesService, INTAKE_SIGNING],

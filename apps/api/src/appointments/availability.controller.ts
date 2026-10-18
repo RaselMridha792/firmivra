@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import {
+  type AvailabilityRules,
   type Availability,
   type BlockedTime,
   BlockedTimeId,
@@ -8,6 +9,7 @@ import {
   type MemberAvailability,
   MemberId,
   type OkResponse,
+  type StaffDay,
   SetMeetingLinkRequest,
   SetWorkingHoursRequest,
 } from '@firmivra/types';
@@ -16,6 +18,8 @@ import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { BlocksQuery, CreateBlockBody, idParam } from './appointments.input.js';
 import { AvailabilityService } from './availability.service.js';
+import { SchedulingAvailabilityService } from './scheduling-availability.service.js';
+import { DayQuery, RulesBody } from './scheduling.input.js';
 import { firmActor } from './request-actors.js';
 
 /**
@@ -26,11 +30,43 @@ import { firmActor } from './request-actors.js';
 @Access('APPOINTMENTS')
 @Roles(...FIRM_STAFF)
 export class AvailabilityController {
-  constructor(private readonly availability: AvailabilityService) {}
+  constructor(
+    private readonly availability: AvailabilityService,
+    private readonly scheduling: SchedulingAvailabilityService,
+  ) {}
 
   @Get()
   get(@CurrentTenant() tenant: TenantContext): Promise<Availability> {
     return this.availability.get(tenant.businessId);
+  }
+
+  // R58: the Staff Availability panel and Edit My Availability's rules.
+  @Get('day')
+  day(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(DayQuery)) q: z.output<typeof DayQuery>,
+  ): Promise<StaffDay> {
+    return this.scheduling.day(tenant.businessId, firmActor(auth, tenant), q);
+  }
+
+  @Get(':userId/rules')
+  rules(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('userId', new ZodValidationPipe(idParam(MemberId))) userId: string,
+  ): Promise<AvailabilityRules> {
+    return this.scheduling.rules(tenant.businessId, firmActor(auth, tenant), userId);
+  }
+
+  @Put(':userId/rules')
+  setRules(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('userId', new ZodValidationPipe(idParam(MemberId))) userId: string,
+    @Body(new ZodValidationPipe(RulesBody)) body: z.output<typeof RulesBody>,
+  ): Promise<AvailabilityRules> {
+    return this.scheduling.setRules(tenant.businessId, firmActor(auth, tenant), userId, body);
   }
 
   @Put(':userId/working-hours')
