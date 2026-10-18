@@ -96,6 +96,21 @@ test('a failed conversion keeps the firm in Trial', async ({ page }) => {
   );
 });
 
+test('at 1440 px every column fits the table card, row menu included', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(admin('/subscriptions'));
+  await expect(page.getByTestId('open-subscription').first()).toBeVisible();
+  const table = page.getByRole('table', { name: 'Subscriptions' });
+  const fits = await table.evaluate((element) => {
+    const box = element.parentElement;
+    return box !== null && box.scrollWidth <= box.clientWidth;
+  });
+  expect(fits).toBe(true);
+  await expect(
+    page.getByRole('button', { name: 'Actions for Sample Blue Ridge Tax' }),
+  ).toBeInViewport();
+});
+
 test('Subscriptions fits a phone without sideways scrolling', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   await page.goto(admin('/subscriptions'));

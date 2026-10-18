@@ -36,6 +36,7 @@ import {
   REACTIVATABLE,
   STATUS_ORDER,
   SUSPENDABLE,
+  type Discount,
   type SubscriptionListItem,
 } from '../../../../../mocks/admin-subscriptions';
 import { autoRenewEditable, autoRenewLock, dayText, LIVE, money } from './format';
@@ -43,15 +44,61 @@ import { StatusBadge, UsageBar, usageTone } from './parts';
 import type { DialogKind } from './subscription-dialogs';
 import type { PanelTab } from './subscription-panel';
 
+/**
+ * Slimmer cell padding, so every column fits the card at 1440 px. When the table still has to
+ * scroll (a phone, or the detail panel beside it at 1536 px), the Actions column stays on the right
+ * edge: the cells draw the row lines (separate borders, so the pinned cell keeps its own), the
+ * pinned cell takes its row's background (plain, hovered or selected), and the cell whose menu is
+ * open sits above the rows below it.
+ */
+const FIT_CLASSES = [
+  '[&_td]:px-2 [&_th]:px-2',
+  'border-separate border-spacing-0 [&_tbody_td]:border-b [&_tbody_td]:border-divider [&_tbody_tr]:bg-surface',
+  '[&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:z-1 [&_td:last-child]:bg-inherit',
+  '[&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-1 [&_th:last-child]:bg-table-head',
+  '[&_td:last-child:has([aria-expanded=true])]:z-2',
+].join(' ');
+
 /** Next billing, or when a non-renewing subscription ends, or when an ended one ended. */
 export function NextBilling({ row }: { row: SubscriptionListItem }) {
   if (row.nextBillingOn)
-    return <time dateTime={row.nextBillingOn}>{dayText(row.nextBillingOn)}</time>;
+    return (
+      <time dateTime={row.nextBillingOn} className="whitespace-nowrap">
+        {dayText(row.nextBillingOn)}
+      </time>
+    );
   if (!row.endsOn) return <span className="text-muted">—</span>;
   const ended = row.status === 'CANCELLED' || row.status === 'CLOSED' || row.status === 'EXPIRED';
   return (
     <span className={ended ? 'text-muted' : 'text-heading'}>
-      {ended ? 'Ended' : 'Ends'} <time dateTime={row.endsOn}>{dayText(row.endsOn)}</time>
+      {ended ? 'Ended' : 'Ends'}{' '}
+      <time dateTime={row.endsOn} className="whitespace-nowrap">
+        {dayText(row.endsOn)}
+      </time>
+    </span>
+  );
+}
+
+/** A firm's domain, free to break before its first dot ("coastaladvisory" / ".example.test"). */
+function Domain({ domain }: { domain: string }) {
+  const dot = domain.indexOf('.');
+  if (dot <= 0) return <>{domain}</>;
+  return (
+    <>
+      {domain.slice(0, dot)}
+      <wbr />
+      {domain.slice(dot)}
+    </>
+  );
+}
+
+/** "LAUNCH50 (50% off)", free to wrap before the bracket onto two lines, as in the design. */
+function DiscountText({ discount: { code, label } }: { discount: Discount }) {
+  const rest = code && label.startsWith(`${code} `) ? label.slice(code.length + 1) : null;
+  if (rest === null) return <span className="whitespace-nowrap">{label}</span>;
+  return (
+    <span className="text-center">
+      {code} <span className="whitespace-nowrap">{rest}</span>
     </span>
   );
 }
@@ -163,7 +210,7 @@ export function SubscriptionTable({
       label: 'Firm Name',
       sortValue: (row) => row.firm.name.toLowerCase(),
       cell: (row) => (
-        <div className="flex min-w-44 items-center gap-2.5">
+        <div className="flex min-w-32 items-center gap-2.5">
           <span aria-hidden>
             <Avatar name={row.firm.name} size="md" />
           </span>
@@ -176,7 +223,9 @@ export function SubscriptionTable({
             >
               {row.firm.name}
             </button>
-            <span className="block text-muted">{row.firm.domain}</span>
+            <span className="block text-muted">
+              <Domain domain={row.firm.domain} />
+            </span>
           </span>
         </div>
       ),
@@ -227,6 +276,7 @@ export function SubscriptionTable({
             percent={row.usagePercent}
             tone={usageTone(row.status, row.usagePercent)}
             label={`Seats used by ${row.firm.name}`}
+            className="w-10"
           />
           {row.usagePercent}%
         </span>
@@ -236,11 +286,7 @@ export function SubscriptionTable({
       id: 'next',
       label: 'Next Billing',
       sortValue: (row) => row.nextBillingOn ?? row.endsOn ?? '9999-12-31',
-      cell: (row) => (
-        <span className="whitespace-nowrap">
-          <NextBilling row={row} />
-        </span>
-      ),
+      cell: (row) => <NextBilling row={row} />,
     },
     {
       id: 'status',
@@ -275,7 +321,7 @@ export function SubscriptionTable({
             label: 'Add-ons',
             cell: (row: SubscriptionListItem) =>
               row.addons.length ? (
-                <ul className="min-w-20">
+                <ul>
                   {row.addons.map((id) => (
                     <li key={id}>{ADDONS[id].name}</li>
                   ))}
@@ -289,7 +335,9 @@ export function SubscriptionTable({
             label: 'Discount',
             cell: (row: SubscriptionListItem) =>
               row.discount ? (
-                <Badge tone="success">{row.discount.label}</Badge>
+                <Badge tone="success">
+                  <DiscountText discount={row.discount} />
+                </Badge>
               ) : row.creditCents > 0 ? (
                 <Badge tone="info">{money(row.creditCents)} credit</Badge>
               ) : (
@@ -302,6 +350,7 @@ export function SubscriptionTable({
   return (
     <Table
       dense
+      tableClassName={FIT_CLASSES}
       caption="Subscriptions"
       noun="subscriptions"
       rows={rows}
