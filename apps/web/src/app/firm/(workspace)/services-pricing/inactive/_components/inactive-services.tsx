@@ -318,9 +318,7 @@ export function InactiveServices() {
           <time className="text-sm" dateTime={row.updatedAt}>
             {dayText(row.updatedAt)}
           </time>
-          <p className="mt-0.5 text-xs text-muted">
-            {row.updatedBy ? `by ${row.updatedBy}` : ''}
-          </p>
+          <p className="mt-0.5 text-xs text-muted">{row.updatedBy ? `by ${row.updatedBy}` : ''}</p>
         </div>
       ),
     },
