@@ -131,9 +131,34 @@ test('an email already on the team is caught on the email field', async ({ page 
   ).toBeVisible();
 });
 
-test('the add form fits a phone without sideways scrolling', async ({ page }) => {
+test('Edit Team Member warns before a new role replaces custom permissions, then saves', async ({
+  page,
+}) => {
+  await page.goto(admin('/team/0199d1a0-7e01-7000-8000-000000000004/edit'));
+  await expect(page.getByRole('heading', { name: 'Edit Team Member', level: 1 })).toBeVisible();
+  const form = page.getByRole('form', { name: 'Edit Team Member' });
+  await expect(form.getByLabel('First Name')).toHaveValue('Marcus');
+  await expect(form.getByLabel('Email Address')).toBeDisabled();
+  await expect(form.getByText('Custom Permissions Applied')).toBeVisible();
+
+  await form.getByLabel('Role').selectOption({ label: 'Sales Team Lead' });
+  const warning = page.getByRole('dialog', { name: 'Replace custom permissions?' });
+  await warning.getByRole('button', { name: 'Load Role Defaults' }).click();
+  await expect(form.getByText('Custom Permissions Applied')).toHaveCount(0);
+  await expect(form.getByLabel('Job Title')).toHaveValue('Sales Team Lead');
+  await form.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByText('Changes to Marcus Webb were saved.')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Recent activity' })).toContainText(
+    'Role changed: Sales Manager → Sales Team Lead',
+  );
+});
+
+test('the add and edit forms fit a phone without sideways scrolling', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(admin('/team/new'));
   await expect(page.getByRole('form', { name: 'Add Team Member' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.goto(admin('/team/0199d1a0-7e01-7000-8000-000000000004/edit'));
+  await expect(page.getByRole('form', { name: 'Edit Team Member' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
