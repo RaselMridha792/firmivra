@@ -223,7 +223,12 @@ describe('SendingNotifyService', () => {
     for (const t of Object.keys(TEMPLATE_SENDER) as (keyof typeof TEMPLATE_SENDER)[]) {
       expect(TEMPLATE_SENDER[t]).toBe(t.startsWith('firm-application.') ? 'platform' : 'firm');
     }
-    expect(Object.values(TEMPLATE_CHANNEL).filter((c) => c === 'sms')).toHaveLength(1);
+    expect(
+      Object.entries(TEMPLATE_CHANNEL)
+        .filter(([, c]) => c === 'sms')
+        .map(([t]) => t)
+        .sort(),
+    ).toEqual(['client.signup-sms-code', 'lead.message-sms']);
     for (const t of ALWAYS_SENT) expect(TEMPLATE_CATEGORY[t]).toBe('ACCOUNT');
     expect(Object.keys(TEMPLATE_CATEGORY).sort()).toEqual(Object.keys(TEMPLATE_CHANNEL).sort());
   });

@@ -118,4 +118,10 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     name: 'Robin Example',
     link: 'https://portal.example.test/sample/messages',
   },
+  'lead.message-email': {
+    name: 'Robin Example',
+    subject: 'Welcome',
+    body: 'Thanks for getting in touch.',
+  },
+  'lead.message-sms': { body: 'Thanks for getting in touch.' },
 };
