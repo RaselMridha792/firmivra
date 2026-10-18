@@ -158,7 +158,7 @@ export function PipelineBoard({
       role="region"
       aria-label="Pipeline board"
       tabIndex={0}
-      className="overflow-x-auto pb-2 focus-visible:outline-2 focus-visible:outline-focus"
+      className="relative max-w-full min-w-0 overflow-x-auto pb-2 contain-paint focus-visible:outline-2 focus-visible:outline-focus"
     >
       <ol className="flex min-w-max gap-2">
         {stages.map((stage, index) => {
@@ -215,7 +215,11 @@ export function PipelineBoard({
 /** The board's frame while the stages load. */
 export function BoardSkeleton() {
   return (
-    <div role="status" aria-label="Loading the pipeline" className="flex gap-2 overflow-hidden">
+    <div
+      role="status"
+      aria-label="Loading the pipeline"
+      className="relative flex min-w-0 gap-2 overflow-hidden contain-paint"
+    >
       {['a', 'b', 'c', 'd', 'e', 'f'].map((key) => (
         <div key={key} className="flex w-44 shrink-0 flex-col gap-2 rounded-xl bg-subtle p-2">
           <Skeleton className="h-10" />

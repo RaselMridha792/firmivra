@@ -63,11 +63,11 @@ function AddMenu({
   const item =
     'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm text-text hover:bg-canvas focus-visible:bg-canvas';
   return (
-    <div className="flex">
+    <div className="flex max-w-full min-w-0">
       <button
         type="button"
         onClick={() => onAdd('LEAD')}
-        className="inline-flex min-h-11 items-center gap-2 rounded-l-lg bg-action px-4 text-base font-medium text-on-action hover:bg-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+        className="inline-flex min-h-11 min-w-0 items-center gap-2 rounded-l-lg bg-action px-4 text-base font-medium text-on-action hover:bg-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
       >
         <Plus aria-hidden weight="bold" className="size-5" />
         Add Lead / Opportunity
@@ -340,13 +340,14 @@ export function PipelineScreen() {
       ) : null}
 
       <section
+        className="min-w-0"
         aria-label={view === 'CARD' ? 'Card view' : 'List view'}
         data-testid="pipeline-workspace"
       >
         {pipelines.isPending || records.isPending ? (
           <BoardSkeleton />
         ) : (pipelines.isError && !pipelines.data) || (records.isError && !records.data) ? (
-          <div className="rounded-xl bg-surface p-4 shadow-md">
+          <div className="relative min-w-0 rounded-xl bg-surface p-4 shadow-md contain-paint">
             <FrameError
               onRetry={() => {
                 void pipelines.refetch();
@@ -363,7 +364,7 @@ export function PipelineScreen() {
             onAdd={(stage) => setAdding({ mode: 'LEAD', stageId: stage.id })}
           />
         ) : (
-          <div className="rounded-xl bg-surface p-4 shadow-md">
+          <div className="relative min-w-0 rounded-xl bg-surface p-4 shadow-md contain-paint">
             <PipelineList
               records={shown ?? []}
               stages={stages.filter((stage) => stage.active)}
