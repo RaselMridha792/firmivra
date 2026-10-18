@@ -12,8 +12,12 @@ RUN corepack enable
 WORKDIR /repo
 
 FROM base AS build
+# Dependencies first: this layer changes only with the lockfile, so the build cache keeps the
+# download when only source changes. package.json gives corepack the pnpm version.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm fetch
 COPY . .
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --offline --frozen-lockfile
 # dist: the scoped client and link-users for scripts/link-dev-users.mjs (generate, then build).
 RUN pnpm exec turbo run build --filter=@firmivra/db
 # All dependencies of packages/db, including the Prisma CLI (a devDependency).
@@ -24,7 +28,7 @@ RUN pnpm --filter @firmivra/db deploy --legacy /out
 # CEO mapping -- none of which the normal seed runs on dev), as one-off ECS tasks R1 runs after
 # an RDS snapshot and Rasel's go. Built FROM build (not runtime): it needs tsx, a devDependency,
 # to run the prisma/*.ts entry points directly. Placed BEFORE runtime, and never named as the
-# default target, so a plain `docker build` (deploy-dev's "Build and push migrate" step, no
+# default target, so a plain `docker build` (deploy-dev's bake target `migrate`, no
 # --target) still ends on runtime and produces the trimmed migrate-task image -- a stage placed
 # after the last-stage-wins default would become it instead.
 #   docker build -f packages/db/Dockerfile --target demo-seed-task -t firmivra-demo-seed .

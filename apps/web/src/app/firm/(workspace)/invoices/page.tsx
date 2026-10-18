@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { InvoicesScreen } from './_components/invoices-screen';
+import { InvoicesOverview } from './_components/invoices-overview';
 
-export const metadata: Metadata = { title: 'Invoices' };
+export const metadata: Metadata = { title: 'Invoices & Payments' };
 
 export default function InvoicesPage() {
-  return <InvoicesScreen />;
+  return <InvoicesOverview />;
 }
