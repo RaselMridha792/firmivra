@@ -49,7 +49,7 @@ The firm Tax Planning screens on the R55 contract (`api.taxPlanning`, `createTax
 ## Progress log
 
 - 2026-10-18: Tax Planning built on the R55 contract with a new mock; 7-test spec passes; screenshots committed.
-- 2026-10-18: Messages: "Mark unread" shows only when the thread has a client message (the API answers 409 otherwise) and errors show; r56-messages and nahid-client-messages pass; r17-messages (portal) fails on main too.
+- 2026-10-18: Messages: "Mark unread" shows only when the thread has a client message (the API answers 409 otherwise) and errors show; r56-messages and nahid-client-messages pass; r17-messages (portal page, not touched here) fails on "Set as reminder".
 
 ## Handoff for a fresh session (written Oct 18, for the next window)
 
