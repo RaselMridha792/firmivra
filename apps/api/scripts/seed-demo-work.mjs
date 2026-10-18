@@ -1,5 +1,6 @@
-// Fills the demo firm's Tasks screens through the API itself (so every rule runs): task types,
-// templates with checklists, and recurring series for a few clients. Run it against a local API
+// Fills the demo firm's Tasks and Tax Planning screens through the API itself (so every rule
+// runs): task types, templates with checklists, recurring series for a few clients, planning
+// strategies, tax plans with strategies, and opportunities. Run it against a local API
 // (AUTH_MODE=local) after `pnpm db:seed:demo`:
 //
 //   node apps/api/scripts/seed-demo-work.mjs <demo business id> [owner email] [api base]
@@ -135,4 +136,95 @@ for (const [i, c] of clients.entries()) {
 }
 console.log(
   `Types: ${Object.keys(typeIds).length}, templates: ${Object.keys(madeTemplates).length}, new series: ${made}.`,
+);
+
+// ---------- Tax Planning ----------
+const strategies = (await call('GET', '/business/tax-planning/strategies')).json?.items ?? [];
+const strategyIds = {};
+for (const st of [
+  {
+    name: 'Maximize retirement contributions',
+    category: 'RETIREMENT',
+    description: 'Use the available employer plan and IRA room before the year ends.',
+    defaultPriority: 'HIGH',
+    requiredInputs: ['wages', 'retirement_contributions'],
+    implementationChecklist: [
+      'Confirm current contributions',
+      'Set the new deferral',
+      'Document the change',
+    ],
+  },
+  {
+    name: 'Bunch itemized deductions',
+    category: 'DEDUCTIONS',
+    description: 'Group deductible payments into one year to pass the standard deduction.',
+    defaultPriority: 'MEDIUM',
+    requiredDocuments: ['Mortgage interest statement', 'Charitable receipts'],
+  },
+  {
+    name: 'Review the business entity type',
+    category: 'ENTITY',
+    description: 'Compare sole proprietor, LLC and S corporation treatment.',
+    defaultPriority: 'MEDIUM',
+  },
+]) {
+  const found = strategies.find((x) => x.name === st.name);
+  strategyIds[st.name] = found
+    ? found.id
+    : must(`strategy ${st.name}`, await call('POST', '/business/tax-planning/strategies', st)).id;
+}
+const plans = (await call('GET', '/business/tax-planning/plans')).json?.items ?? [];
+let newPlans = 0;
+for (const [i, c] of clients.slice(0, 2).entries()) {
+  const name = i === 0 ? '2026 comprehensive plan' : '2026 retirement plan';
+  if (plans.some((p) => p.name === name && p.client?.id === c.id)) continue;
+  const plan = must(
+    `plan ${name}`,
+    await call('POST', '/business/tax-planning/plans', {
+      clientId: c.id,
+      planYear: 2026,
+      name,
+      planType: i === 0 ? 'COMPREHENSIVE' : 'FOCUSED',
+      filingStatus: i === 0 ? 'MARRIED_FILING_JOINTLY' : 'SINGLE',
+      goals: ['REDUCE_TAXABLE_INCOME', 'INCREASE_RETIREMENT_SAVINGS'],
+      allowDuplicate: true,
+    }),
+  );
+  must(
+    `strategy on ${name}`,
+    await call('POST', `/business/tax-planning/plans/${plan.id}/strategies`, {
+      kind: 'LIBRARY',
+      strategyId: strategyIds['Maximize retirement contributions'],
+    }),
+  );
+  newPlans++;
+}
+const opps = (await call('GET', '/business/tax-planning/opportunities')).json?.items ?? [];
+let newOpps = 0;
+for (const [i, c] of clients.slice(0, 3).entries()) {
+  const name = [
+    'Retirement contribution room',
+    'Itemized deduction bunching',
+    'Entity type review',
+  ][i];
+  if (opps.some((o) => o.name === name && o.client?.id === c.id)) continue;
+  must(
+    `opportunity ${name}`,
+    await call('POST', '/business/tax-planning/opportunities', {
+      clientId: c.id,
+      strategyId: Object.values(strategyIds)[i],
+      name,
+      category: ['RETIREMENT', 'DEDUCTIONS', 'ENTITY'][i],
+      priority: i === 0 ? 'HIGH' : 'MEDIUM',
+      taxYear: 2026,
+      description: 'Created for the demo.',
+      estimatedSavingsCents: [320_000, 150_000, 480_000][i],
+      estimateBasis: 'A rough estimate from the demo figures.',
+      recommendedActions: ['Review with the client', 'Confirm the figures'],
+    }),
+  );
+  newOpps++;
+}
+console.log(
+  `Tax planning: ${Object.keys(strategyIds).length} strategies, ${newPlans} new plans, ${newOpps} new opportunities.`,
 );
