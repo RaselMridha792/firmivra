@@ -67,10 +67,10 @@ export function RecurringForm({
   const [frequency, setFrequency] = useState<RecurringFrequency>(
     schedule?.frequency ?? defaults.frequency ?? 'MONTHLY',
   );
-  const [customDays, setCustomDays] = useState(
+  const [customDays, setCustomDays] = useState(() =>
     String(schedule?.customIntervalDays ?? defaults.customIntervalDays ?? 30),
   );
-  const [amount, setAmount] = useState(
+  const [amount, setAmount] = useState(() =>
     schedule
       ? moneyInput(schedule.amountCents)
       : defaults.amountCents
@@ -79,7 +79,8 @@ export function RecurringForm({
   );
   const [startDate, setStartDate] = useState(schedule?.startDate ?? defaults.startDate ?? today);
   const [nextDate, setNextDate] = useState(
-    schedule?.nextInvoiceDate ??
+    () =>
+      schedule?.nextInvoiceDate ??
       defaults.nextInvoiceDate ??
       nextOccurrence(defaults.startDate ?? today, defaults.frequency ?? 'MONTHLY', null),
   );
