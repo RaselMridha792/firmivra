@@ -361,6 +361,113 @@ async function seedEsign(tx: TxClient, businessId: string) {
 }
 
 /** Test Firm B: Firm Sign off, with one DRAFT request (for isolation tests). */
+/** Stage B7: Firmivra's system settings (see main). Idempotent by fixed ids. */
+async function seedSystemSettings(lvp: string) {
+  const ids = SEED_PLATFORM_IDS;
+  const asAdmin = { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id } as const;
+  if (
+    await runInScope(prisma, asAdmin, (tx) =>
+      tx.platformBrandAsset.findUnique({ where: { id: ids.settingsLogo } }),
+    )
+  ) {
+    return;
+  }
+  await runInScope(prisma, asAdmin, async (tx) => {
+    await tx.platformSecretRef.create({
+      data: { key: 'email.smtp_password', reference: 'local:ses-smtp-password', hint: '****' },
+    });
+    await tx.platformBrandAsset.create({
+      data: {
+        id: ids.settingsLogo,
+        kind: 'LOGO',
+        fileName: 'firmivra-logo.png',
+        contentType: 'image/png',
+        sizeBytes: 18_432,
+        width: 480,
+        height: 120,
+        sha256: createHash('sha256').update('firmivra-logo.png').digest('hex'),
+        s3Key: `platform/branding/${ids.settingsLogo}/firmivra-logo.png`,
+      },
+    });
+    await tx.platformFeature.create({
+      data: {
+        key: 'client_portal.messages',
+        name: 'Client portal messages',
+        description: 'Clients message their firm from the portal.',
+        defaultState: 'ON',
+      },
+    });
+    await tx.platformFeature.create({
+      data: {
+        key: 'client_portal.message_attachments',
+        name: 'Attachments in client messages',
+        defaultState: 'OFF',
+        dependsOn: ['client_portal.messages'],
+      },
+    });
+    await tx.platformFeatureOverride.create({
+      data: {
+        featureKey: 'client_portal.message_attachments',
+        businessId: lvp,
+        state: 'ON',
+        reason: 'Beta firm for attachments.',
+      },
+    });
+    await tx.platformLegalHold.create({
+      data: {
+        id: ids.settingsHold,
+        name: 'Billing records review',
+        reason: 'Keep platform billing records during the annual financial review.',
+        category: 'platform_billing',
+      },
+    });
+    await tx.platformRetentionRun.create({
+      data: { id: ids.settingsRun, category: 'export_files', policyVersion: 1 },
+    });
+    await tx.platformMaintenanceWindow.create({
+      data: {
+        id: ids.settingsWindow,
+        title: 'Database upgrade',
+        message: 'Firmivra will be unavailable for up to 30 minutes while we upgrade our database.',
+        startsAt: new Date(Date.now() + 7 * 86_400_000),
+        endsAt: new Date(Date.now() + 7 * 86_400_000 + 30 * 60_000),
+      },
+    });
+    const firmDefaults = await tx.platformDefaultSet.findFirstOrThrow({
+      where: { kind: 'FIRM' },
+      orderBy: { version: 'desc' },
+    });
+    await tx.platformDefaultSetApplication.create({
+      data: { businessId: lvp, defaultSetId: firmDefaults.id },
+    });
+  });
+  // The platform's part: the scan, the job registry and the dry run.
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    await tx.platformBrandAsset.update({
+      where: { id: ids.settingsLogo },
+      data: { scanStatus: 'CLEAN' },
+    });
+    await tx.platformJobControl.create({
+      data: { jobKey: 'retention.nightly', name: 'Nightly retention' },
+    });
+    await tx.platformRetentionRun.update({
+      where: { id: ids.settingsRun },
+      data: { status: 'RUNNING' },
+    });
+    await tx.platformRetentionRun.update({
+      where: { id: ids.settingsRun },
+      data: { status: 'COMPLETED', eligibleCount: 12, affectedCount: 0, heldCount: 0 },
+    });
+    await tx.platformJobControl.update({
+      where: { jobKey: 'retention.nightly' },
+      data: { lastRunAt: new Date(), lastStatus: 'COMPLETED' },
+    });
+  });
+  await runInScope(prisma, asAdmin, (tx) =>
+    tx.platformBrandCurrent.create({ data: { kind: 'LOGO', assetId: ids.settingsLogo } }),
+  );
+}
+
 async function seedEsignDraft(tx: TxClient, businessId: string) {
   await tx.esignRequest.upsert({
     where: { id: SEED_ESIGN_IDS.firmBRequest },
@@ -1984,6 +2091,11 @@ async function main() {
       });
     },
   );
+
+  // Stage B7: Firmivra's system settings: a secret reference, the logo, two feature flags with
+  // LVP's override, a legal hold, a retention dry run, a maintenance window, a registered job and
+  // the defaults LVP was provisioned with.
+  await seedSystemSettings(businesses.lvp);
 
   // INV-1002, part paid by a check the owner recorded: the database takes an offline payment only
   // from the acting Owner or Admin, on an OPEN invoice, within the balance due.

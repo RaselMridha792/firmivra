@@ -56,6 +56,9 @@ describe('row-level security coverage', () => {
       'support_ticket_counters',
       // Only platform_billing_next_number() (owner-run) moves the document counters.
       'platform_billing_counters',
+      // Sections and retention categories are inserted by their migration; the app only saves them.
+      'platform_settings',
+      'platform_retention_policies',
     ];
     expect(app.filter((r) => !r.select).map((r) => r.table)).toEqual([]);
     expect(app.filter((r) => !r.insert && !readOnly.includes(r.table)).map((r) => r.table)).toEqual(
@@ -108,7 +111,15 @@ describe('row-level security coverage', () => {
                    ('firm_agreement_versions', 'UPDATE'), ('firm_agreement_versions', 'DELETE'),
                    ('intake_signatures', 'UPDATE'), ('intake_signatures', 'DELETE'),
                    ('intake_signature_agreements', 'UPDATE'),
-                   ('intake_signature_agreements', 'DELETE')) AS p(tbl, privilege)`);
+                   ('intake_signature_agreements', 'DELETE'),
+                   ('platform_settings', 'INSERT'), ('platform_settings', 'DELETE'),
+                   ('platform_retention_policies', 'INSERT'), ('platform_retention_policies', 'DELETE'),
+                   ('platform_brand_assets', 'DELETE'), ('platform_legal_holds', 'DELETE'),
+                   ('platform_retention_runs', 'DELETE'), ('platform_maintenance_windows', 'DELETE'),
+                   ('platform_job_controls', 'DELETE'),
+                   ('platform_default_sets', 'UPDATE'), ('platform_default_sets', 'DELETE'),
+                   ('platform_default_set_applications', 'UPDATE'),
+                   ('platform_default_set_applications', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 

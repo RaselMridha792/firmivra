@@ -1734,3 +1734,27 @@ export const LeadActivityKind = z.enum([
   'CAMPAIGN',
 ]);
 export type LeadActivityKind = z.infer<typeof LeadActivityKind>;
+
+export const PlatformBrandAssetKind = z.enum([
+  'LOGO',
+  'LOGO_DARK',
+  'FAVICON',
+  'APP_ICON',
+  'LOGIN_BACKGROUND',
+]);
+export type PlatformBrandAssetKind = z.infer<typeof PlatformBrandAssetKind>;
+
+export const PlatformFeatureState = z.enum(['ON', 'OFF']);
+export type PlatformFeatureState = z.infer<typeof PlatformFeatureState>;
+
+export const PlatformRetentionDisposition = z.enum(['DELETE', 'ANONYMIZE', 'ARCHIVE']);
+export type PlatformRetentionDisposition = z.infer<typeof PlatformRetentionDisposition>;
+
+export const PlatformRunStatus = z.enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']);
+export type PlatformRunStatus = z.infer<typeof PlatformRunStatus>;
+
+export const PlatformMaintenanceStatus = z.enum(['SCHEDULED', 'ACTIVE', 'COMPLETED', 'CANCELLED']);
+export type PlatformMaintenanceStatus = z.infer<typeof PlatformMaintenanceStatus>;
+
+export const PlatformDefaultSetKind = z.enum(['FIRM', 'USER']);
+export type PlatformDefaultSetKind = z.infer<typeof PlatformDefaultSetKind>;
