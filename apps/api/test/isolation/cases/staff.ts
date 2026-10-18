@@ -9,6 +9,21 @@ const tag = () => randomUUID().slice(0, 8);
 const PLACEHOLDER = randomUUID();
 
 export const records: CaseModule['records'] = {
+  /** An open session of staffMembership (Active Sessions). */
+  staffSession: {
+    async create({ tx, businessId, get }) {
+      const row = await tx.staffSession.create({
+        data: {
+          businessId,
+          membershipId: await get('staffMembership'),
+          tokenHash: randomUUID().replace(/-/g, '').repeat(2),
+          device: 'Fake browser',
+        },
+        select: { id: true },
+      });
+      return row.id;
+    },
+  },
   /** Another active member: a supervisor, or the grid to copy from. */
   staffSupervisor: {
     async create({ tx, businessId, person }) {
@@ -115,6 +130,26 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'staffMembership' },
     body: { payType: 'HOURLY', rateCents: 2500 },
   },
+  [`GET ${BASE}/:id/security`]: { params: { id: 'staffMembership' } },
+  [`PUT ${BASE}/:id/security`]: {
+    params: { id: 'staffMembership' },
+    body: { autoLogoutMinutes: 30 },
+  },
+  [`GET ${BASE}/:id/sessions`]: { params: { id: 'staffMembership' } },
+  [`POST ${BASE}/:id/sessions/:sessionId/revoke`]: {
+    params: { id: 'staffMembership', sessionId: 'staffSession' },
+  },
+  [`POST ${BASE}/:id/sessions/revoke-all`]: {
+    params: { id: 'staffMembership' },
+    body: { confirm: true },
+  },
+  [`GET ${BASE}/:id/login-history`]: { params: { id: 'staffMembership' } },
+  [`GET ${BASE}/:id/activity`]: { params: { id: 'staffMembership' } },
+  [`POST ${BASE}/:id/reset-password`]: {
+    params: { id: 'staffMembership' },
+    body: { confirm: true },
+  },
+  [`POST ${BASE}/:id/reset-mfa`]: { params: { id: 'staffMembership' }, body: { confirm: true } },
   ['GET /api/v1/business/staff-drafts/:id']: { params: { id: 'staffDraft' } },
   ['PUT /api/v1/business/staff-drafts/:id']: {
     params: { id: 'staffDraft' },
