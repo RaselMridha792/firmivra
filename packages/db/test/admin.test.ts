@@ -404,7 +404,6 @@ describe('support access', () => {
         await a.document.findMany(),
         await a.messageThread.findMany(),
         await a.invoice.findMany(),
-        await a.auditLog.findMany({ where: { businessId: ids.firmA } }),
       ].flat();
     };
     expect(await firmData()).toEqual([]);
@@ -423,10 +422,17 @@ describe('support access', () => {
 });
 
 describe('audit log', () => {
-  it('reads and writes platform events only, as itself', async () => {
+  // R0 stage B4: the Super Admin team reads every audit row, the firms' rows included (the
+  // cross-firm Audit & Security dashboard); it still writes platform events only, as itself.
+  it('reads every audit row, and writes platform events only, as itself', async () => {
     const events = await admin().auditLog.findMany();
-    expect(events.length).toBeGreaterThan(0);
-    expect(events.every((e) => e.businessId === null)).toBe(true);
+    expect(events.some((e) => e.businessId === null)).toBe(true);
+    await db.forBusiness(ids.firmA).auditLog.create({
+      data: { businessId: ids.firmA, action: 'client.updated', entityType: 'client' },
+    });
+    expect(await admin().auditLog.count({ where: { businessId: ids.firmA } })).toBe(
+      await db.forBusiness(ids.firmA).auditLog.count(),
+    );
     await expect(
       admin().auditLog.create({
         data: {
