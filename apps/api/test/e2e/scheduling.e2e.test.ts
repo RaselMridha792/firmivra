@@ -15,10 +15,19 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { z } from 'zod';
 import {
   AgendaPage,
+  AppointmentDraft,
+  AppointmentDraftList,
+  AppointmentNoticeSettings,
   AppointmentRecord,
   AppointmentsSummary,
+  AppointmentTypeConfig,
+  AppointmentTypeList,
+  AvailabilityRules,
+  ConflictResult,
   ContactSearchResult,
+  RemindersSent,
   SchedulingOptions,
+  StaffDay,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { addDays, minutesOf, zonedDate, zonedInstant } from '../../src/appointments/calendar.js';
@@ -985,7 +994,7 @@ describe('schedule', () => {
   });
 
   it('repeats weekly and makes one appointment per occurrence in a series', async () => {
-    const n = freshDay() + 60;
+    const n = freshDay() + 200;
     const r = await scheduled({
       startsAt: at(n, '10:00'),
       endsAt: at(n, '10:30'),
@@ -1007,7 +1016,7 @@ describe('schedule', () => {
   });
 
   it('refuses the whole series when a later occurrence conflicts, and books nothing', async () => {
-    const n = freshDay() + 60;
+    const n = freshDay() + 200;
     await asOwner(ids.firmA, (tx) =>
       tx.blockedTime.create({
         data: {
@@ -1582,5 +1591,1116 @@ describe('confirm', () => {
       409,
       'APPOINTMENT_CLOSED',
     );
+  });
+});
+
+// ---------- Part 2 ----------
+
+describe('send reminder', () => {
+  it('emails the client now, counts it, and leaves the automatic schedule alone', async () => {
+    const r = await scheduled({ startsAt: at(freshDay(), '10:00'), endsAt: at(nextDay, '10:30') });
+    const before = outbox.length;
+    const sent = exact(
+      RemindersSent,
+      await call('post', `/appointments/${r.id}/send-reminder`, people.staffA, {}),
+    );
+    expect(sent).toEqual({ sent: 1, skipped: 0 });
+    expect(outbox.slice(before).map((m) => m.template)).toEqual(['appointment.reminder']);
+    const row = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findUniqueOrThrow({ where: { id: r.id }, select: { reminderSentAt: true } }),
+    );
+    expect(row.reminderSentAt).toBeNull();
+    const audit = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, action: 'appointment.reminder_sent', entityId: r.id },
+      }),
+    );
+    expect(audit).toHaveLength(1);
+    expect(JSON.stringify(audit)).not.toContain('Jamie');
+  });
+
+  it('skips what cannot be reached: a past or closed appointment, and channels without a sender', async () => {
+    const r = await scheduled({ startsAt: at(freshDay(), '10:00'), endsAt: at(nextDay, '10:30') });
+    const portal = exact(
+      RemindersSent,
+      await call('post', `/appointments/${r.id}/send-reminder`, people.ownerA, {
+        channels: ['PORTAL'],
+      }),
+    );
+    expect(portal).toEqual({ sent: 0, skipped: 1 });
+    await call('post', `/appointments/${r.id}/cancel`, people.ownerA, {});
+    expect(
+      exact(
+        RemindersSent,
+        await call('post', `/appointments/${r.id}/send-reminder`, people.ownerA, {}),
+      ),
+    ).toEqual({ sent: 0, skipped: 1 });
+  });
+
+  it('is 400 SMS_UNAVAILABLE without an SMS sender or a phone, 404 for Staff on others and other firms', async () => {
+    const r = await scheduled({ startsAt: at(freshDay(), '10:00'), endsAt: at(nextDay, '10:30') });
+    expectError(
+      await call('post', `/appointments/${r.id}/send-reminder`, people.ownerA, {
+        channels: ['SMS'],
+      }),
+      400,
+      'SMS_UNAVAILABLE',
+    );
+    expectError(
+      await call('post', `/appointments/${r.id}/send-reminder`, people.staffA2, {}),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', `/appointments/${r.id}/send-reminder`, people.ownerB, {}, ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', `/appointments/${r.id}/send-reminder`, people.ownerA, { channels: [] }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', `/appointments/${r.id}/send-reminder`, people.ownerA, {
+        businessId: ids.firmB,
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+
+  it('sends to a list or to everything within some days, skipping what the member may not see', async () => {
+    const n = freshDay();
+    const mine = await scheduled({ startsAt: at(n, '10:00'), endsAt: at(n, '10:30') });
+    const theirs = await scheduled({
+      contact: { kind: 'CLIENT', id: ids.c2 },
+      staffUserIds: [people.staffA2.id],
+      startsAt: at(n, '11:00'),
+      endsAt: at(n, '11:30'),
+    });
+    const before = outbox.length;
+    const some = exact(
+      RemindersSent,
+      await call('post', '/appointments/reminders/send', people.staffA, {
+        appointmentIds: [mine.id, theirs.id, randomUUID()],
+      }),
+    );
+    expect(some).toEqual({ sent: 1, skipped: 2 });
+    const all = exact(
+      RemindersSent,
+      await call('post', '/appointments/reminders/send', people.ownerA, {
+        appointmentIds: [mine.id, theirs.id],
+      }),
+    );
+    expect(all).toEqual({ sent: 2, skipped: 0 });
+    expect(outbox.length - before).toBe(3);
+    const soon = exact(
+      RemindersSent,
+      await call('post', '/appointments/reminders/send', people.ownerA, { withinDays: 14 }),
+    );
+    expect(soon.sent).toBeGreaterThanOrEqual(0);
+    expectError(
+      await call('post', '/appointments/reminders/send', people.ownerA, {}),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', '/appointments/reminders/send', people.ownerA, {
+        withinDays: 3,
+        appointmentIds: [mine.id],
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', '/appointments/reminders/send', people.ownerA, { withinDays: 99 }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+
+  it("never reminds another firm's client by id", async () => {
+    const other = await seed({
+      businessId: ids.firmB,
+      clientId: ids.clientB,
+      staff: people.ownerB,
+      typeId: ids.typeB,
+      startsAt: at(freshDay(), '10:00'),
+    });
+    const before = outbox.length;
+    const res = exact(
+      RemindersSent,
+      await call('post', '/appointments/reminders/send', people.ownerA, {
+        appointmentIds: [other],
+      }),
+    );
+    expect(res).toEqual({ sent: 0, skipped: 1 });
+    expect(outbox.length).toBe(before);
+  });
+});
+
+describe('notes', () => {
+  it('appends who and when to the internal notes, keeps the old ones, and audits without the text', async () => {
+    const r = await scheduled({ internalNotes: 'Opening note' });
+    const one = exact(
+      AppointmentRecord,
+      await call('post', `/appointments/${r.id}/notes`, people.staffA, {
+        text: 'SECRET-FOLLOWUP one',
+      }),
+    );
+    expect(one.internalNotes).toMatch(
+      /^Opening note\n\n\d{4}-\d{2}-\d{2} \d{2}:\d{2} · Fake R58 staffA: SECRET-FOLLOWUP one$/,
+    );
+    expect(one.version).not.toBe(r.version);
+    const two = exact(
+      AppointmentRecord,
+      await call('post', `/appointments/${r.id}/notes`, people.ownerA, { text: 'Second' }),
+    );
+    expect(two.internalNotes?.split('\n\n')).toHaveLength(3);
+    const first = await scheduled();
+    expect(
+      exact(
+        AppointmentRecord,
+        await call('post', `/appointments/${first.id}/notes`, people.ownerA, { text: 'Only' }),
+      ).internalNotes,
+    ).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} · Fake R58 ownerA: Only$/);
+    const audit = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, action: 'appointment.note_added', entityId: r.id },
+      }),
+    );
+    expect(audit).toHaveLength(2);
+    expect(JSON.stringify(audit)).not.toContain('SECRET-FOLLOWUP');
+  });
+
+  it('works after the meeting too, and refuses empty, long and unknown input', async () => {
+    const r = await scheduled();
+    await call('post', `/appointments/${r.id}/cancel`, people.ownerA, {});
+    exact(
+      AppointmentRecord,
+      await call('post', `/appointments/${r.id}/notes`, people.ownerA, { text: 'After the fact' }),
+    );
+    expectError(
+      await call('post', `/appointments/${r.id}/notes`, people.ownerA, { text: '' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', `/appointments/${r.id}/notes`, people.ownerA, { text: 'x'.repeat(2001) }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', `/appointments/${r.id}/notes`, people.ownerA, { text: 'ok', extra: 1 }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+
+  it('is full at 5,000 characters (400), 404 for Staff on others and for other firms', async () => {
+    const r = await scheduled({ internalNotes: 'a'.repeat(1990) });
+    for (let i = 0; i < 2; i++) {
+      exact(
+        AppointmentRecord,
+        await call('post', `/appointments/${r.id}/notes`, people.ownerA, {
+          text: 'b'.repeat(1000),
+        }),
+      );
+    }
+    expectError(
+      await call('post', `/appointments/${r.id}/notes`, people.ownerA, { text: 'c'.repeat(1500) }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', `/appointments/${r.id}/notes`, people.staffA2, { text: 'Peek' }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call(
+        'post',
+        `/appointments/${r.id}/notes`,
+        people.ownerB,
+        { text: 'Intruder' },
+        ids.firmB,
+      ),
+      404,
+      'NOT_FOUND',
+    );
+  });
+});
+
+describe('duplicate', () => {
+  it('returns a draft with the permitted fields and stores nothing', async () => {
+    const r = await scheduled({
+      serviceId: ids.serviceA,
+      color: '#7c3aed',
+      internalNotes: 'PRIVATE',
+      clientInstructions: 'Bring ID',
+      reminders: [{ channel: 'EMAIL', amount: 1, unit: 'DAYS' }],
+      videoUrl: 'https://meet.example.test/private',
+    });
+    const before = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.count({ where: { businessId: ids.firmA } }),
+    );
+    const draft = exact(
+      AppointmentDraft,
+      await call('post', `/appointments/${r.id}/duplicate`, people.staffA, {}),
+    );
+    expect(draft.id).not.toBe(r.id);
+    expect(draft.createdBy).toBe('Fake R58 staffA');
+    expect(draft.data).toMatchObject({
+      contact: { kind: 'CLIENT', id: ids.c1 },
+      typeId: ids.typeA,
+      serviceId: ids.serviceA,
+      method: 'VIDEO',
+      staffUserIds: [people.staffA.id],
+      status: 'PENDING',
+      color: '#7c3aed',
+      clientInstructions: 'Bring ID',
+      reminders: [{ channel: 'EMAIL', amount: 1, unit: 'DAYS' }],
+    });
+    const text = JSON.stringify(draft);
+    for (const secret of ['PRIVATE', 'private', 'startsAt', 'endsAt'])
+      expect(text).not.toContain(secret);
+    expect(
+      await asOwner(ids.firmA, (tx) => tx.appointment.count({ where: { businessId: ids.firmA } })),
+    ).toBe(before);
+    // The form can book the draft as it is, at a new time.
+    const n = freshDay();
+    exact(
+      AppointmentRecord,
+      await call('post', '/appointments/schedule', people.ownerA, {
+        ...draft.data,
+        idempotencyKey: randomUUID(),
+        startsAt: at(n, '10:00'),
+        endsAt: at(n, '10:30'),
+      }),
+    );
+  });
+
+  it('is 404 for Staff on others and for other firms', async () => {
+    const r = await scheduled();
+    expectError(
+      await call('post', `/appointments/${r.id}/duplicate`, people.staffA2, {}),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', `/appointments/${r.id}/duplicate`, people.ownerB, {}, ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
+  });
+});
+
+describe('drafts', () => {
+  it('list is empty, saving says it is not available yet, and an id is 404', async () => {
+    expect(
+      exact(AppointmentDraftList, await call('get', '/appointment-drafts', people.staffA)),
+    ).toEqual({ items: [] });
+    expectError(
+      await call('post', '/appointment-drafts', people.staffA, { method: 'VIDEO' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', '/appointment-drafts', people.staffA, { nope: 1 }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('put', `/appointment-drafts/${randomUUID()}`, people.staffA, { method: 'VIDEO' }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('delete', `/appointment-drafts/${randomUUID()}`, people.staffA, {}),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('delete', '/appointment-drafts/not-an-id', people.staffA, {}),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+});
+
+describe('conflicts', () => {
+  const check = async (body: object, who: Who = people.ownerA) =>
+    exact(ConflictResult, await call('post', '/appointments/conflicts', who, body));
+
+  it('says OK when the time is free', async () => {
+    const n = freshDay();
+    const r = await check({
+      staffUserIds: [people.staffA.id],
+      startsAt: at(n, '10:00'),
+      endsAt: at(n, '10:30'),
+    });
+    expect(r).toEqual({ ok: true, conflicts: [], alternatives: [], canOverride: false });
+  });
+
+  it('finds every kind of conflict with alternatives, for all staff, a client and a room', async () => {
+    const n = freshDay();
+    await scheduled({
+      method: 'IN_PERSON',
+      officeId: ids.office,
+      roomId: ids.room,
+      startsAt: at(n, '10:00'),
+      endsAt: at(n, '11:00'),
+    });
+    const r = await check({
+      staffUserIds: [people.staffA.id, people.staffA2.id],
+      startsAt: at(n, '10:30'),
+      endsAt: at(n, '11:30'),
+      contact: { kind: 'CLIENT', id: ids.c1 },
+      roomId: ids.room,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.conflicts.map((c) => c.kind).sort()).toEqual([
+      'CLIENT_DOUBLE_BOOKED',
+      'ROOM',
+      'STAFF_BOOKED',
+    ]);
+    expect(r.canOverride).toBe(false);
+    expect(r.alternatives.length).toBeGreaterThan(0);
+    expect(r.conflicts.find((c) => c.kind === 'STAFF_BOOKED')?.staff).toMatchObject({
+      userId: people.staffA.id,
+    });
+  });
+
+  it('flags working hours as the only thing an Owner or Admin may override', async () => {
+    const n = freshDay();
+    const body = {
+      staffUserIds: [people.staffA.id],
+      startsAt: at(n, '06:00'),
+      endsAt: at(n, '06:30'),
+    };
+    expect(await check(body, people.adminA)).toMatchObject({
+      ok: false,
+      canOverride: true,
+      conflicts: [{ kind: 'OUTSIDE_HOURS' }],
+    });
+    expect((await check(body, people.staffA)).canOverride).toBe(false);
+  });
+
+  it('checks every occurrence of a series and ignores the appointment being edited', async () => {
+    const n = freshDay() + 260;
+    const r = await scheduled({ startsAt: at(n, '10:00'), endsAt: at(n, '10:30') });
+    await asOwner(ids.firmA, (tx) =>
+      tx.blockedTime.create({
+        data: {
+          businessId: ids.firmA,
+          userId: people.staffA.id,
+          startsAt: new Date(at(n + 14, '09:00')),
+          endsAt: new Date(at(n + 14, '12:00')),
+        },
+      }),
+    );
+    const series = await check({
+      staffUserIds: [people.staffA.id],
+      startsAt: at(n + 7, '10:00'),
+      endsAt: at(n + 7, '10:30'),
+      recurrence: { frequency: 'WEEKLY', interval: 1, count: 3 },
+      excludeAppointmentId: r.id,
+    });
+    expect(series.conflicts.map((c) => c.kind)).toEqual(['RECURRING_OCCURRENCE']);
+    const same = await check({
+      staffUserIds: [people.staffA.id],
+      startsAt: r.startsAt,
+      endsAt: r.endsAt,
+      excludeAppointmentId: r.id,
+    });
+    expect(same.ok).toBe(true);
+    expect(
+      (await check({ staffUserIds: [people.staffA.id], startsAt: r.startsAt, endsAt: r.endsAt }))
+        .ok,
+    ).toBe(false);
+  });
+
+  it('is 404 for staff of another firm, a client Staff may not see, and an appointment Staff may not see', async () => {
+    const n = freshDay();
+    const body = {
+      staffUserIds: [people.staffA.id],
+      startsAt: at(n, '10:00'),
+      endsAt: at(n, '10:30'),
+    };
+    expectError(
+      await call('post', '/appointments/conflicts', people.ownerA, {
+        ...body,
+        staffUserIds: [people.ownerB.id],
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', '/appointments/conflicts', people.staffA, {
+        ...body,
+        contact: { kind: 'CLIENT', id: ids.c2 },
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    const other = await seed({ clientId: ids.c2, staff: people.staffA2, startsAt: at(n, '14:00') });
+    expectError(
+      await call('post', '/appointments/conflicts', people.staffA, {
+        ...body,
+        excludeAppointmentId: other,
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', '/appointments/conflicts', people.ownerA, {
+        ...body,
+        contact: { kind: 'CLIENT', id: ids.clientB },
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', '/appointments/conflicts', people.ownerA, {
+        ...body,
+        endsAt: at(n, '09:00'),
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', '/appointments/conflicts', people.ownerA, { ...body, staffUserIds: [] }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', '/appointments/conflicts', people.ownerA, {
+        ...body,
+        businessId: ids.firmB,
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+});
+
+describe('staff availability (day)', () => {
+  const day_ = async (query: string, who: Who = people.ownerA) =>
+    exact(StaffDay, await call('get', `/availability/day?${query}`, who));
+
+  it('lays the day out: hours, appointments by their type, blocked time and what is free', async () => {
+    const n = freshDay();
+    await scheduled({ startsAt: at(n, '10:00'), endsAt: at(n, '11:00') });
+    await asOwner(ids.firmA, (tx) =>
+      tx.blockedTime.create({
+        data: {
+          businessId: ids.firmA,
+          userId: people.staffA.id,
+          startsAt: new Date(at(n, '13:00')),
+          endsAt: new Date(at(n, '14:00')),
+          reason: 'PRIVATE-REASON',
+        },
+      }),
+    );
+    const res = await day_(`staffUserId=${people.staffA.id}&date=${day(n)}`);
+    expect(res).toMatchObject({
+      date: day(n),
+      timezone: TZ,
+      staff: { userId: people.staffA.id },
+      conflict: null,
+    });
+    const kinds = res.blocks.map((b) => [b.kind, b.startsAt, b.endsAt, b.label]);
+    expect(kinds).toEqual([
+      ['OUTSIDE_HOURS', at(n, '00:00'), at(n, '09:00'), null],
+      ['AVAILABLE', at(n, '09:00'), at(n, '10:00'), null],
+      ['APPOINTMENT', at(n, '10:00'), at(n, '11:00'), `Consult ${run}`],
+      ['AVAILABLE', at(n, '11:00'), at(n, '13:00'), null],
+      ['BLOCKED', at(n, '13:00'), at(n, '14:00'), 'Blocked'],
+      ['AVAILABLE', at(n, '14:00'), at(n, '17:00'), null],
+      ['OUTSIDE_HOURS', at(n, '17:00'), at(n + 1, '00:00'), null],
+    ]);
+    expect(JSON.stringify(res)).not.toContain('PRIVATE-REASON');
+  });
+
+  it("shows another member's appointments as times only to Staff, and checks a proposed time", async () => {
+    const n = freshDay();
+    const theirs = await scheduled({
+      contact: { kind: 'CLIENT', id: ids.c2 },
+      staffUserIds: [people.staffA2.id],
+      startsAt: at(n, '10:00'),
+      endsAt: at(n, '11:00'),
+    });
+    const asStaff = await day_(
+      `staffUserId=${people.staffA2.id}&date=${day(n)}&startsAt=${encodeURIComponent(at(n, '10:30'))}&endsAt=${encodeURIComponent(at(n, '11:30'))}`,
+      people.staffA,
+    );
+    expect(asStaff.blocks.find((b) => b.kind === 'APPOINTMENT')).toMatchObject({ label: null });
+    expect(asStaff.conflict).toMatchObject({ ok: false, conflicts: [{ kind: 'STAFF_BOOKED' }] });
+    const asOwnerView = await day_(
+      `staffUserId=${people.staffA2.id}&date=${day(n)}&startsAt=${encodeURIComponent(at(n, '12:00'))}&endsAt=${encodeURIComponent(at(n, '12:30'))}`,
+    );
+    expect(asOwnerView.blocks.find((b) => b.kind === 'APPOINTMENT')?.label).toBe(`Consult ${run}`);
+    expect(asOwnerView.conflict).toEqual({
+      ok: true,
+      conflicts: [],
+      alternatives: [],
+      canOverride: false,
+    });
+    const excluded = await day_(
+      `staffUserId=${people.staffA2.id}&date=${day(n)}&startsAt=${encodeURIComponent(theirs.startsAt)}&endsAt=${encodeURIComponent(theirs.endsAt)}&excludeAppointmentId=${theirs.id}`,
+    );
+    expect(excluded.conflict?.ok).toBe(true);
+  });
+
+  it("shows time off and date overrides, is 404 for another firm's member and 400 for bad input", async () => {
+    const n = freshDay();
+    await asOwner(ids.firmA, async (tx) => {
+      await tx.availabilityOverride.create({
+        data: {
+          businessId: ids.firmA,
+          userId: people.staffA2.id,
+          date: new Date(`${day(n)}T00:00:00Z`),
+        },
+      });
+    });
+    const off = await day_(`staffUserId=${people.staffA2.id}&date=${day(n)}`);
+    expect(off.blocks.map((b) => b.kind)).toEqual(['OUTSIDE_HOURS']);
+    expectError(
+      await call(
+        'get',
+        `/availability/day?staffUserId=${people.ownerB.id}&date=${day(n)}`,
+        people.ownerA,
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call(
+        'get',
+        `/availability/day?staffUserId=${people.staffA.id}&date=nope`,
+        people.ownerA,
+      ),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('get', `/availability/day?staffUserId=${people.staffA.id}`, people.ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+});
+
+describe('availability rules', () => {
+  const read = async (userId: string, who: Who = people.ownerA) =>
+    exact(AvailabilityRules, await call('get', `/availability/${userId}/rules`, who));
+  const save = async (userId: string, body: object, who: Who = people.ownerA) =>
+    exact(AvailabilityRules, await call('put', `/availability/${userId}/rules`, who, body));
+
+  it("starts empty with the firm's defaults", async () => {
+    const r = await read(people.ownerA.id, people.ownerA);
+    expect(r).toEqual({
+      userId: people.ownerA.id,
+      dateOverrides: [],
+      timeOff: [],
+      bufferBeforeMinutes: 0,
+      bufferAfterMinutes: 0,
+      minNoticeHours: 0,
+      maxWindowDays: 730,
+      busyCalendarIds: [],
+      effectiveFrom: null,
+      updatedAt: null,
+    });
+  });
+
+  it('keeps date overrides and time off, replaces them as a set, and the day panel follows', async () => {
+    const n = freshDay();
+    const saved = await save(people.staffA2.id, {
+      dateOverrides: [
+        {
+          date: day(n),
+          ranges: [
+            { startsAt: '10:00', endsAt: '12:00' },
+            { startsAt: '13:00', endsAt: '15:00' },
+          ],
+        },
+        { date: day(n + 1), ranges: [] },
+      ],
+      timeOff: [{ from: day(n + 10), to: day(n + 12), reason: 'Vacation' }],
+    });
+    expect(saved.dateOverrides).toEqual([
+      {
+        date: day(n),
+        ranges: [
+          { startsAt: '10:00', endsAt: '12:00' },
+          { startsAt: '13:00', endsAt: '15:00' },
+        ],
+      },
+      { date: day(n + 1), ranges: [] },
+    ]);
+    expect(saved.timeOff).toEqual([
+      { id: expect.any(String), from: day(n + 10), to: day(n + 12), reason: 'Vacation' },
+    ]);
+    expect(saved.updatedAt).toEqual(expect.any(String));
+    const panel = exact(
+      StaffDay,
+      await call(
+        'get',
+        `/availability/day?staffUserId=${people.staffA2.id}&date=${day(n)}`,
+        people.ownerA,
+      ),
+    );
+    expect(
+      panel.blocks.filter((b) => b.kind === 'AVAILABLE').map((b) => [b.startsAt, b.endsAt]),
+    ).toEqual([
+      [at(n, '10:00'), at(n, '12:00')],
+      [at(n, '13:00'), at(n, '15:00')],
+    ]);
+    const leave = exact(
+      StaffDay,
+      await call(
+        'get',
+        `/availability/day?staffUserId=${people.staffA2.id}&date=${day(n + 11)}`,
+        people.ownerA,
+      ),
+    );
+    expect(leave.blocks.map((b) => b.kind)).toContain('TIME_OFF');
+    // Time off blocks scheduling, as a conflict.
+    const clash = await call(
+      'post',
+      '/appointments/schedule',
+      people.ownerA,
+      schedule({
+        staffUserIds: [people.staffA2.id],
+        contact: { kind: 'CLIENT', id: ids.c2 },
+        startsAt: at(n + 11, '10:00'),
+        endsAt: at(n + 11, '10:30'),
+      }),
+    );
+    expectError(clash, 409, 'SCHEDULING_CONFLICT');
+    // A second save replaces the first.
+    const replaced = await save(people.staffA2.id, { dateOverrides: [], timeOff: [] });
+    expect(replaced).toMatchObject({ dateOverrides: [], timeOff: [] });
+    const rows = await asOwner(ids.firmA, (tx) =>
+      tx.blockedTime.count({
+        where: { businessId: ids.firmA, userId: people.staffA2.id, kind: 'TIME_OFF' },
+      }),
+    );
+    expect(rows).toBe(0);
+  });
+
+  it("a member edits their own; Owner and Admin anyone's; Staff cannot reach others (403)", async () => {
+    const n = freshDay();
+    await save(people.staffA.id, { dateOverrides: [{ date: day(n), ranges: [] }] }, people.staffA);
+    expectError(
+      await call('get', `/availability/${people.staffA.id}/rules`, people.staffA2),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call('put', `/availability/${people.staffA.id}/rules`, people.staffA2, {
+        dateOverrides: [],
+      }),
+      403,
+      'FORBIDDEN',
+    );
+    expect((await read(people.staffA.id, people.adminA)).dateOverrides).toHaveLength(1);
+    await save(people.staffA.id, { dateOverrides: [] }, people.adminA);
+  });
+
+  it('refuses a time off over a scheduled appointment, overlapping ranges and values it cannot keep per person', async () => {
+    const n = freshDay();
+    const r = await scheduled({ startsAt: at(n, '10:00'), endsAt: at(n, '10:30') });
+    expectError(
+      await call('put', `/availability/${people.staffA.id}/rules`, people.ownerA, {
+        timeOff: [{ from: day(n), to: day(n) }],
+      }),
+      409,
+      'BLOCKS_APPOINTMENT',
+    );
+    expect(r.status).toBe('CONFIRMED');
+    const bad = (body: object) =>
+      call('put', `/availability/${people.staffA.id}/rules`, people.ownerA, body);
+    expectError(
+      await bad({
+        dateOverrides: [
+          {
+            date: day(n),
+            ranges: [
+              { startsAt: '09:00', endsAt: '12:00' },
+              { startsAt: '11:00', endsAt: '13:00' },
+            ],
+          },
+        ],
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await bad({
+        dateOverrides: [{ date: day(n), ranges: [{ startsAt: '12:00', endsAt: '09:00' }] }],
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await bad({
+        dateOverrides: [
+          { date: day(n), ranges: [] },
+          { date: day(n), ranges: [] },
+        ],
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await bad({ timeOff: [{ from: day(n + 5), to: day(n + 4) }] }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(await bad({ bufferBeforeMinutes: 15 }), 400, 'VALIDATION_FAILED');
+    expectError(await bad({ minNoticeHours: 24 }), 400, 'VALIDATION_FAILED');
+    expectError(await bad({ busyCalendarIds: ['cal-1'] }), 400, 'VALIDATION_FAILED');
+    expectError(await bad({ effectiveFrom: day(n) }), 400, 'VALIDATION_FAILED');
+    expectError(await bad({ businessId: ids.firmB }), 400, 'VALIDATION_FAILED');
+    // What it was shown is accepted as it is.
+    await save(people.staffA.id, {
+      bufferBeforeMinutes: 0,
+      minNoticeHours: 0,
+      maxWindowDays: 730,
+      busyCalendarIds: [],
+      effectiveFrom: null,
+    });
+  });
+
+  it('is 404 for a member of another firm or a former one, and changes nothing there', async () => {
+    expectError(
+      await call('get', `/availability/${people.ownerB.id}/rules`, people.ownerA),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('put', `/availability/${people.ownerB.id}/rules`, people.ownerA, {
+        dateOverrides: [{ date: day(1), ranges: [] }],
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call(
+        'get',
+        `/availability/${people.staffA.id}/rules`,
+        people.ownerB,
+        undefined,
+        ids.firmB,
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    const rows = await asOwner(ids.firmB, (tx) =>
+      tx.availabilityOverride.count({ where: { businessId: ids.firmB } }),
+    );
+    expect(rows).toBe(0);
+  });
+
+  it('writes an audit row with counts only', async () => {
+    const n = freshDay();
+    await save(people.staffA2.id, {
+      timeOff: [{ from: day(n + 30), to: day(n + 30), reason: 'PRIVATE-REASON' }],
+    });
+    const rows = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: ids.firmA,
+          action: 'availability_rules.set',
+          entityId: people.staffA2.id,
+        },
+      }),
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(JSON.stringify(rows)).not.toContain('PRIVATE-REASON');
+    await save(people.staffA2.id, { timeOff: [] });
+  });
+});
+
+describe('appointment type configuration', () => {
+  it('everyone reads; the defaults are what the type already has', async () => {
+    const c = exact(
+      AppointmentTypeConfig,
+      await call('get', `/appointment-types/${ids.typeA}/config`, people.staffA),
+    );
+    expect(c).toEqual({
+      typeId: ids.typeA,
+      description: null,
+      serviceId: ids.serviceA,
+      eligibleStaffUserIds: [],
+      methods: ['VIDEO'],
+      officeIds: [],
+      bufferBeforeMinutes: 0,
+      bufferAfterMinutes: 0,
+      minNoticeHours: 0,
+      maxWindowDays: 730,
+      requiredIntakeFormId: null,
+      requiredDocuments: [],
+      defaultReminders: [],
+      color: '#2563eb',
+    });
+  });
+
+  it('Owner and Admin change it; only what is sent changes; the record and its appointments follow', async () => {
+    const type = await asOwner(ids.firmA, (tx) =>
+      tx.appointmentType.create({
+        data: { businessId: ids.firmA, name: `Configurable ${run}`, durationMinutes: 45 },
+        select: { id: true },
+      }),
+    );
+    const put = (body: object, who: Who = people.adminA) =>
+      call('put', `/appointment-types/${type.id}/config`, who, body);
+    const c = exact(
+      AppointmentTypeConfig,
+      await put({
+        description: 'A longer conversation',
+        serviceId: ids.serviceA,
+        methods: ['PHONE'],
+        bufferBeforeMinutes: 10,
+        bufferAfterMinutes: 20,
+        minNoticeHours: 48,
+        maxWindowDays: 90,
+        defaultReminders: [
+          { channel: 'EMAIL', amount: 1, unit: 'DAYS' },
+          { channel: 'PORTAL', amount: 2, unit: 'HOURS' },
+        ],
+        color: '#E11D48',
+      }),
+    );
+    expect(c).toMatchObject({
+      description: 'A longer conversation',
+      serviceId: ids.serviceA,
+      methods: ['PHONE'],
+      bufferBeforeMinutes: 10,
+      bufferAfterMinutes: 20,
+      minNoticeHours: 48,
+      maxWindowDays: 90,
+      color: '#e11d48',
+    });
+    expect(c.defaultReminders).toEqual([
+      { channel: 'EMAIL', amount: 1, unit: 'DAYS' },
+      { channel: 'PORTAL', amount: 2, unit: 'HOURS' },
+    ]);
+    const partial = exact(AppointmentTypeConfig, await put({ description: '' }));
+    expect(partial).toMatchObject({
+      description: null,
+      bufferBeforeMinutes: 10,
+      methods: ['PHONE'],
+    });
+    const list = exact(AppointmentTypeList, await call('get', '/appointment-types', people.staffA));
+    expect(list.items.find((t) => t.id === type.id)).toMatchObject({ locationKind: 'PHONE' });
+    // New appointments of the type copy its buffers.
+    const n = freshDay();
+    const r = await scheduled({
+      typeId: type.id,
+      method: 'PHONE',
+      startsAt: at(n, '10:00'),
+      endsAt: at(n, '10:45'),
+    });
+    const row = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findUniqueOrThrow({
+        where: { id: r.id },
+        select: { bufferBeforeMinutes: true, bufferAfterMinutes: true },
+      }),
+    );
+    expect(row).toEqual({ bufferBeforeMinutes: 10, bufferAfterMinutes: 20 });
+    const audit = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: ids.firmA,
+          action: 'appointment_type.config_updated',
+          entityId: type.id,
+        },
+      }),
+    );
+    expect(audit).toHaveLength(2);
+    expect(JSON.stringify(audit)).not.toContain('longer conversation');
+  });
+
+  it("Staff read but cannot change (403); another firm's type is 404; nothing is written there", async () => {
+    expectError(
+      await call('put', `/appointment-types/${ids.typeA}/config`, people.staffA, {
+        description: 'x',
+      }),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call('put', `/appointment-types/${ids.typeB}/config`, people.ownerA, {
+        description: 'Intruder',
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('get', `/appointment-types/${ids.typeB}/config`, people.ownerA),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call(
+        'get',
+        `/appointment-types/${ids.typeA}/config`,
+        people.ownerB,
+        undefined,
+        ids.firmB,
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call(
+        'put',
+        `/appointment-types/${ids.typeA}/config`,
+        people.ownerB,
+        { description: 'Intruder' },
+        ids.firmB,
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    const b = await asOwner(ids.firmB, (tx) =>
+      tx.appointmentType.findUniqueOrThrow({
+        where: { id: ids.typeB },
+        select: { description: true },
+      }),
+    );
+    expect(b.description).toBeNull();
+    expectError(
+      await call('put', `/appointment-types/${ids.typeA}/config`, people.ownerA, {
+        serviceId: ids.serviceB,
+      }),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
+  it('refuses what cannot be kept yet and bad input (400), without writing', async () => {
+    const put = (body: object) =>
+      call('put', `/appointment-types/${ids.typeA2}/config`, people.ownerA, body);
+    expectError(await put({ eligibleStaffUserIds: [people.staffA.id] }), 400, 'VALIDATION_FAILED');
+    expectError(await put({ officeIds: [ids.office] }), 400, 'VALIDATION_FAILED');
+    expectError(await put({ requiredIntakeFormId: randomUUID() }), 400, 'VALIDATION_FAILED');
+    expectError(await put({ requiredDocuments: ['W-9'] }), 400, 'VALIDATION_FAILED');
+    expectError(await put({ methods: ['PHONE', 'VIDEO'] }), 400, 'VALIDATION_FAILED');
+    expectError(await put({ methods: ['OTHER'] }), 400, 'VALIDATION_FAILED');
+    expectError(await put({ color: '#123456' }), 400, 'VALIDATION_FAILED');
+    expectError(await put({ bufferBeforeMinutes: 121 }), 400, 'VALIDATION_FAILED');
+    expectError(
+      await put({ defaultReminders: [{ channel: 'EMAIL', amount: 5, unit: 'WEEKS' }] }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(await put({ businessId: ids.firmB }), 400, 'VALIDATION_FAILED');
+    const empty = exact(
+      AppointmentTypeConfig,
+      await put({
+        eligibleStaffUserIds: [],
+        officeIds: [],
+        requiredIntakeFormId: null,
+        requiredDocuments: [],
+      }),
+    );
+    expect(empty.typeId).toBe(ids.typeA2);
+  });
+});
+
+describe('notice settings', () => {
+  it('Owner and Admin read the defaults and change the copy rules; the email follows the company profile', async () => {
+    const first = exact(
+      AppointmentNoticeSettings,
+      await call('get', '/appointments/settings', people.adminA),
+    );
+    expect(first).toEqual({
+      masterEmail: null,
+      copyMasterOnChanges: true,
+      copyMasterOnReminders: false,
+      defaultReminders: [],
+    });
+    await asOwner(ids.firmA, (tx) =>
+      tx.businessSettings.update({
+        where: { businessId: ids.firmA },
+        data: { contactEmail: 'office@sample.test' },
+      }),
+    );
+    const saved = exact(
+      AppointmentNoticeSettings,
+      await call('put', '/appointments/settings', people.ownerA, {
+        copyMasterOnChanges: false,
+        copyMasterOnReminders: true,
+      }),
+    );
+    expect(saved).toEqual({
+      masterEmail: 'office@sample.test',
+      copyMasterOnChanges: false,
+      copyMasterOnReminders: true,
+      defaultReminders: [],
+    });
+    const again = exact(
+      AppointmentNoticeSettings,
+      await call('put', '/appointments/settings', people.adminA, { copyMasterOnChanges: true }),
+    );
+    expect(again).toMatchObject({ copyMasterOnChanges: true, copyMasterOnReminders: true });
+    const audit = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, action: 'appointment_settings.updated' },
+      }),
+    );
+    expect(audit.length).toBe(2);
+    expect(JSON.stringify(audit)).not.toContain('office@sample.test');
+  });
+
+  it('is for Owner and Admin only (403), per firm, and refuses firm-wide reminders for now', async () => {
+    expectError(await call('get', '/appointments/settings', people.staffA), 403, 'FORBIDDEN');
+    expectError(
+      await call('put', '/appointments/settings', people.staffA, { copyMasterOnChanges: false }),
+      403,
+      'FORBIDDEN',
+    );
+    const b = exact(
+      AppointmentNoticeSettings,
+      await call('get', '/appointments/settings', people.ownerB, undefined, ids.firmB),
+    );
+    expect(b).toEqual({
+      masterEmail: null,
+      copyMasterOnChanges: true,
+      copyMasterOnReminders: false,
+      defaultReminders: [],
+    });
+    expectError(
+      await call('put', '/appointments/settings', people.ownerA, {
+        defaultReminders: [{ channel: 'EMAIL', amount: 1, unit: 'DAYS' }],
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('put', '/appointments/settings', people.ownerA, { copyEmail: 'x@y.test' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    // Copies of reminders need a company email to copy to.
+    expectError(
+      await call(
+        'put',
+        '/appointments/settings',
+        people.ownerB,
+        { copyMasterOnReminders: true },
+        ids.firmB,
+      ),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const rowsB = await asOwner(ids.firmB, (tx) =>
+      tx.appointmentSettings.count({ where: { businessId: ids.firmB } }),
+    );
+    expect(rowsB).toBe(0);
   });
 });

@@ -1,11 +1,20 @@
 import {
   AgendaQuery,
+  AppointmentNoteRequest,
   AppointmentsSummaryQuery,
+  ConflictCheckRequest,
   ContactSearchQuery,
+  SaveAppointmentDraftRequest,
   ScheduleAppointmentRequest,
+  SendReminderRequest,
+  SendRemindersRequest,
+  SetAppointmentNoticeSettingsRequest,
+  SetAppointmentTypeConfigRequest,
+  SetAvailabilityRulesRequest,
+  StaffDayQuery,
   UpdateAppointmentDetailsRequest,
 } from '@firmivra/types';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { inCalendarYears } from './appointments.input.js';
 
 // The scheduling contract's request schemas (packages/types/src/appointments/scheduling.ts), plus
@@ -37,6 +46,17 @@ const timesInCalendar =
     }
   };
 
+/** A time range must end after it starts (when both are given). */
+const endsAfterStart = (values: { startsAt?: string; endsAt?: string }, ctx: z.RefinementCtx) => {
+  if (
+    values.startsAt &&
+    values.endsAt &&
+    Date.parse(values.endsAt) <= Date.parse(values.startsAt)
+  ) {
+    ctx.addIssue({ code: 'custom', path: ['endsAt'], message: 'End time must be after the start' });
+  }
+};
+
 /** GET /business/appointments/summary */
 export const SummaryQuery = AppointmentsSummaryQuery;
 /** GET /business/appointments/agenda */
@@ -53,3 +73,32 @@ export const ScheduleBody = ScheduleAppointmentRequest.superRefine(
 export const DetailsBody = UpdateAppointmentDetailsRequest.superRefine(
   timesInCalendar(['startsAt', 'endsAt']),
 ).transform(lowerDeep);
+
+// ---------- Part 2 ----------
+
+/** POST /business/appointments/{id}/send-reminder */
+export const ReminderBody = SendReminderRequest;
+/** POST /business/appointments/reminders/send */
+export const RemindersBody = SendRemindersRequest.transform(lowerDeep);
+/** POST /business/appointments/{id}/notes */
+export const NoteBody = AppointmentNoteRequest;
+/** POST /business/appointments/conflicts */
+export const ConflictsBody = ConflictCheckRequest.superRefine(
+  timesInCalendar(['startsAt', 'endsAt']),
+)
+  .superRefine(endsAfterStart)
+  .transform(lowerDeep);
+/** GET /business/availability/day */
+export const DayQuery = StaffDayQuery.superRefine(timesInCalendar(['startsAt', 'endsAt']))
+  .superRefine(endsAfterStart)
+  .transform(lowerDeep);
+/** PUT /business/availability/{userId}/rules */
+export const RulesBody = SetAvailabilityRulesRequest;
+/** PUT /business/appointment-types/{id}/config */
+export const TypeConfigBody = SetAppointmentTypeConfigRequest.transform(lowerDeep);
+/** PUT /business/appointments/settings */
+export const NoticeSettingsBody = SetAppointmentNoticeSettingsRequest;
+/** POST, PUT /business/appointment-drafts */
+export const DraftBody = SaveAppointmentDraftRequest.transform(lowerDeep);
+/** /business/appointment-drafts/{id} */
+export const DraftIdParam = z.uuid().transform((v) => v.toLowerCase());
