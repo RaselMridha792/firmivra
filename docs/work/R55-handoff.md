@@ -124,3 +124,30 @@ Bookkeeping, Payroll and Compliance were reassigned.
   - Tax returns: a per-firm return number, return notes and tasks, and extension status per jurisdiction (#822 lists them).
 - **Leads:** a secure link page for intake forms sent to leads (`intakes.access_token_hash` is unused).
 - **R6:** an `intake.reminder` notification event and text.
+
+### Update, 2026-10-19 (end of the second session)
+
+**Merged since the handoff above:**
+- Documents API part 2 (#824), which also fixed its isolation case for the recipient variants.
+- Tax Returns workspace API part 1 (#826).
+
+**Open:** #827, Tax Returns workspace API part 2. It also fixes part 1's move to Transmitted or Accepted, which returned a 500 because the database needs a filed date.
+
+**Done in R55, by module:**
+- **Intake Forms:** the whole contract.
+- **Theme colours:** contract, API, tokens and shells, portal sweep.
+- **Company Profile & Branding API.**
+- **Documents:** the firm-wide contract and the whole API.
+- **Tax Returns:** the workspace contract and the whole API, once #827 merges.
+
+**Left, in this order (one PR per module, at most 2 non-contract PRs open):**
+1. **Staff write side:** create (idempotency key, invite through `InvitesService`), update, lock/unlock/deactivate/reactivate/resend/revoke, security (access settings, sessions, login history, activity, reset password/MFA), per-member permissions (`member_permissions`), notes, compensation, documents, drafts, the import. The import's preview token needs a store; staff drafts need a table (R0).
+2. **Bookkeeping Terms** contract and API. R56 reported the Terms design missing in #750; read `docs/mockups/firm-workspace/bookkeeping` first.
+3. **Super Admin APIs** for modules whose tables exist on main: Team, Sales and Pipeline, Subscriptions, Support, Billing, Notifications, Reports, Integrations, Communications, System Settings. Check `schema.prisma` and list missing tables in each PR.
+4. **Not started from the contracts:** the portal side of request packets (Frame 7: `GET portal/:firmSlug/me/document-requests[/:id]` grouped by packet, `POST …/:id/submit` to SUBMITTED). It needs a small contract first.
+
+**Lessons from part 2 of the session:**
+- **The isolation body sweep times out locally.** Run it alone with a longer timeout before pushing: `SCAN_MODE=local S3_ENDPOINT=http://localhost:9 pnpm exec vitest run test/isolation/tenant-isolation.test.ts -t "named in a body, in firm Q" --testTimeout=500000`. It is the check that caught #824's union-body problem in CI.
+- **A world record must satisfy every required column**, for example `tax_return_approvals.sort_order`. Otherwise the whole suite skips with a Prisma validation error in `beforeAll`.
+- **R37's tax triggers raise 23514 for workflow rules, and the table's CHECKs also raise 23514.** `workspaceRefusal` maps both, so none reaches a 500.
+- **A field whose name ends in `Id` but is free text (`submissionId`)** needs a `NOT_RECORDS` entry. So does a list filter in a body (the export's `assignedUserId`).
