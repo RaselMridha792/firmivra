@@ -118,7 +118,7 @@ export function AccessPermissions({
       {note ? <p className="text-sm text-muted">{note}</p> : null}
       <div className="grid gap-x-8 gap-y-4 rounded-lg bg-canvas p-4 sm:grid-cols-2">
         {MODULE_ORDER.map((column, index) => (
-          <div key={column[0] ?? index} className="flex flex-col gap-4">
+          <div key={column.join('-')} className="flex flex-col gap-4">
             {column.map(box)}
             {index === MODULE_ORDER.length - 1 ? (
               <label
