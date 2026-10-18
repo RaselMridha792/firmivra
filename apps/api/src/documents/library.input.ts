@@ -1,5 +1,18 @@
 import {
   BulkDocumentsRequest,
+  BulkRequestPacketsRequest,
+  CancelRequestPacketRequest,
+  CreateDocumentShareRequest,
+  CreateRequestItemRequest,
+  CreateRequestPacketRequest,
+  CreateRequestTemplateRequest,
+  ReorderRequestItemsRequest,
+  RequestPacketsQuery,
+  RequestTemplatesQuery,
+  UpdateDocumentShareRequest,
+  UpdateRequestItemRequest,
+  UpdateRequestPacketRequest,
+  UpdateRequestTemplateRequest,
   CreateDocumentCategoryRequest,
   CreateDocumentFolderRequest,
   CreateLibraryUploadRequest,
@@ -38,3 +51,16 @@ export const ReorderFoldersBody = clean(ReorderDocumentFoldersRequest);
 export const CreateCategoryBody = clean(CreateDocumentCategoryRequest);
 export const UpdateCategoryBody = clean(UpdateDocumentCategoryRequest);
 export const UpdateSettingsBody = clean(UpdateDocumentSettingsRequest);
+export const CreateShareBody = clean(CreateDocumentShareRequest);
+export const UpdateShareBody = clean(UpdateDocumentShareRequest);
+export const PacketsQ = clean(RequestPacketsQuery);
+export const CreatePacketBody = clean(CreateRequestPacketRequest);
+export const UpdatePacketBody = clean(UpdateRequestPacketRequest);
+export const CancelPacketBody = clean(CancelRequestPacketRequest);
+export const BulkPacketsBody = clean(BulkRequestPacketsRequest);
+export const CreateItemBody = clean(CreateRequestItemRequest);
+export const UpdateItemBody = clean(UpdateRequestItemRequest);
+export const ReorderItemsBody = clean(ReorderRequestItemsRequest);
+export const TemplatesQ = clean(RequestTemplatesQuery);
+export const CreateTemplateBody = clean(CreateRequestTemplateRequest);
+export const UpdateTemplateBody = clean(UpdateRequestTemplateRequest);
