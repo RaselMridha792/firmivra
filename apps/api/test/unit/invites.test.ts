@@ -511,7 +511,7 @@ describe('InvitesService.createInvite delivery option', () => {
       }),
       withScope: (_scope: unknown, fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
     } as unknown as Database;
-    const service = new InvitesService(db, {} as never, { send }, audit as never, env);
+    const service = new InvitesService(db, {} as never, { send } as never, audit as never, env);
     const create = (delivery?: 'send' | 'skip' | 'try') =>
       service.createInvite({
         businessId: 'b1',
