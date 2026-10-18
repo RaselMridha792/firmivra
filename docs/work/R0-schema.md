@@ -213,6 +213,8 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 - Oct 19, Super Admin schema stage D1 (Sales Center), branch `rasel/R0-stage-d1-sales-center` from main (Rasel's go): migration `r0_sales_center`, 3 tables. `sales_targets`: a goal for the company, a team (a platform department) or a rep; a metric (new leads, demos, trials, won deals, revenue won, conversion rate, outbound activities) over a calendar month, quarter, year or a custom range; one live per subject, metric and period; subject, metric and period fixed, archived once. Attainment is the API's, from B5's records. `sales_lead_imports` and `sales_lead_import_rows`: an import batch's lifecycle (PENDING, PROCESSING, then COMPLETED or FAILED, or CANCELLED), the duplicate mode (skip, or attach to the existing contact), one outcome per row with no row data, and counts only the outcomes move. Contract note `docs/work/R0-stage-d1-sales-center.md`. Tests: `test/platform-sales-center.test.ts` (16).
 
+- Oct 19, demo seed stage 5, Tasks group (Rasel's Oct 19 list, item 1), branch `rasel/R0-demo-stage5-tasks` from main: `seed-demo-tasks.ts` fills task types (on every demo task), templates, two recurring series with their due dates (made, upcoming, skipped), checklists, collaborators, reminders, attachments, and tags on clients and leads (11 tables). 214 firm tables had no `demo` rows before it (the handoff's 206 predates newer tables); 203 after. Next groups, in Scrum's order: Payroll, Compliance, Templates, Bookkeeping, Communications, Automations, Services and pricing, Tax returns, Audit and logins.
+
 ## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
 
 **Where things stand.**
