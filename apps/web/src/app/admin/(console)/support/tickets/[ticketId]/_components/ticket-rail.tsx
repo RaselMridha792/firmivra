@@ -209,7 +209,7 @@ export function ClientFirmCard({
             <dd>
               <Link
                 href={`/firms/${ticket.firm.id}`}
-                className="inline-flex items-center gap-1.5 font-semibold text-heading hover:underline"
+                className="inline-flex max-w-full items-center gap-1.5 font-semibold text-heading wrap-anywhere hover:underline"
               >
                 {ticket.firm.name}
                 <ArrowSquareOut aria-hidden weight="bold" className="size-4 shrink-0 text-action" />

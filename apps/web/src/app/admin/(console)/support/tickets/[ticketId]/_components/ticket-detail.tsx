@@ -437,7 +437,7 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
         </Callout>
       ) : null}
       <div className="grid min-w-0 grid-cols-1 items-start gap-5 xl:grid-cols-3">
-        <div className="min-w-0 xl:col-span-2">
+        <div className="min-w-0 xl:col-span-2 max-lg:[&_[role=tablist]]:flex-wrap max-lg:[&_[role=tablist]]:gap-x-4">
           <Tabs
             label="Ticket sections"
             variant="underline"

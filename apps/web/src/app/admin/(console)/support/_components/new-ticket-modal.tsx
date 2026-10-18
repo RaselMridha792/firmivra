@@ -72,7 +72,7 @@ export function NewTicketModal({
   const [confirming, setConfirming] = useState(false);
   // The dialog closes itself on Escape; a new key opens it again to ask about unsaved changes.
   const [shown, setShown] = useState(0);
-  const requestId = useRef<string | null>(null);
+  const requestIdRef = useRef<string | null>(null);
   const create = useApiMutation((body: NewTicket) => adminSupport.createTicket(body), {
     invalidate: SUPPORT,
   });
@@ -106,7 +106,7 @@ export function NewTicketModal({
   function submit(event: FormEvent) {
     event.preventDefault();
     if (create.isPending || !directory.data || !settings.data) return;
-    const once = (requestId.current ??= crypto.randomUUID());
+    const once = (requestIdRef.current ??= crypto.randomUUID());
     const body: NewTicket = {
       ...draft,
       requestId: once,

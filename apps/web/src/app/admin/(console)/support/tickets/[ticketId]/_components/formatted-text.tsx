@@ -86,7 +86,7 @@ function blocks(body: string): Block[] {
 
 export function FormattedText({ body }: { body: string }) {
   return (
-    <div className="flex flex-col gap-3 text-sm text-text">
+    <div className="flex min-w-0 flex-col gap-3 text-sm text-text wrap-anywhere">
       {blocks(body).map((block) => {
         if (block.kind === 'ul' || block.kind === 'ol') {
           const List = block.kind;

@@ -87,7 +87,7 @@ export function ConversationList({
       {ticket.messages.map((message) => {
         const client = message.author.role === 'CLIENT';
         return (
-          <li key={message.id} data-testid="ticket-message" className="flex gap-3">
+          <li key={message.id} data-testid="ticket-message" className="flex min-w-0 gap-3">
             <Initials name={message.author.name} tone={client ? 'client' : 'support'} />
             <article
               className={`min-w-0 flex-1 rounded-lg border border-divider px-4 py-3 ${client ? 'bg-subtle' : 'bg-canvas'}`}
@@ -130,7 +130,7 @@ export function ConversationList({
                   {message.attachments.map((file) => (
                     <li
                       key={file.id}
-                      className="inline-flex items-center gap-1 rounded-md bg-surface px-2 py-1 text-xs text-text"
+                      className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-md bg-surface px-2 py-1 text-xs text-text wrap-anywhere"
                     >
                       <Paperclip aria-hidden weight="bold" className="size-3.5" />
                       {file.name}
@@ -159,7 +159,7 @@ const when = (iso: string | null) => (iso ? formatDateTime(iso) : '—');
 
 export function DetailsPanel({ ticket }: { ticket: TicketDetail }) {
   return (
-    <Panel label="Ticket details" className="p-5">
+    <Panel label="Ticket details" className="p-5 contain-paint">
       <dl className="grid gap-4 sm:grid-cols-2">
         <Row label="Subject">{ticket.subject}</Row>
         <Row label="Ticket Number">{ticketNo(ticket.number)}</Row>
@@ -232,7 +232,7 @@ export function AttachmentsPanel({
   busy: boolean;
 }) {
   return (
-    <Panel label="Attachments" className="flex flex-col gap-4 p-4">
+    <Panel label="Attachments" className="flex flex-col gap-4 p-4 contain-paint">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-bold text-heading">Attachments</h2>
         <Button variant="secondary" onClick={onAdd}>
@@ -426,7 +426,7 @@ function activityTitle(entry: TicketActivity): string {
 
 export function ActivityPanel({ ticket }: { ticket: TicketDetail }) {
   return (
-    <Panel label="Activity history" className="p-4">
+    <Panel label="Activity history" className="p-4 contain-paint">
       <Timeline
         label="Activity history"
         variant="rail"

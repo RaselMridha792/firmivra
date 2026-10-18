@@ -39,12 +39,15 @@ import {
   WEEKDAYS,
   type AgentRole,
   type BusinessHours,
+  type CannedResponse,
   type NotificationChannel,
   type NotificationEvent,
   type NotificationRecipient,
   type NotificationSettings,
   type PermissionGrid,
+  type SupportCategory,
   type SupportPermission,
+  type SupportPriority,
   type SupportSettings,
 } from '../../../../../../mocks/admin-support';
 import { errorMessage } from '../../../../../../lib/errors';
@@ -91,7 +94,7 @@ function Card({
       id={`support-${id}`}
       aria-labelledby={`support-${id}-title`}
       data-testid={`settings-${id}`}
-      className={`min-w-0 scroll-mt-4 rounded-xl border border-divider bg-surface p-4 shadow-sm ${wide ? 'xl:col-span-2' : ''}`}
+      className={`min-w-0 scroll-mt-4 rounded-xl border border-divider bg-surface p-4 shadow-sm contain-paint ${wide ? 'xl:col-span-2' : ''}`}
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
@@ -234,7 +237,7 @@ export function SupportSettingsScreen() {
       kind: 'category' | 'priority' | 'canned';
       id: string;
       active: boolean;
-    }) =>
+    }): Promise<SupportCategory | SupportPriority | CannedResponse> =>
       kind === 'category'
         ? adminSupport.setCategoryActive(id, active)
         : kind === 'priority'
@@ -311,7 +314,7 @@ export function SupportSettingsScreen() {
 
       <nav
         aria-label="Support settings sections"
-        className="overflow-x-auto rounded-xl border border-divider bg-surface px-4 shadow-sm"
+        className="min-w-0 overflow-x-auto rounded-xl border border-divider bg-surface px-4 shadow-sm contain-paint"
       >
         <ul className="flex gap-6">
           {SECTIONS.map(({ id, label, icon: Glyph }) => (

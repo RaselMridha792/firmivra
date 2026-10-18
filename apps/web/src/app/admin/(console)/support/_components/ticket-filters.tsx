@@ -144,7 +144,7 @@ export function FiltersPanel({
   settings: SupportSettings | undefined;
   onApply: (next: FilterState) => void;
 }) {
-  const field = useId();
+  const fieldId = useId();
   const [draft, setDraft] = useState(value);
   const set = <K extends keyof FilterState>(key: K, next: FilterState[K]) =>
     setDraft((current) => ({ ...current, [key]: next }));
@@ -157,7 +157,7 @@ export function FiltersPanel({
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SelectField
-          id={`${field}-status`}
+          id={`${fieldId}-status`}
           label="Status"
           placeholder="Any status"
           options={(Object.keys(TICKET_STATUSES) as TicketStatus[]).map((s) => ({
@@ -168,7 +168,7 @@ export function FiltersPanel({
           onChange={(event) => set('status', event.target.value as FilterState['status'])}
         />
         <SelectField
-          id={`${field}-priority`}
+          id={`${fieldId}-priority`}
           label="Priority"
           placeholder="Any priority"
           options={[...(settings?.priorities ?? [])]
@@ -178,7 +178,7 @@ export function FiltersPanel({
           onChange={(event) => set('priorityId', event.target.value)}
         />
         <SelectField
-          id={`${field}-category`}
+          id={`${fieldId}-category`}
           label="Category"
           placeholder="Any category"
           options={(settings?.categories ?? []).map((c) => ({
@@ -189,7 +189,7 @@ export function FiltersPanel({
           onChange={(event) => set('categoryId', event.target.value)}
         />
         <SelectField
-          id={`${field}-firm`}
+          id={`${fieldId}-firm`}
           label="Firm"
           placeholder="Any firm"
           options={(directory?.firms ?? []).map((f) => ({ value: f.id, label: f.name }))}
@@ -197,7 +197,7 @@ export function FiltersPanel({
           onChange={(event) => set('firmId', event.target.value)}
         />
         <SelectField
-          id={`${field}-assignee`}
+          id={`${fieldId}-assignee`}
           label="Assigned To"
           placeholder="Anyone"
           options={[
@@ -211,7 +211,7 @@ export function FiltersPanel({
           onChange={(event) => set('assigneeId', event.target.value)}
         />
         <SelectField
-          id={`${field}-source`}
+          id={`${fieldId}-source`}
           label="Source"
           placeholder="Any source"
           options={(Object.keys(TICKET_SOURCES) as TicketSource[]).map((s) => ({
@@ -222,7 +222,7 @@ export function FiltersPanel({
           onChange={(event) => set('source', event.target.value as FilterState['source'])}
         />
         <SelectField
-          id={`${field}-sla`}
+          id={`${fieldId}-sla`}
           label="SLA State"
           placeholder="Any SLA state"
           options={(Object.keys(SLA_STATES) as SlaState[]).map((s) => ({
@@ -233,7 +233,7 @@ export function FiltersPanel({
           onChange={(event) => set('sla', event.target.value as FilterState['sla'])}
         />
         <SelectField
-          id={`${field}-escalated`}
+          id={`${fieldId}-escalated`}
           label="Escalation"
           placeholder="Any"
           options={[

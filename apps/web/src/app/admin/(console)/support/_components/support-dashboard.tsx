@@ -338,9 +338,9 @@ export function SupportDashboard() {
       </section>
       {summary.isError ? <QuietLine>{loadError(summary.error)}</QuietLine> : null}
 
-      <Panel label="Support tickets" testId="ticket-list">
+      <Panel label="Support tickets" testId="ticket-list" className="contain-paint">
         <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 px-4 pt-2">
-          <div className="min-w-0 max-w-full flex-1">
+          <div className="min-w-0 max-w-full flex-1 max-lg:[&_[role=tablist]]:flex-wrap max-lg:[&_[role=tablist]]:gap-x-4">
             <Tabs
               label="Ticket views"
               variant="underline"

@@ -155,16 +155,18 @@ export function TicketComposer({
       data-testid="composer"
       className="rounded-xl border border-divider bg-surface px-4 pt-1 pb-4"
     >
-      <Tabs
-        label="Reply type"
-        variant="underline"
-        value={mode}
-        onChange={(next) => onMode(next as ComposerMode)}
-        items={[
-          { id: 'REPLY', label: 'Reply' },
-          ...(canNote ? [{ id: 'NOTE', label: 'Internal Note' }] : []),
-        ]}
-      />
+      <div className="min-w-0 max-lg:[&_[role=tablist]]:flex-wrap max-lg:[&_[role=tablist]]:gap-x-4">
+        <Tabs
+          label="Reply type"
+          variant="underline"
+          value={mode}
+          onChange={(next) => onMode(next as ComposerMode)}
+          items={[
+            { id: 'REPLY', label: 'Reply' },
+            ...(canNote ? [{ id: 'NOTE', label: 'Internal Note' }] : []),
+          ]}
+        />
+      </div>
       <div className={`mt-3 rounded-lg ${note ? 'bg-amber-surface p-3' : ''}`}>
         {note ? (
           <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-warning">
@@ -200,7 +202,7 @@ export function TicketComposer({
           {files.map((file) => (
             <li
               key={`${file.name}-${file.size}-${file.lastModified}`}
-              className="inline-flex items-center gap-1 rounded-md bg-canvas py-1 pr-1 pl-2 text-xs text-text"
+              className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-md bg-canvas py-1 pr-1 pl-2 text-xs text-text wrap-anywhere"
             >
               <Paperclip aria-hidden weight="bold" className="size-3.5" />
               {file.name} ({fileSize(file.size)})
@@ -221,8 +223,12 @@ export function TicketComposer({
           {fileError}
         </p>
       ) : null}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <div role="toolbar" aria-label="Formatting" className="flex flex-wrap items-center gap-1">
+      <div className="mt-3 flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div
+          role="toolbar"
+          aria-label="Formatting"
+          className="flex min-w-0 flex-wrap items-center gap-1"
+        >
           <Tool icon={Paperclip} label="Attach files" onClick={() => fileRef.current?.click()} />
           <span aria-hidden className="mx-1 h-6 w-px bg-divider" />
           <Tool icon={TextB} label="Bold" onClick={() => wrap('**', '**', 'bold text')} />
