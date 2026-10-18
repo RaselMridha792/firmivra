@@ -207,7 +207,77 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 - Oct 18, stage C2 (Compliance follow-ups, #719), branch `rasel/R0-stage-c2-compliance` from main: migration `r0_compliance_facts`: `client_compliance_facts` (fiscal year end, tax classification, elections, payroll employer and deposit schedule, sales tax registration, prior-year liability; unset means unknown so rules still return NEEDS_REVIEW), `client_sales_tax_registrations` (one open per state), `compliance_holidays` (platform reference data every scope reads; ships the 2026 and 2027 US federal holidays as observed plus DC Emancipation Day, matching the API's `federalHolidays()`), and `compliance_settings.task_due_date_sync` / `task_due_lead_days`. Contract note `docs/work/R0-stage-c2-compliance.md`. Tests: `test/compliance-facts.test.ts` (5). Stages B and C are all up as PRs.
 
-## Handoff for a fresh R0 window (Oct 17, end of the first R0 window)
+## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
+
+**Where things stand.**
+- **Merged on Oct 18:**
+  - B4 to B9: #720, #724, #736, #739, #740, #741
+  - Fahad's rebuilds: #764 (portal folder tabs, from #473) and #766 (Firm Sign dashboard, from #455)
+  - #767: link-dev-users client mode, Rasel's card
+- **#742 (C1):** Rasel merged it at 12:23 UTC.
+- **#743 (C2):** Rasel merged it. All eight schema PRs are in.
+  - Its first CI run failed once in R55's isolation case `cases/templates.ts:72`: the merge-field key `tag().replace(/[0-9]/g, 'x')` can collide. A one-line fix for R55: keep the digits.
+- **#742 brought a fix in `packages/db/src/client.ts`.** `createDatabase`'s `for*` methods now return `ScopedClient` by name. Without it, the API typecheck fails with TS2589 once C1's tables sit on top of B4 to B9.
+- **#438 (Fahad's notification bell) stays open on purpose.** Main's `FirmBell` (app-shell `firm-controls.tsx`) already shows the unread count and the latest five. Still missing: mark-read on click, mark-all-read (the API has both), and refetch on focus. That belongs in `FirmBell`, which is owned by R1/Tumit. Close #438 once a PR covers it.
+
+**Merging main into a stage branch** (each time an earlier stage lands):
+- **`schema.prisma`:** rebuild it from main's version plus the stage's own hunks (`git diff -U0 <last main merged> HEAD`). Insert each in-model hunk before that model's `@@` attributes and append the stage's block at the end. Git's own hunks split models when two stages append blocks.
+- **`seed.ts`:** when two stages' seed functions meet, check the closing brace. C1's merge lost one.
+- **Lists:** keep both sides in `seed-data.ts`, `MIGRATION_REFERENCE_TABLES`, the rls `readOnly` and limits lists, and this log.
+- **Enums:** regenerate with `pnpm --filter @firmivra/db gen:enums`. It isn't a root script.
+- **Checks:** drift check on a scratch database, seed twice, db suite on a clean `firmivra_r0_test`, then db, api and web typecheck.
+- **Local load:** under heavy load, `bootstrap-platform-org`, `demo-seed-unseed` and the `*-firm-delete` files time out. Re-run them alone before you call it a failure.
+
+**API test lesson (#724).** The API e2e helpers that read through the test owner (`firmivra`, a superuser in Docker and CI) bypass RLS. Any count there must name its firm (`where: { businessId }`), or it also sees rows that other test files write at the same time.
+
+**Scrum's order after #743 (Oct 18):**
+1. **Portal click-through on dev,** once R1 has created the demo client login after Deploy dev. Sign in as `harper.coleman@demo.test` on `portal.dev.firmivra.com/demo`, open every portal page and `/demo/begin`, and list each page that errors or shows empty data.
+   - Fix API or seed gaps yourself; change screens only if the fix is tiny. Tumit owns the Begin Online form design.
+   - **Rasel's decision (Oct 18):** do it locally first. Start the web app and API locally on a fresh database with migrate, `seed.ts` and `seed-demo.ts`. Sign in as Harper through `AUTH_MODE=local` (`POST /api/v1/dev/token`). Then list the portal pages and the `/demo/begin` steps that error or show empty data, and fix the gaps.
+   - Nothing on dev until Rasel says so: the Oct 18 window ran under "do not run anything on dev or AWS".
+2. **Remaining Super Admin schema stages:** D1 to D3, found on Oct 18.
+   - **D1 Sales Center:**
+     - sales targets and goals per rep, team or company and period (metric, target, period), for targets and attainment
+     - lead import batches (file, counts imported, duplicates found, skipped), for the CRM's import and dedupe
+   - **D2 Subscriptions extras:**
+     - promotions and promo codes (amount or percent, duration, plans, redemption limit, valid dates)
+     - a firm subscription's applied discounts (reason, who, from and to)
+     - trial extensions and overrides of plan limits (seats, storage, entitlements, with reason and expiry)
+     - Stage A's `platform_firm_subscriptions` and B3's subscription history already carry the lifecycle.
+   - **D3 R55's recorded gaps:**
+     - starter automation templates
+     - per-rule failure-alert recipients
+     - a link from automations to the templates they use
+     - `tasks.request_key` for an idempotent "Save & Create Another"
+     - Check main first: `automation_templates` may already cover the starters.
+   - **Already covered:** R54's staff and org; Advisory, Tax Planning and Tax Returns; Super Admin Team, Firms, Applications and Dashboard.
+   - PRs only, one per stage.
+   - Rasel gives his own yes on a card before any `packages/db/prisma` PR is merged.
+   - Tell Rasel each PR number.
+3. **Demo seed stage 5**, below.
+
+**Next: demo seed stage 5** (Scrum, Oct 18). Synthetic data, `demo` firm only, idempotent with fixed `demoId(...)` ids, one small PR per group, at most 2 open. R1 re-runs the demo seed on dev with Rasel's yes.
+- **How many tables are empty:** on main, after `seed.ts` and `seed-demo.ts` on a fresh database, 206 firm tables have no `demo` rows.
+- **Firm groups**, in Scrum's order:
+  - **Tasks:** `task_types`, `task_templates`, `task_series`/`task_occurrences`, `task_checklist_items`, `task_assignees`, `task_reminders`, `tags`
+  - **Payroll:** `payroll_settings`, `payroll_clients`, `payroll_workers`, `payroll_runs` and their lines and issues, `payroll_filings`, `payroll_reports`, `payroll_year_ends`
+  - **Compliance:** `compliance_settings`, `compliance_calendars` and their entries, `compliance_deadlines` and their links, reminders and documents, `compliance_recurrences`, `compliance_logs`
+  - **Templates:** `template_categories`, `message_templates` and their versions, `document_request_templates` and their items, `invoice_templates`
+  - **Bookkeeping:** `bookkeeping_settings`, `bookkeeping_profiles`, `bookkeeping_connections`, `bookkeeping_accounts`, `bookkeeping_periods`, `bookkeeping_close_items`, `bookkeeping_reconciliations`, `bookkeeping_reports`, plus C1's tables once #742 lands
+  - **Communications:** `communications`, `communication_segments`, `communication_recipients`, `outbound_messages`
+  - **Automations:** `automation_settings`, `automation_rules` and their versions, `automation_runs`, `automation_action_executions`
+  - **Services and pricing:** `service_categories`, `service_packages` and their items and add-ons, `service_add_ons`, `promotions` and their targets
+  - **Tax returns:** `tax_return_*` approvals, authorizations, checklist, documents and filings
+  - **Audit and logins:** `audit_logs` for `demo` and `staff_sessions`
+- **Also empty:** Advisory (`advisory_*`), Tax Planning (`tax_plan*`, `tax_opportunities`) and Reports (`report_*`).
+- **Super Admin rows**, after the firm groups: Sales pipeline (B5), Subscriptions and promotions, Billing (B3), Support tickets, Reports (B9), Notifications. Those tables are platform tables; check which ones the regular seed already fills.
+- **To rebuild the list:** run the per-table count query over every table with a `business_id` column, for `slug = 'demo'`.
+
+**Not R0's to fix, noted on Oct 18:**
+- **LVP's red Begin Online banner on dev:** dev's LVP has no published firm-wide agreement. Its owner publishes one in the app; the seed never touches LVP on dev. The demo firm already gets its agreement from the demo seed (#705).
+- **Portal mock specs:** 16 already fail on main in local mock mode, for example the `r17-*` specs, `portal-session` and `r22-*`. Nobody owns this yet.
+
+## Handoff for a fresh R0 window (Oct 17, end of the first R0 window; superseded by the Oct 18 handoff above)
 
 Start here: `CLAUDE.md`, `docs/work/README.md`, this file, and the contract notes `docs/work/R0-stage-b*.md`. Rasel merges every PR; merging a schema PR is his yes for that migration. Never push to `main`, never rebase or force-push. When a branch falls behind or conflicts, merge `origin/main` into it: take the branch's side for demo files; keep both sides of log entries in this file and of `MIGRATION_REFERENCE_TABLES`.
 
