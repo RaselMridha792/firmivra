@@ -188,6 +188,29 @@ describe('GET and PATCH /business/settings', () => {
     expect(suspended.status).toBe(403);
   });
 
+  it('shows the theme colours as derived, and refuses them until their columns exist', async () => {
+    const res = FirmSettings.parse(
+      (await call('get', '/settings', people.ownerA, firms.a.id)).body,
+    );
+    expect(res).toMatchObject({
+      sidebarColor: null,
+      textPrimaryColor: null,
+      textSecondaryColor: null,
+      buttonColor: null,
+    });
+    const refused = await call('patch', '/settings', people.ownerA, firms.a.id, {
+      sidebarColor: '#001F4B',
+    });
+    expect(refused.status).toBe(503);
+    expect((refused.body as { error: { code: string } }).error.code).toBe(
+      'THEME_COLORS_UNAVAILABLE',
+    );
+    const bad = await call('patch', '/settings', people.ownerA, firms.a.id, {
+      buttonColor: 'blue',
+    });
+    expect(bad.status).toBe(400);
+  });
+
   it('changes only the fields sent, in this firm only, and audits the field names', async () => {
     const res = await call('patch', '/settings', people.adminA, firms.a.id, {
       name: '  T02 Firm A ',
