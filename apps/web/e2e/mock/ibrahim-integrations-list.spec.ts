@@ -79,7 +79,7 @@ test('catalog, tabs, search, categories, mode and insight panels', async ({ page
   await expect(page.getByTestId('integration-card')).toHaveCount(2);
   await page.getByLabel('Integration category').selectOption('');
   await page.getByRole('button', { name: 'Test Mode', exact: true }).click();
-  await expect(page.getByRole('tab', { name: 'Test Mode', exact: true })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: 'Test Mode', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
