@@ -168,6 +168,9 @@ export function checkDraft(d: FormDraft, publishing: boolean): Record<string, st
       found[at] ??= issue.message;
     }
   }
+  // Plain words for the fields the person types in (the schema's own words are generic).
+  if (!d.name.trim()) found.name = 'Enter a form name';
+  if (found.expiresAfterDays) found.expiresAfterDays = 'Enter a number of days from 1 to 365';
   if (publishing) {
     if (!d.sections.length) found.form ??= 'Add at least one section';
     for (const s of d.sections) {
@@ -185,33 +188,78 @@ export function checkDraft(d: FormDraft, publishing: boolean): Record<string, st
 export const answerable = (s: DraftSection) =>
   s.questions.filter((q) => !LAYOUT_TYPES.includes(q.type)).length;
 
+/**
+ * The sections without the Logic & Rules conditions that point at `removed` question keys (a
+ * deleted question or section must not leave a rule behind that the API cannot resolve).
+ */
+export function withoutRulesOn(sections: DraftSection[], removed: ReadonlySet<string>) {
+  if (!removed.size) return sections;
+  return sections.map((s) => ({
+    ...s,
+    questions: s.questions.map((q) => {
+      if (!q.showIf || !removed.has(q.showIf.questionKey)) return q;
+      const { showIf: _gone, ...rest } = q;
+      return rest;
+    }),
+  }));
+}
+
+/** The line under the page title after a save ("Draft saved."), kept across a move to a copy. */
+export interface DraftNotice {
+  text: string;
+  tone: 'success' | 'danger';
+}
+
+interface Held {
+  draft: FormDraft;
+  dirty: boolean;
+  savedAt: string;
+  notice: DraftNotice | null;
+  /** The published form this draft copy was saved from; its stale entry is dropped. */
+  replaces?: string;
+}
+
 // The draft lives here, per form, so the Form Builder, Preview and Logic & Rules tabs (three
-// routes) share the unsaved work while the person moves between them.
-const drafts = new Map<string, { draft: FormDraft; dirty: boolean; savedAt: string }>();
+// routes) share the unsaved work while the person moves between them. Memory only: nothing is
+// kept in the browser's storage.
+const drafts = new Map<string, Held>();
 const listeners = new Set<() => void>();
 const emit = () => {
   for (const l of listeners) l();
 };
 const subscribe = (l: () => void) => {
   listeners.add(l);
-  return () => listeners.delete(l);
+  return () => {
+    listeners.delete(l);
+  };
 };
 
 /** Load a form into the store unless there is unsaved work for it from a newer copy. */
 export function loadDraft(id: string, form: IntakeFormDetail) {
   const held = drafts.get(id);
   if (held && (held.dirty || held.savedAt === form.updatedAt)) return;
-  drafts.set(id, { draft: fromDetail(form), dirty: false, savedAt: form.updatedAt });
+  drafts.set(id, { draft: fromDetail(form), dirty: false, savedAt: form.updatedAt, notice: null });
   emit();
 }
 
-/** Replace the stored draft after a save (no unsaved work left). */
-export function savedDraft(id: string, form: IntakeFormDetail, start?: StartFrom) {
+/**
+ * Replace the stored draft after a save. `edited` is work done while the save ran (or work a
+ * failed save did not store): it stays as unsaved changes. `notice` shows under the title, also
+ * after the screen moves to a new draft copy; `replaces` is the form the copy was made from.
+ */
+export function savedDraft(
+  id: string,
+  form: IntakeFormDetail,
+  start?: StartFrom,
+  extra: { edited?: FormDraft | null; notice?: DraftNotice; replaces?: string } = {},
+) {
   const draft = fromDetail(form);
   drafts.set(id, {
-    draft: start ? { ...draft, start } : draft,
-    dirty: false,
+    draft: extra.edited ?? (start ? { ...draft, start } : draft),
+    dirty: Boolean(extra.edited),
     savedAt: form.updatedAt,
+    notice: extra.notice ?? null,
+    ...(extra.replaces && extra.replaces !== id ? { replaces: extra.replaces } : {}),
   });
   emit();
 }
@@ -219,8 +267,16 @@ export function savedDraft(id: string, form: IntakeFormDetail, start?: StartFrom
 export function updateDraft(id: string, change: (d: FormDraft) => FormDraft) {
   const held = drafts.get(id);
   if (!held) return;
-  drafts.set(id, { ...held, draft: change(held.draft), dirty: true });
+  drafts.set(id, { ...held, draft: change(held.draft), dirty: true, notice: null });
   emit();
+}
+
+/** The stored draft now, outside React (a save compares it with what it sent). */
+export const peekDraft = (id: string): FormDraft | null => drafts.get(id)?.draft ?? null;
+
+/** Drop a form's stored draft: it loads again from the API next time it is opened. */
+export function forgetDraft(id: string) {
+  if (drafts.delete(id)) emit();
 }
 
 /** The form's draft and whether it has unsaved work; null until the form has loaded. */
