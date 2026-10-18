@@ -66,7 +66,10 @@ describe('Firm Sign extras on PostgreSQL', () => {
     );
     expect(notes.map((n) => [n.decision, n.note])).toEqual([['APPROVE', null]]);
 
-    const today = new Date().toISOString().slice(0, 10);
+    // The report counts the firm's day (New York here), which is not always the UTC date.
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+      new Date(),
+    );
     const report = await w.call('get', `${esign}/reports?from=${today}&to=${today}`, owner);
     expect(report.status).toBe(200);
     expect(JSON.stringify(report.body)).toContain(staff.id);
