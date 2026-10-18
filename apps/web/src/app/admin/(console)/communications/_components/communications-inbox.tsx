@@ -271,7 +271,7 @@ export function CommunicationsInbox() {
 
       <section
         aria-label="Communication summary"
-        className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5 xl:[&>div]:gap-3 xl:[&>div]:p-3 xl:[&>div>span]:size-12 xl:[&>div>span>svg]:size-6 xl:[&>div>div]:gap-0 xl:[&>div>div>span:first-child]:text-xl xl:[&>div>div>span:nth-child(2)]:whitespace-nowrap xl:[&>div>div>span:nth-child(2)]:text-xs"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5 xl:[&>div]:gap-3 xl:[&>div]:p-3 xl:[&>div>span]:size-12 xl:[&>div>span>svg]:size-6 xl:[&>div>div]:gap-0 xl:[&>div>div>span:first-child]:text-xl xl:[&>div>div>span:nth-child(2)]:whitespace-nowrap xl:[&>div>div>span:nth-child(2)]:text-xs"
       >
         <KpiCard
           icon={EnvelopeSimple}
@@ -438,7 +438,7 @@ export function CommunicationsInbox() {
                     setAssigned(item.assignedTo === response?.currentAdmin);
                   }}
                   className={
-                    'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors xl:py-0.5 ' +
+                    'flex w-full items-center gap-3 px-3 py-3 text-left transition-colors xl:py-1.5 ' +
                     (selectedId === item.id ? 'bg-info-soft' : 'bg-surface hover:bg-canvas')
                   }
                 >
