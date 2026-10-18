@@ -316,7 +316,9 @@ export function SupportSettingsScreen() {
         aria-label="Support settings sections"
         className="min-w-0 overflow-x-auto rounded-xl border border-divider bg-surface px-4 shadow-sm contain-paint"
       >
-        <ul className="flex gap-6">
+        {/* At 1440 px all eight sections fit, spread across the bar as in the design; narrower
+            screens scroll inside the bar. */}
+        <ul className="flex gap-6 min-[1440px]:justify-between min-[1440px]:gap-2">
           {SECTIONS.map(({ id, label, icon: Glyph }) => (
             <li key={id} className="shrink-0">
               <a
