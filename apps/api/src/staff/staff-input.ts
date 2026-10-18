@@ -1,4 +1,16 @@
-import { StaffId, StaffListQuery } from '@firmivra/types';
+import {
+  CreateStaffRequest,
+  LockStaffRequest,
+  SaveStaffDraftRequest,
+  SetStaffNoteRequest,
+  SetStaffPermissionsRequest,
+  StaffCompensationInput,
+  StaffDraftId,
+  StaffId,
+  StaffListQuery,
+  StaffSecurityActionRequest,
+  UpdateStaffRequest,
+} from '@firmivra/types';
 import type { z } from 'zod';
 import { badTextPaths } from '../workspaces/input.js';
 
@@ -14,3 +26,12 @@ const clean = <S extends z.ZodType>(schema: S): S =>
 
 export const StaffIdParam = StaffId;
 export const StaffListQ = clean(StaffListQuery);
+export const StaffDraftIdParam = StaffDraftId;
+export const CreateStaffBody = clean(CreateStaffRequest);
+export const UpdateStaffBody = clean(UpdateStaffRequest);
+export const LockStaffBody = clean(LockStaffRequest);
+export const StaffActionBody = clean(StaffSecurityActionRequest);
+export const SetStaffNoteBody = clean(SetStaffNoteRequest);
+export const StaffCompensationBody = clean(StaffCompensationInput);
+export const SaveStaffDraftBody = clean(SaveStaffDraftRequest);
+export const SetStaffPermissionsBody = clean(SetStaffPermissionsRequest);
