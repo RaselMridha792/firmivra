@@ -42,3 +42,18 @@ Reference: `docs/mockups/firm-workspace/integrations/source/add-integration-mark
 - Repository lint and typecheck passed sequentially: `pnpm exec turbo run lint typecheck --concurrency=1` (16 successful tasks, with pre-existing warnings elsewhere). This completed before the final main merge; CI must validate the combined head as usual.
 - Latest main was merged without conflicts. The page's changed paths remain separate from the first-page PR and other owners' paths.
 - The request-modal screenshot uses 1440 x 1100 so its heading and form fields are visible together; the form scenario passed again at that viewport.
+
+## Manual review corrections
+
+- Add Integration now uses the shared sans font token locally, matching the site's body/other
+  workspace headings. The shared PageHeader and other pages are unchanged.
+- Featured cards, catalog cards and the details modal share one MarketplaceAction component.
+- Unavailable or permission-restricted providers retain a visible, labelled disabled
+  Connect/Configure button with an accessible explanation. Available providers keep their
+  active links; existing connections keep Manage. The API availability/permission flags are
+  respected rather than overridden.
+- Help text precedes disabled buttons so active/disabled action rows align at the card bottom.
+- Validation: 9 focused mock tests, 1 real-API smoke test, web TypeScript and changed-file
+  ESLint pass. The catalog and unavailable-provider tests were repeated after the final
+  alignment adjustment. New synthetic desktop/mobile and unavailable-provider evidence is
+  saved alongside this file.
