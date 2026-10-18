@@ -268,5 +268,6 @@ export function workspaceRefusal(error: unknown): HttpException | undefined {
   if (message.startsWith('tax return')) {
     return conflict('RETURN_LOCKED', message.replace(/^tax return[a-z ]*: /, ''));
   }
-  return undefined;
+  // Any other rule of the table (a CHECK constraint): refused, never a 500.
+  return conflict('RETURN_LOCKED', 'The return cannot change this way');
 }
