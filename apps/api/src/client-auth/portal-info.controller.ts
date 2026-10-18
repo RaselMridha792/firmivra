@@ -112,6 +112,11 @@ export class PortalInfoService {
         primaryColor: settings?.brandColor ?? DEFAULT_PRIMARY_COLOR,
         // As the emails do: only a `#rrggbb` value reaches the page's CSS.
         accentColor: hexColor(settings?.accentColor, DEFAULT_ACCENT_COLOR),
+        // Until R0's r0_firm_theme_colors: derived from the primary colour.
+        sidebarColor: null,
+        textPrimaryColor: null,
+        textSecondaryColor: null,
+        buttonColor: null,
         portalName: settings?.portalName ?? `${firm.name} Client Portal`,
         header: settings?.portalHeader ?? null,
         welcomeMessage: settings?.welcomeMessage ?? null,

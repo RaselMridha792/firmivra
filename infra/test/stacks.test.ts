@@ -304,6 +304,17 @@ describe('app', () => {
     });
   });
 
+  it('marks a new task healthy after 20 s, an old one unhealthy only after 60 s of failures', () => {
+    t('app').resourceCountIs('AWS::ElasticLoadBalancingV2::TargetGroup', 2);
+    t('app').allResourcesProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+      HealthCheckIntervalSeconds: 10,
+      HealthCheckTimeoutSeconds: 5,
+      HealthyThresholdCount: 2,
+      UnhealthyThresholdCount: 6,
+    });
+    t('app').allResourcesProperties('AWS::ECS::Service', { HealthCheckGracePeriodSeconds: 60 });
+  });
+
   it('has an internal load balancer on HTTP 80 that refuses requests without the origin header', () => {
     t('app').hasResourceProperties('AWS::ElasticLoadBalancingV2::LoadBalancer', {
       Scheme: 'internal',
