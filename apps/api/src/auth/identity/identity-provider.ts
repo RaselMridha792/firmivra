@@ -102,4 +102,9 @@ export interface IdentityProvider {
   hasPassword(pool: IdentityPool, sub: string): Promise<boolean>;
   /** Disables the login: it can no longer sign in, and its tokens stop working. */
   disableUser(pool: IdentityPool, sub: string): Promise<void>;
+  /**
+   * Forgets the login's authenticator (Staff Management's Reset MFA): the next sign-in sets one
+   * up again, as the pool requires it. Ends every session. Nothing to do for an unknown login.
+   */
+  resetMfa(pool: IdentityPool, sub: string): Promise<void>;
 }
