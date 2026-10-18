@@ -974,7 +974,11 @@ const metric = (current: number, previous: number): SalesMetric => ({
 });
 
 /** Open at any time in the range: created by its end and not closed or lost before its start. */
-function activeDuring(opp: StoredOpportunity, type: StageType, bounds: Bounds) {
+function activeDuring(
+  opp: Pick<StoredOpportunity, 'createdAt' | 'closedAt' | 'lostAt'>,
+  type: StageType,
+  bounds: Bounds,
+) {
   if (Date.parse(opp.createdAt) > bounds.end) return false;
   const ended = type === 'CLOSED' ? time(opp.closedAt) : type === 'LOST' ? time(opp.lostAt) : null;
   return ended === null || ended >= bounds.start;
@@ -1366,44 +1370,52 @@ function pipelineView(pipeline: SalesStore['pipelines'][number]): SalesPipeline 
 /* The client.                                                                                 */
 /* ------------------------------------------------------------------------------------------ */
 
+/**
+ * Whether a record passes the filters. The pipeline page runs it on the records it already holds,
+ * so every filter applies at once and the cards, the list and the counts never disagree.
+ */
+export function matchesQuery(opp: SalesOpportunity, query: OpportunityQuery): boolean {
+  if (query.pipelineId && opp.pipelineId !== query.pipelineId) return false;
+  if (query.stageId && opp.stageId !== query.stageId) return false;
+  if (query.ownerId && opp.owner?.id !== query.ownerId) return false;
+  if (query.plan && opp.plan !== query.plan) return false;
+  if (query.source && opp.source !== query.source) return false;
+  if (query.tagId && !opp.tags.some((tag) => tag.id === query.tagId)) return false;
+  if (query.overdueOnly && !opp.attention.includes('OVERDUE')) return false;
+  if (query.unassignedOnly && opp.owner) return false;
+  if (query.attentionOnly && !needsAttention(opp.attention)) return false;
+  if (query.scope === 'IN_PROGRESS' && opp.stageType !== 'ACTIVE') return false;
+  if ((query.scope === 'PIPELINE' || query.scope === 'OPEN') && !isOpen(opp.stageType))
+    return false;
+  if (query.scope === 'CONVERTED' && !isConverted(opp.stageType)) return false;
+  if (query.scope === 'CLIENTS' && opp.stageType !== 'CONVERTED') return false;
+  if (query.from || query.to) {
+    const bounds = {
+      start: query.from ? (parseLocal(query.from, false) ?? 0) : 0,
+      end: query.to
+        ? (parseLocal(query.to, true) ?? Number.MAX_SAFE_INTEGER)
+        : Number.MAX_SAFE_INTEGER,
+    };
+    if (!activeDuring(opp, opp.stageType, bounds)) return false;
+  }
+  const search = query.search?.trim().toLowerCase() ?? '';
+  if (search) {
+    const haystack = [opp.firmName, opp.contactName, opp.email ?? '', opp.id]
+      .join(' ')
+      .toLowerCase();
+    const searchDigits = digits(search);
+    const phoneHit = searchDigits.length >= 3 && digits(opp.phone ?? '').includes(searchDigits);
+    if (!haystack.includes(search) && !phoneHit) return false;
+  }
+  return true;
+}
+
 function filterOpportunities(query: OpportunityQuery, now: number) {
   const pipeline = pipelineOf(query.pipelineId);
-  const search = query.search?.trim().toLowerCase() ?? '';
-  const searchDigits = digits(search);
-  const range =
-    query.from || query.to
-      ? boundsOf({ from: query.from || '1970-01-01', to: query.to || localDate(now) }, now)
-      : null;
   return db()
     .opportunities.filter((opp) => opp.pipelineId === pipeline.id)
     .map((opp) => view(opp, now))
-    .filter((opp) => {
-      if (query.stageId && opp.stageId !== query.stageId) return false;
-      if (query.ownerId && opp.owner?.id !== query.ownerId) return false;
-      if (query.plan && opp.plan !== query.plan) return false;
-      if (query.source && opp.source !== query.source) return false;
-      if (query.tagId && !opp.tags.some((tag) => tag.id === query.tagId)) return false;
-      if (query.overdueOnly && !opp.attention.includes('OVERDUE')) return false;
-      if (query.unassignedOnly && opp.owner) return false;
-      if (query.attentionOnly && !needsAttention(opp.attention)) return false;
-      if (query.scope === 'IN_PROGRESS' && opp.stageType !== 'ACTIVE') return false;
-      if (query.scope === 'PIPELINE' && !isOpen(opp.stageType)) return false;
-      if (query.scope === 'OPEN' && !isOpen(opp.stageType)) return false;
-      if (query.scope === 'CONVERTED' && !isConverted(opp.stageType)) return false;
-      if (query.scope === 'CLIENTS' && opp.stageType !== 'CONVERTED') return false;
-      if (range) {
-        const stored = db().opportunities.find((o) => o.id === opp.id);
-        if (!stored || !activeDuring(stored, opp.stageType, range)) return false;
-      }
-      if (search) {
-        const haystack = [opp.firmName, opp.contactName, opp.email ?? '', opp.id]
-          .join(' ')
-          .toLowerCase();
-        const phoneHit = searchDigits.length >= 3 && digits(opp.phone ?? '').includes(searchDigits);
-        if (!haystack.includes(search) && !phoneHit) return false;
-      }
-      return true;
-    })
+    .filter((opp) => matchesQuery(opp, query))
     .sort(
       (a, b) =>
         a.stageOrder - b.stageOrder || Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt),

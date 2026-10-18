@@ -1,8 +1,8 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { PipelineScreen } from './_components/pipeline-screen';
 
 export const metadata: Metadata = { title: 'Sales pipeline' };
 
 export default function AdminSalesPipelinePage() {
-  return <PageHeader title="Sales Pipeline" />;
+  return <PipelineScreen />;
 }
