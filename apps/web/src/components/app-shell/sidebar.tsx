@@ -67,7 +67,7 @@ export function Sidebar({
   return (
     <nav
       aria-label="Main"
-      className={`flex h-full flex-col bg-brand-900 text-white ${brand ? 'w-61.5' : 'w-72'}`}
+      className={`flex h-full flex-col bg-navigation text-on-navigation ${brand ? 'w-61.5' : 'w-72'}`}
     >
       {brand ? (
         <div className="shrink-0 px-5 pb-5 pt-4">
@@ -182,14 +182,14 @@ export function Sidebar({
           <div
             aria-hidden
             data-testid="sidebar-menu-fade"
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-brand-900 to-transparent"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-navigation to-transparent"
           />
         ) : null}
       </div>
 
       {brand ? (
         brand.slogan || brand.motto ? (
-          <div className="mx-4 flex shrink-0 flex-col items-center gap-2 border-t border-brand-100/75 pb-4 pt-3">
+          <div className="mx-4 flex shrink-0 flex-col items-center gap-2 border-t border-on-navigation/40 pb-4 pt-3">
             {brand.slogan ? (
               <p
                 data-testid="firm-slogan"
@@ -205,7 +205,7 @@ export function Sidebar({
             {brand.motto ? (
               <p
                 data-testid="firm-motto"
-                className="text-center text-[11px] font-semibold uppercase tracking-wide text-brand-100"
+                className="text-center text-[11px] font-semibold uppercase tracking-wide text-on-navigation/80"
               >
                 {words(brand.motto).flatMap((word, i) => [
                   i > 0 ? (
