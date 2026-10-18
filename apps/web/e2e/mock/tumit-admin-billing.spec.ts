@@ -5,8 +5,8 @@ import { expect, test, type Page } from '@playwright/test';
 // console in as Morgan Admin. Dates in the mock are relative to today, so statuses are stable.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const admin = (path: string) => `http://admin.localhost:${port}${path}`;
-/** INV-0013: Taylor Corporate, $2,450.00, pending, with an engagement letter attached. */
-const TAYLOR = '0199d1a0-0b02-7000-8000-000000000013';
+/** INV-0019: Taylor Corporate, $2,450.00, pending, with an engagement letter attached. */
+const TAYLOR = '0199d1a0-0b02-7000-8000-000000000019';
 
 const noSidewaysScroll = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
@@ -54,15 +54,15 @@ test('the Billing dashboard lists invoices with totals, tabs, filters and quick 
 
 test('a row menu records a payment on an open invoice', async ({ page }) => {
   await page.goto(admin('/billing'));
-  await page.getByRole('searchbox', { name: 'Search invoices' }).fill('INV-0013');
+  await page.getByRole('searchbox', { name: 'Search invoices' }).fill('INV-0019');
   await expect(page.getByTestId('invoice-table').locator('tbody tr')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Actions for INV-0013' }).click();
+  await page.getByRole('button', { name: 'Actions for INV-0019' }).click();
   await page.getByRole('menuitem', { name: 'Record Payment' }).click();
   const dialog = page.getByRole('dialog', { name: 'Record Payment' });
   await dialog.getByLabel('Payment Amount').fill('2450');
   await dialog.getByRole('button', { name: 'Record Payment' }).click();
   await expect(page.getByTestId('billing-notice')).toContainText(
-    'Payment of $2,450.00 recorded on INV-0013.',
+    'Payment of $2,450.00 recorded on INV-0019.',
   );
   await expect(page.getByTestId('invoice-table').getByTestId('status-badge')).toHaveText('Paid');
 });
@@ -99,14 +99,14 @@ test('Create Invoice checks the form, previews live and saves a draft', async ({
 
 test('Invoice Details shows the branded invoice and records a payment', async ({ page }) => {
   await page.goto(admin(`/billing/invoices/${TAYLOR}`));
-  await expect(page.getByTestId('page-title')).toHaveText('Invoice INV-0013');
+  await expect(page.getByTestId('page-title')).toHaveText('Invoice INV-0019');
   await expect(page.getByTestId('status-badge').first()).toHaveText('Pending');
   const document = page.getByTestId('invoice-document');
   await expect(document).toContainText('LVP Accounting & Taxes');
   await expect(document).toContainText('Taylor Corporate');
   await expect(document.getByTestId('invoice-total')).toHaveText('$2,450.00');
   const related = page.getByTestId('related-documents');
-  await expect(related).toContainText('INV-0013.pdf');
+  await expect(related).toContainText('INV-0019.pdf');
   await expect(related).toContainText('Engagement Letter.pdf');
 
   await page
@@ -117,7 +117,7 @@ test('Invoice Details shows the branded invoice and records a payment', async ({
   await dialog.getByLabel('Payment Amount').fill('450');
   await dialog.getByRole('button', { name: 'Record Payment' }).click();
   await expect(page.getByTestId('billing-notice')).toContainText(
-    'Payment of $450.00 recorded on INV-0013.',
+    'Payment of $450.00 recorded on INV-0019.',
   );
   await expect(page.getByTestId('status-badge').first()).toHaveText('Partially Paid');
   await expect(page.getByTestId('invoice-balance')).toHaveText('$2,000.00');
@@ -132,7 +132,7 @@ test('an unknown invoice keeps the page frames with a quiet line', async ({ page
 
 test('Edit Invoice loads the invoice and saves a change', async ({ page }) => {
   await page.goto(admin(`/billing/invoices/${TAYLOR}/edit`));
-  await expect(page.getByTestId('page-title')).toHaveText('Edit Invoice INV-0013');
+  await expect(page.getByTestId('page-title')).toHaveText('Edit Invoice INV-0019');
   await expect(page.getByLabel('Description, line 1')).toHaveValue(
     'Corporate Tax Return Preparation',
   );

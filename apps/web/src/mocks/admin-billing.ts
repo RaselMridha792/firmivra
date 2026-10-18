@@ -2851,9 +2851,15 @@ function seed(empty: boolean): Store {
       ],
     ],
   ];
-  const invoiceIdOf = (n: number) => uid('0b02', n);
+  // Specs name invoices by key; numbers and ids follow the issue dates, oldest first.
+  const invoiceOrder = [...invoiceSpecs]
+    .sort((a, b) => a[3] - b[3] || a[0] - b[0])
+    .map((spec) => spec[0]);
+  const rankOf = (key: number) => invoiceOrder.indexOf(key) + 1;
+  const invoiceIdOf = (key: number) => uid('0b02', rankOf(key));
   for (const [n, firmId, clientNumber, issued, terms, lines, options = {}] of invoiceSpecs) {
-    const number = formatDocumentNumber(s.settings.numbering.invoice.format, n, day(issued));
+    const rank = rankOf(n);
+    const number = formatDocumentNumber(s.settings.numbering.invoice.format, rank, day(issued));
     const by = n % 3 === 0 ? 'Jamie Sample' : ACTOR;
     const rec: InvoiceRec = {
       id: invoiceIdOf(n),
@@ -2868,7 +2874,7 @@ function seed(empty: boolean): Store {
       reference: options.reference ?? '',
       notes: options.notes ?? '',
       lines: lines.map(([description, quantity, rate, taxRateId], index) => ({
-        id: uid('0b08', n * 10 + index),
+        id: uid('0b08', rank * 10 + index),
         description,
         quantity,
         rateCents: cents(rate),
@@ -2880,7 +2886,7 @@ function seed(empty: boolean): Store {
       recurringScheduleId: null,
       estimateId: null,
       attachments: (options.files ?? []).map(([name, size], index) => ({
-        id: uid('0b09', n * 10 + index),
+        id: uid('0b09', rank * 10 + index),
         name,
         contentType: 'application/pdf',
         sizeBytes: size,
@@ -3116,16 +3122,15 @@ function seed(empty: boolean): Store {
     },
     { n: 12, client: 1002, invoice: 13, date: -1, reason: 'OTHER', adjustment: 250, draft: true },
   ];
-  for (const spec of [...creditSpecs].sort((a, b) => a.n - b.n)) {
+  // Numbered by date, oldest first (`n` only names the spec).
+  const creditOrder = [...creditSpecs].sort((a, b) => a.date - b.date || a.n - b.n);
+  for (const [index, spec] of creditOrder.entries()) {
+    const n = index + 1;
     const client = s.clients.find((c) => c.number === spec.client);
     if (!client) continue;
-    const number = formatDocumentNumber(
-      s.settings.numbering.creditNote.format,
-      spec.n,
-      day(spec.date),
-    );
+    const number = formatDocumentNumber(s.settings.numbering.creditNote.format, n, day(spec.date));
     const rec: CreditNoteRec = {
-      id: uid('0b04', spec.n),
+      id: uid('0b04', n),
       number,
       firmId: client.firmId,
       clientId: client.id,
@@ -3136,7 +3141,7 @@ function seed(empty: boolean): Store {
       lines: spec.line
         ? [
             {
-              id: uid('0b08', 900 + spec.n),
+              id: uid('0b08', 900 + n),
               item: spec.line[0],
               description: spec.line[1],
               quantity: spec.line[2],
@@ -3166,7 +3171,7 @@ function seed(empty: boolean): Store {
     if (spec.apply) {
       const [invoice, amount, at] = spec.apply;
       const application: ApplicationRec = {
-        id: uid('0b0e', spec.n),
+        id: uid('0b0e', n),
         creditNoteId: rec.id,
         invoiceId: invoiceIdOf(invoice),
         amountCents: cents(amount),
@@ -3183,7 +3188,7 @@ function seed(empty: boolean): Store {
     }
     if (spec.refund !== undefined) {
       const refund: CreditRefundRec = {
-        id: uid('0b0f', spec.n),
+        id: uid('0b0f', n),
         creditNoteId: rec.id,
         amountCents: cents(spec.refund),
         reason: 'Customer asked for the balance back',
@@ -3332,7 +3337,12 @@ function seed(empty: boolean): Store {
       ],
     ],
   ];
-  for (const [n, clientNumber, issued, validDays, state, lines, extras = {}] of estimateSpecs) {
+  // Numbered by issue date, oldest first (the first field only names the spec).
+  const estimateOrder = [...estimateSpecs].sort((a, b) => a[2] - b[2] || a[0] - b[0]);
+  for (const [index, [, clientNumber, issued, validDays, state, lines, extras = {}]] of [
+    ...estimateOrder.entries(),
+  ]) {
+    const n = index + 1;
     const client = s.clients.find((c) => c.number === clientNumber);
     if (!client) continue;
     const firm = findFirm(s, client.firmId);
