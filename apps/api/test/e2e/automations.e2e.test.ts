@@ -77,6 +77,8 @@ async function asOwner<T>(
     await owner.$disconnect();
   }
 }
+// The test owner is a superuser in Docker and CI, so RLS does not narrow these reads: a count
+// names its firm, or it also counts what other test files write at the same time.
 const inFirm = <T>(firm: 'a' | 'b', work: Parameters<typeof runInScope<T>>[2]) =>
   asOwner({ kind: 'business', businessId: firms[firm] }, work);
 
@@ -802,8 +804,12 @@ describe('activation, pausing and copies', () => {
 
 describe('dry runs', () => {
   it('count and sample what a rule would act on, create nothing, and say what is wrong', async () => {
-    const runsBefore = await inFirm('a', (tx) => tx.automationRun.count());
-    const tasksBefore = await inFirm('a', (tx) => tx.task.count());
+    const runsBefore = await inFirm('a', (tx) =>
+      tx.automationRun.count({ where: { businessId: firms.a } }),
+    );
+    const tasksBefore = await inFirm('a', (tx) =>
+      tx.task.count({ where: { businessId: firms.a } }),
+    );
     const validate = async (definition: object) =>
       AutomationPreview.parse(ok(await call('post', '/rules/validate', ownerA, { definition })));
     const task = {
@@ -954,9 +960,15 @@ describe('dry runs', () => {
     );
 
     // Nothing was made or sent.
-    expect(await inFirm('a', (tx) => tx.automationRun.count())).toBe(runsBefore);
-    expect(await inFirm('a', (tx) => tx.task.count())).toBe(tasksBefore);
-    expect(await inFirm('a', (tx) => tx.messageThread.count())).toBe(0);
+    expect(
+      await inFirm('a', (tx) => tx.automationRun.count({ where: { businessId: firms.a } })),
+    ).toBe(runsBefore);
+    expect(await inFirm('a', (tx) => tx.task.count({ where: { businessId: firms.a } }))).toBe(
+      tasksBefore,
+    );
+    expect(
+      await inFirm('a', (tx) => tx.messageThread.count({ where: { businessId: firms.a } })),
+    ).toBe(0);
   });
 });
 
@@ -1185,7 +1197,9 @@ describe('the run engine', () => {
       409,
       'RERUN_NOT_ALLOWED',
     );
-    expect(await inFirm('a', (tx) => tx.messageThread.count())).toBe(0);
+    expect(
+      await inFirm('a', (tx) => tx.messageThread.count({ where: { businessId: firms.a } })),
+    ).toBe(0);
 
     // A dependent action is skipped when the one before it failed.
     const chain = await createRule(

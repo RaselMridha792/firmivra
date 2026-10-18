@@ -878,10 +878,16 @@ model Business {
   platformRecurringInvoices PlatformRecurringInvoice[]
   platformEstimates         PlatformEstimate[]
   platformCreditNotes       PlatformCreditNote[]
+  /// R0 stage B5: Firmivra sales records that converted into this firm.
+  salesOpportunities        SalesOpportunity[]
   /// R0 stage B1: Super Admin notifications about this firm (nullable link, platform data).
   platformNotifications     PlatformNotification[]
   /// R0 stage B2: the firm's tickets with Firmivra support (Super Admin Support module).
   supportTickets            SupportTicket[]
+  /// R0 stage B6: Firmivra's conversations with this firm's people, and its message and broadcast recipients.
+  commConversations         CommConversation[]
+  commRecipients            CommMessageRecipient[]      @relation("CommMessageRecipientBusiness")
+  commBroadcastRecipients   CommBroadcastRecipient[]    @relation("CommBroadcastRecipientBusiness")
 
   @@map("businesses")
 }
@@ -1142,9 +1148,16 @@ model PlatformAdmin {
   user                   User                     @relation(fields: [userId], references: [id])
   /// R0 stage A: the org-chart row for this admin, if one exists yet (CREATING_TEAM 20261016_r0).
   member                 PlatformMember?
+  /// R0 stage B5: sales records and follow-ups assigned to this team member.
+  salesDealsAssigned     SalesOpportunity[]       @relation("SalesOpportunityAssignee")
+  salesFollowUps         SalesFollowUp[]          @relation("SalesFollowUpAssignee")
   /// R0 stage B1: this admin's notification center and export jobs.
   notifications          PlatformNotification[]
   exportJobs             PlatformExportJob[]
+  /// R0 stage B6: conversations assigned to this team member, mentions and read state.
+  commConversations      CommConversation[]       @relation("CommConversationAssignee")
+  commMentions           CommMessageMention[]     @relation("CommMessageMentioned")
+  commReads              CommConversationRead[]   @relation("CommConversationReader")
   /// R0 stage B2: support tickets assigned to this team member.
   supportTicketsAssigned SupportTicket[]          @relation("SupportTicketAssignee")
   /// R0 stage B4
@@ -1328,8 +1341,10 @@ model PlatformPlan {
   createdAt                    DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt                    DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  features      PlatformPlanFeature[]
-  subscriptions PlatformFirmSubscription[]
+  features           PlatformPlanFeature[]
+  subscriptions      PlatformFirmSubscription[]
+  /// R0 stage B5
+  salesOpportunities SalesOpportunity[]
 
   @@map("platform_plans")
 }
@@ -2545,8 +2560,10 @@ model FirmApplication {
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business      Business?                      @relation(fields: [businessId], references: [id])
-  statusHistory FirmApplicationStatusHistory[]
+  business           Business?                      @relation(fields: [businessId], references: [id])
+  statusHistory      FirmApplicationStatusHistory[]
+  /// R0 stage B5
+  salesOpportunities SalesOpportunity[]
 
   @@index([status, createdAt])
   @@index([einHash])
@@ -11125,4 +11142,812 @@ model LeadActivity {
   @@index([businessId, leadId, occurredAt])
   @@index([businessId, kind, occurredAt])
   @@map("lead_activities")
+}
+
+// ---------- R0 stage B5: Super Admin Sales Pipeline ----------
+// Firmivra selling to prospective firms. One dataset behind the board, the list, the KPIs and the
+// analytics: a contact (the master person record, never duplicated on conversion), its
+// opportunities in a pipeline's stages, and their history, activity, follow-ups and notes. Platform
+// data: only the Super Admin team and the platform's jobs reach it. Contract note:
+// docs/work/R0-stage-b5-sales.md.
+
+/// What a stage means for the lifecycle, the KPIs and the transaction sync.
+enum SalesStageType {
+  /// Working the lead (New Lead to Nurturing); counts in pipeline value.
+  ACTIVE
+  /// Converted to an active client (the conversion event).
+  CONVERTED
+  /// Set only by a linked transaction that is under contract.
+  TRANSACTION_SYNCED
+  /// Closed / past client.
+  CLOSED
+  /// The side exit: unqualified or lost, with a reason.
+  LOST
+}
+
+enum SalesLeadSource {
+  WEBSITE
+  REFERRAL
+  SOCIAL_MEDIA
+  PAID_ADVERTISING
+  ORGANIC_SEARCH
+  EVENT
+  PARTNER
+  MANUAL_ENTRY
+  OTHER
+}
+
+enum SalesLostReason {
+  NOT_A_FIT
+  BUDGET
+  NO_RESPONSE
+  CHOSE_COMPETITOR
+  TIMING
+  DUPLICATE
+  INVALID_LEAD
+  OTHER
+}
+
+/// The linked transaction's state, as the transaction side reports it.
+enum SalesTransactionStatus {
+  OPEN
+  UNDER_CONTRACT
+  CLOSED
+  TERMINATED
+}
+
+/// Who moved a record: a person, an approved automation, the transaction sync, or an import.
+enum SalesChangeSource {
+  MANUAL
+  AUTOMATION
+  TRANSACTION
+  IMPORT
+}
+
+enum SalesFollowUpKind {
+  FOLLOW_UP
+  CALL
+  DEMO
+  CONSULTATION
+  MEETING
+}
+
+enum SalesFollowUpStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum SalesActivityKind {
+  CALL
+  EMAIL
+  SMS
+  MEETING
+  OTHER
+}
+
+enum SalesActivityDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum SalesActivityOutcome {
+  CONNECTED
+  NO_ANSWER
+  LEFT_MESSAGE
+  REPLIED
+  NO_REPLY
+  BOUNCED
+  COMPLETED
+}
+
+/// A sales process. The migration ships Firmivra's default (system key "firmivra_default") with
+/// the approved lifecycle; admins add more without code changes.
+model SalesPipeline {
+  id                      String   @id @default(uuid(7)) @db.Uuid
+  name                    String   @unique
+  description             String?
+  /// Set only on pipelines the migration ships.
+  systemKey               String?  @unique @map("system_key")
+  isActive                Boolean  @default(true) @map("is_active")
+  /// Where a terminated transaction returns a record (an active or converted stage of this pipeline).
+  terminatedReturnStageId String?  @map("terminated_return_stage_id") @db.Uuid
+  createdByUserId         String?  @map("created_by_user_id") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  stages             SalesPipelineStage[] @relation("SalesPipelineStages")
+  terminatedReturnTo SalesPipelineStage?  @relation("SalesPipelineTerminatedReturn", fields: [id, terminatedReturnStageId], references: [pipelineId, id], onDelete: Restrict)
+  opportunities      SalesOpportunity[]
+
+  @@map("sales_pipelines")
+}
+
+/// A pipeline's stage. A stage holding records can't be deleted (move them first) or change type;
+/// an inactive stage takes no new records. History keeps the stage's name at the time, so a rename
+/// or a reorder never rewrites it.
+model SalesPipelineStage {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  pipelineId     String         @map("pipeline_id") @db.Uuid
+  name           String
+  /// Set only on stages the migration ships (e.g. "new_lead", "unqualified_lost").
+  systemKey      String?        @map("system_key")
+  stageType      SalesStageType @map("stage_type")
+  position       Int
+  isActive       Boolean        @default(true) @map("is_active")
+  /// What a record must carry to enter: "value", "assignee", "plan", "transaction", "lost_note".
+  requiredFields String[]       @default([]) @map("required_fields")
+  /// Approved automation keys the API runs on entry and exit.
+  onEnterActions String[]       @default([]) @map("on_enter_actions")
+  onExitActions  String[]       @default([]) @map("on_exit_actions")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  pipeline          SalesPipeline       @relation("SalesPipelineStages", fields: [pipelineId], references: [id], onDelete: Cascade)
+  terminatedReturns SalesPipeline[]     @relation("SalesPipelineTerminatedReturn")
+  opportunities     SalesOpportunity[]  @relation("SalesOpportunityStage")
+  historyFrom       SalesStageHistory[] @relation("SalesStageHistoryFrom")
+  historyTo         SalesStageHistory[] @relation("SalesStageHistoryTo")
+
+  @@unique([pipelineId, id])
+  @@unique([pipelineId, name])
+  @@unique([pipelineId, systemKey])
+  @@index([pipelineId, position])
+  @@map("sales_pipeline_stages")
+}
+
+/// The master person record for a prospect. Converting a lead never creates a second one.
+model SalesContact {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  name            String
+  email           String?
+  phone           String?
+  /// Set by the database (lowercased email, phone digits) for the duplicate check and search.
+  emailNormalized String?  @map("email_normalized")
+  phoneNormalized String?  @map("phone_normalized")
+  companyName     String?  @map("company_name")
+  jobTitle        String?  @map("job_title")
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  opportunities SalesOpportunity[]
+
+  @@index([emailNormalized])
+  @@index([phoneNormalized])
+  @@index([companyName])
+  @@map("sales_contacts")
+}
+
+/// One record behind the card, the row, the KPIs and the analytics. The database keeps the stage
+/// rules (lost needs a reason, Under Contract needs its transaction, required fields), applies the
+/// transaction sync, and writes the stage and assignment history itself.
+model SalesOpportunity {
+  id                  String                  @id @default(uuid(7)) @db.Uuid
+  pipelineId          String                  @map("pipeline_id") @db.Uuid
+  stageId             String                  @map("stage_id") @db.Uuid
+  contactId           String                  @map("contact_id") @db.Uuid
+  /// The firm or opportunity name shown on the card.
+  title               String
+  companyName         String?                 @map("company_name")
+  source              SalesLeadSource         @default(MANUAL_ENTRY)
+  /// The plan the prospect is interested in.
+  planId              String?                 @map("plan_id") @db.Uuid
+  /// Estimated value in cents; never invented (null when not given).
+  valueCents          Int?                    @map("value_cents")
+  assignedToUserId    String?                 @map("assigned_to_user_id") @db.Uuid
+  /// Set while the record is in a lost stage, and only then.
+  lostReason          SalesLostReason?        @map("lost_reason")
+  lostNote            String?                 @map("lost_note")
+  lostAt              DateTime?               @map("lost_at") @db.Timestamptz(3)
+  /// First time it entered a converted stage (the conversion event).
+  convertedAt         DateTime?               @map("converted_at") @db.Timestamptz(3)
+  stageEnteredAt      DateTime                @default(now()) @map("stage_entered_at") @db.Timestamptz(3)
+  /// The firm's application and the firm, once it applies and is provisioned.
+  firmApplicationId   String?                 @map("firm_application_id") @db.Uuid
+  linkedBusinessId    String?                 @map("linked_business_id") @db.Uuid
+  /// The linked transaction (e.g. "platform_subscription" and its id) and its reported state.
+  transactionKind     String?                 @map("transaction_kind")
+  transactionId       String?                 @map("transaction_id") @db.Uuid
+  transactionStatus   SalesTransactionStatus? @map("transaction_status")
+  transactionSyncedAt DateTime?               @map("transaction_synced_at") @db.Timestamptz(3)
+  createdByUserId     String?                 @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  pipeline          SalesPipeline            @relation(fields: [pipelineId], references: [id], onDelete: Restrict)
+  stage             SalesPipelineStage       @relation("SalesOpportunityStage", fields: [pipelineId, stageId], references: [pipelineId, id], onDelete: Restrict)
+  contact           SalesContact             @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  plan              PlatformPlan?            @relation(fields: [planId], references: [id], onDelete: Restrict)
+  assignee          PlatformAdmin?           @relation("SalesOpportunityAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+  firmApplication   FirmApplication?         @relation(fields: [firmApplicationId], references: [id], onDelete: SetNull)
+  linkedBusiness    Business?                @relation(fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+  tags              SalesOpportunityTag[]
+  stageHistory      SalesStageHistory[]
+  assignmentHistory SalesAssignmentHistory[]
+  activities        SalesActivity[]
+  followUps         SalesFollowUp[]
+  notes             SalesNote[]
+
+  @@index([pipelineId, stageId])
+  @@index([assignedToUserId])
+  @@index([contactId])
+  @@index([source])
+  @@index([createdAt])
+  @@index([transactionKind, transactionId])
+  @@map("sales_opportunities")
+}
+
+/// Reusable tags (never a stand-in for the stage).
+model SalesTag {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String   @unique
+  /// A design-token name from packages/ui (e.g. "accent-blue"), never a raw colour.
+  colorKey  String?  @map("color_key")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunities SalesOpportunityTag[]
+
+  @@map("sales_tags")
+}
+
+model SalesOpportunityTag {
+  opportunityId String   @map("opportunity_id") @db.Uuid
+  tagId         String   @map("tag_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  tag         SalesTag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([opportunityId, tagId])
+  @@index([tagId])
+  @@map("sales_opportunity_tags")
+}
+
+/// Every stage change, written by the database (the app only reads it). Names are kept as they
+/// were, so renaming or deleting a stage never rewrites history.
+model SalesStageHistory {
+  id                String                  @id @default(uuid(7)) @db.Uuid
+  opportunityId     String                  @map("opportunity_id") @db.Uuid
+  /// Null for the creation row.
+  fromStageId       String?                 @map("from_stage_id") @db.Uuid
+  toStageId         String?                 @map("to_stage_id") @db.Uuid
+  fromStageName     String?                 @map("from_stage_name")
+  toStageName       String                  @map("to_stage_name")
+  toStageType       SalesStageType          @map("to_stage_type")
+  /// The team member who moved it; null for the platform (automation, sync, import).
+  actorUserId       String?                 @map("actor_user_id") @db.Uuid
+  source            SalesChangeSource
+  lostReason        SalesLostReason?        @map("lost_reason")
+  lostNote          String?                 @map("lost_note")
+  transactionStatus SalesTransactionStatus? @map("transaction_status")
+  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity    @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  fromStage   SalesPipelineStage? @relation("SalesStageHistoryFrom", fields: [fromStageId], references: [id], onDelete: SetNull)
+  toStage     SalesPipelineStage? @relation("SalesStageHistoryTo", fields: [toStageId], references: [id], onDelete: SetNull)
+
+  @@index([opportunityId, createdAt])
+  @@index([toStageId, createdAt])
+  @@index([createdAt])
+  @@map("sales_stage_history")
+}
+
+/// Every owner change, written by the database (the app only reads it).
+model SalesAssignmentHistory {
+  id            String            @id @default(uuid(7)) @db.Uuid
+  opportunityId String            @map("opportunity_id") @db.Uuid
+  fromUserId    String?           @map("from_user_id") @db.Uuid
+  toUserId      String?           @map("to_user_id") @db.Uuid
+  actorUserId   String?           @map("actor_user_id") @db.Uuid
+  source        SalesChangeSource
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId, createdAt])
+  @@map("sales_assignment_history")
+}
+
+/// Outreach and conversations (calls, emails, texts, meetings), logged by the rep. Insert-only.
+/// The attention rules (no contact yet, no response, no activity) read these.
+model SalesActivity {
+  id            String                 @id @default(uuid(7)) @db.Uuid
+  opportunityId String                 @map("opportunity_id") @db.Uuid
+  kind          SalesActivityKind
+  direction     SalesActivityDirection
+  outcome       SalesActivityOutcome?
+  occurredAt    DateTime               @map("occurred_at") @db.Timestamptz(3)
+  summary       String?
+  /// Set by the database: the team member who logged it.
+  actorUserId   String?                @map("actor_user_id") @db.Uuid
+  followUpId    String?                @map("follow_up_id") @db.Uuid
+  createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  followUp    SalesFollowUp?   @relation(fields: [followUpId], references: [id], onDelete: SetNull)
+
+  @@index([opportunityId, occurredAt])
+  @@index([occurredAt])
+  @@map("sales_activities")
+}
+
+/// Follow-ups and appointments (the Upcoming panel). Cancelled, never deleted.
+model SalesFollowUp {
+  id               String              @id @default(uuid(7)) @db.Uuid
+  opportunityId    String              @map("opportunity_id") @db.Uuid
+  kind             SalesFollowUpKind
+  title            String
+  dueAt            DateTime            @map("due_at") @db.Timestamptz(3)
+  /// An appointment's end.
+  endsAt           DateTime?           @map("ends_at") @db.Timestamptz(3)
+  location         String?
+  status           SalesFollowUpStatus @default(SCHEDULED)
+  assignedToUserId String?             @map("assigned_to_user_id") @db.Uuid
+  completedAt      DateTime?           @map("completed_at") @db.Timestamptz(3)
+  cancelledAt      DateTime?           @map("cancelled_at") @db.Timestamptz(3)
+  createdByUserId  String?             @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  assignee    PlatformAdmin?   @relation("SalesFollowUpAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+  activities  SalesActivity[]
+
+  @@index([opportunityId, dueAt])
+  @@index([status, dueAt])
+  @@index([assignedToUserId, status, dueAt])
+  @@map("sales_follow_ups")
+}
+
+/// A team member's note on an opportunity; only its author edits or deletes it.
+model SalesNote {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  opportunityId String   @map("opportunity_id") @db.Uuid
+  authorUserId  String   @map("author_user_id") @db.Uuid
+  body          String
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId, createdAt])
+  @@map("sales_notes")
+}
+
+/// One row (id 1): the attention rules behind the card badges and the Needs Attention KPI. The
+/// migration inserts the defaults.
+model SalesAttentionSettings {
+  id                    Int      @id @default(1)
+  /// A new lead with no outreach after this many hours shows "No contact yet".
+  noContactHours        Int      @default(24) @map("no_contact_hours")
+  /// A follow-up due within this many hours shows "Follow-up due".
+  followUpDueHours      Int      @default(24) @map("follow_up_due_hours")
+  /// This many outbound attempts with no reply shows "No response".
+  noResponseAttempts    Int      @default(3) @map("no_response_attempts")
+  /// No activity for this many days shows "No activity".
+  noActivityDays        Int      @default(14) @map("no_activity_days")
+  /// An unassigned record shows "Unassigned".
+  ownerRequired         Boolean  @default(true) @map("owner_required")
+  /// A lost reason of OTHER needs a note.
+  lostOtherNoteRequired Boolean  @default(true) @map("lost_other_note_required")
+  updatedByUserId       String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("sales_attention_settings")
+}
+
+// ---------- R0 stage B6: Super Admin Communications ----------
+// Firmivra's own correspondence with firms' people, sales leads and the team (never a firm's
+// clients): conversations and their messages with per-recipient delivery, templates and their
+// categories, audience segments, broadcasts with per-channel content and per-recipient results,
+// and the image and attachment library. Platform data: only the Super Admin team and the
+// platform's jobs (dispatch, inbound mail and SMS, scanning) reach it. Contract note:
+// docs/work/R0-stage-b6-communications.md.
+
+enum CommChannel {
+  EMAIL
+  SMS
+  INTERNAL
+  IN_APP
+}
+
+/// Who the conversation is with: a firm's member, a sales lead (B5 contact), or a team member.
+enum CommContactType {
+  FIRM
+  LEAD
+  TEAM
+}
+
+enum CommConversationStatus {
+  OPEN
+  CLOSED
+}
+
+enum CommDirection {
+  OUTBOUND
+  INBOUND
+  /// A team-only note in the thread (channel INTERNAL).
+  INTERNAL
+}
+
+/// DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED.
+/// Inbound messages and internal notes are stored as RECEIVED and SENT.
+enum CommMessageStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PARTIALLY_SENT
+  FAILED
+  CANCELLED
+  RECEIVED
+}
+
+enum CommRecipientKind {
+  TO
+  CC
+  BCC
+}
+
+enum CommDeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  BOUNCED
+  FAILED
+  SKIPPED
+}
+
+enum CommTemplateStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum CommMediaKind {
+  INLINE_IMAGE
+  ATTACHMENT
+}
+
+/// DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED;
+/// FAILED -> SENDING (a retry; the first attempt's results stay).
+enum CommBroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PARTIALLY_SENT
+  FAILED
+  CANCELLED
+}
+
+/// A thread with one contact. The contact's name and destinations are kept as they were, so the
+/// thread still reads correctly after the firm, lead or user changes or is deleted.
+model CommConversation {
+  id               String                 @id @default(uuid(7)) @db.Uuid
+  contactType      CommContactType        @map("contact_type")
+  /// The firm (FIRM), cleared if the firm is deleted.
+  linkedBusinessId String?                @map("linked_business_id") @db.Uuid
+  /// The firm member or team member. No foreign key: the history outlives the login.
+  contactUserId    String?                @map("contact_user_id") @db.Uuid
+  /// The sales lead (LEAD): a B5 sales_contacts id. No foreign key, so this stage does not
+  /// depend on B5's merge order; the history outlives the lead.
+  salesContactId   String?                @map("sales_contact_id") @db.Uuid
+  contactName      String                 @map("contact_name")
+  contactEmail     String?                @map("contact_email")
+  contactPhone     String?                @map("contact_phone")
+  subject          String?
+  status           CommConversationStatus @default(OPEN)
+  assignedToUserId String?                @map("assigned_to_user_id") @db.Uuid
+  tags             String[]               @default([])
+  /// Set by the database from the thread's messages.
+  lastMessageAt    DateTime?              @map("last_message_at") @db.Timestamptz(3)
+  createdByUserId  String?                @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  linkedBusiness Business?              @relation(fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+  assignee       PlatformAdmin?         @relation("CommConversationAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+  messages       CommMessage[]
+  reads          CommConversationRead[]
+
+  @@index([lastMessageAt])
+  @@index([assignedToUserId, status])
+  @@index([linkedBusinessId])
+  @@index([salesContactId])
+  @@index([contactUserId])
+  @@map("comm_conversations")
+}
+
+/// One message in a thread (or a broadcast's copy in a recipient's thread). Content is editable
+/// while DRAFT or SCHEDULED; once dispatch begins it never changes. Only drafts are deleted.
+model CommMessage {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  conversationId    String            @map("conversation_id") @db.Uuid
+  channel           CommChannel
+  direction         CommDirection
+  status            CommMessageStatus @default(DRAFT)
+  /// Email only.
+  subject           String?
+  /// HTML for email (inline images by media id), plain text for SMS and internal notes.
+  body              String
+  templateId        String?           @map("template_id") @db.Uuid
+  broadcastId       String?           @map("broadcast_id") @db.Uuid
+  /// The failed message this one retries (the failed attempt stays in history).
+  retryOfMessageId  String?           @map("retry_of_message_id") @db.Uuid
+  /// Protects against a double submission of the same send.
+  idempotencyKey    String?           @unique @map("idempotency_key")
+  scheduledAt       DateTime?         @map("scheduled_at") @db.Timestamptz(3)
+  scheduledTimeZone String?           @map("scheduled_time_zone")
+  /// Set by the database: the team member who wrote it (null for inbound and the platform).
+  senderUserId      String?           @map("sender_user_id") @db.Uuid
+  /// Inbound: who it came from, as received.
+  fromAddress       String?           @map("from_address")
+  sentAt            DateTime?         @map("sent_at") @db.Timestamptz(3)
+  failedAt          DateTime?         @map("failed_at") @db.Timestamptz(3)
+  errorCode         String?           @map("error_code")
+  errorMessage      String?           @map("error_message")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  conversation CommConversation       @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  template     CommTemplate?          @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  broadcast    CommBroadcast?         @relation(fields: [broadcastId], references: [id], onDelete: SetNull)
+  retryOf      CommMessage?           @relation("CommMessageRetry", fields: [retryOfMessageId], references: [id], onDelete: SetNull)
+  retries      CommMessage[]          @relation("CommMessageRetry")
+  recipients   CommMessageRecipient[]
+  mentions     CommMessageMention[]
+  media        CommMediaLink[]
+
+  @@index([conversationId, createdAt])
+  @@index([status, scheduledAt])
+  @@index([broadcastId])
+  @@map("comm_messages")
+}
+
+/// A message's recipient and its own delivery result (partial delivery, retry failed only).
+model CommMessageRecipient {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  messageId         String             @map("message_id") @db.Uuid
+  kind              CommRecipientKind  @default(TO)
+  contactType       CommContactType    @map("contact_type")
+  linkedBusinessId  String?            @map("linked_business_id") @db.Uuid
+  contactUserId     String?            @map("contact_user_id") @db.Uuid
+  salesContactId    String?            @map("sales_contact_id") @db.Uuid
+  name              String
+  /// The email address or phone number used for this channel.
+  address           String
+  status            CommDeliveryStatus @default(PENDING)
+  providerMessageId String?            @map("provider_message_id")
+  errorCode         String?            @map("error_code")
+  sentAt            DateTime?          @map("sent_at") @db.Timestamptz(3)
+  deliveredAt       DateTime?          @map("delivered_at") @db.Timestamptz(3)
+  failedAt          DateTime?          @map("failed_at") @db.Timestamptz(3)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message        CommMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  linkedBusiness Business?   @relation("CommMessageRecipientBusiness", fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+
+  @@unique([messageId, kind, address])
+  @@index([status])
+  @@index([providerMessageId])
+  @@map("comm_message_recipients")
+}
+
+/// A team member mentioned in an internal note (the Mentions tab).
+model CommMessageMention {
+  messageId String   @map("message_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message CommMessage   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    PlatformAdmin @relation("CommMessageMentioned", fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([messageId, userId])
+  @@index([userId, createdAt])
+  @@map("comm_message_mentions")
+}
+
+/// Each team member's read state per conversation (Unread counts).
+model CommConversationRead {
+  conversationId String   @map("conversation_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  lastReadAt     DateTime @map("last_read_at") @db.Timestamptz(3)
+
+  conversation CommConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         PlatformAdmin    @relation("CommConversationReader", fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@map("comm_conversation_reads")
+}
+
+/// Template categories (tabs). The migration ships the spec's six; deactivated, never deleted.
+model CommTemplateCategory {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String   @unique
+  systemKey String?  @unique @map("system_key")
+  position  Int
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  templates CommTemplate[]
+
+  @@map("comm_template_categories")
+}
+
+/// An email or SMS template. Archived, never deleted. Merge fields are tokens like
+/// {{firm.name}} from the API's central list.
+model CommTemplate {
+  id              String             @id @default(uuid(7)) @db.Uuid
+  categoryId      String             @map("category_id") @db.Uuid
+  name            String             @unique
+  channel         CommChannel
+  status          CommTemplateStatus @default(ACTIVE)
+  /// Email only, and required for email.
+  subject         String?
+  body            String
+  mergeFields     String[]           @default([]) @map("merge_fields")
+  createdByUserId String?            @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?            @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  category CommTemplateCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  messages CommMessage[]
+  media    CommMediaLink[]
+
+  @@index([categoryId, status])
+  @@map("comm_templates")
+}
+
+/// The image and attachment library (uploads go to S3 under platform/communications/<id>/).
+/// Scanned once by the platform; only CLEAN files are sent.
+model CommMedia {
+  id               String        @id @default(uuid(7)) @db.Uuid
+  kind             CommMediaKind
+  fileName         String        @map("file_name")
+  contentType      String        @map("content_type")
+  sizeBytes        Int           @map("size_bytes")
+  sha256           String
+  s3Key            String        @unique @map("s3_key")
+  scanStatus       ScanStatus    @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?     @map("scanned_at") @db.Timestamptz(3)
+  uploadedByUserId String?       @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  links CommMediaLink[]
+
+  @@index([kind, createdAt])
+  @@map("comm_media")
+}
+
+/// Where a library file is used: in a template, a message or a broadcast channel's content, as an
+/// inline image or an attachment. Exactly one owner.
+model CommMediaLink {
+  id                 String        @id @default(uuid(7)) @db.Uuid
+  mediaId            String        @map("media_id") @db.Uuid
+  usage              CommMediaKind
+  templateId         String?       @map("template_id") @db.Uuid
+  messageId          String?       @map("message_id") @db.Uuid
+  broadcastChannelId String?       @map("broadcast_channel_id") @db.Uuid
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  media            CommMedia             @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+  template         CommTemplate?         @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  message          CommMessage?          @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  broadcastChannel CommBroadcastChannel? @relation(fields: [broadcastChannelId], references: [id], onDelete: Cascade)
+
+  @@index([mediaId])
+  @@index([templateId])
+  @@index([messageId])
+  @@index([broadcastChannelId])
+  @@map("comm_media_links")
+}
+
+/// An audience. `definition` holds the API's filter rules (contact types, plans, firm statuses,
+/// lead stages, tags); the API resolves it at send time and caches the last count.
+model CommSegment {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  name            String    @unique
+  description     String?
+  definition      Json
+  lastCount       Int?      @map("last_count")
+  lastCountedAt   DateTime? @map("last_counted_at") @db.Timestamptz(3)
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  broadcasts CommBroadcast[]
+
+  @@map("comm_segments")
+}
+
+/// A broadcast to a segment over one or more channels (content per channel). Editable while
+/// DRAFT or SCHEDULED; sent broadcasts are never edited or deleted (archive instead).
+model CommBroadcast {
+  id                String              @id @default(uuid(7)) @db.Uuid
+  name              String
+  status            CommBroadcastStatus @default(DRAFT)
+  segmentId         String?             @map("segment_id") @db.Uuid
+  scheduledAt       DateTime?           @map("scheduled_at") @db.Timestamptz(3)
+  scheduledTimeZone String?             @map("scheduled_time_zone")
+  /// Resolved at send; a send needs at least one.
+  recipientCount    Int?                @map("recipient_count")
+  idempotencyKey    String?             @unique @map("idempotency_key")
+  duplicatedFromId  String?             @map("duplicated_from_id") @db.Uuid
+  sendStartedAt     DateTime?           @map("send_started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?           @map("finished_at") @db.Timestamptz(3)
+  errorMessage      String?             @map("error_message")
+  archivedAt        DateTime?           @map("archived_at") @db.Timestamptz(3)
+  createdByUserId   String?             @map("created_by_user_id") @db.Uuid
+  updatedByUserId   String?             @map("updated_by_user_id") @db.Uuid
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  segment        CommSegment?             @relation(fields: [segmentId], references: [id], onDelete: Restrict)
+  duplicatedFrom CommBroadcast?           @relation("CommBroadcastDuplicate", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
+  duplicates     CommBroadcast[]          @relation("CommBroadcastDuplicate")
+  channels       CommBroadcastChannel[]
+  recipients     CommBroadcastRecipient[]
+  messages       CommMessage[]
+
+  @@index([status, scheduledAt])
+  @@index([createdAt])
+  @@map("comm_broadcasts")
+}
+
+/// A broadcast's content and result for one channel (a multi-channel send keeps each channel's
+/// result; one failed channel never marks the whole broadcast sent).
+model CommBroadcastChannel {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  broadcastId String              @map("broadcast_id") @db.Uuid
+  channel     CommChannel
+  /// Email only, and required for email.
+  subject     String?
+  body        String
+  status      CommBroadcastStatus @default(DRAFT)
+  sentCount   Int                 @default(0) @map("sent_count")
+  failedCount Int                 @default(0) @map("failed_count")
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  broadcast CommBroadcast   @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  media     CommMediaLink[]
+
+  @@unique([broadcastId, channel])
+  @@map("comm_broadcast_channels")
+}
+
+/// A broadcast's recipient on one channel, with its own result.
+model CommBroadcastRecipient {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  broadcastId       String             @map("broadcast_id") @db.Uuid
+  channel           CommChannel
+  contactType       CommContactType    @map("contact_type")
+  linkedBusinessId  String?            @map("linked_business_id") @db.Uuid
+  contactUserId     String?            @map("contact_user_id") @db.Uuid
+  salesContactId    String?            @map("sales_contact_id") @db.Uuid
+  name              String
+  address           String
+  status            CommDeliveryStatus @default(PENDING)
+  providerMessageId String?            @map("provider_message_id")
+  errorCode         String?            @map("error_code")
+  /// The copy written to the recipient's conversation history, when one is kept.
+  messageId         String?            @map("message_id") @db.Uuid
+  sentAt            DateTime?          @map("sent_at") @db.Timestamptz(3)
+  deliveredAt       DateTime?          @map("delivered_at") @db.Timestamptz(3)
+  failedAt          DateTime?          @map("failed_at") @db.Timestamptz(3)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  broadcast      CommBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  linkedBusiness Business?     @relation("CommBroadcastRecipientBusiness", fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+
+  @@unique([broadcastId, channel, address])
+  @@index([broadcastId, status])
+  @@index([providerMessageId])
+  @@map("comm_broadcast_recipients")
 }
