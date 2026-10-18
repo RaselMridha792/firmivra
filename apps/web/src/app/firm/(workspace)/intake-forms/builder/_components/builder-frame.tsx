@@ -1,7 +1,7 @@
 'use client';
 
 import { ApiRequestError, type IntakeFormDetail, type QuestionType } from '@firmivra/types';
-import { Button, PageHeader, Skeleton } from '@firmivra/ui';
+import { Button, Skeleton } from '@firmivra/ui';
 import {
   CaretRight,
   Eye,
@@ -92,25 +92,38 @@ interface SaveResult {
   failed: unknown;
 }
 
-/** "Intake Forms > Create New Intake Form" over the title. */
+/** The breadcrumb's short name for each title (the design: "Intake Forms > Create New Form"). */
+const CRUMBS: Record<string, string> = {
+  'Create New Intake Form': 'Create New Form',
+  'Edit Intake Form': 'Edit Form',
+};
+
+/** "Intake Forms > Create New Form" over the title. */
 function Breadcrumb({ title }: { title: string }) {
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-muted">
+    <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-text">
       <Link href="/intake-forms" className="hover:text-action hover:underline">
         Intake Forms
       </Link>
       <CaretRight aria-hidden weight="bold" className="size-3" />
       <span aria-current="page" className="font-semibold text-heading">
-        {title}
+        {CRUMBS[title] ?? title}
       </span>
     </nav>
   );
 }
 
-/** Form Builder, Preview and Logic & Rules: one tab bar of links (each tab is a route). */
+/** Save as Draft and Preview: white, blue border, navy text (the kit's outline is blue text). */
+const OUTLINED =
+  'inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-action bg-surface px-4 py-2 text-sm font-semibold text-heading hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:hover:bg-surface';
+
+/** The last card of a column on wide screens: it grows to the bottom of the row. */
+const GROW = 'xl:flex-1';
+
+/** Form Builder, Preview and Logic & Rules: three tab blocks of links (each tab is a route). */
 function BuilderTabs({ id, tab }: { id: string; tab: BuilderTab }) {
   return (
-    <nav aria-label="Build Your Form" className="grid grid-cols-3 rounded-lg bg-canvas">
+    <nav aria-label="Build Your Form" className="grid grid-cols-3 gap-1">
       {TABS.map((t) => {
         const on = t.id === tab;
         const Glyph = t.icon;
@@ -119,12 +132,12 @@ function BuilderTabs({ id, tab }: { id: string; tab: BuilderTab }) {
             key={t.id}
             href={`/intake-forms/builder/${id}${t.path}`}
             aria-current={on ? 'page' : undefined}
-            className={`flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-t-lg border-b-3 px-2 text-center text-sm font-semibold ${on ? 'border-action bg-info-soft text-action' : 'border-transparent text-heading hover:text-action'}`}
+            className={`flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-lg border-b-3 px-2 text-center text-sm font-semibold ${on ? 'border-action bg-info-soft text-action' : 'border-transparent bg-canvas text-heading hover:text-action'}`}
           >
             <Glyph
               aria-hidden
               weight="fill"
-              className={`hidden size-5 shrink-0 sm:block ${on ? 'text-action' : 'text-muted'}`}
+              className={`hidden size-5 shrink-0 sm:block ${on ? 'text-action' : 'text-heading'}`}
             />
             {t.label}
           </Link>
@@ -321,26 +334,32 @@ export function BuilderFrame({
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex flex-col gap-1 bg-canvas pb-1 md:sticky md:top-0 md:z-20 md:-mt-4 md:pt-4">
-        <PageHeader
-          title={title}
-          subtitle="Build a customized intake form for your clients. Add questions, organize into sections, and set preferences."
-          above={<Breadcrumb title={title} />}
-          actions={
-            <>
-              <Button
+        {/* Not the kit's PageHeader: its title block does not shrink, so at 1440 px the buttons
+            drop under the subtitle; the design has them beside the title. */}
+        <header className="flex flex-col gap-2">
+          <Breadcrumb title={title} />
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between xl:gap-6">
+            <div className="min-w-0">
+              <h1 className="font-display text-3xl font-bold text-heading">{title}</h1>
+              <p className="text-base text-text">
+                Build a customized intake form for your clients. Add questions, organize into
+                sections, and set preferences.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 xl:shrink-0">
+              <button
                 type="button"
-                variant="secondary"
-                className="min-w-32"
+                className={OUTLINED}
                 disabled={!state || busy}
                 onClick={() => run('draft')}
               >
                 {busyMode === 'draft' ? 'Saving…' : 'Save as Draft'}
-              </Button>
+              </button>
               <Link
                 href={`/intake-forms/builder/${formId}/preview`}
-                className="inline-flex min-h-11 min-w-32 items-center justify-center gap-2 rounded-control border border-action bg-surface px-4 py-2 text-sm font-medium text-action hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                className={`${OUTLINED} min-w-32`}
               >
-                <Eye aria-hidden weight="fill" className="size-5" />
+                <Eye aria-hidden weight="fill" className="size-5 text-action" />
                 Preview
               </Link>
               <Button
@@ -364,9 +383,9 @@ export function BuilderFrame({
                   { label: 'Save & Send', disabled: !state || busy, onSelect: () => run('send') },
                 ]}
               />
-            </>
-          }
-        />
+            </div>
+          </div>
+        </header>
         <p aria-live="polite" data-testid="builder-status" className="min-h-5 text-sm">
           {failed ? (
             <span className="text-muted">{failed}</span>
@@ -394,16 +413,18 @@ export function BuilderFrame({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2 xl:flex">
-        <div className="min-w-0 xl:flex-9">
+      {/* Wide screens: the three columns end level, as in the design (the last card of each
+          column grows to the bottom). */}
+      <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2 xl:flex xl:items-stretch">
+        <div className="min-w-0 xl:flex xl:flex-9 xl:flex-col">
           {state ? (
-            <FormDetailsCard state={state} />
+            <FormDetailsCard state={state} className={GROW} />
           ) : (
-            <CardFrame title="1. Form Details" loading={loading} />
+            <CardFrame title="1. Form Details" loading={loading} className={GROW} />
           )}
         </div>
-        <div className="min-w-0 xl:flex-14">
-          <BuilderCard title="2. Build Your Form" testId="build-your-form">
+        <div className="min-w-0 xl:flex xl:flex-14 xl:flex-col">
+          <BuilderCard title="2. Build Your Form" testId="build-your-form" className={GROW}>
             <BuilderTabs id={formId} tab={tab} />
             {state ? (
               children(state)
@@ -418,12 +439,12 @@ export function BuilderFrame({
             )}
           </BuilderCard>
         </div>
-        <div className="flex min-w-0 flex-col gap-3 lg:col-span-2 lg:grid lg:grid-cols-2 lg:items-start xl:flex xl:flex-10 xl:flex-col">
+        <div className="flex min-w-0 flex-col gap-3 lg:col-span-2 lg:grid lg:grid-cols-2 lg:items-start xl:flex xl:flex-10 xl:flex-col xl:items-stretch">
           <AddQuestionsCard state={state} />
           {state ? (
-            <FormSettingsCard state={state} />
+            <FormSettingsCard state={state} className={GROW} />
           ) : (
-            <CardFrame title="4. Form Settings" loading={loading} />
+            <CardFrame title="4. Form Settings" loading={loading} className={GROW} />
           )}
         </div>
       </div>
