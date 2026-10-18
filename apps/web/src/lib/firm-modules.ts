@@ -2,7 +2,6 @@
 import {
   ArrowsClockwise,
   Calculator,
-  CurrencyDollar,
   Envelope,
   Globe,
   IdentificationCard,
@@ -32,7 +31,6 @@ export const FIRM_MODULES: readonly FirmModule[] = [
   { slug: 'client-portal', label: 'Client Portal', icon: Globe },
   { slug: 'tax-returns', label: 'Tax Returns', icon: IdentificationCard },
   { slug: 'bookkeeping', label: 'Bookkeeping', icon: Calculator },
-  { slug: 'payroll', label: 'Payroll', icon: CurrencyDollar },
   { slug: 'communications', label: 'Communications', icon: PaperPlaneTilt },
   { slug: 'automations', label: 'Automations', icon: ArrowsClockwise },
   { slug: 'templates', label: 'Templates', icon: Layout },

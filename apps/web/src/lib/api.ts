@@ -53,6 +53,7 @@ import {
   createStaffClient,
   createSupportAccessClient,
   createTasksClient,
+  createPayrollClient,
   createTaskWorkClient,
   createComplianceClient,
   createTemplatesClient,
@@ -122,6 +123,7 @@ import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createTasksMock } from '../mocks/tasks';
 import { createComplianceMock } from '../mocks/compliance';
+import { createPayrollMock } from '../mocks/payroll';
 import { createTaskWorkMock } from '../mocks/tasks-work';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
@@ -298,6 +300,14 @@ export const api = {
       : createMyDocumentsClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
   tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
+  /**
+   * Payroll (R39): payroll clients, workers, runs, filings and reports. Mock:
+   * NEXT_PUBLIC_API_MOCK=payroll (mocks/payroll.ts, R56).
+   */
+  payroll:
+    dev && mocked('payroll')
+      ? createPayrollMock({ role: MOCK_ROLE, empty: mockedEmpty('payroll') })
+      : createPayrollClient(request),
   /**
    * Compliance & Deadlines (R57): deadlines, calendars, recurrences, rules, logs, settings. Mock:
    * NEXT_PUBLIC_API_MOCK=compliance (mocks/compliance.ts, R56).
