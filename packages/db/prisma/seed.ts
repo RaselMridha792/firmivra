@@ -70,6 +70,145 @@ const randomHash = () => createHash('sha256').update(randomBytes(32)).digest('he
  * (on the invited member, so no one who signs in is locked) and the bulk batch that made it.
  * Synthetic data only; created once (the request is never re-created).
  */
+/** Stage B8: Firmivra's integrations (see main). Idempotent by fixed ids. */
+async function seedIntegrations(lvp: string) {
+  const ids = SEED_PLATFORM_IDS;
+  const asAdmin = { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id } as const;
+  if (
+    await runInScope(prisma, asAdmin, (tx) =>
+      tx.platformIntegration.findUnique({ where: { id: ids.integrationStripe } }),
+    )
+  ) {
+    return;
+  }
+  await runInScope(prisma, asAdmin, async (tx) => {
+    await tx.platformIntegration.create({
+      data: {
+        id: ids.integrationStripe,
+        provider: 'stripe',
+        name: 'Stripe',
+        category: 'PAYMENTS_BILLING',
+        description: 'Card payments and subscription billing for Firmivra plans.',
+        websiteUrl: 'https://stripe.com',
+        environment: 'TEST',
+        secretRef: 'local:stripe-test-secret-key',
+        settings: {
+          webhookEvents: ['invoice.paid', 'payment_intent.succeeded'],
+          retry: { max: 3 },
+        },
+      },
+    });
+    await tx.platformIntegrationRun.create({
+      data: {
+        integrationId: ids.integrationStripe,
+        kind: 'TEST',
+        correlationId: 'seed-stripe-test',
+      },
+    });
+    const teamPro = await tx.platformPlan.findUnique({ where: { code: 'TEAM_PRO' } });
+    await tx.platformIntegrationCatalog.create({
+      data: {
+        id: ids.integrationCatalog,
+        provider: 'quickbooks_online',
+        name: 'QuickBooks Online',
+        category: 'PAYMENTS_BILLING',
+        shortDescription: 'Sync clients, invoices and payments with QuickBooks Online.',
+        status: 'ENABLED',
+        planAccess: 'SELECTED_PLANS',
+        setup: {
+          authType: 'OAUTH2',
+          instructions: 'Sign in with your Intuit account and choose a company.',
+        },
+        badges: ['popular'],
+        plans: teamPro ? { create: [{ planId: teamPro.id }] } : undefined,
+        firmRules: {
+          create: [
+            { businessId: lvp, access: 'ALLOW', reason: 'Beta firm for the QuickBooks sync.' },
+          ],
+        },
+      },
+    });
+    await tx.platformApiKey.create({
+      data: {
+        id: ids.integrationApiKey,
+        name: 'Reporting export',
+        prefix: 'fv_test_k7q2',
+        lastFour: 'x9Qa',
+        keyHash: createHash('sha256').update('seed-reporting-export-key').digest('hex'),
+        scopes: ['reports:read'],
+        environment: 'TEST',
+        rateLimitPerMinute: 120,
+      },
+    });
+    await tx.platformWebhookEndpoint.create({
+      data: {
+        id: ids.integrationWebhook,
+        direction: 'OUTBOUND',
+        url: 'https://hooks.example.test/firmivra',
+        description: 'Partner notifications for new firms.',
+        events: ['firm.activated', 'firm.suspended'],
+        signingSecretRef: 'local:partner-webhook-signing-secret',
+      },
+    });
+  });
+  // The platform's part: the test passes, the integration goes live, a delivery and the rollup.
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    const run = await tx.platformIntegrationRun.findFirstOrThrow({
+      where: { integrationId: ids.integrationStripe, kind: 'TEST' },
+    });
+    await tx.platformIntegrationRun.update({ where: { id: run.id }, data: { status: 'RUNNING' } });
+    await tx.platformIntegrationRun.update({
+      where: { id: run.id },
+      data: { status: 'SUCCEEDED', objectCount: 1 },
+    });
+    await tx.platformIntegration.update({
+      where: { id: ids.integrationStripe },
+      data: { lastCheckAt: new Date(), lastCheckOk: true },
+    });
+    await tx.platformIntegrationLog.create({
+      data: {
+        source: 'PLATFORM_INTEGRATION',
+        integrationId: ids.integrationStripe,
+        provider: 'stripe',
+        environment: 'TEST',
+        severity: 'INFO',
+        eventType: 'integration.tested',
+        succeeded: true,
+        message: 'Connection test passed.',
+        correlationId: 'seed-stripe-test',
+      },
+    });
+    const delivery = await tx.platformWebhookDelivery.create({
+      data: {
+        endpointId: ids.integrationWebhook,
+        eventType: 'firm.activated',
+        eventId: `evt_firm_${lvp}`,
+      },
+    });
+    await tx.platformWebhookDelivery.update({
+      where: { id: delivery.id },
+      data: { status: 'SUCCEEDED', responseStatusCode: 200, durationMs: 182 },
+    });
+    await tx.platformIntegrationUsageDaily.create({
+      data: {
+        day: new Date(new Date().toISOString().slice(0, 10)),
+        scope: 'CATALOG',
+        subjectKey: 'quickbooks_online',
+        connectedFirms: 1,
+        activeFirms: 1,
+        connects: 1,
+        disconnects: 0,
+      },
+    });
+  });
+  await runInScope(prisma, asAdmin, (tx) =>
+    tx.platformIntegration.update({
+      where: { id: ids.integrationStripe },
+      data: { status: 'ACTIVE' },
+    }),
+  );
+}
+
 async function seedEsign(tx: TxClient, businessId: string) {
   const ids = SEED_ESIGN_IDS;
   const firm = { businessId };
@@ -2459,6 +2598,8 @@ async function main() {
   // tenant data). No subscription rows: no backfill for existing firms (Rasel's change C).
   await seedPlatformTeam(prisma);
   await seedPlatformPlans(prisma);
+  // Stage B8: Firmivra's integrations, after the plan ladder (a catalog entry is on Team Pro).
+  await seedIntegrations(businesses.lvp);
 
   // Stage B5: Firmivra's sales pipeline (admin scope, as the Super Admin). LVP is the won deal,
   // now an active client linked to its application and firm; a prospect firm is being worked

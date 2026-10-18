@@ -143,7 +143,12 @@ describe('row-level security coverage', () => {
                    ('platform_job_controls', 'DELETE'),
                    ('platform_default_sets', 'UPDATE'), ('platform_default_sets', 'DELETE'),
                    ('platform_default_set_applications', 'UPDATE'),
-                   ('platform_default_set_applications', 'DELETE')) AS p(tbl, privilege)`);
+                   ('platform_default_set_applications', 'DELETE'),
+                   ('platform_integrations', 'DELETE'), ('platform_integration_runs', 'DELETE'),
+                   ('platform_integration_logs', 'UPDATE'), ('platform_integration_logs', 'DELETE'),
+                   ('platform_integration_catalog', 'DELETE'), ('platform_api_keys', 'DELETE'),
+                   ('platform_webhook_endpoints', 'DELETE'), ('platform_webhook_deliveries', 'DELETE'),
+                   ('platform_integration_usage_daily', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 

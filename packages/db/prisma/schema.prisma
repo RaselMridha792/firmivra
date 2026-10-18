@@ -886,12 +886,14 @@ model Business {
   supportTickets            SupportTicket[]
   /// R0 stage B6: Firmivra's conversations with this firm's people, and its message and broadcast recipients.
   commConversations         CommConversation[]
-  commRecipients            CommMessageRecipient[]         @relation("CommMessageRecipientBusiness")
-  commBroadcastRecipients   CommBroadcastRecipient[]       @relation("CommBroadcastRecipientBusiness")
+  commRecipients            CommMessageRecipient[]           @relation("CommMessageRecipientBusiness")
+  commBroadcastRecipients   CommBroadcastRecipient[]         @relation("CommBroadcastRecipientBusiness")
   /// R0 stage B7: this firm's feature overrides, legal holds and the defaults it was provisioned with.
   platformFeatureOverrides  PlatformFeatureOverride[]
-  platformLegalHolds        PlatformLegalHold[]            @relation("PlatformLegalHoldBusiness")
-  platformDefaultsApplied   PlatformDefaultSetApplication? @relation("PlatformDefaultSetApplied")
+  platformLegalHolds        PlatformLegalHold[]              @relation("PlatformLegalHoldBusiness")
+  platformDefaultsApplied   PlatformDefaultSetApplication?   @relation("PlatformDefaultSetApplied")
+  /// R0 stage B8: this firm's allow or deny rules in Firmivra's integration catalog.
+  platformCatalogRules      PlatformIntegrationCatalogFirm[] @relation("PlatformCatalogFirmRule")
 
   @@map("businesses")
 }
@@ -1349,6 +1351,8 @@ model PlatformPlan {
   subscriptions      PlatformFirmSubscription[]
   /// R0 stage B5
   salesOpportunities SalesOpportunity[]
+  /// R0 stage B8
+  catalogPlans       PlatformIntegrationCatalogPlan[]
 
   @@map("platform_plans")
 }
@@ -12240,4 +12244,368 @@ model PlatformDefaultSetApplication {
 
   @@index([defaultSetId])
   @@map("platform_default_set_applications")
+}
+
+// ---------- R0 stage B8: Super Admin Integrations ----------
+// Firmivra's own service connections (billing, SMS, email, storage, AI, e-signature...) with their
+// sync runs, the central integration log, the catalog firms see (plan and firm access; provider
+// definitions stay in code and the catalog's provider key matches integration_connections.provider),
+// Firmivra-issued API keys (hash only), webhook endpoints and deliveries, and a daily usage and
+// adoption rollup. Platform data: only the Super Admin team and the platform's services reach it.
+// Contract note: docs/work/R0-stage-b8-integrations.md.
+
+enum PlatformIntegrationCategory {
+  PAYMENTS_BILLING
+  COMMUNICATION
+  EMAIL
+  CLOUD_STORAGE
+  AI_AUTOMATION
+  MLS_DATA
+  ESIGN
+  SECURITY_INFRASTRUCTURE
+  OTHER
+}
+
+/// DRAFT until activated (after a passing test); then ACTIVE, INACTIVE, NEEDS_ATTENTION or ERROR as
+/// health and admins decide; DISABLED by an admin; REMOVED is the tombstone.
+enum PlatformIntegrationStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  NEEDS_ATTENTION
+  ERROR
+  DISABLED
+  REMOVED
+}
+
+enum PlatformIntegrationRunKind {
+  SYNC
+  TEST
+}
+
+enum PlatformIntegrationLogSource {
+  PLATFORM_INTEGRATION
+  FIRM_CONNECTION
+  API
+  WEBHOOK
+}
+
+enum PlatformIntegrationLogSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+/// ENABLED: visible and connectable; COMING_SOON: visible, not connectable; DISABLED: hidden.
+enum PlatformCatalogStatus {
+  ENABLED
+  COMING_SOON
+  DISABLED
+}
+
+enum PlatformCatalogPlanAccess {
+  ALL_PLANS
+  SELECTED_PLANS
+}
+
+enum PlatformCatalogFirmAccess {
+  ALLOW
+  DENY
+}
+
+enum PlatformWebhookDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum PlatformWebhookStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum PlatformDeliveryStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum PlatformUsageScope {
+  PLATFORM_INTEGRATION
+  CATALOG
+  API
+}
+
+/// A Firmivra-owned service connection. Credentials live in the secret store: `secretRef` only
+/// names where. Removed is a tombstone (kept for the record). At most one connection per provider
+/// and environment that is not removed.
+model PlatformIntegration {
+  id                   String                      @id @default(uuid(7)) @db.Uuid
+  /// The provider's key in the code catalog, e.g. "stripe", "twilio", "aws_s3".
+  provider             String
+  name                 String
+  category             PlatformIntegrationCategory
+  description          String?
+  websiteUrl           String?                     @map("website_url")
+  docsUrl              String?                     @map("docs_url")
+  environment          IntegrationEnvironment      @default(TEST)
+  status               PlatformIntegrationStatus   @default(DRAFT)
+  /// Why it needs attention or failed, as a short code.
+  statusReason         String?                     @map("status_reason")
+  secretRef            String?                     @map("secret_ref")
+  secretRotatedAt      DateTime?                   @map("secret_rotated_at") @db.Timestamptz(3)
+  /// Non-secret options: scopes, sync schedule, enabled features, retry behaviour.
+  settings             Json                        @default("{}")
+  lastCheckAt          DateTime?                   @map("last_check_at") @db.Timestamptz(3)
+  lastCheckOk          Boolean?                    @map("last_check_ok")
+  lastSyncAt           DateTime?                   @map("last_sync_at") @db.Timestamptz(3)
+  /// Activated without a passing test (the provider has no test endpoint), as the admin confirmed.
+  activatedWithoutTest Boolean                     @default(false) @map("activated_without_test")
+  activatedAt          DateTime?                   @map("activated_at") @db.Timestamptz(3)
+  disabledAt           DateTime?                   @map("disabled_at") @db.Timestamptz(3)
+  removedAt            DateTime?                   @map("removed_at") @db.Timestamptz(3)
+  version              Int                         @default(1)
+  createdByUserId      String?                     @map("created_by_user_id") @db.Uuid
+  updatedByUserId      String?                     @map("updated_by_user_id") @db.Uuid
+  createdAt            DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  runs           PlatformIntegrationRun[]
+  logs           PlatformIntegrationLog[]
+  catalogEntries PlatformIntegrationCatalog[]
+
+  @@index([provider, environment])
+  @@index([status])
+  @@map("platform_integrations")
+}
+
+/// A sync or a connection test of a platform integration. Asked for by the team or the scheduler;
+/// moved only by the worker (platform scope). Counts only, never records or tokens.
+model PlatformIntegrationRun {
+  id                String                     @id @default(uuid(7)) @db.Uuid
+  integrationId     String                     @map("integration_id") @db.Uuid
+  kind              PlatformIntegrationRunKind
+  status            IntegrationSyncRunStatus   @default(QUEUED)
+  objectCount       Int                        @default(0) @map("object_count")
+  failedCount       Int                        @default(0) @map("failed_count")
+  retries           Int                        @default(0)
+  errorCode         String?                    @map("error_code")
+  errorMessage      String?                    @map("error_message")
+  correlationId     String?                    @map("correlation_id")
+  requestedByUserId String?                    @map("requested_by_user_id") @db.Uuid
+  createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt         DateTime?                  @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?                  @map("finished_at") @db.Timestamptz(3)
+
+  integration PlatformIntegration @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+
+  @@index([integrationId, createdAt])
+  @@index([status])
+  @@map("platform_integration_runs")
+}
+
+/// The central integration log: one structured, redacted event. Insert-only. A firm connection's
+/// event names its firm in `subjectBusinessId` (no foreign key: the log outlives the firm).
+model PlatformIntegrationLog {
+  id                String                         @id @default(uuid(7)) @db.Uuid
+  source            PlatformIntegrationLogSource
+  integrationId     String?                        @map("integration_id") @db.Uuid
+  provider          String?
+  environment       IntegrationEnvironment?
+  severity          PlatformIntegrationLogSeverity
+  eventType         String                         @map("event_type")
+  action            String?
+  succeeded         Boolean
+  errorCode         String?                        @map("error_code")
+  message           String
+  /// Redacted details: never secrets, tokens or record content.
+  details           Json?
+  requestId         String?                        @map("request_id")
+  correlationId     String?                        @map("correlation_id")
+  subjectBusinessId String?                        @map("subject_business_id") @db.Uuid
+  actorUserId       String?                        @map("actor_user_id") @db.Uuid
+  createdAt         DateTime                       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  integration PlatformIntegration? @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+
+  @@index([createdAt])
+  @@index([integrationId, createdAt])
+  @@index([severity, createdAt])
+  @@index([provider, createdAt])
+  @@index([correlationId])
+  @@index([requestId])
+  @@map("platform_integration_logs")
+}
+
+/// What firms see in their integration catalog for one provider (its key matches
+/// integration_connections.provider). Status, plan access and firm rules decide who can see and
+/// connect it: DISABLED hides it from everyone; a firm's DENY hides it; a firm's ALLOW shows it
+/// whatever the plan; otherwise the plan access decides.
+model PlatformIntegrationCatalog {
+  id                    String                      @id @default(uuid(7)) @db.Uuid
+  provider              String                      @unique
+  name                  String
+  category              PlatformIntegrationCategory
+  shortDescription      String                      @map("short_description")
+  description           String?
+  /// S3 under platform/integrations/<entry id>/, a raster logo.
+  logoS3Key             String?                     @map("logo_s3_key")
+  websiteUrl            String?                     @map("website_url")
+  helpUrl               String?                     @map("help_url")
+  status                PlatformCatalogStatus       @default(DISABLED)
+  planAccess            PlatformCatalogPlanAccess   @default(ALL_PLANS) @map("plan_access")
+  /// The customer setup experience: instructions, required fields, auth type (the API's schema).
+  setup                 Json                        @default("{}")
+  badges                String[]                    @default([])
+  sortOrder             Int                         @default(0) @map("sort_order")
+  /// Beta label, deprecation notice, rollout percentage, version requirement (the API's schema).
+  advanced              Json                        @default("{}")
+  /// The Firmivra service this entry relies on, if any (e.g. Firmivra's own Stripe account).
+  platformIntegrationId String?                     @map("platform_integration_id") @db.Uuid
+  version               Int                         @default(1)
+  createdByUserId       String?                     @map("created_by_user_id") @db.Uuid
+  updatedByUserId       String?                     @map("updated_by_user_id") @db.Uuid
+  createdAt             DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  platformIntegration PlatformIntegration?             @relation(fields: [platformIntegrationId], references: [id], onDelete: SetNull)
+  plans               PlatformIntegrationCatalogPlan[]
+  firmRules           PlatformIntegrationCatalogFirm[]
+
+  @@index([status, sortOrder])
+  @@map("platform_integration_catalog")
+}
+
+/// The plans a SELECTED_PLANS catalog entry is available on.
+model PlatformIntegrationCatalogPlan {
+  catalogId String   @map("catalog_id") @db.Uuid
+  planId    String   @map("plan_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  catalog PlatformIntegrationCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  plan    PlatformPlan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@id([catalogId, planId])
+  @@index([planId])
+  @@map("platform_integration_catalog_plans")
+}
+
+/// A firm-specific allow or deny for a catalog entry (goes with the firm's data).
+model PlatformIntegrationCatalogFirm {
+  catalogId       String                    @map("catalog_id") @db.Uuid
+  businessId      String                    @map("business_id") @db.Uuid
+  access          PlatformCatalogFirmAccess
+  reason          String?
+  updatedByUserId String?                   @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  catalog  PlatformIntegrationCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  business Business                   @relation("PlatformCatalogFirmRule", fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@id([catalogId, businessId])
+  @@index([businessId])
+  @@map("platform_integration_catalog_firms")
+}
+
+/// A Firmivra-issued API key. Only its SHA-256 hash is stored (the key is shown once, at creation),
+/// with a prefix and last four for display. Revoked once; a rotation is a new key naming the old.
+model PlatformApiKey {
+  id                 String                 @id @default(uuid(7)) @db.Uuid
+  name               String
+  /// e.g. "fv_live_8k2q": shown in lists.
+  prefix             String
+  lastFour           String                 @map("last_four")
+  keyHash            String                 @unique @map("key_hash")
+  scopes             String[]               @default([])
+  environment        IntegrationEnvironment @default(TEST)
+  rateLimitPerMinute Int?                   @map("rate_limit_per_minute")
+  expiresAt          DateTime?              @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt         DateTime?              @map("last_used_at") @db.Timestamptz(3)
+  rotatedFromId      String?                @unique @map("rotated_from_id") @db.Uuid
+  revokedAt          DateTime?              @map("revoked_at") @db.Timestamptz(3)
+  revokedByUserId    String?                @map("revoked_by_user_id") @db.Uuid
+  createdByUserId    String?                @map("created_by_user_id") @db.Uuid
+  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rotatedFrom PlatformApiKey? @relation("PlatformApiKeyRotation", fields: [rotatedFromId], references: [id], onDelete: Restrict)
+  rotatedTo   PlatformApiKey? @relation("PlatformApiKeyRotation")
+
+  @@index([revokedAt])
+  @@map("platform_api_keys")
+}
+
+/// A webhook endpoint: outbound (Firmivra calls it) or inbound (a provider calls Firmivra). The
+/// signing secret lives in the secret store; `signingSecretRef` only names where.
+model PlatformWebhookEndpoint {
+  id               String                   @id @default(uuid(7)) @db.Uuid
+  direction        PlatformWebhookDirection
+  url              String
+  description      String?
+  events           String[]                 @default([])
+  signingSecretRef String?                  @map("signing_secret_ref")
+  secretRotatedAt  DateTime?                @map("secret_rotated_at") @db.Timestamptz(3)
+  status           PlatformWebhookStatus    @default(ACTIVE)
+  maxRetries       Int                      @default(5) @map("max_retries")
+  createdByUserId  String?                  @map("created_by_user_id") @db.Uuid
+  updatedByUserId  String?                  @map("updated_by_user_id") @db.Uuid
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  deliveries PlatformWebhookDelivery[]
+
+  @@index([direction, status])
+  @@map("platform_webhook_endpoints")
+}
+
+/// One delivery attempt of one event to one endpoint. Recorded by the platform; its result is
+/// written once. A redelivery is a new attempt naming the original.
+model PlatformWebhookDelivery {
+  id                 String                 @id @default(uuid(7)) @db.Uuid
+  endpointId         String                 @map("endpoint_id") @db.Uuid
+  eventType          String                 @map("event_type")
+  eventId            String                 @map("event_id")
+  attempt            Int                    @default(1)
+  redeliveryOfId     String?                @map("redelivery_of_id") @db.Uuid
+  status             PlatformDeliveryStatus @default(PENDING)
+  responseStatusCode Int?                   @map("response_status_code")
+  durationMs         Int?                   @map("duration_ms")
+  requestId          String?                @map("request_id")
+  errorCode          String?                @map("error_code")
+  requestedByUserId  String?                @map("requested_by_user_id") @db.Uuid
+  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  finishedAt         DateTime?              @map("finished_at") @db.Timestamptz(3)
+
+  endpoint     PlatformWebhookEndpoint   @relation(fields: [endpointId], references: [id], onDelete: Restrict)
+  redeliveryOf PlatformWebhookDelivery?  @relation("PlatformWebhookRedelivery", fields: [redeliveryOfId], references: [id], onDelete: Restrict)
+  redeliveries PlatformWebhookDelivery[] @relation("PlatformWebhookRedelivery")
+
+  @@unique([endpointId, eventId, attempt])
+  @@index([endpointId, createdAt])
+  @@index([status])
+  @@map("platform_webhook_deliveries")
+}
+
+/// A day's rollup for one subject (a platform integration's id, a catalog provider key, or an API
+/// key's id), written by the platform's daily job. Cross-firm adoption comes from here, never from
+/// reading firms' connections in admin scope.
+model PlatformIntegrationUsageDaily {
+  day            DateTime           @db.Date
+  scope          PlatformUsageScope
+  subjectKey     String             @map("subject_key")
+  requests       Int                @default(0)
+  successes      Int                @default(0)
+  failures       Int                @default(0)
+  avgLatencyMs   Int?               @map("avg_latency_ms")
+  volume         BigInt?
+  costCents      Int?               @map("cost_cents")
+  connectedFirms Int?               @map("connected_firms")
+  activeFirms    Int?               @map("active_firms")
+  connects       Int?
+  disconnects    Int?
+  computedAt     DateTime           @default(now()) @map("computed_at") @db.Timestamptz(3)
+
+  @@id([day, scope, subjectKey])
+  @@index([scope, subjectKey, day])
+  @@map("platform_integration_usage_daily")
 }
