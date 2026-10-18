@@ -108,7 +108,11 @@ describe('row-level security coverage', () => {
                    ('firm_agreement_versions', 'UPDATE'), ('firm_agreement_versions', 'DELETE'),
                    ('intake_signatures', 'UPDATE'), ('intake_signatures', 'DELETE'),
                    ('intake_signature_agreements', 'UPDATE'),
-                   ('intake_signature_agreements', 'DELETE')) AS p(tbl, privilege)`);
+                   ('intake_signature_agreements', 'DELETE'),
+                   ('bookkeeping_transactions', 'DELETE'), ('bookkeeping_refunds', 'DELETE'),
+                   ('bookkeeping_settlements', 'DELETE'), ('bookkeeping_report_versions', 'DELETE'),
+                   ('bookkeeping_terms', 'DELETE'), ('bookkeeping_terms_events', 'UPDATE'),
+                   ('bookkeeping_terms_events', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 

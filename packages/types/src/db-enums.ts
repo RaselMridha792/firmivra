@@ -1734,3 +1734,111 @@ export const LeadActivityKind = z.enum([
   'CAMPAIGN',
 ]);
 export type LeadActivityKind = z.infer<typeof LeadActivityKind>;
+
+export const BookkeepingCategoryType = z.enum([
+  'INCOME',
+  'COST_OF_GOODS',
+  'EXPENSE',
+  'ASSET',
+  'LIABILITY',
+  'EQUITY',
+  'OTHER',
+]);
+export type BookkeepingCategoryType = z.infer<typeof BookkeepingCategoryType>;
+
+/** From the account's side: DEBIT is money out of a bank account (or a charge on a card), CREDIT is money in (or a card payment or refund). */
+export const BookkeepingTxnDirection = z.enum(['DEBIT', 'CREDIT']);
+export type BookkeepingTxnDirection = z.infer<typeof BookkeepingTxnDirection>;
+
+export const BookkeepingTxnKind = z.enum([
+  'STANDARD',
+  'TRANSFER',
+  'PAYMENT',
+  'REFUND',
+  'CHARGEBACK',
+  'FEE',
+  'PAYOUT',
+  'ADJUSTMENT',
+]);
+export type BookkeepingTxnKind = z.infer<typeof BookkeepingTxnKind>;
+
+export const BookkeepingTxnStatus = z.enum([
+  'UNCATEGORIZED',
+  'CATEGORIZED',
+  'MATCHED',
+  'EXCLUDED',
+  'NEEDS_REVIEW',
+]);
+export type BookkeepingTxnStatus = z.infer<typeof BookkeepingTxnStatus>;
+
+export const BookkeepingTxnSource = z.enum(['SYNC', 'IMPORT', 'MANUAL']);
+export type BookkeepingTxnSource = z.infer<typeof BookkeepingTxnSource>;
+
+export const BookkeepingRefundKind = z.enum(['REFUND_RECEIVED', 'REFUND_ISSUED', 'CHARGEBACK']);
+export type BookkeepingRefundKind = z.infer<typeof BookkeepingRefundKind>;
+
+export const BookkeepingRefundStatus = z.enum(['PENDING', 'COMPLETED', 'FAILED', 'REVERSED']);
+export type BookkeepingRefundStatus = z.infer<typeof BookkeepingRefundStatus>;
+
+export const BookkeepingDisputeStatus = z.enum(['OPEN', 'WON', 'LOST', 'ACCEPTED']);
+export type BookkeepingDisputeStatus = z.infer<typeof BookkeepingDisputeStatus>;
+
+export const BookkeepingNetSource = z.enum(['SOURCE', 'CALCULATED']);
+export type BookkeepingNetSource = z.infer<typeof BookkeepingNetSource>;
+
+export const BookkeepingSettlementStatus = z.enum([
+  'UNMATCHED',
+  'PARTIALLY_MATCHED',
+  'MATCHED',
+  'NEEDS_REVIEW',
+]);
+export type BookkeepingSettlementStatus = z.infer<typeof BookkeepingSettlementStatus>;
+
+export const BookkeepingDeliveryStatus = z.enum(['NOT_SENT', 'SENT', 'FAILED']);
+export type BookkeepingDeliveryStatus = z.infer<typeof BookkeepingDeliveryStatus>;
+
+/** DRAFT (editable) -> SENT -> ACTIVE (signed or accepted; then frozen) -> SUPERSEDED by the next version, or TERMINATED. */
+export const BookkeepingTermsStatus = z.enum([
+  'DRAFT',
+  'SENT',
+  'ACTIVE',
+  'SUPERSEDED',
+  'TERMINATED',
+]);
+export type BookkeepingTermsStatus = z.infer<typeof BookkeepingTermsStatus>;
+
+export const BookkeepingRenewalType = z.enum(['AUTO', 'MANUAL', 'FIXED_TERM']);
+export type BookkeepingRenewalType = z.infer<typeof BookkeepingRenewalType>;
+
+export const BookkeepingBillingFrequency = z.enum(['MONTHLY', 'QUARTERLY', 'ANNUAL']);
+export type BookkeepingBillingFrequency = z.infer<typeof BookkeepingBillingFrequency>;
+
+export const BookkeepingBillingTiming = z.enum(['ADVANCE', 'ARREARS']);
+export type BookkeepingBillingTiming = z.infer<typeof BookkeepingBillingTiming>;
+
+export const BookkeepingPaymentTerms = z.enum([
+  'DUE_ON_RECEIPT',
+  'NET_7',
+  'NET_15',
+  'NET_30',
+  'CUSTOM',
+]);
+export type BookkeepingPaymentTerms = z.infer<typeof BookkeepingPaymentTerms>;
+
+export const BookkeepingTermsEventKind = z.enum([
+  'CREATED',
+  'SENT',
+  'SIGNED',
+  'ACTIVATED',
+  'SUPERSEDED',
+  'PACKAGE_CHANGED',
+  'PRICING_CHANGED',
+  'SCOPE_CHANGED',
+  'RENEWAL_CHANGED',
+  'PRICE_CHANGE_NOTICE',
+  'TERMINATION_NOTICE',
+  'TERMINATED',
+  'RENEWED',
+  'NOTE',
+]);
+export type BookkeepingTermsEventKind = z.infer<typeof BookkeepingTermsEventKind>;
