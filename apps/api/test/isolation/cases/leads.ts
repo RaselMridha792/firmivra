@@ -61,6 +61,15 @@ export const records: CaseModule['records'] = {
       return lead.id;
     },
   },
+  /** A service of the world's firm, for the pipeline's `serviceIds` (R57). */
+  leadService: {
+    async create({ tx, businessId }) {
+      const row = await tx.service.create({
+        data: { businessId, kind: 'OTHER', name: `Lead service ${randomUUID().slice(0, 8)}` },
+      });
+      return row.id;
+    },
+  },
   /** The lead's clean file, made with the lead (above). */
   leadUpload: {
     async create({ get }) {
@@ -86,5 +95,29 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/leads/:id/uploads/:uploadId/download': {
     params: { id: 'lead', uploadId: 'leadUpload' },
     expect: 503,
+  },
+  // The Leads pipeline (R57). `campaignId` and the bulk and message `ids` are in body-ids.ts'
+  // NOT_RECORDS; the e2e tests (leads-pipeline.e2e.test.ts) cover those.
+  'POST /api/v1/business/leads': {
+    params: {},
+    body: {
+      firstName: 'Fake',
+      lastName: 'Created',
+      email: 'iso-created@iso.test',
+      source: 'REFERRAL',
+      allowDuplicate: true,
+    },
+    bodyIds: { serviceIds: 'leadService', assignedUserId: 'staffUser' },
+  },
+  'POST /api/v1/business/leads/bulk': {
+    params: {},
+    body: { action: 'ASSIGN', ids: ['01a14ebc-7954-75a4-be30-0ba529ae2e1a'] },
+    bodyIds: { assignedUserId: 'staffUser' },
+  },
+  'GET /api/v1/business/leads/:id/profile': { params: { id: 'lead' } },
+  'PATCH /api/v1/business/leads/:id': {
+    params: { id: 'lead' },
+    body: { priority: 'COLD' },
+    bodyIds: { serviceIds: 'leadService', assignedUserId: 'staffUser' },
   },
 };
