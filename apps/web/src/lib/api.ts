@@ -128,6 +128,7 @@ import { createAutomationsMock } from '../mocks/automations';
 import { createComplianceMock } from '../mocks/compliance';
 import { createPayrollMock } from '../mocks/payroll';
 import { createTaskWorkMock } from '../mocks/tasks-work';
+import { createTaxPlanningMock } from '../mocks/tax-planning';
 import { createCommunicationsMock } from '../mocks/communications';
 import { createTemplatesMock } from '../mocks/templates';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
@@ -369,7 +370,10 @@ export const api = {
    * Tax Planning & Strategy (R55): overview, plans, strategy library, opportunities, calculator,
    * calendar and resources. Real API only until its mock is written.
    */
-  taxPlanning: createTaxPlanningClient(request),
+  taxPlanning:
+    dev && mocked('taxPlanning')
+      ? createTaxPlanningMock({ role: MOCK_ROLE, empty: mockedEmpty('taxPlanning') })
+      : createTaxPlanningClient(request),
   /**
    * Communications (R55): overview, the composer for email, text and announcements, recipients
    * and segments, review and send, results and consent. Mock: NEXT_PUBLIC_API_MOCK=communications
