@@ -344,8 +344,13 @@ export function SupportDashboard() {
       {summary.isError ? <QuietLine>{loadError(summary.error)}</QuietLine> : null}
 
       <Panel label="Support tickets" testId="ticket-list" className="contain-paint">
+        {/*
+          The tabs keep their full width (up to the panel's), so search and Filters never squeeze
+          them: those two take the rest of the line, as in the design at 1440 px, and drop to
+          their own line when it is too short.
+        */}
         <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 px-4 pt-2">
-          <div className="min-w-0 max-w-full flex-1 max-lg:[&_[role=tablist]]:flex-wrap max-lg:[&_[role=tablist]]:gap-x-4">
+          <div className="min-w-0 max-w-full flex-none max-lg:[&_[role=tablist]]:flex-wrap max-lg:[&_[role=tablist]]:gap-x-4">
             <Tabs
               label="Ticket views"
               variant="underline"
@@ -358,7 +363,7 @@ export function SupportDashboard() {
               items={TABS.map(({ id, label }) => ({ id, label }))}
             />
           </div>
-          <div className="flex w-full items-center gap-3 pb-2 sm:w-auto">
+          <div className="flex flex-1 items-center gap-3 pb-2">
             <SearchField
               label="Search tickets"
               placeholder="Search tickets..."
