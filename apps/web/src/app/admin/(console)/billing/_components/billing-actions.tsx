@@ -347,6 +347,9 @@ function RecordPaymentForm({
           formId={formId}
           label="Record Payment"
           pending={record.isPending}
+          disabled={
+            settings.isLoading || Boolean(loadError) || (fixedInvoiceId !== null && !invoice)
+          }
           onClose={onClose}
         />
       </div>
