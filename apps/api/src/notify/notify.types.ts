@@ -56,6 +56,13 @@ export interface NotifyTemplates {
   'client.portal-invite': IgnoredFirmName & { name: string; signUpLink: string };
   /** A new message in a thread. Never the message text: the reader opens the link. */
   'message.received': IgnoredFirmName & { name: string; link: string };
+  /**
+   * Send Email from the Leads page: the member's own subject and text to a lead (no account, so
+   * no preferences). `body` is the text the member typed: it goes out, and nowhere else.
+   */
+  'lead.message-email': IgnoredFirmName & { name: string; subject: string | null; body: string };
+  /** Send SMS from the Leads page: the member's own text. */
+  'lead.message-sms': IgnoredFirmName & { body: string };
 
   // ----- Firm applications (R4; Firmivra's own messages, businessId null) -----
   /**
@@ -196,6 +203,8 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'lead.received': 'email',
   'client.portal-invite': 'email',
   'message.received': 'email',
+  'lead.message-email': 'email',
+  'lead.message-sms': 'sms',
 };
 
 /**
@@ -236,6 +245,8 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'lead.received': 'firm',
   'client.portal-invite': 'firm',
   'message.received': 'firm',
+  'lead.message-email': 'firm',
+  'lead.message-sms': 'firm',
 };
 
 /**
@@ -262,6 +273,9 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'begin-online.resume-link',
   'lead.confirmation',
   'client.portal-invite',
+  // A lead has no account, so no preferences to switch it off; the member chose to send it.
+  'lead.message-email',
+  'lead.message-sms',
 ]);
 
 /**
@@ -300,6 +314,8 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'lead.received': 'INTAKE',
   'client.portal-invite': 'ACCOUNT',
   'message.received': 'MESSAGES',
+  'lead.message-email': 'ACCOUNT',
+  'lead.message-sms': 'ACCOUNT',
 };
 
 export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {

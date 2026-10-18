@@ -387,7 +387,7 @@ export function IntakeReview({
             <Button
               variant="outline"
               onClick={() => onEdit(first.key)}
-              className="min-h-9! gap-2! px-4! text-sm!"
+              className="min-h-9 gap-2! px-4! text-sm!"
             >
               <Pencil aria-hidden="true" className="size-4" />
               Edit Information
@@ -521,7 +521,7 @@ function StepCard({
           variant="outline"
           onClick={onEdit}
           aria-label={`Edit ${title}`}
-          className="min-h-8! gap-1! border-surface! bg-surface! px-3! py-1! text-xs! text-heading!"
+          className="min-h-8 gap-1! border-surface! bg-surface! px-3! py-1! text-sm! text-heading!"
         >
           <Pencil aria-hidden="true" className="size-3" />
           Edit
@@ -582,7 +582,7 @@ export function UploadedFiles({
           <h3 className="font-display text-lg font-bold text-heading">
             Uploaded Supporting Documents
           </h3>
-          <p className="text-xs text-firm-primary">
+          <p className="text-sm text-firm-primary">
             Please review the documents you have uploaded. You can add more if needed.
           </p>
         </div>
@@ -591,7 +591,7 @@ export function UploadedFiles({
             variant="outline"
             onClick={() => onEdit(firstStep.key)}
             aria-label="Edit Uploaded Supporting Documents"
-            className="min-h-8! gap-1! px-3! py-1! text-xs!"
+            className="min-h-8 gap-1! px-3! py-1! text-sm!"
           >
             <Pencil aria-hidden="true" className="size-3" />
             Edit
@@ -600,7 +600,7 @@ export function UploadedFiles({
       </header>
       {uploads.length ? (
         <div className="max-h-56 overflow-auto rounded-control border border-folder-border">
-          <table className="w-full border-collapse text-left text-xs">
+          <table className="w-full border-collapse text-left text-sm">
             <thead className="bg-folder-surface text-heading">
               <tr>
                 <th scope="col" className="px-2 py-1 font-semibold">
@@ -626,7 +626,7 @@ export function UploadedFiles({
           </table>
         </div>
       ) : (
-        <p className="text-xs text-muted">No documents uploaded yet.</p>
+        <p className="text-sm text-muted">No documents uploaded yet.</p>
       )}
     </section>
   );
@@ -672,7 +672,7 @@ function StepRow({
         )}
         <span className="min-w-0 flex-1">
           <span className="block font-display text-base font-bold text-info">{title}</span>
-          {note && <span className="block text-xs text-text">{note}</span>}
+          {note && <span className="block text-sm text-text">{note}</span>}
         </span>
         <Button
           variant="outline"
@@ -681,7 +681,7 @@ function StepRow({
             onEdit();
           }}
           aria-label={`Edit ${title}`}
-          className="min-h-8! px-4! py-1! text-xs!"
+          className="min-h-8 px-4! py-1! text-sm!"
         >
           Edit
         </Button>
@@ -741,7 +741,7 @@ function FileRows({
             return (
               <li
                 key={u.id}
-                className="flex flex-wrap items-center gap-3 rounded-control border border-folder-border p-2 text-xs"
+                className="flex flex-wrap items-center gap-3 rounded-control border border-folder-border p-2 text-sm"
               >
                 <FileText aria-hidden="true" className="size-6 shrink-0 text-heading" />
                 <span className="min-w-0 flex-1">
@@ -756,7 +756,7 @@ function FileRows({
                     variant="outline"
                     onClick={() => onEdit(slot.step.key)}
                     aria-label={`Replace ${u.fileName}`}
-                    className="min-h-8! px-3! py-1! text-xs!"
+                    className="min-h-8 px-3! py-1! text-sm!"
                   >
                     Replace
                   </Button>
@@ -766,7 +766,7 @@ function FileRows({
           })}
         </ul>
       ) : (
-        <p className="text-xs text-muted">No documents uploaded yet.</p>
+        <p className="text-sm text-muted">No documents uploaded yet.</p>
       )}
     </SectionPanel>
   );

@@ -52,26 +52,27 @@ const visible = (a: Action, role: EsignAccessRole | null) =>
 export function QuickActions({ role }: { role: EsignAccessRole | null }) {
   const actions = ACTIONS.filter((a) => visible(a, role));
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-3" data-testid="firm-sign-quick-actions">
       {/* A Viewer has nothing to start: no empty card. */}
       {actions.length > 0 && (
-        <Card>
-          <h2 className="mb-4 font-display text-2xl text-heading">Quick Actions</h2>
-          <ul className="flex flex-col gap-2">
+        <Card className="p-3!">
+          <h2 className="mb-3 font-display text-lg font-semibold text-heading">Quick Actions</h2>
+          <ul className="flex flex-col gap-1">
             {actions.map(({ label, icon: Icon, href, soon }) => {
               const body = (
                 <>
                   <Icon aria-hidden className="size-5 text-brand-700" />
-                  <span className="flex-1">{label}</span>
-                  {soon && <span className="text-xs text-muted">Soon</span>}
+                  <span className="min-w-0 flex-1">{label}</span>
                 </>
               );
               const look =
-                'flex min-h-11 items-center gap-3 rounded-control bg-brand-50 px-3 text-sm font-medium text-heading';
+                'flex min-h-11 items-center gap-2 rounded-control bg-brand-50 px-2 text-xs font-medium text-heading';
               if (soon) {
                 return (
                   <li key={label}>
-                    <div className={look}>{body}</div>
+                    <div className={look} aria-disabled="true">
+                      {body}
+                    </div>
                   </li>
                 );
               }
@@ -89,13 +90,12 @@ export function QuickActions({ role }: { role: EsignAccessRole | null }) {
           </ul>
         </Card>
       )}
-      <Card>
+      <Card className="bg-brand-50 p-3!">
         <div className="flex gap-3">
           <CircleHelp aria-hidden className="size-8 shrink-0 text-platform-navy" />
           <div className="flex flex-col gap-1">
             <h2 className="font-semibold text-heading">Need Help?</h2>
-            <p className="text-sm text-muted">View guides or contact support.</p>
-            <p className="text-sm text-muted">Help Center: Soon</p>
+            <p className="text-xs text-muted">View guides or contact support.</p>
           </div>
         </div>
       </Card>
@@ -113,21 +113,21 @@ const STEPS = [
 /** The mockup's four steps. */
 export function HowItWorks() {
   return (
-    <Card>
-      <h2 className="mb-6 font-display text-2xl text-heading">How It Works</h2>
-      <ol className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+    <Card className="p-4!" data-testid="firm-sign-how-it-works">
+      <h2 className="mb-4 font-display text-lg font-semibold text-heading">How It Works</h2>
+      <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {STEPS.map((s, i) => (
           <li key={s.title} className="flex flex-col items-center gap-2 text-center">
             <span
               aria-hidden="true"
-              className={`flex size-12 items-center justify-center rounded-pill text-xl font-semibold ${
+              className={`flex size-10 items-center justify-center rounded-pill text-lg font-semibold ${
                 i % 2 ? 'bg-warning-soft text-heading' : 'bg-brand-100 text-heading'
               }`}
             >
               {i + 1}
             </span>
-            <span className="text-lg font-semibold text-heading">{s.title}</span>
-            <span className="text-sm text-muted">{s.text}</span>
+            <span className="text-sm font-semibold text-heading">{s.title}</span>
+            <span className="max-w-40 text-sm text-muted">{s.text}</span>
           </li>
         ))}
       </ol>

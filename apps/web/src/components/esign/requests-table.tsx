@@ -8,7 +8,7 @@ import {
   type EsignRequestRow,
   type ListEsignRequestsQuery,
 } from '@firmivra/types';
-import { Button, Input, Select, Table, type Column } from '@firmivra/ui';
+import { Button, Card, Input, Select, Table, type Column } from '@firmivra/ui';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Ellipsis, FileText } from 'lucide-react';
 import Link from 'next/link';
@@ -64,6 +64,8 @@ interface RequestsTableProps {
   caption: string;
   /** All requests: also Sender, Waiting on and Expires (the spec's columns). */
   detailed?: boolean;
+  /** Dashboard-only compact presentation; queries and controls are identical. */
+  compact?: boolean;
 }
 
 /**
@@ -77,6 +79,7 @@ export function RequestsTable({
   caption,
   quickFilter,
   detailed = false,
+  compact = false,
 }: RequestsTableProps) {
   const [filters, setFilters] = useState<RequestsFilters>({
     q: '',
@@ -195,8 +198,12 @@ export function RequestsTable({
   const next = list.data?.nextCursor ?? null;
   // Rows changed between pages and this later page came back empty.
   const emptyLater = page > 0 && list.data?.items.length === 0;
+  const nextPage = () => next && setCursors((c) => [...c, next]);
+  const previousPage = () => setCursors((c) => (c.length > 1 ? c.slice(0, -1) : c));
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      className={`flex flex-col ${compact ? 'min-w-0 gap-3 [&_td]:px-2 [&_td]:py-2 [&_th]:px-2 [&_th]:py-2 [&_table]:text-xs' : 'gap-4'}`}
+    >
       <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
         <Input
           label="Search documents"
@@ -238,31 +245,79 @@ export function RequestsTable({
           </Button>
         </div>
       ) : (
-        <div
-          aria-busy={list.isPlaceholderData}
-          className={list.isPlaceholderData ? 'opacity-60' : undefined}
-        >
-          <Table
-            caption={caption}
-            rows={list.data?.items ?? []}
-            columns={columns}
-            rowKey={(r) => r.id}
-            loading={list.isPending}
-            pageSize={limit}
-            emptyTitle="No signature requests"
-            emptyText="Nothing matches these filters."
-            // Pages come from the API (cursors); the columns don't sort.
-            server={{
-              page: page + 1,
-              // Not while the next page loads: a second click would skip it.
-              hasNext: !!next && !list.isPlaceholderData,
-              hasPrevious: page > 0,
-              onNext: () => next && setCursors((c) => [...c, next]),
-              onPrevious: () => setCursors((c) => (c.length > 1 ? c.slice(0, -1) : c)),
-              onSort: () => undefined,
-            }}
-          />
-        </div>
+        <>
+          {compact && !!list.data?.items.length && (
+            <div
+              className="flex flex-col gap-3 lg:hidden"
+              data-testid="firm-sign-document-cards"
+              aria-busy={list.isPlaceholderData}
+            >
+              {list.data.items.map((row) => (
+                <Card key={row.id} className="min-w-0 p-3!">
+                  <dl className="flex flex-col gap-2">
+                    {columns.map((column) => (
+                      <div key={column.id} className="min-w-0 break-words">
+                        <dt className="text-xs text-muted">{column.label}</dt>
+                        <dd className="text-sm">{column.cell(row)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </Card>
+              ))}
+              <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
+                <p aria-live="polite">Page {page + 1}</p>
+                <Button variant="secondary" disabled={page === 0} onClick={previousPage}>
+                  Previous
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!next || list.isPlaceholderData}
+                  onClick={nextPage}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+          <div
+            aria-busy={list.isPlaceholderData}
+            className={`${compact && list.data?.items.length ? 'hidden lg:block' : ''} ${list.isPlaceholderData ? 'opacity-60' : ''}`}
+          >
+            <Table
+              caption={caption}
+              tableClassName={compact ? 'lg:table-fixed [&_td]:break-words' : ''}
+              rows={list.data?.items ?? []}
+              columns={
+                compact
+                  ? columns.map((column) => ({
+                      ...column,
+                      className:
+                        column.id === 'title'
+                          ? 'lg:w-1/3'
+                          : column.id === 'actions'
+                            ? 'lg:w-16'
+                            : undefined,
+                    }))
+                  : columns
+              }
+              rowKey={(r) => r.id}
+              loading={list.isPending}
+              pageSize={limit}
+              emptyTitle="No signature requests"
+              emptyText="Nothing matches these filters."
+              // Pages come from the API (cursors); the columns don't sort.
+              server={{
+                page: page + 1,
+                // Not while the next page loads: a second click would skip it.
+                hasNext: !!next && !list.isPlaceholderData,
+                hasPrevious: page > 0,
+                onNext: nextPage,
+                onPrevious: previousPage,
+                onSort: () => undefined,
+              }}
+            />
+          </div>
+        </>
       )}
     </div>
   );

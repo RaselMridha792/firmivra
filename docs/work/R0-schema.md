@@ -193,8 +193,104 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 - Oct 17, Super Admin schema stage B3 (Billing), branch `rasel/R0-stage-b3-billing` from main: migration `r0_platform_billing`, 15 tables (invoices, lines, recurring, estimates, lines, payments, refunds, credit notes, lines, applications, firm billing profiles, settings, counters, processor events, subscription history). Rasel: Firmivra bills firms (the spec's client = the firm's billing contact), linked to the subscription. Integer cents; the database numbers INV-/EST-/CN- (owner-run counter, never reused), computes line amounts and totals, and keeps paid, refunded and credited sums and the statuses that follow through recompute functions guarded by a transaction-local marker; payments never pass the balance, refunds never pass what was paid, credit never passes what a note has left or the invoice owes. A firm reads its own issued documents only. The B3 tests caught a NULL marker (current_setting(..., true) returns NULL when never set, so `IF NOT by_recompute` skipped the by-hand checks): fixed with coalesce. Also in this PR: `prepareTestDatabase` keeps `MIGRATION_REFERENCE_TABLES` (rows a migration inserts) when it empties the test database; #704's truncate-all would otherwise wipe them; and `bootstrap-platform-org.test.ts` gets a 300 s setup timeout (its own database outgrew the 120 s hook default in a full run). Contract note `docs/work/R0-stage-b3-billing.md`. Tests: `test/platform-billing.test.ts` (8); full db suite 106 files, 974 tests.
 - Oct 17, Super Admin schema stage B4 (Audit & Security), branch `rasel/R0-stage-b4-audit` from main: migration `r0_platform_audit_security`. One trail (Rasel): `audit_logs` gains the normalized event fields (category, severity, outcome, actor type, name and role snapshots, session, auth method, target label, subject user and firm, parent event, risk score, rule, detection source, item count), all optional so every existing writer keeps working, plus cross-firm indexes; the database stamps `created_at` for rows the app role writes. New: `security_alerts` (one per event key; OPEN, ACKNOWLEDGED, RESOLVED, DISMISSED, stamped by the database), `audit_investigation_notes` (additive: an edit is a new note that supersedes the old one, a delete retracts it), `platform_security_policy` (one row, nine JSON sections with database-checked safety floors, version bumped on every save for optimistic concurrency). **Wall change for Rasel's yes in the PR:** the Super Admin team now reads every audit row across firms (was: platform rows only); a firm still reads only its own, inserts unchanged. Contract note `docs/work/R0-stage-b4-audit.md`. Tests: `test/platform-audit-security.test.ts` (10), `test/audit-security-firm-delete.test.ts` (firm deletion as the RDS migrate role), `admin.test.ts` updated to the new read rule.
+- Oct 17, Super Admin schema stage B5 (Sales Pipeline), branch `rasel/R0-stage-b5-sales` from main: migration `r0_platform_sales`, 12 tables (pipelines, stages, contacts, opportunities, tags, stage and assignment history, activities, follow-ups, notes, attention settings). Firmivra sells to prospective firms; a won deal links to the firm's application and firm. The migration ships the default pipeline (spec 17's lifecycle plus the Unqualified / Lost exit). The database keeps the lifecycle rules (lost needs a reason, a stage's required fields, inactive stages, shipped stages and stages holding records protected), applies the transaction sync (Under Contract, Closed and Terminated follow the linked transaction; no manual move while it controls the stage) and writes the stage and assignment history itself (owner-run trigger, names kept as they were). Contract note `docs/work/R0-stage-b5-sales.md`. Tests: `test/platform-sales.test.ts` (10), `test/sales-firm-delete.test.ts` (firm and application deletion as the RDS migrate role).
 
-## Handoff for a fresh R0 window (Oct 17, end of the first R0 window)
+- Oct 18, Super Admin schema stage B6 (Communications), branch `rasel/R0-stage-b6-communications` from main (Rasel's go in this window): migration `r0_platform_communications`, 13 tables (conversations, messages, per-recipient delivery, mentions, read marks, template categories (the spec's six ship here), templates, the image and attachment library and its uses, segments, broadcasts with per-channel content and per-recipient results). Firmivra's own correspondence with firms' people, leads and the team, never a firm's clients; a firm's deletion clears only the links. The database keeps the send lifecycle (drafts and schedules editable, content and recipients fixed once dispatch begins, only drafts deleted, a broadcast needs a channel and an audience of at least one, retries keep the first attempt), checks each destination against its channel, and stamps senders, times and scan results. `apps/api` build gets the same 8 GB heap line as #724. Contract note `docs/work/R0-stage-b6-communications.md`. Tests: `test/platform-communications.test.ts` (10), `test/communications-firm-delete.test.ts`.
+
+- Oct 18, Super Admin schema stage B7 (System Settings), branch `rasel/R0-stage-b7-system-settings` from main: migration `r0_platform_system_settings`, 13 tables (versioned settings sections with floors, secret references never values, versioned brand assets and the one in use, feature flags with firm overrides and an emergency off, retention policies by category with migration-set floors, legal holds, retention runs, maintenance windows, job controls, numbered default sets and which one each firm got). Secret references and retention policies are SUPER_ADMIN-only writes. An active legal hold on a firm blocks its deletion; a released hold stays on record with the link cleared. Audit retention stays in B4's security policy. Contract note `docs/work/R0-stage-b7-system-settings.md`. Tests: `test/platform-system-settings.test.ts` (13), `test/settings-firm-delete.test.ts`.
+
+- Oct 18, Super Admin schema stage B8 (Integrations), branch `rasel/R0-stage-b8-integrations` from main: migration `r0_platform_integrations`, 10 tables (Firmivra's service connections with credentials by reference only, their sync and test runs, the central redacted log, the firm-facing catalog keyed by the same provider key as `integration_connections` with plan and firm allow or deny, API keys stored as a hash, webhook endpoints and deliveries, the daily usage and adoption rollup). Activation needs a passing test; credentials, signing secrets, API keys, disabling and removal are a SUPER_ADMIN's; one live connection per provider and environment; only the worker moves runs and only the platform writes delivery results and the rollup. Contract note `docs/work/R0-stage-b8-integrations.md`. Tests: `test/platform-integrations.test.ts` (8), `test/integrations-firm-delete.test.ts`.
+
+- Oct 18, Super Admin schema stage B9 (Reports & Analytics), branch `rasel/R0-stage-b9-reports` from main: migration `r0_platform_reports`, 3 tables: saved custom reports (configuration only; private to the owner unless shared; shared ones are read and run by the team and edited only by the owner) and two daily rollups the platform's job writes (each firm's feature use and each firm's activity counts), so cross-firm dashboards and the Firm Report Detail never read firm tables in admin scope. Exports use B1's export jobs. Contract note `docs/work/R0-stage-b9-reports.md` (with where every report figure comes from). Tests: `test/platform-reports.test.ts` (3). Stage B is complete with this PR; C1 and C2 next.
+
+- Oct 18, stage C1 (Bookkeeping ledger, #718's schema request), branch `rasel/R0-stage-c1-bookkeeping` from main: migration `r0_bookkeeping_ledger`, 9 firm tables (categories, transactions, split parts, refunds and chargebacks, settlements and their items, report versions, engagement terms and their history), from the Bookkeeping developer instructions (Fresh). Every row stays on one client's engagement by composite keys (adds engagement-scoped keys to bookkeeping_accounts and bookkeeping_connections, and (business_id, id) to bookkeeping_reconciliations); a closed period locks its transactions; split totals, a categorized transaction's category or parts and transfer symmetry are checked at commit (deferred constraint triggers); settlement net math; report versions and terms versions numbered by the database; only draft terms are edited and activating one supersedes the last. Contract note `docs/work/R0-stage-c1-bookkeeping.md`. Tests: `test/bookkeeping-ledger.test.ts` (8).
+
+- Oct 18, stage C2 (Compliance follow-ups, #719), branch `rasel/R0-stage-c2-compliance` from main: migration `r0_compliance_facts`: `client_compliance_facts` (fiscal year end, tax classification, elections, payroll employer and deposit schedule, sales tax registration, prior-year liability; unset means unknown so rules still return NEEDS_REVIEW), `client_sales_tax_registrations` (one open per state), `compliance_holidays` (platform reference data every scope reads; ships the 2026 and 2027 US federal holidays as observed plus DC Emancipation Day, matching the API's `federalHolidays()`), and `compliance_settings.task_due_date_sync` / `task_due_lead_days`. Contract note `docs/work/R0-stage-c2-compliance.md`. Tests: `test/compliance-facts.test.ts` (5). Stages B and C are all up as PRs.
+
+- Oct 18, portal click-through, local only (Rasel's order), branch `rasel/R0-portal-clickthrough` from main: signed in as Harper with the local dev token and opened every portal page and every Begin Online form. Demo seed fixes: real Begin forms for the demo firm, client tax-year statuses, published content, the demo e-sign consent text (results and what's left: the Oct 18 handoff, item 1).
+
+## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
+
+**Where things stand.**
+- **Merged on Oct 18:**
+  - B4 to B9: #720, #724, #736, #739, #740, #741
+  - Fahad's rebuilds: #764 (portal folder tabs, from #473) and #766 (Firm Sign dashboard, from #455)
+  - #767: link-dev-users client mode, Rasel's card
+- **#742 (C1):** Rasel merged it at 12:23 UTC.
+- **#743 (C2):** Rasel merged it. All eight schema PRs are in.
+  - Its first CI run failed once in R55's isolation case `cases/templates.ts:72`: the merge-field key `tag().replace(/[0-9]/g, 'x')` can collide. A one-line fix for R55: keep the digits.
+- **#742 brought a fix in `packages/db/src/client.ts`.** `createDatabase`'s `for*` methods now return `ScopedClient` by name. Without it, the API typecheck fails with TS2589 once C1's tables sit on top of B4 to B9.
+- **#438 (Fahad's notification bell) stays open on purpose.** Main's `FirmBell` (app-shell `firm-controls.tsx`) already shows the unread count and the latest five. Still missing: mark-read on click, mark-all-read (the API has both), and refetch on focus. That belongs in `FirmBell`, which is owned by R1/Tumit. Close #438 once a PR covers it.
+
+**Merging main into a stage branch** (each time an earlier stage lands):
+- **`schema.prisma`:** rebuild it from main's version plus the stage's own hunks (`git diff -U0 <last main merged> HEAD`). Insert each in-model hunk before that model's `@@` attributes and append the stage's block at the end. Git's own hunks split models when two stages append blocks.
+- **`seed.ts`:** when two stages' seed functions meet, check the closing brace. C1's merge lost one.
+- **Lists:** keep both sides in `seed-data.ts`, `MIGRATION_REFERENCE_TABLES`, the rls `readOnly` and limits lists, and this log.
+- **Enums:** regenerate with `pnpm --filter @firmivra/db gen:enums`. It isn't a root script.
+- **Checks:** drift check on a scratch database, seed twice, db suite on a clean `firmivra_r0_test`, then db, api and web typecheck.
+- **Local load:** under heavy load, `bootstrap-platform-org`, `demo-seed-unseed` and the `*-firm-delete` files time out. Re-run them alone before you call it a failure.
+
+**API test lesson (#724).** The API e2e helpers that read through the test owner (`firmivra`, a superuser in Docker and CI) bypass RLS. Any count there must name its firm (`where: { businessId }`), or it also sees rows that other test files write at the same time.
+
+**Scrum's order after #743 (Oct 18):**
+1. **Portal click-through on dev,** once R1 has created the demo client login after Deploy dev. Sign in as `harper.coleman@demo.test` on `portal.dev.firmivra.com/demo`, open every portal page and `/demo/begin`, and list each page that errors or shows empty data.
+   - Fix API or seed gaps yourself; change screens only if the fix is tiny. Tumit owns the Begin Online form design.
+   - **Rasel's decision (Oct 18):** do it locally first. Start the web app and API locally on a fresh database with migrate, `seed.ts` and `seed-demo.ts`. Sign in as Harper through `AUTH_MODE=local` (`POST /api/v1/dev/token`). Then list the portal pages and the `/demo/begin` steps that error or show empty data, and fix the gaps.
+   - Nothing on dev until Rasel says so: the Oct 18 window ran under "do not run anything on dev or AWS".
+   - **Done locally (Oct 18 evening), branch `rasel/R0-portal-clickthrough`.** Every portal page, the six intake form pages, invoice detail, signing up to consent, and every `/demo/begin` page with a draft started on each form. Fixed in the seed:
+     - Five Begin forms (all but Annual Tax) served the stand-in form ("About you: Full name", "Sample form For local development"). The demo firm now gets the real form of every kind (`seedIntakeForms(..., { realForms: true })`); LVP and Test Firm B keep the stand-ins their tests use. Lead answers use each real form's name keys plus `email`.
+     - "Where Your Taxes Stand" was empty: no `client_tax_statuses` for `demo`. Now one per client and tax year (37), from the return's stage.
+     - No `content_items` for `demo`: now the four resource pages, three external links and a tip (`seed-demo-portal.ts`).
+     - The e-sign consent read "Sample consent for local development"; the demo firm has its own synthetic text now.
+     - Published forms can't change, so on a database where the demo seed already ran, the new forms need `unseed-demo` then `seed-demo` (R1, with Rasel's yes).
+   - **Left as they are:**
+     - By design: Harper is an individual, so Business Documents & Resources and the five resource pages show the "for business clients" notice (403 `BUSINESS_ONLY`). Showing them needs a portal login for a business client; that's Rasel's call (Cognito login on dev is R1's).
+     - By design: a past-due invoice shows "Due Soon" (`DUE_SOON_DAYS`: the spec has no Overdue label).
+     - Screen work, not tiny: the portal's `/intake/[form]` page is still the frame with a fixed "This form isn't open for you yet" note, although `GET /portal/{slug}/me/intakes` returns Harper's two intakes. Also small: Services' "Upload Documents" button text is clipped, and Profile's city field cuts "Atlanta" short.
+     - Empty but fine: Harper has no private note yet, and no date of birth on file (the seed doesn't encrypt one).
+2. **Remaining Super Admin schema stages:** D1 to D3, found on Oct 18.
+   - **D1 Sales Center:**
+     - sales targets and goals per rep, team or company and period (metric, target, period), for targets and attainment
+     - lead import batches (file, counts imported, duplicates found, skipped), for the CRM's import and dedupe
+   - **D2 Subscriptions extras:**
+     - promotions and promo codes (amount or percent, duration, plans, redemption limit, valid dates)
+     - a firm subscription's applied discounts (reason, who, from and to)
+     - trial extensions and overrides of plan limits (seats, storage, entitlements, with reason and expiry)
+     - Stage A's `platform_firm_subscriptions` and B3's subscription history already carry the lifecycle.
+   - **D3 R55's recorded gaps:**
+     - starter automation templates
+     - per-rule failure-alert recipients
+     - a link from automations to the templates they use
+     - `tasks.request_key` for an idempotent "Save & Create Another"
+     - Check main first: `automation_templates` may already cover the starters.
+   - **Already covered:** R54's staff and org; Advisory, Tax Planning and Tax Returns; Super Admin Team, Firms, Applications and Dashboard.
+   - PRs only, one per stage.
+   - Rasel gives his own yes on a card before any `packages/db/prisma` PR is merged.
+   - Tell Rasel each PR number.
+3. **Demo seed stage 5**, below.
+
+**Next: demo seed stage 5** (Scrum, Oct 18). Synthetic data, `demo` firm only, idempotent with fixed `demoId(...)` ids, one small PR per group, at most 2 open. R1 re-runs the demo seed on dev with Rasel's yes.
+- **How many tables are empty:** on main, after `seed.ts` and `seed-demo.ts` on a fresh database, 206 firm tables have no `demo` rows.
+- **Firm groups**, in Scrum's order:
+  - **Tasks:** `task_types`, `task_templates`, `task_series`/`task_occurrences`, `task_checklist_items`, `task_assignees`, `task_reminders`, `tags`
+  - **Payroll:** `payroll_settings`, `payroll_clients`, `payroll_workers`, `payroll_runs` and their lines and issues, `payroll_filings`, `payroll_reports`, `payroll_year_ends`
+  - **Compliance:** `compliance_settings`, `compliance_calendars` and their entries, `compliance_deadlines` and their links, reminders and documents, `compliance_recurrences`, `compliance_logs`
+  - **Templates:** `template_categories`, `message_templates` and their versions, `document_request_templates` and their items, `invoice_templates`
+  - **Bookkeeping:** `bookkeeping_settings`, `bookkeeping_profiles`, `bookkeeping_connections`, `bookkeeping_accounts`, `bookkeeping_periods`, `bookkeeping_close_items`, `bookkeeping_reconciliations`, `bookkeeping_reports`, plus C1's tables once #742 lands
+  - **Communications:** `communications`, `communication_segments`, `communication_recipients`, `outbound_messages`
+  - **Automations:** `automation_settings`, `automation_rules` and their versions, `automation_runs`, `automation_action_executions`
+  - **Services and pricing:** `service_categories`, `service_packages` and their items and add-ons, `service_add_ons`, `promotions` and their targets
+  - **Tax returns:** `tax_return_*` approvals, authorizations, checklist, documents and filings
+  - **Audit and logins:** `audit_logs` for `demo` and `staff_sessions`
+- **Also empty:** Advisory (`advisory_*`), Tax Planning (`tax_plan*`, `tax_opportunities`) and Reports (`report_*`).
+- **Super Admin rows**, after the firm groups: Sales pipeline (B5), Subscriptions and promotions, Billing (B3), Support tickets, Reports (B9), Notifications. Those tables are platform tables; check which ones the regular seed already fills.
+- **To rebuild the list:** run the per-table count query over every table with a `business_id` column, for `slug = 'demo'`.
+
+**Not R0's to fix, noted on Oct 18:**
+- **LVP's red Begin Online banner on dev:** dev's LVP has no published firm-wide agreement. Its owner publishes one in the app; the seed never touches LVP on dev. The demo firm already gets its agreement from the demo seed (#705).
+- **Portal mock specs:** 16 already fail on main in local mock mode, for example the `r17-*` specs, `portal-session` and `r22-*`. Nobody owns this yet.
+
+## Handoff for a fresh R0 window (Oct 17, end of the first R0 window; superseded by the Oct 18 handoff above)
 
 Start here: `CLAUDE.md`, `docs/work/README.md`, this file, and the contract notes `docs/work/R0-stage-b*.md`. Rasel merges every PR; merging a schema PR is his yes for that migration. Never push to `main`, never rebase or force-push. When a branch falls behind or conflicts, merge `origin/main` into it: take the branch's side for demo files; keep both sides of log entries in this file and of `MIGRATION_REFERENCE_TABLES`.
 
@@ -232,7 +328,7 @@ Start here: `CLAUDE.md`, `docs/work/README.md`, this file, and the contract note
     - Audit investigation notes: additive; edits and deletes become their own audit rows.
     - `platform_security_policy`: one row, typed JSON sections for MFA, password, session, login protection, admin access, API and integrations, audit retention, export controls and alert routing; a version bumped on every save.
   - Spec: `11-Firmivra_Audit_and_Security_Developer_Instructions.md` (extract).
-- **B5 Sales Pipeline:** pipelines, stages, contacts, opportunities, tags, stage and assignment history, activity, follow-ups, notes, attention settings. Firmivra sells to prospective firms; link the firm application or business on conversion.
+- **B5 Sales Pipeline** (written: its own PR, after #720): pipelines, stages, contacts, opportunities, tags, stage and assignment history, activity, follow-ups, notes, attention settings. Firmivra sells to prospective firms; link the firm application or business on conversion.
 - **B6 Communications:** conversations, messages and recipients, broadcasts and their channels and recipients, segments, template categories, templates, media. Firm contacts only.
 - **B7 System Settings:**
   - typed platform settings; secret references only, never values
@@ -245,6 +341,8 @@ Start here: `CLAUDE.md`, `docs/work/README.md`, this file, and the contract note
   - API keys, webhook endpoints and deliveries, daily usage
 - **B9 Reports:** saved reports and a daily feature-usage rollup. Exports use B1's `platform_export_jobs`.
 - **Demo Stage 5:** the work modules, packages and promotions, audit and login history, and the new Super Admin groups, under the same `demo-` rules.
+- **C1 Bookkeeping** (after B9; the request in #718's body): transactions (categorize, split, transfer, match, exclude, receipt, bulk) and categories with the uncategorized list; refunds, chargebacks and settlements or payouts with bank-deposit matching; report versions and snapshots; the six Terms pages (terms, service details, billing, engagement documents, renewal, history). The sync worker or adapters that finish sync runs are R1's or the API's, not schema.
+- **C2 Compliance follow-ups** (after C1; #719's body): structured client facts for applicability (fiscal year end, tax classification versus entity, elections, payroll employer status, sales tax registration and frequency, prior-year liability); a holiday table by jurisdiction (today the engine uses US federal holidays plus DC Emancipation Day); a firm setting for syncing deadline due dates to their tasks.
 
 The per-module inventory (entities, enums, endpoints, open questions with recommended defaults) came from Octavia's specs. They are read-only in Rasel's Downloads folder, under `BACK END UPDATED/Backend & Super Admin/SUPER ADMIN`; extract them with python-docx into a scratch folder and never copy them into the repo.
 
