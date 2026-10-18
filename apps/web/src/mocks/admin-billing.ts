@@ -791,6 +791,11 @@ export interface SaveInvoice {
   allowOnlinePayment: boolean;
   /** Save & Send: issue it and send it to the client now. */
   send: boolean;
+  /**
+   * With `send`: false issues the invoice without emailing it ("Send invoice to client now"
+   * unticked). Leave it out to email.
+   */
+  emailClient?: boolean;
   /** The estimate this invoice converts (sets the estimate to Converted). */
   estimateId: string | null;
   attachments: NewAttachment[];
@@ -3524,12 +3529,18 @@ function checkInvoice(s: Store, body: SaveInvoice) {
     throw fail(400, 'VALIDATION_FAILED', 'Billing Settings require a tax rate on every line');
 }
 
-function issue(s: Store, rec: InvoiceRec, client: BillingClient, at: string) {
+/** Issues a draft and, unless `email` is false, sends it (a resend only logs it again). */
+function issue(s: Store, rec: InvoiceRec, client: BillingClient, at: string, email = true) {
   const resend = Boolean(rec.sentAt);
+  const first = !rec.issuedAt;
   rec.issuedAt ??= at;
+  rec.updatedAt = at;
+  if (!email) {
+    if (first) rec.history.push(event(s, 'Issued', 'Issued without emailing the client', null, at));
+    return;
+  }
   rec.sentAt = at;
   rec.sendStatus = 'SENT';
-  rec.updatedAt = at;
   rec.history.push(event(s, resend ? 'Resent' : 'Sent', `Sent to ${client.email}`, null, at));
 }
 
@@ -3545,7 +3556,7 @@ function createInvoiceRec(s: Store, body: SaveInvoice): InvoiceRec {
     if (estimate.convertedInvoiceId && !s.settings.invoices.allowDuplicateConversion)
       throw fail(409, 'ALREADY_CONVERTED', 'This estimate was already converted to an invoice');
   }
-  if (body.send) requireSendable(firm, client);
+  if (body.send && body.emailClient !== false) requireSendable(firm, client);
   const at = nowIso();
   const rec: InvoiceRec = {
     id: nextId(s, '0b02'),
@@ -3584,7 +3595,7 @@ function createInvoiceRec(s: Store, body: SaveInvoice): InvoiceRec {
     estimate.history.push(event(s, 'Converted', `Converted to ${rec.number}`, null, at));
     rec.history.push(event(s, 'Converted from estimate', `From ${estimate.number}`, null, at));
   }
-  if (body.send) issue(s, rec, client, at);
+  if (body.send) issue(s, rec, client, at, body.emailClient !== false);
   s.invoices.push(rec);
   consumeNumber(s, 'invoice', rec.number, rec.issueDate);
   return rec;
@@ -4027,7 +4038,7 @@ export const adminBilling = {
     const total = computeTotals(lines, body.discountCents).totalCents;
     if (total < before.paidCents - before.refundedCents + before.creditedCents)
       throw fail(422, 'TOTAL_BELOW_PAID', 'The new total is less than what was already paid');
-    if (body.send) requireSendable(firm, client);
+    if (body.send && body.emailClient !== false) requireSendable(firm, client);
     const kept = rec.attachments.filter((file) => body.keepAttachmentIds.includes(file.id));
     const added = takeAttachments(s, body.attachments);
     const at = nowIso();
@@ -4059,7 +4070,7 @@ export const adminBilling = {
         at,
       ),
     );
-    if (body.send) issue(s, rec, client, at);
+    if (body.send) issue(s, rec, client, at, body.emailClient !== false);
     return invoiceDetail(s, rec);
   },
   /** Send / Resend: issues a draft; a resend keeps the record and only logs it (docx §20). */
