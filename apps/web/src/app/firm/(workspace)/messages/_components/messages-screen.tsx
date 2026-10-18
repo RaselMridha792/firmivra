@@ -173,7 +173,7 @@ export function MessagesScreen() {
                 : 'No conversations match.'}
             </p>
           ) : null}
-          <ul className="flex max-h-[44rem] flex-col gap-2 overflow-auto">
+          <ul className="flex max-h-176 flex-col gap-2 overflow-auto">
             {rows.map((t) => (
               <li key={t.id}>
                 <button
@@ -269,6 +269,12 @@ function Conversation({
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const d = detail.data;
+  // Only a client's message can be marked unread for the firm.
+  const fromClient = d?.messages.some((m) => m.direction === 'CLIENT_TO_FIRM') ?? false;
+  const run = (call: () => Promise<unknown>) =>
+    void call()
+      .then(onChanged)
+      .catch((e: unknown) => onNotice(errorMessage(e), 'error'));
   const send = async () => {
     if (!body.trim()) return;
     setBusy(true);
@@ -303,26 +309,24 @@ function Conversation({
             <button
               type="button"
               className={`${subtle} min-h-9`}
-              onClick={() => void api.messages.markRead(thread.id).then(onChanged)}
+              onClick={() => run(() => api.messages.markRead(thread.id))}
             >
               Mark read
             </button>
-          ) : (
+          ) : fromClient ? (
             <button
               type="button"
               className={`${subtle} min-h-9`}
-              onClick={() => void api.messages.markUnread(thread.id).then(onChanged)}
+              onClick={() => run(() => api.messages.markUnread(thread.id))}
             >
               Mark unread
             </button>
-          )}
+          ) : null}
           <button
             type="button"
             className={`${subtle} min-h-9`}
             onClick={() =>
-              void api.messages
-                .update(thread.id, { repliesEnabled: !thread.repliesEnabled })
-                .then(onChanged)
+              run(() => api.messages.update(thread.id, { repliesEnabled: !thread.repliesEnabled }))
             }
           >
             {thread.repliesEnabled ? 'Close replies' : 'Allow replies'}
@@ -335,7 +339,7 @@ function Conversation({
         </p>
       ) : null}
       {detail.isPending ? <p className={quiet}>Loading…</p> : null}
-      <ul className="flex max-h-[30rem] flex-col gap-3 overflow-auto" aria-label="Messages">
+      <ul className="flex max-h-120 flex-col gap-3 overflow-auto" aria-label="Messages">
         {(d?.messages ?? []).map((m) => {
           const mine = m.sender.kind === 'STAFF';
           return (

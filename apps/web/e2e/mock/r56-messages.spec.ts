@@ -27,8 +27,13 @@ test('Conversation: reply, mark unread and add a note', async ({ page }) => {
   await page.getByLabel('Type a message').fill('Thanks, we will be in touch soon.');
   await page.getByRole('button', { name: 'Send message' }).click();
   await expect(page.getByTestId('conversation')).toContainText('Thanks, we will be in touch soon.');
+  // Only a client's message can be marked unread: Riley's thread has one.
+  await page.getByLabel('Search messages').fill('riley');
+  await page.getByTestId('thread-row').first().click();
+  await page.getByRole('button', { name: 'Mark read' }).click();
   await page.getByRole('button', { name: 'Mark unread' }).click();
   await expect(page.getByRole('button', { name: 'Mark read' })).toBeVisible();
+  await page.getByLabel('Search messages').fill('');
   await page.getByRole('button', { name: '+ Add Note' }).click();
   await page.getByLabel('New note').fill('Call back Friday');
   await page.getByRole('button', { name: 'Save Note' }).click();
