@@ -128,7 +128,8 @@ function SummaryCard({
   onSelect: () => void;
 }) {
   const value = summary?.[card.key];
-  const trend = summary?.trends[card.key] ?? null;
+  /** No trend when the summary failed or the earlier period had none: the line shows a dash. */
+  const trend = failed ? null : (summary?.trends[card.key] ?? null);
   const good = trend === null || trend === 0 ? null : trend > 0 === card.upIsGood;
   const Arrow = trend !== null && trend < 0 ? ArrowDown : ArrowUp;
   return (
@@ -146,28 +147,32 @@ function SummaryCard({
       </span>
       <span className="flex min-w-0 flex-col gap-1">
         <span className="text-sm text-text">{card.label}</span>
-        <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          {loading ? (
-            <span aria-hidden className="h-8 w-12 animate-pulse rounded-control bg-disabled" />
+        {loading ? (
+          <span aria-hidden className="h-9 w-12 animate-pulse rounded-control bg-disabled" />
+        ) : (
+          <span data-testid={`kpi-${card.key}-value`} className="text-3xl font-bold text-heading">
+            {failed || value === undefined ? '—' : value.toLocaleString('en-US')}
+          </span>
+        )}
+        {/* Always under the number, so every card keeps one layout and height in every state. */}
+        <span data-testid={`kpi-${card.key}-trend`} className="flex flex-col text-xs leading-tight">
+          {trend === null ? (
+            <span className="inline-flex items-center font-semibold text-muted">
+              <span aria-hidden>—</span>
+              <span className="sr-only">No trend</span>
+            </span>
           ) : (
-            <span data-testid={`kpi-${card.key}-value`} className="text-3xl font-bold text-heading">
-              {failed || value === undefined ? '—' : value.toLocaleString('en-US')}
+            <span
+              className={`inline-flex items-center gap-0.5 font-semibold ${good === null ? 'text-muted' : good ? 'text-success' : 'text-danger'}`}
+            >
+              {trend === 0 ? null : <Arrow aria-hidden weight="bold" className="size-3" />}
+              <span className="sr-only">
+                {trend > 0 ? 'Up' : trend < 0 ? 'Down' : 'No change,'}
+              </span>
+              {Math.abs(trend)}%
             </span>
           )}
-          {trend !== null && !failed ? (
-            <span className="flex flex-col text-xs leading-tight">
-              <span
-                className={`inline-flex items-center gap-0.5 font-semibold ${good === null ? 'text-muted' : good ? 'text-success' : 'text-danger'}`}
-              >
-                {trend === 0 ? null : <Arrow aria-hidden weight="bold" className="size-3" />}
-                <span className="sr-only">
-                  {trend > 0 ? 'Up' : trend < 0 ? 'Down' : 'No change,'}
-                </span>
-                {Math.abs(trend)}%
-              </span>
-              <span className="text-muted">vs. last 30 days</span>
-            </span>
-          ) : null}
+          <span className="text-muted">vs. last 30 days</span>
         </span>
       </span>
     </button>
