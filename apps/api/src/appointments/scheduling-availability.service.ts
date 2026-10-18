@@ -67,6 +67,13 @@ export class SchedulingAvailabilityService {
       for (const userId of body.staffUserIds)
         members.push(await activeMember(tx, businessId, userId));
       const clientId = await this.clientOf(tx, businessId, actor, body.contact);
+      if (body.roomId) {
+        const room = await tx.firmRoom.findFirst({
+          where: { businessId, id: body.roomId, archivedAt: null },
+          select: { id: true },
+        });
+        if (!room) throw errors.notFound();
+      }
       if (body.excludeAppointmentId) {
         // Staff may exclude only an appointment they see in full (else 404), as R12's slots.
         const mine = await tx.appointment.findFirst({

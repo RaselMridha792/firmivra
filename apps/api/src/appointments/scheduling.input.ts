@@ -4,7 +4,6 @@ import {
   AppointmentsSummaryQuery,
   ConflictCheckRequest,
   ContactSearchQuery,
-  SaveAppointmentDraftRequest,
   ScheduleAppointmentRequest,
   SendReminderRequest,
   SendRemindersRequest,
@@ -98,7 +97,3 @@ export const RulesBody = SetAvailabilityRulesRequest;
 export const TypeConfigBody = SetAppointmentTypeConfigRequest.transform(lowerDeep);
 /** PUT /business/appointments/settings */
 export const NoticeSettingsBody = SetAppointmentNoticeSettingsRequest;
-/** POST, PUT /business/appointment-drafts */
-export const DraftBody = SaveAppointmentDraftRequest.transform(lowerDeep);
-/** /business/appointment-drafts/{id} */
-export const DraftIdParam = z.uuid().transform((v) => v.toLowerCase());

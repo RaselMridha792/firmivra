@@ -1670,7 +1670,7 @@ describe('send reminder', () => {
     );
   });
 
-  it('sends to a list or to everything within some days, skipping what the member may not see', async () => {
+  it('sends to a list or to everything within some days; an id the member cannot see is 404 and nothing is sent', async () => {
     const n = freshDay();
     const mine = await scheduled({ startsAt: at(n, '10:00'), endsAt: at(n, '10:30') });
     const theirs = await scheduled({
@@ -1680,13 +1680,28 @@ describe('send reminder', () => {
       endsAt: at(n, '11:30'),
     });
     const before = outbox.length;
+    expectError(
+      await call('post', '/appointments/reminders/send', people.staffA, {
+        appointmentIds: [mine.id, theirs.id],
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', '/appointments/reminders/send', people.ownerA, {
+        appointmentIds: [mine.id, randomUUID()],
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    expect(outbox.length).toBe(before);
     const some = exact(
       RemindersSent,
       await call('post', '/appointments/reminders/send', people.staffA, {
-        appointmentIds: [mine.id, theirs.id, randomUUID()],
+        appointmentIds: [mine.id],
       }),
     );
-    expect(some).toEqual({ sent: 1, skipped: 2 });
+    expect(some).toEqual({ sent: 1, skipped: 0 });
     const all = exact(
       RemindersSent,
       await call('post', '/appointments/reminders/send', people.ownerA, {
@@ -1729,13 +1744,13 @@ describe('send reminder', () => {
       startsAt: at(freshDay(), '10:00'),
     });
     const before = outbox.length;
-    const res = exact(
-      RemindersSent,
+    expectError(
       await call('post', '/appointments/reminders/send', people.ownerA, {
         appointmentIds: [other],
       }),
+      404,
+      'NOT_FOUND',
     );
-    expect(res).toEqual({ sent: 0, skipped: 1 });
     expect(outbox.length).toBe(before);
   });
 });
@@ -1897,35 +1912,28 @@ describe('duplicate', () => {
 });
 
 describe('drafts', () => {
-  it('list is empty, saving says it is not available yet, and an id is 404', async () => {
+  it('list is empty and saving, changing and deleting say it is not available yet (403 MODULE_OFF)', async () => {
     expect(
       exact(AppointmentDraftList, await call('get', '/appointment-drafts', people.staffA)),
     ).toEqual({ items: [] });
     expectError(
       await call('post', '/appointment-drafts', people.staffA, { method: 'VIDEO' }),
-      400,
-      'VALIDATION_FAILED',
-    );
-    expectError(
-      await call('post', '/appointment-drafts', people.staffA, { nope: 1 }),
-      400,
-      'VALIDATION_FAILED',
+      403,
+      'MODULE_OFF',
     );
     expectError(
       await call('put', `/appointment-drafts/${randomUUID()}`, people.staffA, { method: 'VIDEO' }),
-      404,
-      'NOT_FOUND',
+      403,
+      'MODULE_OFF',
     );
     expectError(
       await call('delete', `/appointment-drafts/${randomUUID()}`, people.staffA, {}),
-      404,
-      'NOT_FOUND',
+      403,
+      'MODULE_OFF',
     );
-    expectError(
-      await call('delete', '/appointment-drafts/not-an-id', people.staffA, {}),
-      400,
-      'VALIDATION_FAILED',
-    );
+    expect(
+      (await call('get', '/appointment-drafts', people.ownerB, undefined, ids.firmA)).status,
+    ).toBe(404);
   });
 });
 

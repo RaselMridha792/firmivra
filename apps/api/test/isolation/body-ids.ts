@@ -17,6 +17,20 @@ export interface BodyIdField {
  * and any field named `...Id`, `...Ids` or `ids`, is a record id and needs the case's `bodyIds`.
  */
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
+  {
+    field: 'busyCalendarIds',
+    routes: /^PUT \/api\/v1\/business\/availability\/:userId\/rules$/,
+    why: 'ids of connected external calendars (plain text, not records of the firm); no calendar is connected yet, so any value is refused 400 (R58)',
+  },
+  ...[
+    ['eligibleStaffUserIds', 'staff who may take the type'],
+    ['officeIds', 'offices the type is offered at'],
+    ['requiredIntakeFormId', 'the intake form the type requires'],
+  ].map(([field, what]) => ({
+    field: field!,
+    routes: /^PUT \/api\/v1\/business\/appointment-types\/:id\/config$/,
+    why: `${what}: no table keeps it yet, so any value is refused 400 and never read (R58)`,
+  })),
   ...(
     [
       'taxReturnId',

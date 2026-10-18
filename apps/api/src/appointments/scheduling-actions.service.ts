@@ -75,27 +75,34 @@ export class SchedulingActionsService {
     body: RemindersReq,
   ): Promise<RemindersSent> {
     const now = new Date();
-    const found = await this.inFirm(businessId, async (tx) => {
-      return tx.appointment.findMany({
+    const asked = await this.inFirm(businessId, async (tx) => {
+      const rows = await tx.appointment.findMany({
         where: {
           AND: [
-            { businessId, status: 'SCHEDULED', startsAt: { gt: now } },
+            { businessId },
             body.appointmentIds
               ? { id: { in: body.appointmentIds } }
-              : { startsAt: { lt: new Date(now.getTime() + (body.withinDays ?? 1) * DAY) } },
-            // What this member may not see in full is skipped, not an error (and not revealed).
+              : {
+                  status: 'SCHEDULED',
+                  startsAt: { gt: now, lt: new Date(now.getTime() + (body.withinDays ?? 1) * DAY) },
+                },
+            // What this member does not see in full is not found, as everywhere else.
             inFullWhere(actor),
           ],
         },
         orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
         take: BULK_LIMIT,
-        select: { id: true, clientId: true },
+        select: { id: true, clientId: true, status: true, startsAt: true },
       });
+      if (body.appointmentIds && rows.length < new Set(body.appointmentIds).size) {
+        throw errors.notFound();
+      }
+      return rows;
     });
-    const asked = body.appointmentIds?.length ?? found.length;
-    const result = await this.remind(businessId, found, ['EMAIL']);
-    // Appointments asked for that are over, closed, not in this firm or not this member's.
-    return { sent: result.sent, skipped: result.skipped + Math.max(0, asked - found.length) };
+    // Over or closed appointments are skipped, not an error.
+    const open = asked.filter((a) => a.status === 'SCHEDULED' && a.startsAt > now);
+    const result = await this.remind(businessId, open, ['EMAIL']);
+    return { sent: result.sent, skipped: result.skipped + (asked.length - open.length) };
   }
 
   /** Emails each client now; the count of those who got one and of those who could not. */
