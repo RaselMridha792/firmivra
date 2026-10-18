@@ -503,13 +503,21 @@ export class CommunicationSegmentsService {
           criteriaSummary: criteria ? summarize(criteria) : null,
           ownerUserId: ctx.userId,
           lastRefreshedAt: new Date(),
-          members: {
-            create: [
-              ...people.clientIds.map((clientId) => ({ businessId: ctx.businessId, clientId })),
-              ...people.leadIds.map((leadId) => ({ businessId: ctx.businessId, leadId })),
-            ],
-          },
         },
+      });
+      await ctx.tx.communicationSegmentMember.createMany({
+        data: [
+          ...people.clientIds.map((clientId) => ({
+            businessId: ctx.businessId,
+            segmentId: s.id,
+            clientId,
+          })),
+          ...people.leadIds.map((leadId) => ({
+            businessId: ctx.businessId,
+            segmentId: s.id,
+            leadId,
+          })),
+        ],
       });
       const count = await this.count(ctx, s);
       const saved = await ctx.tx.communicationSegment.update({
@@ -679,14 +687,15 @@ export class CommunicationSegmentsService {
           ownerUserId: ctx.userId,
           memberCount: s.memberCount,
           lastRefreshedAt: new Date(),
-          members: {
-            create: members.map((m) => ({
-              businessId: ctx.businessId,
-              clientId: m.clientId,
-              leadId: m.leadId,
-            })),
-          },
         },
+      });
+      await ctx.tx.communicationSegmentMember.createMany({
+        data: members.map((m) => ({
+          businessId: ctx.businessId,
+          segmentId: made.id,
+          clientId: m.clientId,
+          leadId: m.leadId,
+        })),
       });
       await this.audit.logIn(
         ctx.tx,

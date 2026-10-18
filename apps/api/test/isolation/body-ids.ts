@@ -18,6 +18,11 @@ export interface BodyIdField {
  */
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   {
+    field: 'leadId',
+    routes: /^PUT \/api\/v1\/business\/communications\/consent$/,
+    why: 'names a client or a lead, never both (the schema refuses two); the lead is looked up through the same reach as the client, which the clientId case covers (R55)',
+  },
+  {
     field: 'idempotencyKey',
     routes: /./,
     why: 'a key the client makes up so a retry is not done twice; it names no record (#209, #222)',
