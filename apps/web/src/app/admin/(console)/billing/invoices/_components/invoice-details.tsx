@@ -270,8 +270,8 @@ export function InvoiceDetails({ invoiceId, saved }: { invoiceId: string; saved:
   const query = useApiQuery(['admin-billing', 'invoice', invoiceId], () =>
     adminBilling.invoice(invoiceId),
   );
-  const initial: Notice | null =
-    saved && SAVED[saved] ? { tone: 'success', message: SAVED[saved] } : null;
+  const savedText = saved ? SAVED[saved] : undefined;
+  const initial: Notice | null = savedText ? { tone: 'success', message: savedText } : null;
   const [notice, showNotice, clearNotice] = useNotice(initial);
   const actions = useInvoiceActions(showNotice);
   const downloadDoc = useApiMutation((doc: BillingDocument) => adminBilling.download(doc));
