@@ -2603,6 +2603,10 @@ model Client {
   tags            ClientTag[]
   statusHistory   ClientStatusHistory[]
 
+  /// R0 stage C2: compliance facts and sales tax registrations.
+  complianceFacts       ClientComplianceFacts?       @relation("ClientComplianceFacts")
+  salesTaxRegistrations ClientSalesTaxRegistration[] @relation("ClientSalesTaxRegistrations")
+
   @@unique([businessId, id])
   @@unique([businessId, email])
   @@unique([businessId, clientNumber])
@@ -9073,18 +9077,21 @@ model ComplianceLog {
 /// past-due and manager escalation, and a default task template per deadline type
 /// (`taskTemplates`: {DEADLINE_TYPE: task template id}, checked by the API). One row per firm.
 model ComplianceSettings {
-  businessId        String   @id @map("business_id") @db.Uuid
-  dueSoonDays       Int      @default(14) @map("due_soon_days")
+  businessId        String                @id @map("business_id") @db.Uuid
+  dueSoonDays       Int                   @default(14) @map("due_soon_days")
   /// A high-priority deadline this close to its date puts the client at risk.
-  atRiskDays        Int      @default(7) @map("at_risk_days")
-  staleCalendarDays Int      @default(90) @map("stale_calendar_days")
-  defaultReminders  Json     @default("[]") @map("default_reminders")
-  sendPastDueNotice Boolean  @default(false) @map("send_past_due_notice")
-  escalateToManager Boolean  @default(false) @map("escalate_to_manager")
-  escalateAfterDays Int      @default(3) @map("escalate_after_days")
-  taskTemplates     Json     @default("{}") @map("task_templates")
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  atRiskDays        Int                   @default(7) @map("at_risk_days")
+  staleCalendarDays Int                   @default(90) @map("stale_calendar_days")
+  defaultReminders  Json                  @default("[]") @map("default_reminders")
+  sendPastDueNotice Boolean               @default(false) @map("send_past_due_notice")
+  escalateToManager Boolean               @default(false) @map("escalate_to_manager")
+  escalateAfterDays Int                   @default(3) @map("escalate_after_days")
+  taskTemplates     Json                  @default("{}") @map("task_templates")
+  /// R0 stage C2: how a deadline's due date carries to its tasks.
+  taskDueDateSync   ComplianceTaskDueSync @default(NONE) @map("task_due_date_sync")
+  taskDueLeadDays   Int                   @default(0) @map("task_due_lead_days")
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id])
 
@@ -10944,4 +10951,120 @@ model LeadActivity {
   @@index([businessId, leadId, occurredAt])
   @@index([businessId, kind, occurredAt])
   @@map("lead_activities")
+}
+
+// ---------- R0 stage C2: Compliance follow-ups ----------
+// The Compliance API's follow-ups (#719): structured client facts the applicability rules can use
+// (a fact left unset means unknown, so a rule that needs it still returns NEEDS_REVIEW), the
+// client's sales tax registrations, a holiday table by jurisdiction (platform reference data), and
+// the firm's deadline-to-task due-date sync setting. Contract note:
+// docs/work/R0-stage-c2-compliance.md.
+
+/// How the client is taxed (distinct from its legal entity type on the profile).
+enum ComplianceTaxClassification {
+  INDIVIDUAL
+  SOLE_PROPRIETOR
+  DISREGARDED_ENTITY
+  PARTNERSHIP
+  S_CORPORATION
+  C_CORPORATION
+  TRUST
+  ESTATE
+  NONPROFIT
+  OTHER
+}
+
+/// The federal payroll tax deposit schedule.
+enum CompliancePayrollDepositSchedule {
+  MONTHLY
+  SEMIWEEKLY
+  NEXT_DAY
+  ANNUAL
+}
+
+enum ComplianceFilingFrequency {
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  ANNUAL
+}
+
+/// How a deadline's due date carries to its tasks.
+enum ComplianceTaskDueSync {
+  /// Tasks keep their own due dates.
+  NONE
+  /// A task is due on the deadline's due date.
+  MATCH_DEADLINE
+  /// A task is due `taskDueLeadDays` before the deadline's due date.
+  LEAD_DAYS
+}
+
+/// What the firm knows about a client for compliance applicability. One row per client; every fact
+/// is optional and unset means unknown.
+model ClientComplianceFacts {
+  businessId                 String                            @map("business_id") @db.Uuid
+  clientId                   String                            @map("client_id") @db.Uuid
+  fiscalYearEndMonth         Int?                              @map("fiscal_year_end_month")
+  fiscalYearEndDay           Int?                              @map("fiscal_year_end_day")
+  taxClassification          ComplianceTaxClassification?      @map("tax_classification")
+  /// Elections in force, as keys (e.g. "s_corp_2553", "entity_classification_8832").
+  elections                  String[]                          @default([])
+  isPayrollEmployer          Boolean?                          @map("is_payroll_employer")
+  payrollDepositSchedule     CompliancePayrollDepositSchedule? @map("payroll_deposit_schedule")
+  /// Two-letter state codes where the client has payroll.
+  payrollStates              String[]                          @default([]) @map("payroll_states")
+  isSalesTaxRegistered       Boolean?                          @map("is_sales_tax_registered")
+  priorYearTaxLiabilityCents Int?                              @map("prior_year_tax_liability_cents")
+  priorYearTaxYear           Int?                              @map("prior_year_tax_year")
+  notes                      String?
+  verifiedAt                 DateTime?                         @map("verified_at") @db.Timestamptz(3)
+  verifiedByUserId           String?                           @map("verified_by_user_id") @db.Uuid
+  updatedByUserId            String?                           @map("updated_by_user_id") @db.Uuid
+  createdAt                  DateTime                          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client Client @relation("ClientComplianceFacts", fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, clientId])
+  @@index([businessId, taxClassification])
+  @@map("client_compliance_facts")
+}
+
+/// A client's sales tax registration in one state, with its filing frequency. Closed, never
+/// deleted; at most one open registration per state.
+model ClientSalesTaxRegistration {
+  id           String                    @id @default(uuid(7)) @db.Uuid
+  businessId   String                    @map("business_id") @db.Uuid
+  clientId     String                    @map("client_id") @db.Uuid
+  state        String
+  frequency    ComplianceFilingFrequency
+  /// The last 4 characters of the state account number, for the masked display.
+  accountLast4 String?                   @map("account_last4")
+  registeredOn DateTime?                 @map("registered_on") @db.Date
+  closedOn     DateTime?                 @map("closed_on") @db.Date
+  createdAt    DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client Client @relation("ClientSalesTaxRegistrations", fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@index([businessId, clientId])
+  @@index([businessId, state])
+  @@map("client_sales_tax_registrations")
+}
+
+/// A holiday that moves a due date, by jurisdiction ("US" federal, "US-DC", "US-CA"...): the
+/// observed date. Platform reference data: every scope reads it; only the Super Admin team or the
+/// platform maintains it. The migration ships 2026 and 2027.
+model ComplianceHoliday {
+  jurisdiction String
+  holidayOn    DateTime @map("holiday_on") @db.Date
+  name         String
+  /// Where the date comes from (e.g. "5 U.S.C. 6103", "D.C. Code 1-612.02").
+  source       String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([jurisdiction, holidayOn])
+  @@index([holidayOn])
+  @@map("compliance_holidays")
 }

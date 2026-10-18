@@ -380,6 +380,43 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
       taskTemplates: { ESTIMATED_TAX: SEED_R38_IDS.template },
     },
   });
+  // Stage C2: tasks follow their deadline 3 days early; the client's compliance facts and its
+  // Texas sales tax registration (quarterly).
+  await tx.complianceSettings.update({
+    where: { businessId },
+    data: { taskDueDateSync: 'LEAD_DAYS', taskDueLeadDays: 3 },
+  });
+  await tx.clientComplianceFacts.upsert({
+    where: { businessId_clientId: { businessId, clientId: c.clientId } },
+    update: {},
+    create: {
+      businessId,
+      clientId: c.clientId,
+      fiscalYearEndMonth: 12,
+      fiscalYearEndDay: 31,
+      taxClassification: 'S_CORPORATION',
+      elections: ['s_corp_2553'],
+      isPayrollEmployer: true,
+      payrollDepositSchedule: 'MONTHLY',
+      payrollStates: ['TX'],
+      isSalesTaxRegistered: true,
+      priorYearTaxLiabilityCents: 1_845_000,
+      priorYearTaxYear: 2025,
+      updatedByUserId: c.staffId,
+    },
+  });
+  if (!(await tx.clientSalesTaxRegistration.count({ where: { clientId: c.clientId } }))) {
+    await tx.clientSalesTaxRegistration.create({
+      data: {
+        businessId,
+        clientId: c.clientId,
+        state: 'TX',
+        frequency: 'QUARTERLY',
+        accountLast4: '4821',
+        registeredOn: new Date('2021-03-01'),
+      },
+    });
+  }
   await tx.task.update({
     where: { id: c.taskId },
     data: { deadlineId: SEED_R38_IDS.deadline1, templateId: SEED_R38_IDS.template },

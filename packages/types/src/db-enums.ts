@@ -1734,3 +1734,34 @@ export const LeadActivityKind = z.enum([
   'CAMPAIGN',
 ]);
 export type LeadActivityKind = z.infer<typeof LeadActivityKind>;
+
+/** How the client is taxed (distinct from its legal entity type on the profile). */
+export const ComplianceTaxClassification = z.enum([
+  'INDIVIDUAL',
+  'SOLE_PROPRIETOR',
+  'DISREGARDED_ENTITY',
+  'PARTNERSHIP',
+  'S_CORPORATION',
+  'C_CORPORATION',
+  'TRUST',
+  'ESTATE',
+  'NONPROFIT',
+  'OTHER',
+]);
+export type ComplianceTaxClassification = z.infer<typeof ComplianceTaxClassification>;
+
+/** The federal payroll tax deposit schedule. */
+export const CompliancePayrollDepositSchedule = z.enum([
+  'MONTHLY',
+  'SEMIWEEKLY',
+  'NEXT_DAY',
+  'ANNUAL',
+]);
+export type CompliancePayrollDepositSchedule = z.infer<typeof CompliancePayrollDepositSchedule>;
+
+export const ComplianceFilingFrequency = z.enum(['MONTHLY', 'QUARTERLY', 'SEMIANNUAL', 'ANNUAL']);
+export type ComplianceFilingFrequency = z.infer<typeof ComplianceFilingFrequency>;
+
+/** How a deadline's due date carries to its tasks. */
+export const ComplianceTaskDueSync = z.enum(['NONE', 'MATCH_DEADLINE', 'LEAD_DAYS']);
+export type ComplianceTaskDueSync = z.infer<typeof ComplianceTaskDueSync>;
