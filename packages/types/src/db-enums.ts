@@ -1766,6 +1766,72 @@ export const LeadActivityKind = z.enum([
 ]);
 export type LeadActivityKind = z.infer<typeof LeadActivityKind>;
 
+/** What a stage means for the lifecycle, the KPIs and the transaction sync. */
+export const SalesStageType = z.enum([
+  'ACTIVE',
+  'CONVERTED',
+  'TRANSACTION_SYNCED',
+  'CLOSED',
+  'LOST',
+]);
+export type SalesStageType = z.infer<typeof SalesStageType>;
+
+export const SalesLeadSource = z.enum([
+  'WEBSITE',
+  'REFERRAL',
+  'SOCIAL_MEDIA',
+  'PAID_ADVERTISING',
+  'ORGANIC_SEARCH',
+  'EVENT',
+  'PARTNER',
+  'MANUAL_ENTRY',
+  'OTHER',
+]);
+export type SalesLeadSource = z.infer<typeof SalesLeadSource>;
+
+export const SalesLostReason = z.enum([
+  'NOT_A_FIT',
+  'BUDGET',
+  'NO_RESPONSE',
+  'CHOSE_COMPETITOR',
+  'TIMING',
+  'DUPLICATE',
+  'INVALID_LEAD',
+  'OTHER',
+]);
+export type SalesLostReason = z.infer<typeof SalesLostReason>;
+
+/** The linked transaction's state, as the transaction side reports it. */
+export const SalesTransactionStatus = z.enum(['OPEN', 'UNDER_CONTRACT', 'CLOSED', 'TERMINATED']);
+export type SalesTransactionStatus = z.infer<typeof SalesTransactionStatus>;
+
+/** Who moved a record: a person, an approved automation, the transaction sync, or an import. */
+export const SalesChangeSource = z.enum(['MANUAL', 'AUTOMATION', 'TRANSACTION', 'IMPORT']);
+export type SalesChangeSource = z.infer<typeof SalesChangeSource>;
+
+export const SalesFollowUpKind = z.enum(['FOLLOW_UP', 'CALL', 'DEMO', 'CONSULTATION', 'MEETING']);
+export type SalesFollowUpKind = z.infer<typeof SalesFollowUpKind>;
+
+export const SalesFollowUpStatus = z.enum(['SCHEDULED', 'COMPLETED', 'CANCELLED']);
+export type SalesFollowUpStatus = z.infer<typeof SalesFollowUpStatus>;
+
+export const SalesActivityKind = z.enum(['CALL', 'EMAIL', 'SMS', 'MEETING', 'OTHER']);
+export type SalesActivityKind = z.infer<typeof SalesActivityKind>;
+
+export const SalesActivityDirection = z.enum(['OUTBOUND', 'INBOUND']);
+export type SalesActivityDirection = z.infer<typeof SalesActivityDirection>;
+
+export const SalesActivityOutcome = z.enum([
+  'CONNECTED',
+  'NO_ANSWER',
+  'LEFT_MESSAGE',
+  'REPLIED',
+  'NO_REPLY',
+  'BOUNCED',
+  'COMPLETED',
+]);
+export type SalesActivityOutcome = z.infer<typeof SalesActivityOutcome>;
+
 export const CommChannel = z.enum(['EMAIL', 'SMS', 'INTERNAL', 'IN_APP']);
 export type CommChannel = z.infer<typeof CommChannel>;
 
