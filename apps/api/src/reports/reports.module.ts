@@ -41,6 +41,6 @@ import { ReportsService } from './reports.service.js';
         new S3ReportFiles(createS3Client(config), config.bucket, storage),
     },
   ],
-  exports: [ReportsService],
+  exports: [ReportsService, REPORT_FILES],
 })
 export class ReportsModule {}
