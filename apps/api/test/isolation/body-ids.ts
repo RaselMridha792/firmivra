@@ -28,6 +28,16 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     why: 'names a client or a lead, never both (the schema refuses two); the lead is looked up through the same reach as the client, which the clientId case covers (R55)',
   },
   {
+    field: 'campaignId',
+    routes: /^(POST \/api\/v1\/business\/leads(\/bulk)?|PATCH \/api\/v1\/business\/leads\/:id)$/,
+    why: 'leads have no campaign column yet: a campaign id is refused (400 FIELD_UNAVAILABLE) or, in the bulk bar, every lead is skipped, so it names no record (R57)',
+  },
+  {
+    field: 'ids',
+    routes: /^POST \/api\/v1\/business\/leads\/(bulk|messages)$/,
+    why: 'the leads the member selected: by contract (LeadBulkResult) a lead that is not found or not theirs is counted as skipped (200), not refused; leads-pipeline.e2e.test.ts checks that another firm changes and messages none (R57)',
+  },
+  {
     field: 'idempotencyKey',
     routes: /./,
     why: 'a key the client makes up so a retry is not done twice; it names no record (#209, #222)',
