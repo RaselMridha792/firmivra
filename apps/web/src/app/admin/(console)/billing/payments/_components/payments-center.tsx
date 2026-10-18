@@ -454,7 +454,7 @@ export function PaymentsCenter() {
                 </>
               }
             >
-              <label className="relative block w-full min-w-0 md:w-auto md:flex-1">
+              <label className="relative block w-full min-w-0 md:w-auto md:grow md:basis-72">
                 <span className="sr-only">Search payments</span>
                 <MagnifyingGlass
                   aria-hidden
@@ -509,7 +509,6 @@ export function PaymentsCenter() {
                   </option>
                 ))}
               </FilterSelect>
-              <div aria-hidden className="hidden basis-full md:block" />
               <DateFilter label="Start Date" value={start} max={end} onChange={reset(setStart)} />
               <DateFilter label="End Date" value={end} min={start} onChange={reset(setEnd)} />
             </FilterBar>
