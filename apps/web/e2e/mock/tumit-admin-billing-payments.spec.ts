@@ -83,6 +83,11 @@ test('Payments shows totals, filters the list and records a payment', async ({ p
   ]);
   expect((side?.x ?? 0) > (table?.x ?? 0) + (table?.width ?? 0) - 1).toBe(true);
   expect(await noSidewaysScroll(page)).toBe(true);
+  // All seven Billing tabs fit beside the panel; Settings never hides behind a sideways scroll.
+  await expect(tabs.getByRole('link', { name: 'Settings' })).toBeVisible();
+  expect(await tabs.locator('ul').evaluate((list) => list.scrollWidth <= list.clientWidth)).toBe(
+    true,
+  );
 
   await page
     .getByRole('combobox', { name: 'Status', exact: true })
