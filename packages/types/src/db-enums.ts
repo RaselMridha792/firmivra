@@ -1734,3 +1734,13 @@ export const LeadActivityKind = z.enum([
   'CAMPAIGN',
 ]);
 export type LeadActivityKind = z.infer<typeof LeadActivityKind>;
+
+export const PlatformReportType = z.enum([
+  'FIRMS',
+  'USERS',
+  'SUBSCRIPTIONS_REVENUE',
+  'SUPPORT',
+  'FEATURE_USAGE',
+  'ACTIVITY_LOG',
+]);
+export type PlatformReportType = z.infer<typeof PlatformReportType>;

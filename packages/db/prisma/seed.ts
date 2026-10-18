@@ -70,6 +70,68 @@ const randomHash = () => createHash('sha256').update(randomBytes(32)).digest('he
  * (on the invited member, so no one who signs in is locked) and the bulk batch that made it.
  * Synthetic data only; created once (the request is never re-created).
  */
+/** Stage B9: a saved report and a day of LVP's rollups (see main). Idempotent. */
+async function seedReports(lvp: string) {
+  const day = new Date(new Date().toISOString().slice(0, 10));
+  await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
+    if (await tx.platformSavedReport.findUnique({ where: { id: SEED_PLATFORM_IDS.savedReport } })) {
+      return;
+    }
+    await tx.platformSavedReport.create({
+      data: {
+        id: SEED_PLATFORM_IDS.savedReport,
+        ownerUserId: SEED_USERS.superAdmin.id,
+        name: 'Active firms on Team Pro',
+        description: 'Firms on Team Pro with their users, revenue and open tickets.',
+        reportType: 'FIRMS',
+        fields: [
+          'firm.name',
+          'firm.plan',
+          'firm.status',
+          'firm.total_users',
+          'firm.monthly_revenue',
+          'firm.open_tickets',
+        ],
+        filters: { planCodes: ['TEAM_PRO'], statuses: ['ACTIVE'] },
+        dateRange: { preset: 'LAST_30_DAYS' },
+        sort: [{ field: 'firm.monthly_revenue', direction: 'desc' }],
+        shared: true,
+      },
+    });
+  });
+  // The daily job (platform scope) upserts today's rows.
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    for (const [feature, events, activeUsers] of [
+      ['documents.generate', 14, 2],
+      ['esign.send', 3, 1],
+      ['crm.lead_created', 5, 2],
+    ] as const) {
+      await tx.platformFeatureUsageDaily.upsert({
+        where: { day_businessId_feature: { day, businessId: lvp, feature } },
+        create: { day, businessId: lvp, feature, events, activeUsers },
+        update: { events, activeUsers },
+      });
+    }
+    const metrics = {
+      totalUsers: 3,
+      activeUsers: 2,
+      logins: 6,
+      totalClients: 1,
+      documentsCreated: 4,
+      documentsCompleted: 2,
+      activeDocuments: 9,
+      leadsCreated: 1,
+      esignSent: 1,
+      lastLoginAt: new Date(),
+    };
+    await tx.platformFirmMetricsDaily.upsert({
+      where: { day_businessId: { day, businessId: lvp } },
+      create: { day, businessId: lvp, ...metrics },
+      update: metrics,
+    });
+  });
+}
+
 async function seedEsign(tx: TxClient, businessId: string) {
   const ids = SEED_ESIGN_IDS;
   const firm = { businessId };
@@ -2103,6 +2165,8 @@ async function main() {
   // R0 stage A: Firmivra's own org chart and the plan ladder (platform reference data, not
   // tenant data). No subscription rows: no backfill for existing firms (Rasel's change C).
   await seedPlatformTeam(prisma);
+  // Stage B9: a saved report and today's rollups for LVP.
+  await seedReports(businesses.lvp);
   await seedPlatformPlans(prisma);
 
   console.warn(
