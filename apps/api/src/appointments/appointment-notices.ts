@@ -6,7 +6,8 @@ import { DATABASE } from '../database/database.module.js';
 import { NOTIFY_SERVICE, type NotifyMessage, type NotifyService } from '../notify/notify.types.js';
 import { firmTimeZone } from './calendar-data.js';
 
-export type AppointmentNotice = 'appointment.booked' | 'appointment.changed';
+export type AppointmentNotice =
+  'appointment.booked' | 'appointment.changed' | 'appointment.reminder';
 
 /**
  * Tells the client about a booking or a new time through R6's NotifyService. R6 has no
@@ -37,6 +38,26 @@ export class AppointmentNotices {
     } catch {
       // Ids only (hard rule 4). The change stands; R6 owns delivery and retries.
       this.logger.warn(`Could not send ${template} for appointment ${appointmentId}`);
+    }
+  }
+
+  /**
+   * A reminder (or any notice) now, for Send Reminder: whether it went out. False when there is
+   * nothing to send (over, closed, no address) or it failed; the failure is logged by id only.
+   */
+  async sendNow(
+    template: AppointmentNotice,
+    businessId: string,
+    appointmentId: string,
+  ): Promise<boolean> {
+    try {
+      const message = await this.message(template, businessId, appointmentId);
+      if (!message) return false;
+      await this.notify.send(message);
+      return true;
+    } catch {
+      this.logger.warn(`Could not send ${template} for appointment ${appointmentId}`);
+      return false;
     }
   }
 
