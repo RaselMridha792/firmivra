@@ -425,13 +425,16 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
 
       <AuditKpis query={summary} />
 
-      <Tabs
-        label="Event categories"
-        variant="underline"
-        value={filters.view}
-        onChange={(id) => update({ view: oneOf(AUDIT_VIEWS, id) ?? 'audit' })}
-        items={VIEWS.map((item) => ({ id: item.id, label: item.label, icon: item.icon }))}
-      />
+      {/* The seven tabs wrap on a phone instead of widening the page. */}
+      <div className="min-w-0 max-lg:[&_[role=tablist]]:flex-wrap max-lg:[&_[role=tablist]]:gap-x-4">
+        <Tabs
+          label="Event categories"
+          variant="underline"
+          value={filters.view}
+          onChange={(id) => update({ view: oneOf(AUDIT_VIEWS, id) ?? 'audit' })}
+          items={VIEWS.map((item) => ({ id: item.id, label: item.label, icon: item.icon }))}
+        />
+      </div>
 
       {view ? (
         <div data-testid="view-intro">
@@ -564,7 +567,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
         </FilterBar>
       </div>
 
-      <Card data-testid="audit-events" className="min-w-0 overflow-hidden p-0!">
+      <Card data-testid="audit-events" className="min-w-0 overflow-hidden p-0! contain-paint">
         {events.isError ? (
           <div className="px-5 py-2">
             <QuietLine>{loadError(events.error)}</QuietLine>
