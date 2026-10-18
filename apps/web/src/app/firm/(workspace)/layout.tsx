@@ -8,6 +8,7 @@ import {
 } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
 import {
+  ArrowsClockwise,
   Briefcase,
   CalendarDots,
   Calculator,
@@ -22,6 +23,7 @@ import {
   GearSix,
   House,
   Notepad,
+  PaperPlaneTilt,
   type Icon,
   PuzzlePiece,
   Receipt,
@@ -91,9 +93,9 @@ const items: (NavItem & { managers?: true })[] = [
   link('Business Advisory & Development', Briefcase, '/business-advisory'),
   link('Invoices & Payments', Receipt, '/invoices'),
   link('Messages', ChatCircleDots, '/messages'),
-  mod('communications'),
+  link('Communications', PaperPlaneTilt, '/communications'),
   link('Tasks', CheckSquare, '/tasks'),
-  mod('automations'),
+  link('Automations', ArrowsClockwise, '/automations'),
   link('Compliance & Deadlines', ShieldCheck, '/compliance'),
   link('Reports', ChartLineUp, '/reports'),
   link('Templates', Notepad, '/templates'),

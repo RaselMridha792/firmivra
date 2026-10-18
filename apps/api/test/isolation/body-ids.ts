@@ -17,6 +17,21 @@ export interface BodyIdField {
  * and any field named `...Id`, `...Ids` or `ids`, is a record id and needs the case's `bodyIds`.
  */
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
+  ...(
+    [
+      'taxReturnId',
+      'bookkeepingEngagementId',
+      'invoiceId',
+      'taskId',
+      'intakeFormId',
+      'documentRequestId',
+    ] as const
+  ).map((name) => ({
+    field: `related.${name}`,
+    routes:
+      /^(POST \/api\/v1\/business\/appointments\/schedule|PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
+    why: 'appointments keep no link to a related item yet: any value is refused 400 and never read (R58)',
+  })),
   {
     field: 'busyCalendarIds',
     routes: /^PUT \/api\/v1\/business\/availability\/:userId\/rules$/,
@@ -55,6 +70,16 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     field: 'leadId',
     routes: /^PUT \/api\/v1\/business\/communications\/consent$/,
     why: 'names a client or a lead, never both (the schema refuses two); the lead is looked up through the same reach as the client, which the clientId case covers (R55)',
+  },
+  {
+    field: 'campaignId',
+    routes: /^(POST \/api\/v1\/business\/leads(\/bulk)?|PATCH \/api\/v1\/business\/leads\/:id)$/,
+    why: 'leads have no campaign column yet: a campaign id is refused (400 FIELD_UNAVAILABLE) or, in the bulk bar, every lead is skipped, so it names no record (R57)',
+  },
+  {
+    field: 'ids',
+    routes: /^POST \/api\/v1\/business\/leads\/(bulk|messages)$/,
+    why: 'the leads the member selected: by contract (LeadBulkResult) a lead that is not found or not theirs is counted as skipped (200), not refused; leads-pipeline.e2e.test.ts checks that another firm changes and messages none (R57)',
   },
   {
     field: 'idempotencyKey',
