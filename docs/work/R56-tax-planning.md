@@ -52,7 +52,8 @@ The firm Tax Planning screens on the R55 contract (`api.taxPlanning`, `createTax
 ## Progress log
 
 - 2026-10-18: Tax Planning built on the R55 contract with a new mock; 7-test spec passes; screenshots committed.
-- 2026-10-18: Audit log and Sign-ups (no design folders): module header, area chips on the log (action prefixes), avatars and plain action labels beside the codes; Sign-ups view counts, avatars and "How approval works". Tumit's, Fahad's and R23's specs still pass; `r56-audit-signups.spec.ts` (2 tests). Committed locally on `rasel/R56-audit-signups`; PR waits for #795 or #801 to merge.
+- 2026-10-18: Messages: "Mark unread" shows only when the thread has a client message (the API answers 409 otherwise) and errors show; r56-messages and nahid-client-messages pass; r17-messages (portal page, not touched here) fails on "Set as reminder".
+- 2026-10-18: Audit log and Sign-ups (no design folders): module header, area chips on the log (action prefixes), avatars and plain action labels beside the codes; Sign-ups view counts, avatars and "How approval works". Tumit's, Fahad's and R23's specs still pass; `r56-audit-signups.spec.ts` (2 tests).
 
 ## Handoff for a fresh session (written Oct 18, for the next window)
 

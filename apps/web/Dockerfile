@@ -11,8 +11,12 @@ RUN corepack enable
 WORKDIR /repo
 
 FROM base AS build
+# Dependencies first: this layer changes only with the lockfile, so the build cache keeps the
+# download when only source changes. package.json gives corepack the pnpm version.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm fetch
 COPY . .
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --offline --frozen-lockfile
 RUN pnpm exec turbo run build --filter=@firmivra/web...
 
 FROM ${BASE_REGISTRY}/docker/library/node:22-alpine AS runtime
