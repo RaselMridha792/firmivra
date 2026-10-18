@@ -18,6 +18,16 @@ export interface BodyIdField {
  */
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   {
+    field: 'senderId',
+    routes: /^PATCH \/api\/v1\/business\/communications\/:id$/,
+    why: 'a connected email or SMS provider of the firm; a sender is found only among the firm own healthy connections, so the id of another firm is refused 400 (communications.e2e.test.ts). A connection is unique per provider, so a world cannot hold one without changing what the other cases see (R55)',
+  },
+  {
+    field: 'leadId',
+    routes: /^PUT \/api\/v1\/business\/communications\/consent$/,
+    why: 'names a client or a lead, never both (the schema refuses two); the lead is looked up through the same reach as the client, which the clientId case covers (R55)',
+  },
+  {
     field: 'idempotencyKey',
     routes: /./,
     why: 'a key the client makes up so a retry is not done twice; it names no record (#209, #222)',
