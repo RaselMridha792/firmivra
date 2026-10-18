@@ -33,7 +33,7 @@ export function NotificationPreferencesCard({ slug }: { slug: string }) {
   return (
     <Card className="grid min-w-0 content-start gap-3">
       <div className="flex items-center gap-3">
-        <span className="grid size-12 shrink-0 place-items-center rounded-full bg-folder-surface text-firm-primary">
+        <span className="grid size-12 shrink-0 place-items-center rounded-full bg-folder-surface text-firm-text">
           <Settings2 aria-hidden className="size-7" />
         </span>
         <div>
@@ -43,7 +43,7 @@ export function NotificationPreferencesCard({ slug }: { slug: string }) {
       </div>
       <details className="group grid gap-3">
         <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-control border border-border bg-surface p-3 focus-visible:outline-2 focus-visible:outline-focus">
-          <Bell aria-hidden className="size-6 shrink-0 text-firm-primary" />
+          <Bell aria-hidden className="size-6 shrink-0 text-firm-text" />
           <span className="flex-1">
             <span className="block font-display font-bold text-heading">
               Notification Preferences
@@ -52,7 +52,7 @@ export function NotificationPreferencesCard({ slug }: { slug: string }) {
           </span>
           <ChevronRight
             aria-hidden
-            className="size-5 shrink-0 text-firm-primary transition-transform group-open:rotate-90"
+            className="size-5 shrink-0 text-firm-text transition-transform group-open:rotate-90"
           />
         </summary>
         <PageState query={prefs} isEmpty={(p) => p.items.length === 0}>

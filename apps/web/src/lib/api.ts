@@ -13,6 +13,7 @@ import {
   createClientsClient,
   createClientSignUpsClient,
   createContentClient,
+  createDocumentLibraryClient,
   createDocumentsClient,
   createEngagementsClient,
   createEsignClient,
@@ -65,6 +66,7 @@ import {
   createTaxPlanningClient,
   createCommunicationsClient,
   createTaxReturnsClient,
+  createTaxReturnWorkspaceClient,
   createTaxStatusesClient,
   createTeamClient,
   createUsersClient,
@@ -221,6 +223,8 @@ export const api = {
     dev && mocked('taxReturns')
       ? createTaxReturnsMock({ role: MOCK_ROLE })
       : createTaxReturnsClient(request),
+  /** Tax Returns workspace (R55 contract): overview, a return's workspace, review and e-file. */
+  taxReturnWorkspace: createTaxReturnWorkspaceClient(request),
   /** Begin Online leads (R11): the firm's inbox, convert and decline. */
   leads: dev && mocked('leads') ? createLeadsMock({ role: MOCK_ROLE }) : createLeadsClient(request),
   /** Leads page and Lead Profile (R43 contract): pipeline, follow-ups, activity, convert to client. */
@@ -300,6 +304,8 @@ export const api = {
     dev && mocked('documents')
       ? createDocumentsMock({ role: MOCK_ROLE })
       : createDocumentsClient(request),
+  /** Documents (R55 contract): the firm-wide library, requests dashboard, folders and settings. */
+  documentLibrary: createDocumentLibraryClient(request),
   /** Documents (R5): the signed-in client's own files and requests, per firm (portal). */
   myDocuments: (firmSlug: string) =>
     dev && mocked('myDocuments')
