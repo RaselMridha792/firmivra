@@ -4,7 +4,7 @@ import { Badge, Button, Callout, Modal, Select } from '@firmivra/ui';
 import {
   type Icon,
   PencilSimple,
-  Plus,
+  PlusCircle,
   Trash,
   TreeStructure,
   WarningCircle,
@@ -89,7 +89,7 @@ const withoutRule = (q: DraftQuestion): DraftQuestion => {
   return rest;
 };
 
-/** A row's icon button (Edit, Remove), as the Form Builder tab draws them. */
+/** A rule's icon button (Edit, Remove), coloured as the Form Builder tab's row buttons. */
 function RuleAction({
   label,
   icon: Glyph,
@@ -107,7 +107,7 @@ function RuleAction({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`flex size-10 shrink-0 items-center justify-center rounded-control hover:bg-canvas ${danger ? 'text-danger' : 'text-heading'}`}
+      className={`flex size-10 shrink-0 items-center justify-center rounded-control hover:bg-canvas ${danger ? 'text-danger' : 'text-muted hover:text-heading'}`}
     >
       <Glyph aria-hidden weight="fill" className="size-5" />
     </button>
@@ -166,13 +166,10 @@ export function LogicRules({ state }: { state: BuilderState }) {
   }
 
   return (
-    <div
-      data-testid="logic-rules"
-      className="flex flex-col gap-3 rounded-lg border border-divider bg-canvas p-3"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h3 className="text-base font-bold text-heading">Conditional Questions</h3>
+    <div data-testid="logic-rules" className="flex flex-col gap-3 rounded-xl bg-canvas p-3 sm:p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-56">
+          <h3 className="text-lg font-bold text-heading">Conditional Questions</h3>
           <p className="text-sm text-muted">
             Show a question only when the client gives a set answer to an earlier question.
           </p>
@@ -183,7 +180,7 @@ export function LogicRules({ state }: { state: BuilderState }) {
           disabled={!open.length}
           onClick={() => setEditing({ key: null })}
         >
-          <Plus aria-hidden weight="fill" className="size-4" />
+          <PlusCircle aria-hidden weight="fill" className="size-5" />
           Add Rule
         </Button>
       </div>
@@ -207,7 +204,7 @@ export function LogicRules({ state }: { state: BuilderState }) {
                 className="flex flex-col gap-2 rounded-lg border border-divider bg-surface p-3 shadow-sm"
               >
                 <div className="flex items-start gap-2">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-action">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-info-soft text-action">
                     <TreeStructure aria-hidden weight="fill" className="size-5" />
                   </span>
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
