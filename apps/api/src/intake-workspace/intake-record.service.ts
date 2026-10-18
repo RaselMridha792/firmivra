@@ -241,7 +241,9 @@ export class IntakeRecordService {
         by: null,
       });
     }
-    history.sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+    // By time; events of the same moment keep the order they were written in (one change can be
+    // an assignee and a date: ASSIGNED, then EXTENDED). Array.prototype.sort is stable.
+    history.sort((a, b) => a.at.localeCompare(b.at));
 
     const record: AssignedFormRecord = {
       ...toRow(row),
