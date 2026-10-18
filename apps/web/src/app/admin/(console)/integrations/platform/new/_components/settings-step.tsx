@@ -69,7 +69,7 @@ import {
 
 const SUBTITLE =
   'Choose what Firmivra may do with this service and how often it syncs. Start with least privilege.';
-const BACKOFF_LABELS: Record<Backoff, string> = {
+export const BACKOFF_LABELS: Record<Backoff, string> = {
   EXPONENTIAL: 'Exponential (longer wait each time)',
   FIXED: 'Fixed interval',
 };
