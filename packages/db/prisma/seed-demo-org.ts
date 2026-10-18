@@ -47,10 +47,18 @@ export interface DemoOrgResult {
 
 /**
  * The demo firm's look: Octavia's LVP client portal mockups (docs/mockups/client-portal), navy
- * sidebar and headings with orange accents, both measured from the mockups. The portal reads
- * them from business_settings (primary and accent colour).
+ * sidebar and headings with orange accents, all measured from the mockups. The portal reads them
+ * from business_settings: primary and accent colour, then the theme colours (sidebar, primary and
+ * secondary text, buttons: the mockups' royal-blue buttons), so the demo shows the theme working.
  */
-const DEMO_BRAND = { brandColor: '#001F4B', accentColor: '#E68B18' } as const;
+const DEMO_BRAND = {
+  brandColor: '#001F4B',
+  accentColor: '#E68B18',
+  sidebarColor: '#001F4B',
+  textPrimaryColor: '#001F4B',
+  textSecondaryColor: '#485677',
+  buttonColor: '#006FF0',
+} as const;
 
 const splitName = (name: string): { firstName: string | null; lastName: string | null } => {
   const parts = name.split(' ');
