@@ -154,12 +154,25 @@ function Totals({ data, compact }: { data: InvoiceDocumentData; compact?: boolea
   );
 }
 
-function LinesTable({ data, numbered }: { data: InvoiceDocumentData; numbered?: boolean }) {
+/**
+ * The line items. The full document keeps a minimum width (it scrolls inside its frame on a
+ * phone); `compact` (the narrow live preview) drops it and uses tighter cells, so every column
+ * fits the preview card.
+ */
+function LinesTable({
+  data,
+  numbered,
+  compact,
+}: {
+  data: InvoiceDocumentData;
+  numbered?: boolean;
+  compact?: boolean;
+}) {
   const c = data.currency;
-  const cell = 'px-3 py-2.5';
+  const cell = compact ? 'px-2 py-2.5' : 'px-3 py-2.5';
   return (
     <div className="overflow-x-auto rounded-lg border border-divider">
-      <table className="w-full min-w-md text-sm text-text">
+      <table className={`w-full text-sm text-text ${compact ? '' : 'min-w-md'}`}>
         <caption className="sr-only">Line items</caption>
         <thead className="bg-table-head text-heading">
           <tr>
@@ -189,8 +202,12 @@ function LinesTable({ data, numbered }: { data: InvoiceDocumentData; numbered?: 
               {numbered ? <td className={cell}>{index + 1}</td> : null}
               <td className={`${cell} wrap-anywhere`}>{line.description || 'Item description'}</td>
               <td className={`${cell} text-center`}>{line.quantity}</td>
-              <td className={`${cell} text-right`}>{formatMoney(line.rateCents, c)}</td>
-              <td className={`${cell} text-right`}>{formatMoney(line.amountCents, c)}</td>
+              <td className={`${cell} text-right whitespace-nowrap`}>
+                {formatMoney(line.rateCents, c)}
+              </td>
+              <td className={`${cell} text-right whitespace-nowrap`}>
+                {formatMoney(line.amountCents, c)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -279,7 +296,7 @@ export function InvoiceDocument({
             <dd className="text-text">{PAYMENT_TERMS_LABELS[data.paymentTerms]}</dd>
           </dl>
         </div>
-        <LinesTable data={data} />
+        <LinesTable data={data} compact />
         <Totals data={data} compact />
         <p className="text-sm text-text">{firm?.invoiceFooter ?? 'Thank you for your business!'}</p>
       </article>
