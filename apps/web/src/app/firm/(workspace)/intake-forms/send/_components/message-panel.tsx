@@ -1,6 +1,6 @@
 'use client';
 
-import { XSquare } from '@phosphor-icons/react';
+import { CalendarBlank, XSquare } from '@phosphor-icons/react';
 import { Input, Toggle } from '@firmivra/ui';
 import { type ReactNode, useId } from 'react';
 import { api } from '../../../../../../lib/api';
@@ -16,9 +16,13 @@ import {
   UNAVAILABLE,
 } from './panel';
 import { PersonPicker } from './person-picker';
-import { type FieldErrors, type Member, MESSAGE_MAX } from './send-model';
+import { type FieldErrors, formatDay, type Member, MESSAGE_MAX } from './send-model';
 
-/** A calendar day (or none), with a clear button; the browser's own date picker. */
+/**
+ * A calendar day (or none): the calendar icon, the day as "Oct 10, 2026" and a clear button. The
+ * browser's own date input lies over the box, unseen, so a click opens its calendar and it keeps
+ * the label, the value and the keyboard.
+ */
 function DateField({
   label,
   value,
@@ -38,23 +42,31 @@ function DateField({
         {label}
       </FieldLabel>
       <div
-        className={`flex min-w-0 items-center gap-1 rounded-control border bg-surface pr-2 focus-within:outline-2 focus-within:outline-accent-500 ${error ? 'border-danger' : 'border-border'}`}
+        className={`relative flex min-h-11 min-w-0 items-center gap-2 rounded-control border bg-surface pr-1 pl-3 focus-within:outline-2 focus-within:outline-accent-500 ${error ? 'border-danger' : 'border-border'}`}
       >
+        <CalendarBlank aria-hidden weight="fill" className="size-5 shrink-0 text-heading" />
+        <span
+          aria-hidden
+          className={`min-w-0 flex-1 truncate text-base ${value ? 'text-text' : 'text-muted'}`}
+        >
+          {value ? formatDay(value) : 'Select a date'}
+        </span>
         <input
           id={id}
           type="date"
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          onClick={(event) => event.currentTarget.showPicker?.()}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : undefined}
-          className="min-w-0 flex-1 rounded-control bg-surface py-2 pl-3 text-base text-text focus:outline-none"
+          className="absolute inset-0 size-full cursor-pointer rounded-control opacity-0"
         />
         <button
           type="button"
           aria-label={`Clear ${label.toLowerCase()}`}
           disabled={!value}
           onClick={() => onChange('')}
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-control-border hover:text-heading disabled:cursor-not-allowed disabled:opacity-40"
+          className="relative flex size-8 shrink-0 items-center justify-center rounded-md text-control-border hover:text-heading disabled:cursor-not-allowed disabled:opacity-40"
         >
           <XSquare aria-hidden weight="fill" className="size-5" />
         </button>
@@ -134,12 +146,10 @@ function Setting({
   return (
     <div className="flex flex-col gap-2">
       <p className="text-sm font-bold text-heading">{title}</p>
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="flex items-center gap-3">
-          <Toggle checked={checked} onChange={onChange} label={label} />
-          <span className="text-sm text-text">{text}</span>
-        </div>
-        {action}
+      <div className="flex items-center gap-3">
+        <Toggle checked={checked} onChange={onChange} label={label} />
+        <span className="min-w-0 flex-1 text-sm text-text">{text}</span>
+        {action ? <span className="shrink-0">{action}</span> : null}
       </div>
     </div>
   );
@@ -208,7 +218,7 @@ export function MessagePanel({
           onChange={(event) => set({ message: event.target.value })}
           aria-invalid={errors.message ? true : undefined}
           aria-describedby={errors.message ? messageErrorId : undefined}
-          className={`${controlBox} resize-y ${errors.message ? 'border-danger' : 'border-border'}`}
+          className={`${controlBox} resize-none ${errors.message ? 'border-danger' : 'border-border'}`}
         />
         <div className="flex justify-between gap-2 text-xs">
           <FieldError id={messageErrorId}>{errors.message}</FieldError>
@@ -217,7 +227,8 @@ export function MessagePanel({
           </p>
         </div>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/* Bottom-aligned: a label that wraps in a narrow column keeps both boxes level. */}
+      <div className="grid items-end gap-4 sm:grid-cols-2">
         <DateField
           label="Due Date"
           value={values.dueOn}

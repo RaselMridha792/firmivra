@@ -1,6 +1,6 @@
 'use client';
 
-import { EnvelopeSimple, type Icon, Phone, TreeStructure } from '@phosphor-icons/react';
+import { EnvelopeSimple, Graph, type Icon, Phone } from '@phosphor-icons/react';
 import type { FormDeliveryChannel } from '@firmivra/types';
 import { tileTones, type TileTone } from '@firmivra/ui';
 import { useId } from 'react';
@@ -10,7 +10,7 @@ import { CHANNEL_LABELS, channelState, type Recipient } from './send-model';
 const OPTIONS: { channel: FormDeliveryChannel; icon: Icon; tone: TileTone }[] = [
   { channel: 'EMAIL', icon: EnvelopeSimple, tone: 'blue' },
   { channel: 'SMS', icon: Phone, tone: 'navy' },
-  { channel: 'PORTAL', icon: TreeStructure, tone: 'navy' },
+  { channel: 'PORTAL', icon: Graph, tone: 'navy' },
 ];
 
 /**
@@ -28,7 +28,7 @@ export function DeliveryPanel({
   onChannel: (channel: FormDeliveryChannel) => void;
   error: string | undefined;
 }) {
-  const name = useId();
+  const groupNameId = useId();
   const errorId = useId();
   return (
     <Panel
@@ -50,7 +50,7 @@ export function DeliveryPanel({
               >
                 <input
                   type="radio"
-                  name={name}
+                  name={groupNameId}
                   value={option}
                   checked={on}
                   disabled={!state.available}
@@ -63,7 +63,7 @@ export function DeliveryPanel({
                   <Glyph aria-hidden weight="fill" className="size-6" />
                 </span>
                 <span className="text-sm font-bold text-heading">{CHANNEL_LABELS[option]}</span>
-                <span className="text-xs break-all text-muted">{state.detail}</span>
+                <span className="text-xs wrap-break-word text-muted">{state.detail}</span>
               </label>
             );
           })}

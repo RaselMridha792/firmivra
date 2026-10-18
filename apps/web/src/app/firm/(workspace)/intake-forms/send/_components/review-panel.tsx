@@ -5,13 +5,14 @@ import {
   CheckCircle,
   EnvelopeSimple,
   FloppyDisk,
+  Graph,
+  type Icon,
   Info,
   PaperPlaneTilt,
-  TreeStructure,
   WarningCircle,
 } from '@phosphor-icons/react';
 import type { SendIntakeFormResult } from '@firmivra/types';
-import { Button, Callout, Checkbox } from '@firmivra/ui';
+import { Button, Checkbox, tintTones } from '@firmivra/ui';
 import Link from 'next/link';
 import { type ReactNode, useId } from 'react';
 import { Panel } from './panel';
@@ -23,13 +24,49 @@ import {
   type SendChoices,
 } from './send-model';
 
-const ROUTE_ICONS = { EMAIL: EnvelopeSimple, SMS: ChatText, PORTAL: TreeStructure };
+const ROUTE_ICONS = { EMAIL: EnvelopeSimple, SMS: ChatText, PORTAL: Graph };
+
+const NOTE_TONES = {
+  success: {
+    box: 'border-success/20 bg-success-soft',
+    icon: tintTones.green,
+    title: 'text-success',
+  },
+  warning: { box: 'border-gold/30 bg-warning-soft', icon: tintTones.amber, title: 'text-warning' },
+  plain: { box: 'border-border bg-subtle', icon: tintTones.grey, title: 'text-heading' },
+};
+
+/** Ready to Send, Not Ready Yet and Form Sent: a soft round icon and a coloured title. */
+function Note({
+  tone,
+  icon: Glyph,
+  title,
+  children,
+}: {
+  tone: keyof typeof NOTE_TONES;
+  icon: Icon;
+  title: string;
+  children: ReactNode;
+}) {
+  const t = NOTE_TONES[tone];
+  return (
+    <div className={`flex items-start gap-4 rounded-lg border p-4 ${t.box}`}>
+      <span className={`flex size-11 shrink-0 items-center justify-center rounded-full ${t.icon}`}>
+        <Glyph aria-hidden weight="fill" className="size-6" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-muted">
+        <p className={`text-base font-bold ${t.title}`}>{title}</p>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex gap-3 border-t border-border py-2.5 text-sm">
-      <dt className="w-32 shrink-0 text-text">{label}</dt>
-      <dd className="min-w-0 flex-1 wrap-break-word font-medium text-heading">{children}</dd>
+    <div className="flex gap-3 border-t border-border py-2 text-sm">
+      <dt className="w-28 shrink-0 text-text">{label}</dt>
+      <dd className="min-w-0 flex-1 wrap-break-word text-heading">{children}</dd>
     </div>
   );
 }
@@ -46,9 +83,8 @@ function SentResult({
   const sent = delivery.status === 'SENT';
   return (
     <div className="flex flex-col gap-3" data-testid="send-result">
-      <Callout
-        surface={sent ? 'success' : 'warning'}
-        tone={sent ? 'green' : 'amber'}
+      <Note
+        tone={sent ? 'success' : 'warning'}
         icon={sent ? CheckCircle : WarningCircle}
         title={sent ? 'Form Sent' : 'Delivery Failed'}
       >
@@ -61,7 +97,7 @@ function SentResult({
             ? `${form.form.name} now shows in Intake Forms as Not Started.`
             : 'The form was saved but not delivered. Open it to resend.'}
         </p>
-      </Callout>
+      </Note>
       <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium">
         <Link href={`/intake-forms/${form.id}`} className="text-link underline">
           View sent form
@@ -155,18 +191,13 @@ export function ReviewPanel({
       ) : (
         <>
           {ready ? (
-            <Callout
-              surface="success"
-              tone="green"
-              icon={ROUTE_ICONS[c.channel]}
-              title="Ready to Send"
-            >
-              {routeLine(c.recipient, c.channel)}
-            </Callout>
+            <Note tone="success" icon={ROUTE_ICONS[c.channel]} title="Ready to Send">
+              <p>{routeLine(c.recipient, c.channel)}</p>
+            </Note>
           ) : (
-            <Callout surface="plain" tone="grey" icon={Info} title="Not Ready Yet">
-              To send, {missing.join(', ')}.
-            </Callout>
+            <Note tone="plain" icon={Info} title="Not Ready Yet">
+              <p>To send, {missing.join(', ')}.</p>
+            </Note>
           )}
           {c.channel === 'EMAIL' ? (
             <div className="flex flex-col">

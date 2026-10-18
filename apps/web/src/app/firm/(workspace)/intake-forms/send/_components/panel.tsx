@@ -23,12 +23,12 @@ export function Panel({
     <Card
       aria-labelledby={headingId}
       data-testid={testId}
-      className={`flex min-w-0 flex-col gap-4 ${grow ? 'flex-1' : ''}`}
+      className={`flex min-w-0 flex-col gap-4 p-4! ${grow ? 'flex-1' : ''}`}
     >
       <header className="flex items-start gap-4">
         <span
           aria-hidden
-          className="flex size-11 shrink-0 items-center justify-center rounded-full bg-info-soft text-xl font-bold text-info"
+          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-info-soft text-xl font-bold text-info"
         >
           {step}
         </span>
@@ -36,7 +36,7 @@ export function Panel({
           <h2 id={headingId} className="font-display text-xl font-bold text-heading">
             {title}
           </h2>
-          <p className="text-sm text-muted">{subtitle}</p>
+          <p className="mt-0.5 text-sm text-muted">{subtitle}</p>
         </div>
       </header>
       {children}

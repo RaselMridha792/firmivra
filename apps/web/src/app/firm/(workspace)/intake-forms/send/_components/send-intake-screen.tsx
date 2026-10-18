@@ -112,7 +112,7 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
   const [draftId, setDraftId] = useState<string>();
   const [result, setResult] = useState<SendIntakeFormResult>();
   /** The last Send Form attempt: a retry after a network failure keeps its idempotency key. */
-  const attempt = useRef<{ key: string; body: string; retry: boolean } | undefined>(undefined);
+  const attemptRef = useRef<{ key: string; body: string; retry: boolean } | undefined>(undefined);
 
   const form = forms.data?.find((f) => f.id === state.formId);
   const choices: SendChoices = {
@@ -157,7 +157,7 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
       return;
     }
     const fingerprint = JSON.stringify(sendBody(choices, recipient, ''));
-    const last = attempt.current;
+    const last = attemptRef.current;
     const key = last?.retry && last.body === fingerprint ? last.key : crypto.randomUUID();
     const body = sendBody(choices, recipient, key);
     const parsed = SendIntakeFormRequest.safeParse(body);
@@ -173,16 +173,16 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
     }
     setErrors({});
     setNotice(undefined);
-    attempt.current = { key, body: fingerprint, retry: false };
+    attemptRef.current = { key, body: fingerprint, retry: false };
     send.mutate(body, {
       onSuccess: (sent) => {
-        attempt.current = undefined;
+        attemptRef.current = undefined;
         setResult(sent);
       },
       onError: (error) => {
         // fetch rejects with a TypeError when the API can't be reached: the send may have
         // happened, so the same request keeps its key and the API answers it only once.
-        attempt.current = { key, body: fingerprint, retry: error instanceof TypeError };
+        attemptRef.current = { key, body: fingerprint, retry: error instanceof TypeError };
         setNotice({ text: errorMessage(error, SEND_ERRORS), tone: 'error' });
       },
     });
@@ -209,7 +209,7 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
     setNotice(undefined);
     setDraftId(undefined);
     setResult(undefined);
-    attempt.current = undefined;
+    attemptRef.current = undefined;
     send.reset();
   }
 
@@ -219,7 +219,7 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-6" data-testid="send-intake-page">
+    <div className="flex flex-col gap-4" data-testid="send-intake-page">
       <PageHeader
         title="Send Intake Form"
         subtitle="Choose a client or lead, select a form, customize your message, and send it via email, SMS, or client portal."
@@ -235,8 +235,8 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
           </nav>
         }
       />
-      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-        <div className="flex min-w-0 flex-col gap-4">
+      <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="flex min-w-0 flex-col gap-3">
           <RecipientPanel
             kind={kind}
             onKind={chooseKind}

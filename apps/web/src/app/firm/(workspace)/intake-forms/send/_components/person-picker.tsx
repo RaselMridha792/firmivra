@@ -98,12 +98,12 @@ export function PersonPicker({
     items[(next + items.length) % items.length]?.focus();
   }
 
-  const optionKey = (option: PickerOption | undefined) => (event: KeyboardEvent<HTMLLIElement>) => {
+  function onOptionKey(event: KeyboardEvent<HTMLLIElement>, option: PickerOption | undefined) {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       choose(option);
     }
-  };
+  }
 
   const optionClass =
     'flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-3 py-2 hover:bg-canvas focus:bg-folder-surface focus:outline-none aria-selected:bg-folder-surface';
@@ -163,7 +163,7 @@ export function PersonPicker({
                 aria-selected={!value}
                 tabIndex={-1}
                 onClick={() => choose(undefined)}
-                onKeyDown={optionKey(undefined)}
+                onKeyDown={(event) => onOptionKey(event, undefined)}
                 className={`${optionClass} text-sm text-muted`}
               >
                 {noneLabel}
@@ -176,7 +176,7 @@ export function PersonPicker({
                 aria-selected={value?.id === option.id}
                 tabIndex={-1}
                 onClick={() => choose(option)}
-                onKeyDown={optionKey(option)}
+                onKeyDown={(event) => onOptionKey(event, option)}
                 className={optionClass}
               >
                 <span aria-hidden className="shrink-0">

@@ -126,19 +126,24 @@ export function FormPanel({
         className="flex flex-wrap items-center gap-3 rounded-lg bg-table-head p-3"
         data-testid="send-form-card"
       >
-        <span className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-success-soft text-success">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-success-soft text-success">
           <FileText aria-hidden weight="fill" className="size-7" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="wrap-break-word font-semibold text-heading">
+          <p className="text-sm wrap-break-word font-semibold text-heading">
             {chosen?.name ?? 'No form selected'}
           </p>
           <p className="text-sm text-muted">
             {chosen ? questions(chosen.questionCount) : 'Choose a form above'}
           </p>
         </div>
-        <Button variant="outline" disabled={!chosen} onClick={() => setPreview(true)}>
-          <Eye aria-hidden weight="fill" className="size-5" />
+        <Button
+          variant="outline"
+          className="min-h-9! px-3! py-1!"
+          disabled={!chosen}
+          onClick={() => setPreview(true)}
+        >
+          <Eye aria-hidden weight="fill" className="size-4" />
           Preview Form
         </Button>
       </div>

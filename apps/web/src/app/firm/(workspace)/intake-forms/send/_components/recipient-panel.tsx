@@ -66,7 +66,7 @@ function KindSwitch({
       role="radiogroup"
       aria-label="Send to"
       onKeyDown={onKey}
-      className="grid grid-cols-2 rounded-lg bg-folder-surface"
+      className="grid grid-cols-2 rounded-md bg-folder-surface"
     >
       {KINDS.map((k) => (
         <button
@@ -77,7 +77,7 @@ function KindSwitch({
           aria-checked={kind === k.kind}
           tabIndex={kind === k.kind ? 0 : -1}
           onClick={() => onKind(k.kind)}
-          className={`min-h-11 rounded-lg px-4 text-sm font-medium ${kind === k.kind ? 'bg-action text-on-action' : 'text-heading hover:bg-folder-hover'}`}
+          className={`min-h-9 rounded-md px-4 text-sm font-medium ${kind === k.kind ? 'bg-action text-on-action' : 'text-heading hover:bg-folder-hover'}`}
         >
           {k.label}
         </button>
