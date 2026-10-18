@@ -14,7 +14,7 @@ import {
   type UpdateCatalogBody,
 } from '../../../../../../../mocks/admin-integrations';
 import { ServiceLogo } from '../../../_components/integration-badges';
-import { Loaded } from '../../../_components/integration-states';
+import { Loaded, loadError } from '../../../_components/integration-states';
 import { IntegrationsHeader, LinkButton } from '../../../_components/integrations-shell';
 import type { Notice } from '../../../_components/platform-actions';
 import {
@@ -333,6 +333,7 @@ export function CatalogEdit({ catalogId }: { catalogId: string }) {
             saved={item?.status ?? null}
             firmsUsing={item?.stats.firmsUsing ?? null}
             disabled={locked}
+            failed={detail.isError ? loadError(detail.error) : null}
             onChange={(status) => set({ status })}
           />
           <QuickStats query={detail} />

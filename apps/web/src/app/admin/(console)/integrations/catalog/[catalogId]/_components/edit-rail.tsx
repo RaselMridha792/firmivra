@@ -72,10 +72,13 @@ export function StatusCard({
   saved,
   firmsUsing,
   disabled,
+  failed,
   onChange,
 }: {
-  /** The status on the form (null while loading). */
+  /** The status on the form (null while loading or when the entry could not load). */
   status: CatalogStatus | null;
+  /** The quiet line when the entry could not load. */
+  failed: string | null;
   saved: CatalogStatus | null;
   firmsUsing: number | null;
   disabled: boolean;
@@ -87,7 +90,9 @@ export function StatusCard({
       title="Status"
       subtitle="Control the availability of this integration in the catalog."
     >
-      {status === null ? (
+      {status === null && failed ? (
+        <QuietLine>{failed}</QuietLine>
+      ) : status === null ? (
         <SkeletonLines rows={3} label="Loading status" />
       ) : (
         <fieldset className="flex flex-col gap-1">
