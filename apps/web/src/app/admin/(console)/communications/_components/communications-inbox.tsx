@@ -127,7 +127,7 @@ function ConversationAvatar({
 
 function SectionTitle({ children, action }: { children: string; action?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-divider px-4 py-3">
+    <div className="flex items-center justify-between gap-3 border-b border-divider px-4 py-3 xl:px-3 xl:py-1">
       <h2 className="text-sm font-semibold text-heading">{children}</h2>
       {action}
     </div>
@@ -271,7 +271,7 @@ export function CommunicationsInbox() {
 
       <section
         aria-label="Communication summary"
-        className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5"
+        className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5 xl:[&>div]:gap-3 xl:[&>div]:p-3 xl:[&>div>span]:size-12 xl:[&>div>span>svg]:size-6 xl:[&>div>div]:gap-0 xl:[&>div>div>span:first-child]:text-xl xl:[&>div>div>span:nth-child(2)]:whitespace-nowrap xl:[&>div>div>span:nth-child(2)]:text-xs"
       >
         <KpiCard
           icon={EnvelopeSimple}
@@ -315,7 +315,7 @@ export function CommunicationsInbox() {
         className="flex flex-col gap-3 xl:flex-row xl:items-center"
         aria-label="Conversation filters"
       >
-        <div className="min-w-0 flex-1 [&_[role=tablist]]:overflow-y-hidden [&_[role=tablist]]:pb-px">
+        <div className="min-w-0 flex-1 [&_[role=tablist]]:overflow-y-hidden [&_[role=tablist]]:pb-px xl:[&_[role=tablist]]:gap-3">
           <Tabs
             items={tabs}
             value={activeTab}
@@ -396,8 +396,8 @@ export function CommunicationsInbox() {
         className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-12"
         aria-label="Communications inbox"
       >
-        <Card className="!p-0 min-w-0 overflow-hidden lg:col-span-3">
-          <div className="border-b border-divider px-3 pt-3">
+        <Card className="!p-0 flex min-w-0 flex-col overflow-hidden lg:col-span-3">
+          <div className="shrink-0 border-b border-divider px-3 pt-3">
             <div
               className="flex gap-1 overflow-x-auto overflow-y-hidden pb-2"
               role="tablist"
@@ -427,7 +427,7 @@ export function CommunicationsInbox() {
               })}
             </div>
           </div>
-          <div className="divide-y divide-divider">
+          <div className="divide-y divide-divider xl:[&>button>span:last-child>span:last-child>span:last-child]:px-2 xl:[&>button>span:last-child>span:last-child>span:last-child]:py-0">
             {filteredConversations.length ? (
               filteredConversations.map((item) => (
                 <button
@@ -438,7 +438,7 @@ export function CommunicationsInbox() {
                     setAssigned(item.assignedTo === response?.currentAdmin);
                   }}
                   className={
-                    'flex w-full items-center gap-3 px-3 py-3 text-left transition-colors ' +
+                    'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors xl:py-0.5 ' +
                     (selectedId === item.id ? 'bg-info-soft' : 'bg-surface hover:bg-canvas')
                   }
                 >
@@ -458,8 +458,10 @@ export function CommunicationsInbox() {
                       </span>
                       <span className="shrink-0 text-xs text-muted">{item.time}</span>
                     </span>
-                    <span className="mt-1 block truncate text-xs text-muted">{item.preview}</span>
-                    <span className="mt-1.5 flex items-center justify-between gap-2">
+                    <span className="mt-1 flex min-w-0 items-center justify-between gap-2 xl:mt-0">
+                      <span className="block min-w-0 flex-1 truncate text-xs text-muted">
+                        {item.preview}
+                      </span>
                       <Badge
                         tone={
                           item.contactType === 'Lead'
@@ -510,7 +512,7 @@ export function CommunicationsInbox() {
               </div>
             )}
           </div>
-          <div className="border-t border-divider p-3">
+          <div className="shrink-0 border-t border-divider p-3">
             <Pagination
               page={page}
               onPage={setPage}
@@ -529,7 +531,7 @@ export function CommunicationsInbox() {
         <Card className="!p-0 flex min-w-0 flex-col overflow-hidden lg:col-span-6">
           {selected ? (
             <>
-              <header className="flex flex-wrap items-center gap-3 border-b border-divider p-3 sm:p-4">
+              <header className="flex flex-wrap items-center gap-3 border-b border-divider p-3 sm:p-4 xl:flex-nowrap xl:gap-2 xl:p-3">
                 <ConversationAvatar conversation={selected} size="xl" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -538,7 +540,7 @@ export function CommunicationsInbox() {
                     </h2>
                     <Badge tone="success">{selected.contactType}</Badge>
                   </div>
-                  <p className="mt-1 break-all text-xs text-muted sm:text-sm">
+                  <p className="mt-1 break-all text-xs text-muted sm:text-sm xl:truncate xl:whitespace-nowrap xl:text-xs">
                     {response?.contactDetails?.email ?? '—'} <span className="px-1">|</span>{' '}
                     {response?.contactDetails?.phone ?? '—'}
                   </p>
@@ -553,7 +555,7 @@ export function CommunicationsInbox() {
                   {assigned ? 'Assigned' : 'Assign'}
                 </Button>
               </header>
-              <div className="flex min-h-72 flex-1 flex-col gap-4 overflow-y-auto bg-canvas p-3 sm:min-h-96 sm:p-5">
+              <div className="flex min-h-72 flex-1 flex-col gap-4 overflow-y-auto bg-canvas p-3 sm:min-h-96 sm:p-5 xl:gap-3 xl:p-4">
                 {selected.messages.length ? (
                   selected.messages.map((message) => (
                     <div
@@ -568,14 +570,16 @@ export function CommunicationsInbox() {
                       ) : null}
                       <div
                         className={
-                          'max-w-md rounded-card px-3 py-3 sm:px-4 ' +
+                          'max-w-md rounded-card px-3 py-3 sm:px-4 xl:px-3 xl:py-2 ' +
                           (message.from === 'admin'
                             ? 'bg-info-soft text-heading'
                             : 'bg-surface text-text shadow-card')
                         }
                       >
-                        <p className="whitespace-pre-line text-sm leading-5">{message.body}</p>
-                        <p className="mt-2 text-xs text-muted">{message.time}</p>
+                        <p className="whitespace-pre-line text-sm leading-5 xl:text-xs xl:leading-4">
+                          {message.body}
+                        </p>
+                        <p className="mt-2 text-xs text-muted xl:mt-1">{message.time}</p>
                       </div>
                       {message.from === 'admin' ? (
                         <Avatar name={response?.currentAdmin ?? 'Super Admin'} size="md" />
@@ -589,7 +593,10 @@ export function CommunicationsInbox() {
                   />
                 )}
               </div>
-              <form onSubmit={sendMessage} className="border-t border-divider p-3 sm:p-4">
+              <form
+                onSubmit={sendMessage}
+                className="shrink-0 border-t border-divider p-3 sm:p-4 xl:p-3"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-divider">
                   <div className="flex gap-1" role="tablist" aria-label="Reply channel">
                     {(['Email', 'SMS', 'Internal'] as const).map((item) => (
@@ -617,7 +624,7 @@ export function CommunicationsInbox() {
                     options={[{ value: '', label: 'Templates' }]}
                   />
                 </div>
-                <div className="[&_label]:sr-only [&>div]:gap-0 [&_textarea]:min-h-24 [&_textarea]:resize-none [&_textarea]:border-0 [&_textarea]:bg-transparent [&_textarea]:px-2 [&_textarea]:py-3 [&_textarea]:text-sm [&_textarea]:shadow-none [&_textarea]:focus:outline-none">
+                <div className="[&_label]:sr-only [&>div]:gap-0 [&_textarea]:min-h-24 [&_textarea]:resize-none [&_textarea]:border-0 [&_textarea]:bg-transparent [&_textarea]:px-2 [&_textarea]:py-3 [&_textarea]:text-sm [&_textarea]:shadow-none [&_textarea]:focus:outline-none xl:[&_textarea]:min-h-20">
                   <Textarea
                     label="Type your message"
                     rows={3}
@@ -655,7 +662,7 @@ export function CommunicationsInbox() {
           )}
         </Card>
 
-        <aside className="flex min-w-0 flex-col gap-3 lg:col-span-3">
+        <aside className="flex min-w-0 flex-col gap-3 lg:col-span-3 xl:gap-2">
           <Card className="!p-0 overflow-hidden">
             <SectionTitle
               action={
@@ -672,7 +679,7 @@ export function CommunicationsInbox() {
               Contact Details
             </SectionTitle>
             {selected ? (
-              <div className="space-y-3 p-4">
+              <div className="space-y-3 p-4 xl:space-y-2 xl:p-3">
                 <div className="flex items-center gap-3">
                   <ConversationAvatar conversation={selected} size="xl" />
                   <div>
@@ -680,7 +687,7 @@ export function CommunicationsInbox() {
                     <Badge tone="success">{selected.contactType}</Badge>
                   </div>
                 </div>
-                <dl className="space-y-2.5 text-xs">
+                <dl className="space-y-2.5 text-xs xl:space-y-1">
                   <div className="flex items-center gap-2">
                     <User aria-hidden className="size-4 text-action" />
                     <dt className="text-muted">Primary Contact</dt>
@@ -763,7 +770,7 @@ export function CommunicationsInbox() {
             >
               Tags
             </SectionTitle>
-            <div className="flex flex-wrap gap-2 p-4">
+            <div className="flex flex-wrap gap-2 p-4 xl:px-3 xl:py-2">
               {(response?.tags ?? []).map((tag) => (
                 <Badge key={tag.label} tone={tag.tone}>
                   {tag.label}
@@ -782,7 +789,7 @@ export function CommunicationsInbox() {
             >
               Recent Activity
             </SectionTitle>
-            <ul className="space-y-3 p-4 text-xs">
+            <ul className="space-y-3 p-4 text-xs xl:space-y-1 xl:p-3">
               {(response?.activity ?? []).map((item) => {
                 const ActivityGlyph = activityIcons[item.kind];
                 return (

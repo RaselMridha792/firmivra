@@ -52,6 +52,14 @@ test('Super Admin Communications inbox renders its states and responsive layouts
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
+    if (width >= 1280) {
+      const lastConversation = page.getByRole('button', { name: /Tom Edwards/ });
+      await lastConversation.scrollIntoViewIfNeeded();
+      await expect(lastConversation).toBeInViewport({ ratio: 0.99 });
+      const lastActivity = page.getByText('Lead created', { exact: false });
+      await lastActivity.scrollIntoViewIfNeeded();
+      await expect(lastActivity).toBeInViewport({ ratio: 0.99 });
+    }
     await expect(page.getByRole('heading', { name: 'Contact Details' })).toBeVisible();
   }
 });
