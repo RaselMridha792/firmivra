@@ -8,15 +8,22 @@ import type { InputHTMLAttributes, SelectHTMLAttributes } from 'react';
  * the red asterisk and the error line), styled like the kit's Input and Select.
  */
 
-/** A text input's classes; pass `invalid` for the red border. */
-export const inputClass = (invalid = false) =>
-  `min-h-11 w-full min-w-0 rounded-control border bg-surface px-3 py-2 text-base text-text placeholder:text-muted focus:outline-2 focus:outline-accent-500 disabled:bg-disabled read-only:bg-canvas ${invalid ? 'border-danger' : 'border-border'}`;
+/** The design's smaller field text from lg up, for a dense form (`compact`). */
+export const compactText = 'lg:text-sm';
+
+/**
+ * A text input's classes; pass `invalid` for the red border and `compact` for the smaller text
+ * from lg up.
+ */
+export const inputClass = (invalid = false, compact = false) =>
+  `min-h-11 w-full min-w-0 rounded-control border bg-surface px-3 py-2 text-base ${compact ? `${compactText} ` : ''}text-text placeholder:text-muted focus:outline-2 focus:outline-accent-500 disabled:bg-disabled read-only:bg-canvas ${invalid ? 'border-danger' : 'border-border'}`;
 
 /** A native select with the kit's thin chevron. */
 export function SelectControl({
   options,
   invalid,
   placeholder,
+  compact,
   className = '',
   ...props
 }: SelectHTMLAttributes<HTMLSelectElement> & {
@@ -24,12 +31,14 @@ export function SelectControl({
   invalid?: boolean;
   /** A first, empty choice ("Select a firm..."). */
   placeholder?: string;
+  /** The smaller text from lg up. */
+  compact?: boolean;
 }) {
   return (
     <div className="relative min-w-0">
       <select
         aria-invalid={invalid || undefined}
-        className={`min-h-11 w-full min-w-0 appearance-none rounded-control border bg-surface py-2 pr-10 pl-3 text-base text-text focus:outline-2 focus:outline-accent-500 disabled:bg-disabled ${invalid ? 'border-danger' : 'border-border'} ${className}`}
+        className={`min-h-11 w-full min-w-0 appearance-none rounded-control border bg-surface py-2 pr-10 pl-3 text-base ${compact ? `${compactText} ` : ''}text-text focus:outline-2 focus:outline-accent-500 disabled:bg-disabled ${invalid ? 'border-danger' : 'border-border'} ${className}`}
         {...props}
       >
         {placeholder !== undefined ? <option value="">{placeholder}</option> : null}
@@ -51,16 +60,21 @@ export function SelectControl({
 /** A date input (YYYY-MM-DD) with the calendar icon on the right; a click opens the picker. */
 export function DateControl({
   invalid,
+  compact,
   className = '',
   ...props
-}: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { invalid?: boolean }) {
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & {
+  invalid?: boolean;
+  /** The smaller text from lg up. */
+  compact?: boolean;
+}) {
   return (
     <div className="relative min-w-0">
       <input
         type="date"
         aria-invalid={invalid || undefined}
         onClick={(event) => event.currentTarget.showPicker?.()}
-        className={`${inputClass(invalid)} pr-11 [&::-webkit-calendar-picker-indicator]:hidden ${className}`}
+        className={`${inputClass(invalid, compact)} pr-11 [&::-webkit-calendar-picker-indicator]:hidden ${className}`}
         {...props}
       />
       <CalendarBlank

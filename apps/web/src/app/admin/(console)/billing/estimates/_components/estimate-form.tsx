@@ -35,7 +35,12 @@ import {
 } from '../../../../../../mocks/admin-billing';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
-import { DateControl, inputClass, SelectControl } from '../../_components/billing-fields';
+import {
+  compactText,
+  DateControl,
+  inputClass,
+  SelectControl,
+} from '../../_components/billing-fields';
 import {
   addDays,
   formatMoney,
@@ -376,7 +381,7 @@ function ClientSelect({
         value={value}
         aria-invalid={invalid || undefined}
         onChange={(event) => onChange(event.target.value)}
-        className={`min-h-11 w-full min-w-0 appearance-none truncate rounded-control border bg-surface py-2 pr-10 pl-3 text-base text-text focus:outline-2 focus:outline-accent-500 disabled:bg-disabled ${invalid ? 'border-danger' : 'border-border'}`}
+        className={`min-h-11 w-full min-w-0 appearance-none truncate rounded-control border bg-surface py-2 pr-10 pl-3 text-base ${compactText} text-text focus:outline-2 focus:outline-accent-500 disabled:bg-disabled ${invalid ? 'border-danger' : 'border-border'}`}
       >
         <option value="">Search or select a client...</option>
         {groups.map((group) => (
@@ -601,148 +606,175 @@ function EstimateForm({
           <legend className="sr-only">Estimate</legend>
           <div className="flex min-w-0 flex-col gap-6 xl:col-span-2">
             <BillingCard title="Client Information" action={<AddClientNote />} testId="client-card">
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <FormField
-                  label="Client"
-                  htmlFor="estimate-client"
-                  required
-                  error={err('clientId')}
-                >
-                  <ClientSelect
-                    id="estimate-client"
-                    value={draft.clientId}
-                    invalid={Boolean(err('clientId'))}
-                    groups={groups}
-                    onChange={pickClient}
-                  />
-                </FormField>
-                <FormField label="Contact Person" htmlFor="estimate-contact">
-                  <SelectControl
-                    id="estimate-contact"
-                    value={draft.contactName}
-                    placeholder="Select contact (optional)"
-                    options={contacts.map((name) => ({ value: name, label: name }))}
-                    onChange={(event) => set({ contactName: event.target.value })}
-                  />
-                </FormField>
-                <FormField label="Email" htmlFor="estimate-email" error={err('email')}>
-                  <input
-                    id="estimate-email"
-                    type="email"
-                    maxLength={254}
-                    value={draft.email}
-                    placeholder="client@email.com"
-                    aria-invalid={Boolean(err('email')) || undefined}
-                    onChange={(event) => set({ email: event.target.value })}
-                    className={inputClass(Boolean(err('email')))}
-                  />
-                </FormField>
-                <FormField label="Phone" htmlFor="estimate-phone">
-                  <input
-                    id="estimate-phone"
-                    type="tel"
-                    maxLength={30}
-                    value={draft.phone}
-                    placeholder="(   ) ___-____"
-                    onChange={(event) => set({ phone: event.target.value })}
-                    className={inputClass()}
-                  />
-                </FormField>
+              {/* Four fields in a row once the card is wide enough (container query): the
+                  client takes the free room, the email a wide column, contact and phone less. */}
+              <div className="@container">
+                <div className="grid gap-4 @lg:grid-cols-2 @2xl:flex @2xl:gap-3">
+                  <div className="min-w-0 @2xl:flex-1">
+                    <FormField
+                      label="Client"
+                      htmlFor="estimate-client"
+                      required
+                      error={err('clientId')}
+                    >
+                      <ClientSelect
+                        id="estimate-client"
+                        value={draft.clientId}
+                        invalid={Boolean(err('clientId'))}
+                        groups={groups}
+                        onChange={pickClient}
+                      />
+                    </FormField>
+                  </div>
+                  <div className="min-w-0 @2xl:w-36 @2xl:shrink-0">
+                    <FormField label="Contact Person" htmlFor="estimate-contact">
+                      <SelectControl
+                        compact
+                        id="estimate-contact"
+                        value={draft.contactName}
+                        placeholder="Select contact (optional)"
+                        className="truncate"
+                        options={contacts.map((name) => ({ value: name, label: name }))}
+                        onChange={(event) => set({ contactName: event.target.value })}
+                      />
+                    </FormField>
+                  </div>
+                  <div className="min-w-0 @2xl:w-52 @2xl:shrink-0">
+                    <FormField label="Email" htmlFor="estimate-email" error={err('email')}>
+                      <input
+                        id="estimate-email"
+                        type="email"
+                        maxLength={254}
+                        value={draft.email}
+                        placeholder="client@email.com"
+                        aria-invalid={Boolean(err('email')) || undefined}
+                        onChange={(event) => set({ email: event.target.value })}
+                        className={inputClass(Boolean(err('email')), true)}
+                      />
+                    </FormField>
+                  </div>
+                  <div className="min-w-0 @2xl:w-36 @2xl:shrink-0">
+                    <FormField label="Phone" htmlFor="estimate-phone">
+                      <input
+                        id="estimate-phone"
+                        type="tel"
+                        maxLength={30}
+                        value={draft.phone}
+                        placeholder="(   ) ___-____"
+                        onChange={(event) => set({ phone: event.target.value })}
+                        className={inputClass(false, true)}
+                      />
+                    </FormField>
+                  </div>
+                </div>
               </div>
             </BillingCard>
 
             <BillingCard title="Estimate Details" testId="details-card">
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <FormField label="Estimate #" htmlFor="estimate-number" error={err('number')}>
-                  <div className="relative min-w-0">
-                    <input
-                      id="estimate-number"
-                      value={draft.number}
-                      maxLength={40}
-                      aria-invalid={Boolean(err('number')) || undefined}
-                      onChange={(event) => set({ number: event.target.value })}
-                      className={`${inputClass(Boolean(err('number')))} ${mode === 'create' ? 'pr-11' : ''}`}
-                    />
-                    {mode === 'create' ? (
-                      <button
-                        type="button"
-                        aria-label="Use the next number from Billing Settings"
-                        title="Use the next number from Billing Settings"
-                        onClick={() => set({ number: suggestedNumber })}
-                        className="absolute top-1/2 right-1.5 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-heading hover:bg-canvas"
-                      >
-                        <GearSix aria-hidden weight="fill" className="size-5" />
-                      </button>
-                    ) : null}
+              {/* The number and the dates take fixed widths, the reference the rest. */}
+              <div className="@container">
+                <div className="grid gap-4 @lg:grid-cols-2 @2xl:flex @2xl:gap-3">
+                  <div className="min-w-0 @2xl:w-36 @2xl:shrink-0">
+                    <FormField label="Estimate #" htmlFor="estimate-number" error={err('number')}>
+                      <div className="relative min-w-0">
+                        <input
+                          id="estimate-number"
+                          value={draft.number}
+                          maxLength={40}
+                          aria-invalid={Boolean(err('number')) || undefined}
+                          onChange={(event) => set({ number: event.target.value })}
+                          className={`${inputClass(Boolean(err('number')), true)} ${mode === 'create' ? 'pr-11' : ''}`}
+                        />
+                        {mode === 'create' ? (
+                          <button
+                            type="button"
+                            aria-label="Use the next number from Billing Settings"
+                            title="Use the next number from Billing Settings"
+                            onClick={() => set({ number: suggestedNumber })}
+                            className="absolute top-1/2 right-1.5 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-heading hover:bg-canvas"
+                          >
+                            <GearSix aria-hidden weight="fill" className="size-5" />
+                          </button>
+                        ) : null}
+                      </div>
+                    </FormField>
                   </div>
-                </FormField>
-                <FormField
-                  label="Issue Date"
-                  htmlFor="estimate-issue"
-                  required
-                  error={err('issueDate')}
-                >
-                  <DateControl
-                    id="estimate-issue"
-                    value={draft.issueDate}
-                    invalid={Boolean(err('issueDate'))}
-                    onChange={(event) => {
-                      const issueDate = event.target.value;
-                      // Keep the estimate's validity when the issue date moves.
-                      const gap = gapDays(draft.issueDate, draft.expirationDate);
-                      const days =
-                        Number.isFinite(gap) && gap >= 0
-                          ? gap
-                          : settings.general.estimateValidityDays;
-                      set({
-                        issueDate,
-                        ...(issueDate ? { expirationDate: addDays(issueDate, days) } : {}),
-                      });
-                    }}
-                  />
-                </FormField>
-                <FormField
-                  label="Expiration Date"
-                  htmlFor="estimate-expiry"
-                  required
-                  error={err('expirationDate')}
-                >
-                  <DateControl
-                    id="estimate-expiry"
-                    value={draft.expirationDate}
-                    min={draft.issueDate || undefined}
-                    invalid={Boolean(err('expirationDate'))}
-                    onChange={(event) => set({ expirationDate: event.target.value })}
-                  />
-                </FormField>
-                <FormField label="Reference (Optional)" htmlFor="estimate-reference">
-                  <input
-                    id="estimate-reference"
-                    maxLength={120}
-                    value={draft.reference}
-                    placeholder="e.g. Project, Service, Event"
-                    onChange={(event) => set({ reference: event.target.value })}
-                    className={inputClass()}
-                  />
-                </FormField>
+                  <div className="min-w-0 @2xl:w-36 @2xl:shrink-0">
+                    <FormField
+                      label="Issue Date"
+                      htmlFor="estimate-issue"
+                      required
+                      error={err('issueDate')}
+                    >
+                      <DateControl
+                        compact
+                        id="estimate-issue"
+                        value={draft.issueDate}
+                        invalid={Boolean(err('issueDate'))}
+                        onChange={(event) => {
+                          const issueDate = event.target.value;
+                          // Keep the estimate's validity when the issue date moves.
+                          const gap = gapDays(draft.issueDate, draft.expirationDate);
+                          const days =
+                            Number.isFinite(gap) && gap >= 0
+                              ? gap
+                              : settings.general.estimateValidityDays;
+                          set({
+                            issueDate,
+                            ...(issueDate ? { expirationDate: addDays(issueDate, days) } : {}),
+                          });
+                        }}
+                      />
+                    </FormField>
+                  </div>
+                  <div className="min-w-0 @2xl:w-36 @2xl:shrink-0">
+                    <FormField
+                      label="Expiration Date"
+                      htmlFor="estimate-expiry"
+                      required
+                      error={err('expirationDate')}
+                    >
+                      <DateControl
+                        compact
+                        id="estimate-expiry"
+                        value={draft.expirationDate}
+                        min={draft.issueDate || undefined}
+                        invalid={Boolean(err('expirationDate'))}
+                        onChange={(event) => set({ expirationDate: event.target.value })}
+                      />
+                    </FormField>
+                  </div>
+                  <div className="min-w-0 @2xl:flex-1">
+                    <FormField label="Reference (Optional)" htmlFor="estimate-reference">
+                      <input
+                        id="estimate-reference"
+                        maxLength={120}
+                        value={draft.reference}
+                        placeholder="e.g. Project, Service, Event"
+                        onChange={(event) => set({ reference: event.target.value })}
+                        className={inputClass(false, true)}
+                      />
+                    </FormField>
+                  </div>
+                </div>
               </div>
             </BillingCard>
 
             <BillingCard title="Line Items" testId="lines-card">
               <div className="flex flex-col gap-4">
                 {err('lines') ? <p className="text-sm text-danger">{err('lines')}</p> : null}
-                <div className="rounded-lg border border-divider">
+                <div className="@container rounded-lg border border-divider">
                   <div
                     aria-hidden
-                    className="hidden items-center gap-3 rounded-t-lg bg-table-head px-3 py-2.5 text-sm font-semibold text-heading md:flex"
+                    className="hidden items-center gap-2 rounded-t-lg bg-table-head px-3 py-2.5 text-sm font-semibold text-heading @xl:flex"
                   >
                     <span className="w-6 shrink-0">#</span>
                     <span className="flex-1">
                       Description <span className="text-danger">*</span>
                     </span>
-                    <span className="w-24 shrink-0">Qty</span>
-                    <span className="w-32 shrink-0">Rate ({symbol})</span>
-                    <span className="w-32 shrink-0">Amount ({symbol})</span>
+                    <span className="w-20 shrink-0">Qty</span>
+                    <span className="w-28 shrink-0">Rate ({symbol})</span>
+                    <span className="w-28 shrink-0">Amount ({symbol})</span>
                     <span className="w-10 shrink-0" />
                   </div>
                   <ul className="flex flex-col gap-3 p-3">
@@ -758,8 +790,8 @@ function EstimateForm({
                           data-testid="estimate-line"
                           className="flex flex-col gap-1"
                         >
-                          <div className="grid grid-cols-12 items-center gap-2 md:flex md:gap-3">
-                            <span className="col-span-1 text-sm text-heading md:w-6 md:shrink-0">
+                          <div className="grid grid-cols-12 items-center gap-2 @xl:flex">
+                            <span className="col-span-1 text-sm text-heading @xl:w-6 @xl:shrink-0">
                               {n}
                             </span>
                             <input
@@ -771,7 +803,7 @@ function EstimateForm({
                               onChange={(event) =>
                                 setLine(line.key, { description: event.target.value })
                               }
-                              className={`${inputClass(Boolean(errors.description))} col-span-9 md:flex-1`}
+                              className={`${inputClass(Boolean(errors.description), true)} col-span-9 @xl:flex-1`}
                             />
                             <input
                               aria-label={`Quantity, line ${n}`}
@@ -782,7 +814,7 @@ function EstimateForm({
                               onChange={(event) =>
                                 setLine(line.key, { quantity: event.target.value })
                               }
-                              className={`${inputClass(Boolean(errors.quantity))} col-span-3 md:w-24 md:flex-none`}
+                              className={`${inputClass(Boolean(errors.quantity), true)} col-span-3 @xl:w-20 @xl:flex-none`}
                             />
                             <input
                               aria-label={`Rate, line ${n}`}
@@ -791,11 +823,11 @@ function EstimateForm({
                               placeholder="0.00"
                               aria-invalid={Boolean(errors.rate) || undefined}
                               onChange={(event) => setLine(line.key, { rate: event.target.value })}
-                              className={`${inputClass(Boolean(errors.rate))} col-span-4 md:w-32 md:flex-none`}
+                              className={`${inputClass(Boolean(errors.rate), true)} col-span-4 @xl:w-28 @xl:flex-none`}
                             />
                             <span
                               data-testid="line-amount"
-                              className="col-span-5 flex min-h-11 min-w-0 items-center overflow-hidden rounded-control bg-canvas px-3 text-base text-muted md:w-32 md:flex-none"
+                              className={`col-span-5 flex min-h-11 min-w-0 items-center overflow-hidden rounded-control bg-canvas px-3 text-base ${compactText} text-muted @xl:w-28 @xl:flex-none`}
                             >
                               <span className="sr-only">Amount, line {n}: </span>
                               {plainAmount(totals.lines[index]?.amountCents ?? 0)}
@@ -811,7 +843,7 @@ function EstimateForm({
                                   lines: now.lines.filter((row) => row.key !== line.key),
                                 }))
                               }
-                              className="col-span-2 col-start-11 row-start-1 inline-flex size-10 items-center justify-center justify-self-end rounded-lg text-danger hover:bg-danger-soft disabled:cursor-not-allowed disabled:text-disabled-text md:shrink-0"
+                              className="col-span-2 col-start-11 row-start-1 inline-flex size-10 items-center justify-center justify-self-end rounded-lg text-danger hover:bg-danger-soft disabled:cursor-not-allowed disabled:text-disabled-text @xl:shrink-0"
                             >
                               <Trash aria-hidden weight="fill" className="size-5" />
                             </button>
@@ -847,7 +879,7 @@ function EstimateForm({
                       value={draft.notes}
                       placeholder="Add any additional notes for your client..."
                       onChange={(event) => set({ notes: event.target.value })}
-                      className={inputClass(Boolean(err('notes')))}
+                      className={inputClass(Boolean(err('notes')), true)}
                     />
                   </FormField>
                   <FormField
@@ -871,7 +903,7 @@ function EstimateForm({
                         setTermsTouched(true);
                         set({ terms: event.target.value });
                       }}
-                      className={inputClass(Boolean(err('terms')))}
+                      className={inputClass(Boolean(err('terms')), true)}
                     />
                   </FormField>
                 </div>
@@ -917,6 +949,7 @@ function EstimateForm({
                   <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
                     <div className="w-full max-w-40 min-w-0">
                       <SelectControl
+                        compact
                         id="estimate-tax"
                         value={draft.taxRateId}
                         options={[
@@ -947,6 +980,7 @@ function EstimateForm({
               <div className="flex flex-col gap-4">
                 <FormField label="Status" htmlFor="estimate-status">
                   <SelectControl
+                    compact
                     id="estimate-status"
                     value={draft.status}
                     options={SETTABLE_STATUSES.map((value) => ({
@@ -966,6 +1000,7 @@ function EstimateForm({
                 </fieldset>
                 <FormField label="Template" htmlFor="estimate-template">
                   <SelectControl
+                    compact
                     id="estimate-template"
                     value={draft.template}
                     options={optionsOf(ESTIMATE_TEMPLATES, ESTIMATE_TEMPLATE_LABELS)}
@@ -974,6 +1009,7 @@ function EstimateForm({
                 </FormField>
                 <FormField label="Assign To (Optional)" htmlFor="estimate-assignee">
                   <SelectControl
+                    compact
                     id="estimate-assignee"
                     value={draft.assignedToId}
                     placeholder="Unassigned"
