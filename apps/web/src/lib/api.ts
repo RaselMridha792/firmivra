@@ -65,6 +65,7 @@ import {
   createTaxPlanningClient,
   createCommunicationsClient,
   createTaxReturnsClient,
+  createTaxReturnWorkspaceClient,
   createTaxStatusesClient,
   createTeamClient,
   createUsersClient,
@@ -221,6 +222,8 @@ export const api = {
     dev && mocked('taxReturns')
       ? createTaxReturnsMock({ role: MOCK_ROLE })
       : createTaxReturnsClient(request),
+  /** Tax Returns workspace (R55 contract): overview, a return's workspace, review and e-file. */
+  taxReturnWorkspace: createTaxReturnWorkspaceClient(request),
   /** Begin Online leads (R11): the firm's inbox, convert and decline. */
   leads: dev && mocked('leads') ? createLeadsMock({ role: MOCK_ROLE }) : createLeadsClient(request),
   /** Leads page and Lead Profile (R43 contract): pipeline, follow-ups, activity, convert to client. */
