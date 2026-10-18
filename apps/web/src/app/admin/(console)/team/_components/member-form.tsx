@@ -188,7 +188,7 @@ export function MemberForm({
       ? grantable('ceo', {}, true)
       : options.viewerPermissions;
   const custom = Boolean(values.roleId) && !samePermissions(values.permissions, template);
-  const moduleCount = TEAM_MODULES.filter((module) => values.permissions[module.id]?.length).length;
+  const moduleCount = TEAM_MODULES.filter((area) => values.permissions[area.id]?.length).length;
 
   const change = (patch: Partial<SaveTeamMember>) => {
     setValues({ ...values, ...patch });
@@ -233,7 +233,7 @@ export function MemberForm({
     const previous = values.roleId || lastRoleId;
     const customized =
       Boolean(previous) &&
-      TEAM_MODULES.some((module) => values.permissions[module.id]?.length) &&
+      TEAM_MODULES.some((area) => values.permissions[area.id]?.length) &&
       !samePermissions(values.permissions, roleTemplate(previous));
     // Docx §21: warn before a new role's template replaces custom access.
     if (mode === 'edit' && customized) setPendingRole(next);

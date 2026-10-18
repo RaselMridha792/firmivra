@@ -184,20 +184,18 @@ export function MemberProfile({
           </Section>
           <Section title="Permissions">
             <ul className="flex flex-col gap-1.5 text-sm">
-              {TEAM_MODULES.filter((module) => member.permissions[module.id]?.length).map(
-                (module) => (
-                  <li key={module.id} className="flex flex-wrap gap-x-2">
-                    <span className="font-semibold text-heading">{module.label}:</span>
-                    <span className="text-text">
-                      {(member.permissions[module.id] ?? [])
-                        .map((action) => ACTION_LABELS[action] ?? action)
-                        .join(', ')}
-                    </span>
-                  </li>
-                ),
-              )}
+              {TEAM_MODULES.filter((area) => member.permissions[area.id]?.length).map((area) => (
+                <li key={area.id} className="flex flex-wrap gap-x-2">
+                  <span className="font-semibold text-heading">{area.label}:</span>
+                  <span className="text-text">
+                    {(member.permissions[area.id] ?? [])
+                      .map((action) => ACTION_LABELS[action] ?? action)
+                      .join(', ')}
+                  </span>
+                </li>
+              ))}
             </ul>
-            {TEAM_MODULES.every((module) => !member.permissions[module.id]?.length) ? (
+            {TEAM_MODULES.every((area) => !member.permissions[area.id]?.length) ? (
               <p className="text-sm text-muted">No module access yet.</p>
             ) : null}
           </Section>

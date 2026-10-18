@@ -96,6 +96,18 @@ export const PERMISSION_ACTIONS: { id: PermissionAction; label: string }[] = [
   { id: 'manage', label: 'Manage' },
 ];
 
+/** Every action, for the modules that have them all. */
+const ALL_ACTIONS: PermissionAction[] = [
+  'view',
+  'create',
+  'edit',
+  'delete',
+  'assign',
+  'approve',
+  'export',
+  'manage',
+];
+
 /** Granting an action adds the one it needs (create needs view); removing one drops dependents. */
 export const ACTION_REQUIRES: Record<string, string> = {
   create: 'view',
@@ -124,43 +136,43 @@ export const TEAM_MODULES: {
     id: 'sales',
     label: 'Sales Center',
     description: 'Access to sales tools and resources',
-    actions: PERMISSION_ACTIONS.map((action) => action.id),
+    actions: ALL_ACTIONS,
   },
   {
     id: 'crm',
     label: 'Leads / CRM',
     description: 'View and manage leads and customer data',
-    actions: PERMISSION_ACTIONS.map((action) => action.id),
+    actions: ALL_ACTIONS,
   },
   {
     id: 'pipeline',
     label: 'Pipeline',
     description: 'Access to pipeline and deal management',
-    actions: PERMISSION_ACTIONS.map((action) => action.id),
+    actions: ALL_ACTIONS,
   },
   {
     id: 'team',
     label: 'Team',
     description: 'View members, add users, edit users, change roles',
-    actions: PERMISSION_ACTIONS.map((action) => action.id),
+    actions: ALL_ACTIONS,
   },
   {
     id: 'subscriptions',
     label: 'Subscriptions',
     description: 'View and manage subscriptions',
-    actions: PERMISSION_ACTIONS.map((action) => action.id),
+    actions: ALL_ACTIONS,
   },
   {
     id: 'billing',
     label: 'Billing',
     description: 'Access to billing and invoices',
-    actions: PERMISSION_ACTIONS.map((action) => action.id),
+    actions: ALL_ACTIONS,
   },
   {
     id: 'support',
     label: 'Support',
     description: 'View and manage support records',
-    actions: PERMISSION_ACTIONS.map((action) => action.id),
+    actions: ALL_ACTIONS,
   },
   {
     id: 'reports',
@@ -202,7 +214,20 @@ export const TEAM_DEPARTMENTS: TeamDepartment[] = [
   {
     id: 'executive',
     name: 'Executive Leadership',
-    modules: TEAM_MODULES.map((module) => module.id),
+    modules: [
+      'dashboard',
+      'sales',
+      'crm',
+      'pipeline',
+      'team',
+      'subscriptions',
+      'billing',
+      'support',
+      'reports',
+      'notifications',
+      'audit',
+      'settings',
+    ],
   },
   {
     id: 'operations',
@@ -427,18 +452,23 @@ const ROLE_ROWS: Record<string, [string, string, AuthorityLevel][]> = {
   ],
 };
 
-export const TEAM_ROLES: TeamRole[] = Object.entries(ROLE_ROWS).flatMap(([departmentId, rows]) =>
-  rows.map(([id, title, level]) => ({
-    id,
-    departmentId,
-    title,
-    level,
-    ...(id === 'hr-administrator' ? { hrOverride: true } : {}),
-  })),
-);
+let roles: TeamRole[] | undefined;
+/** Every role, built from the rows on first use (mocks run nothing on import). */
+export function teamRoles(): TeamRole[] {
+  roles ??= Object.entries(ROLE_ROWS).flatMap(([departmentId, rows]) =>
+    rows.map(([id, title, level]) => ({
+      id,
+      departmentId,
+      title,
+      level,
+      ...(id === 'hr-administrator' ? { hrOverride: true } : {}),
+    })),
+  );
+  return roles;
+}
 
 export const roleById = (id: string): TeamRole | undefined =>
-  TEAM_ROLES.find((role) => role.id === id);
+  teamRoles().find((role) => role.id === id);
 export const departmentById = (id: string): TeamDepartment | undefined =>
   TEAM_DEPARTMENTS.find((department) => department.id === id);
 
@@ -462,8 +492,8 @@ const TEAM_ACTIONS: Record<AuthorityLevel, PermissionAction[]> = {
   6: ['view'],
 };
 
-const allowedFor = (module: ModuleKey, actions: PermissionAction[]) => {
-  const available = TEAM_MODULES.find((entry) => entry.id === module)?.actions ?? [];
+const allowedFor = (area: ModuleKey, actions: PermissionAction[]) => {
+  const available = TEAM_MODULES.find((entry) => entry.id === area)?.actions ?? [];
   return actions.filter((action) => available.includes(action));
 };
 
@@ -476,19 +506,19 @@ export function roleTemplate(roleId: string): TeamPermissions {
   if (!role) return {};
   const department = departmentById(role.departmentId);
   const template: TeamPermissions = {};
-  for (const module of TEAM_MODULES) {
+  for (const area of TEAM_MODULES) {
     let actions: PermissionAction[] = [];
-    if (role.level === 1) actions = module.actions;
-    else if (module.id === 'team')
+    if (role.level === 1) actions = area.actions;
+    else if (area.id === 'team')
       actions = role.hrOverride
         ? ['view', 'create', 'edit', 'assign']
         : department?.modules.includes('team')
           ? LEVEL_ACTIONS[role.level]
           : TEAM_ACTIONS[role.level];
-    else if (module.id === 'notifications') actions = ['view'];
-    else if (department?.modules.includes(module.id)) actions = LEVEL_ACTIONS[role.level];
-    const granted = allowedFor(module.id, actions);
-    if (granted.length) template[module.id] = granted;
+    else if (area.id === 'notifications') actions = ['view'];
+    else if (department?.modules.includes(area.id)) actions = LEVEL_ACTIONS[role.level];
+    const granted = allowedFor(area.id, actions);
+    if (granted.length) template[area.id] = granted;
   }
   return template;
 }

@@ -66,17 +66,21 @@ export function BulkDialog({
   const roles = (options.data?.roles ?? []).filter((role) => role.departmentId === roleDepartment);
   const names = people.map((member) => member.name).join(', ');
 
+  /** The change to send, or the reason it is not ready yet. */
+  function pending(): BulkChange | string {
+    if (kind === 'department')
+      return departmentId && roleId
+        ? { kind: 'department', departmentId, roleId }
+        : 'Choose a department and a role.';
+    if (kind === 'role') return roleId ? { kind: 'role', roleId } : 'Choose a role.';
+    return status ? { kind: 'status', status } : 'Choose a status.';
+  }
+
   function apply() {
-    let change: BulkChange | null = null;
-    if (kind === 'department') {
-      if (!departmentId || !roleId) return setProblem('Choose a department and a role.');
-      change = { kind: 'department', departmentId, roleId };
-    } else if (kind === 'role') {
-      if (!roleId) return setProblem('Choose a role.');
-      change = { kind: 'role', roleId };
-    } else {
-      if (!status) return setProblem('Choose a status.');
-      change = { kind: 'status', status };
+    const change = pending();
+    if (typeof change === 'string') {
+      setProblem(change);
+      return;
     }
     setProblem('');
     save.mutate(change, {

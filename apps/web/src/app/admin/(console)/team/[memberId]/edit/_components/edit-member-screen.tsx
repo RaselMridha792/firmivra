@@ -39,13 +39,13 @@ export function EditMemberScreen({ memberId }: { memberId: string }) {
     adminTeam.activity(memberId),
   );
   const [saved, setSaved] = useState('');
-  const focused = useRef(false);
+  const focusedRef = useRef(false);
   const ready = Boolean(member.data && options.data);
 
   // "Change Role & Permissions" opens this page at #role: put the role field in view once.
   useEffect(() => {
-    if (!ready || focused.current || window.location.hash !== '#role') return;
-    focused.current = true;
+    if (!ready || focusedRef.current || window.location.hash !== '#role') return;
+    focusedRef.current = true;
     const field = document.getElementById('role');
     field?.scrollIntoView({ block: 'center' });
     field?.focus();

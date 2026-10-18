@@ -7,7 +7,6 @@ import {
   type AccessScope,
   type AuthorityLevel,
   type Availability,
-  AVAILABILITY,
   defaultScope,
   departmentById,
   MEMBER_STATUSES,
@@ -21,7 +20,7 @@ import {
   TEAM_DEPARTMENTS,
   TEAM_LOCATIONS,
   TEAM_MODULES,
-  TEAM_ROLES,
+  teamRoles,
   TEAM_UNITS,
   type TeamLocation,
   type TeamPermissions,
@@ -393,10 +392,10 @@ interface StoredMessage extends SendTeamMessage {
   sentAt: string;
 }
 
-const NOW = Date.now();
 const DAY = 86_400_000;
-const daysAgo = (days: number, hours = 0) =>
-  new Date(NOW - days * DAY - hours * 3_600_000).toISOString();
+/** A time `days` (and `hours`) before `now`, as ISO. */
+const ago = (now: number, days: number, hours = 0) =>
+  new Date(now - days * DAY - hours * 3_600_000).toISOString();
 
 const MEMBER = (n: number) => uuid('7e01', n);
 const LOCATION = (name: string) => TEAM_LOCATIONS.find((entry) => entry.name === name)?.id ?? null;
@@ -436,7 +435,7 @@ const SEED: SeedRow[] = [
   [15, 'Ethan', 'Reyes', '(404) 555-0146', 'staff-accountant', 'Staff Accountant', 1, 'Atlanta, GA', 'Controllership', 'INACTIVE', 'OFFLINE', 400],
 ];
 
-function seedMembers(): StoredMember[] {
+function seedMembers(now: number): StoredMember[] {
   return SEED.map(
     ([
       n,
@@ -473,10 +472,10 @@ function seedMembers(): StoredMember[] {
         availability,
         invitedById: n === 1 ? null : n === 14 ? MEMBER(8) : MEMBER(1),
         approvedById: null,
-        createdAt: daysAgo(days),
-        updatedAt: daysAgo(Math.min(days, 30)),
+        createdAt: ago(now, days),
+        updatedAt: ago(now, Math.min(days, 30)),
         lastActiveAt:
-          status === 'ACTIVE' ? daysAgo(0, n % 5) : status === 'SUSPENDED' ? daysAgo(12) : null,
+          status === 'ACTIVE' ? ago(now, 0, n % 5) : status === 'SUSPENDED' ? ago(now, 12) : null,
       };
     },
   );
@@ -484,7 +483,7 @@ function seedMembers(): StoredMember[] {
 
 const ACTIVITY = (n: number) => uuid('7e04', n);
 
-function seedActivity(members: StoredMember[]): TeamActivity[] {
+function seedActivity(members: StoredMember[], now: number): TeamActivity[] {
   const ref = (id: string | null): TeamPersonRef => {
     const member = members.find((entry) => entry.id === id);
     return member
@@ -529,7 +528,7 @@ function seedActivity(members: StoredMember[]): TeamActivity[] {
       'ROLE_CHANGED',
       'Role changed',
       MEMBER(2),
-      daysAgo(90),
+      ago(now, 90),
       'Account Executive',
       'Sales Manager',
     ),
@@ -538,17 +537,17 @@ function seedActivity(members: StoredMember[]): TeamActivity[] {
       'PERMISSIONS_CHANGED',
       'Permission team.create granted',
       MEMBER(1),
-      daysAgo(30),
+      ago(now, 30),
       null,
       'team.create',
     ),
-    entry(MEMBER(6), 'INVITED', 'Invitation email sent', MEMBER(1), daysAgo(3)),
+    entry(MEMBER(6), 'INVITED', 'Invitation email sent', MEMBER(1), ago(now, 3)),
     entry(
       MEMBER(13),
       'STATUS_CHANGED',
       'Status changed',
       MEMBER(12),
-      daysAgo(12),
+      ago(now, 12),
       'Active',
       'Suspended',
     ),
@@ -557,7 +556,7 @@ function seedActivity(members: StoredMember[]): TeamActivity[] {
       'STATUS_CHANGED',
       'Status changed',
       MEMBER(1),
-      daysAgo(60),
+      ago(now, 60),
       'Active',
       'Inactive',
     ),
@@ -583,22 +582,43 @@ function seedGroups(): TeamGroup[] {
   ];
 }
 
-const SEEDED = seedMembers();
-const store = {
-  members: empty() ? [] : structuredClone(SEEDED),
-  activity: empty() ? [] : seedActivity(SEEDED),
-  groups: empty() ? [] : seedGroups(),
-  messages: [] as StoredMessage[],
-  view: 'card' as TeamView,
-  next: { member: 100, activity: 1000, group: 100, message: 1 },
-};
+interface Store {
+  /** The seeded people, also when the store starts empty (the signed-in admin is one of them). */
+  seeded: StoredMember[];
+  members: StoredMember[];
+  activity: TeamActivity[];
+  groups: TeamGroup[];
+  messages: StoredMessage[];
+  view: TeamView;
+  next: { member: number; activity: number; group: number; message: number };
+}
+
+let state: Store | undefined;
+/** The in-memory data, built on first use: mocks run nothing on import. */
+function db(): Store {
+  if (!state) {
+    const now = Date.now();
+    const seeded = seedMembers(now);
+    state = {
+      seeded,
+      members: empty() ? [] : structuredClone(seeded),
+      activity: empty() ? [] : seedActivity(seeded, now),
+      groups: empty() ? [] : seedGroups(),
+      messages: [],
+      view: 'card',
+      next: { member: 100, activity: 1000, group: 100, message: 1 },
+    };
+  }
+  return state;
+}
 
 /** The signed-in admin, from NEXT_PUBLIC_API_MOCK_ROLE (see the header comment). */
-const VIEWER_ID = MEMBER(MOCK_ROLE === 'ADMIN' ? 4 : MOCK_ROLE === 'STAFF' ? 5 : 1);
+const viewerId = () => MEMBER(MOCK_ROLE === 'ADMIN' ? 4 : MOCK_ROLE === 'STAFF' ? 5 : 1);
 const viewerRecord = (): StoredMember => {
+  const id = viewerId();
   const record =
-    store.members.find((member) => member.id === VIEWER_ID) ??
-    SEEDED.find((member) => member.id === VIEWER_ID);
+    db().members.find((member) => member.id === id) ??
+    db().seeded.find((member) => member.id === id);
   if (!record) throw fail(401, 'UNAUTHENTICATED', 'Sign in required');
   return record;
 };
@@ -700,14 +720,14 @@ export function grantable(
 ): TeamPermissions {
   const result: TeamPermissions = {};
   const template = roleTemplate(roleId);
-  for (const module of TEAM_MODULES) {
+  for (const area of TEAM_MODULES) {
     const actions = unrestricted
-      ? module.actions
-      : module.actions.filter(
+      ? area.actions
+      : area.actions.filter(
           (action) =>
-            template[module.id]?.includes(action) || viewerPermissions[module.id]?.includes(action),
+            template[area.id]?.includes(action) || viewerPermissions[area.id]?.includes(action),
         );
-    if (actions.length) result[module.id] = actions;
+    if (actions.length) result[area.id] = actions;
   }
   return result;
 }
@@ -739,7 +759,7 @@ function reportsOf(memberId: string): Set<string> {
   const queue = [memberId];
   while (queue.length) {
     const current = queue.pop();
-    for (const member of store.members) {
+    for (const member of db().members) {
       if (member.reportsToId === current && !below.has(member.id)) {
         below.add(member.id);
         queue.push(member.id);
@@ -862,7 +882,7 @@ const firstError = (errors: Record<string, string | undefined>) =>
 
 const nameOf = (id: string | null): TeamPersonRef | null => {
   const member =
-    store.members.find((entry) => entry.id === id) ?? SEEDED.find((entry) => entry.id === id);
+    db().members.find((entry) => entry.id === id) ?? db().seeded.find((entry) => entry.id === id);
   return member ? { id: member.id, name: `${member.firstName} ${member.lastName}` } : null;
 };
 
@@ -905,11 +925,18 @@ function toMember(record: StoredMember, actor: Facts): AdminTeamMember {
 }
 
 const visibleMembers = (actor: Facts) =>
-  store.members.filter((member) => sees(actor, facts(member)));
+  db().members.filter((member) => sees(actor, facts(member)));
 
 const ACCESS_RANK: Record<AccessLevel, number> = { SUPER_ADMIN: 0, ADMIN: 1, STANDARD: 2 };
-const STATUS_RANK = Object.keys(MEMBER_STATUSES) as MemberStatus[];
-const PRESENCE_RANK = Object.keys(AVAILABILITY) as Availability[];
+const STATUS_RANK: MemberStatus[] = [
+  'PENDING_INVITATION',
+  'PENDING_APPROVAL',
+  'ACTIVE',
+  'SUSPENDED',
+  'INACTIVE',
+  'DEACTIVATED',
+];
+const PRESENCE_RANK: Availability[] = ['ONLINE', 'IN_MEETING', 'AWAY', 'OFFLINE'];
 
 const sortValue: Record<TeamSort, (member: AdminTeamMember) => string | number> = {
   name: (member) => member.name.toLowerCase(),
@@ -958,9 +985,9 @@ function log(
   previousValue: string | null = null,
   newValue: string | null = null,
 ) {
-  store.next.activity += 1;
-  store.activity.push({
-    id: ACTIVITY(store.next.activity),
+  db().next.activity += 1;
+  db().activity.push({
+    id: ACTIVITY(db().next.activity),
     memberId,
     kind,
     summary,
@@ -1007,17 +1034,17 @@ function logPermissionChange(
 
 const cleanPermissions = (permissions: TeamPermissions): TeamPermissions => {
   const clean: TeamPermissions = {};
-  for (const module of TEAM_MODULES) {
-    const actions = [...new Set(permissions[module.id] ?? [])].filter((action) =>
-      module.actions.includes(action),
+  for (const area of TEAM_MODULES) {
+    const actions = [...new Set(permissions[area.id] ?? [])].filter((action) =>
+      area.actions.includes(action),
     );
-    if (actions.length) clean[module.id] = actions;
+    if (actions.length) clean[area.id] = actions;
   }
   return clean;
 };
 
 function findRecord(id: string): StoredMember {
-  const record = store.members.find((member) => member.id === id);
+  const record = db().members.find((member) => member.id === id);
   if (!record) throw notFound();
   return record;
 }
@@ -1055,7 +1082,7 @@ function authorize(
   if (!unchanged && !withinCeiling(input.permissions, ceiling))
     throw fail(403, 'PERMISSION_CEILING', 'These permissions are above your own');
   if (input.reportsToId) {
-    const supervisor = store.members.find((member) => member.id === input.reportsToId);
+    const supervisor = db().members.find((member) => member.id === input.reportsToId);
     const valid =
       supervisor &&
       supervisor.id !== current?.id &&
@@ -1128,7 +1155,7 @@ function applyBulk(actor: Facts, record: StoredMember, change: BulkChange): stri
     TEAM_UNITS.find((unit) => unit.id === record.teamId)?.departmentId !== role.departmentId
   )
     record.teamId = null;
-  const supervisor = store.members.find((member) => member.id === record.reportsToId);
+  const supervisor = db().members.find((member) => member.id === record.reportsToId);
   if (
     supervisor &&
     supervisorsFor([toPerson(supervisor)], role.departmentId, role.level).length === 0
@@ -1158,7 +1185,9 @@ function recipientsOf(actor: Facts, input: SendTeamMessage): StoredMember[] {
         (target.kind === 'member' && member.id === target.id) ||
         (target.kind === 'group' &&
           Boolean(
-            store.groups.find((group) => group.id === target.id)?.memberIds.includes(member.id),
+            db()
+              .groups.find((group) => group.id === target.id)
+              ?.memberIds.includes(member.id),
           ));
       if (hit) chosen.add(member.id);
     }
@@ -1176,7 +1205,7 @@ const audienceAllowed = (actor: Facts, audience: MessageAudience) =>
         : true;
 
 const visibleGroups = (actor: Facts) =>
-  store.groups.filter(
+  db().groups.filter(
     (group) =>
       actor.level === 1 ||
       group.createdBy.id === actor.record.id ||
@@ -1263,7 +1292,7 @@ export const adminTeam = {
   summary: async (): Promise<TeamSummary> => {
     await ready();
     const members = visibleMembers(actor());
-    const since = NOW - 30 * DAY;
+    const since = Date.now() - 30 * DAY;
     const count = (test: (member: StoredMember) => boolean) => members.filter(test).length;
     return {
       total: members.length,
@@ -1349,8 +1378,8 @@ export const adminTeam = {
     const record = findRecord(id);
     if (!sees(me, facts(record))) throw notFound();
     return structuredClone(
-      store.activity
-        .filter((entry) => entry.memberId === id)
+      db()
+        .activity.filter((entry) => entry.memberId === id)
         .sort((a, b) => b.at.localeCompare(a.at)),
     );
   },
@@ -1363,7 +1392,7 @@ export const adminTeam = {
     const departments = assignableDepartments(me);
     const currentDepartment = current ? roleById(current.roleId)?.departmentId : undefined;
     // Roles above the viewer's ceiling are left out; the person's current role always shows.
-    const roles = TEAM_ROLES.flatMap((role): FormRole[] => {
+    const roles = teamRoles().flatMap((role): FormRole[] => {
       const gate = current?.roleId === role.id ? 'direct' : roleGate(me, role);
       if (
         gate === 'no' ||
@@ -1390,8 +1419,8 @@ export const adminTeam = {
       ).map(({ id, name }) => ({ id, name })),
       departmentLocked: departments.length === 1,
       roles,
-      supervisors: store.members
-        .filter(
+      supervisors: db()
+        .members.filter(
           (member) =>
             member.id !== current?.id &&
             !below.has(member.id) &&
@@ -1419,15 +1448,15 @@ export const adminTeam = {
     if (!CREATE_STATUSES.includes(body.status as MemberStatus))
       throw fail(400, 'VALIDATION_FAILED', 'Choose a status');
     const email = body.email.trim().toLowerCase();
-    if (store.members.some((member) => member.email === email))
+    if (db().members.some((member) => member.email === email))
       throw fail(409, 'EMAIL_TAKEN', 'This email is already on the team');
     const { gate, role } = authorize(me, body, null);
-    store.next.member += 1;
+    db().next.member += 1;
     const now = new Date().toISOString();
     const status: MemberStatus =
       gate === 'approval' ? 'PENDING_APPROVAL' : (body.status as MemberStatus);
     const record: StoredMember = {
-      id: MEMBER(store.next.member),
+      id: MEMBER(db().next.member),
       firstName: body.firstName.trim(),
       lastName: body.lastName.trim(),
       email,
@@ -1447,7 +1476,7 @@ export const adminTeam = {
       updatedAt: now,
       lastActiveAt: null,
     };
-    store.members.push(record);
+    db().members.push(record);
     log(
       me,
       record.id,
@@ -1557,7 +1586,7 @@ export const adminTeam = {
       throw fail(400, 'VALIDATION_FAILED', 'Choose a status');
     const result: BulkResult = { updated: 0, skipped: [] };
     for (const id of memberIds) {
-      const record = store.members.find((member) => member.id === id);
+      const record = db().members.find((member) => member.id === id);
       if (!record || !sees(me, facts(record))) continue;
       const reason =
         record.id === me.record.id ? "You can't change yourself" : applyBulk(me, record, change);
@@ -1572,7 +1601,7 @@ export const adminTeam = {
     const me = actor();
     let sent = 0;
     for (const id of memberIds) {
-      const record = store.members.find((member) => member.id === id);
+      const record = db().members.find((member) => member.id === id);
       if (!record || !allowedActions(me, facts(record)).resendInvite) continue;
       log(me, id, 'INVITED', 'Invitation email sent again');
       sent += 1;
@@ -1598,7 +1627,7 @@ export const adminTeam = {
       MEMBER_STATUSES.PENDING_APPROVAL,
       MEMBER_STATUSES[record.status],
     );
-    const entry = store.activity.at(-1);
+    const entry = db().activity.at(-1);
     if (entry) entry.approver = { id: me.record.id, name: me.name };
     return toMember(record, me);
   },
@@ -1606,12 +1635,12 @@ export const adminTeam = {
   /** The directory's remembered layout (per signed-in admin). */
   viewPreference: async (): Promise<TeamView> => {
     await ready();
-    return store.view;
+    return db().view;
   },
   setViewPreference: async (view: TeamView): Promise<TeamView> => {
     await ready();
     if (view !== 'card' && view !== 'list') throw fail(400, 'VALIDATION_FAILED', 'Unknown view');
-    store.view = view;
+    db().view = view;
     return view;
   },
 
@@ -1629,20 +1658,20 @@ export const adminTeam = {
     if (name.length > 60) throw fail(400, 'VALIDATION_FAILED', 'Use 60 characters or fewer');
     if (body.description.trim().length > 200)
       throw fail(400, 'VALIDATION_FAILED', 'Use 200 characters or fewer for the description');
-    if (store.groups.some((group) => group.name.toLowerCase() === name.toLowerCase()))
+    if (db().groups.some((group) => group.name.toLowerCase() === name.toLowerCase()))
       throw fail(409, 'CONFLICT', 'A group with this name already exists');
     const allowedIds = new Set(visibleMembers(me).map((member) => member.id));
     const memberIds = [...new Set(body.memberIds)].filter((id) => allowedIds.has(id));
     if (memberIds.length === 0) throw fail(400, 'VALIDATION_FAILED', 'Add at least one member');
-    store.next.group += 1;
+    db().next.group += 1;
     const group: TeamGroup = {
-      id: uuid('7e02', store.next.group),
+      id: uuid('7e02', db().next.group),
       name,
       description: body.description.trim(),
       memberIds,
       createdBy: { id: me.record.id, name: me.name },
     };
-    store.groups.push(group);
+    db().groups.push(group);
     return structuredClone(group);
   },
 
@@ -1673,9 +1702,9 @@ export const adminTeam = {
       EMAIL: () => true,
       SMS: (member) => Boolean(member.phone),
     };
-    store.next.message += 1;
-    const id = uuid('7e03', store.next.message);
-    store.messages.push({
+    db().next.message += 1;
+    const id = uuid('7e03', db().next.message);
+    db().messages.push({
       ...structuredClone(body),
       id,
       senderId: me.record.id,

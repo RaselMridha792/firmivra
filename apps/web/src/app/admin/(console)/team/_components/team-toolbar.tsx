@@ -178,10 +178,10 @@ export function SelectionBar({
   filtersOpen: boolean;
   onFiltersOpen: (open: boolean) => void;
 }) {
-  const box = useRef<HTMLInputElement>(null);
+  const boxRef = useRef<HTMLInputElement>(null);
   const allOn = pageCount > 0 && count >= pageCount;
   useEffect(() => {
-    if (box.current) box.current.indeterminate = count > 0 && !allOn;
+    if (boxRef.current) boxRef.current.indeterminate = count > 0 && !allOn;
   }, [count, allOn]);
   const button = (command: BulkCommand, icon: ReactNode, label: string) => (
     <Button variant="secondary" onClick={() => onCommand(command)}>
@@ -211,7 +211,7 @@ export function SelectionBar({
     >
       <label className="flex min-h-11 items-center gap-3 pr-2 text-base text-text">
         <input
-          ref={box}
+          ref={boxRef}
           type="checkbox"
           checked={allOn}
           disabled={pageCount === 0}

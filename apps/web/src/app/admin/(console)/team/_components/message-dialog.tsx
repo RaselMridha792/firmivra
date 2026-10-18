@@ -143,7 +143,7 @@ export function MessageDialog({
   const [announcement, setAnnouncement] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [errors, setErrors] = useState<MessageFieldErrors>({});
-  const picker = useRef<HTMLInputElement>(null);
+  const pickerRef = useRef<HTMLInputElement>(null);
   const send = useApiMutation((input: SendTeamMessage) => adminTeam.sendMessage(input), {
     invalidate: TEAM_KEY,
   });
@@ -364,7 +364,7 @@ export function MessageDialog({
               </p>
             </div>
             <input
-              ref={picker}
+              ref={pickerRef}
               id={`${id}-files`}
               type="file"
               multiple
@@ -377,7 +377,7 @@ export function MessageDialog({
                 event.target.value = '';
               }}
             />
-            <Button variant="outline" onClick={() => picker.current?.click()}>
+            <Button variant="outline" onClick={() => pickerRef.current?.click()}>
               <UploadSimple aria-hidden weight="bold" className="size-5" />
               Choose Files
             </Button>
