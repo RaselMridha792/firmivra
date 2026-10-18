@@ -11,6 +11,7 @@ import {
   type FileRejection,
 } from '@firmivra/ui';
 import { ArrowSquareOut, Eye, FilePdf, Plus, Trash, X } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState, type FormEvent } from 'react';
 import {
@@ -191,6 +192,13 @@ const signature = (draft: Draft) =>
     sendNow: draft.sendNow,
   });
 
+/** The form's sections, drawn as frames while the form can't show yet. */
+const FORM_SECTIONS = ['Invoice Details', 'Line Items', 'Additional Options'];
+
+/** Cancel as a link, styled like the kit's secondary Button. */
+const secondaryLink =
+  'inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-border bg-surface px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-canvas focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
+
 /** The Create / Edit Invoice screen: loads what the form needs, then shows it. */
 export function InvoiceEditor({
   mode,
@@ -233,8 +241,13 @@ export function InvoiceEditor({
       />
     );
   }
-  const loading = !failed;
-  const quiet = failed ? <QuietLine testId="form-error">{quietErrorText(failed)}</QuietLine> : null;
+  // A missing invoice or estimate keeps its short not-found page.
+  const missing = errorCode(failed) === 'NOT_FOUND';
+  const body = failed ? (
+    <QuietLine testId="form-error">{quietErrorText(failed)}</QuietLine>
+  ) : (
+    <FormSkeleton />
+  );
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <BillingHeader
@@ -247,9 +260,15 @@ export function InvoiceEditor({
         breadcrumbs={crumbs(mode, null)}
         actions={
           <>
-            <Button variant="secondary" disabled>
-              Cancel
-            </Button>
+            {missing ? (
+              <Button variant="secondary" disabled>
+                Cancel
+              </Button>
+            ) : (
+              <Link href="/billing" className={secondaryLink}>
+                Cancel
+              </Link>
+            )}
             <Button variant="outline" disabled>
               Save as Draft
             </Button>
@@ -257,14 +276,34 @@ export function InvoiceEditor({
           </>
         }
       />
-      <div className="grid gap-6 xl:grid-cols-5">
-        <BillingCard title="Invoice Details" titleSize="xl" className="xl:col-span-3">
-          {loading ? <FormSkeleton /> : quiet}
-        </BillingCard>
-        <BillingCard title="Invoice Preview" titleSize="xl" className="self-start xl:col-span-2">
-          {loading ? <FormSkeleton /> : quiet}
-        </BillingCard>
-      </div>
+      {missing ? (
+        <div className="grid gap-6 xl:grid-cols-5">
+          <BillingCard title="Invoice Details" titleSize="xl" className="xl:col-span-3">
+            {body}
+          </BillingCard>
+          <BillingCard title="Invoice Preview" titleSize="xl" className="self-start xl:col-span-2">
+            {body}
+          </BillingCard>
+        </div>
+      ) : (
+        // While loading or when the API is unreachable, every section keeps its frame.
+        <div className="grid items-start gap-6 xl:grid-cols-5">
+          <div className="flex min-w-0 flex-col gap-6 rounded-xl bg-surface p-5 shadow-sm md:p-6 xl:col-span-3">
+            {FORM_SECTIONS.map((title, index) => (
+              <section
+                key={title}
+                className={`flex flex-col gap-4 ${index ? 'border-t border-divider pt-6' : ''}`}
+              >
+                <h2 className="text-xl font-bold text-heading">{title}</h2>
+                {body}
+              </section>
+            ))}
+          </div>
+          <BillingCard title="Invoice Preview" titleSize="xl" className="min-w-0 xl:col-span-2">
+            {body}
+          </BillingCard>
+        </div>
+      )}
     </div>
   );
 }
