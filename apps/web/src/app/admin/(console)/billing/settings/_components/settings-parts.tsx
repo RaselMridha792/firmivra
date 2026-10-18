@@ -266,14 +266,14 @@ export function RadioGroup<T extends string>({
   value: T;
   onChange: (next: T) => void;
 }) {
-  const name = useId();
+  const groupId = useId();
   return (
     <fieldset className="flex min-w-0 flex-col">
       <legend className="mb-1 text-sm font-medium text-text">{legend}</legend>
       {options.map((option) => (
         <Radio
           key={option.value}
-          name={name}
+          name={groupId}
           label={option.label}
           value={option.value}
           checked={value === option.value}
