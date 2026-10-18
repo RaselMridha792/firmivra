@@ -1766,6 +1766,153 @@ export const LeadActivityKind = z.enum([
 ]);
 export type LeadActivityKind = z.infer<typeof LeadActivityKind>;
 
+/** What a stage means for the lifecycle, the KPIs and the transaction sync. */
+export const SalesStageType = z.enum([
+  'ACTIVE',
+  'CONVERTED',
+  'TRANSACTION_SYNCED',
+  'CLOSED',
+  'LOST',
+]);
+export type SalesStageType = z.infer<typeof SalesStageType>;
+
+export const SalesLeadSource = z.enum([
+  'WEBSITE',
+  'REFERRAL',
+  'SOCIAL_MEDIA',
+  'PAID_ADVERTISING',
+  'ORGANIC_SEARCH',
+  'EVENT',
+  'PARTNER',
+  'MANUAL_ENTRY',
+  'OTHER',
+]);
+export type SalesLeadSource = z.infer<typeof SalesLeadSource>;
+
+export const SalesLostReason = z.enum([
+  'NOT_A_FIT',
+  'BUDGET',
+  'NO_RESPONSE',
+  'CHOSE_COMPETITOR',
+  'TIMING',
+  'DUPLICATE',
+  'INVALID_LEAD',
+  'OTHER',
+]);
+export type SalesLostReason = z.infer<typeof SalesLostReason>;
+
+/** The linked transaction's state, as the transaction side reports it. */
+export const SalesTransactionStatus = z.enum(['OPEN', 'UNDER_CONTRACT', 'CLOSED', 'TERMINATED']);
+export type SalesTransactionStatus = z.infer<typeof SalesTransactionStatus>;
+
+/** Who moved a record: a person, an approved automation, the transaction sync, or an import. */
+export const SalesChangeSource = z.enum(['MANUAL', 'AUTOMATION', 'TRANSACTION', 'IMPORT']);
+export type SalesChangeSource = z.infer<typeof SalesChangeSource>;
+
+export const SalesFollowUpKind = z.enum(['FOLLOW_UP', 'CALL', 'DEMO', 'CONSULTATION', 'MEETING']);
+export type SalesFollowUpKind = z.infer<typeof SalesFollowUpKind>;
+
+export const SalesFollowUpStatus = z.enum(['SCHEDULED', 'COMPLETED', 'CANCELLED']);
+export type SalesFollowUpStatus = z.infer<typeof SalesFollowUpStatus>;
+
+export const SalesActivityKind = z.enum(['CALL', 'EMAIL', 'SMS', 'MEETING', 'OTHER']);
+export type SalesActivityKind = z.infer<typeof SalesActivityKind>;
+
+export const SalesActivityDirection = z.enum(['OUTBOUND', 'INBOUND']);
+export type SalesActivityDirection = z.infer<typeof SalesActivityDirection>;
+
+export const SalesActivityOutcome = z.enum([
+  'CONNECTED',
+  'NO_ANSWER',
+  'LEFT_MESSAGE',
+  'REPLIED',
+  'NO_REPLY',
+  'BOUNCED',
+  'COMPLETED',
+]);
+export type SalesActivityOutcome = z.infer<typeof SalesActivityOutcome>;
+
+export const CommChannel = z.enum(['EMAIL', 'SMS', 'INTERNAL', 'IN_APP']);
+export type CommChannel = z.infer<typeof CommChannel>;
+
+/** Who the conversation is with: a firm's member, a sales lead (B5 contact), or a team member. */
+export const CommContactType = z.enum(['FIRM', 'LEAD', 'TEAM']);
+export type CommContactType = z.infer<typeof CommContactType>;
+
+export const CommConversationStatus = z.enum(['OPEN', 'CLOSED']);
+export type CommConversationStatus = z.infer<typeof CommConversationStatus>;
+
+export const CommDirection = z.enum(['OUTBOUND', 'INBOUND', 'INTERNAL']);
+export type CommDirection = z.infer<typeof CommDirection>;
+
+/** DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED. Inbound messages and internal notes are stored as RECEIVED and SENT. */
+export const CommMessageStatus = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'SENDING',
+  'SENT',
+  'PARTIALLY_SENT',
+  'FAILED',
+  'CANCELLED',
+  'RECEIVED',
+]);
+export type CommMessageStatus = z.infer<typeof CommMessageStatus>;
+
+export const CommRecipientKind = z.enum(['TO', 'CC', 'BCC']);
+export type CommRecipientKind = z.infer<typeof CommRecipientKind>;
+
+export const CommDeliveryStatus = z.enum([
+  'PENDING',
+  'SENT',
+  'DELIVERED',
+  'BOUNCED',
+  'FAILED',
+  'SKIPPED',
+]);
+export type CommDeliveryStatus = z.infer<typeof CommDeliveryStatus>;
+
+export const CommTemplateStatus = z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']);
+export type CommTemplateStatus = z.infer<typeof CommTemplateStatus>;
+
+export const CommMediaKind = z.enum(['INLINE_IMAGE', 'ATTACHMENT']);
+export type CommMediaKind = z.infer<typeof CommMediaKind>;
+
+/** DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED; FAILED -> SENDING (a retry; the first attempt's results stay). */
+export const CommBroadcastStatus = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'SENDING',
+  'SENT',
+  'PARTIALLY_SENT',
+  'FAILED',
+  'CANCELLED',
+]);
+export type CommBroadcastStatus = z.infer<typeof CommBroadcastStatus>;
+
+export const PlatformBrandAssetKind = z.enum([
+  'LOGO',
+  'LOGO_DARK',
+  'FAVICON',
+  'APP_ICON',
+  'LOGIN_BACKGROUND',
+]);
+export type PlatformBrandAssetKind = z.infer<typeof PlatformBrandAssetKind>;
+
+export const PlatformFeatureState = z.enum(['ON', 'OFF']);
+export type PlatformFeatureState = z.infer<typeof PlatformFeatureState>;
+
+export const PlatformRetentionDisposition = z.enum(['DELETE', 'ANONYMIZE', 'ARCHIVE']);
+export type PlatformRetentionDisposition = z.infer<typeof PlatformRetentionDisposition>;
+
+export const PlatformRunStatus = z.enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']);
+export type PlatformRunStatus = z.infer<typeof PlatformRunStatus>;
+
+export const PlatformMaintenanceStatus = z.enum(['SCHEDULED', 'ACTIVE', 'COMPLETED', 'CANCELLED']);
+export type PlatformMaintenanceStatus = z.infer<typeof PlatformMaintenanceStatus>;
+
+export const PlatformDefaultSetKind = z.enum(['FIRM', 'USER']);
+export type PlatformDefaultSetKind = z.infer<typeof PlatformDefaultSetKind>;
+
 export const PlatformIntegrationCategory = z.enum([
   'PAYMENTS_BILLING',
   'COMMUNICATION',
