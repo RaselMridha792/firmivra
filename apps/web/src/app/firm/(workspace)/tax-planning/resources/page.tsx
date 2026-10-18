@@ -1,8 +1,8 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { PlanningResources } from '../_components/tp-lists';
 
-export const metadata: Metadata = { title: 'Tax planning: Resources' };
+export const metadata: Metadata = { title: 'Planning Resources' };
 
-export default function TaxPlanningResourcesPage() {
-  return <PageHeader title="Tax Planning & Strategy" />;
+export default function Page() {
+  return <PlanningResources />;
 }
