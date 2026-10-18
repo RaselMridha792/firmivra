@@ -53,8 +53,16 @@ import {
   createStaffClient,
   createSupportAccessClient,
   createTasksClient,
+  createPayrollClient,
   createTaskWorkClient,
+  createComplianceClient,
   createTemplatesClient,
+  createAutomationsClient,
+  createReportsClient,
+  createAdvisoryClient,
+  createIntegrationsClient,
+  createTaxPlanningClient,
+  createCommunicationsClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
@@ -114,6 +122,8 @@ import {
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createTasksMock } from '../mocks/tasks';
+import { createComplianceMock } from '../mocks/compliance';
+import { createPayrollMock } from '../mocks/payroll';
 import { createTaskWorkMock } from '../mocks/tasks-work';
 import { createTemplatesMock } from '../mocks/templates';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
@@ -292,6 +302,22 @@ export const api = {
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
   tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
   /**
+   * Payroll (R39): payroll clients, workers, runs, filings and reports. Mock:
+   * NEXT_PUBLIC_API_MOCK=payroll (mocks/payroll.ts, R56).
+   */
+  payroll:
+    dev && mocked('payroll')
+      ? createPayrollMock({ role: MOCK_ROLE, empty: mockedEmpty('payroll') })
+      : createPayrollClient(request),
+  /**
+   * Compliance & Deadlines (R57): deadlines, calendars, recurrences, rules, logs, settings. Mock:
+   * NEXT_PUBLIC_API_MOCK=compliance (mocks/compliance.ts, R56).
+   */
+  compliance:
+    dev && mocked('compliance')
+      ? createComplianceMock({ role: MOCK_ROLE, empty: mockedEmpty('compliance') })
+      : createComplianceClient(request),
+  /**
    * Tasks module (R55): overview, create/edit, checklist, templates and recurring series. Mock:
    * NEXT_PUBLIC_API_MOCK=taskWork (mocks/tasks-work.ts, R56).
    */
@@ -307,6 +333,36 @@ export const api = {
     dev && mocked('templates')
       ? createTemplatesMock({ role: MOCK_ROLE, empty: mockedEmpty('templates') })
       : createTemplatesClient(request),
+  /**
+   * Automations (R55): overview, rules and their versions, rule templates, logs and settings.
+   * Real API only until its mock is written.
+   */
+  automations: createAutomationsClient(request),
+  /**
+   * Reports (R55): the dashboard, report detail, custom builder, saved reports, exports and
+   * schedules. Real API only until its mock is written.
+   */
+  reports: createReportsClient(request),
+  /**
+   * Business Advisory & Development (R55): overview, advisory clients, business plans, goals,
+   * financial analysis, action plans and resources. Real API only until its mock is written.
+   */
+  advisory: createAdvisoryClient(request),
+  /**
+   * Integrations (R55): the main page, marketplace, connect and configure, manage a connection,
+   * requests and Custom API. Real API only until its mock is written.
+   */
+  integrations: createIntegrationsClient(request),
+  /**
+   * Tax Planning & Strategy (R55): overview, plans, strategy library, opportunities, calculator,
+   * calendar and resources. Real API only until its mock is written.
+   */
+  taxPlanning: createTaxPlanningClient(request),
+  /**
+   * Communications (R55): overview, the composer for email, text and announcements, recipients
+   * and segments, review and send, results and consent. Real API only until its mock is written.
+   */
+  communications: createCommunicationsClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
   workspaces:
     dev && mocked('workspaces')
