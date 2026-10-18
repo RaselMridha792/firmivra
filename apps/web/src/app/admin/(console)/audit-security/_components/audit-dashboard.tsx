@@ -166,25 +166,30 @@ function defaultFilters(): Filters {
 const oneOf = <T extends string>(list: readonly T[], value: string | null): T | undefined =>
   list.find((item) => item === value);
 
+/** The page's query string, as the server passes it (`?view=login&user=…`). */
+export type AddressQuery = Record<string, string | string[] | undefined>;
+
 /** The filters live in the address, so a filtered view can be reopened or shared (docx §2). */
-function readFilters(): Filters {
+function readFilters(address: AddressQuery): Filters {
   const base = defaultFilters();
-  if (typeof window === 'undefined') return base;
-  const params = new URLSearchParams(window.location.search);
-  const text = (key: string) => (params.get(key) ?? '').slice(0, 100);
+  const get = (key: string) => {
+    const value = address[key];
+    return (Array.isArray(value) ? value[0] : value) ?? null;
+  };
+  const text = (key: string) => (get(key) ?? '').slice(0, 100);
   const date = (key: string, fallback: string) =>
     /^\d{4}-\d{2}-\d{2}$/.test(text(key)) ? text(key) : fallback;
-  const page = Number(params.get('page'));
+  const page = Number(get('page'));
   return {
     ...base,
-    view: oneOf(AUDIT_VIEWS, params.get('view')) ?? base.view,
+    view: oneOf(AUDIT_VIEWS, get('view')) ?? base.view,
     search: text('q'),
     firm: text('firm'),
     user: text('user'),
     action: text('action'),
-    severity: oneOf(SEVERITIES, params.get('severity')) ?? '',
-    outcome: oneOf(OUTCOMES, params.get('outcome')) ?? '',
-    alert: oneOf(ALERT_FILTERS, params.get('alert')) ?? '',
+    severity: oneOf(SEVERITIES, get('severity')) ?? '',
+    outcome: oneOf(OUTCOMES, get('outcome')) ?? '',
+    alert: oneOf(ALERT_FILTERS, get('alert')) ?? '',
     resource: text('resource'),
     from: date('from', base.from),
     to: date('to', base.to),
@@ -230,9 +235,9 @@ function saveFile(file: AuditExport) {
   URL.revokeObjectURL(url);
 }
 
-export function AuditDashboard() {
+export function AuditDashboard({ address }: { address: AddressQuery }) {
   const router = useRouter();
-  const [filters, setFilters] = useState(readFilters);
+  const [filters, setFilters] = useState(() => readFilters(address));
   // The default range for this visit, to tell whether any filter is on.
   const [base] = useState(defaultFilters);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);

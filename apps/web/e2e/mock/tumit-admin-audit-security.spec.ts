@@ -83,6 +83,14 @@ test('an event shows its record, and Unlock Account writes a linked event', asyn
     .fill('Called the user; the attempts were theirs.');
   await page.getByRole('button', { name: 'Add Note' }).click();
   await expect(page.getByTestId('investigation-notes')).toContainText('the attempts were theirs');
+
+  // "View All for This User" opens the log filtered to Marcus Bell.
+  await page.getByRole('tab', { name: 'Related Events' }).click();
+  await page.getByRole('link', { name: 'View All for This User' }).click();
+  await expect(page).toHaveURL(/\/audit-security\?user=0199d1a0-0e02-/);
+  const events = page.getByTestId('audit-events');
+  await expect(events.getByText('Marcus Bell').first()).toBeVisible();
+  await expect(events.locator('tbody tr').filter({ hasNotText: 'Marcus Bell' })).toHaveCount(0);
 });
 
 test('security settings save after a review, are audited, and catch a bad length', async ({
