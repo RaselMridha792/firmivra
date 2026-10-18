@@ -123,7 +123,9 @@ export function RevenueByPlanCard() {
                 value: slice.cents,
                 tone: SLICE_TONES[slice.id].chart,
               }))}
-              centerValue={money(data.totalCents)}
+              centerValue={
+                <span className="text-xl leading-tight tabular-nums">{money(data.totalCents)}</span>
+              }
               centerLabel="Total Sales"
               label={`Monthly revenue of clients won, ${PERIOD_LABELS[period].toLowerCase()}: ${money(data.totalCents)}`}
               emptyText="No sales in this period."
