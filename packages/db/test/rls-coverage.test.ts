@@ -148,7 +148,9 @@ describe('row-level security coverage', () => {
                    ('platform_integration_logs', 'UPDATE'), ('platform_integration_logs', 'DELETE'),
                    ('platform_integration_catalog', 'DELETE'), ('platform_api_keys', 'DELETE'),
                    ('platform_webhook_endpoints', 'DELETE'), ('platform_webhook_deliveries', 'DELETE'),
-                   ('platform_integration_usage_daily', 'DELETE')) AS p(tbl, privilege)`);
+                   ('platform_integration_usage_daily', 'DELETE'),
+                   ('platform_feature_usage_daily', 'DELETE'),
+                   ('platform_firm_metrics_daily', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 

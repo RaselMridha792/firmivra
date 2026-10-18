@@ -402,6 +402,8 @@ export const SEED_PLATFORM_IDS = {
   integrationCatalog: '00000000-0000-4005-8000-000000000092',
   integrationApiKey: '00000000-0000-4005-8000-000000000093',
   integrationWebhook: '00000000-0000-4005-8000-000000000094',
+  // Stage B9: the Super Admin's saved firm report.
+  savedReport: '00000000-0000-4005-8000-0000000000a1',
   // Stage B3: what Firmivra billed LVP.
   billingPaidInvoice: '00000000-0000-4005-8000-000000000041',
   billingCreditedInvoice: '00000000-0000-4005-8000-000000000042',

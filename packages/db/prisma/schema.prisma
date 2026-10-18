@@ -894,6 +894,9 @@ model Business {
   platformDefaultsApplied   PlatformDefaultSetApplication?   @relation("PlatformDefaultSetApplied")
   /// R0 stage B8: this firm's allow or deny rules in Firmivra's integration catalog.
   platformCatalogRules      PlatformIntegrationCatalogFirm[] @relation("PlatformCatalogFirmRule")
+  /// R0 stage B9: Firmivra's daily rollups of this firm's feature use and activity.
+  platformFeatureUsage      PlatformFeatureUsageDaily[]      @relation("PlatformFeatureUsageDaily")
+  platformFirmMetrics       PlatformFirmMetricsDaily[]       @relation("PlatformFirmMetricsDaily")
 
   @@map("businesses")
 }
@@ -1169,6 +1172,8 @@ model PlatformAdmin {
   /// R0 stage B4
   securityAlertsAssigned SecurityAlert[]          @relation("SecurityAlertAssignee")
   investigationNotes     AuditInvestigationNote[] @relation("AuditInvestigationNoteAuthor")
+  /// R0 stage B9: this team member's saved reports.
+  savedReports           PlatformSavedReport[]    @relation("PlatformSavedReportOwner")
 
   @@map("platform_admins")
 }
@@ -12608,4 +12613,93 @@ model PlatformIntegrationUsageDaily {
   @@id([day, scope, subjectKey])
   @@index([scope, subjectKey, day])
   @@map("platform_integration_usage_daily")
+}
+
+// ---------- R0 stage B9: Super Admin Reports & Analytics ----------
+// Saved custom reports (the configuration, never the data) and two daily rollups the platform's job
+// writes, so cross-firm dashboards and the Firm Report Detail never read firm tables in admin
+// scope: per-firm feature usage and per-firm activity metrics. Exports use B1's
+// platform_export_jobs (module REPORTS). Contract note: docs/work/R0-stage-b9-reports.md.
+
+enum PlatformReportType {
+  FIRMS
+  USERS
+  SUBSCRIPTIONS_REVENUE
+  SUPPORT
+  FEATURE_USAGE
+  ACTIVITY_LOG
+}
+
+/// A saved custom report: type, columns, filters, date range and sort, run against current data.
+/// Private to its owner unless shared with the team; only its owner edits or deletes it.
+model PlatformSavedReport {
+  id               String             @id @default(uuid(7)) @db.Uuid
+  ownerUserId      String             @map("owner_user_id") @db.Uuid
+  name             String
+  description      String?
+  reportType       PlatformReportType @map("report_type")
+  /// The selected columns, in order (field keys from the API's catalogue for the type).
+  fields           String[]
+  filters          Json               @default("{}")
+  /// A preset ("LAST_30_DAYS", "THIS_QUARTER"...) or a custom from and to.
+  dateRange        Json               @map("date_range")
+  sort             Json               @default("[]")
+  shared           Boolean            @default(false)
+  duplicatedFromId String?            @map("duplicated_from_id") @db.Uuid
+  lastRunAt        DateTime?          @map("last_run_at") @db.Timestamptz(3)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  owner          PlatformAdmin         @relation("PlatformSavedReportOwner", fields: [ownerUserId], references: [userId], onDelete: Cascade)
+  duplicatedFrom PlatformSavedReport?  @relation("PlatformSavedReportCopy", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
+  copies         PlatformSavedReport[] @relation("PlatformSavedReportCopy")
+
+  @@unique([ownerUserId, name])
+  @@index([shared])
+  @@map("platform_saved_reports")
+}
+
+/// One firm's use of one feature on one day (actual use, not whether it is on): events and the
+/// distinct users who used it. Written by the platform's daily job; goes with the firm's data.
+model PlatformFeatureUsageDaily {
+  day         DateTime @db.Date
+  businessId  String   @map("business_id") @db.Uuid
+  /// A stable feature key, e.g. "documents.generate", "esign.send", "crm.lead_created".
+  feature     String
+  events      Int      @default(0)
+  activeUsers Int      @default(0) @map("active_users")
+  computedAt  DateTime @default(now()) @map("computed_at") @db.Timestamptz(3)
+
+  business Business @relation("PlatformFeatureUsageDaily", fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@id([day, businessId, feature])
+  @@index([feature, day])
+  @@index([businessId, day])
+  @@map("platform_feature_usage_daily")
+}
+
+/// One firm's activity on one day: counts the Firm Report Detail and the Users tab chart. Written
+/// by the platform's daily job (it reads each firm in that firm's scope); goes with the firm's data.
+model PlatformFirmMetricsDaily {
+  day                DateTime  @db.Date
+  businessId         String    @map("business_id") @db.Uuid
+  totalUsers         Int       @default(0) @map("total_users")
+  activeUsers        Int       @default(0) @map("active_users")
+  newUsers           Int       @default(0) @map("new_users")
+  logins             Int       @default(0)
+  totalClients       Int       @default(0) @map("total_clients")
+  documentsCreated   Int       @default(0) @map("documents_created")
+  documentsCompleted Int       @default(0) @map("documents_completed")
+  activeDocuments    Int       @default(0) @map("active_documents")
+  leadsCreated       Int       @default(0) @map("leads_created")
+  esignSent          Int       @default(0) @map("esign_sent")
+  esignCompleted     Int       @default(0) @map("esign_completed")
+  lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(3)
+  computedAt         DateTime  @default(now()) @map("computed_at") @db.Timestamptz(3)
+
+  business Business @relation("PlatformFirmMetricsDaily", fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@id([day, businessId])
+  @@index([businessId, day])
+  @@map("platform_firm_metrics_daily")
 }
