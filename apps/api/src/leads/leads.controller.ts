@@ -22,6 +22,10 @@ import {
   S3DocumentStorage,
 } from '../storage/document-storage.js';
 import { LeadConvertService } from './lead-convert.service.js';
+import { LeadMessagesService } from './lead-messages.service.js';
+import { LeadPipelineController } from './lead-pipeline.controller.js';
+import { LeadPipelineService } from './lead-pipeline.service.js';
+import { LeadPipelineWriteService } from './lead-pipeline-write.service.js';
 import { LeadsService } from './leads.service.js';
 
 const idPipe = new ZodValidationPipe(LeadId);
@@ -105,10 +109,14 @@ export class LeadsController {
 }
 
 @Module({
-  controllers: [LeadsController],
+  // The pipeline controller first: its static paths must match before LeadsController's `:id`.
+  controllers: [LeadPipelineController, LeadsController],
   providers: [
     LeadsService,
     LeadConvertService,
+    LeadPipelineService,
+    LeadPipelineWriteService,
+    LeadMessagesService,
     // R5's documents bucket, made the way storage/documents.controller.ts makes it.
     {
       provide: DOCUMENT_STORAGE,
