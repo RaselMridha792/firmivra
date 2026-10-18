@@ -60,6 +60,10 @@ const MIGRATION_REFERENCE_TABLES = [
   'sales_attention_settings',
   // r0_platform_communications (stage B6)
   'comm_template_categories',
+  // r0_platform_system_settings (stage B7)
+  'platform_settings',
+  'platform_retention_policies',
+  'platform_default_sets',
 ];
 
 /**

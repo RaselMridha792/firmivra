@@ -392,6 +392,11 @@ export const SEED_PLATFORM_IDS = {
   commImage: '00000000-0000-4005-8000-000000000076',
   commSegment: '00000000-0000-4005-8000-000000000077',
   commBroadcast: '00000000-0000-4005-8000-000000000078',
+  // Stage B7: the platform logo, a legal hold, a retention dry run and a maintenance window.
+  settingsLogo: '00000000-0000-4005-8000-000000000081',
+  settingsHold: '00000000-0000-4005-8000-000000000082',
+  settingsRun: '00000000-0000-4005-8000-000000000083',
+  settingsWindow: '00000000-0000-4005-8000-000000000084',
   // Stage B3: what Firmivra billed LVP.
   billingPaidInvoice: '00000000-0000-4005-8000-000000000041',
   billingCreditedInvoice: '00000000-0000-4005-8000-000000000042',
