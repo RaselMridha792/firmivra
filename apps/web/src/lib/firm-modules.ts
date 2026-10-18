@@ -4,7 +4,6 @@ import {
   Envelope,
   Globe,
   IdentificationCard,
-  Layout,
   PaperPlaneTilt,
   UploadSimple,
 } from '@phosphor-icons/react/ssr';
@@ -31,7 +30,6 @@ export const FIRM_MODULES: readonly FirmModule[] = [
   { slug: 'tax-returns', label: 'Tax Returns', icon: IdentificationCard },
   { slug: 'communications', label: 'Communications', icon: PaperPlaneTilt },
   { slug: 'automations', label: 'Automations', icon: ArrowsClockwise },
-  { slug: 'templates', label: 'Templates', icon: Layout },
 ];
 
 export function findModule(slug: string): FirmModule | undefined {
