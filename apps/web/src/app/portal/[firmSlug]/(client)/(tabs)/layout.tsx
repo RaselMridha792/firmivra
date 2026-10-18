@@ -39,9 +39,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           title={
             <>
               My Client{' '}
-              <span className={invoicesPage ? 'text-firm-primary' : 'text-firm-accent'}>
-                Portal
-              </span>
+              <span className={invoicesPage ? 'text-firm-text' : 'text-firm-accent'}>Portal</span>
             </>
           }
           subtitle="Access your forms, documents, and resources anytime, anywhere."
@@ -63,8 +61,8 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
                 ? 'border-firm-primary'
                 : 'border-firm-accent';
             const tabClassName = active
-              ? `border-t-4 ${activeBorder} bg-surface font-semibold text-firm-primary`
-              : 'bg-folder-surface text-firm-primary hover:bg-folder-hover';
+              ? `border-t-4 ${activeBorder} bg-surface font-semibold text-firm-text`
+              : 'bg-folder-surface text-firm-text hover:bg-folder-hover';
             return (
               <Link
                 key={path}

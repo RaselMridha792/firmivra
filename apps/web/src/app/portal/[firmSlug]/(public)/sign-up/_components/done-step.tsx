@@ -38,7 +38,7 @@ function Created({ waiting = false }: { waiting?: boolean }) {
   return (
     <div
       data-testid="sign-up-done"
-      className="grid gap-4 text-center [&_header]:mb-0 [&_header_p]:text-firm-primary [&_h1]:text-platform-navy md:[&_header_p]:text-xl md:[&_h1]:text-5xl"
+      className="grid gap-4 text-center [&_header]:mb-0 [&_header_p]:text-firm-text [&_h1]:text-platform-navy md:[&_header_p]:text-xl md:[&_h1]:text-5xl"
     >
       <Check
         aria-hidden
@@ -50,7 +50,7 @@ function Created({ waiting = false }: { waiting?: boolean }) {
           ? 'Your account is waiting for approval.'
           : 'Your email and phone number have been verified.'}
       </StepHeading>
-      <p className="text-lg text-firm-primary">
+      <p className="text-lg text-firm-text">
         {business.name} reviews every new account. We&apos;ll email you when your client portal is
         ready.
       </p>

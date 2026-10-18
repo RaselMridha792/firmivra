@@ -39,7 +39,7 @@ export function VerifyStep({ channel }: { channel: Channel }) {
         if (s.step !== STEP[channel]) return <OtherStep step={s.step} />;
         const to = channel === 'email' ? s.email : s.phoneMasked;
         return (
-          <div className="text-center [&_header_p]:text-firm-primary [&_h1]:text-platform-navy">
+          <div className="text-center [&_header_p]:text-firm-text [&_h1]:text-platform-navy">
             <Icon
               aria-hidden
               className="mx-auto size-16 rounded-full bg-folder-surface p-4 text-platform-navy"
@@ -151,7 +151,7 @@ function Resend({
   }, [left]);
   const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
   return (
-    <p className="text-sm text-firm-primary">
+    <p className="text-sm text-firm-text">
       Didn&apos;t receive the code?{' '}
       <Button
         variant="ghost"
@@ -229,7 +229,7 @@ export function Expired() {
     <div
       role="status"
       data-testid="sign-up-expired"
-      className="grid gap-4 text-center [&_header]:mb-0 [&_header_p]:text-firm-primary [&_h1]:text-platform-navy"
+      className="grid gap-4 text-center [&_header]:mb-0 [&_header_p]:text-firm-text [&_h1]:text-platform-navy"
     >
       <Clock3
         aria-hidden

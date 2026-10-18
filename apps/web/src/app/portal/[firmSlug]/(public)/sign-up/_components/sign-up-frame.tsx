@@ -50,9 +50,7 @@ export function SignUpFrame({
   return (
     <PageContainer className="grid gap-8 py-8 lg:grid-cols-5 lg:py-12">
       <section className="lg:col-span-2 lg:pt-16" aria-label={branding.portalName}>
-        <p className="text-sm font-bold tracking-eyebrow text-firm-primary uppercase">
-          Client portal
-        </p>
+        <p className="text-sm font-bold tracking-eyebrow text-firm-text uppercase">Client portal</p>
         <p
           className={`mt-4 font-display text-4xl font-bold md:text-5xl ${verificationLook ? 'text-platform-navy' : 'text-heading'}`}
         >
@@ -69,7 +67,7 @@ export function SignUpFrame({
             <li key={title} className="flex items-center gap-4">
               <Icon
                 aria-hidden
-                className="size-14 shrink-0 rounded-full bg-folder-surface p-3 text-firm-primary"
+                className="size-14 shrink-0 rounded-full bg-folder-surface p-3 text-firm-text"
               />
               <div>
                 <p className="font-bold text-heading">{title}</p>
@@ -89,7 +87,7 @@ export function SignUpFrame({
         <p className="mt-6 flex items-center justify-center gap-2 text-center text-sm text-text">
           <SecurityIcon
             aria-hidden
-            className={`size-5 shrink-0 ${verificationLook ? 'fill-platform-blue text-white' : 'text-firm-primary'}`}
+            className={`size-5 shrink-0 ${verificationLook ? 'fill-platform-blue text-white' : 'text-firm-text'}`}
           />
           Your information is encrypted and secure.
         </p>
