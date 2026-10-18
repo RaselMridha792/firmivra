@@ -498,6 +498,9 @@ describe('who may', () => {
       403,
       'FORBIDDEN',
     );
+    // Staff reads nothing here unless the firm's grid gives the role Staff Management view.
+    expectError(await call('get', '/departments', staffA), 403, 'FORBIDDEN');
+    expectError(await call('get', '/org-chart', staffA), 403, 'FORBIDDEN');
     expectError(await call('get', '/departments', undefined), 401, 'UNAUTHENTICATED');
   });
 

@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   Department,
@@ -15,6 +21,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { notFound } from '../workspaces/common.js';
 import type {
   CreateDepartmentBody,
@@ -69,9 +76,23 @@ export class DepartmentsService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly grants: PermissionGrantsService,
   ) {}
 
-  private inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
+  /**
+   * Owner and Admin read and change. Staff (let in by `@Roles`, not by the grid) reads only when
+   * the firm's grid gives the role Staff Management view; the other roles went through the grid
+   * already.
+   */
+  private async inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
+    if (
+      tenant.role === 'STAFF' &&
+      !(await this.grants.can(tenant.businessId, 'STAFF', 'STAFF_MANAGEMENT', 'VIEW'))
+    )
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'You do not have access to this action',
+      });
     return this.database.withScope({ kind: 'business', businessId: tenant.businessId }, fn);
   }
 
@@ -313,6 +334,8 @@ export class DepartmentsService {
         await this.nameFree(tx, businessId, body.name, d.id);
       if (body.headMembershipId)
         await this.activeMember(tx, businessId, body.headMembershipId, 'headMembershipId');
+      // A department named to move people to is the firm's own, whether or not it is needed.
+      if (body.moveTo) await this.loadDepartment(tx, businessId, body.moveTo);
       const leaving =
         body.status !== undefined && body.status !== 'ACTIVE' && d.status === 'ACTIVE';
       if (leaving) {
