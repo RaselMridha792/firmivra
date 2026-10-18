@@ -53,6 +53,7 @@ import {
   createStaffClient,
   createSupportAccessClient,
   createTasksClient,
+  createBookkeepingClient,
   createPayrollClient,
   createTaskWorkClient,
   createComplianceClient,
@@ -122,9 +123,11 @@ import {
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createTasksMock } from '../mocks/tasks';
+import { createBookkeepingMock } from '../mocks/bookkeeping';
 import { createComplianceMock } from '../mocks/compliance';
 import { createPayrollMock } from '../mocks/payroll';
 import { createTaskWorkMock } from '../mocks/tasks-work';
+import { createCommunicationsMock } from '../mocks/communications';
 import { createTemplatesMock } from '../mocks/templates';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
@@ -333,6 +336,11 @@ export const api = {
     dev && mocked('templates')
       ? createTemplatesMock({ role: MOCK_ROLE, empty: mockedEmpty('templates') })
       : createTemplatesClient(request),
+  /** Bookkeeping (R38): clients, connections, periods and the close, reconciliations and reports. Mock: NEXT_PUBLIC_API_MOCK=bookkeeping (mocks/bookkeeping.ts, R56). */
+  bookkeeping:
+    dev && mocked('bookkeeping')
+      ? createBookkeepingMock({ role: MOCK_ROLE, empty: mockedEmpty('bookkeeping') })
+      : createBookkeepingClient(request),
   /**
    * Automations (R55): overview, rules and their versions, rule templates, logs and settings.
    * Real API only until its mock is written.
@@ -360,9 +368,13 @@ export const api = {
   taxPlanning: createTaxPlanningClient(request),
   /**
    * Communications (R55): overview, the composer for email, text and announcements, recipients
-   * and segments, review and send, results and consent. Real API only until its mock is written.
+   * and segments, review and send, results and consent. Mock: NEXT_PUBLIC_API_MOCK=communications
+   * (mocks/communications.ts, R56).
    */
-  communications: createCommunicationsClient(request),
+  communications:
+    dev && mocked('communications')
+      ? createCommunicationsMock({ role: MOCK_ROLE, empty: mockedEmpty('communications') })
+      : createCommunicationsClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
   workspaces:
     dev && mocked('workspaces')

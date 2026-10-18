@@ -83,6 +83,24 @@ export const SEED_R38_IDS = {
   opportunityEvent2: id(59),
 } as const;
 
+/** Stage C1: LVP's September ledger, a refund, a Stripe payout, a report version and the terms. */
+export const SEED_C1_IDS = {
+  catSales: id(201),
+  catSoftware: id(202),
+  catSupplies: id(203),
+  catFees: id(204),
+  txPayout: id(205),
+  txAdobe: id(206),
+  txOfficeDepot: id(207),
+  txTransferOut: id(208),
+  txTransferIn: id(209),
+  txRefund: id(210),
+  refund: id(211),
+  settlement: id(212),
+  reportVersion: id(213),
+  terms: id(214),
+} as const;
+
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
   const { businessId } = c;
 
@@ -390,6 +408,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
   await seedBookkeepingConnection(tx, c);
   await seedBookkeepingPeriods(tx, c);
   await seedBookkeepingReports(tx, c);
+  await seedBookkeepingLedger(tx, c);
   await seedTaxPlanning(tx, c);
   await seedTaxPlanDetails(tx, c);
   await seedOpportunities(tx, c);
@@ -839,6 +858,217 @@ async function seedBookkeepingPeriods(tx: TxClient, c: WorkSeedContext) {
       clearedCount: 31,
       differenceCents: 5032,
       exceptionsCount: 2,
+    },
+  });
+}
+
+/**
+ * Stage C1: September for LVP's bookkeeping client. Categories; a Stripe payout deposit matched to
+ * its settlement; a categorized software charge; a split office-supplies charge; a transfer from
+ * checking to the card; a vendor refund linked to its purchase; the P&L's first version; the
+ * engagement terms in force.
+ */
+async function seedBookkeepingLedger(tx: TxClient, c: WorkSeedContext) {
+  const ids = SEED_C1_IDS;
+  if (await tx.bookkeepingTransaction.findUnique({ where: { id: ids.txPayout } })) return;
+  const { businessId } = c;
+  const base = { businessId, engagementId: c.bookkeepingEngagementId };
+  for (const [key, name, type] of [
+    ['catSales', 'Sales', 'INCOME'],
+    ['catSoftware', 'Software & Subscriptions', 'EXPENSE'],
+    ['catSupplies', 'Office Supplies', 'EXPENSE'],
+    ['catFees', 'Merchant Fees', 'EXPENSE'],
+  ] as const) {
+    await tx.bookkeepingCategory.create({ data: { ...base, id: ids[key], name, type } });
+  }
+  const synced = { connectionId: SEED_R38_IDS.bkConnection, source: 'SYNC' as const };
+  const checking = { ...base, ...synced, accountId: SEED_R38_IDS.bkAccount1 };
+  const card = { ...base, ...synced, accountId: SEED_R38_IDS.bkAccount2 };
+  await tx.bookkeepingTransaction.create({
+    data: {
+      ...checking,
+      id: ids.txPayout,
+      sourceTransactionId: 'bank-0905-1',
+      transactionDate: new Date('2026-09-05'),
+      description: 'STRIPE TRANSFER',
+      payee: 'Stripe',
+      amountCents: 482_500,
+      direction: 'CREDIT',
+      kind: 'PAYOUT',
+      status: 'CATEGORIZED',
+      categoryId: ids.catSales,
+    },
+  });
+  await tx.bookkeepingTransaction.create({
+    data: {
+      ...card,
+      id: ids.txAdobe,
+      sourceTransactionId: 'card-0908-1',
+      transactionDate: new Date('2026-09-08'),
+      description: 'ADOBE *CREATIVE CLD',
+      payee: 'Adobe',
+      amountCents: 5_999,
+      direction: 'DEBIT',
+      status: 'CATEGORIZED',
+      categoryId: ids.catSoftware,
+    },
+  });
+  await tx.bookkeepingTransaction.create({
+    data: {
+      ...card,
+      id: ids.txOfficeDepot,
+      sourceTransactionId: 'card-0912-1',
+      transactionDate: new Date('2026-09-12'),
+      description: 'OFFICE DEPOT #1123',
+      payee: 'Office Depot',
+      amountCents: 18_250,
+      direction: 'DEBIT',
+      status: 'CATEGORIZED',
+    },
+  });
+  for (const [categoryId, amountCents, memo] of [
+    [ids.catSupplies, 12_000, 'Toner and paper'],
+    [ids.catSoftware, 6_250, 'Label software licence'],
+  ] as const) {
+    await tx.bookkeepingTransactionSplit.create({
+      data: { ...base, transactionId: ids.txOfficeDepot, categoryId, amountCents, memo },
+    });
+  }
+  // The card payment from checking: both sides, then linked to each other.
+  await tx.bookkeepingTransaction.create({
+    data: {
+      ...checking,
+      id: ids.txTransferOut,
+      sourceTransactionId: 'bank-0915-1',
+      transactionDate: new Date('2026-09-15'),
+      description: 'PAYMENT TO CARD 0002',
+      amountCents: 150_000,
+      direction: 'DEBIT',
+      kind: 'TRANSFER',
+    },
+  });
+  await tx.bookkeepingTransaction.create({
+    data: {
+      ...card,
+      id: ids.txTransferIn,
+      sourceTransactionId: 'card-0915-1',
+      transactionDate: new Date('2026-09-15'),
+      description: 'PAYMENT RECEIVED - THANK YOU',
+      amountCents: 150_000,
+      direction: 'CREDIT',
+      kind: 'TRANSFER',
+    },
+  });
+  await tx.bookkeepingTransaction.update({
+    where: { id: ids.txTransferOut },
+    data: { transferPairId: ids.txTransferIn, status: 'CATEGORIZED' },
+  });
+  await tx.bookkeepingTransaction.update({
+    where: { id: ids.txTransferIn },
+    data: { transferPairId: ids.txTransferOut, status: 'CATEGORIZED' },
+  });
+  await tx.bookkeepingTransaction.create({
+    data: {
+      ...card,
+      id: ids.txRefund,
+      sourceTransactionId: 'card-0920-1',
+      transactionDate: new Date('2026-09-20'),
+      description: 'OFFICE DEPOT #1123 RETURN',
+      payee: 'Office Depot',
+      amountCents: 3_500,
+      direction: 'CREDIT',
+      kind: 'REFUND',
+      status: 'CATEGORIZED',
+      categoryId: ids.catSupplies,
+    },
+  });
+  await tx.bookkeepingRefund.create({
+    data: {
+      ...base,
+      id: ids.refund,
+      kind: 'REFUND_RECEIVED',
+      originalTransactionId: ids.txOfficeDepot,
+      transactionId: ids.txRefund,
+      refundDate: new Date('2026-09-20'),
+      amountCents: 3_500,
+      reason: 'Returned an unopened toner cartridge.',
+      method: 'Card credit',
+      status: 'COMPLETED',
+      categoryId: ids.catSupplies,
+    },
+  });
+  await tx.bookkeepingSettlement.create({
+    data: {
+      ...base,
+      id: ids.settlement,
+      connectionId: SEED_R38_IDS.bkConnection,
+      processor: 'stripe',
+      sourceSettlementId: 'po_2026_0905',
+      periodStart: new Date('2026-09-01'),
+      periodEnd: new Date('2026-09-03'),
+      payoutDate: new Date('2026-09-05'),
+      grossCents: 500_000,
+      refundsCents: 5_000,
+      feesCents: 12_500,
+      netPayoutCents: 482_500,
+      netSource: 'CALCULATED',
+      depositTransactionId: ids.txPayout,
+      status: 'MATCHED',
+      matchedByUserId: c.staffId,
+    },
+  });
+  await tx.bookkeepingReportVersion.create({
+    data: {
+      ...base,
+      id: ids.reportVersion,
+      reportId: SEED_R38_IDS.bkReport1,
+      version: 1,
+      parameters: { period: '2026-09', basis: 'ACCRUAL', compare: 'PRIOR_MONTH' },
+      summary: { incomeCents: 482_500, expensesCents: 20_749, netCents: 461_751 },
+      generatedByUserId: c.staffId,
+    },
+  });
+  await tx.bookkeepingTerms.create({
+    data: {
+      ...base,
+      id: ids.terms,
+      version: 1,
+      packageName: 'Monthly Bookkeeping',
+      startDate: new Date('2026-09-01'),
+      renewalType: 'AUTO',
+      noticeDays: 30,
+      billingFrequency: 'MONTHLY',
+      billingTiming: 'ADVANCE',
+      paymentTerms: 'NET_15',
+      preferredPaymentMethod: 'ACH',
+      monthlyFeeCents: 45_000,
+      setupFeeCents: 25_000,
+      includedServices: [
+        'Monthly categorization',
+        'Bank and card reconciliations',
+        'Monthly P&L and balance sheet',
+      ],
+      excludedServices: ['Payroll processing', 'Tax return preparation', 'Sales tax filings'],
+      deliverables: ['Monthly close by the 10th', 'One review call per quarter'],
+      clientResponsibilities: [
+        'Upload statements and receipts by the 5th',
+        'Answer questions within 3 business days',
+      ],
+      firmResponsibilities: ['Close each month by the 10th', 'Flag unusual transactions'],
+      effectiveFrom: new Date('2026-09-01'),
+    },
+  });
+  await tx.bookkeepingTermsEvent.create({
+    data: { businessId, termsId: ids.terms, kind: 'CREATED', actorUserId: c.staffId },
+  });
+  await tx.bookkeepingTerms.update({ where: { id: ids.terms }, data: { status: 'ACTIVE' } });
+  await tx.bookkeepingTermsEvent.create({
+    data: {
+      businessId,
+      termsId: ids.terms,
+      kind: 'ACTIVATED',
+      effectiveDate: new Date('2026-09-01'),
+      actorUserId: c.ownerId,
     },
   });
 }
