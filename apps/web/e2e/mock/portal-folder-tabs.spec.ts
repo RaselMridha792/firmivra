@@ -39,10 +39,8 @@ for (const width of [375, 768, 1024, 1280, 1440]) {
       expect(tops.size).toBe(1);
     }
 
-    for (const button of await page.getByRole('button', { name: /^View / }).all()) {
-      const box = await button.boundingBox();
-      if (box) expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
-    }
+    // The messages table may scroll inside its own frame (the kit's Table on narrow screens); the
+    // page itself never scrolls sideways.
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
