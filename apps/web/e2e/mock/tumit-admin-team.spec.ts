@@ -25,7 +25,7 @@ test('the directory opens with its totals, cards and list, and filters by depart
 
   await page.getByLabel('Department', { exact: true }).selectOption({ label: 'Revenue / Sales' });
   await expect(page.getByTestId('member-card')).toHaveCount(5);
-  await page.getByLabel('Search team members').fill('marcus');
+  await page.getByLabel('Search team members', { exact: true }).fill('marcus');
   await expect(page.getByTestId('member-card')).toHaveCount(1);
   await expect(page.getByRole('article', { name: 'Marcus Webb' })).toContainText('Sales Manager');
 
@@ -43,16 +43,16 @@ test('a member gets a message, and the selection changes status', async ({ page 
   await expect(dialog.getByText('Hannah Cole')).toBeVisible();
   await dialog.getByRole('button', { name: 'Send Message' }).click();
   await expect(dialog.getByText('Enter a subject')).toBeVisible();
-  await dialog.getByLabel('Subject').fill('Quarterly onboarding review');
+  await dialog.getByLabel('Subject *', { exact: true }).fill('Quarterly onboarding review');
   await dialog.getByRole('textbox', { name: 'Message' }).fill('Please send your notes by Friday.');
   await dialog.getByRole('button', { name: 'Send Message' }).click();
   await expect(page.getByText('Message sent to 1 team member.')).toBeVisible();
 
-  await page.getByLabel('Select Leo Martins').check();
+  await page.getByLabel('Select Leo Martins', { exact: true }).check();
   await expect(page.getByTestId('selected-count')).toHaveText('1 selected');
   await page.getByRole('button', { name: 'Change Status' }).click();
   const status = page.getByRole('dialog', { name: 'Change Status' });
-  await status.getByLabel('Status').selectOption({ label: 'Suspended' });
+  await status.getByLabel('Status *', { exact: true }).selectOption({ label: 'Suspended' });
   await status.getByRole('button', { name: 'Apply' }).click();
   await expect(page.getByText('Updated 1 team member.')).toBeVisible();
   await expect(page.getByTestId('kpi-active-value')).toHaveText('67%');
@@ -63,11 +63,11 @@ test('Team Communication sends to a department through every channel', async ({ 
   await page.getByRole('button', { name: 'Team Communication' }).click();
   const dialog = page.getByRole('dialog', { name: 'Send Message' });
   await dialog.getByLabel('Department', { exact: true }).check();
-  await dialog.getByLabel('Select Department').fill('people');
+  await dialog.getByLabel('Select Department', { exact: true }).fill('people');
   await dialog.getByRole('button', { name: /Human Resources \/ People/ }).click();
-  await dialog.getByLabel('Subject').fill('Benefits enrollment');
+  await dialog.getByLabel('Subject *', { exact: true }).fill('Benefits enrollment');
   await dialog.getByRole('textbox', { name: 'Message' }).fill('Enrollment closes next week.');
-  await dialog.getByLabel('Send Through All Channels').check();
+  await dialog.getByLabel('Send Through All Channels', { exact: true }).check();
   await dialog.getByRole('button', { name: 'Send Message' }).click();
   await expect(page.getByText(/Message sent to 2 team members\./)).toBeVisible();
 });
@@ -91,13 +91,13 @@ test('Add Team Member loads the role template and adds the person to the team', 
   await expect(form.getByText('Enter a first name')).toBeVisible();
   await expect(form.getByText('Choose a department')).toBeVisible();
 
-  await form.getByLabel('First Name').fill('Jamie');
-  await form.getByLabel('Last Name').fill('Rivera');
-  await form.getByLabel('Email Address').fill('jamie.rivera@example.test');
-  await form.getByLabel('Department').selectOption({ label: 'Revenue / Sales' });
-  await form.getByLabel('Role').selectOption({ label: 'Sales Manager' });
+  await form.getByLabel('First Name *', { exact: true }).fill('Jamie');
+  await form.getByLabel('Last Name *', { exact: true }).fill('Rivera');
+  await form.getByLabel('Email Address *', { exact: true }).fill('jamie.rivera@example.test');
+  await form.getByLabel('Department *', { exact: true }).selectOption({ label: 'Revenue / Sales' });
+  await form.getByLabel('Role *', { exact: true }).selectOption({ label: 'Sales Manager' });
   await expect(form.getByTestId('authority-level')).toHaveText('Authority level 4: Manager');
-  await expect(form.getByLabel('Reports To').locator('option:checked')).toHaveText(
+  await expect(form.getByLabel('Reports To', { exact: true }).locator('option:checked')).toHaveText(
     'Priya Raman (VP / Director of Sales)',
   );
   await expect(form.getByRole('checkbox', { name: /^Sales Center/ })).toBeChecked();
@@ -112,20 +112,23 @@ test('Add Team Member loads the role template and adds the person to the team', 
   );
   await page.getByRole('link', { name: 'Back to Team' }).click();
   await expect(page).toHaveURL(admin('/team'));
-  await page.getByLabel('Search team members').fill('jamie');
+  await page.getByLabel('Search team members', { exact: true }).fill('jamie');
   await expect(page.getByRole('article', { name: 'Jamie Rivera' })).toBeVisible();
 });
 
 test('an email already on the team is caught on the email field', async ({ page }) => {
   await page.goto(admin('/team/new'));
   const form = page.getByRole('form', { name: 'Add Team Member' });
-  await form.getByLabel('First Name').fill('Morgan');
-  await form.getByLabel('Last Name').fill('Admin');
-  await form.getByLabel('Email Address').fill('morgan.admin@example.test');
-  await form.getByLabel('Department').selectOption({ label: 'Product' });
-  await form.getByLabel('Role').selectOption({ label: 'Product Manager' });
+  await form.getByLabel('First Name *', { exact: true }).fill('Morgan');
+  await form.getByLabel('Last Name *', { exact: true }).fill('Admin');
+  await form.getByLabel('Email Address *', { exact: true }).fill('morgan.admin@example.test');
+  await form.getByLabel('Department *', { exact: true }).selectOption({ label: 'Product' });
+  await form.getByLabel('Role *', { exact: true }).selectOption({ label: 'Product Manager' });
   await form.getByRole('button', { name: 'Add Team Member' }).click();
-  await expect(form.getByLabel('Email Address')).toHaveAttribute('aria-invalid', 'true');
+  await expect(form.getByLabel('Email Address *', { exact: true })).toHaveAttribute(
+    'aria-invalid',
+    'true',
+  );
   await expect(
     form.getByText('Someone on the team already uses this email address.').first(),
   ).toBeVisible();
@@ -137,15 +140,15 @@ test('Edit Team Member warns before a new role replaces custom permissions, then
   await page.goto(admin('/team/0199d1a0-7e01-7000-8000-000000000004/edit'));
   await expect(page.getByRole('heading', { name: 'Edit Team Member', level: 1 })).toBeVisible();
   const form = page.getByRole('form', { name: 'Edit Team Member' });
-  await expect(form.getByLabel('First Name')).toHaveValue('Marcus');
-  await expect(form.getByLabel('Email Address')).toBeDisabled();
+  await expect(form.getByLabel('First Name *', { exact: true })).toHaveValue('Marcus');
+  await expect(form.getByLabel('Email Address *', { exact: true })).toBeDisabled();
   await expect(form.getByText('Custom Permissions Applied')).toBeVisible();
 
-  await form.getByLabel('Role').selectOption({ label: 'Sales Team Lead' });
+  await form.getByLabel('Role *', { exact: true }).selectOption({ label: 'Sales Team Lead' });
   const warning = page.getByRole('dialog', { name: 'Replace custom permissions?' });
   await warning.getByRole('button', { name: 'Load Role Defaults' }).click();
   await expect(form.getByText('Custom Permissions Applied')).toHaveCount(0);
-  await expect(form.getByLabel('Job Title')).toHaveValue('Sales Team Lead');
+  await expect(form.getByLabel('Job Title', { exact: true })).toHaveValue('Sales Team Lead');
   await form.getByRole('button', { name: 'Save Changes' }).click();
   await expect(page.getByText('Changes to Marcus Webb were saved.')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Recent activity' })).toContainText(
