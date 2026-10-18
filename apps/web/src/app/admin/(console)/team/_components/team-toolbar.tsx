@@ -128,12 +128,14 @@ export function FilterRow({
             'sm:w-36',
           )}
         </div>
+        {/* Each label stays on one line, so the switch is as tall as the selects; the halves share
+            the width only on a phone, where the switch has its own line. */}
         <div role="group" aria-label="Layout" className="flex shrink-0 sm:ml-auto">
           <Button
             variant={view === 'card' ? 'primary' : 'secondary'}
             aria-pressed={view === 'card'}
             onClick={() => onView('card')}
-            className="flex-1 rounded-r-none! px-3!"
+            className="flex-1 rounded-r-none! px-3! whitespace-nowrap sm:flex-none"
           >
             <SquaresFour aria-hidden weight="fill" className="size-5" />
             Card View
@@ -142,7 +144,7 @@ export function FilterRow({
             variant={view === 'list' ? 'primary' : 'secondary'}
             aria-pressed={view === 'list'}
             onClick={() => onView('list')}
-            className="flex-1 rounded-l-none! px-3!"
+            className="flex-1 rounded-l-none! px-3! whitespace-nowrap sm:flex-none"
           >
             <ListBullets aria-hidden weight="bold" className="size-5" />
             List View
