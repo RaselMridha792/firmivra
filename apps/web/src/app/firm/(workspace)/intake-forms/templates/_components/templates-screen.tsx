@@ -243,7 +243,7 @@ export function TemplatesScreen() {
               Intake Forms
             </Link>
             <CaretRight aria-hidden weight="bold" className="size-3 text-muted" />
-            <span aria-current="page" className="font-semibold text-heading">
+            <span aria-current="page" className="font-medium text-heading">
               Form Templates
             </span>
           </nav>
@@ -416,13 +416,13 @@ export function TemplatesScreen() {
 
       <section
         aria-labelledby="template-quick-actions-title"
-        className="rounded-xl bg-info-soft p-4"
+        className="rounded-xl bg-info-soft px-4 py-3"
         data-testid="template-quick-actions"
       >
         <h2 id="template-quick-actions-title" className="text-base font-bold text-heading">
           Quick Actions
         </h2>
-        <div className="mt-2 grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-4 xl:divide-x">
+        <div className="mt-1 grid grid-cols-1 divide-y divide-folder-border sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-4 xl:divide-x">
           <QuickAction
             icon={PlusCircle}
             label="Create Template"
@@ -476,7 +476,7 @@ export function TemplatesScreen() {
 }
 
 const quickAction =
-  'flex min-h-12 items-center gap-3 px-3 py-2 text-left text-sm text-heading hover:bg-folder-hover disabled:cursor-not-allowed disabled:text-muted xl:justify-center';
+  'flex min-h-10 items-center gap-3 px-3 py-2 text-left text-sm text-heading hover:bg-folder-hover disabled:cursor-not-allowed disabled:text-muted xl:justify-center';
 
 /** One of the four Quick Actions: a solid icon and its words, as a button or a link. */
 function QuickAction({

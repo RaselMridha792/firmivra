@@ -9,7 +9,7 @@ import {
   User,
   UsersThree,
 } from '@phosphor-icons/react';
-import type { FormCategory } from '@firmivra/types';
+import { FORM_CATEGORY_LABELS, type FormCategory } from '@firmivra/types';
 import { tileTones, type TileTone } from '@firmivra/ui';
 import type { ReactNode } from 'react';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
@@ -19,6 +19,14 @@ export const INTAKE_KEY = ['intake-forms'] as const;
 export const LIBRARY_KEY = [...INTAKE_KEY, 'library'] as const;
 
 type ChipTone = 'info' | 'success' | 'warning' | 'danger' | 'neutral' | 'purple';
+const CHIP_TONES: Record<ChipTone, string> = {
+  info: 'bg-info-soft text-info',
+  success: 'bg-success-soft text-success',
+  warning: 'bg-warning-soft text-warning',
+  danger: 'bg-danger-soft text-danger',
+  neutral: 'bg-disabled text-muted',
+  purple: 'bg-purple-soft text-purple',
+};
 
 /**
  * Each category's tile and chip in form-templates-dashboard.jpg: Personal Tax a red document with
@@ -63,9 +71,23 @@ export function CategoryTile({
   const { icon: Glyph, tone } = CATEGORY_LOOK[category];
   return (
     <span
-      className={`flex shrink-0 items-center justify-center ${tileTones[tone]} ${shape === 'round' ? 'size-12 rounded-full' : 'size-9 rounded-lg'}`}
+      className={`flex shrink-0 items-center justify-center ${tileTones[tone]} ${shape === 'round' ? 'size-12 rounded-full' : 'size-8 rounded-lg'}`}
     >
       <Glyph aria-hidden weight="fill" className={shape === 'round' ? 'size-6' : 'size-5'} />
+    </span>
+  );
+}
+
+/**
+ * The category chip under a card's question count: a small rounded rectangle, not the kit
+ * Badge's pill (form-templates-dashboard.jpg).
+ */
+export function CategoryChip({ category }: { category: FormCategory }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-medium ${CHIP_TONES[CATEGORY_LOOK[category].chip]}`}
+    >
+      {FORM_CATEGORY_LABELS[category]}
     </span>
   );
 }

@@ -10,9 +10,9 @@ import {
   PencilSimple,
   User,
 } from '@phosphor-icons/react';
-import { FORM_CATEGORY_LABELS, type IntakeFormListItem } from '@firmivra/types';
-import { Avatar, Badge, Button, Card, Skeleton } from '@firmivra/ui';
-import { CATEGORY_LOOK, CategoryTile, shortDate, shortName } from './template-look';
+import type { IntakeFormListItem } from '@firmivra/types';
+import { Avatar, Button, Card, Skeleton } from '@firmivra/ui';
+import { CategoryChip, CategoryTile, shortDate, shortName } from './template-look';
 import { TemplateMenu } from './template-menu';
 
 export interface TemplateActions {
@@ -41,7 +41,6 @@ export function TemplateCard({
   actions: TemplateActions;
 }) {
   const { onPreview, onEdit, onUse, onDuplicate, onArchive, busy } = actions;
-  const look = CATEGORY_LOOK[template.category];
   return (
     <Card
       variant="elevated"
@@ -55,7 +54,7 @@ export function TemplateCard({
           <p className="text-sm text-muted">
             {template.questionCount} {template.questionCount === 1 ? 'question' : 'questions'}
           </p>
-          <Badge tone={look.chip}>{FORM_CATEGORY_LABELS[template.category]}</Badge>
+          <CategoryChip category={template.category} />
         </div>
         <TemplateMenu
           label={`Actions for ${template.name}`}
@@ -87,14 +86,14 @@ export function TemplateCard({
       <dl className="mt-auto flex flex-col gap-1.5 border-t border-divider pt-3 text-xs">
         <div className="flex items-center justify-between gap-2">
           <dt className="flex items-center gap-2 text-muted">
-            <CalendarBlank aria-hidden weight="fill" className="size-4 text-action" />
+            <CalendarBlank aria-hidden weight="fill" className="size-4" />
             Last updated
           </dt>
           <dd className="text-sm text-text">{shortDate(template.updatedAt)}</dd>
         </div>
         <div className="flex items-center justify-between gap-2">
           <dt className="flex items-center gap-2 text-muted">
-            <ChartBar aria-hidden weight="fill" className="size-4 text-action" />
+            <ChartBar aria-hidden weight="fill" className="size-4" />
             Used
           </dt>
           <dd className="text-sm text-text">
@@ -103,7 +102,7 @@ export function TemplateCard({
         </div>
         <div className="flex items-center justify-between gap-2">
           <dt className="flex items-center text-muted">
-            <User aria-hidden weight="fill" className="size-4 text-action" />
+            <User aria-hidden weight="fill" className="size-4" />
             <span className="sr-only">Owner</span>
           </dt>
           <dd className="flex min-w-0 items-center gap-2 text-sm text-text">
