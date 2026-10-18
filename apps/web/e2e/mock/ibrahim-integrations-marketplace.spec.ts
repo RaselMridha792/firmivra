@@ -110,6 +110,7 @@ test('catalog search, category navigation, sorting, view modes and connected act
 test('request modal validates the shared schema, submits once and confirms API acknowledgement', async ({
   page,
 }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
   await mockCatalog(page);
   let submitted = 0;
   await page.route('**/api/v1/business/integration-requests', async (route) => {

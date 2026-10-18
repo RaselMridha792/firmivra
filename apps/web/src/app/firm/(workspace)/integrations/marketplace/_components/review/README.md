@@ -36,3 +36,9 @@ Reference: `docs/mockups/firm-workspace/integrations/source/add-integration-mark
 - Shared navigation/header density and colors are owned elsewhere and are unchanged.
 - The reference's sample counts are not hard-coded; counts, provider availability and ordering come from the API. The synthetic fixture has 18 providers, including connected and unsupported examples.
 - Existing shared-shell image warnings were observed in browser tests; no unrelated shell files were changed.
+
+## Final validation notes
+
+- Repository lint and typecheck passed sequentially: `pnpm exec turbo run lint typecheck --concurrency=1` (16 successful tasks, with pre-existing warnings elsewhere). This completed before the final main merge; CI must validate the combined head as usual.
+- Latest main was merged without conflicts. The page's changed paths remain separate from the first-page PR and other owners' paths.
+- The request-modal screenshot uses 1440 x 1100 so its heading and form fields are visible together; the form scenario passed again at that viewport.
