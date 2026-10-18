@@ -1041,12 +1041,13 @@ model Membership {
   teamMemberships   TeamMember[]
   departments       MemberDepartment[]
 
-  staffProfile      StaffProfile?          @relation("StaffProfileMember")
-  staffSupervised   StaffProfile[]         @relation("StaffSupervisor")
-  staffNotesWritten StaffProfile[]         @relation("StaffNotesUpdatedBy")
-  staffSecurity     StaffSecuritySettings?
-  staffCompensation StaffCompensation?
-  staffDrafts       StaffDraft[]
+  staffProfile        StaffProfile?          @relation("StaffProfileMember")
+  staffSupervised     StaffProfile[]         @relation("StaffSupervisor")
+  staffNotesWritten   StaffProfile[]         @relation("StaffNotesUpdatedBy")
+  staffSecurity       StaffSecuritySettings?
+  staffCompensation   StaffCompensation?
+  staffDrafts         StaffDraft[]
+  staffImportPreviews StaffImportPreview[]
 
   staffDocuments         StaffDocument[] @relation("StaffDocumentOwner")
   staffDocumentsUploaded StaffDocument[] @relation("StaffDocumentUploader")
@@ -8583,6 +8584,26 @@ model StaffDraft {
 
   @@index([businessId, updatedAt])
   @@map("staff_drafts")
+}
+
+/// A staff import's parsed rows (R55's Import Staff), kept for the preview step between upload
+/// and confirm. `rows` is a JSON array of the parsed rows (at most 1,000 and 1 MB; the database
+/// refuses password, token, secret or SSN keys). The database sets `expires_at` to an hour after
+/// creation: an expired preview is no longer read, and is deleted by the next preview of its firm
+/// or by `app_purge_expired_staff_import_previews()`. Never edited: a new upload is a new preview.
+model StaffImportPreview {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  createdById String   @map("created_by_membership_id") @db.Uuid
+  rows        Json
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt   DateTime @default(dbgenerated("(now() + '01:00:00'::interval)")) @map("expires_at") @db.Timestamptz(3)
+
+  createdBy Membership @relation(fields: [businessId, createdById], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, expiresAt])
+  @@index([expiresAt])
+  @@map("staff_import_previews")
 }
 
 // ---------- Staff documents and sessions (R35, migration r35_staff_documents_sessions) ----------
