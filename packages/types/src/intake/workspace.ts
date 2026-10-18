@@ -597,5 +597,15 @@ export const IntakeWorkspaceErrorCode = z.enum([
   'PORTAL_UNAVAILABLE',
   /** 409: someone saved the settings after they were loaded. */
   'SAVE_CONFLICT',
+  /** 409: the form has no published version yet: publish it before sending. */
+  'FORM_NOT_PUBLISHED',
+  /** 409: the client has no active engagement for the form's service. */
+  'NO_ENGAGEMENT',
+  /** 409: not possible in the form's status (remind a submitted form, change an archived one). */
+  'INVALID_STATUS',
+  /** 503: leads and new contacts need the secure link page, which does not exist yet. */
+  'LEAD_LINK_UNAVAILABLE',
+  /** 503: assigned-form notes need their table (schema request). */
+  'NOTES_UNAVAILABLE',
 ]);
 export type IntakeWorkspaceErrorCode = z.infer<typeof IntakeWorkspaceErrorCode>;
