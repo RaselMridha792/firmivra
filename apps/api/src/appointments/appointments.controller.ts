@@ -1,10 +1,15 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import {
+  type AgendaPage,
   type Appointment,
+  type AppointmentContact,
   type AppointmentDetail,
   AppointmentId,
   type AppointmentList,
+  type AppointmentRecord,
+  type AppointmentsSummary,
+  type SchedulingOptions,
   type SlotList,
 } from '@firmivra/types';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
@@ -21,6 +26,15 @@ import {
 } from './appointments.input.js';
 import { AppointmentsService } from './appointments.service.js';
 import { firmActor, optionalBody } from './request-actors.js';
+import { SchedulingReadService } from './scheduling-read.service.js';
+import { SchedulingWriteService } from './scheduling-write.service.js';
+import {
+  AgendaQ,
+  ContactsQuery,
+  DetailsBody,
+  ScheduleBody,
+  SummaryQuery,
+} from './scheduling.input.js';
 
 const idPipe = new ZodValidationPipe(idParam(AppointmentId));
 
@@ -33,7 +47,11 @@ const idPipe = new ZodValidationPipe(idParam(AppointmentId));
 @Access('APPOINTMENTS')
 @Roles(...FIRM_STAFF)
 export class AppointmentsController {
-  constructor(private readonly appointments: AppointmentsService) {}
+  constructor(
+    private readonly appointments: AppointmentsService,
+    private readonly reads: SchedulingReadService,
+    private readonly writes: SchedulingWriteService,
+  ) {}
 
   @Get()
   async list(
@@ -54,6 +72,79 @@ export class AppointmentsController {
     @Query(new ZodValidationPipe(FirmSlotsQuery)) q: z.output<typeof FirmSlotsQuery>,
   ): Promise<SlotList> {
     return this.appointments.slots(tenant.businessId, firmActor(auth, tenant), q);
+  }
+
+  // The Appointments workspace (R58; contract in packages/types/src/appointments/scheduling.ts).
+  // These static GETs come before ':id' too, or "summary" would be read as an id (400).
+  @Get('summary')
+  summary(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(SummaryQuery)) q: z.output<typeof SummaryQuery>,
+  ): Promise<AppointmentsSummary> {
+    return this.reads.summary(tenant.businessId, firmActor(auth, tenant), q);
+  }
+
+  @Get('agenda')
+  agenda(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(AgendaQ)) q: z.output<typeof AgendaQ>,
+  ): Promise<AgendaPage> {
+    return this.reads.agenda(tenant.businessId, firmActor(auth, tenant), q);
+  }
+
+  @Get('options')
+  options(@CurrentTenant() tenant: TenantContext): Promise<SchedulingOptions> {
+    return this.reads.options(tenant.businessId);
+  }
+
+  @Get('contacts')
+  contacts(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(ContactsQuery)) q: z.output<typeof ContactsQuery>,
+  ): Promise<{ items: AppointmentContact[] }> {
+    return this.reads.contacts(tenant.businessId, firmActor(auth, tenant), q);
+  }
+
+  @Post('schedule')
+  @HttpCode(200)
+  schedule(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(ScheduleBody)) body: z.output<typeof ScheduleBody>,
+  ): Promise<AppointmentRecord> {
+    return this.writes.schedule(tenant.businessId, firmActor(auth, tenant), body);
+  }
+
+  @Get(':id/record')
+  record(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<AppointmentRecord> {
+    return this.reads.record(tenant.businessId, firmActor(auth, tenant), id);
+  }
+
+  @Patch(':id/details')
+  details(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(DetailsBody)) body: z.output<typeof DetailsBody>,
+  ): Promise<AppointmentRecord> {
+    return this.writes.updateDetails(tenant.businessId, firmActor(auth, tenant), id, body);
+  }
+
+  @Post(':id/confirm')
+  @HttpCode(200)
+  confirm(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<AppointmentRecord> {
+    return this.writes.confirm(tenant.businessId, firmActor(auth, tenant), id);
   }
 
   @Get(':id')
