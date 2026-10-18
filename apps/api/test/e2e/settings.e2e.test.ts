@@ -188,29 +188,6 @@ describe('GET and PATCH /business/settings', () => {
     expect(suspended.status).toBe(403);
   });
 
-  it('shows the theme colours as derived, and refuses them until their columns exist', async () => {
-    const res = FirmSettings.parse(
-      (await call('get', '/settings', people.ownerA, firms.a.id)).body,
-    );
-    expect(res).toMatchObject({
-      sidebarColor: null,
-      textPrimaryColor: null,
-      textSecondaryColor: null,
-      buttonColor: null,
-    });
-    const refused = await call('patch', '/settings', people.ownerA, firms.a.id, {
-      sidebarColor: '#001F4B',
-    });
-    expect(refused.status).toBe(503);
-    expect((refused.body as { error: { code: string } }).error.code).toBe(
-      'THEME_COLORS_UNAVAILABLE',
-    );
-    const bad = await call('patch', '/settings', people.ownerA, firms.a.id, {
-      buttonColor: 'blue',
-    });
-    expect(bad.status).toBe(400);
-  });
-
   it('changes only the fields sent, in this firm only, and audits the field names', async () => {
     const res = await call('patch', '/settings', people.adminA, firms.a.id, {
       name: '  T02 Firm A ',
@@ -272,6 +249,40 @@ describe('GET and PATCH /business/settings', () => {
       [people.adminA.id, people.ownerA.id].sort(),
     );
     expect(JSON.stringify(audits)).not.toContain('office@t02.test');
+  });
+
+  it('saves the theme colours, clears one back to derived, and audits the field names', async () => {
+    const before = await auditRows(firms.a.id, 'settings.updated');
+    const res = await call('patch', '/settings', people.ownerA, firms.a.id, {
+      sidebarColor: '#001F4B',
+      textPrimaryColor: '#001f4b',
+      textSecondaryColor: '#485677',
+      buttonColor: '#006FF0',
+    });
+    expect(res.status).toBe(200);
+    expect(FirmSettings.parse(res.body)).toMatchObject({
+      sidebarColor: '#001f4b',
+      textPrimaryColor: '#001f4b',
+      textSecondaryColor: '#485677',
+      buttonColor: '#006ff0',
+    });
+    const cleared = FirmSettings.parse(
+      (await call('patch', '/settings', people.adminA, firms.a.id, { buttonColor: '' })).body,
+    );
+    expect(cleared).toMatchObject({ buttonColor: null, sidebarColor: '#001f4b' });
+    expect(
+      (await call('patch', '/settings', people.ownerA, firms.a.id, { buttonColor: 'blue' })).status,
+    ).toBe(400);
+    const audits = (await auditRows(firms.a.id, 'settings.updated')).slice(before.length);
+    expect(audits.map((a) => (a.metadata as { fields: string[] }).fields)).toEqual([
+      ['buttonColor', 'sidebarColor', 'textPrimaryColor', 'textSecondaryColor'],
+      ['buttonColor'],
+    ]);
+    expect(JSON.stringify(audits)).not.toContain('485677');
+    const other = FirmSettings.parse(
+      (await call('get', '/settings', people.ownerB, firms.b.id)).body,
+    );
+    expect(other).toMatchObject({ sidebarColor: null, buttonColor: null });
   });
 
   it('refuses locked, unknown and bad fields with 400, and staff with 403', async () => {
