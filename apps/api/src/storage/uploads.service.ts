@@ -236,6 +236,21 @@ export class UploadsService {
             taxYear: claim.taxYear,
             intakeId: claim.intakeId ?? null,
             intakeSlot: claim.intakeSlot ?? null,
+            ...(claim.library
+              ? {
+                  folderId: claim.library.folderId,
+                  description: claim.library.description,
+                  tags: claim.library.tags,
+                  reviewerUserId: claim.library.reviewerUserId,
+                  // A reviewer named at upload means the document waits for their review.
+                  reviewStatus: claim.library.reviewerUserId ? ('NEEDS_REVIEW' as const) : null,
+                  expiresOn: claim.library.expiresOn
+                    ? new Date(`${claim.library.expiresOn}T00:00:00Z`)
+                    : null,
+                  notifyClient: claim.library.notifyClient,
+                  replacesId: claim.library.replacesId,
+                }
+              : {}),
             // The category's retention from today; no category or no retention keeps it for good.
             retentionUntil: years === null ? null : yearsAfter(now, years),
             uploadedByUserId: claim.userId,
