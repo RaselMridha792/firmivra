@@ -1831,3 +1831,60 @@ export const SalesActivityOutcome = z.enum([
   'COMPLETED',
 ]);
 export type SalesActivityOutcome = z.infer<typeof SalesActivityOutcome>;
+
+export const CommChannel = z.enum(['EMAIL', 'SMS', 'INTERNAL', 'IN_APP']);
+export type CommChannel = z.infer<typeof CommChannel>;
+
+/** Who the conversation is with: a firm's member, a sales lead (B5 contact), or a team member. */
+export const CommContactType = z.enum(['FIRM', 'LEAD', 'TEAM']);
+export type CommContactType = z.infer<typeof CommContactType>;
+
+export const CommConversationStatus = z.enum(['OPEN', 'CLOSED']);
+export type CommConversationStatus = z.infer<typeof CommConversationStatus>;
+
+export const CommDirection = z.enum(['OUTBOUND', 'INBOUND', 'INTERNAL']);
+export type CommDirection = z.infer<typeof CommDirection>;
+
+/** DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED. Inbound messages and internal notes are stored as RECEIVED and SENT. */
+export const CommMessageStatus = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'SENDING',
+  'SENT',
+  'PARTIALLY_SENT',
+  'FAILED',
+  'CANCELLED',
+  'RECEIVED',
+]);
+export type CommMessageStatus = z.infer<typeof CommMessageStatus>;
+
+export const CommRecipientKind = z.enum(['TO', 'CC', 'BCC']);
+export type CommRecipientKind = z.infer<typeof CommRecipientKind>;
+
+export const CommDeliveryStatus = z.enum([
+  'PENDING',
+  'SENT',
+  'DELIVERED',
+  'BOUNCED',
+  'FAILED',
+  'SKIPPED',
+]);
+export type CommDeliveryStatus = z.infer<typeof CommDeliveryStatus>;
+
+export const CommTemplateStatus = z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']);
+export type CommTemplateStatus = z.infer<typeof CommTemplateStatus>;
+
+export const CommMediaKind = z.enum(['INLINE_IMAGE', 'ATTACHMENT']);
+export type CommMediaKind = z.infer<typeof CommMediaKind>;
+
+/** DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED; FAILED -> SENDING (a retry; the first attempt's results stay). */
+export const CommBroadcastStatus = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'SENDING',
+  'SENT',
+  'PARTIALLY_SENT',
+  'FAILED',
+  'CANCELLED',
+]);
+export type CommBroadcastStatus = z.infer<typeof CommBroadcastStatus>;

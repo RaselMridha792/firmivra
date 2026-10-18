@@ -127,7 +127,12 @@ describe('row-level security coverage', () => {
                    ('sales_assignment_history', 'INSERT'), ('sales_assignment_history', 'UPDATE'),
                    ('sales_assignment_history', 'DELETE'),
                    ('sales_attention_settings', 'INSERT'),
-                   ('sales_attention_settings', 'DELETE')) AS p(tbl, privilege)`);
+                   ('sales_attention_settings', 'DELETE'),
+                   ('comm_conversations', 'DELETE'), ('comm_templates', 'DELETE'),
+                   ('comm_template_categories', 'DELETE'), ('comm_media', 'DELETE'),
+                   ('comm_segments', 'DELETE'), ('comm_broadcast_recipients', 'DELETE'),
+                   ('comm_message_mentions', 'UPDATE'), ('comm_message_mentions', 'DELETE'),
+                   ('comm_conversation_reads', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 

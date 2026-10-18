@@ -884,6 +884,10 @@ model Business {
   platformNotifications     PlatformNotification[]
   /// R0 stage B2: the firm's tickets with Firmivra support (Super Admin Support module).
   supportTickets            SupportTicket[]
+  /// R0 stage B6: Firmivra's conversations with this firm's people, and its message and broadcast recipients.
+  commConversations         CommConversation[]
+  commRecipients            CommMessageRecipient[]      @relation("CommMessageRecipientBusiness")
+  commBroadcastRecipients   CommBroadcastRecipient[]    @relation("CommBroadcastRecipientBusiness")
 
   @@map("businesses")
 }
@@ -1145,11 +1149,15 @@ model PlatformAdmin {
   /// R0 stage A: the org-chart row for this admin, if one exists yet (CREATING_TEAM 20261016_r0).
   member                 PlatformMember?
   /// R0 stage B5: sales records and follow-ups assigned to this team member.
-  salesDealsAssigned     SalesOpportunity[]     @relation("SalesOpportunityAssignee")
-  salesFollowUps         SalesFollowUp[]        @relation("SalesFollowUpAssignee")
+  salesDealsAssigned     SalesOpportunity[]       @relation("SalesOpportunityAssignee")
+  salesFollowUps         SalesFollowUp[]          @relation("SalesFollowUpAssignee")
   /// R0 stage B1: this admin's notification center and export jobs.
   notifications          PlatformNotification[]
   exportJobs             PlatformExportJob[]
+  /// R0 stage B6: conversations assigned to this team member, mentions and read state.
+  commConversations      CommConversation[]       @relation("CommConversationAssignee")
+  commMentions           CommMessageMention[]     @relation("CommMessageMentioned")
+  commReads              CommConversationRead[]   @relation("CommConversationReader")
   /// R0 stage B2: support tickets assigned to this team member.
   supportTicketsAssigned SupportTicket[]          @relation("SupportTicketAssignee")
   /// R0 stage B4
@@ -11527,4 +11535,419 @@ model SalesAttentionSettings {
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("sales_attention_settings")
+}
+
+// ---------- R0 stage B6: Super Admin Communications ----------
+// Firmivra's own correspondence with firms' people, sales leads and the team (never a firm's
+// clients): conversations and their messages with per-recipient delivery, templates and their
+// categories, audience segments, broadcasts with per-channel content and per-recipient results,
+// and the image and attachment library. Platform data: only the Super Admin team and the
+// platform's jobs (dispatch, inbound mail and SMS, scanning) reach it. Contract note:
+// docs/work/R0-stage-b6-communications.md.
+
+enum CommChannel {
+  EMAIL
+  SMS
+  INTERNAL
+  IN_APP
+}
+
+/// Who the conversation is with: a firm's member, a sales lead (B5 contact), or a team member.
+enum CommContactType {
+  FIRM
+  LEAD
+  TEAM
+}
+
+enum CommConversationStatus {
+  OPEN
+  CLOSED
+}
+
+enum CommDirection {
+  OUTBOUND
+  INBOUND
+  /// A team-only note in the thread (channel INTERNAL).
+  INTERNAL
+}
+
+/// DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED.
+/// Inbound messages and internal notes are stored as RECEIVED and SENT.
+enum CommMessageStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PARTIALLY_SENT
+  FAILED
+  CANCELLED
+  RECEIVED
+}
+
+enum CommRecipientKind {
+  TO
+  CC
+  BCC
+}
+
+enum CommDeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  BOUNCED
+  FAILED
+  SKIPPED
+}
+
+enum CommTemplateStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum CommMediaKind {
+  INLINE_IMAGE
+  ATTACHMENT
+}
+
+/// DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED;
+/// FAILED -> SENDING (a retry; the first attempt's results stay).
+enum CommBroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PARTIALLY_SENT
+  FAILED
+  CANCELLED
+}
+
+/// A thread with one contact. The contact's name and destinations are kept as they were, so the
+/// thread still reads correctly after the firm, lead or user changes or is deleted.
+model CommConversation {
+  id               String                 @id @default(uuid(7)) @db.Uuid
+  contactType      CommContactType        @map("contact_type")
+  /// The firm (FIRM), cleared if the firm is deleted.
+  linkedBusinessId String?                @map("linked_business_id") @db.Uuid
+  /// The firm member or team member. No foreign key: the history outlives the login.
+  contactUserId    String?                @map("contact_user_id") @db.Uuid
+  /// The sales lead (LEAD): a B5 sales_contacts id. No foreign key, so this stage does not
+  /// depend on B5's merge order; the history outlives the lead.
+  salesContactId   String?                @map("sales_contact_id") @db.Uuid
+  contactName      String                 @map("contact_name")
+  contactEmail     String?                @map("contact_email")
+  contactPhone     String?                @map("contact_phone")
+  subject          String?
+  status           CommConversationStatus @default(OPEN)
+  assignedToUserId String?                @map("assigned_to_user_id") @db.Uuid
+  tags             String[]               @default([])
+  /// Set by the database from the thread's messages.
+  lastMessageAt    DateTime?              @map("last_message_at") @db.Timestamptz(3)
+  createdByUserId  String?                @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  linkedBusiness Business?              @relation(fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+  assignee       PlatformAdmin?         @relation("CommConversationAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+  messages       CommMessage[]
+  reads          CommConversationRead[]
+
+  @@index([lastMessageAt])
+  @@index([assignedToUserId, status])
+  @@index([linkedBusinessId])
+  @@index([salesContactId])
+  @@index([contactUserId])
+  @@map("comm_conversations")
+}
+
+/// One message in a thread (or a broadcast's copy in a recipient's thread). Content is editable
+/// while DRAFT or SCHEDULED; once dispatch begins it never changes. Only drafts are deleted.
+model CommMessage {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  conversationId    String            @map("conversation_id") @db.Uuid
+  channel           CommChannel
+  direction         CommDirection
+  status            CommMessageStatus @default(DRAFT)
+  /// Email only.
+  subject           String?
+  /// HTML for email (inline images by media id), plain text for SMS and internal notes.
+  body              String
+  templateId        String?           @map("template_id") @db.Uuid
+  broadcastId       String?           @map("broadcast_id") @db.Uuid
+  /// The failed message this one retries (the failed attempt stays in history).
+  retryOfMessageId  String?           @map("retry_of_message_id") @db.Uuid
+  /// Protects against a double submission of the same send.
+  idempotencyKey    String?           @unique @map("idempotency_key")
+  scheduledAt       DateTime?         @map("scheduled_at") @db.Timestamptz(3)
+  scheduledTimeZone String?           @map("scheduled_time_zone")
+  /// Set by the database: the team member who wrote it (null for inbound and the platform).
+  senderUserId      String?           @map("sender_user_id") @db.Uuid
+  /// Inbound: who it came from, as received.
+  fromAddress       String?           @map("from_address")
+  sentAt            DateTime?         @map("sent_at") @db.Timestamptz(3)
+  failedAt          DateTime?         @map("failed_at") @db.Timestamptz(3)
+  errorCode         String?           @map("error_code")
+  errorMessage      String?           @map("error_message")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  conversation CommConversation       @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  template     CommTemplate?          @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  broadcast    CommBroadcast?         @relation(fields: [broadcastId], references: [id], onDelete: SetNull)
+  retryOf      CommMessage?           @relation("CommMessageRetry", fields: [retryOfMessageId], references: [id], onDelete: SetNull)
+  retries      CommMessage[]          @relation("CommMessageRetry")
+  recipients   CommMessageRecipient[]
+  mentions     CommMessageMention[]
+  media        CommMediaLink[]
+
+  @@index([conversationId, createdAt])
+  @@index([status, scheduledAt])
+  @@index([broadcastId])
+  @@map("comm_messages")
+}
+
+/// A message's recipient and its own delivery result (partial delivery, retry failed only).
+model CommMessageRecipient {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  messageId         String             @map("message_id") @db.Uuid
+  kind              CommRecipientKind  @default(TO)
+  contactType       CommContactType    @map("contact_type")
+  linkedBusinessId  String?            @map("linked_business_id") @db.Uuid
+  contactUserId     String?            @map("contact_user_id") @db.Uuid
+  salesContactId    String?            @map("sales_contact_id") @db.Uuid
+  name              String
+  /// The email address or phone number used for this channel.
+  address           String
+  status            CommDeliveryStatus @default(PENDING)
+  providerMessageId String?            @map("provider_message_id")
+  errorCode         String?            @map("error_code")
+  sentAt            DateTime?          @map("sent_at") @db.Timestamptz(3)
+  deliveredAt       DateTime?          @map("delivered_at") @db.Timestamptz(3)
+  failedAt          DateTime?          @map("failed_at") @db.Timestamptz(3)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message        CommMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  linkedBusiness Business?   @relation("CommMessageRecipientBusiness", fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+
+  @@unique([messageId, kind, address])
+  @@index([status])
+  @@index([providerMessageId])
+  @@map("comm_message_recipients")
+}
+
+/// A team member mentioned in an internal note (the Mentions tab).
+model CommMessageMention {
+  messageId String   @map("message_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message CommMessage   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    PlatformAdmin @relation("CommMessageMentioned", fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([messageId, userId])
+  @@index([userId, createdAt])
+  @@map("comm_message_mentions")
+}
+
+/// Each team member's read state per conversation (Unread counts).
+model CommConversationRead {
+  conversationId String   @map("conversation_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  lastReadAt     DateTime @map("last_read_at") @db.Timestamptz(3)
+
+  conversation CommConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         PlatformAdmin    @relation("CommConversationReader", fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@map("comm_conversation_reads")
+}
+
+/// Template categories (tabs). The migration ships the spec's six; deactivated, never deleted.
+model CommTemplateCategory {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String   @unique
+  systemKey String?  @unique @map("system_key")
+  position  Int
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  templates CommTemplate[]
+
+  @@map("comm_template_categories")
+}
+
+/// An email or SMS template. Archived, never deleted. Merge fields are tokens like
+/// {{firm.name}} from the API's central list.
+model CommTemplate {
+  id              String             @id @default(uuid(7)) @db.Uuid
+  categoryId      String             @map("category_id") @db.Uuid
+  name            String             @unique
+  channel         CommChannel
+  status          CommTemplateStatus @default(ACTIVE)
+  /// Email only, and required for email.
+  subject         String?
+  body            String
+  mergeFields     String[]           @default([]) @map("merge_fields")
+  createdByUserId String?            @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?            @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  category CommTemplateCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  messages CommMessage[]
+  media    CommMediaLink[]
+
+  @@index([categoryId, status])
+  @@map("comm_templates")
+}
+
+/// The image and attachment library (uploads go to S3 under platform/communications/<id>/).
+/// Scanned once by the platform; only CLEAN files are sent.
+model CommMedia {
+  id               String        @id @default(uuid(7)) @db.Uuid
+  kind             CommMediaKind
+  fileName         String        @map("file_name")
+  contentType      String        @map("content_type")
+  sizeBytes        Int           @map("size_bytes")
+  sha256           String
+  s3Key            String        @unique @map("s3_key")
+  scanStatus       ScanStatus    @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?     @map("scanned_at") @db.Timestamptz(3)
+  uploadedByUserId String?       @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  links CommMediaLink[]
+
+  @@index([kind, createdAt])
+  @@map("comm_media")
+}
+
+/// Where a library file is used: in a template, a message or a broadcast channel's content, as an
+/// inline image or an attachment. Exactly one owner.
+model CommMediaLink {
+  id                 String        @id @default(uuid(7)) @db.Uuid
+  mediaId            String        @map("media_id") @db.Uuid
+  usage              CommMediaKind
+  templateId         String?       @map("template_id") @db.Uuid
+  messageId          String?       @map("message_id") @db.Uuid
+  broadcastChannelId String?       @map("broadcast_channel_id") @db.Uuid
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  media            CommMedia             @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+  template         CommTemplate?         @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  message          CommMessage?          @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  broadcastChannel CommBroadcastChannel? @relation(fields: [broadcastChannelId], references: [id], onDelete: Cascade)
+
+  @@index([mediaId])
+  @@index([templateId])
+  @@index([messageId])
+  @@index([broadcastChannelId])
+  @@map("comm_media_links")
+}
+
+/// An audience. `definition` holds the API's filter rules (contact types, plans, firm statuses,
+/// lead stages, tags); the API resolves it at send time and caches the last count.
+model CommSegment {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  name            String    @unique
+  description     String?
+  definition      Json
+  lastCount       Int?      @map("last_count")
+  lastCountedAt   DateTime? @map("last_counted_at") @db.Timestamptz(3)
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  broadcasts CommBroadcast[]
+
+  @@map("comm_segments")
+}
+
+/// A broadcast to a segment over one or more channels (content per channel). Editable while
+/// DRAFT or SCHEDULED; sent broadcasts are never edited or deleted (archive instead).
+model CommBroadcast {
+  id                String              @id @default(uuid(7)) @db.Uuid
+  name              String
+  status            CommBroadcastStatus @default(DRAFT)
+  segmentId         String?             @map("segment_id") @db.Uuid
+  scheduledAt       DateTime?           @map("scheduled_at") @db.Timestamptz(3)
+  scheduledTimeZone String?             @map("scheduled_time_zone")
+  /// Resolved at send; a send needs at least one.
+  recipientCount    Int?                @map("recipient_count")
+  idempotencyKey    String?             @unique @map("idempotency_key")
+  duplicatedFromId  String?             @map("duplicated_from_id") @db.Uuid
+  sendStartedAt     DateTime?           @map("send_started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?           @map("finished_at") @db.Timestamptz(3)
+  errorMessage      String?             @map("error_message")
+  archivedAt        DateTime?           @map("archived_at") @db.Timestamptz(3)
+  createdByUserId   String?             @map("created_by_user_id") @db.Uuid
+  updatedByUserId   String?             @map("updated_by_user_id") @db.Uuid
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  segment        CommSegment?             @relation(fields: [segmentId], references: [id], onDelete: Restrict)
+  duplicatedFrom CommBroadcast?           @relation("CommBroadcastDuplicate", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
+  duplicates     CommBroadcast[]          @relation("CommBroadcastDuplicate")
+  channels       CommBroadcastChannel[]
+  recipients     CommBroadcastRecipient[]
+  messages       CommMessage[]
+
+  @@index([status, scheduledAt])
+  @@index([createdAt])
+  @@map("comm_broadcasts")
+}
+
+/// A broadcast's content and result for one channel (a multi-channel send keeps each channel's
+/// result; one failed channel never marks the whole broadcast sent).
+model CommBroadcastChannel {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  broadcastId String              @map("broadcast_id") @db.Uuid
+  channel     CommChannel
+  /// Email only, and required for email.
+  subject     String?
+  body        String
+  status      CommBroadcastStatus @default(DRAFT)
+  sentCount   Int                 @default(0) @map("sent_count")
+  failedCount Int                 @default(0) @map("failed_count")
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  broadcast CommBroadcast   @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  media     CommMediaLink[]
+
+  @@unique([broadcastId, channel])
+  @@map("comm_broadcast_channels")
+}
+
+/// A broadcast's recipient on one channel, with its own result.
+model CommBroadcastRecipient {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  broadcastId       String             @map("broadcast_id") @db.Uuid
+  channel           CommChannel
+  contactType       CommContactType    @map("contact_type")
+  linkedBusinessId  String?            @map("linked_business_id") @db.Uuid
+  contactUserId     String?            @map("contact_user_id") @db.Uuid
+  salesContactId    String?            @map("sales_contact_id") @db.Uuid
+  name              String
+  address           String
+  status            CommDeliveryStatus @default(PENDING)
+  providerMessageId String?            @map("provider_message_id")
+  errorCode         String?            @map("error_code")
+  /// The copy written to the recipient's conversation history, when one is kept.
+  messageId         String?            @map("message_id") @db.Uuid
+  sentAt            DateTime?          @map("sent_at") @db.Timestamptz(3)
+  deliveredAt       DateTime?          @map("delivered_at") @db.Timestamptz(3)
+  failedAt          DateTime?          @map("failed_at") @db.Timestamptz(3)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  broadcast      CommBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  linkedBusiness Business?     @relation("CommBroadcastRecipientBusiness", fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+
+  @@unique([broadcastId, channel, address])
+  @@index([broadcastId, status])
+  @@index([providerMessageId])
+  @@map("comm_broadcast_recipients")
 }

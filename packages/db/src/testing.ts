@@ -58,6 +58,8 @@ const MIGRATION_REFERENCE_TABLES = [
   'sales_pipelines',
   'sales_pipeline_stages',
   'sales_attention_settings',
+  // r0_platform_communications (stage B6)
+  'comm_template_categories',
 ];
 
 /**
