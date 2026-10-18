@@ -8,9 +8,9 @@ import {
   DownloadSimple,
   Eye,
   FileText,
-  Receipt,
   PaperPlaneTilt,
   PencilSimple,
+  Receipt,
   Trash,
   XCircle,
 } from '@phosphor-icons/react';
