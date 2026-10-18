@@ -518,6 +518,8 @@ export interface SalesOpportunity {
   nextStep: string | null;
   trialStartedAt: string | null;
   trialEndsAt: string | null;
+  /** A 14-day trial is running now. */
+  trialActive: boolean;
   convertedAt: string | null;
   closedAt: string | null;
   lostAt: string | null;
@@ -856,6 +858,10 @@ function view(opp: StoredOpportunity, now: number): SalesOpportunity {
     monthlyCents: opp.plan ? monthlyCents(opp.plan, opp.extraUsers, opp.extraLocations) : null,
     owner: copy(s.reps.find((rep) => rep.id === opp.ownerId) ?? null),
     tags: s.tags.filter((tag) => opp.tagIds.includes(tag.id)).map(copy),
+    trialActive:
+      opp.trialStartedAt !== null &&
+      Date.parse(opp.trialStartedAt) <= now &&
+      (time(opp.trialEndsAt) ?? 0) > now,
     attention: attentionOf(opp, stage.type, now),
     nextAppointment: upcoming ? appointmentView(upcoming) : null,
   };
