@@ -158,12 +158,17 @@ export function byName(kind: string, ids: Map<string, string>) {
   };
 }
 
-/** A published v1 intake form per service (the real Annual Tax form; a small stand-in for the rest). */
+/**
+ * A published v1 intake form per service: the real Annual Tax form and a small stand-in for the
+ * rest, or with `realForms` the real form of every kind (the demo firm, so Begin Online shows the
+ * forms clients will fill in; LVP and Test Firm B keep the stand-ins their tests and leads use).
+ */
 export async function seedIntakeForms(
   tx: TxClient,
   businessId: string,
   service: (name: string) => string,
   serviceNames: readonly string[],
+  { realForms = false }: { realForms?: boolean } = {},
 ) {
   const ids = new Map<string, string>();
   for (const name of serviceNames) {
@@ -179,12 +184,12 @@ export async function seedIntakeForms(
           serviceId,
           version: 1,
           title: `${name} intake`,
-          // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in, so
-          // the seeded lead's answers and upload slot fit their form (real forms: r0_followups).
+          // Annual Tax is the real form (R11's contract); without realForms the other kinds keep a
+          // small stand-in, so LVP's seeded lead answers and upload slot fit their form.
           definition:
-            kind === 'ANNUAL_TAX' && INTAKE_FORMS.ANNUAL_TAX
-              ? INTAKE_FORMS.ANNUAL_TAX
-              : seedFormDefinition(kind, `${name} intake`),
+            ((realForms || kind === 'ANNUAL_TAX') && kind !== 'OTHER'
+              ? INTAKE_FORMS[kind]
+              : undefined) ?? seedFormDefinition(kind, `${name} intake`),
           // Deprecated: the agreement comes from the firm's intake agreements (seedFirmAgreement).
           agreementText: null,
           status: 'PUBLISHED',

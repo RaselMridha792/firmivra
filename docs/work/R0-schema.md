@@ -207,6 +207,8 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 - Oct 18, stage C2 (Compliance follow-ups, #719), branch `rasel/R0-stage-c2-compliance` from main: migration `r0_compliance_facts`: `client_compliance_facts` (fiscal year end, tax classification, elections, payroll employer and deposit schedule, sales tax registration, prior-year liability; unset means unknown so rules still return NEEDS_REVIEW), `client_sales_tax_registrations` (one open per state), `compliance_holidays` (platform reference data every scope reads; ships the 2026 and 2027 US federal holidays as observed plus DC Emancipation Day, matching the API's `federalHolidays()`), and `compliance_settings.task_due_date_sync` / `task_due_lead_days`. Contract note `docs/work/R0-stage-c2-compliance.md`. Tests: `test/compliance-facts.test.ts` (5). Stages B and C are all up as PRs.
 
+- Oct 18, portal click-through, local only (Rasel's order), branch `rasel/R0-portal-clickthrough` from main: signed in as Harper with the local dev token and opened every portal page and every Begin Online form. Demo seed fixes: real Begin forms for the demo firm, client tax-year statuses, published content, the demo e-sign consent text (results and what's left: the Oct 18 handoff, item 1).
+
 ## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
 
 **Where things stand.**
@@ -235,6 +237,17 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
    - Fix API or seed gaps yourself; change screens only if the fix is tiny. Tumit owns the Begin Online form design.
    - **Rasel's decision (Oct 18):** do it locally first. Start the web app and API locally on a fresh database with migrate, `seed.ts` and `seed-demo.ts`. Sign in as Harper through `AUTH_MODE=local` (`POST /api/v1/dev/token`). Then list the portal pages and the `/demo/begin` steps that error or show empty data, and fix the gaps.
    - Nothing on dev until Rasel says so: the Oct 18 window ran under "do not run anything on dev or AWS".
+   - **Done locally (Oct 18 evening), branch `rasel/R0-portal-clickthrough`.** Every portal page, the six intake form pages, invoice detail, signing up to consent, and every `/demo/begin` page with a draft started on each form. Fixed in the seed:
+     - Five Begin forms (all but Annual Tax) served the stand-in form ("About you: Full name", "Sample form For local development"). The demo firm now gets the real form of every kind (`seedIntakeForms(..., { realForms: true })`); LVP and Test Firm B keep the stand-ins their tests use. Lead answers use each real form's name keys plus `email`.
+     - "Where Your Taxes Stand" was empty: no `client_tax_statuses` for `demo`. Now one per client and tax year (37), from the return's stage.
+     - No `content_items` for `demo`: now the four resource pages, three external links and a tip (`seed-demo-portal.ts`).
+     - The e-sign consent read "Sample consent for local development"; the demo firm has its own synthetic text now.
+     - Published forms can't change, so on a database where the demo seed already ran, the new forms need `unseed-demo` then `seed-demo` (R1, with Rasel's yes).
+   - **Left as they are:**
+     - By design: Harper is an individual, so Business Documents & Resources and the five resource pages show the "for business clients" notice (403 `BUSINESS_ONLY`). Showing them needs a portal login for a business client; that's Rasel's call (Cognito login on dev is R1's).
+     - By design: a past-due invoice shows "Due Soon" (`DUE_SOON_DAYS`: the spec has no Overdue label).
+     - Screen work, not tiny: the portal's `/intake/[form]` page is still the frame with a fixed "This form isn't open for you yet" note, although `GET /portal/{slug}/me/intakes` returns Harper's two intakes. Also small: Services' "Upload Documents" button text is clipped, and Profile's city field cuts "Atlanta" short.
+     - Empty but fine: Harper has no private note yet, and no date of birth on file (the seed doesn't encrypt one).
 2. **Remaining Super Admin schema stages:** D1 to D3, found on Oct 18.
    - **D1 Sales Center:**
      - sales targets and goals per rep, team or company and period (metric, target, period), for targets and attainment

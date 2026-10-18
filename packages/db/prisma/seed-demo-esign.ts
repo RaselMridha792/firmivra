@@ -6,7 +6,6 @@
 // moved the way the app moves it (the database checks every step). Records only: no PDF in S3.
 import { createHash } from 'node:crypto';
 import { runInScope, type createPrismaClient, type TxClient } from '../src/client.js';
-import { SAMPLE_ESIGN_CONSENT } from './seed-data.js';
 import { demoId, SEED_DEMO_CLIENTS, SEED_DEMO_USERS, type DemoStaffKey } from './seed-demo-data.js';
 import { demoDay, demoEngagementId, type DemoEngagementSlot } from './seed-demo-engagements.js';
 import type { DemoOrgResult } from './seed-demo-org.js';
@@ -14,6 +13,10 @@ import type { DemoOrgResult } from './seed-demo-org.js';
 type Prisma = ReturnType<typeof createPrismaClient>;
 
 const hex = (label: string) => createHash('sha256').update(label).digest('hex');
+
+/** The demo firm's e-signature consent, v1 (synthetic; the portal shows it before signing). */
+const DEMO_ESIGN_CONSENT =
+  'You agree to receive and sign documents from Demo Accounting Group electronically. Your electronic signature has the same effect as a handwritten one. You can ask us for a paper copy of any document at no charge, and you can withdraw this consent at any time by contacting us.';
 
 type Outcome = 'DRAFT' | 'SENT' | 'VIEWED' | 'COMPLETED' | 'DECLINED' | 'EXPIRED' | 'VOIDED';
 
@@ -206,8 +209,8 @@ export async function seedDemoEsign(prisma: Prisma, org: DemoOrgResult): Promise
       create: {
         businessId,
         version: 1,
-        bodyMarkdown: SAMPLE_ESIGN_CONSENT,
-        sha256: hex(SAMPLE_ESIGN_CONSENT),
+        bodyMarkdown: DEMO_ESIGN_CONSENT,
+        sha256: hex(DEMO_ESIGN_CONSENT),
         publishedByUserId: user('owner').id,
       },
     });

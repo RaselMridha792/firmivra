@@ -154,6 +154,8 @@ describe('demo seed and unseed', () => {
         'notifications',
         'platform_firm_subscriptions',
         'firm_application_status_history',
+        'client_tax_statuses',
+        'content_items',
       ]) {
         expect(first[table], table).toBeGreaterThan(0);
       }
