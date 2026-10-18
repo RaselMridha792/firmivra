@@ -138,7 +138,7 @@ export function BeginOnlineScreen({ firmSlug, taxYear }: { firmSlug: string; tax
               Begin <span className="text-accent">Online</span>
             </h1>
             <p className="mb-2 max-w-md font-display text-xl leading-tight font-bold">
-              Complete your intake form and securely submit your documents â€” all online.
+              Complete your intake form and securely submit your documents — all online.
             </p>
             <p className="max-w-lg text-sm leading-snug">
               Our secure online platform makes it easy to provide your information and upload the
