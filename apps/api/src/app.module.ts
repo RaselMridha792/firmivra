@@ -35,11 +35,14 @@ import { MessagesModule } from './messages/messages.module.js';
 import { SettingsModule } from './settings/settings.controller.js';
 import { AgreementsModule } from './agreements/agreements.controller.js';
 import { AppointmentsModule } from './appointments/appointments.module.js';
+import { CatalogModule } from './catalog/catalog.module.js';
+import { PayrollModule } from './payroll/payroll.module.js';
 import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
 import { CalculatorsModule } from './calculators/calculators.controller.js';
 import { ContentModule } from './content/content.controller.js';
 import { SupportAccessModule } from './support-access/support-access.controller.js';
 import { TeamModule } from './team/team.controller.js';
+import { TasksModule } from './tasks/tasks.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
 import { ScanQueueModule } from './storage/scan-queue/scan-queue.module.js';
@@ -112,9 +115,12 @@ export class AppModule {
         CalculatorsModule,
         ContentModule,
         AppointmentsModule,
+        CatalogModule,
+        PayrollModule,
         AuditViewerModule,
         SupportAccessModule,
         WorkspacesModule,
+        TasksModule,
         DashboardModule,
         DocumentsModule,
         ScanRouterModule,
