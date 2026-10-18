@@ -70,7 +70,11 @@ const attachment =
 const field = (): RecordDef => ({
   async create({ tx, businessId }) {
     const row = await tx.customMergeField.create({
-      data: { businessId, key: `Fake Field ${tag().replace(/[0-9]/g, 'x')}`, label: 'Fake field' },
+      data: {
+        businessId,
+        key: `Fake Field ${tag().replace(/[0-9]/g, (d) => 'ghijklmnop'[Number(d)] ?? 'g')}`,
+        label: 'Fake field',
+      },
     });
     return row.id;
   },

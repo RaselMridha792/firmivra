@@ -232,6 +232,23 @@ If LVP is missing, it creates LVP with only the `businesses` row (ACTIVE) and em
    `aws ecs run-task --cluster firmivra-dev-cluster --task-definition firmivra-dev-migrate --capacity-provider-strategy capacityProvider=FARGATE,weight=1 --network-configuration "awsvpcConfiguration={subnets=[<subnets>],securityGroups=[<sg>],assignPublicIp=ENABLED}" --overrides file://<that file> --profile firmivra-dev`
 4. **Read the result** in the log group `/firmivra/dev/migrate`.
 
+**Client mode (Oct 18, Rasel: the `demo` firm's seeded clients only).** It gives one seeded demo portal client a real clients-pool login, for example Harper Coleman's account. Set `LINK_CLIENT_ACCOUNT` instead of `LINK_USERS`, and pass the clients pool id as `COGNITO_CLIENTS_USER_POOL_ID`. The task definition names only the staff and admins pools, while the task role can already `ListUsers` in all three.
+```json
+{"containerOverrides":[{"name":"migrate","command":["node","scripts/link-dev-users.mjs"],"environment":[
+  {"name":"LINK_CLIENT_ACCOUNT","value":"{\"sub\":\"<clients-pool sub>\",\"firmSlug\":\"demo\",\"accountEmail\":\"harper.coleman@demo.test\"}"},
+  {"name":"COGNITO_CLIENTS_USER_POOL_ID","value":"<clients pool id>"}]}]}
+```
+- **Checks before writing:**
+  - the sub is in the clients pool
+  - `firmSlug` is `demo`
+  - the account email is a seeded `@demo.test` address
+  - exactly one client account in the firm has that email
+  - its user is a client login
+  - no other user already has the sub
+- **What it changes:** that account's own user gets the new `cognito_sub` and nothing else changes. The account keeps every row it owns, and a re-seed keeps the link, because the demo seed never rewrites `cognito_sub`.
+- **Records and logs:** it writes `dev.client_login_linked` to the firm's audit log. The task log shows ids only.
+- **Running it again** changes nothing.
+
 ## Firm KMS keys, EIN-hash key, Cognito email (R1 step 14, Oct 8)
 
 Nothing here is in AWS before Rasel's yes. Merging the PR deploys `firmivra-dev-app` at once (Deploy dev); the bootstrap policies and `firmivra-dev-auth` are manual.

@@ -60,6 +60,6 @@ import { TemplatesService } from './templates.service.js';
       useFactory: (env: Env) => new TemplateUploadTokens(poolSecrets(env)),
     },
   ],
-  exports: [TemplateRenderService, TemplateReadService],
+  exports: [TemplateRenderService, TemplateReadService, TemplatesService],
 })
 export class TemplatesModule {}
