@@ -5,7 +5,12 @@ import {
   type AudienceSummary,
   CommunicationId,
   type CommunicationDetail,
+  type CommunicationActivityPage,
+  type CommunicationExport,
   type CommunicationPage,
+  type CommunicationRecipientPage,
+  type CommunicationResults,
+  type RenderedTemplate,
   type CommunicationReview,
   type CommunicationSenderList,
   type CommunicationsOverview,
@@ -23,7 +28,13 @@ import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/d
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import {
+  ActivityQ,
   AudienceCandidatesQ,
+  ExportBody,
+  FollowUpBody,
+  PreviewBody,
+  RecipientsQ,
+  UseTemplateBody,
   CancelBody,
   CommunicationsQ,
   ConsentQ,
@@ -43,6 +54,7 @@ import {
   UpdateSegmentBody,
 } from './communications-input.js';
 import { CommunicationSegmentsService } from './communications-segments.service.js';
+import { CommunicationResultsService } from './communications-results.service.js';
 import { CommunicationsService } from './communications.service.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
@@ -67,6 +79,7 @@ export class CommunicationsController {
   constructor(
     private readonly segments: CommunicationSegmentsService,
     private readonly campaigns: CommunicationsService,
+    private readonly results: CommunicationResultsService,
   ) {}
 
   // ----- Overview, lists, readiness -----
@@ -426,5 +439,105 @@ export class CommunicationsController {
   ): Promise<CommunicationDetail> {
     const w = who(auth, tenant);
     return this.campaigns.duplicate(w.tenant, w.userId, id);
+  }
+
+  @Post(':id/use-template')
+  @HttpCode(200)
+  useTemplate(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(UseTemplateBody)) body: Out<typeof UseTemplateBody>,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.campaigns.useTemplate(w.tenant, w.userId, id, body);
+  }
+
+  @Post(':id/preview')
+  @HttpCode(200)
+  preview(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(PreviewBody)) body: Out<typeof PreviewBody>,
+  ): Promise<RenderedTemplate> {
+    const w = who(auth, tenant);
+    return this.campaigns.preview(w.tenant, w.userId, id, body);
+  }
+
+  @Get(':id/results')
+  resultsOf(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<CommunicationResults> {
+    const w = who(auth, tenant);
+    return this.results.results(w.tenant, w.userId, id);
+  }
+
+  @Get(':id/recipients')
+  recipients(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Query(new ZodValidationPipe(RecipientsQ)) q: Out<typeof RecipientsQ>,
+  ): Promise<CommunicationRecipientPage> {
+    const w = who(auth, tenant);
+    return this.results.recipients(w.tenant, w.userId, id, q);
+  }
+
+  @Get(':id/activity')
+  activity(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Query(new ZodValidationPipe(ActivityQ)) q: Out<typeof ActivityQ>,
+  ): Promise<CommunicationActivityPage> {
+    const w = who(auth, tenant);
+    return this.results.activity(w.tenant, w.userId, id, q);
+  }
+
+  @Post(':id/export')
+  @HttpCode(200)
+  exportResults(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(ExportBody)) body: Out<typeof ExportBody>,
+  ): Promise<CommunicationExport> {
+    const w = who(auth, tenant);
+    return this.results.export(w.tenant, w.userId, id, body);
+  }
+
+  @Post(':id/resend-failed')
+  resendFailed(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.results.resendFailed(w.tenant, w.userId, id);
+  }
+
+  @Post(':id/follow-up')
+  followUp(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(FollowUpBody)) body: Out<typeof FollowUpBody>,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.results.followUp(w.tenant, w.userId, id, body);
+  }
+
+  @Post(':id/expire')
+  @HttpCode(200)
+  expire(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<CommunicationDetail> {
+    const w = who(auth, tenant);
+    return this.results.expire(w.tenant, w.userId, id);
   }
 }

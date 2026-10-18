@@ -15,16 +15,17 @@ import type {
   SelectAllAudienceResult,
   AudienceCandidatePage,
   SendCheck,
+  RenderedTemplate,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
-import type { TenantContext } from '../common/request-context.js';
+import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { sanitize, stripTags } from '../templates/html.js';
 import { BUILT_IN_FIELDS, builtIn, fieldsIn, fill, smsLength } from '../templates/merge-fields.js';
 import { memberNames, memberRef } from '../workspaces/common.js';
-import { comErrors, iso, mask } from './communications.common.js';
+import { comErrors, iso, mask, permsOf } from './communications.common.js';
 import {
   addressOf,
   CommunicationAudienceService,
@@ -43,6 +44,7 @@ import type {
   SetAudienceBody,
   UpdateCommunicationBody,
 } from './communications-input.js';
+import { CommunicationProviders } from './communications-provider.js';
 import { type SegCtx, CommunicationSegmentsService } from './communications-segments.service.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
@@ -86,6 +88,7 @@ export class CommunicationsService {
     private readonly segments: CommunicationSegmentsService,
     private readonly audience: CommunicationAudienceService,
     private readonly audit: AuditService,
+    private readonly providers: CommunicationProviders,
   ) {}
 
   private run<T>(
@@ -96,18 +99,18 @@ export class CommunicationsService {
     return this.segments.withCtx(tenant, userId, fn);
   }
 
-  private requireWrite(ctx: SegCtx) {
+  requireWrite(ctx: SegCtx) {
     if (!ctx.perms.write) throw comErrors.forbidden();
   }
 
   /** Staff see the campaigns they made and the announcements; the others see all. */
-  private visible(ctx: SegCtx): Prisma.CommunicationWhereInput {
+  visible(ctx: SegCtx): Prisma.CommunicationWhereInput {
     return ctx.reachOnly
       ? { OR: [{ createdByUserId: ctx.userId }, { channel: 'ANNOUNCEMENT' }] }
       : {};
   }
 
-  private async load(ctx: SegCtx, id: string): Promise<Row> {
+  async load(ctx: SegCtx, id: string): Promise<Row> {
     const c = await ctx.tx.communication.findFirst({
       where: { AND: [{ businessId: ctx.businessId, id }, this.visible(ctx)] },
     });
@@ -115,7 +118,7 @@ export class CommunicationsService {
     return c;
   }
 
-  private async lock(ctx: SegCtx, id: string, etag?: string): Promise<Row> {
+  async lock(ctx: SegCtx, id: string, etag?: string): Promise<Row> {
     await ctx.tx
       .$queryRaw`SELECT 1 FROM communications WHERE business_id = ${ctx.businessId}::uuid AND id = ${id}::uuid FOR UPDATE`;
     const c = await this.load(ctx, id);
@@ -137,6 +140,11 @@ export class CommunicationsService {
     });
   }
 
+  /** A connection a message can go out through: healthy, with an adapter for its provider. */
+  private usable(c: Prisma.IntegrationConnectionGetPayload<object>): boolean {
+    return (HEALTHY as string[]).includes(c.status) && this.providers.has(c.provider);
+  }
+
   private senderOf(
     c: Prisma.IntegrationConnectionGetPayload<object>,
     channel: CommunicationChannel,
@@ -147,14 +155,14 @@ export class CommunicationsService {
       id: c.id,
       channel,
       label: c.accountLabel ?? PROVIDER_NAMES[c.provider] ?? c.provider,
-      verified: healthy,
+      verified: healthy && this.providers.has(c.provider),
       isDefault,
       provider: PROVIDER_NAMES[c.provider] ?? c.provider,
       providerHealthy: healthy,
     };
   }
 
-  private async readiness(ctx: SegCtx, channel: CommunicationChannel): Promise<ChannelReadiness> {
+  async readiness(ctx: SegCtx, channel: CommunicationChannel): Promise<ChannelReadiness> {
     if (!ctx.perms.write)
       return {
         channel,
@@ -166,13 +174,25 @@ export class CommunicationsService {
     if (channel === 'ANNOUNCEMENT')
       return { channel, ready: true, reason: null, route: null, senderCount: 0 };
     const all = await this.connections(ctx, channel);
-    const healthy = all.filter((c) => (HEALTHY as string[]).includes(c.status));
+    const healthy = all.filter(
+      (c) => (HEALTHY as string[]).includes(c.status) && this.providers.has(c.provider),
+    );
     const what = channel === 'EMAIL' ? 'an email provider' : 'an SMS provider';
     if (!all.length)
       return {
         channel,
         ready: false,
         reason: `Connect ${what} to ${channel === 'EMAIL' ? 'send emails' : 'send text messages'}`,
+        route: 'INTEGRATIONS',
+        senderCount: 0,
+      };
+    if (!healthy.length && all.some((c) => (HEALTHY as string[]).includes(c.status)))
+      return {
+        channel,
+        ready: false,
+        reason: `Sending through ${
+          PROVIDER_NAMES[all[0]?.provider ?? ''] ?? 'this provider'
+        } is not available yet`,
         route: 'INTEGRATIONS',
         senderCount: 0,
       };
@@ -220,7 +240,7 @@ export class CommunicationsService {
     return out;
   }
 
-  private async rows(ctx: SegCtx, list: Row[]): Promise<CommunicationRow[]> {
+  async rows(ctx: SegCtx, list: Row[]): Promise<CommunicationRow[]> {
     const [names, stats] = await Promise.all([
       memberNames(
         ctx.tx,
@@ -314,7 +334,7 @@ export class CommunicationsService {
     };
   }
 
-  private async detail(ctx: SegCtx, c: Row): Promise<CommunicationDetail> {
+  async detail(ctx: SegCtx, c: Row): Promise<CommunicationDetail> {
     const [row] = await this.rows(ctx, [c]);
     const [conn, template, custom] = await Promise.all([
       c.connectionId
@@ -567,42 +587,16 @@ export class CommunicationsService {
   ): Promise<CommunicationDetail> {
     return this.run(tenant, userId, async (ctx) => {
       this.requireWrite(ctx);
-      let snapshot: {
-        templateId?: string;
-        templateVersion?: number;
-        subject?: string | null;
-        previewText?: string | null;
-        body?: string;
-      } = {};
-      if (body.templateId) {
-        const t = await ctx.tx.messageTemplate.findFirst({
-          where: { businessId: ctx.businessId, id: body.templateId },
-        });
-        const kindOk = t?.kind === body.channel;
-        const mine =
-          t && (t.access !== 'PRIVATE' || t.ownerUserId === ctx.userId || ctx.perms.admin);
-        if (!t)
-          throw new NotFoundException({
-            code: 'NOT_FOUND',
-            message: 'This template was not found',
-          });
-        if (!kindOk || t.status !== 'ACTIVE' || t.archivedAt !== null || !mine)
-          throw refuse('TEMPLATE_NOT_ALLOWED', 'This template cannot be used for this channel');
-        snapshot = {
-          templateId: t.id,
-          templateVersion: t.version,
-          subject: body.channel === 'SMS' ? null : t.subject,
-          previewText: body.channel === 'EMAIL' ? t.previewText : null,
-          body: this.cleanBody(body.channel, t.body),
-        };
-      }
+      const snapshot = body.templateId
+        ? await this.snapshotOf(ctx, body.channel, body.templateId)
+        : {};
       const ready = await this.readiness(ctx, body.channel);
       if (!ready.ready)
         throw refuse('CHANNEL_UNAVAILABLE', ready.reason ?? 'This channel is not ready', {
           route: ready.route,
         });
       const [first] = await this.connections(ctx, body.channel);
-      const healthy = first && (HEALTHY as string[]).includes(first.status) ? first : null;
+      const healthy = first && this.usable(first) ? first : null;
       const made = await ctx.tx.communication.create({
         data: {
           businessId: ctx.businessId,
@@ -636,7 +630,7 @@ export class CommunicationsService {
     });
   }
 
-  private cleanBody(channel: CommunicationChannel, text: string): string {
+  cleanBody(channel: CommunicationChannel, text: string): string {
     return channel === 'SMS' ? stripTags(text) : sanitize(text).html;
   }
 
@@ -696,7 +690,7 @@ export class CommunicationsService {
         }
         if (channel !== 'SMS' && c.channel === 'SMS') data.subject = null;
         const [first] = await this.connections(ctx, channel);
-        if (first && (HEALTHY as string[]).includes(first.status)) {
+        if (first && this.usable(first)) {
           data.connectionId = first.id;
           data.fromName = first.accountLabel ?? null;
         }
@@ -732,7 +726,12 @@ export class CommunicationsService {
             where: {
               businessId: ctx.businessId,
               id: body.senderId,
-              provider: { in: channel === 'ANNOUNCEMENT' ? [] : CHANNEL_PROVIDERS[channel] },
+              provider: {
+                in:
+                  channel === 'ANNOUNCEMENT'
+                    ? []
+                    : CHANNEL_PROVIDERS[channel].filter((x) => this.providers.has(x)),
+              },
               status: { in: HEALTHY },
             },
           });
@@ -773,7 +772,136 @@ export class CommunicationsService {
     });
   }
 
-  private assertEditable(c: Row) {
+  /** The content a template gives a draft: a snapshot, never a link (the master is not changed by it). */
+  async snapshotOf(
+    ctx: SegCtx,
+    channel: CommunicationChannel,
+    templateId: string,
+  ): Promise<{
+    templateId: string;
+    templateVersion: number;
+    subject: string | null;
+    previewText: string | null;
+    body: string;
+  }> {
+    const t = await ctx.tx.messageTemplate.findFirst({
+      where: { businessId: ctx.businessId, id: templateId },
+    });
+    if (!t)
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'This template was not found' });
+    const mine = t.access !== 'PRIVATE' || t.ownerUserId === ctx.userId || ctx.perms.admin;
+    if (t.kind !== channel || t.status !== 'ACTIVE' || t.archivedAt !== null || !mine)
+      throw refuse('TEMPLATE_NOT_ALLOWED', 'This template cannot be used for this channel');
+    return {
+      templateId: t.id,
+      templateVersion: t.version,
+      subject: channel === 'SMS' ? null : t.subject,
+      previewText: channel === 'EMAIL' ? t.previewText : null,
+      body: this.cleanBody(channel, t.body),
+    };
+  }
+
+  useTemplate(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: { templateId: string; etag: string },
+  ): Promise<CommunicationDetail> {
+    return this.run(tenant, userId, async (ctx) => {
+      this.requireWrite(ctx);
+      const c = await this.lock(ctx, id, body.etag);
+      this.assertEditable(c);
+      const snap = await this.snapshotOf(ctx, c.channel, body.templateId);
+      const saved = await ctx.tx.communication.update({
+        where: { id: c.id },
+        data: { ...snap, updatedByUserId: ctx.userId },
+      });
+      await this.audit.logIn(
+        ctx.tx,
+        'communication.template_used',
+        { type: 'communication', id: c.id },
+        {
+          communicationId: c.id,
+          templateId: snap.templateId,
+          templateVersion: snap.templateVersion,
+        },
+      );
+      return this.detail(ctx, saved);
+    });
+  }
+
+  /** The message as one person (or made-up data) would get it. Nothing is sent or recorded. */
+  preview(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: { clientId?: string; leadId?: string },
+  ): Promise<RenderedTemplate> {
+    return this.run(tenant, userId, async (ctx) => {
+      const c = await this.load(ctx, id);
+      let person: Person | null = null;
+      // Both are looked up when both are named, so a stranger's id is never ignored.
+      if (body.leadId && body.clientId) {
+        const l = await ctx.tx.lead.findFirst({
+          where: { AND: [this.segments.leadReach(ctx), { id: body.leadId }] },
+          select: { id: true },
+        });
+        if (!l) throw notFound();
+      }
+      if (body.clientId) {
+        const r = await ctx.tx.client.findFirst({
+          where: { AND: [this.segments.clientReach(ctx), { id: body.clientId }] },
+          select: { id: true, displayName: true, email: true, phone: true },
+        });
+        if (!r) throw notFound();
+        person = { kind: 'CLIENT', id: r.id, name: r.displayName, email: r.email, phone: r.phone };
+      } else if (body.leadId) {
+        const r = await ctx.tx.lead.findFirst({
+          where: { AND: [this.segments.leadReach(ctx), { id: body.leadId }] },
+          select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+        });
+        if (!r) throw notFound();
+        person = {
+          kind: 'LEAD',
+          id: r.id,
+          name: `${r.firstName} ${r.lastName}`,
+          email: r.email,
+          phone: r.phone,
+        };
+      }
+      const [business, custom] = await Promise.all([
+        ctx.tx.business.findUnique({ where: { id: ctx.businessId }, select: { name: true } }),
+        ctx.tx.customMergeField.findMany({
+          where: { businessId: ctx.businessId },
+          select: { key: true, label: true, fallback: true },
+        }),
+      ]);
+      const own = this.valuesFor(person, business?.name ?? '', custom);
+      const examples = new Map(BUILT_IN_FIELDS.map((f) => [f.key.toLowerCase(), f.example]));
+      // A real person's own fields win; what we cannot know yet stays as its [token].
+      const values = person ? own : new Map([...examples, ...own]);
+      const mode = c.channel === 'SMS' ? 'text' : 'html';
+      const text = fill(c.body, values, mode);
+      const subject = c.subject ? fill(c.subject, values, 'text') : null;
+      const preview = c.previewText ? fill(c.previewText, values, 'text') : null;
+      return {
+        subject: subject?.text ?? null,
+        previewText: preview?.text ?? null,
+        body: text.text,
+        unresolved: [
+          ...new Set([
+            ...text.unresolved,
+            ...(subject?.unresolved ?? []),
+            ...(preview?.unresolved ?? []),
+          ]),
+        ],
+        sample: person === null,
+        sms: c.channel === 'SMS' ? smsLength(text.text) : null,
+      };
+    });
+  }
+
+  assertEditable(c: Row) {
     if (c.status === 'DRAFT') return;
     if (c.status === 'SCHEDULED') {
       if (!this.editable(c))
@@ -856,7 +984,7 @@ export class CommunicationsService {
     });
   }
 
-  private async copyAudience(ctx: SegCtx, fromId: string, toId: string) {
+  async copyAudience(ctx: SegCtx, fromId: string, toId: string) {
     const entries = await ctx.tx.communicationAudienceEntry.findMany({
       where: { businessId: ctx.businessId, communicationId: fromId },
     });
@@ -1005,7 +1133,7 @@ export class CommunicationsService {
   // ---------- Review ----------
 
   /** The values a person gives to the merge fields. */
-  private valuesFor(
+  valuesFor(
     p: Person | null,
     firmName: string,
     custom: { key: string; label: string; fallback: string | null }[],
@@ -1044,6 +1172,8 @@ export class CommunicationsService {
       if (!conn) block('SENDER_NOT_VERIFIED', 'Choose a verified sender');
       else if (!(HEALTHY as string[]).includes(conn.status))
         block('PROVIDER_UNHEALTHY', 'The provider needs attention. Reconnect it in Integrations');
+      else if (!this.providers.has(conn.provider))
+        block('SENDER_NOT_VERIFIED', 'Sending through this provider is not available yet');
     }
     if (audience.summary.finalCount === 0)
       block('NO_RECIPIENTS', 'No one is eligible to receive this');
@@ -1268,38 +1398,106 @@ export class CommunicationsService {
       if (c.status === 'SCHEDULED' && !this.editable(c))
         throw refuse('LOCKED', 'This campaign is about to go out on its own');
       const audience = await this.gate(ctx, c, body.expectedFinalCount);
-      const now = new Date();
-      const announce = c.channel === 'ANNOUNCEMENT';
-      let saved = await this.freeze(ctx, c, audience, {
-        status: 'SENDING',
-        startedAt: now,
-        scheduledFor: null,
-        idempotencyKey: body.idempotencyKey,
-        timezone: c.timezone ?? (await firmTimeZone(ctx.tx, ctx.businessId)),
-        body: c.body,
-        updatedByUserId: ctx.userId,
-        ...(announce && !c.publishStartsAt ? { publishStartsAt: now } : {}),
-      });
-      await this.record(ctx, c, audience);
-      // An announcement is published at once: there is no provider to wait for.
-      if (announce)
-        saved = await ctx.tx.communication.update({
-          where: { id: c.id },
-          data: { status: 'SENT', sentAt: now },
-        });
-      await this.audit.logIn(
-        ctx.tx,
-        'communication.sent',
-        { type: 'communication', id: c.id },
-        {
-          communicationId: c.id,
-          channel: c.channel,
-          finalCount: audience.summary.finalCount,
-          scheduled: c.status === 'SCHEDULED',
-        },
-      );
+      const saved = await this.launch(ctx, c, audience, body.idempotencyKey);
       return this.detail(ctx, saved);
     });
+  }
+
+  /** Freezes the campaign and starts it: recipients recorded, and for an announcement, published. */
+  private async launch(
+    ctx: SegCtx,
+    c: Row,
+    audience: Awaited<ReturnType<CommunicationAudienceService['compute']>>,
+    idempotencyKey: string | null,
+    actor: 'user' | 'job' = 'user',
+  ): Promise<Row> {
+    const now = new Date();
+    const announce = c.channel === 'ANNOUNCEMENT';
+    let saved = await this.freeze(ctx, c, audience, {
+      status: 'SENDING',
+      startedAt: now,
+      scheduledFor: null,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+      timezone: c.timezone ?? (await firmTimeZone(ctx.tx, ctx.businessId)),
+      body: c.body,
+      updatedByUserId: ctx.userId,
+      ...(announce && !c.publishStartsAt ? { publishStartsAt: now } : {}),
+    });
+    await this.record(ctx, c, audience);
+    // An announcement is published at once: there is no provider to wait for.
+    if (announce)
+      saved = await ctx.tx.communication.update({
+        where: { id: c.id },
+        data: { status: 'SENT', sentAt: now },
+      });
+    await this.audit.logIn(
+      ctx.tx,
+      'communication.sent',
+      { type: 'communication', id: c.id },
+      {
+        communicationId: c.id,
+        channel: c.channel,
+        finalCount: audience.summary.finalCount,
+        scheduled: c.status === 'SCHEDULED',
+        actor,
+      },
+      { businessId: ctx.businessId },
+    );
+    return saved;
+  }
+
+  /** The context a background step runs in: the person who made the campaign, with their reach. */
+  async jobCtx(tx: SegCtx['tx'], businessId: string, userId: string): Promise<SegCtx | null> {
+    const m = await tx.membership.findFirst({
+      where: { businessId, userId, status: 'ACTIVE' },
+      select: { role: true },
+    });
+    if (!m) return null;
+    const tenant: TenantContext = { kind: 'staff', businessId, role: m.role };
+    return {
+      tx,
+      businessId,
+      userId,
+      tenant,
+      reachOnly: legacyFirmRole(m.role) === 'STAFF',
+      perms: permsOf(tenant),
+    };
+  }
+
+  /**
+   * A scheduled campaign whose time has come: the audience and the checks are worked out again, and
+   * it goes out, or is cancelled with the reasons when it can no longer go (the reasons are
+   * recorded as codes). Returns what happened, or null when it is no longer due.
+   */
+  async startDue(
+    tx: SegCtx['tx'],
+    businessId: string,
+    id: string,
+    now = new Date(),
+  ): Promise<'started' | 'cancelled' | null> {
+    await tx.$queryRaw`SELECT 1 FROM communications WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+    const c = await tx.communication.findFirst({ where: { businessId, id } });
+    if (!c || c.status !== 'SCHEDULED' || !c.scheduledFor || c.scheduledFor > now) return null;
+    const ctx = await this.jobCtx(tx, businessId, c.createdByUserId);
+    const audience = ctx ? await this.audience.compute(ctx, c) : null;
+    const checks = ctx && audience ? (await this.checks(ctx, c, audience)).checks : [];
+    const blocking = checks.filter((k) => k.severity === 'BLOCK' && k.code !== 'SCHEDULE_IN_PAST');
+    if (!ctx || !audience || blocking.length) {
+      await tx.communication.update({
+        where: { id: c.id },
+        data: { status: 'CANCELLED', cancelledAt: now },
+      });
+      await this.audit.logIn(
+        tx,
+        'communication.schedule_failed',
+        { type: 'communication', id: c.id },
+        { communicationId: c.id, codes: blocking.map((k) => k.code), actor: 'job' },
+        { businessId },
+      );
+      return 'cancelled';
+    }
+    await this.launch(ctx, c, audience, null, 'job');
+    return 'started';
   }
 
   schedule(

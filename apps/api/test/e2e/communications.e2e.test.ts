@@ -11,6 +11,11 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
+  CommunicationActivityPage,
+  CommunicationExport,
+  CommunicationRecipientPage,
+  CommunicationResults,
+  RenderedTemplate,
   AudienceCandidatePage,
   AudienceSummary,
   CommunicationDetail,
@@ -29,6 +34,49 @@ import {
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import {
+  CommunicationDelivery,
+  type ProviderEvent,
+} from '../../src/communications/communications-delivery.service.js';
+import {
+  COMMUNICATION_PROVIDERS,
+  type CommunicationProvider,
+  DeliveryError,
+  type DeliveryMessage,
+} from '../../src/communications/communications-provider.js';
+import { REPORT_FILES, type ReportFiles } from '../../src/reports/report-files.js';
+
+/** A Gmail stand-in that records what it was given and can refuse an address. */
+class FakeGmail implements CommunicationProvider {
+  readonly provider = 'gmail';
+  readonly channel = 'EMAIL' as const;
+  readonly supports = { opens: true, clicks: false };
+  readonly sent: DeliveryMessage[] = [];
+  readonly fail = new Map<string, DeliveryError>();
+  send(m: DeliveryMessage) {
+    const f = this.fail.get(m.to);
+    if (f) return Promise.reject(f);
+    this.sent.push(m);
+    return Promise.resolve({ messageId: `g-${this.sent.length}-${randomUUID().slice(0, 6)}` });
+  }
+}
+const gmail = new FakeGmail();
+
+class MemoryFiles implements ReportFiles {
+  readonly objects = new Map<string, Buffer>();
+  put(key: string, bytes: Uint8Array) {
+    this.objects.set(key, Buffer.from(bytes));
+    return Promise.resolve();
+  }
+  presignDownload(input: { key: string; fileName: string }) {
+    return Promise.resolve(`memory:${input.key}?name=${encodeURIComponent(input.fileName)}`);
+  }
+  remove(key: string) {
+    this.objects.delete(key);
+    return Promise.resolve();
+  }
+}
+const files = new MemoryFiles();
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -182,7 +230,12 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(COMMUNICATION_PROVIDERS)
+    .useValue([gmail])
+    .overrideProvider(REPORT_FILES)
+    .useValue(files)
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -1030,5 +1083,397 @@ describe('campaigns', () => {
     ).toHaveLength(0);
     expectError(await call('get', `/${randomUUID()}`, ownerA), 404, 'NOT_FOUND');
     expectError(await call('get', '/not-a-uuid', ownerA), 400, 'VALIDATION_FAILED');
+  });
+});
+
+// ---------- Delivery, results and what follows ----------
+
+/** A sent campaign to Pat Two and Pat Four, ready for the job. */
+async function sentCampaign(over: { body?: string; who?: string[]; name?: string } = {}) {
+  const d = await draft({ name: over.name ?? mark('Out') });
+  await edit(d.id, {
+    subject: 'Hello [Client First Name]',
+    body: over.body ?? '<p>Hi [Client First Name]</p>',
+  });
+  ok(await audienceOf(d.id, { clientIds: over.who ?? [people2.p2, people2.p4] }));
+  const out = detailOf(
+    await call('post', `/${d.id}/send`, ownerA, {
+      idempotencyKey: key(),
+      etag: (await getDetail(d.id)).etag,
+    }),
+  );
+  return out;
+}
+const runJob = () => delivery().run({ businessIds: [firms.a] });
+const delivery = () => app.get(CommunicationDelivery, { strict: false });
+const recipientsOf = (id: string) =>
+  inFirm('a', (tx) =>
+    tx.communicationRecipient.findMany({
+      where: { communicationId: id },
+      orderBy: { createdAt: 'asc' },
+    }),
+  );
+const mailAddress = (k: string) => `${k}-${run}@camp.test`;
+
+describe('delivery and results', () => {
+  it('hands each message to the provider, personalised, and finishes the campaign', async () => {
+    const c = await sentCampaign();
+    gmail.sent.length = 0;
+    const r = await runJob();
+    expect(r).toMatchObject({ skipped: false, sent: 2, failed: 0 });
+    expect(gmail.sent.map((m) => [m.to, m.subject, m.body]).sort()).toEqual(
+      [
+        [mailAddress('p2'), 'Hello Pat', '<p>Hi Pat</p>'],
+        [mailAddress('p4'), 'Hello Pat', '<p>Hi Pat</p>'],
+      ].sort(),
+    );
+    const rows = await recipientsOf(c.id);
+    expect(rows.map((x) => x.status)).toEqual(['SENT', 'SENT']);
+    expect(rows.every((x) => x.providerMessageId?.startsWith('g-'))).toBe(true);
+    expect((await getDetail(c.id)).status).toBe('SENT');
+    // A second run has nothing to do.
+    gmail.sent.length = 0;
+    expect(await runJob()).toMatchObject({ sent: 0 });
+    expect(gmail.sent).toHaveLength(0);
+    const audit = await auditRows(c.id);
+    expect(audit.map((a) => a.action)).toContain('communication.finished');
+    expect(JSON.stringify(audit)).not.toMatch(/camp\.test|Hello/);
+  });
+
+  it('folds provider events into the results, once each, and honours an unsubscribe', async () => {
+    const c = await sentCampaign({ who: [people2.p2, people2.p4] });
+    await runJob();
+    const [a, b] = await recipientsOf(c.id);
+    const at = new Date();
+    const ev = (r: { id: string }, type: ProviderEvent['type'], id: string, over = {}) =>
+      delivery().applyEvent(firms.a, {
+        communicationId: c.id,
+        recipientId: r.id,
+        type,
+        providerEventId: id,
+        occurredAt: at,
+        ...over,
+      });
+    expect(await ev(a!, 'DELIVERED', `d1-${c.id}`)).toBe('applied');
+    expect(await ev(a!, 'DELIVERED', `d1-${c.id}`)).toBe('duplicate');
+    expect(await ev(b!, 'DELIVERED', `d2-${c.id}`)).toBe('applied');
+    expect(await ev(a!, 'OPENED', `o1-${c.id}`)).toBe('applied');
+    expect(await ev(a!, 'OPENED', `o2-${c.id}`)).toBe('applied');
+    expect(await ev(a!, 'CLICKED', `c1-${c.id}`)).toBe('applied');
+    const res = CommunicationResults.parse(ok(await call('get', `/${c.id}/results`, ownerA)));
+    expect(res.metrics).toMatchObject({
+      totalRecipients: 2,
+      delivered: { count: 2, ratePercent: 100 },
+      opened: { count: 1, ratePercent: 50 },
+      pending: { count: 0 },
+      failed: { count: 0 },
+    });
+    // The provider reports opens but not clicks: the card says so instead of a zero.
+    expect(res.supports).toEqual({ opens: true, clicks: false });
+    expect(res.metrics.clicked.ratePercent).toBeNull();
+    expect(res.funnel.map((f) => [f.stage, f.count])).toEqual([
+      ['SENT', 2],
+      ['DELIVERED', 2],
+      ['OPENED', 1],
+      ['CLICKED', 1],
+    ]);
+    expect(res.trend).toHaveLength(1);
+    expect(res.trend[0]).toMatchObject({ delivered: 2, opened: 2, clicked: 1 });
+    const page = CommunicationRecipientPage.parse(
+      ok(await call('get', `/${c.id}/recipients?engagement=opened`, ownerA)),
+    );
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({ openCount: 2, clickCount: 1, status: 'CLICKED' });
+    expect(page.items[0]?.addressMask).toMatch(/^p\*\*\*@camp\.test$/);
+    expect(
+      CommunicationRecipientPage.parse(
+        ok(await call('get', `/${c.id}/recipients?engagement=not_opened`, ownerA)),
+      ).items,
+    ).toHaveLength(1);
+    const act = CommunicationActivityPage.parse(
+      ok(await call('get', `/${c.id}/activity?type=OPENED`, ownerA)),
+    );
+    expect(act.total).toBe(2);
+    expect(act.items.every((i) => i.source === 'PROVIDER')).toBe(true);
+    // An unsubscribe updates consent, so the next campaign leaves the person out.
+    expect(await ev(b!, 'UNSUBSCRIBED', `u1-${c.id}`)).toBe('applied');
+    const consent = ConsentView.parse(
+      ok(await call('get', `/consent?clientId=${b!.clientId}`, ownerA)),
+    );
+    expect(consent.items[0]).toMatchObject({
+      channel: 'EMAIL',
+      status: 'OPTED_OUT',
+      source: 'unsubscribe_link',
+    });
+    expect(
+      CommunicationResults.parse(ok(await call('get', `/${c.id}/results`, ownerA))).metrics
+        .unsubscribed.count,
+    ).toBe(1);
+    // An event for another firm's campaign, or for no one, changes nothing.
+    expect(
+      await delivery().applyEvent(firms.b, {
+        communicationId: c.id,
+        recipientId: a!.id,
+        type: 'OPENED',
+        providerEventId: `x-${c.id}`,
+        occurredAt: at,
+      }),
+    ).toBe('ignored');
+    await inFirm('a', (tx) =>
+      tx.communicationConsent.deleteMany({ where: { clientId: b!.clientId } }),
+    );
+  });
+
+  it('records a refusal, and a resend makes a new draft for those who can still get it', async () => {
+    const c = await sentCampaign({ who: [people2.p2, people2.p4], name: mark('Fails') });
+    gmail.fail.set(mailAddress('p2'), new DeliveryError('mailbox_full', false));
+    const r = await runJob();
+    gmail.fail.clear();
+    expect(r).toMatchObject({ sent: 1, failed: 1 });
+    const rows = await recipientsOf(c.id);
+    expect(rows.map((x) => [x.status, x.failureCode]).sort()).toEqual([
+      ['FAILED', 'mailbox_full'],
+      ['SENT', null],
+    ]);
+    const res = CommunicationResults.parse(ok(await call('get', `/${c.id}/results`, ownerA)));
+    expect(res.metrics.failed.count).toBe(1);
+    expect(res.failureReasons).toEqual([{ code: 'mailbox_full', label: 'mailbox full', count: 1 }]);
+    expect(res.canResendFailed).toBe(true);
+    const again = detailOf(await call('post', `/${c.id}/resend-failed`, ownerA), 201);
+    expect(again).toMatchObject({ status: 'DRAFT', sourceId: c.id, sourceKind: 'RESEND_FAILED' });
+    expect(again.audience).toMatchObject({ finalCount: 1, selectedCount: 1 });
+    // The original is untouched.
+    expect((await getDetail(c.id)).status).toBe('SENT');
+    // Someone who opted out since is not offered the resend.
+    ok(
+      await call('put', '/consent', ownerA, {
+        clientId: people2.p2,
+        channel: 'EMAIL',
+        status: 'OPTED_OUT',
+      }),
+    );
+    expectError(
+      await call('post', `/${c.id}/resend-failed`, ownerA),
+      409,
+      'NO_ELIGIBLE_RECIPIENTS',
+    );
+    await inFirm('a', (tx) =>
+      tx.communicationConsent.deleteMany({ where: { clientId: people2.p2 } }),
+    );
+    // A follow-up aimed at those who did not open.
+    const follow = detailOf(
+      await call('post', `/${c.id}/follow-up`, ownerA, { group: 'FAILED' }),
+      201,
+    );
+    expect(follow).toMatchObject({ sourceKind: 'FOLLOW_UP', sourceId: c.id });
+    expectError(
+      await call('post', `/${c.id}/follow-up`, ownerA, { group: 'CLICKED' }),
+      409,
+      'NO_ELIGIBLE_RECIPIENTS',
+    );
+  });
+
+  it('keeps going while a connection needs attention, and does not send while paused', async () => {
+    const c = await sentCampaign({ who: [people2.p2] });
+    ok(await call('post', `/${c.id}/pause`, ownerA));
+    gmail.sent.length = 0;
+    expect(await runJob()).toMatchObject({ sent: 0 });
+    expectError(await call('post', `/${c.id}/pause`, ownerA), 409, 'NOT_EDITABLE');
+    ok(await call('post', `/${c.id}/resume`, ownerA));
+    await inFirm('a', (tx) =>
+      tx.integrationConnection.updateMany({
+        where: { businessId: firms.a, provider: 'gmail' },
+        data: { status: 'NEEDS_ATTENTION', statusReason: 'authorization_expired' },
+      }),
+    );
+    expect(await runJob()).toMatchObject({ sent: 0, failed: 0 });
+    expect((await recipientsOf(c.id)).map((x) => x.status)).toEqual(['QUEUED']);
+    expect((await getDetail(c.id)).status).toBe('SENDING');
+    await inFirm('a', (tx) =>
+      tx.integrationConnection.updateMany({
+        where: { businessId: firms.a, provider: 'gmail' },
+        data: { status: 'CONNECTED', statusReason: null },
+      }),
+    );
+    expect(await runJob()).toMatchObject({ sent: 1 });
+    expect((await getDetail(c.id)).status).toBe('SENT');
+    // While it is still going out the results are partial and cannot be exported or followed up.
+    const going = await sentCampaign({ who: [people2.p2] });
+    expectError(await call('post', `/${going.id}/resend-failed`, ownerA), 409, 'STILL_SENDING');
+    await runJob();
+  });
+
+  it('starts a scheduled campaign when its time comes, and cancels one that cannot go', async () => {
+    const d = await draft({ name: mark('Timed') });
+    await edit(d.id, { subject: 'Timed', body: '<p>Timed [Client First Name]</p>' });
+    ok(await audienceOf(d.id, { clientIds: [people2.p2] }));
+    ok(
+      await call('post', `/${d.id}/schedule`, ownerA, {
+        idempotencyKey: key(),
+        scheduledFor: new Date(Date.now() + 3 * 3_600_000).toISOString(),
+        etag: (await getDetail(d.id)).etag,
+      }),
+    );
+    // Not yet.
+    expect(await runJob()).toMatchObject({ started: 0 });
+    expect((await getDetail(d.id)).status).toBe('SCHEDULED');
+    await inFirm('a', (tx) =>
+      tx.communication.update({
+        where: { id: d.id },
+        data: { scheduledFor: new Date(Date.now() - 1_000) },
+      }),
+    );
+    gmail.sent.length = 0;
+    expect(await runJob()).toMatchObject({ started: 1, sent: 1 });
+    expect(gmail.sent.map((m) => m.to)).toEqual([mailAddress('p2')]);
+    const done = await getDetail(d.id);
+    expect(done).toMatchObject({ status: 'SENT', finalCount: 1 });
+    expect(done.audience?.finalCount).toBe(1);
+    // The audience is worked out again at the time: everyone opted out since, so it is cancelled.
+    const e = await draft({ name: mark('Timed empty') });
+    await edit(e.id, { subject: 'Timed', body: '<p>Timed</p>' });
+    ok(await audienceOf(e.id, { clientIds: [people2.p2] }));
+    ok(
+      await call('post', `/${e.id}/schedule`, ownerA, {
+        idempotencyKey: key(),
+        scheduledFor: new Date(Date.now() + 3 * 3_600_000).toISOString(),
+        etag: (await getDetail(e.id)).etag,
+      }),
+    );
+    ok(
+      await call('put', '/consent', ownerA, {
+        clientId: people2.p2,
+        channel: 'EMAIL',
+        status: 'OPTED_OUT',
+      }),
+    );
+    await inFirm('a', (tx) =>
+      tx.communication.update({
+        where: { id: e.id },
+        data: { scheduledFor: new Date(Date.now() - 1_000) },
+      }),
+    );
+    expect(await runJob()).toMatchObject({ started: 0 });
+    const gone = await getDetail(e.id);
+    expect(gone.status).toBe('CANCELLED');
+    const rows = await auditRows(e.id);
+    expect(rows.find((r) => r.action === 'communication.schedule_failed')?.metadata).toMatchObject({
+      codes: ['NO_RECIPIENTS'],
+    });
+    await inFirm('a', (tx) =>
+      tx.communicationConsent.deleteMany({ where: { clientId: people2.p2 } }),
+    );
+  });
+
+  it('exports masked results for those who may, and nobody else', async () => {
+    const c = await sentCampaign({ who: [people2.p2, people2.p4] });
+    expectError(await call('post', `/${c.id}/export`, ownerA, {}), 409, 'STILL_SENDING');
+    await runJob();
+    const out = CommunicationExport.parse(ok(await call('post', `/${c.id}/export`, ownerA, {})));
+    expect(out.rowCount).toBe(2);
+    expect(out.fileName).toMatch(/-results-\d{4}-\d{2}-\d{2}\.csv$/);
+    const key = [...files.objects.keys()].find((k) => out.url.includes(k))!;
+    expect(key).toMatch(new RegExp(`^tenant/${firms.a}/reports/communication-`));
+    const csv = files.objects.get(key)!.toString('utf8');
+    expect(csv).toContain('"Recipient","Address","Status"');
+    expect(csv).toContain('p***@camp.test');
+    expect(csv).not.toContain(mailAddress('p2'));
+    // Staff have no Export capability in the grid; a reader may not create anything.
+    expectError(await call('post', `/${c.id}/export`, staffA, {}), 403, 'EXPORT_NOT_ALLOWED');
+    expect((await call('post', `/${c.id}/export`, readerA, {})).status).toBe(403);
+    const exportRows = await auditRows(c.id);
+    expect(exportRows.map((r) => r.action)).toContain('communication.exported');
+  });
+
+  it('previews as made-up data or as one client, and loads a template as a snapshot', async () => {
+    const d = await draft();
+    await edit(d.id, {
+      subject: 'Hi [Client First Name] about [Appointment Date]',
+      body: '<p>[Client Full Name] at [Business Name]</p>',
+    });
+    const sample = RenderedTemplate.parse(ok(await call('post', `/${d.id}/preview`, ownerA, {})));
+    expect(sample).toMatchObject({ sample: true, unresolved: [] });
+    expect(sample.subject).toBe('Hi Jamie about Tuesday, March 3, 2026');
+    const real = RenderedTemplate.parse(
+      ok(await call('post', `/${d.id}/preview`, ownerA, { clientId: people2.p2 })),
+    );
+    expect(real).toMatchObject({ sample: false, unresolved: ['Appointment Date'] });
+    expect(real.body).toBe('<p>Pat Two (fake) at Firm r55c-a-' + run + '</p>');
+    expect((await call('post', `/${d.id}/preview`, ownerA, { clientId: clients.cB })).status).toBe(
+      404,
+    );
+    // Nothing was recorded by previewing.
+    expect(await recipientsOf(d.id)).toHaveLength(0);
+    const t = await inFirm('a', (tx) =>
+      tx.messageTemplate.create({
+        data: {
+          businessId: firms.a,
+          kind: 'EMAIL',
+          name: mark('Snap'),
+          subject: 'Snap subject',
+          body: '<p>Snap body</p>',
+          status: 'ACTIVE',
+          ownerUserId: ownerA.id,
+          version: 2,
+        },
+      }),
+    );
+    const used = detailOf(
+      await call('post', `/${d.id}/use-template`, ownerA, {
+        templateId: t.id,
+        etag: (await getDetail(d.id)).etag,
+      }),
+    );
+    expect(used).toMatchObject({ subject: 'Snap subject', template: { id: t.id, version: 2 } });
+    await inFirm('a', (tx) =>
+      tx.messageTemplate.update({ where: { id: t.id }, data: { body: '<p>Master changed</p>' } }),
+    );
+    expect((await getDetail(d.id)).body).toBe('<p>Snap body</p>');
+    expectError(
+      await call('post', `/${d.id}/use-template`, ownerA, {
+        templateId: randomUUID(),
+        etag: used.etag,
+      }),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
+  it('expires a published announcement', async () => {
+    const d = await draft({ channel: 'ANNOUNCEMENT', name: mark('Old news') });
+    await edit(d.id, { subject: 'Old news', body: '<p>Done</p>' });
+    ok(await audienceOf(d.id, { clientIds: [people2.p1] }));
+    ok(
+      await call('post', `/${d.id}/send`, ownerA, {
+        idempotencyKey: key(),
+        etag: (await getDetail(d.id)).etag,
+      }),
+    );
+    expect(detailOf(await call('post', `/${d.id}/expire`, ownerA)).archived).toBe(true);
+    const email = await draft();
+    expectError(await call('post', `/${email.id}/expire`, ownerA), 409, 'NOT_EDITABLE');
+    expectError(await call('get', `/${d.id}/results`, ownerB, undefined, 'b'), 404, 'NOT_FOUND');
+  });
+});
+
+describe('a provider with no adapter', () => {
+  it('is not ready, and says so', async () => {
+    await inFirm('a', (tx) =>
+      tx.integrationConnection.create({
+        data: { businessId: firms.a, provider: 'textmagic', status: 'CONNECTED' },
+      }),
+    );
+    const ov = CommunicationsOverview.parse(ok(await call('get', '/overview', ownerA)));
+    expect(ov.channels.find((c) => c.channel === 'SMS')).toMatchObject({
+      ready: false,
+      route: 'INTEGRATIONS',
+      reason: 'Sending through Textmagic is not available yet',
+    });
+    expectError(await call('post', '', ownerA, { channel: 'SMS' }), 409, 'CHANNEL_UNAVAILABLE');
+    const senders = CommunicationSenderList.parse(ok(await call('get', '/senders', ownerA)));
+    expect(senders.items.find((s) => s.channel === 'SMS')).toMatchObject({
+      verified: false,
+      providerHealthy: true,
+    });
   });
 });

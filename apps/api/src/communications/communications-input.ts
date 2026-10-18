@@ -1,5 +1,11 @@
 import {
   AudienceCandidatesQuery,
+  CommunicationActivityQuery,
+  CommunicationRecipientsQuery,
+  ExportCommunicationRequest,
+  FollowUpRequest,
+  PreviewCommunicationRequest,
+  UseTemplateRequest,
   CancelCommunicationRequest,
   CommunicationsQuery,
   ConsentQuery,
@@ -58,3 +64,9 @@ export const SendBody = clean(SendCommunicationRequest);
 export const ScheduleBody = clean(ScheduleCommunicationRequest);
 export const RescheduleBody = clean(RescheduleCommunicationRequest);
 export const CancelBody = clean(CancelCommunicationRequest);
+export const RecipientsQ = clean(CommunicationRecipientsQuery);
+export const ActivityQ = clean(CommunicationActivityQuery);
+export const ExportBody = clean(ExportCommunicationRequest);
+export const FollowUpBody = clean(FollowUpRequest);
+export const PreviewBody = clean(PreviewCommunicationRequest);
+export const UseTemplateBody = clean(UseTemplateRequest);

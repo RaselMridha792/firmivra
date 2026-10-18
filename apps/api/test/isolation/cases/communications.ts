@@ -11,6 +11,23 @@ const ETAG = STAMP.toISOString();
 const PLACEHOLDER = randomUUID();
 
 export const records: CaseModule['records'] = {
+  /** An active email template, for a draft to take a snapshot of. */
+  communicationTemplate: {
+    async create({ tx, businessId, owner }) {
+      const row = await tx.messageTemplate.create({
+        data: {
+          businessId,
+          kind: 'EMAIL',
+          name: `Fake template ${tag()}`,
+          subject: 'Fake subject',
+          body: '<p>Fake body</p>',
+          status: 'ACTIVE',
+          ownerUserId: owner.id,
+        },
+      });
+      return row.id;
+    },
+  },
   /** An email draft of the firm. */
   communication: {
     async create({ tx, businessId, owner }) {
@@ -55,7 +72,7 @@ export const cases: CaseModule['cases'] = {
   },
   [`POST ${BASE}`]: {
     params: {},
-    bodyIds: { templateId: 'tpl' },
+    bodyIds: { templateId: 'communicationTemplate' },
     body: { channel: 'EMAIL', templateId: PLACEHOLDER },
     // No email provider is connected in the world.
     expect: 409,
@@ -115,6 +132,28 @@ export const cases: CaseModule['cases'] = {
   [`POST ${BASE}/:id/archive`]: { params: { id: 'communication' } },
   [`POST ${BASE}/:id/restore`]: { params: { id: 'communication' } },
   [`POST ${BASE}/:id/duplicate`]: { params: { id: 'communication' }, expect: 409 },
+  [`POST ${BASE}/:id/use-template`]: {
+    params: { id: 'communication' },
+    bodyIds: { templateId: 'communicationTemplate' },
+    body: { etag: ETAG, templateId: PLACEHOLDER },
+  },
+  [`POST ${BASE}/:id/preview`]: {
+    params: { id: 'communication' },
+    bodyIds: { clientId: 'client', leadId: 'lead' },
+    body: { clientId: PLACEHOLDER, leadId: PLACEHOLDER },
+  },
+  [`GET ${BASE}/:id/results`]: { params: { id: 'communication' } },
+  [`GET ${BASE}/:id/recipients`]: { params: { id: 'communication' } },
+  [`GET ${BASE}/:id/activity`]: { params: { id: 'communication' } },
+  // A draft has not gone out: nothing to export, resend or follow up yet (409 for P's own people).
+  [`POST ${BASE}/:id/export`]: { params: { id: 'communication' }, body: {}, expect: 409 },
+  [`POST ${BASE}/:id/resend-failed`]: { params: { id: 'communication' }, expect: 409 },
+  [`POST ${BASE}/:id/follow-up`]: {
+    params: { id: 'communication' },
+    body: { group: 'FAILED' },
+    expect: 409,
+  },
+  [`POST ${BASE}/:id/expire`]: { params: { id: 'communication' }, expect: 409 },
   [`GET ${BASE}/segments/:id`]: { params: { id: 'communicationSegment' } },
   [`PATCH ${BASE}/segments/:id`]: {
     params: { id: 'communicationSegment' },

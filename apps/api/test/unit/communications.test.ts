@@ -97,3 +97,25 @@ describe('masks', () => {
     expect(mask(null)).toBe('');
   });
 });
+
+describe('phone numbers and the delivery job switch', () => {
+  it('turns a number into +E.164 when it can be one', async () => {
+    const { e164 } = await import('../../src/communications/communications-audience.service.js');
+    expect(e164('(555) 010-2030')).toBe('+15550102030');
+    expect(e164('1 555 010 2030')).toBe('+15550102030');
+    expect(e164('+44 20 7946 0958')).toBe('+442079460958');
+    expect(e164('12345')).toBeNull();
+    expect(e164('')).toBeNull();
+    expect(e164(null)).toBeNull();
+  });
+
+  it('runs the job by default, but not under test, and refuses a typo', async () => {
+    const { communicationJobsOn } =
+      await import('../../src/communications/communications-delivery.service.js');
+    expect(communicationJobsOn({ NODE_ENV: 'production' })).toBe(true);
+    expect(communicationJobsOn({ NODE_ENV: 'test' })).toBe(false);
+    expect(communicationJobsOn({ NODE_ENV: 'test', COMMUNICATION_JOBS: 'on' })).toBe(true);
+    expect(communicationJobsOn({ NODE_ENV: 'production', COMMUNICATION_JOBS: 'off' })).toBe(false);
+    expect(() => communicationJobsOn({ COMMUNICATION_JOBS: 'yes' })).toThrow();
+  });
+});
