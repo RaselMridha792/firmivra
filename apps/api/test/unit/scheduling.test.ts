@@ -19,6 +19,7 @@ import {
   reminderFromOffset,
   reminderOffset,
 } from '../../src/appointments/scheduling-map.js';
+import { subtract } from '../../src/appointments/scheduling-availability.service.js';
 import { expandRecurrence } from '../../src/appointments/scheduling-recurrence.js';
 import { AgendaQ, DetailsBody, ScheduleBody } from '../../src/appointments/scheduling.input.js';
 import { zonedInstant } from '../../src/appointments/calendar.js';
@@ -457,3 +458,22 @@ describe('request schemas', () => {
 });
 
 const randomBusiness = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+describe('free time of a day', () => {
+  it('takes busy spans out of a range, in order, joining overlaps', () => {
+    const r = { start: 100, end: 500 };
+    expect(subtract(r, [])).toEqual([r]);
+    expect(
+      subtract(r, [
+        { start: 200, end: 250 },
+        { start: 240, end: 300 },
+        { start: 450, end: 600 },
+        { start: 0, end: 50 },
+      ]),
+    ).toEqual([
+      { start: 100, end: 200 },
+      { start: 300, end: 450 },
+    ]);
+    expect(subtract(r, [{ start: 0, end: 900 }])).toEqual([]);
+  });
+});

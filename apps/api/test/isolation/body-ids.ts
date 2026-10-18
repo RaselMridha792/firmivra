@@ -33,6 +33,35 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     why: 'appointments keep no link to a related item yet: any value is refused 400 and never read (R58)',
   })),
   {
+    field: 'busyCalendarIds',
+    routes: /^PUT \/api\/v1\/business\/availability\/:userId\/rules$/,
+    why: 'ids of connected external calendars (plain text, not records of the firm); no calendar is connected yet, so any value is refused 400 (R58)',
+  },
+  ...[
+    ['eligibleStaffUserIds', 'staff who may take the type'],
+    ['officeIds', 'offices the type is offered at'],
+    ['requiredIntakeFormId', 'the intake form the type requires'],
+  ].map(([field, what]) => ({
+    field: field!,
+    routes: /^PUT \/api\/v1\/business\/appointment-types\/:id\/config$/,
+    why: `${what}: no table keeps it yet, so any value is refused 400 and never read (R58)`,
+  })),
+  ...(
+    [
+      'taxReturnId',
+      'bookkeepingEngagementId',
+      'invoiceId',
+      'taskId',
+      'intakeFormId',
+      'documentRequestId',
+    ] as const
+  ).map((name) => ({
+    field: `related.${name}`,
+    routes:
+      /^(POST \/api\/v1\/business\/appointments\/schedule|PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
+    why: 'appointments keep no link to a related item yet: any value is refused 400 and never read (R58)',
+  })),
+  {
     field: 'senderId',
     routes: /^PATCH \/api\/v1\/business\/communications\/:id$/,
     why: 'a connected email or SMS provider of the firm; a sender is found only among the firm own healthy connections, so the id of another firm is refused 400 (communications.e2e.test.ts). A connection is unique per provider, so a world cannot hold one without changing what the other cases see (R55)',

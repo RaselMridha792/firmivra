@@ -1,9 +1,13 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   type AgendaPage,
   type Appointment,
   type AppointmentContact,
+  type AppointmentDraft,
+  type AppointmentNoticeSettings,
+  type ConflictResult,
+  type RemindersSent,
   type AppointmentDetail,
   AppointmentId,
   type AppointmentList,
@@ -12,7 +16,14 @@ import {
   type SchedulingOptions,
   type SlotList,
 } from '@firmivra/types';
-import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import {
+  Access,
+  CurrentAuth,
+  CurrentTenant,
+  FIRM_MANAGERS,
+  FIRM_STAFF,
+  Roles,
+} from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import {
@@ -26,12 +37,20 @@ import {
 } from './appointments.input.js';
 import { AppointmentsService } from './appointments.service.js';
 import { firmActor, optionalBody } from './request-actors.js';
+import { SchedulingActionsService } from './scheduling-actions.service.js';
+import { SchedulingAvailabilityService } from './scheduling-availability.service.js';
+import { SchedulingConfigService } from './scheduling-config.service.js';
 import { SchedulingReadService } from './scheduling-read.service.js';
 import { SchedulingWriteService } from './scheduling-write.service.js';
 import {
   AgendaQ,
+  ConflictsBody,
   ContactsQuery,
   DetailsBody,
+  NoteBody,
+  NoticeSettingsBody,
+  ReminderBody,
+  RemindersBody,
   ScheduleBody,
   SummaryQuery,
 } from './scheduling.input.js';
@@ -51,6 +70,9 @@ export class AppointmentsController {
     private readonly appointments: AppointmentsService,
     private readonly reads: SchedulingReadService,
     private readonly writes: SchedulingWriteService,
+    private readonly actions: SchedulingActionsService,
+    private readonly availability: SchedulingAvailabilityService,
+    private readonly config: SchedulingConfigService,
   ) {}
 
   @Get()
@@ -108,6 +130,41 @@ export class AppointmentsController {
     return this.reads.contacts(tenant.businessId, firmActor(auth, tenant), q);
   }
 
+  @Get('settings')
+  @Roles(...FIRM_MANAGERS)
+  settings(@CurrentTenant() tenant: TenantContext): Promise<AppointmentNoticeSettings> {
+    return this.config.noticeSettings(tenant.businessId);
+  }
+
+  @Put('settings')
+  @Roles(...FIRM_MANAGERS)
+  setSettings(
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(NoticeSettingsBody)) body: z.output<typeof NoticeSettingsBody>,
+  ): Promise<AppointmentNoticeSettings> {
+    return this.config.setNoticeSettings(tenant.businessId, body);
+  }
+
+  @Post('conflicts')
+  @HttpCode(200)
+  conflicts(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(ConflictsBody)) body: z.output<typeof ConflictsBody>,
+  ): Promise<ConflictResult> {
+    return this.availability.conflicts(tenant.businessId, firmActor(auth, tenant), body);
+  }
+
+  @Post('reminders/send')
+  @HttpCode(200)
+  sendReminders(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(RemindersBody)) body: z.output<typeof RemindersBody>,
+  ): Promise<RemindersSent> {
+    return this.actions.sendReminders(tenant.businessId, firmActor(auth, tenant), body);
+  }
+
   @Post('schedule')
   @HttpCode(200)
   schedule(
@@ -116,6 +173,38 @@ export class AppointmentsController {
     @Body(new ZodValidationPipe(ScheduleBody)) body: z.output<typeof ScheduleBody>,
   ): Promise<AppointmentRecord> {
     return this.writes.schedule(tenant.businessId, firmActor(auth, tenant), body);
+  }
+
+  @Post(':id/send-reminder')
+  @HttpCode(200)
+  sendReminder(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(optionalBody(ReminderBody)) body: z.output<typeof ReminderBody>,
+  ): Promise<RemindersSent> {
+    return this.actions.sendReminder(tenant.businessId, firmActor(auth, tenant), id, body);
+  }
+
+  @Post(':id/notes')
+  @HttpCode(200)
+  addNote(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(NoteBody)) body: z.output<typeof NoteBody>,
+  ): Promise<AppointmentRecord> {
+    return this.actions.addNote(tenant.businessId, firmActor(auth, tenant), id, body);
+  }
+
+  @Post(':id/duplicate')
+  @HttpCode(200)
+  duplicate(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<AppointmentDraft> {
+    return this.actions.duplicate(tenant.businessId, firmActor(auth, tenant), id);
   }
 
   @Get(':id/record')
