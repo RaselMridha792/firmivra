@@ -114,8 +114,9 @@ export const formatClock = (iso: string) => {
 };
 /** "Oct 14, 2026 09:12:34 AM (EDT)". */
 export const formatStamp = (iso: string) => `${formatDate(iso)} ${formatClock(iso)}`;
-/** "Oct 14, 2026 09:12 AM". */
-export const formatShortStamp = (iso: string) => `${formatDate(iso)} ${formatTime(iso)}`;
+/** "Oct 14, 2026 09:12 AM", with " (EDT)" when `withZone`. */
+export const formatShortStamp = (iso: string, withZone = false) =>
+  `${formatDate(iso)} ${formatTime(iso)}${withZone ? ` (${zone(new Date(iso))})` : ''}`;
 
 /** The quiet line a frame shows when its data could not load (never one panel for the page). */
 export function loadError(error: unknown): string {
