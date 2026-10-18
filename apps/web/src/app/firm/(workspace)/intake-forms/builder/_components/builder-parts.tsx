@@ -24,30 +24,35 @@ export interface BuilderState {
   addSection: () => void;
 }
 
-/** A numbered card of the builder ("1. Form Details"). */
+/**
+ * A numbered card of the builder ("1. Form Details"). `className` adds layout classes, such as
+ * growing to the bottom of its column (the design's cards end level).
+ */
 export function BuilderCard({
   title,
   subtitle,
   action,
   testId,
+  className = '',
   children,
 }: {
   title: string;
   subtitle?: string;
   action?: ReactNode;
   testId?: string;
+  className?: string;
   children: ReactNode;
 }) {
   return (
     <section
       aria-label={title.replace(/^\d\.\s*/, '')}
       data-testid={testId}
-      className="flex min-w-0 flex-col gap-4 rounded-xl border border-divider bg-surface p-4 shadow-sm"
+      className={`flex min-w-0 flex-col gap-4 rounded-xl border border-divider bg-surface p-4 shadow-sm ${className}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="font-display text-xl font-bold text-heading">{title}</h2>
-          {subtitle ? <p className="text-sm text-muted">{subtitle}</p> : null}
+          {subtitle ? <p className="mt-0.5 text-sm text-text">{subtitle}</p> : null}
         </div>
         {action}
       </div>
@@ -57,9 +62,17 @@ export function BuilderCard({
 }
 
 /** A card's frame while the form loads (grey bars) or when it could not load (one quiet line). */
-export function CardFrame({ title, loading }: { title: string; loading: boolean }) {
+export function CardFrame({
+  title,
+  loading,
+  className,
+}: {
+  title: string;
+  loading: boolean;
+  className?: string;
+}) {
   return (
-    <BuilderCard title={title}>
+    <BuilderCard title={title} className={className}>
       {loading ? (
         <div aria-busy="true" className="flex flex-col gap-3">
           {['first', 'second', 'third'].map((bar) => (

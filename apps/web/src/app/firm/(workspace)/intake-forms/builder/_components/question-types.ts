@@ -5,7 +5,7 @@ import {
   CheckSquare,
   CloudArrowUp,
   CurrencyDollar,
-  Envelope,
+  EnvelopeSimple,
   Hash,
   type Icon,
   PencilLine,
@@ -15,7 +15,7 @@ import {
   TextAa,
   TextAlignLeft,
   TextT,
-  ToggleLeft,
+  ToggleRight,
 } from '@phosphor-icons/react';
 
 export interface QuestionLook {
@@ -26,7 +26,9 @@ export interface QuestionLook {
 /**
  * Each question type's name and icon, as Add Questions draws them (create-new-intake-form.jpg).
  * Not exact: Paragraph (the design's lines start with a dot), Dropdown (the design's caret sits in
- * a square; Phosphor has it only in a circle).
+ * a square; Phosphor has it only in a circle), Section Break (the design's frame is open at the
+ * sides), and Short Answer, Number and Instruction Text (the design draws the bare glyph; the
+ * solid icons put it in a filled square).
  */
 export const QUESTION_LOOKS: Record<QuestionType, QuestionLook> = {
   SHORT_ANSWER: { label: 'Short Answer', icon: TextAa },
@@ -38,9 +40,9 @@ export const QUESTION_LOOKS: Record<QuestionType, QuestionLook> = {
   FILE_UPLOAD: { label: 'File Upload', icon: CloudArrowUp },
   NUMBER: { label: 'Number', icon: Hash },
   CURRENCY: { label: 'Currency', icon: CurrencyDollar },
-  EMAIL: { label: 'Email', icon: Envelope },
+  EMAIL: { label: 'Email', icon: EnvelopeSimple },
   PHONE: { label: 'Phone', icon: Phone },
-  YES_NO: { label: 'Yes / No', icon: ToggleLeft },
+  YES_NO: { label: 'Yes / No', icon: ToggleRight },
   SIGNATURE: { label: 'Signature', icon: PencilLine },
   SECTION_BREAK: { label: 'Section Break', icon: SquareSplitVertical },
   INSTRUCTION_TEXT: { label: 'Instruction Text', icon: TextT },

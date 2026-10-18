@@ -72,7 +72,7 @@ function IconAction({
         ev.stopPropagation();
         onClick();
       }}
-      className={`flex size-9 shrink-0 items-center justify-center rounded-control hover:bg-canvas ${danger ? 'text-danger' : 'text-muted hover:text-heading'}`}
+      className={`flex size-9 shrink-0 items-center justify-center rounded-control hover:bg-canvas ${danger ? 'text-danger' : 'text-text hover:text-heading'}`}
     >
       <Glyph aria-hidden weight="fill" className="size-5" />
     </button>
@@ -168,18 +168,15 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div
-        data-testid="form-sections"
-        className="flex flex-col gap-3 rounded-xl bg-canvas p-3 sm:p-4"
-      >
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <div data-testid="form-sections" className="flex flex-col gap-3 rounded-xl bg-canvas p-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-2 pt-2 xl:flex-nowrap">
           <div className="min-w-0">
             <h3 className="text-lg font-bold text-heading">Form Sections</h3>
-            <p className="text-sm text-muted">
+            <p className="text-sm text-text">
               Organize your questions into sections. Drag to reorder.
             </p>
           </div>
-          <Button type="button" variant="outline" onClick={state.addSection}>
+          <Button type="button" variant="outline" className="shrink-0" onClick={state.addSection}>
             <Plus aria-hidden weight="bold" className="size-4" />
             Add Section
           </Button>
@@ -212,7 +209,7 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
                   onDrop={(ev) => onDrop(ev, index, s.key)}
                   className={`rounded-lg border bg-surface shadow-sm ${chosen ? 'border-action' : 'border-transparent'} ${over === s.key ? 'ring-2 ring-action' : ''}`}
                 >
-                  <div className="flex items-center gap-1 px-1 py-2 sm:pr-2">
+                  <div className="flex items-center gap-1 px-1 py-1 sm:pr-2">
                     <button
                       type="button"
                       aria-expanded={expanded}
@@ -236,7 +233,7 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
                       className="min-w-0 flex-1 rounded-control py-1 text-left"
                     >
                       <span className="block truncate font-semibold text-heading">{name}</span>
-                      <span data-testid="section-count" className="block text-sm text-muted">
+                      <span data-testid="section-count" className="block text-sm text-text">
                         {plural(count, 'question')}
                       </span>
                       {error ? <span className="block text-sm text-danger">{error}</span> : null}
@@ -310,7 +307,7 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
       <button
         type="button"
         onClick={state.addSection}
-        className="flex min-h-20 items-center justify-center gap-2 rounded-xl border border-dashed border-folder-border bg-canvas px-4 font-semibold text-action hover:border-action hover:bg-info-soft"
+        className="flex min-h-18 items-center justify-center gap-2 rounded-xl border border-dashed border-control-border bg-canvas px-4 font-semibold text-action hover:border-action hover:bg-info-soft"
       >
         <PlusCircle aria-hidden weight="fill" className="size-7" />
         Add New Section
