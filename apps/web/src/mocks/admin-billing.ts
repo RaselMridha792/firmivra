@@ -928,8 +928,12 @@ const firstMessage = (errors: FormErrors): string =>
 
 const pad = (value: number, width = 2) => String(value).padStart(width, '0');
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const isDate = (value: string) =>
-  DATE.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+const isDate = (value: string) => {
+  if (!DATE.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  // Parsing can roll February 30 into March; keep the calendar day the user supplied.
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+};
 function todayIso(): string {
   const now = new Date();
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
