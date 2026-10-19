@@ -225,6 +225,8 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 - Oct 19, demo seed stage 5, Payroll group, branch `rasel/R0-demo-stage5-payroll-stacked` (stacked on the Tasks group's #834, so the shared lines merge cleanly): `seed-demo-payroll.ts` fills the 11 payroll tables for the four payroll clients: rosters, completed and current runs (lines, issues, every workflow step the screens show), filings, registers, year-ends, settings. 193 of 277 firm tables without `demo` rows after it (one is `staff_import_previews`, empty by design).
 
+- Oct 19, bug fix `r0_demo_unseed_automations`, branch `rasel/R0-unseed-automation-cycle`: `app_delete_business_data` stopped on a new foreign-key cycle (an automation rule names its current version, each version names its rule) once the demo seed published automation rules, so the demo unseed (and deleting any firm with a published rule) failed. The function now drafts the firm's rules and clears their current version first, as it already does for Firm Sign's final documents. Test: `test/automation-firm-delete.test.ts` (as the RDS migrate role). Found by the Automations demo group, which is stacked on it.
+
 ## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
 
 **Where things stand.**
