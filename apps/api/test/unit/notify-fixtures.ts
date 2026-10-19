@@ -124,4 +124,10 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     body: 'Thanks for getting in touch.',
   },
   'lead.message-sms': { body: 'Thanks for getting in touch.' },
+  'platform.message-email': {
+    name: 'Jordan Sample',
+    subject: 'Welcome to Firmivra',
+    body: 'Your workspace is ready (sample).',
+  },
+  'platform.message-sms': { body: 'Your Firmivra workspace is ready (sample).' },
 };

@@ -58,15 +58,26 @@ const ONBOARDING = new Set([
 const applications: Record<string, string> = {};
 /** An open notification of the fixture Super Admin per write case that acts on one (R56). */
 const items: Record<string, string> = {};
+/** Communications records (R56) each write case acts on: a thread, messages, templates, a category. */
+const comms: Record<string, string> = {};
+const tag = randomUUID().slice(0, 8);
+const ADMIN_EMAIL = 'admin@firmivra.test';
 
 /**
  * Every admin write, with a body that passes validation, run in this order; `app` names the
- * application it acts on (the owner invite resends for the one just approved). Support's writes
- * (admin-support-writes.ts) name their own `record`, may build the body, and may add a query.
+ * application it acts on (the owner invite resends for the one just approved), `item` a
+ * notification and `comm` a communications record (R56). Support's writes
+ * (admin-support-writes.ts) name their own `record`, may build the body, and may add a query. A
+ * body may be a function, read when it runs.
  */
 const WRITES: Record<
   string,
-  Omit<SupportWrite, 'body'> & { body: SupportWrite['body']; app?: string; item?: string }
+  Omit<SupportWrite, 'body'> & {
+    body: SupportWrite['body'] | (() => object);
+    app?: string;
+    item?: string;
+    comm?: string;
+  }
 > = {
   'POST /api/v1/admin/firm-applications/:id/approve': { body: {}, app: 'approve' },
   'POST /api/v1/admin/firm-applications/:id/request-info': {
@@ -86,8 +97,131 @@ const WRITES: Record<
   'POST /api/v1/admin/notifications/:id/unread': { body: {}, item: 'unread' },
   'POST /api/v1/admin/notifications/:id/resolve': { body: {}, item: 'resolve' },
   'POST /api/v1/admin/notifications/:id/dismiss': { body: {}, item: 'dismiss' },
+  'POST /api/v1/admin/communications/conversations/:id/read': { body: {}, comm: 'conv' },
+  'PATCH /api/v1/admin/communications/conversations/:id': {
+    body: { status: 'OPEN' },
+    comm: 'conv',
+  },
+  'POST /api/v1/admin/communications/messages': {
+    body: () => ({
+      contact: { type: 'TEAM', userId: fx.users.admin.id },
+      channel: 'INTERNAL',
+      body: 'Fake scope note',
+      mode: 'SEND',
+      idempotencyKey: randomUUID(),
+    }),
+  },
+  'PATCH /api/v1/admin/communications/messages/:id': { body: { body: 'Fake edit' }, comm: 'edit' },
+  'POST /api/v1/admin/communications/messages/:id/send': {
+    body: () => ({ idempotencyKey: randomUUID() }),
+    comm: 'send',
+  },
+  'POST /api/v1/admin/communications/messages/:id/schedule': {
+    body: () => ({
+      scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+      scheduledTimeZone: 'America/New_York',
+    }),
+    comm: 'schedule',
+  },
+  'POST /api/v1/admin/communications/messages/:id/cancel': { body: {}, comm: 'cancel' },
+  'POST /api/v1/admin/communications/messages/:id/retry': {
+    body: () => ({ idempotencyKey: randomUUID() }),
+    comm: 'retry',
+  },
+  'DELETE /api/v1/admin/communications/messages/:id': { body: {}, comm: 'delete' },
+  'POST /api/v1/admin/communications/templates': {
+    body: () => ({
+      categoryId: comms['cat'],
+      name: `Fake scope template new ${tag}`,
+      channel: 'SMS',
+      body: 'Fake {{contact.first_name}}',
+    }),
+  },
+  'PATCH /api/v1/admin/communications/templates/:id': { body: { body: 'Fake edit' }, comm: 'tpl' },
+  'POST /api/v1/admin/communications/templates/:id/duplicate': { body: {}, comm: 'tpl' },
+  'POST /api/v1/admin/communications/templates/:id/preview': { body: {}, comm: 'tpl' },
+  'POST /api/v1/admin/communications/templates/:id/test': { body: {}, comm: 'tpl' },
+  'POST /api/v1/admin/communications/templates/:id/archive': { body: {}, comm: 'tpl' },
+  'POST /api/v1/admin/communications/template-categories': {
+    body: { name: `Fake scope category new ${tag}` },
+  },
+  'PATCH /api/v1/admin/communications/template-categories/:id': {
+    body: { isActive: true },
+    comm: 'cat',
+  },
   ...supportWrites(fx),
 };
+
+/** The thread, messages, template and category the communications writes act on (R56). */
+async function seedComms(tx: Parameters<Parameters<typeof runInScope>[2]>[0]) {
+  const admin = fx.users.admin.id;
+  const conv = await tx.commConversation.create({
+    data: {
+      contactType: 'TEAM',
+      contactUserId: admin,
+      contactName: 'Fake Scope Admin',
+      contactEmail: ADMIN_EMAIL,
+    },
+  });
+  comms['conv'] = conv.id;
+  const draft = async (key: string, scheduled = false) => {
+    const m = await tx.commMessage.create({
+      data: {
+        conversationId: conv.id,
+        channel: 'EMAIL',
+        direction: 'OUTBOUND',
+        status: scheduled ? 'SCHEDULED' : 'DRAFT',
+        subject: 'Fake scope',
+        body: 'Fake scope body',
+        ...(scheduled
+          ? {
+              scheduledAt: new Date(Date.now() + 86_400_000),
+              scheduledTimeZone: 'America/New_York',
+            }
+          : {}),
+      },
+    });
+    const r = await tx.commMessageRecipient.create({
+      data: {
+        messageId: m.id,
+        contactType: 'TEAM',
+        contactUserId: admin,
+        name: 'Fake Scope Admin',
+        address: ADMIN_EMAIL,
+      },
+    });
+    comms[key] = m.id;
+    return { m, r };
+  };
+  for (const key of ['edit', 'send', 'schedule', 'delete']) await draft(key);
+  await draft('cancel', true);
+  const failed = await draft('retry');
+  await tx.commMessage.update({ where: { id: failed.m.id }, data: { status: 'SENDING' } });
+  await tx.commMessageRecipient.update({
+    where: { id: failed.r.id },
+    data: { status: 'FAILED', errorCode: 'invalid_recipient' },
+  });
+  await tx.commMessage.update({
+    where: { id: failed.m.id },
+    data: { status: 'FAILED', errorCode: 'delivery_failed' },
+  });
+  const cat = await tx.commTemplateCategory.create({
+    data: { name: `Fake scope category ${tag}`, position: 100 },
+  });
+  comms['cat'] = cat.id;
+  comms['tpl'] = (
+    await tx.commTemplate.create({
+      data: {
+        categoryId: cat.id,
+        name: `Fake scope template ${tag}`,
+        channel: 'EMAIL',
+        subject: 'Fake scope',
+        body: 'Fake {{contact.first_name}}',
+        mergeFields: ['contact.first_name'],
+      },
+    })
+  ).id;
+}
 
 /** The firm an approved application created, or null. */
 async function firmOf(applicationId: string): Promise<string | null> {
@@ -131,6 +265,7 @@ beforeAll(async () => {
       });
       items[c.item] = row.id;
     }
+    await seedComms(tx);
   });
   await owner.$disconnect();
   await prepareSupport(fx);
@@ -230,11 +365,13 @@ describe('the admin site never opens a business scope', () => {
       const c = WRITES[key]!;
       const id = c.record
         ? supportRecord(c.record)!
-        : c.item
-          ? items[c.item]!
-          : c.app
-            ? applications[c.app]!
-            : randomUUID();
+        : c.comm
+          ? comms[c.comm]!
+          : c.item
+            ? items[c.item]!
+            : c.app
+              ? applications[c.app]!
+              : randomUUID();
       const path = fillPath(route.path, { businessId: fx.firmA.id, id }) + (c.query ?? '');
       const method = route.method.toLowerCase() as 'post' | 'put' | 'patch' | 'delete';
       const helpers: WriteHelpers = {
