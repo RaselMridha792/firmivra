@@ -547,12 +547,12 @@ export function ActionPlans() {
 }
 
 /** The client and, optionally, one of their plans and goals; shared by the two add dialogs. */
-function useClientLinks(preset?: string) {
+function useClientLinks(preset?: string, presetPlan?: string) {
   const clients = useApiQuery([...BA_KEY, 'pick-clients'], () =>
     api.advisory.clients({ pageSize: 100 }),
   );
   const [clientId, setClientId] = useState(preset ?? '');
-  const [planId, setPlanId] = useState('');
+  const [planId, setPlanId] = useState(presetPlan ?? '');
   const [goalId, setGoalId] = useState('');
   const plans = useApiQuery([...BA_KEY, 'pick-plans', clientId], () =>
     clientId
@@ -616,15 +616,17 @@ function useClientLinks(preset?: string) {
 
 export function AddRecommendationDialog({
   advisoryClientId,
+  planId,
   onClose,
   onAdded,
 }: {
   advisoryClientId?: string;
+  planId?: string;
   onClose: () => void;
   onAdded: (title: string) => void;
 }) {
   const qc = useQueryClient();
-  const { clientId, links, fields } = useClientLinks(advisoryClientId);
+  const { clientId, links, fields } = useClientLinks(advisoryClientId, planId);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
   const [rationale, setRationale] = useState('');
@@ -726,16 +728,18 @@ export function AddRecommendationDialog({
 
 export function AddActionItemDialog({
   advisoryClientId,
+  planId,
   onClose,
   onAdded,
 }: {
   advisoryClientId?: string;
+  planId?: string;
   onClose: () => void;
   onAdded: (title: string) => void;
 }) {
   const qc = useQueryClient();
   const members = useMembers();
-  const { clientId, links, fields } = useClientLinks(advisoryClientId);
+  const { clientId, links, fields } = useClientLinks(advisoryClientId, planId);
   const [title, setTitle] = useState('');
   const [details, setDetails] = useState('');
   const [kind, setKind] = useState('STAFF');
