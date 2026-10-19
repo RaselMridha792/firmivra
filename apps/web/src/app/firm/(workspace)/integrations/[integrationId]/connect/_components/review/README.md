@@ -39,7 +39,9 @@ enlarged and inspected independently before the final comparison.
 - Add Custom Folder stays visible but disabled: the current provider catalog exposes an
   enumerated folder list and no custom-folder capability. This needs a contract decision.
 - Unsupported directions are omitted from the selector and supported choices are explained.
-- Setup includes a Live/Test selector because this is part of the contract.
+- Setup keeps the contract-provided environment internally and sends it with the connection
+  request. The selector is intentionally hidden because it is absent from the approved mockup;
+  Microsoft 365 therefore uses the provider's default environment.
 - Backend handoff: apps/api/src/integrations/integrations-callback.controller.ts returns OAuth
   users to /integrations/{provider}/setup?result=connected|failed, but PAGE-MAP's existing pages
   are /integrations/{provider}/connect/... . Rasel must align the callback destination.

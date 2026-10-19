@@ -197,7 +197,7 @@ function SetupForm({
           <span className="flex size-14 shrink-0 items-center justify-center rounded-control bg-accent-soft text-action">
             <Plugs weight="fill" className="size-8" />
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 [&_h1]:font-sans">
             <PageHeader
               title={provider?.name ?? 'Connect Integration'}
               subtitle={provider?.description ?? 'Provider details are unavailable.'}
@@ -284,23 +284,6 @@ function SetupForm({
             />
             <div className="grid gap-4 xl:grid-cols-5">
               <div className="flex min-w-0 flex-col gap-4 xl:col-span-3">
-                {provider?.environments.length ? (
-                  <Select
-                    label="Environment"
-                    disabled={!available || busy}
-                    value={environment}
-                    options={provider.environments.map((item) => ({
-                      value: item,
-                      label: item === 'LIVE' ? 'Live' : 'Test / Sandbox',
-                    }))}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        environment: e.target.value === 'TEST' ? 'TEST' : 'LIVE',
-                      })
-                    }
-                  />
-                ) : null}
                 {provider?.authMethod === 'API_KEY'
                   ? provider.credentialFields.map((field) => (
                       <Input

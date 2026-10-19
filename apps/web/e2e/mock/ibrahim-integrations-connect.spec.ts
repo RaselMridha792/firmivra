@@ -35,6 +35,7 @@ test('all design sections, route navigation, preference persistence and least pr
   await mockSetup(page);
   await page.goto(base);
   await frames(page);
+  await expect(page.getByLabel('Environment')).toHaveCount(0);
   await expect(page.getByLabel('Mailbox / Account')).toBeDisabled();
   await page.screenshot({ path: info.outputPath('connect-data-desktop.png'), fullPage: true });
   await page.getByLabel('Email (Outlook)', { exact: true }).uncheck();
@@ -74,6 +75,7 @@ test('connect sends only contract fields and preserves preferences on a failed r
     const body = ConnectIntegrationRequest.parse(route.request().postDataJSON());
     expect(body.settings?.syncEveryMinutes).toBe(30);
     expect(body.settings?.entities).not.toContain('email');
+    expect(body.environment).toBe('LIVE');
     expect(body.testAfterConnect).toBe(false);
     expect(body).not.toHaveProperty('businessId');
     attempts++;
