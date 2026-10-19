@@ -664,6 +664,14 @@ export class AdminReportsService {
         tx.business.findMany({
           where: {
             ...(q.status ? { status: q.status } : {}),
+            ...(q.joinedFrom || q.joinedTo
+              ? {
+                  createdAt: {
+                    ...(q.joinedFrom ? { gte: dayStart(q.joinedFrom) } : {}),
+                    ...(q.joinedTo ? { lte: dayEnd(q.joinedTo) } : {}),
+                  },
+                }
+              : {}),
             ...(q.search
               ? {
                   OR: [

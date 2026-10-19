@@ -56,7 +56,7 @@ export function BusinessDocuments({ slug }: { slug: string }) {
         d.status === 'READY' ? (
           <Button
             variant="ghost"
-            className="text-firm-text! underline hover:bg-folder-surface"
+            className="text-action! underline hover:bg-folder-surface"
             disabled={download.isPending}
             onClick={() => download.mutate(d.id)}
             aria-label={`Download ${d.fileName}`}

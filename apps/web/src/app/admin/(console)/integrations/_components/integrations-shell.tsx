@@ -15,7 +15,7 @@ import {
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import type { PlatformIntegration } from '../../../../../mocks/admin-integrations';
+import type { PlatformIntegration } from './integrations-contract';
 
 /**
  * The shell every Integrations page shares: the page header (breadcrumbs or a back link, title,

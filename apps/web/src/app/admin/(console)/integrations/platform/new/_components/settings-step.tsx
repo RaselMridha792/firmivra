@@ -2,11 +2,10 @@
 
 import { Checkbox, Toggle } from '@firmivra/ui';
 import { ArrowSquareOut, Bell } from '@phosphor-icons/react';
-import type { UseQueryResult } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
-import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { useApiMutation } from '../../../../../../../lib/query';
 import {
   adminIntegrations,
   BACKOFFS,
@@ -26,15 +25,8 @@ import {
   type ProviderTemplate,
   type SetupStep,
   type SyncSchedule,
-  type UsageThresholds,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { EnvironmentBadge } from '../../../_components/integration-badges';
-import {
-  formatCents,
-  formatDuration,
-  formatNumber,
-  formatPercent,
-} from '../../../_components/integration-format';
 import {
   integrationErrorMessage,
   loadError,
@@ -182,9 +174,6 @@ export function SettingsStep({ draftId }: { draftId: string | null }) {
 function SettingsForm({ draft }: { draft: PlatformIntegrationDetail }) {
   const router = useRouter();
   const providers = useProviders();
-  const thresholds = useApiQuery(['admin-integrations', 'thresholds'], () =>
-    adminIntegrations.thresholds(),
-  );
   const [synced, setSynced] = useState(draft.version);
   const [values, setValues] = useState(() => valuesOf(draft));
   const [attempted, setAttempted] = useState(false);
@@ -423,15 +412,15 @@ function SettingsForm({ draft }: { draft: PlatformIntegrationDetail }) {
         <Part
           title="Alerts"
           testId="wizard-alerts"
-          text={`Errors and Needs Attention changes on ${draft.name} (${ENVIRONMENT_LABELS[draft.environment]}) notify the Super Admin team. Usage alerts use the thresholds below, set for every integration.`}
+          text={`Errors and Needs Attention changes on ${draft.name} (${ENVIRONMENT_LABELS[draft.environment]}) notify the Super Admin team. Usage alert thresholds cannot be set yet, so the usage alerts below are off.`}
         >
-          <Thresholds query={thresholds} />
+          <Thresholds />
           <Link
             href="/integrations/usage"
             className="inline-flex w-fit items-center gap-1.5 text-sm font-semibold text-link hover:underline"
           >
             <Bell aria-hidden weight="fill" className="size-4" />
-            Change thresholds in Usage &amp; Analytics
+            Open Usage &amp; Analytics
             <ArrowSquareOut aria-hidden weight="bold" className="size-4" />
           </Link>
         </Part>
@@ -440,23 +429,15 @@ function SettingsForm({ draft }: { draft: PlatformIntegrationDetail }) {
   );
 }
 
-/** The usage alert thresholds (read only here; "Off" where none is set). */
-function Thresholds({ query }: { query: UseQueryResult<UsageThresholds> }) {
-  if (query.isPending) return <SkeletonLines rows={3} label="Loading alert thresholds" />;
-  if (query.isError) return <QuietLine>{loadError(query.error)}</QuietLine>;
-  const value = query.data;
-  const off = (number: number | null, text: (n: number) => string) =>
-    number === null ? 'Off' : text(number);
+/** The usage alert thresholds: none can be set yet, so each one reads "Off". */
+function Thresholds() {
   const rows = [
-    { label: 'Error rate above', value: off(value.errorRatePercent, (n) => formatPercent(n)) },
-    { label: 'Average latency above', value: off(value.latencyMs, (n) => formatDuration(n)) },
-    { label: 'API quota used above', value: off(value.quotaPercent, (n) => formatPercent(n)) },
-    { label: 'Monthly cost above', value: off(value.monthlyCostCents, (n) => formatCents(n)) },
-    {
-      label: 'Failed syncs above',
-      value: off(value.syncFailures, (n) => formatNumber(n)),
-    },
-  ];
+    'Error rate above',
+    'Average latency above',
+    'API quota used above',
+    'Monthly cost above',
+    'Failed syncs above',
+  ].map((label) => ({ label, value: 'Off' }));
   return (
     <dl className="grid gap-x-6 gap-y-2 rounded-lg border border-border bg-subtle p-4 text-sm sm:grid-cols-2">
       {rows.map((row) => (

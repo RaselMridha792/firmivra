@@ -235,3 +235,60 @@ test('Reports: live counts by status, workload and trend, for one advisor too', 
   await page.getByTestId('ba-reports').getByLabel('Advisor').selectOption({ label: 'Sam Staff' });
   await expect(page.getByTestId('report-workload').getByRole('row')).toHaveCount(2);
 });
+
+const startupPlan = `${base}/plans/0199c0f1-a400-7000-8000-000000000002/edit`;
+
+test('Plan wizard: a new plan starts from the client record and moves to step 2', async ({
+  page,
+}) => {
+  await page.goto(`${base}/plans/new?advisoryClientId=0199c0f1-a200-7000-8000-000000000002`);
+  await expect(page.getByRole('heading', { name: 'Create Business Plan', level: 1 })).toBeVisible();
+  await expect(page.getByTestId('client-card')).toContainText('SL Beauty Studio');
+  await expect(page.getByLabel('Business Name')).toHaveValue('SL Beauty Studio');
+  await expect(page.getByTestId('quick-tips')).toBeVisible();
+  await expect(page.getByTestId('whats-next').getByRole('listitem')).toHaveCount(5);
+  // Next needs the plan name; a draft could save without the rest.
+  await page.getByTestId('wizard-next').click();
+  await expect(page.getByText('Fill in the required fields to continue')).toBeVisible();
+  await page.getByLabel('Plan Name').fill('Salon Growth Plan');
+  await page.getByTestId('wizard-next').click();
+  await expect(page).toHaveURL(/\/plans\/[0-9a-f-]{36}\/edit\/assessment$/, { timeout: 60_000 });
+  await expect(page.getByTestId('step-financials')).toContainText('Bookkeeping');
+});
+
+test('Plan wizard: the review says what is still needed, then the plan finalizes', async ({
+  page,
+}) => {
+  await page.goto(`${startupPlan}/review`);
+  await expect(page.getByTestId('still-needed')).toContainText(
+    'Add the strategy summary or an area (stage 3)',
+  );
+  await expect(page.getByTestId('wizard-next')).toBeDisabled();
+  // The Goals & Strategy summary's Edit link (profile, assessment, strategy, action plan).
+  await page.getByRole('link', { name: 'Edit', exact: true }).nth(2).click();
+  await expect(page.getByTestId('step-areas')).toBeVisible({ timeout: 60_000 });
+  await page.getByTestId('step-areas').getByRole('checkbox', { name: 'Marketing / Sales' }).click();
+  await page.getByLabel('Marketing / Sales objective').fill('Book 40 appointments a week');
+  await page.getByTestId('wizard-next').click();
+  await expect(page.getByTestId('step-milestones')).toBeVisible({ timeout: 60_000 });
+  await page.getByTestId('wizard-next').click();
+  await expect(page.getByTestId('step-readiness')).toContainText('Ready to finalize', {
+    timeout: 60_000,
+  });
+  await page.getByTestId('wizard-next').click();
+  await expect(page.getByText('2026 Startup Launch Plan finalized.')).toBeVisible();
+  await expect(page.getByTestId('step-delivery')).toContainText('Version 1');
+});
+
+test('Plan wizard: leaving with unsaved changes asks first', async ({ page }) => {
+  await page.goto(`${startupPlan}/assessment`);
+  await page.getByLabel('Timing').fill('Within a year');
+  await page.getByRole('button', { name: 'Back to Business Advisory & Development' }).click();
+  await expect(page.getByRole('dialog', { name: 'Unsaved changes' })).toBeVisible();
+  await page.getByRole('button', { name: 'Keep Editing' }).click();
+  await expect(page.getByLabel('Timing')).toHaveValue('Within a year');
+  // Save Draft in the prompt saves the step, then leaves.
+  await page.getByRole('button', { name: 'Back to Business Advisory & Development' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Draft' }).click();
+  await expect(page).toHaveURL(/\/business-advisory$/, { timeout: 60_000 });
+});

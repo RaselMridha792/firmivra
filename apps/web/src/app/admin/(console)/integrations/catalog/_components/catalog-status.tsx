@@ -8,7 +8,7 @@ import {
   CATALOG_STATUS_LABELS,
   type CatalogItem,
   type CatalogStatus,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import type { Notice } from '../../_components/platform-actions';
 import { AccessLossDialog, catalogErrorMessage } from './catalog-parts';
 

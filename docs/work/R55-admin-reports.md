@@ -6,7 +6,7 @@ Contract: `packages/types/src/admin-reports/` (`api.adminReports`). API: `apps/a
 
 - [x] 1. Contract: overview, revenue, users, feature usage, support, firms list and Firm Report Detail, the builder (fields, run, CSV export), saved reports.
 - [x] 2. API, with unit, e2e and admin-scope WRITES cases.
-- [ ] 3. Wire Arfan's Reports pages (`apps/web/src/app/admin/(console)/reports/*`) to this API once his PR merges, in a PR of its own (Scrum thread, Oct 19 16:55 UTC).
+- [x] 3. Screens: `apps/web/src/app/admin/(console)/reports/*` (17 pages), on this API (Scrum thread, Oct 20: Arfan has no Reports pages, so R55 built them).
 
 ## Decisions (contract)
 
@@ -24,6 +24,15 @@ Contract: `packages/types/src/admin-reports/` (`api.adminReports`). API: `apps/a
 4. The builder checks every field and sort key against the type's catalogue (400 UNKNOWN_FIELD). The run is the same query as the export. An export over the limit is refused (400) with the row count.
 5. Saved reports: an admin sees their own and the shared ones (the table's row-level security). Only the owner changes or deletes one (404 otherwise, never 403). Anyone who sees one can run or duplicate it; the copy is theirs and private. A name is unique per owner (409 DUPLICATE_NAME).
 6. Audited: `reports.exported`, `reports.saved`, `reports.saved_updated`, `reports.saved_deleted`, `reports.saved_duplicated` (business_id NULL, actor the admin). A run and a read are not audited; a saved run stamps `last_run_at`.
+
+## Decisions (screens)
+
+1. The reporting period is in the URL (`from`, `to`) and every tab, the firm detail and the builder keep it; left out, the last 30 days. The design's single date chip is the kit's two-field `DateRangePicker`.
+2. A figure with no source shows "—" with "Not available"; when the call fails, "Could not load right now". Every widget keeps its frame in all three states.
+3. The charts are local components (no bar or line chart in the kit yet); "Last 6 Months" / "Last 3 Months" choose from the API's six months.
+4. The Firms tab filters by search, plan, status and date joined (the API gained `joinedFrom`/`joinedTo`, also as builder filters); Location is shown but disabled (no firm location column). Export is the builder's FIRMS export with the same filters.
+5. Firm Report Detail: Billing opens the console's Billing module; Documents is shown but shut (a firm's documents are its own data); Actions are links to the modules that already own those actions.
+6. The builder's Excel and PDF buttons are shown but disabled (no writers); Save Report saves the definition only; Run from Saved Reports uses the saved run (stamps Last Run).
 
 ## Needs from others
 

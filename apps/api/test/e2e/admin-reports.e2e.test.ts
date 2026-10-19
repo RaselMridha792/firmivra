@@ -233,6 +233,11 @@ describe('firms', () => {
       ok(await call('get', `/firms?planCode=R55R_${run.toUpperCase()}`)),
     );
     expect(byPlan.items.map((f) => f.id)).toEqual([firms.a]);
+    const joined = async (q: string) =>
+      AdminFirmsReport.parse(ok(await call('get', `/firms?search=r55r-a-${run}&${q}`))).items
+        .length;
+    expect(await joined(`joinedFrom=${today}&joinedTo=${today}`)).toBe(1);
+    expect(await joined('joinedTo=2020-01-01')).toBe(0);
     const a = AdminFirmReport.parse(ok(await call('get', `/firms/${firms.a}`)));
     expect(a).toMatchObject({
       hasActivityData: true,
@@ -272,6 +277,10 @@ describe('the builder and saved reports', () => {
       400,
       'UNKNOWN_FIELD',
     );
+    const early = { ...def, filters: { ...def.filters, joinedTo: '2020-01-01' } };
+    expect(AdminReportResult.parse(ok(await call('post', '/builder/run', early))).total).toBe(0);
+    const bad = { ...def, filters: { ...def.filters, joinedFrom: 'soon' } };
+    expectError(await call('post', '/builder/run', bad), 400, 'UNKNOWN_FIELD');
     const file = AdminReportFile.parse(
       ok(await call('post', '/builder/export', { ...def, format: 'CSV', title: 'Fake firms' })),
     );
