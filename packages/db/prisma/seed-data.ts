@@ -364,6 +364,65 @@ export const SEED_PLATFORM_IDS = {
   supportRequest: '00000000-0000-4005-8000-000000000002',
   platformEvent: '00000000-0000-4005-8000-000000000011',
   firmEvent: '00000000-0000-4005-8000-000000000012',
+  // Stage B1: a Super Admin notification about LVP's approved application, and an audit export.
+  notification: '00000000-0000-4005-8000-000000000021',
+  exportJob: '00000000-0000-4005-8000-000000000022',
+  // Stage B2: LVP's ticket with Firmivra support, its conversation, note, file and history.
+  supportTicket: '00000000-0000-4005-8000-000000000031',
+  supportStaffReply: '00000000-0000-4005-8000-000000000032',
+  supportFirmReply: '00000000-0000-4005-8000-000000000033',
+  supportNote: '00000000-0000-4005-8000-000000000034',
+  supportAttachment: '00000000-0000-4005-8000-000000000035',
+  supportEvent: '00000000-0000-4005-8000-000000000036',
+  supportHoliday: '00000000-0000-4005-8000-000000000037',
+  supportCannedResponse: '00000000-0000-4005-8000-000000000038',
+  // Stage B5: Firmivra's sale to LVP (won, now an active client) and a prospect being worked.
+  salesLvpContact: '00000000-0000-4005-8000-000000000061',
+  salesLvpDeal: '00000000-0000-4005-8000-000000000062',
+  salesProspectContact: '00000000-0000-4005-8000-000000000063',
+  salesProspectDeal: '00000000-0000-4005-8000-000000000064',
+  salesDemo: '00000000-0000-4005-8000-000000000065',
+  salesTag: '00000000-0000-4005-8000-000000000066',
+  // Stage B6: Firmivra's welcome thread with LVP's owner, a template, an image and a broadcast.
+  commConversation: '00000000-0000-4005-8000-000000000071',
+  commWelcome: '00000000-0000-4005-8000-000000000072',
+  commReply: '00000000-0000-4005-8000-000000000073',
+  commNote: '00000000-0000-4005-8000-000000000074',
+  commTemplate: '00000000-0000-4005-8000-000000000075',
+  commImage: '00000000-0000-4005-8000-000000000076',
+  commSegment: '00000000-0000-4005-8000-000000000077',
+  commBroadcast: '00000000-0000-4005-8000-000000000078',
+  // Stage B7: the platform logo, a legal hold, a retention dry run and a maintenance window.
+  settingsLogo: '00000000-0000-4005-8000-000000000081',
+  settingsHold: '00000000-0000-4005-8000-000000000082',
+  settingsRun: '00000000-0000-4005-8000-000000000083',
+  settingsWindow: '00000000-0000-4005-8000-000000000084',
+  // Stage B8: Firmivra's Stripe connection, a catalog entry, an API key and a webhook endpoint.
+  integrationStripe: '00000000-0000-4005-8000-000000000091',
+  integrationCatalog: '00000000-0000-4005-8000-000000000092',
+  integrationApiKey: '00000000-0000-4005-8000-000000000093',
+  integrationWebhook: '00000000-0000-4005-8000-000000000094',
+  // Stage B9: the Super Admin's saved firm report.
+  savedReport: '00000000-0000-4005-8000-0000000000a1',
+  // Stage B3: what Firmivra billed LVP.
+  billingPaidInvoice: '00000000-0000-4005-8000-000000000041',
+  billingCreditedInvoice: '00000000-0000-4005-8000-000000000042',
+  billingPayment: '00000000-0000-4005-8000-000000000043',
+  billingPaymentKey: '00000000-0000-4005-8000-000000000044',
+  billingRefund: '00000000-0000-4005-8000-000000000045',
+  billingCreditNote: '00000000-0000-4005-8000-000000000046',
+  billingEstimate: '00000000-0000-4005-8000-000000000047',
+  billingRecurring: '00000000-0000-4005-8000-000000000048',
+  // Stage B4: failed sign-ins on LVP's portal, the alert they raised and the team's note on it.
+  securityEvent: '00000000-0000-4005-8000-000000000051',
+  securityAlert: '00000000-0000-4005-8000-000000000052',
+  securityNote: '00000000-0000-4005-8000-000000000053',
+  // Stage D1: a company goal, a rep goal and a finished lead import (one new lead, one duplicate).
+  salesTargetCompany: '00000000-0000-4005-8000-0000000000b1',
+  salesTargetRep: '00000000-0000-4005-8000-0000000000b2',
+  salesImport: '00000000-0000-4005-8000-0000000000b3',
+  salesImportContact: '00000000-0000-4005-8000-0000000000b4',
+  salesImportDeal: '00000000-0000-4005-8000-0000000000b5',
 } as const;
 
 /**

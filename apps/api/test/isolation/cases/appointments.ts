@@ -39,6 +39,22 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  firmOffice: {
+    async create({ tx, businessId }) {
+      const row = await tx.firmOffice.create({
+        data: { businessId, name: `Fake office ${randomUUID().slice(0, 8)}` },
+      });
+      return row.id;
+    },
+  },
+  firmRoom: {
+    async create({ tx, businessId, get }) {
+      const row = await tx.firmRoom.create({
+        data: { businessId, officeId: await get('firmOffice'), name: 'Fake room' },
+      });
+      return row.id;
+    },
+  },
   blockedTime: {
     async create({ tx, businessId }) {
       const startsAt = later(3);
@@ -50,7 +66,79 @@ export const records: CaseModule['records'] = {
   },
 };
 
+/** The body ids of Schedule Appointment; the form's contact is a client here. */
+const scheduleIds = {
+  'contact.id': 'client',
+  typeId: 'appointmentType',
+  serviceId: 'service',
+  officeId: 'firmOffice',
+  roomId: 'firmRoom',
+  staffUserIds: 'staffUser',
+};
+
+const inOneHour = () => ({
+  startsAt: at3pm(22),
+  endsAt: new Date(new Date(at3pm(22)).getTime() + 30 * 60_000).toISOString(),
+});
+
 export const cases: CaseModule['cases'] = {
+  'POST /api/v1/business/appointments/:id/send-reminder': { params: { id: 'appointment' } },
+  'POST /api/v1/business/appointments/:id/notes': {
+    params: { id: 'appointment' },
+    body: { text: 'Fake note' },
+  },
+  'POST /api/v1/business/appointments/:id/duplicate': { params: { id: 'appointment' } },
+  'POST /api/v1/business/appointments/reminders/send': {
+    params: {},
+    bodyIds: { appointmentIds: 'appointment' },
+  },
+  'POST /api/v1/business/appointments/conflicts': {
+    params: {},
+    bodyIds: {
+      staffUserIds: 'staffUser',
+      'contact.id': 'client',
+      roomId: 'firmRoom',
+      excludeAppointmentId: 'appointment',
+    },
+    body: { ...inOneHour(), contact: { kind: 'CLIENT', id: '' } },
+  },
+  'GET /api/v1/business/availability/:userId/rules': { params: { userId: 'staffUser' } },
+  'PUT /api/v1/business/availability/:userId/rules': {
+    params: { userId: 'staffUser' },
+    body: { dateOverrides: [] },
+  },
+  'GET /api/v1/business/appointment-types/:id/config': { params: { id: 'appointmentType' } },
+  'PUT /api/v1/business/appointment-types/:id/config': {
+    params: { id: 'appointmentType' },
+    bodyIds: { serviceId: 'service' },
+    body: { description: 'Fake description' },
+  },
+  'GET /api/v1/business/appointments/:id/record': { params: { id: 'appointment' } },
+  'POST /api/v1/business/appointments/:id/confirm': { params: { id: 'appointment' } },
+  // Found with the right records, but a made-up version is stale (409 SAVE_CONFLICT).
+  'PATCH /api/v1/business/appointments/:id/details': {
+    params: { id: 'appointment' },
+    bodyIds: scheduleIds,
+    body: {
+      version: '2020-01-01T00:00:00.000Z',
+      contact: { kind: 'CLIENT', id: '' },
+      method: 'IN_PERSON',
+    },
+    expect: 409,
+  },
+  // Outside the staff member's (absent) working hours, which an Owner overrides with a reason.
+  'POST /api/v1/business/appointments/schedule': {
+    params: {},
+    bodyIds: scheduleIds,
+    body: () => ({
+      idempotencyKey: randomUUID(),
+      contact: { kind: 'CLIENT', id: '' },
+      startsAt: at3pm(21),
+      endsAt: new Date(new Date(at3pm(21)).getTime() + 30 * 60_000).toISOString(),
+      method: 'IN_PERSON',
+      overrideConflicts: { reason: 'Fake override' },
+    }),
+  },
   'GET /api/v1/business/appointments/:id': { params: { id: 'appointment' } },
   'PATCH /api/v1/business/appointments/:id': {
     params: { id: 'appointment' },
@@ -105,4 +193,13 @@ export const cases: CaseModule['cases'] = {
     body: { startsAt: later(9).toISOString() },
     expect: 409,
   },
+};
+
+export const moduleOff: CaseModule['moduleOff'] = {
+  'POST /api/v1/business/appointment-drafts':
+    'drafts need a table the schema does not have yet (R58); saving answers 403 MODULE_OFF',
+  'PUT /api/v1/business/appointment-drafts/:id':
+    'drafts need a table the schema does not have yet (R58); saving answers 403 MODULE_OFF',
+  'DELETE /api/v1/business/appointment-drafts/:id':
+    'drafts need a table the schema does not have yet (R58); deleting answers 403 MODULE_OFF',
 };

@@ -8,16 +8,26 @@ import {
 } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
 import {
+  ArrowsClockwise,
   Briefcase,
   CalendarDots,
+  Calculator,
+  ChartLineUp,
+  ChartPieSlice,
+  CheckSquare,
+  CurrencyDollar,
   ChatCircleDots,
   ClipboardText,
   Files,
   FileText,
   GearSix,
   House,
+  Notepad,
+  PaperPlaneTilt,
   type Icon,
+  PuzzlePiece,
   Receipt,
+  ShieldCheck,
   Signature,
   Tag,
   Target,
@@ -44,6 +54,7 @@ import { COMPANY } from '../../../lib/company';
 import { portalAuth } from '../../../lib/auth';
 import { findModule, moduleHref } from '../../../lib/firm-modules';
 import { useApiQuery } from '../../../lib/query';
+import { applyFirmTheme } from '../../../lib/theme';
 import { claimCache } from '../../../lib/session';
 
 // The firm's menu (docs/junior/PAGE-MAP.md; Fahad owns this list, F03). Items marked `managers`
@@ -77,24 +88,24 @@ const items: (NavItem & { managers?: true })[] = [
   link('Documents', Files, '/documents'),
   mod('client-portal'),
   mod('tax-returns'),
-  mod('bookkeeping'),
-  mod('payroll'),
-  mod('tax-planning'),
-  mod('business-advisory'),
+  link('Bookkeeping', Calculator, '/bookkeeping'),
+  link('Payroll', CurrencyDollar, '/payroll'),
+  link('Tax Planning & Strategy', ChartPieSlice, '/tax-planning'),
+  link('Business Advisory & Development', Briefcase, '/business-advisory'),
   link('Invoices & Payments', Receipt, '/invoices'),
   link('Messages', ChatCircleDots, '/messages'),
-  mod('communications'),
-  mod('tasks'),
-  mod('automations'),
-  mod('compliance'),
-  mod('reports'),
-  mod('templates'),
+  link('Communications', PaperPlaneTilt, '/communications'),
+  link('Tasks', CheckSquare, '/tasks'),
+  link('Automations', ArrowsClockwise, '/automations'),
+  link('Compliance & Deadlines', ShieldCheck, '/compliance'),
+  link('Reports', ChartLineUp, '/reports'),
+  link('Templates', Notepad, '/templates'),
   link('Services & Pricing', Tag, '/services-pricing'),
   link('Workspaces', Briefcase, '/workspaces'),
   link('Firm Sign', Signature, '/firm-sign'),
   link('Audit log', ClipboardText, '/audit-log', true),
   link('Staff Management', UserGear, '/team', true),
-  mod('integrations'),
+  link('Integrations', PuzzlePiece, '/integrations'),
   link('Settings', GearSix, '/settings', true),
 ];
 
@@ -102,7 +113,7 @@ const items: (NavItem & { managers?: true })[] = [
 const newLinks = [
   { label: 'New client', href: '/clients' },
   { label: 'New appointment', href: '/calendar' },
-  { label: 'New invoice', href: '/invoices', managers: true },
+  { label: 'New invoice', href: '/invoices/new', managers: true },
   { label: 'New message', href: '/messages' },
 ];
 
@@ -212,6 +223,9 @@ function FirmShell({
   const unread = useApiQuery(['messages', 'unread-count'], () => api.messages.unreadCount());
   const branding = info.data?.branding;
   const badge = unread.data?.total;
+  // The firm's theme colours on the page root, so dialogs and menus drawn outside the shell follow
+  // them too; removed when the workspace closes (another firm, or signing out).
+  useEffect(() => applyFirmTheme(document.documentElement.style, branding), [branding]);
   return (
     <AppShell
       subtitle="Firm workspace"

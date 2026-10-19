@@ -620,6 +620,192 @@ export const PlatformSubscriptionStatus = z.enum([
 ]);
 export type PlatformSubscriptionStatus = z.infer<typeof PlatformSubscriptionStatus>;
 
+/** The Super Admin notification center's categories (Notifications spec). */
+export const PlatformNotificationCategory = z.enum([
+  'FIRMS',
+  'FIRM_APPLICATIONS',
+  'SALES_LEADS',
+  'BILLING_SUBSCRIPTIONS',
+  'SUPPORT',
+  'INTEGRATIONS',
+  'SECURITY',
+  'SYSTEM',
+]);
+export type PlatformNotificationCategory = z.infer<typeof PlatformNotificationCategory>;
+
+export const PlatformNotificationPriority = z.enum(['CRITICAL', 'HIGH', 'NORMAL', 'INFORMATIONAL']);
+export type PlatformNotificationPriority = z.infer<typeof PlatformNotificationPriority>;
+
+/** The spec's five statuses mix two things: read or not (readAt) and whether the item asks for work. The API shows Unread / Read / Action Required / Resolved / Dismissed from the two. */
+export const PlatformNotificationAttention = z.enum([
+  'NONE',
+  'ACTION_REQUIRED',
+  'RESOLVED',
+  'DISMISSED',
+]);
+export type PlatformNotificationAttention = z.infer<typeof PlatformNotificationAttention>;
+
+/** The Super Admin modules that export (Audit, Integration logs, Communications, Reports, ...). */
+export const PlatformExportModule = z.enum([
+  'AUDIT',
+  'BILLING',
+  'COMMUNICATIONS',
+  'INTEGRATION_LOGS',
+  'REPORTS',
+  'SALES',
+  'SUPPORT',
+]);
+export type PlatformExportModule = z.infer<typeof PlatformExportModule>;
+
+export const PlatformExportStatus = z.enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'EXPIRED']);
+export type PlatformExportStatus = z.infer<typeof PlatformExportStatus>;
+
+/** Spec: Open by default, In Progress, Waiting on Customer, Resolved, and Closed (distinct from resolved). Overdue and Escalated are flags and tabs, not statuses; a merged ticket is CLOSED with mergedIntoTicketId set. */
+export const SupportTicketStatus = z.enum([
+  'OPEN',
+  'IN_PROGRESS',
+  'WAITING_ON_CUSTOMER',
+  'RESOLVED',
+  'CLOSED',
+]);
+export type SupportTicketStatus = z.infer<typeof SupportTicketStatus>;
+
+/** How the ticket came in; stored permanently. */
+export const SupportTicketSource = z.enum(['PORTAL', 'EMAIL', 'PHONE', 'INTERNAL', 'WEB_FORM']);
+export type SupportTicketSource = z.infer<typeof SupportTicketSource>;
+
+export const SupportAuthorSide = z.enum(['STAFF', 'CUSTOMER']);
+export type SupportAuthorSide = z.infer<typeof SupportAuthorSide>;
+
+export const SupportActorType = z.enum(['USER', 'SYSTEM']);
+export type SupportActorType = z.infer<typeof SupportActorType>;
+
+export const SupportSlaMode = z.enum(['BUSINESS_HOURS', 'CALENDAR']);
+export type SupportSlaMode = z.infer<typeof SupportSlaMode>;
+
+export const SupportEscalationKind = z.enum([
+  'SLA_BREACH',
+  'HIGH_PRIORITY_UNRESOLVED',
+  'CRITICAL_IMMEDIATE',
+]);
+export type SupportEscalationKind = z.infer<typeof SupportEscalationKind>;
+
+/** Stored lifecycle. Overdue is not stored: an issued invoice past its due date with a balance. */
+export const PlatformInvoiceStatus = z.enum([
+  'DRAFT',
+  'SENT',
+  'PARTIALLY_PAID',
+  'PAID',
+  'VOIDED',
+  'PARTIALLY_REFUNDED',
+  'REFUNDED',
+]);
+export type PlatformInvoiceStatus = z.infer<typeof PlatformInvoiceStatus>;
+
+export const PlatformRecurringStatus = z.enum(['ACTIVE', 'PAUSED', 'CANCELED']);
+export type PlatformRecurringStatus = z.infer<typeof PlatformRecurringStatus>;
+
+export const PlatformRecurringFrequency = z.enum([
+  'WEEKLY',
+  'MONTHLY',
+  'QUARTERLY',
+  'SEMIANNUAL',
+  'ANNUAL',
+  'CUSTOM',
+]);
+export type PlatformRecurringFrequency = z.infer<typeof PlatformRecurringFrequency>;
+
+export const PlatformEstimateStatus = z.enum([
+  'DRAFT',
+  'SENT',
+  'PENDING',
+  'APPROVED',
+  'DECLINED',
+  'EXPIRED',
+  'CONVERTED',
+]);
+export type PlatformEstimateStatus = z.infer<typeof PlatformEstimateStatus>;
+
+export const PlatformPaymentStatus = z.enum([
+  'PENDING',
+  'COMPLETED',
+  'FAILED',
+  'PARTIALLY_REFUNDED',
+  'REFUNDED',
+]);
+export type PlatformPaymentStatus = z.infer<typeof PlatformPaymentStatus>;
+
+export const PlatformPaymentMethod = z.enum([
+  'CARD',
+  'ACH',
+  'WIRE',
+  'CHECK',
+  'CASH',
+  'CREDIT_BALANCE',
+  'OTHER',
+]);
+export type PlatformPaymentMethod = z.infer<typeof PlatformPaymentMethod>;
+
+export const PlatformRefundStatus = z.enum(['PENDING', 'COMPLETED', 'FAILED']);
+export type PlatformRefundStatus = z.infer<typeof PlatformRefundStatus>;
+
+export const PlatformCreditNoteStatus = z.enum([
+  'DRAFT',
+  'AVAILABLE',
+  'PARTIALLY_APPLIED',
+  'APPLIED',
+  'REFUNDED',
+  'VOIDED',
+]);
+export type PlatformCreditNoteStatus = z.infer<typeof PlatformCreditNoteStatus>;
+
+export const PlatformBillingDocType = z.enum(['INVOICE', 'ESTIMATE', 'CREDIT_NOTE']);
+export type PlatformBillingDocType = z.infer<typeof PlatformBillingDocType>;
+
+export const PlatformSubscriptionChangeKind = z.enum([
+  'CREATED',
+  'UPGRADED',
+  'DOWNGRADED',
+  'SEATS_CHANGED',
+  'CYCLE_CHANGED',
+  'STATUS_CHANGED',
+  'RENEWED',
+  'CANCEL_REQUESTED',
+  'CANCELED',
+]);
+export type PlatformSubscriptionChangeKind = z.infer<typeof PlatformSubscriptionChangeKind>;
+
+export const AuditCategory = z.enum([
+  'AUTHENTICATION',
+  'AUTHORIZATION',
+  'DATA',
+  'INTEGRATION',
+  'SECURITY',
+  'SYSTEM',
+]);
+export type AuditCategory = z.infer<typeof AuditCategory>;
+
+/** Info: routine success. Low: minor signal. Medium: suspicious or privileged. High: probable risk or a major privilege change. Critical: confirmed or immediate threat. */
+export const AuditSeverity = z.enum(['INFO', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
+export type AuditSeverity = z.infer<typeof AuditSeverity>;
+
+export const AuditOutcome = z.enum(['SUCCESS', 'FAILURE', 'DENIED']);
+export type AuditOutcome = z.infer<typeof AuditOutcome>;
+
+/** Who acted: a firm's staff member, a firm's client, a Super Admin team member, an integration or API key, the platform itself (jobs, rules), or someone not signed in (a failed sign-in). */
+export const AuditActorType = z.enum([
+  'STAFF',
+  'CLIENT',
+  'PLATFORM',
+  'SERVICE',
+  'SYSTEM',
+  'ANONYMOUS',
+]);
+export type AuditActorType = z.infer<typeof AuditActorType>;
+
+export const SecurityAlertStatus = z.enum(['OPEN', 'ACKNOWLEDGED', 'RESOLVED', 'DISMISSED']);
+export type SecurityAlertStatus = z.infer<typeof SecurityAlertStatus>;
+
 /** Where a sign-up verification code was sent. */
 export const VerificationChannel = z.enum(['EMAIL', 'PHONE']);
 export type VerificationChannel = z.infer<typeof VerificationChannel>;
@@ -1579,3 +1765,398 @@ export const LeadActivityKind = z.enum([
   'CAMPAIGN',
 ]);
 export type LeadActivityKind = z.infer<typeof LeadActivityKind>;
+
+/** What a stage means for the lifecycle, the KPIs and the transaction sync. */
+export const SalesStageType = z.enum([
+  'ACTIVE',
+  'CONVERTED',
+  'TRANSACTION_SYNCED',
+  'CLOSED',
+  'LOST',
+]);
+export type SalesStageType = z.infer<typeof SalesStageType>;
+
+export const SalesLeadSource = z.enum([
+  'WEBSITE',
+  'REFERRAL',
+  'SOCIAL_MEDIA',
+  'PAID_ADVERTISING',
+  'ORGANIC_SEARCH',
+  'EVENT',
+  'PARTNER',
+  'MANUAL_ENTRY',
+  'OTHER',
+]);
+export type SalesLeadSource = z.infer<typeof SalesLeadSource>;
+
+export const SalesLostReason = z.enum([
+  'NOT_A_FIT',
+  'BUDGET',
+  'NO_RESPONSE',
+  'CHOSE_COMPETITOR',
+  'TIMING',
+  'DUPLICATE',
+  'INVALID_LEAD',
+  'OTHER',
+]);
+export type SalesLostReason = z.infer<typeof SalesLostReason>;
+
+/** The linked transaction's state, as the transaction side reports it. */
+export const SalesTransactionStatus = z.enum(['OPEN', 'UNDER_CONTRACT', 'CLOSED', 'TERMINATED']);
+export type SalesTransactionStatus = z.infer<typeof SalesTransactionStatus>;
+
+/** Who moved a record: a person, an approved automation, the transaction sync, or an import. */
+export const SalesChangeSource = z.enum(['MANUAL', 'AUTOMATION', 'TRANSACTION', 'IMPORT']);
+export type SalesChangeSource = z.infer<typeof SalesChangeSource>;
+
+export const SalesFollowUpKind = z.enum(['FOLLOW_UP', 'CALL', 'DEMO', 'CONSULTATION', 'MEETING']);
+export type SalesFollowUpKind = z.infer<typeof SalesFollowUpKind>;
+
+export const SalesFollowUpStatus = z.enum(['SCHEDULED', 'COMPLETED', 'CANCELLED']);
+export type SalesFollowUpStatus = z.infer<typeof SalesFollowUpStatus>;
+
+export const SalesActivityKind = z.enum(['CALL', 'EMAIL', 'SMS', 'MEETING', 'OTHER']);
+export type SalesActivityKind = z.infer<typeof SalesActivityKind>;
+
+export const SalesActivityDirection = z.enum(['OUTBOUND', 'INBOUND']);
+export type SalesActivityDirection = z.infer<typeof SalesActivityDirection>;
+
+export const SalesActivityOutcome = z.enum([
+  'CONNECTED',
+  'NO_ANSWER',
+  'LEFT_MESSAGE',
+  'REPLIED',
+  'NO_REPLY',
+  'BOUNCED',
+  'COMPLETED',
+]);
+export type SalesActivityOutcome = z.infer<typeof SalesActivityOutcome>;
+
+export const CommChannel = z.enum(['EMAIL', 'SMS', 'INTERNAL', 'IN_APP']);
+export type CommChannel = z.infer<typeof CommChannel>;
+
+/** Who the conversation is with: a firm's member, a sales lead (B5 contact), or a team member. */
+export const CommContactType = z.enum(['FIRM', 'LEAD', 'TEAM']);
+export type CommContactType = z.infer<typeof CommContactType>;
+
+export const CommConversationStatus = z.enum(['OPEN', 'CLOSED']);
+export type CommConversationStatus = z.infer<typeof CommConversationStatus>;
+
+export const CommDirection = z.enum(['OUTBOUND', 'INBOUND', 'INTERNAL']);
+export type CommDirection = z.infer<typeof CommDirection>;
+
+/** DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED. Inbound messages and internal notes are stored as RECEIVED and SENT. */
+export const CommMessageStatus = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'SENDING',
+  'SENT',
+  'PARTIALLY_SENT',
+  'FAILED',
+  'CANCELLED',
+  'RECEIVED',
+]);
+export type CommMessageStatus = z.infer<typeof CommMessageStatus>;
+
+export const CommRecipientKind = z.enum(['TO', 'CC', 'BCC']);
+export type CommRecipientKind = z.infer<typeof CommRecipientKind>;
+
+export const CommDeliveryStatus = z.enum([
+  'PENDING',
+  'SENT',
+  'DELIVERED',
+  'BOUNCED',
+  'FAILED',
+  'SKIPPED',
+]);
+export type CommDeliveryStatus = z.infer<typeof CommDeliveryStatus>;
+
+export const CommTemplateStatus = z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']);
+export type CommTemplateStatus = z.infer<typeof CommTemplateStatus>;
+
+export const CommMediaKind = z.enum(['INLINE_IMAGE', 'ATTACHMENT']);
+export type CommMediaKind = z.infer<typeof CommMediaKind>;
+
+/** DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED; FAILED -> SENDING (a retry; the first attempt's results stay). */
+export const CommBroadcastStatus = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'SENDING',
+  'SENT',
+  'PARTIALLY_SENT',
+  'FAILED',
+  'CANCELLED',
+]);
+export type CommBroadcastStatus = z.infer<typeof CommBroadcastStatus>;
+
+export const PlatformBrandAssetKind = z.enum([
+  'LOGO',
+  'LOGO_DARK',
+  'FAVICON',
+  'APP_ICON',
+  'LOGIN_BACKGROUND',
+]);
+export type PlatformBrandAssetKind = z.infer<typeof PlatformBrandAssetKind>;
+
+export const PlatformFeatureState = z.enum(['ON', 'OFF']);
+export type PlatformFeatureState = z.infer<typeof PlatformFeatureState>;
+
+export const PlatformRetentionDisposition = z.enum(['DELETE', 'ANONYMIZE', 'ARCHIVE']);
+export type PlatformRetentionDisposition = z.infer<typeof PlatformRetentionDisposition>;
+
+export const PlatformRunStatus = z.enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']);
+export type PlatformRunStatus = z.infer<typeof PlatformRunStatus>;
+
+export const PlatformMaintenanceStatus = z.enum(['SCHEDULED', 'ACTIVE', 'COMPLETED', 'CANCELLED']);
+export type PlatformMaintenanceStatus = z.infer<typeof PlatformMaintenanceStatus>;
+
+export const PlatformDefaultSetKind = z.enum(['FIRM', 'USER']);
+export type PlatformDefaultSetKind = z.infer<typeof PlatformDefaultSetKind>;
+
+export const PlatformIntegrationCategory = z.enum([
+  'PAYMENTS_BILLING',
+  'COMMUNICATION',
+  'EMAIL',
+  'CLOUD_STORAGE',
+  'AI_AUTOMATION',
+  'MLS_DATA',
+  'ESIGN',
+  'SECURITY_INFRASTRUCTURE',
+  'OTHER',
+]);
+export type PlatformIntegrationCategory = z.infer<typeof PlatformIntegrationCategory>;
+
+/** DRAFT until activated (after a passing test); then ACTIVE, INACTIVE, NEEDS_ATTENTION or ERROR as health and admins decide; DISABLED by an admin; REMOVED is the tombstone. */
+export const PlatformIntegrationStatus = z.enum([
+  'DRAFT',
+  'ACTIVE',
+  'INACTIVE',
+  'NEEDS_ATTENTION',
+  'ERROR',
+  'DISABLED',
+  'REMOVED',
+]);
+export type PlatformIntegrationStatus = z.infer<typeof PlatformIntegrationStatus>;
+
+export const PlatformIntegrationRunKind = z.enum(['SYNC', 'TEST']);
+export type PlatformIntegrationRunKind = z.infer<typeof PlatformIntegrationRunKind>;
+
+export const PlatformIntegrationLogSource = z.enum([
+  'PLATFORM_INTEGRATION',
+  'FIRM_CONNECTION',
+  'API',
+  'WEBHOOK',
+]);
+export type PlatformIntegrationLogSource = z.infer<typeof PlatformIntegrationLogSource>;
+
+export const PlatformIntegrationLogSeverity = z.enum(['INFO', 'WARNING', 'ERROR', 'CRITICAL']);
+export type PlatformIntegrationLogSeverity = z.infer<typeof PlatformIntegrationLogSeverity>;
+
+/** ENABLED: visible and connectable; COMING_SOON: visible, not connectable; DISABLED: hidden. */
+export const PlatformCatalogStatus = z.enum(['ENABLED', 'COMING_SOON', 'DISABLED']);
+export type PlatformCatalogStatus = z.infer<typeof PlatformCatalogStatus>;
+
+export const PlatformCatalogPlanAccess = z.enum(['ALL_PLANS', 'SELECTED_PLANS']);
+export type PlatformCatalogPlanAccess = z.infer<typeof PlatformCatalogPlanAccess>;
+
+export const PlatformCatalogFirmAccess = z.enum(['ALLOW', 'DENY']);
+export type PlatformCatalogFirmAccess = z.infer<typeof PlatformCatalogFirmAccess>;
+
+export const PlatformWebhookDirection = z.enum(['OUTBOUND', 'INBOUND']);
+export type PlatformWebhookDirection = z.infer<typeof PlatformWebhookDirection>;
+
+export const PlatformWebhookStatus = z.enum(['ACTIVE', 'DISABLED']);
+export type PlatformWebhookStatus = z.infer<typeof PlatformWebhookStatus>;
+
+export const PlatformDeliveryStatus = z.enum(['PENDING', 'SUCCEEDED', 'FAILED']);
+export type PlatformDeliveryStatus = z.infer<typeof PlatformDeliveryStatus>;
+
+export const PlatformUsageScope = z.enum(['PLATFORM_INTEGRATION', 'CATALOG', 'API']);
+export type PlatformUsageScope = z.infer<typeof PlatformUsageScope>;
+
+export const PlatformReportType = z.enum([
+  'FIRMS',
+  'USERS',
+  'SUBSCRIPTIONS_REVENUE',
+  'SUPPORT',
+  'FEATURE_USAGE',
+  'ACTIVITY_LOG',
+]);
+export type PlatformReportType = z.infer<typeof PlatformReportType>;
+
+export const BookkeepingCategoryType = z.enum([
+  'INCOME',
+  'COST_OF_GOODS',
+  'EXPENSE',
+  'ASSET',
+  'LIABILITY',
+  'EQUITY',
+  'OTHER',
+]);
+export type BookkeepingCategoryType = z.infer<typeof BookkeepingCategoryType>;
+
+/** From the account's side: DEBIT is money out of a bank account (or a charge on a card), CREDIT is money in (or a card payment or refund). */
+export const BookkeepingTxnDirection = z.enum(['DEBIT', 'CREDIT']);
+export type BookkeepingTxnDirection = z.infer<typeof BookkeepingTxnDirection>;
+
+export const BookkeepingTxnKind = z.enum([
+  'STANDARD',
+  'TRANSFER',
+  'PAYMENT',
+  'REFUND',
+  'CHARGEBACK',
+  'FEE',
+  'PAYOUT',
+  'ADJUSTMENT',
+]);
+export type BookkeepingTxnKind = z.infer<typeof BookkeepingTxnKind>;
+
+export const BookkeepingTxnStatus = z.enum([
+  'UNCATEGORIZED',
+  'CATEGORIZED',
+  'MATCHED',
+  'EXCLUDED',
+  'NEEDS_REVIEW',
+]);
+export type BookkeepingTxnStatus = z.infer<typeof BookkeepingTxnStatus>;
+
+export const BookkeepingTxnSource = z.enum(['SYNC', 'IMPORT', 'MANUAL']);
+export type BookkeepingTxnSource = z.infer<typeof BookkeepingTxnSource>;
+
+export const BookkeepingRefundKind = z.enum(['REFUND_RECEIVED', 'REFUND_ISSUED', 'CHARGEBACK']);
+export type BookkeepingRefundKind = z.infer<typeof BookkeepingRefundKind>;
+
+export const BookkeepingRefundStatus = z.enum(['PENDING', 'COMPLETED', 'FAILED', 'REVERSED']);
+export type BookkeepingRefundStatus = z.infer<typeof BookkeepingRefundStatus>;
+
+export const BookkeepingDisputeStatus = z.enum(['OPEN', 'WON', 'LOST', 'ACCEPTED']);
+export type BookkeepingDisputeStatus = z.infer<typeof BookkeepingDisputeStatus>;
+
+export const BookkeepingNetSource = z.enum(['SOURCE', 'CALCULATED']);
+export type BookkeepingNetSource = z.infer<typeof BookkeepingNetSource>;
+
+export const BookkeepingSettlementStatus = z.enum([
+  'UNMATCHED',
+  'PARTIALLY_MATCHED',
+  'MATCHED',
+  'NEEDS_REVIEW',
+]);
+export type BookkeepingSettlementStatus = z.infer<typeof BookkeepingSettlementStatus>;
+
+export const BookkeepingDeliveryStatus = z.enum(['NOT_SENT', 'SENT', 'FAILED']);
+export type BookkeepingDeliveryStatus = z.infer<typeof BookkeepingDeliveryStatus>;
+
+/** DRAFT (editable) -> SENT -> ACTIVE (signed or accepted; then frozen) -> SUPERSEDED by the next version, or TERMINATED. */
+export const BookkeepingTermsStatus = z.enum([
+  'DRAFT',
+  'SENT',
+  'ACTIVE',
+  'SUPERSEDED',
+  'TERMINATED',
+]);
+export type BookkeepingTermsStatus = z.infer<typeof BookkeepingTermsStatus>;
+
+export const BookkeepingRenewalType = z.enum(['AUTO', 'MANUAL', 'FIXED_TERM']);
+export type BookkeepingRenewalType = z.infer<typeof BookkeepingRenewalType>;
+
+export const BookkeepingBillingFrequency = z.enum(['MONTHLY', 'QUARTERLY', 'ANNUAL']);
+export type BookkeepingBillingFrequency = z.infer<typeof BookkeepingBillingFrequency>;
+
+export const BookkeepingBillingTiming = z.enum(['ADVANCE', 'ARREARS']);
+export type BookkeepingBillingTiming = z.infer<typeof BookkeepingBillingTiming>;
+
+export const BookkeepingPaymentTerms = z.enum([
+  'DUE_ON_RECEIPT',
+  'NET_7',
+  'NET_15',
+  'NET_30',
+  'CUSTOM',
+]);
+export type BookkeepingPaymentTerms = z.infer<typeof BookkeepingPaymentTerms>;
+
+export const BookkeepingTermsEventKind = z.enum([
+  'CREATED',
+  'SENT',
+  'SIGNED',
+  'ACTIVATED',
+  'SUPERSEDED',
+  'PACKAGE_CHANGED',
+  'PRICING_CHANGED',
+  'SCOPE_CHANGED',
+  'RENEWAL_CHANGED',
+  'PRICE_CHANGE_NOTICE',
+  'TERMINATION_NOTICE',
+  'TERMINATED',
+  'RENEWED',
+  'NOTE',
+]);
+export type BookkeepingTermsEventKind = z.infer<typeof BookkeepingTermsEventKind>;
+
+/** How the client is taxed (distinct from its legal entity type on the profile). */
+export const ComplianceTaxClassification = z.enum([
+  'INDIVIDUAL',
+  'SOLE_PROPRIETOR',
+  'DISREGARDED_ENTITY',
+  'PARTNERSHIP',
+  'S_CORPORATION',
+  'C_CORPORATION',
+  'TRUST',
+  'ESTATE',
+  'NONPROFIT',
+  'OTHER',
+]);
+export type ComplianceTaxClassification = z.infer<typeof ComplianceTaxClassification>;
+
+/** The federal payroll tax deposit schedule. */
+export const CompliancePayrollDepositSchedule = z.enum([
+  'MONTHLY',
+  'SEMIWEEKLY',
+  'NEXT_DAY',
+  'ANNUAL',
+]);
+export type CompliancePayrollDepositSchedule = z.infer<typeof CompliancePayrollDepositSchedule>;
+
+export const ComplianceFilingFrequency = z.enum(['MONTHLY', 'QUARTERLY', 'SEMIANNUAL', 'ANNUAL']);
+export type ComplianceFilingFrequency = z.infer<typeof ComplianceFilingFrequency>;
+
+/** How a deadline's due date carries to its tasks. */
+export const ComplianceTaskDueSync = z.enum(['NONE', 'MATCH_DEADLINE', 'LEAD_DAYS']);
+export type ComplianceTaskDueSync = z.infer<typeof ComplianceTaskDueSync>;
+
+/** Whose target: the whole company, one team (a platform department) or one rep. */
+export const SalesTargetScope = z.enum(['COMPANY', 'TEAM', 'REP']);
+export type SalesTargetScope = z.infer<typeof SalesTargetScope>;
+
+/** What a target measures. The API computes attainment from the source records with B5's definitions (docs/work/R0-stage-d1-sales-center.md); nothing is stored as an "actual". */
+export const SalesTargetMetric = z.enum([
+  'NEW_LEADS',
+  'DEMOS_SCHEDULED',
+  'TRIALS_STARTED',
+  'WON_DEALS',
+  'REVENUE_WON',
+  'CONVERSION_RATE',
+  'OUTBOUND_ACTIVITIES',
+]);
+export type SalesTargetMetric = z.infer<typeof SalesTargetMetric>;
+
+export const SalesTargetPeriod = z.enum(['MONTH', 'QUARTER', 'YEAR', 'CUSTOM']);
+export type SalesTargetPeriod = z.infer<typeof SalesTargetPeriod>;
+
+export const SalesImportStatus = z.enum([
+  'PENDING',
+  'PROCESSING',
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+]);
+export type SalesImportStatus = z.infer<typeof SalesImportStatus>;
+
+/** What a row that matches an existing contact (normalized email or phone) does. */
+export const SalesImportDuplicateMode = z.enum(['SKIP', 'ATTACH_TO_EXISTING']);
+export type SalesImportDuplicateMode = z.infer<typeof SalesImportDuplicateMode>;
+
+export const SalesImportRowOutcome = z.enum(['IMPORTED', 'DUPLICATE', 'SKIPPED', 'FAILED']);
+export type SalesImportRowOutcome = z.infer<typeof SalesImportRowOutcome>;
+
+export const SalesImportMatch = z.enum(['EMAIL', 'PHONE', 'EMAIL_AND_PHONE']);
+export type SalesImportMatch = z.infer<typeof SalesImportMatch>;

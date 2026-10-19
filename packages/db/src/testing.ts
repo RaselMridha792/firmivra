@@ -37,6 +37,38 @@ export function testDatabaseUrls(suffix = 'test'): { owner: string; app: string 
 }
 
 /**
+ * Tables whose rows a migration inserts (settings rows, counters, reference lists): emptying them
+ * would leave the database unlike every real environment. Add a table here when its migration
+ * inserts rows the app relies on.
+ */
+const MIGRATION_REFERENCE_TABLES = [
+  // r0_platform_support (stage B2)
+  'support_settings',
+  'support_ticket_counters',
+  'support_categories',
+  'support_priorities',
+  'support_escalation_rules',
+  'support_notification_rules',
+  // r0_platform_billing (stage B3)
+  'platform_billing_settings',
+  'platform_billing_counters',
+  // r0_platform_audit_security (stage B4)
+  'platform_security_policy',
+  // r0_platform_sales (stage B5)
+  'sales_pipelines',
+  'sales_pipeline_stages',
+  'sales_attention_settings',
+  // r0_platform_communications (stage B6)
+  'comm_template_categories',
+  // r0_platform_system_settings (stage B7)
+  'platform_settings',
+  'platform_retention_policies',
+  'platform_default_sets',
+  // r0_compliance_facts (stage C2)
+  'compliance_holidays',
+];
+
+/**
  * Creates the test database if needed, applies all migrations and empties every table.
  * Needs an owner role that can create databases (local Docker and CI Postgres are superusers).
  */
@@ -64,19 +96,17 @@ export async function prepareTestDatabase(
   const owner = new pg.Client({ connectionString: urls.owner });
   await owner.connect();
   try {
-    await owner.query(`TRUNCATE businesses, users, memberships, client_accounts, platform_admins,
-      support_access_grants, audit_logs, firm_applications, business_settings,
-      firm_legal_documents, tax_statuses, invites, clients, client_profiles, client_tax_statuses,
-      client_tax_status_history, services, engagements, engagement_status_history, tasks, notes,
-      engagement_reports, document_categories, documents, document_requests, intake_forms, intakes,
-      intake_submissions, leads, lead_uploads, notifications, notification_deliveries, legal_acceptances,
-      notification_preferences, appointment_types, working_hours, blocked_times, appointments,
-      message_threads, messages, message_attachments, client_private_notes, client_note_reminders,
-      invoices, invoice_lines, payments, payment_events, content_items, calculator_definitions,
-      stripe_accounts, firm_application_status_history, verification_codes, tax_returns,
-      payment_refunds, platform_user_signups, platform_owner_invites, firm_agreements,
-      firm_agreement_files, firm_agreement_versions, intake_signatures, intake_signature_agreements,
-      offline_payments, platform_departments, platform_role_definitions, platform_plans CASCADE`);
+    // Every table, from the catalog: a hand-kept list missed tables with no foreign-key path to
+    // the listed ones (compliance_calendars, for one), so on a reused local test database a fixed
+    // seed id survived from the last run and broke the next seed.
+    // Except the reference rows a migration itself inserts (defaults every environment needs).
+    const { rows } = await owner.query<{ name: string }>(
+      `SELECT quote_ident(tablename) AS name FROM pg_tables
+       WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'
+         AND NOT (tablename = ANY ($1::text[]))`,
+      [MIGRATION_REFERENCE_TABLES],
+    );
+    await owner.query(`TRUNCATE ${rows.map((r) => r.name).join(', ')} CASCADE`);
   } finally {
     await owner.end();
   }

@@ -86,16 +86,26 @@ const {
 } = await loadCases();
 
 /**
+ * The sweeps over every body case (one request per body id, more with each module) get the
+ * positive control's time; the 30 s default is for single checks.
+ */
+const SWEEP_MS = 180_000;
+
+/**
  * Path params that are not records, each tied to the routes that use it, with a value valid for
  * any firm. The same name on any other route is a record param and needs a case.
  */
 const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
   { param: 'year', value: '2025', routes: /\/tax-years\/:year(\/history)?$/ },
+  // A tax year of a payroll client's year-end checklist, not a record.
+  { param: 'taxYear', value: '2030', routes: /\/payroll\/clients\/:id\/year-end\/:taxYear$/ },
   { param: 'kind', value: 'terms', routes: /\/legal\/:kind(\/versions(\/:version)?)?$/ },
   { param: 'version', value: '1', routes: /\/legal\/:kind\/versions\/:version$/ },
   // Each agreement record has version 1.
   { param: 'version', value: '1', routes: /\/agreements\/:agreementId\/versions\/:version$/ },
   { param: 'key', value: 'tax-bracket', routes: /\/calculators\/:key$/ },
+  // A brand image kind (code), not a record: the firm's own branding (branding.e2e).
+  { param: 'kind', value: 'FAVICON', routes: /\/business\/branding\/assets\/:kind$/ },
   { param: 'step', value: 'branding', routes: /\/setup\/steps\/:step$/ },
   // A step of the form (cases/intake-forms.ts's Annual Tax form), not a record.
   { param: 'stepKey', value: 'personal', routes: /\/intakes\/:id\/steps\/:stepKey$/ },
@@ -104,6 +114,38 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
     param: 'version',
     value: '1',
     routes: /\/esign\/templates\/:templateId\/versions\/:version\/restore$/,
+  },
+  // Each automation rule record has a version 1 (cases/automations.ts).
+  { param: 'version', value: '1', routes: /\/automations\/rules\/:id\/versions\/:version$/ },
+  // Each message template record has version 1 (cases/templates.ts).
+  {
+    param: 'version',
+    value: '1',
+    routes: /\/business\/templates\/:id\/versions\/:version(\/restore)?$/,
+  },
+  // A provider code of the Integrations catalog (cases/integrations.ts), not a record.
+  {
+    param: 'provider',
+    value: 'quickbooks',
+    routes: /\/business\/integrations\/providers\/:provider(\/connect)?$/,
+  },
+  // Each tax plan record has a version 1 (cases/tax-planning.ts).
+  { param: 'version', value: '1', routes: /\/tax-planning\/plans\/:id\/versions\/:version$/ },
+  // A resource of the approved catalog (kept in code), not a record.
+  {
+    param: 'key',
+    value: 'year-end-planning-checklist',
+    routes: /\/tax-planning\/resources\/:key\/send$/,
+  },
+  // Each advisory plan record has a version 1 (cases/advisory.ts).
+  { param: 'version', value: '1', routes: /\/advisory\/plans\/:id\/versions\/:version$/ },
+  // A role of the firm (code), not a record: its grid is the firm's own (cases in roles e2e).
+  { param: 'role', value: 'MANAGER', routes: /\/business\/roles\/:role\/permissions$/ },
+  // A resource of the approved library (kept in code), not a record.
+  {
+    param: 'key',
+    value: 'funding-readiness-checklist',
+    routes: /\/advisory\/resources\/:key\/send$/,
   },
 ];
 const fixedOf = (path: string): Record<string, string> =>
@@ -541,29 +583,41 @@ describe('tenant isolation (R8 step 2)', () => {
       expect(failures).toEqual([]);
     });
 
-    it("a member of firm Q is refused firm P's records named in a body, in firm Q", async () => {
-      const actor = as.firm(people.ownerQ, firms.q.id);
-      const res = await bodySwaps(routes.filter(isFirmRoute), q, actor, firms.q.slug, own.q);
-      expect(res.failures).toEqual([]);
-      expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isFirmRoute));
-    });
+    it(
+      "a member of firm Q is refused firm P's records named in a body, in firm Q",
+      async () => {
+        const actor = as.firm(people.ownerQ, firms.q.id);
+        const res = await bodySwaps(routes.filter(isFirmRoute), q, actor, firms.q.slug, own.q);
+        expect(res.failures).toEqual([]);
+        expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isFirmRoute));
+      },
+      SWEEP_MS,
+    );
 
-    it("a client of firm Q is refused firm P's records named in a body", async () => {
-      const actor = as.client(q.client!);
-      const res = await bodySwaps(routes.filter(isPortalRoute), q, actor, firms.q.slug, own.q);
-      expect(res.failures).toEqual([]);
-      expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isPortalRoute));
-    });
+    it(
+      "a client of firm Q is refused firm P's records named in a body",
+      async () => {
+        const actor = as.client(q.client!);
+        const res = await bodySwaps(routes.filter(isPortalRoute), q, actor, firms.q.slug, own.q);
+        expect(res.failures).toEqual([]);
+        expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isPortalRoute));
+      },
+      SWEEP_MS,
+    );
 
-    it("client Y is refused client X's records named in a body, in the same firm", async () => {
-      const actor = as.client(peer.client!);
-      const only = (record: string) => RECORDS[record]?.clientPrivate === true;
-      const portal = routes.filter(isPortalRoute);
-      const res = await bodySwaps(portal, peer, actor, firms.p.slug, own.p, only);
-      expect(res.failures).toEqual([]);
-      expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isPortalRoute, only));
-      expect(res.sent).toBeGreaterThan(0);
-    });
+    it(
+      "client Y is refused client X's records named in a body, in the same firm",
+      async () => {
+        const actor = as.client(peer.client!);
+        const only = (record: string) => RECORDS[record]?.clientPrivate === true;
+        const portal = routes.filter(isPortalRoute);
+        const res = await bodySwaps(portal, peer, actor, firms.p.slug, own.p, only);
+        expect(res.failures).toEqual([]);
+        expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isPortalRoute, only));
+        expect(res.sent).toBeGreaterThan(0);
+      },
+      SWEEP_MS,
+    );
 
     it("a client of firm P gets 404 at firm Q's portal, on every client route", async () => {
       const failures: string[] = [];
@@ -741,27 +795,31 @@ describe('tenant isolation (R8 step 2)', () => {
     expect(failures).toEqual([]);
   });
 
-  it("the body cases' control: firm Q's own people reach them with Q's own records", async () => {
-    const me = routes.find((r) => keyOf(r) === 'GET /api/v1/portal/:firmSlug/me')!;
-    expect((await call(me, fill(me, firms.q.slug), as.client(q.client!))).status).toBe(200);
-    expect((await call(me, fill(me, firms.p.slug), as.client(peer.client!))).status).toBe(200);
-    const failures: string[] = [];
-    for (const route of routes.filter((r) => isFirmRoute(r) || isPortalRoute(r)).filter(ready)) {
-      const c = CASES[keyOf(route)];
-      if (!c?.bodyIds) continue;
-      const keys = ['client', ...Object.values(c.params), ...Object.values(c.bodyIds)];
-      const world = await buildWorld(keys, 'q');
-      const res = await call(
-        route,
-        fill(route, firms.q.slug, recordsOf(c, world)),
-        isPortalRoute(route) ? as.client(world.client!) : as.firm(people.ownerQ, firms.q.id),
-        bodyOf(route, own.q, world),
-      );
-      const ok = c.expect === undefined ? is2xx(res.status) : res.status === c.expect;
-      if (!ok) failures.push(`${keyOf(route)} (${c.file}): ${show(res)}`);
-    }
-    expect(failures).toEqual([]);
-  });
+  it(
+    "the body cases' control: firm Q's own people reach them with Q's own records",
+    async () => {
+      const me = routes.find((r) => keyOf(r) === 'GET /api/v1/portal/:firmSlug/me')!;
+      expect((await call(me, fill(me, firms.q.slug), as.client(q.client!))).status).toBe(200);
+      expect((await call(me, fill(me, firms.p.slug), as.client(peer.client!))).status).toBe(200);
+      const failures: string[] = [];
+      for (const route of routes.filter((r) => isFirmRoute(r) || isPortalRoute(r)).filter(ready)) {
+        const c = CASES[keyOf(route)];
+        if (!c?.bodyIds) continue;
+        const keys = ['client', ...Object.values(c.params), ...Object.values(c.bodyIds)];
+        const world = await buildWorld(keys, 'q');
+        const res = await call(
+          route,
+          fill(route, firms.q.slug, recordsOf(c, world)),
+          isPortalRoute(route) ? as.client(world.client!) : as.firm(people.ownerQ, firms.q.id),
+          bodyOf(route, own.q, world),
+        );
+        const ok = c.expect === undefined ? is2xx(res.status) : res.status === c.expect;
+        if (!ok) failures.push(`${keyOf(route)} (${c.file}): ${show(res)}`);
+      }
+      expect(failures).toEqual([]);
+    },
+    SWEEP_MS,
+  );
 
   it("the positive control: firm P's Owner and client X reach every case", async () => {
     const failures: string[] = [];
@@ -788,5 +846,5 @@ describe('tenant isolation (R8 step 2)', () => {
       if (!ok) failures.push(`${keyOf(route)} (${c.file}): ${show(res)}`);
     }
     expect(failures).toEqual([]);
-  });
+  }, 180_000);
 });

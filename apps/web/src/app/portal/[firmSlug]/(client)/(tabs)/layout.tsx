@@ -39,16 +39,14 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           title={
             <>
               My Client{' '}
-              <span className={invoicesPage ? 'text-firm-primary' : 'text-firm-accent'}>
-                Portal
-              </span>
+              <span className={invoicesPage ? 'text-firm-text' : 'text-firm-accent'}>Portal</span>
             </>
           }
           subtitle="Access your forms, documents, and resources anytime, anywhere."
         />
         <nav
           aria-label="Portal folders"
-          className="flex overflow-x-auto gap-1 border-b border-folder-border"
+          className="grid grid-cols-2 gap-1 border-b border-folder-border md:grid-cols-3 xl:grid-cols-6"
         >
           {tabs.map(([label, path]) => {
             const href = `/${firmSlug}/${path}`;
@@ -63,14 +61,14 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
                 ? 'border-firm-primary'
                 : 'border-firm-accent';
             const tabClassName = active
-              ? `border-t-4 ${activeBorder} bg-surface font-semibold text-firm-primary`
-              : 'bg-folder-surface text-firm-primary hover:bg-folder-hover';
+              ? `border-t-4 ${activeBorder} bg-surface font-semibold text-firm-text`
+              : 'bg-folder-surface text-firm-text hover:bg-folder-hover';
             return (
               <Link
                 key={path}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className={`min-w-32 flex-1 cursor-pointer rounded-t-card px-3 py-4 text-center text-base ${tabClassName}`}
+                className={`min-w-0 cursor-pointer rounded-t-card px-3 py-4 text-center text-base ${tabClassName}`}
               >
                 {label}
               </Link>

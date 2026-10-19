@@ -824,6 +824,8 @@ model Business {
   clientAccounts       ClientAccount[]
   supportAccessGrants  SupportAccessGrant[]
   auditLogs            AuditLog[]
+  /// R0 stage B4: security alerts about this firm.
+  securityAlerts       SecurityAlert[]
   firmApplication      FirmApplication?
   settings             BusinessSettings?
   legalDocuments       FirmLegalDocument[]
@@ -869,7 +871,32 @@ model Business {
   documentSettings         DocumentSettings?
 
   /// R0 stage A: null until a subscription is set (no backfill for existing firms).
-  platformFirmSubscription PlatformFirmSubscription?
+  platformFirmSubscription  PlatformFirmSubscription?
+  /// R0 stage B3: what Firmivra bills this firm (Super Admin Billing).
+  platformBillingProfile    PlatformFirmBillingProfile?
+  platformInvoices          PlatformInvoice[]
+  platformRecurringInvoices PlatformRecurringInvoice[]
+  platformEstimates         PlatformEstimate[]
+  platformCreditNotes       PlatformCreditNote[]
+  /// R0 stage B5: Firmivra sales records that converted into this firm.
+  salesOpportunities        SalesOpportunity[]
+  /// R0 stage B1: Super Admin notifications about this firm (nullable link, platform data).
+  platformNotifications     PlatformNotification[]
+  /// R0 stage B2: the firm's tickets with Firmivra support (Super Admin Support module).
+  supportTickets            SupportTicket[]
+  /// R0 stage B6: Firmivra's conversations with this firm's people, and its message and broadcast recipients.
+  commConversations         CommConversation[]
+  commRecipients            CommMessageRecipient[]           @relation("CommMessageRecipientBusiness")
+  commBroadcastRecipients   CommBroadcastRecipient[]         @relation("CommBroadcastRecipientBusiness")
+  /// R0 stage B7: this firm's feature overrides, legal holds and the defaults it was provisioned with.
+  platformFeatureOverrides  PlatformFeatureOverride[]
+  platformLegalHolds        PlatformLegalHold[]              @relation("PlatformLegalHoldBusiness")
+  platformDefaultsApplied   PlatformDefaultSetApplication?   @relation("PlatformDefaultSetApplied")
+  /// R0 stage B8: this firm's allow or deny rules in Firmivra's integration catalog.
+  platformCatalogRules      PlatformIntegrationCatalogFirm[] @relation("PlatformCatalogFirmRule")
+  /// R0 stage B9: Firmivra's daily rollups of this firm's feature use and activity.
+  platformFeatureUsage      PlatformFeatureUsageDaily[]      @relation("PlatformFeatureUsageDaily")
+  platformFirmMetrics       PlatformFirmMetricsDaily[]       @relation("PlatformFirmMetricsDaily")
 
   @@map("businesses")
 }
@@ -1014,12 +1041,13 @@ model Membership {
   teamMemberships   TeamMember[]
   departments       MemberDepartment[]
 
-  staffProfile      StaffProfile?          @relation("StaffProfileMember")
-  staffSupervised   StaffProfile[]         @relation("StaffSupervisor")
-  staffNotesWritten StaffProfile[]         @relation("StaffNotesUpdatedBy")
-  staffSecurity     StaffSecuritySettings?
-  staffCompensation StaffCompensation?
-  staffDrafts       StaffDraft[]
+  staffProfile        StaffProfile?          @relation("StaffProfileMember")
+  staffSupervised     StaffProfile[]         @relation("StaffSupervisor")
+  staffNotesWritten   StaffProfile[]         @relation("StaffNotesUpdatedBy")
+  staffSecurity       StaffSecuritySettings?
+  staffCompensation   StaffCompensation?
+  staffDrafts         StaffDraft[]
+  staffImportPreviews StaffImportPreview[]
 
   staffDocuments         StaffDocument[] @relation("StaffDocumentOwner")
   staffDocumentsUploaded StaffDocument[] @relation("StaffDocumentUploader")
@@ -1066,6 +1094,8 @@ model Membership {
   leadActivities            LeadActivity[]            @relation("LeadActivityActor")
   availabilityOverrides     AvailabilityOverride[]    @relation("OverrideStaff")
   appointmentSeriesCreated  AppointmentSeries[]       @relation("SeriesCreatedBy")
+  /// R0 stage B2: support tickets about this member.
+  supportTickets            SupportTicket[]           @relation("SupportTicketContact")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1125,9 +1155,29 @@ model PlatformAdmin {
   role      PlatformRole @default(SUPER_ADMIN)
   createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  user   User            @relation(fields: [userId], references: [id])
+  user                   User                     @relation(fields: [userId], references: [id])
   /// R0 stage A: the org-chart row for this admin, if one exists yet (CREATING_TEAM 20261016_r0).
-  member PlatformMember?
+  member                 PlatformMember?
+  /// R0 stage B5: sales records and follow-ups assigned to this team member.
+  salesDealsAssigned     SalesOpportunity[]       @relation("SalesOpportunityAssignee")
+  salesFollowUps         SalesFollowUp[]          @relation("SalesFollowUpAssignee")
+  /// R0 stage D1: this rep's sales targets and the lead imports assigned to them.
+  salesTargets           SalesTarget[]            @relation("SalesTargetRep")
+  salesImportsAssigned   SalesLeadImport[]        @relation("SalesLeadImportAssignee")
+  /// R0 stage B1: this admin's notification center and export jobs.
+  notifications          PlatformNotification[]
+  exportJobs             PlatformExportJob[]
+  /// R0 stage B6: conversations assigned to this team member, mentions and read state.
+  commConversations      CommConversation[]       @relation("CommConversationAssignee")
+  commMentions           CommMessageMention[]     @relation("CommMessageMentioned")
+  commReads              CommConversationRead[]   @relation("CommConversationReader")
+  /// R0 stage B2: support tickets assigned to this team member.
+  supportTicketsAssigned SupportTicket[]          @relation("SupportTicketAssignee")
+  /// R0 stage B4
+  securityAlertsAssigned SecurityAlert[]          @relation("SecurityAlertAssignee")
+  investigationNotes     AuditInvestigationNote[] @relation("AuditInvestigationNoteAuthor")
+  /// R0 stage B9: this team member's saved reports.
+  savedReports           PlatformSavedReport[]    @relation("PlatformSavedReportOwner")
 
   @@map("platform_admins")
 }
@@ -1188,6 +1238,8 @@ model PlatformDepartment {
 
   roleDefinitions PlatformRoleDefinition[]
   members         PlatformMember[]
+  /// R0 stage D1: team sales targets.
+  salesTargets    SalesTarget[]
 
   @@map("platform_departments")
 }
@@ -1306,8 +1358,12 @@ model PlatformPlan {
   createdAt                    DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt                    DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  features      PlatformPlanFeature[]
-  subscriptions PlatformFirmSubscription[]
+  features           PlatformPlanFeature[]
+  subscriptions      PlatformFirmSubscription[]
+  /// R0 stage B5
+  salesOpportunities SalesOpportunity[]
+  /// R0 stage B8
+  catalogPlans       PlatformIntegrationCatalogPlan[]
 
   @@map("platform_plans")
 }
@@ -1369,10 +1425,919 @@ model PlatformFirmSubscription {
   createdAt           DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business     @relation(fields: [businessId], references: [id])
-  plan     PlatformPlan @relation(fields: [planId], references: [id])
+  business          Business                     @relation(fields: [businessId], references: [id])
+  plan              PlatformPlan                 @relation(fields: [planId], references: [id])
+  /// R0 stage B3
+  invoices          PlatformInvoice[]
+  recurringInvoices PlatformRecurringInvoice[]
+  changes           PlatformSubscriptionChange[]
 
   @@map("platform_firm_subscriptions")
+}
+
+// ---------- R0 stage B1: Super Admin notifications and export jobs ----------
+
+/// The Super Admin notification center's categories (Notifications spec).
+enum PlatformNotificationCategory {
+  FIRMS
+  FIRM_APPLICATIONS
+  SALES_LEADS
+  BILLING_SUBSCRIPTIONS
+  SUPPORT
+  INTEGRATIONS
+  SECURITY
+  SYSTEM
+}
+
+enum PlatformNotificationPriority {
+  CRITICAL
+  HIGH
+  NORMAL
+  INFORMATIONAL
+}
+
+/// The spec's five statuses mix two things: read or not (readAt) and whether the item asks for
+/// work. The API shows Unread / Read / Action Required / Resolved / Dismissed from the two.
+enum PlatformNotificationAttention {
+  NONE
+  ACTION_REQUIRED
+  RESOLVED
+  DISMISSED
+}
+
+/// One row per recipient: a Super Admin team member sees only items for the modules they hold.
+/// The content is fixed at insert; only the read and attention state change, and rows are never
+/// deleted (history is kept). `eventKey` dedupes a producer's retries per recipient.
+model PlatformNotification {
+  id               String                        @id @default(uuid(7)) @db.Uuid
+  recipientUserId  String                        @map("recipient_user_id") @db.Uuid
+  category         PlatformNotificationCategory
+  /// Event key, e.g. "billing.payment_failed".
+  type             String
+  priority         PlatformNotificationPriority  @default(NORMAL)
+  title            String
+  /// Short, safe text only: never secrets, card or bank data, or document contents.
+  body             String?
+  /// The record it opens (deep link), e.g. "firm_application" and its id.
+  sourceType       String                        @map("source_type")
+  sourceId         String?                       @map("source_id") @db.Uuid
+  sourceLabel      String?                       @map("source_label")
+  /// The firm it is about, if any (a platform link, not tenant data).
+  businessId       String?                       @map("business_id") @db.Uuid
+  eventKey         String                        @map("event_key")
+  requiresAction   Boolean                       @default(false) @map("requires_action")
+  attention        PlatformNotificationAttention @default(NONE)
+  readAt           DateTime?                     @map("read_at") @db.Timestamptz(3)
+  resolvedAt       DateTime?                     @map("resolved_at") @db.Timestamptz(3)
+  resolvedByUserId String?                       @map("resolved_by_user_id") @db.Uuid
+  dismissedAt      DateTime?                     @map("dismissed_at") @db.Timestamptz(3)
+  occurredAt       DateTime                      @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  createdAt        DateTime                      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  recipient PlatformAdmin @relation(fields: [recipientUserId], references: [userId], onDelete: Cascade)
+  business  Business?     @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@unique([recipientUserId, eventKey])
+  @@index([recipientUserId, occurredAt])
+  @@index([recipientUserId, attention])
+  @@index([sourceType, sourceId])
+  @@map("platform_notifications")
+}
+
+/// The Super Admin modules that export (Audit, Integration logs, Communications, Reports, ...).
+enum PlatformExportModule {
+  AUDIT
+  BILLING
+  COMMUNICATIONS
+  INTEGRATION_LOGS
+  REPORTS
+  SALES
+  SUPPORT
+}
+
+enum PlatformExportStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+/// An export a Super Admin asked for, made off the request path (large ones must not freeze the
+/// console). Holds the filters and columns, never the exported data; the file lives in S3 under
+/// platform/exports/<id> until expiresAt.
+model PlatformExportJob {
+  id                String               @id @default(uuid(7)) @db.Uuid
+  requestedByUserId String               @map("requested_by_user_id") @db.Uuid
+  module            PlatformExportModule
+  format            ReportFormat
+  title             String
+  filters           Json                 @default("{}")
+  columns           String[]             @default([])
+  status            PlatformExportStatus @default(QUEUED)
+  rowCount          Int?                 @map("row_count")
+  s3Key             String?              @map("s3_key")
+  sizeBytes         Int?                 @map("size_bytes")
+  errorCode         String?              @map("error_code")
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt         DateTime?            @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?            @map("finished_at") @db.Timestamptz(3)
+  expiresAt         DateTime?            @map("expires_at") @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  requestedBy PlatformAdmin @relation(fields: [requestedByUserId], references: [userId], onDelete: Restrict)
+
+  @@index([requestedByUserId, createdAt])
+  @@index([status, createdAt])
+  @@map("platform_export_jobs")
+}
+
+// ---------- R0 stage B2: Super Admin Support (tickets from firms) ----------
+
+/// Spec: Open by default, In Progress, Waiting on Customer, Resolved, and Closed (distinct from
+/// resolved). Overdue and Escalated are flags and tabs, not statuses; a merged ticket is CLOSED
+/// with mergedIntoTicketId set.
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+/// How the ticket came in; stored permanently.
+enum SupportTicketSource {
+  PORTAL
+  EMAIL
+  PHONE
+  INTERNAL
+  WEB_FORM
+}
+
+enum SupportAuthorSide {
+  STAFF
+  CUSTOMER
+}
+
+enum SupportActorType {
+  USER
+  SYSTEM
+}
+
+enum SupportSlaMode {
+  BUSINESS_HOURS
+  CALENDAR
+}
+
+enum SupportEscalationKind {
+  SLA_BREACH
+  HIGH_PRIORITY_UNRESOLVED
+  CRITICAL_IMMEDIATE
+}
+
+/// Reference data, managed in Support settings. An inactive category stays on old tickets.
+model SupportCategory {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tickets         SupportTicket[]
+  cannedResponses SupportCannedResponse[]
+
+  @@map("support_categories")
+}
+
+/// Reference data with the SLA targets: Critical 1 hour, High 4 hours, Medium 1 business day,
+/// Low 2 business days (as seeded).
+model SupportPriority {
+  id                      String   @id @default(uuid(7)) @db.Uuid
+  code                    String   @unique
+  name                    String
+  description             String?
+  color                   String
+  responseTargetMinutes   Int      @map("response_target_minutes")
+  resolutionTargetMinutes Int?     @map("resolution_target_minutes")
+  /// The targets count business hours (support_settings) rather than calendar time.
+  businessTime            Boolean  @default(true) @map("business_time")
+  sortOrder               Int      @default(0) @map("sort_order")
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tickets         SupportTicket[]
+  escalationRules SupportEscalationRule[]
+
+  @@map("support_priorities")
+}
+
+/// A firm's ticket with Firmivra support. Super Admin sees every ticket; a firm's own members see
+/// their firm's tickets and replies (never internal notes) and may raise one from the portal.
+model SupportTicket {
+  id                 String              @id @default(uuid(7)) @db.Uuid
+  /// Shown as "#1001": given by the database on insert (a caller's value is ignored), never reused.
+  number             Int                 @unique @default(0)
+  businessId         String              @map("business_id") @db.Uuid
+  /// The firm's person the ticket is about: a member of that firm.
+  contactUserId      String              @map("contact_user_id") @db.Uuid
+  subject            String
+  /// The opening message as the requester wrote it.
+  description        String
+  categoryId         String              @map("category_id") @db.Uuid
+  priorityId         String              @map("priority_id") @db.Uuid
+  status             SupportTicketStatus @default(OPEN)
+  source             SupportTicketSource
+  /// A Super Admin team member; null = in the queue.
+  assignedUserId     String?             @map("assigned_user_id") @db.Uuid
+  createdByUserId    String              @map("created_by_user_id") @db.Uuid
+  isEscalated        Boolean             @default(false) @map("is_escalated")
+  escalatedAt        DateTime?           @map("escalated_at") @db.Timestamptz(3)
+  escalatedByUserId  String?             @map("escalated_by_user_id") @db.Uuid
+  escalationReason   String?             @map("escalation_reason")
+  firstResponseDueAt DateTime?           @map("first_response_due_at") @db.Timestamptz(3)
+  firstRespondedAt   DateTime?           @map("first_responded_at") @db.Timestamptz(3)
+  resolutionDueAt    DateTime?           @map("resolution_due_at") @db.Timestamptz(3)
+  /// Set while the SLA clock is paused (e.g. waiting on the customer); paused time adds up.
+  slaPausedAt        DateTime?           @map("sla_paused_at") @db.Timestamptz(3)
+  slaPausedSeconds   Int                 @default(0) @map("sla_paused_seconds")
+  resolvedAt         DateTime?           @map("resolved_at") @db.Timestamptz(3)
+  resolvedByUserId   String?             @map("resolved_by_user_id") @db.Uuid
+  closedAt           DateTime?           @map("closed_at") @db.Timestamptz(3)
+  closedByUserId     String?             @map("closed_by_user_id") @db.Uuid
+  reopenedCount      Int                 @default(0) @map("reopened_count")
+  mergedIntoTicketId String?             @map("merged_into_ticket_id") @db.Uuid
+  lastActivityAt     DateTime            @default(now()) @map("last_activity_at") @db.Timestamptz(3)
+  /// A retried submit with the same key is refused, not a second ticket.
+  idempotencyKey     String?             @unique @map("idempotency_key") @db.Uuid
+  /// Optimistic concurrency: the API updates with the version it read, and bumps it.
+  version            Int                 @default(1)
+  /// Soft delete (permissioned); deleted tickets stay for audit and reports.
+  deletedAt          DateTime?           @map("deleted_at") @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business    Business                  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  /// The contact is a member of this firm (a composite key, checked whatever the scope).
+  contact     Membership                @relation("SupportTicketContact", fields: [businessId, contactUserId], references: [businessId, userId], onDelete: Restrict)
+  category    SupportCategory           @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  priority    SupportPriority           @relation(fields: [priorityId], references: [id], onDelete: Restrict)
+  assignee    PlatformAdmin?            @relation("SupportTicketAssignee", fields: [assignedUserId], references: [userId], onDelete: Restrict)
+  mergedInto  SupportTicket?            @relation("SupportTicketMerge", fields: [mergedIntoTicketId], references: [id], onDelete: Restrict)
+  mergedFrom  SupportTicket[]           @relation("SupportTicketMerge")
+  messages    SupportTicketMessage[]
+  notes       SupportTicketNote[]
+  attachments SupportTicketAttachment[]
+  events      SupportTicketEvent[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@index([status, lastActivityAt])
+  @@index([assignedUserId, status])
+  @@map("support_tickets")
+}
+
+/// The conversation: what support and the firm's people write to each other. Never edited.
+model SupportTicketMessage {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  businessId      String            @map("business_id") @db.Uuid
+  ticketId        String            @map("ticket_id") @db.Uuid
+  authorUserId    String            @map("author_user_id") @db.Uuid
+  authorSide      SupportAuthorSide @map("author_side")
+  body            String
+  /// How a staff reply reached the firm (e.g. "EMAIL"); null = portal only.
+  deliveryChannel String?           @map("delivery_channel")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  ticket      SupportTicket             @relation(fields: [businessId, ticketId], references: [businessId, id], onDelete: Restrict)
+  attachments SupportTicketAttachment[]
+
+  @@unique([businessId, id])
+  @@index([businessId, ticketId, createdAt])
+  @@map("support_ticket_messages")
+}
+
+/// Staff-only internal notes: no firm scope ever reads them. Never edited.
+model SupportTicketNote {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  ticketId     String   @map("ticket_id") @db.Uuid
+  authorUserId String   @map("author_user_id") @db.Uuid
+  body         String
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  ticket      SupportTicket             @relation(fields: [businessId, ticketId], references: [businessId, id], onDelete: Restrict)
+  attachments SupportTicketAttachment[]
+
+  @@unique([businessId, id])
+  @@index([businessId, ticketId, createdAt])
+  @@map("support_ticket_notes")
+}
+
+/// A file on a message or a note (at most 10 MB), stored under the firm's own S3 prefix
+/// (tenant/<firm>/support/...). A note's files are staff-only, like the note.
+model SupportTicketAttachment {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  businessId       String     @map("business_id") @db.Uuid
+  ticketId         String     @map("ticket_id") @db.Uuid
+  messageId        String?    @map("message_id") @db.Uuid
+  noteId           String?    @map("note_id") @db.Uuid
+  uploadedByUserId String     @map("uploaded_by_user_id") @db.Uuid
+  fileName         String     @map("file_name")
+  contentType      String     @map("content_type")
+  sizeBytes        Int        @map("size_bytes")
+  sha256           String
+  s3Key            String     @unique @map("s3_key")
+  scanStatus       ScanStatus @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?  @map("scanned_at") @db.Timestamptz(3)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  ticket  SupportTicket         @relation(fields: [businessId, ticketId], references: [businessId, id], onDelete: Restrict)
+  message SupportTicketMessage? @relation(fields: [businessId, messageId], references: [businessId, id], onDelete: Restrict)
+  note    SupportTicketNote?    @relation(fields: [businessId, noteId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, ticketId])
+  @@map("support_ticket_attachments")
+}
+
+/// The ticket's activity history, append-only: who did what and when (creation, assignment,
+/// status, priority and category changes, escalation, SLA events, resolve, reopen, close, merge).
+model SupportTicketEvent {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  businessId  String           @map("business_id") @db.Uuid
+  ticketId    String           @map("ticket_id") @db.Uuid
+  actorUserId String?          @map("actor_user_id") @db.Uuid
+  actorType   SupportActorType @map("actor_type")
+  /// e.g. "ticket.assigned", "ticket.status_changed", "sla.breached".
+  action      String
+  oldValue    String?          @map("old_value")
+  newValue    String?          @map("new_value")
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  ticket SupportTicket @relation(fields: [businessId, ticketId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, ticketId, createdAt])
+  @@map("support_ticket_events")
+}
+
+/// The last ticket number given (one row). Bumped only by the database's own function, so
+/// numbers stay platform-wide and in order whichever scope raises the ticket.
+model SupportTicketCounter {
+  id         Int @id @default(1)
+  lastNumber Int @default(1000) @map("last_number")
+
+  @@map("support_ticket_counters")
+}
+
+/// Support settings, one row: business hours for the SLA clock and the assignment rules.
+model SupportSettings {
+  id                   Int            @id @default(1)
+  /// ISO weekdays the team works, 1 = Monday.
+  workingDays          Int[]          @default([1, 2, 3, 4, 5]) @map("working_days")
+  opensAt              DateTime       @default(dbgenerated("'09:00:00'::time without time zone")) @map("opens_at") @db.Time(0)
+  closesAt             DateTime       @default(dbgenerated("'17:00:00'::time without time zone")) @map("closes_at") @db.Time(0)
+  timeZone             String         @default("America/New_York") @map("time_zone")
+  slaMode              SupportSlaMode @default(BUSINESS_HOURS) @map("sla_mode")
+  pauseWhileWaiting    Boolean        @default(true) @map("pause_while_waiting")
+  roundRobin           Boolean        @default(false) @map("round_robin")
+  lastAssignedUserId   String?        @map("last_assigned_user_id") @db.Uuid
+  reassignAfterMinutes Int?           @map("reassign_after_minutes")
+  updatedByUserId      String?        @map("updated_by_user_id") @db.Uuid
+  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("support_settings")
+}
+
+/// Holidays pause the business-hours SLA clock.
+model SupportHoliday {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  date      DateTime @unique @db.Date
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("support_holidays")
+}
+
+model SupportEscalationRule {
+  id               String                @id @default(uuid(7)) @db.Uuid
+  kind             SupportEscalationKind
+  /// For HIGH_PRIORITY_UNRESOLVED: which priority, and after how long.
+  priorityId       String?               @map("priority_id") @db.Uuid
+  thresholdMinutes Int?                  @map("threshold_minutes")
+  /// Who is told: a team member, or (when null) the people the API's rule picks.
+  notifyUserId     String?               @map("notify_user_id") @db.Uuid
+  /// EMAIL, IN_APP, SMS.
+  channels         String[]              @default([])
+  isActive         Boolean               @default(true) @map("is_active")
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  priority SupportPriority? @relation(fields: [priorityId], references: [id], onDelete: Restrict)
+
+  @@map("support_escalation_rules")
+}
+
+/// Saved replies; inserting one into a reply never sends it by itself.
+model SupportCannedResponse {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  title           String
+  body            String
+  categoryId      String?  @map("category_id") @db.Uuid
+  isActive        Boolean  @default(true) @map("is_active")
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  category SupportCategory? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@map("support_canned_responses")
+}
+
+/// Who hears about which ticket event, and how.
+model SupportNotificationRule {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  /// e.g. "ticket.created", "ticket.assigned", "sla.warning", "ticket.customer_replied".
+  event          String   @unique
+  notifyAssignee Boolean  @default(true) @map("notify_assignee")
+  /// Platform permission keys whose holders are told as well (e.g. "support.view_all").
+  notifyRoleKeys String[] @default([]) @map("notify_role_keys")
+  /// EMAIL, IN_APP, SMS.
+  channels       String[] @default([])
+  isActive       Boolean  @default(true) @map("is_active")
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("support_notification_rules")
+}
+
+// ---------- R0 stage B3: Super Admin Billing (Firmivra bills firms) ----------
+// Money is integer cents in USD. Line amounts, document totals and an invoice's paid, credited
+// and refunded sums are kept by the database. A firm reads its own issued documents (never
+// drafts, never Firmivra's settings). Contract note: docs/work/R0-stage-b3-billing.md.
+
+/// Stored lifecycle. Overdue is not stored: an issued invoice past its due date with a balance.
+enum PlatformInvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  VOIDED
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+enum PlatformRecurringStatus {
+  ACTIVE
+  PAUSED
+  CANCELED
+}
+
+enum PlatformRecurringFrequency {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  ANNUAL
+  CUSTOM
+}
+
+enum PlatformEstimateStatus {
+  DRAFT
+  SENT
+  PENDING
+  APPROVED
+  DECLINED
+  EXPIRED
+  CONVERTED
+}
+
+enum PlatformPaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+enum PlatformPaymentMethod {
+  CARD
+  ACH
+  WIRE
+  CHECK
+  CASH
+  CREDIT_BALANCE
+  OTHER
+}
+
+enum PlatformRefundStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum PlatformCreditNoteStatus {
+  DRAFT
+  AVAILABLE
+  PARTIALLY_APPLIED
+  APPLIED
+  REFUNDED
+  VOIDED
+}
+
+enum PlatformBillingDocType {
+  INVOICE
+  ESTIMATE
+  CREDIT_NOTE
+}
+
+enum PlatformSubscriptionChangeKind {
+  CREATED
+  UPGRADED
+  DOWNGRADED
+  SEATS_CHANGED
+  CYCLE_CHANGED
+  STATUS_CHANGED
+  RENEWED
+  CANCEL_REQUESTED
+  CANCELED
+}
+
+/// Firmivra's billing settings, one row (Billing Settings' General, Invoices & Estimates,
+/// Payments, Taxes & Fees, Reminders and Templates tabs; Numbering is platform_billing_counters,
+/// Permissions are billing.* keys in platform_role_permissions).
+model PlatformBillingSettings {
+  id                     Int      @id @default(1)
+  currency               String   @default("usd")
+  defaultPaymentTermDays Int      @default(30) @map("default_payment_term_days")
+  defaultTaxRateBps      Int      @default(0) @map("default_tax_rate_bps")
+  estimateValidDays      Int      @default(30) @map("estimate_valid_days")
+  allowPartialPayments   Boolean  @default(true) @map("allow_partial_payments")
+  lateFeeBps             Int      @default(0) @map("late_fee_bps")
+  lateFeeGraceDays       Int      @default(0) @map("late_fee_grace_days")
+  /// Reminder schedule, e.g. { "beforeDueDays": [3], "afterDueDays": [1, 7, 14] }.
+  reminders              Json     @default("{}")
+  /// Document template choices (invoice, estimate, credit note, receipt).
+  templates              Json     @default("{}")
+  invoiceFooter          String?  @map("invoice_footer")
+  updatedByUserId        String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("platform_billing_settings")
+}
+
+/// Per-firm billing details and overrides of the settings above.
+model PlatformFirmBillingProfile {
+  businessId          String   @id @map("business_id") @db.Uuid
+  billingContactName  String   @map("billing_contact_name")
+  billingContactEmail String   @map("billing_contact_email")
+  paymentTermDays     Int?     @map("payment_term_days")
+  taxExempt           Boolean  @default(false) @map("tax_exempt")
+  taxRateBps          Int?     @map("tax_rate_bps")
+  autoPay             Boolean  @default(false) @map("auto_pay")
+  notes               String?
+  updatedByUserId     String?  @map("updated_by_user_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@map("platform_firm_billing_profiles")
+}
+
+/// The last number given per document type (INV-, EST-, CN-). Moved only by the database's own
+/// function, so numbers are never reused, even after a void.
+model PlatformBillingCounter {
+  docType    PlatformBillingDocType @id @map("doc_type")
+  prefix     String
+  lastNumber Int                    @map("last_number")
+
+  @@map("platform_billing_counters")
+}
+
+model PlatformInvoice {
+  id                  String                @id @default(uuid(7)) @db.Uuid
+  /// "INV-1001": given by the database on insert, never reused.
+  number              String                @unique @default("")
+  businessId          String                @map("business_id") @db.Uuid
+  subscriptionId      String?               @map("subscription_id") @db.Uuid
+  recurringId         String?               @map("recurring_id") @db.Uuid
+  /// The recurring schedule's occurrence this invoice is for (one invoice per occurrence).
+  recurringOccurrence DateTime?             @map("recurring_occurrence") @db.Date
+  sourceEstimateId    String?               @unique @map("source_estimate_id") @db.Uuid
+  status              PlatformInvoiceStatus @default(DRAFT)
+  invoiceDate         DateTime              @map("invoice_date") @db.Date
+  dueDate             DateTime              @map("due_date") @db.Date
+  periodStart         DateTime?             @map("period_start") @db.Date
+  periodEnd           DateTime?             @map("period_end") @db.Date
+  /// Who it is addressed to at the firm, as of sending.
+  billToName          String                @map("bill_to_name")
+  billToEmail         String                @map("bill_to_email")
+  reference           String?
+  notes               String?
+  internalNote        String?               @map("internal_note")
+  currency            String                @default("usd")
+  discountCents       Int                   @default(0) @map("discount_cents")
+  subtotalCents       Int                   @default(0) @map("subtotal_cents")
+  taxCents            Int                   @default(0) @map("tax_cents")
+  totalCents          Int                   @default(0) @map("total_cents")
+  paidCents           Int                   @default(0) @map("paid_cents")
+  creditedCents       Int                   @default(0) @map("credited_cents")
+  refundedCents       Int                   @default(0) @map("refunded_cents")
+  allowOnlinePayment  Boolean               @default(true) @map("allow_online_payment")
+  sentAt              DateTime?             @map("sent_at") @db.Timestamptz(3)
+  /// The last send's failure, kept apart from the status.
+  sendError           String?               @map("send_error")
+  paidAt              DateTime?             @map("paid_at") @db.Timestamptz(3)
+  voidedAt            DateTime?             @map("voided_at") @db.Timestamptz(3)
+  voidReason          String?               @map("void_reason")
+  createdByUserId     String                @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business           Business                    @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  subscription       PlatformFirmSubscription?   @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  recurring          PlatformRecurringInvoice?   @relation(fields: [recurringId], references: [id], onDelete: Restrict)
+  sourceEstimate     PlatformEstimate?           @relation("PlatformEstimateConverted", fields: [sourceEstimateId], references: [id], onDelete: Restrict)
+  lines              PlatformInvoiceLine[]
+  payments           PlatformPayment[]
+  creditApplications PlatformCreditApplication[]
+  creditNotes        PlatformCreditNote[]
+
+  @@unique([businessId, id])
+  @@unique([recurringId, recurringOccurrence])
+  @@index([businessId, status])
+  @@index([status, dueDate])
+  @@map("platform_invoices")
+}
+
+model PlatformInvoiceLine {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  invoiceId   String   @map("invoice_id") @db.Uuid
+  description String
+  quantity    Decimal  @default(1) @db.Decimal(10, 2)
+  unitCents   Int      @map("unit_cents")
+  taxRateBps  Int      @default(0) @map("tax_rate_bps")
+  /// quantity x unit, rounded; and its tax. Set by the database.
+  amountCents Int      @default(0) @map("amount_cents")
+  taxCents    Int      @default(0) @map("tax_cents")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  invoice PlatformInvoice @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([invoiceId, sortOrder])
+  @@map("platform_invoice_lines")
+}
+
+/// A schedule that makes invoices (the line items are a template, copied onto each invoice).
+model PlatformRecurringInvoice {
+  id              String                     @id @default(uuid(7)) @db.Uuid
+  businessId      String                     @map("business_id") @db.Uuid
+  subscriptionId  String?                    @map("subscription_id") @db.Uuid
+  description     String
+  frequency       PlatformRecurringFrequency
+  /// For CUSTOM: every this many days.
+  intervalDays    Int?                       @map("interval_days")
+  /// [{ description, quantity, unitCents, taxRateBps }]
+  lineTemplate    Json                       @default("[]") @map("line_template")
+  amountCents     Int                        @map("amount_cents")
+  startDate       DateTime                   @map("start_date") @db.Date
+  nextInvoiceDate DateTime?                  @map("next_invoice_date") @db.Date
+  endDate         DateTime?                  @map("end_date") @db.Date
+  autoSend        Boolean                    @default(true) @map("auto_send")
+  autoPay         Boolean                    @default(false) @map("auto_pay")
+  status          PlatformRecurringStatus    @default(ACTIVE)
+  createdByUserId String                     @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business     Business                  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  subscription PlatformFirmSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  invoices     PlatformInvoice[]
+
+  @@index([status, nextInvoiceDate])
+  @@index([businessId])
+  @@map("platform_recurring_invoices")
+}
+
+model PlatformEstimate {
+  id              String                 @id @default(uuid(7)) @db.Uuid
+  /// "EST-1001": given by the database on insert, never reused.
+  number          String                 @unique @default("")
+  businessId      String                 @map("business_id") @db.Uuid
+  status          PlatformEstimateStatus @default(DRAFT)
+  issueDate       DateTime               @map("issue_date") @db.Date
+  expirationDate  DateTime               @map("expiration_date") @db.Date
+  contactName     String                 @map("contact_name")
+  contactEmail    String                 @map("contact_email")
+  contactPhone    String?                @map("contact_phone")
+  reference       String?
+  notes           String?
+  currency        String                 @default("usd")
+  discountCents   Int                    @default(0) @map("discount_cents")
+  subtotalCents   Int                    @default(0) @map("subtotal_cents")
+  taxCents        Int                    @default(0) @map("tax_cents")
+  totalCents      Int                    @default(0) @map("total_cents")
+  /// The Super Admin team member it is assigned to.
+  assignedUserId  String?                @map("assigned_user_id") @db.Uuid
+  sentAt          DateTime?              @map("sent_at") @db.Timestamptz(3)
+  decidedAt       DateTime?              @map("decided_at") @db.Timestamptz(3)
+  createdByUserId String                 @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business         Business               @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  lines            PlatformEstimateLine[]
+  convertedInvoice PlatformInvoice?       @relation("PlatformEstimateConverted")
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@map("platform_estimates")
+}
+
+model PlatformEstimateLine {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  estimateId  String   @map("estimate_id") @db.Uuid
+  description String
+  quantity    Decimal  @default(1) @db.Decimal(10, 2)
+  unitCents   Int      @map("unit_cents")
+  taxRateBps  Int      @default(0) @map("tax_rate_bps")
+  amountCents Int      @default(0) @map("amount_cents")
+  taxCents    Int      @default(0) @map("tax_cents")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  estimate PlatformEstimate @relation(fields: [businessId, estimateId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([estimateId, sortOrder])
+  @@map("platform_estimate_lines")
+}
+
+/// A payment from a firm on one invoice. Counts toward the invoice once COMPLETED.
+model PlatformPayment {
+  id               String                @id @default(uuid(7)) @db.Uuid
+  businessId       String                @map("business_id") @db.Uuid
+  invoiceId        String                @map("invoice_id") @db.Uuid
+  amountCents      Int                   @map("amount_cents")
+  refundedCents    Int                   @default(0) @map("refunded_cents")
+  method           PlatformPaymentMethod
+  status           PlatformPaymentStatus @default(PENDING)
+  paidOn           DateTime              @map("paid_on") @db.Date
+  /// The processor's id (e.g. Stripe payment intent) or the check number.
+  reference        String?
+  processorRef     String?               @unique @map("processor_ref")
+  failureReason    String?               @map("failure_reason")
+  notes            String?
+  receiptSentAt    DateTime?             @map("receipt_sent_at") @db.Timestamptz(3)
+  recordedByUserId String?               @map("recorded_by_user_id") @db.Uuid
+  idempotencyKey   String                @unique @map("idempotency_key") @db.Uuid
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  invoice PlatformInvoice  @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  refunds PlatformRefund[]
+
+  @@unique([businessId, id])
+  @@index([businessId, invoiceId])
+  @@index([status, paidOn])
+  @@map("platform_payments")
+}
+
+/// Money back to a firm, on one payment. Final only once the processor confirms (COMPLETED).
+model PlatformRefund {
+  id                String               @id @default(uuid(7)) @db.Uuid
+  businessId        String               @map("business_id") @db.Uuid
+  paymentId         String               @map("payment_id") @db.Uuid
+  amountCents       Int                  @map("amount_cents")
+  status            PlatformRefundStatus @default(PENDING)
+  reason            String
+  internalNote      String?              @map("internal_note")
+  processorRef      String?              @unique @map("processor_ref")
+  requestedByUserId String               @map("requested_by_user_id") @db.Uuid
+  completedAt       DateTime?            @map("completed_at") @db.Timestamptz(3)
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  payment PlatformPayment @relation(fields: [businessId, paymentId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, paymentId])
+  @@map("platform_refunds")
+}
+
+/// Credit given to a firm, applied to invoices or refunded. Invariant: applied + refunded +
+/// remaining = total.
+model PlatformCreditNote {
+  id               String                   @id @default(uuid(7)) @db.Uuid
+  /// "CN-1001": given by the database on insert, never reused.
+  number           String                   @unique @default("")
+  businessId       String                   @map("business_id") @db.Uuid
+  relatedInvoiceId String?                  @map("related_invoice_id") @db.Uuid
+  status           PlatformCreditNoteStatus @default(DRAFT)
+  issueDate        DateTime                 @map("issue_date") @db.Date
+  reason           String
+  customerNote     String?                  @map("customer_note")
+  internalNote     String?                  @map("internal_note")
+  currency         String                   @default("usd")
+  subtotalCents    Int                      @default(0) @map("subtotal_cents")
+  taxCents         Int                      @default(0) @map("tax_cents")
+  totalCents       Int                      @default(0) @map("total_cents")
+  appliedCents     Int                      @default(0) @map("applied_cents")
+  refundedCents    Int                      @default(0) @map("refunded_cents")
+  issuedAt         DateTime?                @map("issued_at") @db.Timestamptz(3)
+  voidedAt         DateTime?                @map("voided_at") @db.Timestamptz(3)
+  voidReason       String?                  @map("void_reason")
+  createdByUserId  String                   @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business       Business                    @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  relatedInvoice PlatformInvoice?            @relation(fields: [businessId, relatedInvoiceId], references: [businessId, id], onDelete: Restrict)
+  lines          PlatformCreditNoteLine[]
+  applications   PlatformCreditApplication[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status])
+  @@map("platform_credit_notes")
+}
+
+model PlatformCreditNoteLine {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  creditNoteId String   @map("credit_note_id") @db.Uuid
+  description  String
+  quantity     Decimal  @default(1) @db.Decimal(10, 2)
+  unitCents    Int      @map("unit_cents")
+  taxRateBps   Int      @default(0) @map("tax_rate_bps")
+  amountCents  Int      @default(0) @map("amount_cents")
+  taxCents     Int      @default(0) @map("tax_cents")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  creditNote PlatformCreditNote @relation(fields: [businessId, creditNoteId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([creditNoteId, sortOrder])
+  @@map("platform_credit_note_lines")
+}
+
+/// Part of a credit note applied to an invoice of the same firm. Never edited; reversed only by
+/// voiding the credit note before anything is applied.
+model PlatformCreditApplication {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  creditNoteId    String   @map("credit_note_id") @db.Uuid
+  invoiceId       String   @map("invoice_id") @db.Uuid
+  amountCents     Int      @map("amount_cents")
+  appliedByUserId String   @map("applied_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  creditNote PlatformCreditNote @relation(fields: [businessId, creditNoteId], references: [businessId, id], onDelete: Restrict)
+  invoice    PlatformInvoice    @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, invoiceId])
+  @@map("platform_credit_applications")
+}
+
+/// A processor webhook, recorded once (its event id is unique), so a retried webhook is skipped.
+model PlatformPaymentEvent {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  processor   String    @default("stripe")
+  eventId     String    @map("event_id")
+  type        String
+  paymentId   String?   @map("payment_id") @db.Uuid
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(3)
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(3)
+
+  @@unique([processor, eventId])
+  @@map("platform_payment_events")
+}
+
+/// The history of a firm's subscription: every plan, seat, cycle and status change (the
+/// Subscriptions page's history, and Reports' upgrades and downgrades).
+model PlatformSubscriptionChange {
+  id              String                         @id @default(uuid(7)) @db.Uuid
+  businessId      String                         @map("business_id") @db.Uuid
+  subscriptionId  String                         @map("subscription_id") @db.Uuid
+  kind            PlatformSubscriptionChangeKind
+  fromPlanId      String?                        @map("from_plan_id") @db.Uuid
+  toPlanId        String?                        @map("to_plan_id") @db.Uuid
+  fromStatus      PlatformSubscriptionStatus?    @map("from_status")
+  toStatus        PlatformSubscriptionStatus?    @map("to_status")
+  fromSeats       Int?                           @map("from_seats")
+  toSeats         Int?                           @map("to_seats")
+  reason          String?
+  effectiveAt     DateTime                       @default(now()) @map("effective_at") @db.Timestamptz(3)
+  changedByUserId String?                        @map("changed_by_user_id") @db.Uuid
+  createdAt       DateTime                       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  subscription PlatformFirmSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, effectiveAt])
+  @@index([kind, effectiveAt])
+  @@map("platform_subscription_changes")
 }
 
 /// Owner-approved, time-limited access for a Super Admin to one business (Tumit, Sprint 3).
@@ -1394,25 +2359,201 @@ model SupportAccessGrant {
 
 /// Append-only. business_id is null for platform events. The app role cannot update or delete rows.
 model AuditLog {
-  id          String   @id @default(uuid(7)) @db.Uuid
-  businessId  String?  @map("business_id") @db.Uuid
-  actorUserId String?  @map("actor_user_id") @db.Uuid
-  action      String
-  entityType  String   @map("entity_type")
-  entityId    String?  @map("entity_id")
-  metadata    Json?
-  ip          String?
-  userAgent   String?  @map("user_agent")
-  requestId   String?  @map("request_id")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  id                String          @id @default(uuid(7)) @db.Uuid
+  businessId        String?         @map("business_id") @db.Uuid
+  actorUserId       String?         @map("actor_user_id") @db.Uuid
+  action            String
+  entityType        String          @map("entity_type")
+  entityId          String?         @map("entity_id")
+  metadata          Json?
+  ip                String?
+  userAgent         String?         @map("user_agent")
+  requestId         String?         @map("request_id")
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// R0 stage B4 (Audit & Security): the normalized event fields. All optional, so every existing
+  /// writer keeps working; a row with a category also carries its severity, outcome and actor type.
+  category          AuditCategory?
+  severity          AuditSeverity?
+  outcome           AuditOutcome?
+  actorType         AuditActorType? @map("actor_type")
+  /// Snapshots at the time of the action (names and roles change later).
+  actorName         String?         @map("actor_name")
+  actorRole         String?         @map("actor_role")
+  sessionId         String?         @map("session_id")
+  /// How the actor signed in, e.g. "password", "password_totp", "api_key". Never a credential.
+  authMethod        String?         @map("auth_method")
+  /// The target's display label at the time, e.g. a firm's or a user's name.
+  targetLabel       String?         @map("target_label")
+  /// The user acted on, when not the actor. No foreign key: the history outlives the login.
+  subjectUserId     String?         @map("subject_user_id") @db.Uuid
+  /// The firm a platform row is about (a firm's own row may only name itself). No foreign key:
+  /// the history outlives the firm.
+  subjectBusinessId String?         @map("subject_business_id") @db.Uuid
+  /// A bulk operation's parent event, or the event a response action answers.
+  parentEventId     String?         @map("parent_event_id") @db.Uuid
+  riskScore         Int?            @map("risk_score") @db.SmallInt
+  ruleId            String?         @map("rule_id")
+  /// What detected it, e.g. "rules_engine", "sign_in".
+  detectionSource   String?         @map("detection_source")
+  /// A bulk operation's item count.
+  itemCount         Int?            @map("item_count")
 
   // Restrict: a business delete must never turn its audit rows into platform rows.
-  business Business? @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  business           Business?                @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  /// R0 stage B4
+  parentEvent        AuditLog?                @relation("AuditLogParent", fields: [parentEventId], references: [id], onDelete: SetNull)
+  childEvents        AuditLog[]               @relation("AuditLogParent")
+  securityAlerts     SecurityAlert[]
+  investigationNotes AuditInvestigationNote[]
 
   @@index([businessId, createdAt])
   // R37: a record's history (an intake's, a document's, a return's) and a settings page's changes.
   @@index([businessId, entityType, entityId, createdAt])
+  // R0 stage B4: the cross-firm dashboard, related events and an alert chain.
+  @@index([createdAt])
+  @@index([category, createdAt])
+  @@index([severity, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([subjectBusinessId, createdAt])
+  @@index([sessionId])
+  @@index([parentEventId])
   @@map("audit_logs")
+}
+
+// ---------- R0 stage B4: Super Admin Audit & Security ----------
+// One trail: audit_logs gains the normalized event fields above (all optional, so every existing
+// writer keeps working). Alerts, investigation notes and the security policy are platform data:
+// only the Super Admin team and the platform's jobs reach them. Contract note:
+// docs/work/R0-stage-b4-audit.md.
+
+enum AuditCategory {
+  AUTHENTICATION
+  AUTHORIZATION
+  DATA
+  INTEGRATION
+  SECURITY
+  SYSTEM
+}
+
+/// Info: routine success. Low: minor signal. Medium: suspicious or privileged. High: probable risk
+/// or a major privilege change. Critical: confirmed or immediate threat.
+enum AuditSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AuditOutcome {
+  SUCCESS
+  FAILURE
+  DENIED
+}
+
+/// Who acted: a firm's staff member, a firm's client, a Super Admin team member, an integration or
+/// API key, the platform itself (jobs, rules), or someone not signed in (a failed sign-in).
+enum AuditActorType {
+  STAFF
+  CLIENT
+  PLATFORM
+  SERVICE
+  SYSTEM
+  ANONYMOUS
+}
+
+enum SecurityAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+/// A rule matched an audit event. Raised once per `eventKey` (a second raise finds the first).
+/// The content is fixed; only the status (OPEN -> ACKNOWLEDGED -> RESOLVED or DISMISSED, or
+/// straight to a final state), the assignee and the closing note change. The database stamps who
+/// acknowledged and who closed it, and when.
+model SecurityAlert {
+  id                   String              @id @default(uuid(7)) @db.Uuid
+  /// The event that raised it.
+  auditLogId           String              @map("audit_log_id") @db.Uuid
+  /// The firm it is about, if any: the event's firm or the firm a platform event is about. The
+  /// alert is deleted with that firm's data.
+  businessId           String?             @map("business_id") @db.Uuid
+  /// The rule that raised it, e.g. "login.failed_burst".
+  ruleId               String              @map("rule_id")
+  severity             AuditSeverity
+  title                String
+  /// Why it was raised and why this severity. Safe text only: never secrets or document contents.
+  summary              String?
+  riskScore            Int?                @map("risk_score") @db.SmallInt
+  eventKey             String              @unique @map("event_key")
+  status               SecurityAlertStatus @default(OPEN)
+  assignedToUserId     String?             @map("assigned_to_user_id") @db.Uuid
+  acknowledgedAt       DateTime?           @map("acknowledged_at") @db.Timestamptz(3)
+  acknowledgedByUserId String?             @map("acknowledged_by_user_id") @db.Uuid
+  /// Set when the alert is resolved or dismissed.
+  closedAt             DateTime?           @map("closed_at") @db.Timestamptz(3)
+  closedByUserId       String?             @map("closed_by_user_id") @db.Uuid
+  resolutionNote       String?             @map("resolution_note")
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  auditLog AuditLog       @relation(fields: [auditLogId], references: [id], onDelete: Cascade)
+  business Business?      @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  assignee PlatformAdmin? @relation("SecurityAlertAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([severity, createdAt])
+  @@index([auditLogId])
+  @@index([businessId, createdAt])
+  @@index([assignedToUserId, status])
+  @@map("security_alerts")
+}
+
+/// A team member's investigation note on an audit event. Additive: a note's text never changes.
+/// An edit is a new note that supersedes the earlier one (by the same author, at most once); a
+/// delete retracts the note (the text stays for the record). The API writes an audit row for each.
+model AuditInvestigationNote {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  auditLogId       String    @map("audit_log_id") @db.Uuid
+  authorUserId     String    @map("author_user_id") @db.Uuid
+  body             String
+  supersedesNoteId String?   @unique @map("supersedes_note_id") @db.Uuid
+  retractedAt      DateTime? @map("retracted_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  auditLog     AuditLog                @relation(fields: [auditLogId], references: [id], onDelete: Cascade)
+  author       PlatformAdmin           @relation("AuditInvestigationNoteAuthor", fields: [authorUserId], references: [userId], onDelete: Restrict)
+  supersedes   AuditInvestigationNote? @relation("AuditInvestigationNoteEdit", fields: [auditLogId, supersedesNoteId], references: [auditLogId, id], onDelete: Cascade)
+  supersededBy AuditInvestigationNote? @relation("AuditInvestigationNoteEdit")
+
+  @@unique([auditLogId, id])
+  @@unique([auditLogId, supersedesNoteId])
+  @@index([auditLogId, createdAt])
+  @@map("audit_investigation_notes")
+}
+
+/// One row (id 1): the platform's security policy (Security Settings & Policies). Each section is
+/// a JSON object whose shape the contract note fixes; the database checks the safety floors. Every
+/// save adds 1 to `version` (the database does it): the API saves with `where: { id: 1, version }`,
+/// so two admins never silently overwrite each other. The migration inserts the defaults.
+model PlatformSecurityPolicy {
+  id              Int      @id @default(1)
+  version         Int      @default(1)
+  mfa             Json     @default("{}")
+  password        Json     @default("{}")
+  session         Json     @default("{}")
+  loginProtection Json     @default("{}") @map("login_protection")
+  adminAccess     Json     @default("{}") @map("admin_access")
+  apiIntegrations Json     @default("{}") @map("api_integrations")
+  auditRetention  Json     @default("{}") @map("audit_retention")
+  exportControls  Json     @default("{}") @map("export_controls")
+  alertRouting    Json     @default("{}") @map("alert_routing")
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("platform_security_policy")
 }
 
 /// A firm's application to join Firmivra. Platform data: only Super Admin sees it.
@@ -1438,8 +2579,10 @@ model FirmApplication {
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business      Business?                      @relation(fields: [businessId], references: [id])
-  statusHistory FirmApplicationStatusHistory[]
+  business           Business?                      @relation(fields: [businessId], references: [id])
+  statusHistory      FirmApplicationStatusHistory[]
+  /// R0 stage B5
+  salesOpportunities SalesOpportunity[]
 
   @@index([status, createdAt])
   @@index([einHash])
@@ -1470,6 +2613,12 @@ model BusinessSettings {
   brandColor          String?   @map("brand_color")
   /// Optional second colour (`#rrggbb`) for the portal; the API uses a default when empty.
   accentColor         String?   @map("accent_color")
+  /// Firm theme colours (`#rrggbb`, CHECK) for the sidebar, primary and secondary text, and
+  /// buttons. Null derives the colour from the brand colour (the look before these existed).
+  sidebarColor        String?   @map("sidebar_color")
+  textPrimaryColor    String?   @map("text_primary_color")
+  textSecondaryColor  String?   @map("text_secondary_color")
+  buttonColor         String?   @map("button_color")
   /// Module keys switched on for this firm (docs/SYSTEM-DESIGN.md, Modules & packs).
   enabledModules      String[]  @default([]) @map("enabled_modules")
   clientSignUpEnabled Boolean   @default(true) @map("client_sign_up_enabled")
@@ -1667,15 +2816,18 @@ model Client {
   taxOpportunities               TaxOpportunity[]
 
   // R39
-  segmentMembers  CommunicationSegmentMember[]
-  commConsents    CommunicationConsent[]
-  commAudience    CommunicationAudienceEntry[]
-  commRecipients  CommunicationRecipient[]
-  payrollClients  PayrollClient[]
-  advisoryRecords AdvisoryClient[]
-  updatedBy       Membership?                  @relation("ClientUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
-  tags            ClientTag[]
-  statusHistory   ClientStatusHistory[]
+  segmentMembers        CommunicationSegmentMember[]
+  commConsents          CommunicationConsent[]
+  commAudience          CommunicationAudienceEntry[]
+  commRecipients        CommunicationRecipient[]
+  payrollClients        PayrollClient[]
+  advisoryRecords       AdvisoryClient[]
+  updatedBy             Membership?                  @relation("ClientUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  tags                  ClientTag[]
+  statusHistory         ClientStatusHistory[]
+  /// R0 stage C2: compliance facts and sales tax registrations.
+  complianceFacts       ClientComplianceFacts?       @relation("ClientComplianceFacts")
+  salesTaxRegistrations ClientSalesTaxRegistration[] @relation("ClientSalesTaxRegistrations")
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -1918,8 +3070,14 @@ model Engagement {
   taxPlans               TaxPlan[]
 
   // R39
-  payrollClient  PayrollClient?
-  advisoryClient AdvisoryClient?
+  payrollClient           PayrollClient?
+  advisoryClient          AdvisoryClient?
+  /// R0 stage C1: bookkeeping transactions, categories, refunds, settlements and terms.
+  bookkeepingCategories   BookkeepingCategory[]    @relation("BookkeepingCategories")
+  bookkeepingTransactions BookkeepingTransaction[] @relation("BookkeepingTransactions")
+  bookkeepingRefunds      BookkeepingRefund[]      @relation("BookkeepingRefunds")
+  bookkeepingSettlements  BookkeepingSettlement[]  @relation("BookkeepingSettlements")
+  bookkeepingTerms        BookkeepingTerms[]       @relation("BookkeepingTerms")
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -2185,6 +3343,12 @@ model Document {
   taxReturnDocuments          TaxReturnDocument[]
 
   // Target of message attachments.
+  /// R0 stage C1
+  bookkeepingReceiptFor     BookkeepingTransaction[]   @relation("BookkeepingTransactionReceipt")
+  bookkeepingReportFiles    BookkeepingReportVersion[] @relation("BookkeepingReportVersionFile")
+  bookkeepingTermsAgreement BookkeepingTerms[]         @relation("BookkeepingTermsAgreement")
+  bookkeepingTermsSigned    BookkeepingTerms[]         @relation("BookkeepingTermsSignedAgreement")
+
   @@unique([businessId, id])
   // One document per carried-over lead upload.
   @@unique([businessId, leadUploadId])
@@ -3870,6 +5034,8 @@ model EsignRequest {
   uploads             EsignPendingUpload[]
   attachments         EsignAttachment[]
   taxAuthorizations   TaxReturnAuthorization[]
+  /// R0 stage C1
+  bookkeepingTerms    BookkeepingTerms[]       @relation("BookkeepingTermsEsign")
 
   @@unique([businessId, id])
   @@unique([businessId, replacesRequestId])
@@ -7420,6 +8586,26 @@ model StaffDraft {
   @@map("staff_drafts")
 }
 
+/// A staff import's parsed rows (R55's Import Staff), kept for the preview step between upload
+/// and confirm. `rows` is a JSON array of the parsed rows (at most 1,000 and 1 MB; the database
+/// refuses password, token, secret or SSN keys). The database sets `expires_at` to an hour after
+/// creation: an expired preview is no longer read, and is deleted by the next preview of its firm
+/// or by `app_purge_expired_staff_import_previews()`. Never edited: a new upload is a new preview.
+model StaffImportPreview {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  createdById String   @map("created_by_membership_id") @db.Uuid
+  rows        Json
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt   DateTime @default(dbgenerated("(now() + '01:00:00'::interval)")) @map("expires_at") @db.Timestamptz(3)
+
+  createdBy Membership @relation(fields: [businessId, createdById], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, expiresAt])
+  @@index([expiresAt])
+  @@map("staff_import_previews")
+}
+
 // ---------- Staff documents and sessions (R35, migration r35_staff_documents_sessions) ----------
 // HR files kept for a member, and the member's signed-in sessions. Firm tables with forced RLS.
 // Documents are also walled off in the database: only the acting Owner or Admin reads or writes
@@ -8160,7 +9346,10 @@ model ComplianceSettings {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business @relation(fields: [businessId], references: [id])
+  business        Business              @relation(fields: [businessId], references: [id])
+  /// R0 stage C2: how a deadline's due date carries to its tasks.
+  taskDueDateSync ComplianceTaskDueSync @default(NONE) @map("task_due_date_sync")
+  taskDueLeadDays Int                   @default(0) @map("task_due_lead_days")
 
   @@map("compliance_settings")
 }
@@ -8479,10 +9668,15 @@ model BookkeepingConnection {
   createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement Engagement           @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
-  syncRuns   BookkeepingSyncRun[]
-  accounts   BookkeepingAccount[]
+  engagement   Engagement               @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  syncRuns     BookkeepingSyncRun[]
+  accounts     BookkeepingAccount[]
+  /// R0 stage C1
+  categories   BookkeepingCategory[]
+  transactions BookkeepingTransaction[]
+  settlements  BookkeepingSettlement[]
 
+  @@unique([businessId, engagementId, id])
   @@unique([businessId, id])
   @@index([businessId, engagementId])
   @@index([businessId, status])
@@ -8539,7 +9733,10 @@ model BookkeepingAccount {
   engagement                 Engagement                  @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
   connection                 BookkeepingConnection?      @relation(fields: [businessId, connectionId], references: [businessId, id], onDelete: Restrict)
   bookkeepingReconciliations BookkeepingReconciliation[]
+  /// R0 stage C1
+  transactions               BookkeepingTransaction[]
 
+  @@unique([businessId, engagementId, id])
   @@unique([businessId, id])
   @@unique([businessId, engagementId, connectionId, sourceAccountId])
   @@index([businessId, engagementId])
@@ -8651,10 +9848,13 @@ model BookkeepingReconciliation {
   createdAt             DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  period    BookkeepingPeriod  @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
-  account   BookkeepingAccount @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict)
-  statement Document?          @relation(fields: [businessId, statementDocumentId], references: [businessId, id], onDelete: Restrict)
+  period              BookkeepingPeriod        @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
+  account             BookkeepingAccount       @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict)
+  statement           Document?                @relation(fields: [businessId, statementDocumentId], references: [businessId, id], onDelete: Restrict)
+  /// R0 stage C1: the transactions cleared in this reconciliation.
+  clearedTransactions BookkeepingTransaction[]
 
+  @@unique([businessId, id])
   @@unique([businessId, periodId, accountId])
   @@index([businessId, status])
   @@map("bookkeeping_reconciliations")
@@ -8691,9 +9891,11 @@ model BookkeepingReport {
   createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement       Engagement         @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
-  period           BookkeepingPeriod? @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
-  engagementReport EngagementReport?  @relation(fields: [engagementReportId], references: [id], onDelete: Restrict)
+  engagement       Engagement                 @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  period           BookkeepingPeriod?         @relation(fields: [businessId, periodId], references: [businessId, id], onDelete: Restrict)
+  engagementReport EngagementReport?          @relation(fields: [engagementReportId], references: [id], onDelete: Restrict)
+  /// R0 stage C1: every generated version.
+  versions         BookkeepingReportVersion[]
 
   @@unique([businessId, id])
   @@unique([engagementReportId])
@@ -10018,4 +11220,2323 @@ model LeadActivity {
   @@index([businessId, leadId, occurredAt])
   @@index([businessId, kind, occurredAt])
   @@map("lead_activities")
+}
+
+// ---------- R0 stage B5: Super Admin Sales Pipeline ----------
+// Firmivra selling to prospective firms. One dataset behind the board, the list, the KPIs and the
+// analytics: a contact (the master person record, never duplicated on conversion), its
+// opportunities in a pipeline's stages, and their history, activity, follow-ups and notes. Platform
+// data: only the Super Admin team and the platform's jobs reach it. Contract note:
+// docs/work/R0-stage-b5-sales.md.
+
+/// What a stage means for the lifecycle, the KPIs and the transaction sync.
+enum SalesStageType {
+  /// Working the lead (New Lead to Nurturing); counts in pipeline value.
+  ACTIVE
+  /// Converted to an active client (the conversion event).
+  CONVERTED
+  /// Set only by a linked transaction that is under contract.
+  TRANSACTION_SYNCED
+  /// Closed / past client.
+  CLOSED
+  /// The side exit: unqualified or lost, with a reason.
+  LOST
+}
+
+enum SalesLeadSource {
+  WEBSITE
+  REFERRAL
+  SOCIAL_MEDIA
+  PAID_ADVERTISING
+  ORGANIC_SEARCH
+  EVENT
+  PARTNER
+  MANUAL_ENTRY
+  OTHER
+}
+
+enum SalesLostReason {
+  NOT_A_FIT
+  BUDGET
+  NO_RESPONSE
+  CHOSE_COMPETITOR
+  TIMING
+  DUPLICATE
+  INVALID_LEAD
+  OTHER
+}
+
+/// The linked transaction's state, as the transaction side reports it.
+enum SalesTransactionStatus {
+  OPEN
+  UNDER_CONTRACT
+  CLOSED
+  TERMINATED
+}
+
+/// Who moved a record: a person, an approved automation, the transaction sync, or an import.
+enum SalesChangeSource {
+  MANUAL
+  AUTOMATION
+  TRANSACTION
+  IMPORT
+}
+
+enum SalesFollowUpKind {
+  FOLLOW_UP
+  CALL
+  DEMO
+  CONSULTATION
+  MEETING
+}
+
+enum SalesFollowUpStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum SalesActivityKind {
+  CALL
+  EMAIL
+  SMS
+  MEETING
+  OTHER
+}
+
+enum SalesActivityDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum SalesActivityOutcome {
+  CONNECTED
+  NO_ANSWER
+  LEFT_MESSAGE
+  REPLIED
+  NO_REPLY
+  BOUNCED
+  COMPLETED
+}
+
+/// A sales process. The migration ships Firmivra's default (system key "firmivra_default") with
+/// the approved lifecycle; admins add more without code changes.
+model SalesPipeline {
+  id                      String   @id @default(uuid(7)) @db.Uuid
+  name                    String   @unique
+  description             String?
+  /// Set only on pipelines the migration ships.
+  systemKey               String?  @unique @map("system_key")
+  isActive                Boolean  @default(true) @map("is_active")
+  /// Where a terminated transaction returns a record (an active or converted stage of this pipeline).
+  terminatedReturnStageId String?  @map("terminated_return_stage_id") @db.Uuid
+  createdByUserId         String?  @map("created_by_user_id") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  stages             SalesPipelineStage[] @relation("SalesPipelineStages")
+  terminatedReturnTo SalesPipelineStage?  @relation("SalesPipelineTerminatedReturn", fields: [id, terminatedReturnStageId], references: [pipelineId, id], onDelete: Restrict)
+  opportunities      SalesOpportunity[]
+  leadImports        SalesLeadImport[]
+
+  @@map("sales_pipelines")
+}
+
+/// A pipeline's stage. A stage holding records can't be deleted (move them first) or change type;
+/// an inactive stage takes no new records. History keeps the stage's name at the time, so a rename
+/// or a reorder never rewrites it.
+model SalesPipelineStage {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  pipelineId     String         @map("pipeline_id") @db.Uuid
+  name           String
+  /// Set only on stages the migration ships (e.g. "new_lead", "unqualified_lost").
+  systemKey      String?        @map("system_key")
+  stageType      SalesStageType @map("stage_type")
+  position       Int
+  isActive       Boolean        @default(true) @map("is_active")
+  /// What a record must carry to enter: "value", "assignee", "plan", "transaction", "lost_note".
+  requiredFields String[]       @default([]) @map("required_fields")
+  /// Approved automation keys the API runs on entry and exit.
+  onEnterActions String[]       @default([]) @map("on_enter_actions")
+  onExitActions  String[]       @default([]) @map("on_exit_actions")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  pipeline          SalesPipeline       @relation("SalesPipelineStages", fields: [pipelineId], references: [id], onDelete: Cascade)
+  terminatedReturns SalesPipeline[]     @relation("SalesPipelineTerminatedReturn")
+  opportunities     SalesOpportunity[]  @relation("SalesOpportunityStage")
+  leadImports       SalesLeadImport[]   @relation("SalesLeadImportStage")
+  historyFrom       SalesStageHistory[] @relation("SalesStageHistoryFrom")
+  historyTo         SalesStageHistory[] @relation("SalesStageHistoryTo")
+
+  @@unique([pipelineId, id])
+  @@unique([pipelineId, name])
+  @@unique([pipelineId, systemKey])
+  @@index([pipelineId, position])
+  @@map("sales_pipeline_stages")
+}
+
+/// The master person record for a prospect. Converting a lead never creates a second one.
+model SalesContact {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  name            String
+  email           String?
+  phone           String?
+  /// Set by the database (lowercased email, phone digits) for the duplicate check and search.
+  emailNormalized String?  @map("email_normalized")
+  phoneNormalized String?  @map("phone_normalized")
+  companyName     String?  @map("company_name")
+  jobTitle        String?  @map("job_title")
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  opportunities SalesOpportunity[]
+  importRows    SalesLeadImportRow[]
+
+  @@index([emailNormalized])
+  @@index([phoneNormalized])
+  @@index([companyName])
+  @@map("sales_contacts")
+}
+
+/// One record behind the card, the row, the KPIs and the analytics. The database keeps the stage
+/// rules (lost needs a reason, Under Contract needs its transaction, required fields), applies the
+/// transaction sync, and writes the stage and assignment history itself.
+model SalesOpportunity {
+  id                  String                  @id @default(uuid(7)) @db.Uuid
+  pipelineId          String                  @map("pipeline_id") @db.Uuid
+  stageId             String                  @map("stage_id") @db.Uuid
+  contactId           String                  @map("contact_id") @db.Uuid
+  /// The firm or opportunity name shown on the card.
+  title               String
+  companyName         String?                 @map("company_name")
+  source              SalesLeadSource         @default(MANUAL_ENTRY)
+  /// The plan the prospect is interested in.
+  planId              String?                 @map("plan_id") @db.Uuid
+  /// Estimated value in cents; never invented (null when not given).
+  valueCents          Int?                    @map("value_cents")
+  assignedToUserId    String?                 @map("assigned_to_user_id") @db.Uuid
+  /// Set while the record is in a lost stage, and only then.
+  lostReason          SalesLostReason?        @map("lost_reason")
+  lostNote            String?                 @map("lost_note")
+  lostAt              DateTime?               @map("lost_at") @db.Timestamptz(3)
+  /// First time it entered a converted stage (the conversion event).
+  convertedAt         DateTime?               @map("converted_at") @db.Timestamptz(3)
+  stageEnteredAt      DateTime                @default(now()) @map("stage_entered_at") @db.Timestamptz(3)
+  /// The firm's application and the firm, once it applies and is provisioned.
+  firmApplicationId   String?                 @map("firm_application_id") @db.Uuid
+  linkedBusinessId    String?                 @map("linked_business_id") @db.Uuid
+  /// The linked transaction (e.g. "platform_subscription" and its id) and its reported state.
+  transactionKind     String?                 @map("transaction_kind")
+  transactionId       String?                 @map("transaction_id") @db.Uuid
+  transactionStatus   SalesTransactionStatus? @map("transaction_status")
+  transactionSyncedAt DateTime?               @map("transaction_synced_at") @db.Timestamptz(3)
+  createdByUserId     String?                 @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  pipeline          SalesPipeline            @relation(fields: [pipelineId], references: [id], onDelete: Restrict)
+  stage             SalesPipelineStage       @relation("SalesOpportunityStage", fields: [pipelineId, stageId], references: [pipelineId, id], onDelete: Restrict)
+  contact           SalesContact             @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  plan              PlatformPlan?            @relation(fields: [planId], references: [id], onDelete: Restrict)
+  assignee          PlatformAdmin?           @relation("SalesOpportunityAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+  firmApplication   FirmApplication?         @relation(fields: [firmApplicationId], references: [id], onDelete: SetNull)
+  linkedBusiness    Business?                @relation(fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+  tags              SalesOpportunityTag[]
+  stageHistory      SalesStageHistory[]
+  assignmentHistory SalesAssignmentHistory[]
+  activities        SalesActivity[]
+  followUps         SalesFollowUp[]
+  notes             SalesNote[]
+  importRows        SalesLeadImportRow[]
+
+  @@index([pipelineId, stageId])
+  @@index([assignedToUserId])
+  @@index([contactId])
+  @@index([source])
+  @@index([createdAt])
+  @@index([transactionKind, transactionId])
+  @@map("sales_opportunities")
+}
+
+/// Reusable tags (never a stand-in for the stage).
+model SalesTag {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String   @unique
+  /// A design-token name from packages/ui (e.g. "accent-blue"), never a raw colour.
+  colorKey  String?  @map("color_key")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunities SalesOpportunityTag[]
+
+  @@map("sales_tags")
+}
+
+model SalesOpportunityTag {
+  opportunityId String   @map("opportunity_id") @db.Uuid
+  tagId         String   @map("tag_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  tag         SalesTag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([opportunityId, tagId])
+  @@index([tagId])
+  @@map("sales_opportunity_tags")
+}
+
+/// Every stage change, written by the database (the app only reads it). Names are kept as they
+/// were, so renaming or deleting a stage never rewrites history.
+model SalesStageHistory {
+  id                String                  @id @default(uuid(7)) @db.Uuid
+  opportunityId     String                  @map("opportunity_id") @db.Uuid
+  /// Null for the creation row.
+  fromStageId       String?                 @map("from_stage_id") @db.Uuid
+  toStageId         String?                 @map("to_stage_id") @db.Uuid
+  fromStageName     String?                 @map("from_stage_name")
+  toStageName       String                  @map("to_stage_name")
+  toStageType       SalesStageType          @map("to_stage_type")
+  /// The team member who moved it; null for the platform (automation, sync, import).
+  actorUserId       String?                 @map("actor_user_id") @db.Uuid
+  source            SalesChangeSource
+  lostReason        SalesLostReason?        @map("lost_reason")
+  lostNote          String?                 @map("lost_note")
+  transactionStatus SalesTransactionStatus? @map("transaction_status")
+  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity    @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  fromStage   SalesPipelineStage? @relation("SalesStageHistoryFrom", fields: [fromStageId], references: [id], onDelete: SetNull)
+  toStage     SalesPipelineStage? @relation("SalesStageHistoryTo", fields: [toStageId], references: [id], onDelete: SetNull)
+
+  @@index([opportunityId, createdAt])
+  @@index([toStageId, createdAt])
+  @@index([createdAt])
+  @@map("sales_stage_history")
+}
+
+/// Every owner change, written by the database (the app only reads it).
+model SalesAssignmentHistory {
+  id            String            @id @default(uuid(7)) @db.Uuid
+  opportunityId String            @map("opportunity_id") @db.Uuid
+  fromUserId    String?           @map("from_user_id") @db.Uuid
+  toUserId      String?           @map("to_user_id") @db.Uuid
+  actorUserId   String?           @map("actor_user_id") @db.Uuid
+  source        SalesChangeSource
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId, createdAt])
+  @@map("sales_assignment_history")
+}
+
+/// Outreach and conversations (calls, emails, texts, meetings), logged by the rep. Insert-only.
+/// The attention rules (no contact yet, no response, no activity) read these.
+model SalesActivity {
+  id            String                 @id @default(uuid(7)) @db.Uuid
+  opportunityId String                 @map("opportunity_id") @db.Uuid
+  kind          SalesActivityKind
+  direction     SalesActivityDirection
+  outcome       SalesActivityOutcome?
+  occurredAt    DateTime               @map("occurred_at") @db.Timestamptz(3)
+  summary       String?
+  /// Set by the database: the team member who logged it.
+  actorUserId   String?                @map("actor_user_id") @db.Uuid
+  followUpId    String?                @map("follow_up_id") @db.Uuid
+  createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  followUp    SalesFollowUp?   @relation(fields: [followUpId], references: [id], onDelete: SetNull)
+
+  @@index([opportunityId, occurredAt])
+  @@index([occurredAt])
+  @@map("sales_activities")
+}
+
+/// Follow-ups and appointments (the Upcoming panel). Cancelled, never deleted.
+model SalesFollowUp {
+  id               String              @id @default(uuid(7)) @db.Uuid
+  opportunityId    String              @map("opportunity_id") @db.Uuid
+  kind             SalesFollowUpKind
+  title            String
+  dueAt            DateTime            @map("due_at") @db.Timestamptz(3)
+  /// An appointment's end.
+  endsAt           DateTime?           @map("ends_at") @db.Timestamptz(3)
+  location         String?
+  status           SalesFollowUpStatus @default(SCHEDULED)
+  assignedToUserId String?             @map("assigned_to_user_id") @db.Uuid
+  completedAt      DateTime?           @map("completed_at") @db.Timestamptz(3)
+  cancelledAt      DateTime?           @map("cancelled_at") @db.Timestamptz(3)
+  createdByUserId  String?             @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  assignee    PlatformAdmin?   @relation("SalesFollowUpAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+  activities  SalesActivity[]
+
+  @@index([opportunityId, dueAt])
+  @@index([status, dueAt])
+  @@index([assignedToUserId, status, dueAt])
+  @@map("sales_follow_ups")
+}
+
+/// A team member's note on an opportunity; only its author edits or deletes it.
+model SalesNote {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  opportunityId String   @map("opportunity_id") @db.Uuid
+  authorUserId  String   @map("author_user_id") @db.Uuid
+  body          String
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  opportunity SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId, createdAt])
+  @@map("sales_notes")
+}
+
+/// One row (id 1): the attention rules behind the card badges and the Needs Attention KPI. The
+/// migration inserts the defaults.
+model SalesAttentionSettings {
+  id                    Int      @id @default(1)
+  /// A new lead with no outreach after this many hours shows "No contact yet".
+  noContactHours        Int      @default(24) @map("no_contact_hours")
+  /// A follow-up due within this many hours shows "Follow-up due".
+  followUpDueHours      Int      @default(24) @map("follow_up_due_hours")
+  /// This many outbound attempts with no reply shows "No response".
+  noResponseAttempts    Int      @default(3) @map("no_response_attempts")
+  /// No activity for this many days shows "No activity".
+  noActivityDays        Int      @default(14) @map("no_activity_days")
+  /// An unassigned record shows "Unassigned".
+  ownerRequired         Boolean  @default(true) @map("owner_required")
+  /// A lost reason of OTHER needs a note.
+  lostOtherNoteRequired Boolean  @default(true) @map("lost_other_note_required")
+  updatedByUserId       String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("sales_attention_settings")
+}
+
+// ---------- R0 stage B6: Super Admin Communications ----------
+// Firmivra's own correspondence with firms' people, sales leads and the team (never a firm's
+// clients): conversations and their messages with per-recipient delivery, templates and their
+// categories, audience segments, broadcasts with per-channel content and per-recipient results,
+// and the image and attachment library. Platform data: only the Super Admin team and the
+// platform's jobs (dispatch, inbound mail and SMS, scanning) reach it. Contract note:
+// docs/work/R0-stage-b6-communications.md.
+
+enum CommChannel {
+  EMAIL
+  SMS
+  INTERNAL
+  IN_APP
+}
+
+/// Who the conversation is with: a firm's member, a sales lead (B5 contact), or a team member.
+enum CommContactType {
+  FIRM
+  LEAD
+  TEAM
+}
+
+enum CommConversationStatus {
+  OPEN
+  CLOSED
+}
+
+enum CommDirection {
+  OUTBOUND
+  INBOUND
+  /// A team-only note in the thread (channel INTERNAL).
+  INTERNAL
+}
+
+/// DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED.
+/// Inbound messages and internal notes are stored as RECEIVED and SENT.
+enum CommMessageStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PARTIALLY_SENT
+  FAILED
+  CANCELLED
+  RECEIVED
+}
+
+enum CommRecipientKind {
+  TO
+  CC
+  BCC
+}
+
+enum CommDeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  BOUNCED
+  FAILED
+  SKIPPED
+}
+
+enum CommTemplateStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum CommMediaKind {
+  INLINE_IMAGE
+  ATTACHMENT
+}
+
+/// DRAFT -> SCHEDULED -> SENDING -> SENT, PARTIALLY_SENT or FAILED; SCHEDULED -> CANCELLED;
+/// FAILED -> SENDING (a retry; the first attempt's results stay).
+enum CommBroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PARTIALLY_SENT
+  FAILED
+  CANCELLED
+}
+
+/// A thread with one contact. The contact's name and destinations are kept as they were, so the
+/// thread still reads correctly after the firm, lead or user changes or is deleted.
+model CommConversation {
+  id               String                 @id @default(uuid(7)) @db.Uuid
+  contactType      CommContactType        @map("contact_type")
+  /// The firm (FIRM), cleared if the firm is deleted.
+  linkedBusinessId String?                @map("linked_business_id") @db.Uuid
+  /// The firm member or team member. No foreign key: the history outlives the login.
+  contactUserId    String?                @map("contact_user_id") @db.Uuid
+  /// The sales lead (LEAD): a B5 sales_contacts id. No foreign key, so this stage does not
+  /// depend on B5's merge order; the history outlives the lead.
+  salesContactId   String?                @map("sales_contact_id") @db.Uuid
+  contactName      String                 @map("contact_name")
+  contactEmail     String?                @map("contact_email")
+  contactPhone     String?                @map("contact_phone")
+  subject          String?
+  status           CommConversationStatus @default(OPEN)
+  assignedToUserId String?                @map("assigned_to_user_id") @db.Uuid
+  tags             String[]               @default([])
+  /// Set by the database from the thread's messages.
+  lastMessageAt    DateTime?              @map("last_message_at") @db.Timestamptz(3)
+  createdByUserId  String?                @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  linkedBusiness Business?              @relation(fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+  assignee       PlatformAdmin?         @relation("CommConversationAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+  messages       CommMessage[]
+  reads          CommConversationRead[]
+
+  @@index([lastMessageAt])
+  @@index([assignedToUserId, status])
+  @@index([linkedBusinessId])
+  @@index([salesContactId])
+  @@index([contactUserId])
+  @@map("comm_conversations")
+}
+
+/// One message in a thread (or a broadcast's copy in a recipient's thread). Content is editable
+/// while DRAFT or SCHEDULED; once dispatch begins it never changes. Only drafts are deleted.
+model CommMessage {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  conversationId    String            @map("conversation_id") @db.Uuid
+  channel           CommChannel
+  direction         CommDirection
+  status            CommMessageStatus @default(DRAFT)
+  /// Email only.
+  subject           String?
+  /// HTML for email (inline images by media id), plain text for SMS and internal notes.
+  body              String
+  templateId        String?           @map("template_id") @db.Uuid
+  broadcastId       String?           @map("broadcast_id") @db.Uuid
+  /// The failed message this one retries (the failed attempt stays in history).
+  retryOfMessageId  String?           @map("retry_of_message_id") @db.Uuid
+  /// Protects against a double submission of the same send.
+  idempotencyKey    String?           @unique @map("idempotency_key")
+  scheduledAt       DateTime?         @map("scheduled_at") @db.Timestamptz(3)
+  scheduledTimeZone String?           @map("scheduled_time_zone")
+  /// Set by the database: the team member who wrote it (null for inbound and the platform).
+  senderUserId      String?           @map("sender_user_id") @db.Uuid
+  /// Inbound: who it came from, as received.
+  fromAddress       String?           @map("from_address")
+  sentAt            DateTime?         @map("sent_at") @db.Timestamptz(3)
+  failedAt          DateTime?         @map("failed_at") @db.Timestamptz(3)
+  errorCode         String?           @map("error_code")
+  errorMessage      String?           @map("error_message")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  conversation CommConversation       @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  template     CommTemplate?          @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  broadcast    CommBroadcast?         @relation(fields: [broadcastId], references: [id], onDelete: SetNull)
+  retryOf      CommMessage?           @relation("CommMessageRetry", fields: [retryOfMessageId], references: [id], onDelete: SetNull)
+  retries      CommMessage[]          @relation("CommMessageRetry")
+  recipients   CommMessageRecipient[]
+  mentions     CommMessageMention[]
+  media        CommMediaLink[]
+
+  @@index([conversationId, createdAt])
+  @@index([status, scheduledAt])
+  @@index([broadcastId])
+  @@map("comm_messages")
+}
+
+/// A message's recipient and its own delivery result (partial delivery, retry failed only).
+model CommMessageRecipient {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  messageId         String             @map("message_id") @db.Uuid
+  kind              CommRecipientKind  @default(TO)
+  contactType       CommContactType    @map("contact_type")
+  linkedBusinessId  String?            @map("linked_business_id") @db.Uuid
+  contactUserId     String?            @map("contact_user_id") @db.Uuid
+  salesContactId    String?            @map("sales_contact_id") @db.Uuid
+  name              String
+  /// The email address or phone number used for this channel.
+  address           String
+  status            CommDeliveryStatus @default(PENDING)
+  providerMessageId String?            @map("provider_message_id")
+  errorCode         String?            @map("error_code")
+  sentAt            DateTime?          @map("sent_at") @db.Timestamptz(3)
+  deliveredAt       DateTime?          @map("delivered_at") @db.Timestamptz(3)
+  failedAt          DateTime?          @map("failed_at") @db.Timestamptz(3)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message        CommMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  linkedBusiness Business?   @relation("CommMessageRecipientBusiness", fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+
+  @@unique([messageId, kind, address])
+  @@index([status])
+  @@index([providerMessageId])
+  @@map("comm_message_recipients")
+}
+
+/// A team member mentioned in an internal note (the Mentions tab).
+model CommMessageMention {
+  messageId String   @map("message_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message CommMessage   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    PlatformAdmin @relation("CommMessageMentioned", fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([messageId, userId])
+  @@index([userId, createdAt])
+  @@map("comm_message_mentions")
+}
+
+/// Each team member's read state per conversation (Unread counts).
+model CommConversationRead {
+  conversationId String   @map("conversation_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  lastReadAt     DateTime @map("last_read_at") @db.Timestamptz(3)
+
+  conversation CommConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         PlatformAdmin    @relation("CommConversationReader", fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@map("comm_conversation_reads")
+}
+
+/// Template categories (tabs). The migration ships the spec's six; deactivated, never deleted.
+model CommTemplateCategory {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String   @unique
+  systemKey String?  @unique @map("system_key")
+  position  Int
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  templates CommTemplate[]
+
+  @@map("comm_template_categories")
+}
+
+/// An email or SMS template. Archived, never deleted. Merge fields are tokens like
+/// {{firm.name}} from the API's central list.
+model CommTemplate {
+  id              String             @id @default(uuid(7)) @db.Uuid
+  categoryId      String             @map("category_id") @db.Uuid
+  name            String             @unique
+  channel         CommChannel
+  status          CommTemplateStatus @default(ACTIVE)
+  /// Email only, and required for email.
+  subject         String?
+  body            String
+  mergeFields     String[]           @default([]) @map("merge_fields")
+  createdByUserId String?            @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?            @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  category CommTemplateCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  messages CommMessage[]
+  media    CommMediaLink[]
+
+  @@index([categoryId, status])
+  @@map("comm_templates")
+}
+
+/// The image and attachment library (uploads go to S3 under platform/communications/<id>/).
+/// Scanned once by the platform; only CLEAN files are sent.
+model CommMedia {
+  id               String        @id @default(uuid(7)) @db.Uuid
+  kind             CommMediaKind
+  fileName         String        @map("file_name")
+  contentType      String        @map("content_type")
+  sizeBytes        Int           @map("size_bytes")
+  sha256           String
+  s3Key            String        @unique @map("s3_key")
+  scanStatus       ScanStatus    @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?     @map("scanned_at") @db.Timestamptz(3)
+  uploadedByUserId String?       @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  links CommMediaLink[]
+
+  @@index([kind, createdAt])
+  @@map("comm_media")
+}
+
+/// Where a library file is used: in a template, a message or a broadcast channel's content, as an
+/// inline image or an attachment. Exactly one owner.
+model CommMediaLink {
+  id                 String        @id @default(uuid(7)) @db.Uuid
+  mediaId            String        @map("media_id") @db.Uuid
+  usage              CommMediaKind
+  templateId         String?       @map("template_id") @db.Uuid
+  messageId          String?       @map("message_id") @db.Uuid
+  broadcastChannelId String?       @map("broadcast_channel_id") @db.Uuid
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  media            CommMedia             @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+  template         CommTemplate?         @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  message          CommMessage?          @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  broadcastChannel CommBroadcastChannel? @relation(fields: [broadcastChannelId], references: [id], onDelete: Cascade)
+
+  @@index([mediaId])
+  @@index([templateId])
+  @@index([messageId])
+  @@index([broadcastChannelId])
+  @@map("comm_media_links")
+}
+
+/// An audience. `definition` holds the API's filter rules (contact types, plans, firm statuses,
+/// lead stages, tags); the API resolves it at send time and caches the last count.
+model CommSegment {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  name            String    @unique
+  description     String?
+  definition      Json
+  lastCount       Int?      @map("last_count")
+  lastCountedAt   DateTime? @map("last_counted_at") @db.Timestamptz(3)
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  broadcasts CommBroadcast[]
+
+  @@map("comm_segments")
+}
+
+/// A broadcast to a segment over one or more channels (content per channel). Editable while
+/// DRAFT or SCHEDULED; sent broadcasts are never edited or deleted (archive instead).
+model CommBroadcast {
+  id                String              @id @default(uuid(7)) @db.Uuid
+  name              String
+  status            CommBroadcastStatus @default(DRAFT)
+  segmentId         String?             @map("segment_id") @db.Uuid
+  scheduledAt       DateTime?           @map("scheduled_at") @db.Timestamptz(3)
+  scheduledTimeZone String?             @map("scheduled_time_zone")
+  /// Resolved at send; a send needs at least one.
+  recipientCount    Int?                @map("recipient_count")
+  idempotencyKey    String?             @unique @map("idempotency_key")
+  duplicatedFromId  String?             @map("duplicated_from_id") @db.Uuid
+  sendStartedAt     DateTime?           @map("send_started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?           @map("finished_at") @db.Timestamptz(3)
+  errorMessage      String?             @map("error_message")
+  archivedAt        DateTime?           @map("archived_at") @db.Timestamptz(3)
+  createdByUserId   String?             @map("created_by_user_id") @db.Uuid
+  updatedByUserId   String?             @map("updated_by_user_id") @db.Uuid
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  segment        CommSegment?             @relation(fields: [segmentId], references: [id], onDelete: Restrict)
+  duplicatedFrom CommBroadcast?           @relation("CommBroadcastDuplicate", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
+  duplicates     CommBroadcast[]          @relation("CommBroadcastDuplicate")
+  channels       CommBroadcastChannel[]
+  recipients     CommBroadcastRecipient[]
+  messages       CommMessage[]
+
+  @@index([status, scheduledAt])
+  @@index([createdAt])
+  @@map("comm_broadcasts")
+}
+
+/// A broadcast's content and result for one channel (a multi-channel send keeps each channel's
+/// result; one failed channel never marks the whole broadcast sent).
+model CommBroadcastChannel {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  broadcastId String              @map("broadcast_id") @db.Uuid
+  channel     CommChannel
+  /// Email only, and required for email.
+  subject     String?
+  body        String
+  status      CommBroadcastStatus @default(DRAFT)
+  sentCount   Int                 @default(0) @map("sent_count")
+  failedCount Int                 @default(0) @map("failed_count")
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  broadcast CommBroadcast   @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  media     CommMediaLink[]
+
+  @@unique([broadcastId, channel])
+  @@map("comm_broadcast_channels")
+}
+
+/// A broadcast's recipient on one channel, with its own result.
+model CommBroadcastRecipient {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  broadcastId       String             @map("broadcast_id") @db.Uuid
+  channel           CommChannel
+  contactType       CommContactType    @map("contact_type")
+  linkedBusinessId  String?            @map("linked_business_id") @db.Uuid
+  contactUserId     String?            @map("contact_user_id") @db.Uuid
+  salesContactId    String?            @map("sales_contact_id") @db.Uuid
+  name              String
+  address           String
+  status            CommDeliveryStatus @default(PENDING)
+  providerMessageId String?            @map("provider_message_id")
+  errorCode         String?            @map("error_code")
+  /// The copy written to the recipient's conversation history, when one is kept.
+  messageId         String?            @map("message_id") @db.Uuid
+  sentAt            DateTime?          @map("sent_at") @db.Timestamptz(3)
+  deliveredAt       DateTime?          @map("delivered_at") @db.Timestamptz(3)
+  failedAt          DateTime?          @map("failed_at") @db.Timestamptz(3)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  broadcast      CommBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  linkedBusiness Business?     @relation("CommBroadcastRecipientBusiness", fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+
+  @@unique([broadcastId, channel, address])
+  @@index([broadcastId, status])
+  @@index([providerMessageId])
+  @@map("comm_broadcast_recipients")
+}
+
+// ---------- R0 stage B7: Super Admin System Settings ----------
+// Firmivra's platform configuration: typed settings sections, secret references (never secret
+// values), versioned brand assets, feature flags with per-firm overrides, retention policies with
+// floors, legal holds and retention runs, maintenance windows, background job controls, and
+// versioned default sets for new firms and users. Platform data: only the Super Admin team and the
+// platform's own services reach it. Contract note: docs/work/R0-stage-b7-system-settings.md.
+
+enum PlatformBrandAssetKind {
+  LOGO
+  LOGO_DARK
+  FAVICON
+  APP_ICON
+  LOGIN_BACKGROUND
+}
+
+enum PlatformFeatureState {
+  ON
+  OFF
+}
+
+enum PlatformRetentionDisposition {
+  DELETE
+  ANONYMIZE
+  ARCHIVE
+}
+
+enum PlatformRunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PlatformMaintenanceStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum PlatformDefaultSetKind {
+  FIRM
+  USER
+}
+
+/// A settings section (General, Branding & Appearance, Email & Notifications): one row per section
+/// key, a typed JSON object whose shape the contract note fixes. Every save adds 1 to `version` (the
+/// database does it); save with the version read, so two admins never silently overwrite each other.
+model PlatformSetting {
+  key             String   @id
+  value           Json
+  version         Int      @default(1)
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("platform_settings")
+}
+
+/// Where a secret lives (an AWS Secrets Manager ARN, or a local reference in development), never
+/// the secret itself. The API shows only "configured" and the hint.
+model PlatformSecretRef {
+  key             String    @id
+  /// arn:aws:secretsmanager:... or local:<name>.
+  reference       String
+  /// A safe hint for the screen, e.g. the last 4 characters of a key id; never the secret.
+  hint            String?
+  rotatedAt       DateTime? @map("rotated_at") @db.Timestamptz(3)
+  updatedByUserId String?   @map("updated_by_user_id") @db.Uuid
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("platform_secret_refs")
+}
+
+/// Every uploaded version of a brand asset (S3 under platform/branding/<id>/), scanned once by the
+/// platform. Never changed or deleted; the current one per kind is in platform_brand_current.
+model PlatformBrandAsset {
+  id               String                 @id @default(uuid(7)) @db.Uuid
+  kind             PlatformBrandAssetKind
+  fileName         String                 @map("file_name")
+  contentType      String                 @map("content_type")
+  sizeBytes        Int                    @map("size_bytes")
+  width            Int?
+  height           Int?
+  sha256           String
+  s3Key            String                 @unique @map("s3_key")
+  scanStatus       ScanStatus             @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?              @map("scanned_at") @db.Timestamptz(3)
+  uploadedByUserId String?                @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  currentFor PlatformBrandCurrent[]
+
+  @@index([kind, createdAt])
+  @@map("platform_brand_assets")
+}
+
+/// The asset in use per kind (a clean asset of that kind). Removing a row resets the kind to the
+/// built-in default.
+model PlatformBrandCurrent {
+  kind            PlatformBrandAssetKind @id
+  assetId         String                 @map("asset_id") @db.Uuid
+  updatedByUserId String?                @map("updated_by_user_id") @db.Uuid
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  asset PlatformBrandAsset @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@map("platform_brand_current")
+}
+
+/// A feature flag with a stable key. Effective state for a firm: emergency off wins, then a
+/// required feature that is off, then the firm's override, then the default.
+model PlatformFeature {
+  key               String               @id
+  name              String
+  description       String?
+  defaultState      PlatformFeatureState @default(OFF) @map("default_state")
+  emergencyDisabled Boolean              @default(false) @map("emergency_disabled")
+  /// Feature keys this one needs on.
+  dependsOn         String[]             @default([]) @map("depends_on")
+  updatedByUserId   String?              @map("updated_by_user_id") @db.Uuid
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  overrides PlatformFeatureOverride[]
+
+  @@map("platform_features")
+}
+
+/// A firm's explicit state for a feature (goes with the firm's data).
+model PlatformFeatureOverride {
+  featureKey      String               @map("feature_key")
+  businessId      String               @map("business_id") @db.Uuid
+  state           PlatformFeatureState
+  reason          String?
+  updatedByUserId String?              @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  feature  PlatformFeature @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@id([featureKey, businessId])
+  @@index([businessId])
+  @@map("platform_feature_overrides")
+}
+
+/// How long one category of data is kept and what happens after. The migration ships the
+/// categories and their floors; the app never goes below the floor. Audit retention is the security
+/// policy's (B4), not a row here.
+model PlatformRetentionPolicy {
+  category         String                       @id
+  retentionDays    Int                          @map("retention_days")
+  disposition      PlatformRetentionDisposition
+  archiveAfterDays Int?                         @map("archive_after_days")
+  /// Set by the migration (legal or product minimum); the app cannot change it.
+  minimumDays      Int                          @map("minimum_days")
+  effectiveFrom    DateTime                     @default(now()) @map("effective_from") @db.Timestamptz(3)
+  version          Int                          @default(1)
+  updatedByUserId  String?                      @map("updated_by_user_id") @db.Uuid
+  updatedAt        DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  runs PlatformRetentionRun[]
+
+  @@map("platform_retention_policies")
+}
+
+/// A legal hold. An active hold on a firm blocks the firm's deletion; holding a category or a
+/// record stops the retention jobs from disposing of it. Released once, never deleted (a released
+/// hold stays on record after its firm is deleted, with the firm link cleared).
+model PlatformLegalHold {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  name             String
+  reason           String
+  category         String?
+  heldBusinessId   String?   @map("held_business_id") @db.Uuid
+  recordType       String?   @map("record_type")
+  recordId         String?   @map("record_id")
+  createdByUserId  String?   @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  releasedAt       DateTime? @map("released_at") @db.Timestamptz(3)
+  releasedByUserId String?   @map("released_by_user_id") @db.Uuid
+  releaseReason    String?   @map("release_reason")
+
+  heldBusiness Business? @relation("PlatformLegalHoldBusiness", fields: [heldBusinessId], references: [id], onDelete: SetNull)
+
+  @@index([heldBusinessId])
+  @@index([category])
+  @@map("platform_legal_holds")
+}
+
+/// A retention job's run (or dry run) for one category: asked for by a team member or the
+/// scheduler, moved only by the worker (platform scope). Counts only, never the records.
+model PlatformRetentionRun {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  category          String
+  dryRun            Boolean           @default(true) @map("dry_run")
+  status            PlatformRunStatus @default(QUEUED)
+  policyVersion     Int               @map("policy_version")
+  eligibleCount     Int?              @map("eligible_count")
+  affectedCount     Int?              @map("affected_count")
+  heldCount         Int?              @map("held_count")
+  errorCode         String?           @map("error_code")
+  requestedByUserId String?           @map("requested_by_user_id") @db.Uuid
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt         DateTime?         @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?         @map("finished_at") @db.Timestamptz(3)
+
+  policy PlatformRetentionPolicy @relation(fields: [category], references: [category], onDelete: Restrict)
+
+  @@index([category, createdAt])
+  @@index([status])
+  @@map("platform_retention_runs")
+}
+
+/// A planned maintenance window and its notice. SCHEDULED -> ACTIVE -> COMPLETED, or CANCELLED
+/// before it starts; the database stamps the actual start and end.
+model PlatformMaintenanceWindow {
+  id              String                    @id @default(uuid(7)) @db.Uuid
+  title           String
+  /// The notice users see (plain text).
+  message         String
+  startsAt        DateTime                  @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime                  @map("ends_at") @db.Timestamptz(3)
+  status          PlatformMaintenanceStatus @default(SCHEDULED)
+  /// Super Admins can still sign in during the window.
+  adminBypass     Boolean                   @default(true) @map("admin_bypass")
+  startedAt       DateTime?                 @map("started_at") @db.Timestamptz(3)
+  endedAt         DateTime?                 @map("ended_at") @db.Timestamptz(3)
+  createdByUserId String?                   @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?                   @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, startsAt])
+  @@map("platform_maintenance_windows")
+}
+
+/// A background job the platform registers (platform scope) and the team may pause or resume.
+/// Only allowlisted jobs appear; nothing here runs commands.
+model PlatformJobControl {
+  jobKey          String             @id @map("job_key")
+  name            String
+  enabled         Boolean            @default(true)
+  pausedReason    String?            @map("paused_reason")
+  lastRunAt       DateTime?          @map("last_run_at") @db.Timestamptz(3)
+  lastStatus      PlatformRunStatus? @map("last_status")
+  lastError       String?            @map("last_error")
+  updatedByUserId String?            @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("platform_job_controls")
+}
+
+/// A version of the defaults for new firms or new users. Each save is a new version (the database
+/// numbers it per kind); the newest is in use; versions never change, so a firm's provisioning
+/// record names the exact defaults it got.
+model PlatformDefaultSet {
+  id              String                 @id @default(uuid(7)) @db.Uuid
+  kind            PlatformDefaultSetKind
+  version         Int
+  values          Json
+  note            String?
+  createdByUserId String?                @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  applications PlatformDefaultSetApplication[]
+
+  @@unique([kind, version])
+  @@map("platform_default_sets")
+}
+
+/// Which firm defaults a firm was provisioned with (goes with the firm's data).
+model PlatformDefaultSetApplication {
+  businessId   String   @id @map("business_id") @db.Uuid
+  defaultSetId String   @map("default_set_id") @db.Uuid
+  appliedAt    DateTime @default(now()) @map("applied_at") @db.Timestamptz(3)
+
+  business   Business           @relation("PlatformDefaultSetApplied", fields: [businessId], references: [id], onDelete: Restrict)
+  defaultSet PlatformDefaultSet @relation(fields: [defaultSetId], references: [id], onDelete: Restrict)
+
+  @@index([defaultSetId])
+  @@map("platform_default_set_applications")
+}
+
+// ---------- R0 stage B8: Super Admin Integrations ----------
+// Firmivra's own service connections (billing, SMS, email, storage, AI, e-signature...) with their
+// sync runs, the central integration log, the catalog firms see (plan and firm access; provider
+// definitions stay in code and the catalog's provider key matches integration_connections.provider),
+// Firmivra-issued API keys (hash only), webhook endpoints and deliveries, and a daily usage and
+// adoption rollup. Platform data: only the Super Admin team and the platform's services reach it.
+// Contract note: docs/work/R0-stage-b8-integrations.md.
+
+enum PlatformIntegrationCategory {
+  PAYMENTS_BILLING
+  COMMUNICATION
+  EMAIL
+  CLOUD_STORAGE
+  AI_AUTOMATION
+  MLS_DATA
+  ESIGN
+  SECURITY_INFRASTRUCTURE
+  OTHER
+}
+
+/// DRAFT until activated (after a passing test); then ACTIVE, INACTIVE, NEEDS_ATTENTION or ERROR as
+/// health and admins decide; DISABLED by an admin; REMOVED is the tombstone.
+enum PlatformIntegrationStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  NEEDS_ATTENTION
+  ERROR
+  DISABLED
+  REMOVED
+}
+
+enum PlatformIntegrationRunKind {
+  SYNC
+  TEST
+}
+
+enum PlatformIntegrationLogSource {
+  PLATFORM_INTEGRATION
+  FIRM_CONNECTION
+  API
+  WEBHOOK
+}
+
+enum PlatformIntegrationLogSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+/// ENABLED: visible and connectable; COMING_SOON: visible, not connectable; DISABLED: hidden.
+enum PlatformCatalogStatus {
+  ENABLED
+  COMING_SOON
+  DISABLED
+}
+
+enum PlatformCatalogPlanAccess {
+  ALL_PLANS
+  SELECTED_PLANS
+}
+
+enum PlatformCatalogFirmAccess {
+  ALLOW
+  DENY
+}
+
+enum PlatformWebhookDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum PlatformWebhookStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum PlatformDeliveryStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum PlatformUsageScope {
+  PLATFORM_INTEGRATION
+  CATALOG
+  API
+}
+
+/// A Firmivra-owned service connection. Credentials live in the secret store: `secretRef` only
+/// names where. Removed is a tombstone (kept for the record). At most one connection per provider
+/// and environment that is not removed.
+model PlatformIntegration {
+  id                   String                      @id @default(uuid(7)) @db.Uuid
+  /// The provider's key in the code catalog, e.g. "stripe", "twilio", "aws_s3".
+  provider             String
+  name                 String
+  category             PlatformIntegrationCategory
+  description          String?
+  websiteUrl           String?                     @map("website_url")
+  docsUrl              String?                     @map("docs_url")
+  environment          IntegrationEnvironment      @default(TEST)
+  status               PlatformIntegrationStatus   @default(DRAFT)
+  /// Why it needs attention or failed, as a short code.
+  statusReason         String?                     @map("status_reason")
+  secretRef            String?                     @map("secret_ref")
+  secretRotatedAt      DateTime?                   @map("secret_rotated_at") @db.Timestamptz(3)
+  /// Non-secret options: scopes, sync schedule, enabled features, retry behaviour.
+  settings             Json                        @default("{}")
+  lastCheckAt          DateTime?                   @map("last_check_at") @db.Timestamptz(3)
+  lastCheckOk          Boolean?                    @map("last_check_ok")
+  lastSyncAt           DateTime?                   @map("last_sync_at") @db.Timestamptz(3)
+  /// Activated without a passing test (the provider has no test endpoint), as the admin confirmed.
+  activatedWithoutTest Boolean                     @default(false) @map("activated_without_test")
+  activatedAt          DateTime?                   @map("activated_at") @db.Timestamptz(3)
+  disabledAt           DateTime?                   @map("disabled_at") @db.Timestamptz(3)
+  removedAt            DateTime?                   @map("removed_at") @db.Timestamptz(3)
+  version              Int                         @default(1)
+  createdByUserId      String?                     @map("created_by_user_id") @db.Uuid
+  updatedByUserId      String?                     @map("updated_by_user_id") @db.Uuid
+  createdAt            DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  runs           PlatformIntegrationRun[]
+  logs           PlatformIntegrationLog[]
+  catalogEntries PlatformIntegrationCatalog[]
+
+  @@index([provider, environment])
+  @@index([status])
+  @@map("platform_integrations")
+}
+
+/// A sync or a connection test of a platform integration. Asked for by the team or the scheduler;
+/// moved only by the worker (platform scope). Counts only, never records or tokens.
+model PlatformIntegrationRun {
+  id                String                     @id @default(uuid(7)) @db.Uuid
+  integrationId     String                     @map("integration_id") @db.Uuid
+  kind              PlatformIntegrationRunKind
+  status            IntegrationSyncRunStatus   @default(QUEUED)
+  objectCount       Int                        @default(0) @map("object_count")
+  failedCount       Int                        @default(0) @map("failed_count")
+  retries           Int                        @default(0)
+  errorCode         String?                    @map("error_code")
+  errorMessage      String?                    @map("error_message")
+  correlationId     String?                    @map("correlation_id")
+  requestedByUserId String?                    @map("requested_by_user_id") @db.Uuid
+  createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt         DateTime?                  @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime?                  @map("finished_at") @db.Timestamptz(3)
+
+  integration PlatformIntegration @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+
+  @@index([integrationId, createdAt])
+  @@index([status])
+  @@map("platform_integration_runs")
+}
+
+/// The central integration log: one structured, redacted event. Insert-only. A firm connection's
+/// event names its firm in `subjectBusinessId` (no foreign key: the log outlives the firm).
+model PlatformIntegrationLog {
+  id                String                         @id @default(uuid(7)) @db.Uuid
+  source            PlatformIntegrationLogSource
+  integrationId     String?                        @map("integration_id") @db.Uuid
+  provider          String?
+  environment       IntegrationEnvironment?
+  severity          PlatformIntegrationLogSeverity
+  eventType         String                         @map("event_type")
+  action            String?
+  succeeded         Boolean
+  errorCode         String?                        @map("error_code")
+  message           String
+  /// Redacted details: never secrets, tokens or record content.
+  details           Json?
+  requestId         String?                        @map("request_id")
+  correlationId     String?                        @map("correlation_id")
+  subjectBusinessId String?                        @map("subject_business_id") @db.Uuid
+  actorUserId       String?                        @map("actor_user_id") @db.Uuid
+  createdAt         DateTime                       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  integration PlatformIntegration? @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+
+  @@index([createdAt])
+  @@index([integrationId, createdAt])
+  @@index([severity, createdAt])
+  @@index([provider, createdAt])
+  @@index([correlationId])
+  @@index([requestId])
+  @@map("platform_integration_logs")
+}
+
+/// What firms see in their integration catalog for one provider (its key matches
+/// integration_connections.provider). Status, plan access and firm rules decide who can see and
+/// connect it: DISABLED hides it from everyone; a firm's DENY hides it; a firm's ALLOW shows it
+/// whatever the plan; otherwise the plan access decides.
+model PlatformIntegrationCatalog {
+  id                    String                      @id @default(uuid(7)) @db.Uuid
+  provider              String                      @unique
+  name                  String
+  category              PlatformIntegrationCategory
+  shortDescription      String                      @map("short_description")
+  description           String?
+  /// S3 under platform/integrations/<entry id>/, a raster logo.
+  logoS3Key             String?                     @map("logo_s3_key")
+  websiteUrl            String?                     @map("website_url")
+  helpUrl               String?                     @map("help_url")
+  status                PlatformCatalogStatus       @default(DISABLED)
+  planAccess            PlatformCatalogPlanAccess   @default(ALL_PLANS) @map("plan_access")
+  /// The customer setup experience: instructions, required fields, auth type (the API's schema).
+  setup                 Json                        @default("{}")
+  badges                String[]                    @default([])
+  sortOrder             Int                         @default(0) @map("sort_order")
+  /// Beta label, deprecation notice, rollout percentage, version requirement (the API's schema).
+  advanced              Json                        @default("{}")
+  /// The Firmivra service this entry relies on, if any (e.g. Firmivra's own Stripe account).
+  platformIntegrationId String?                     @map("platform_integration_id") @db.Uuid
+  version               Int                         @default(1)
+  createdByUserId       String?                     @map("created_by_user_id") @db.Uuid
+  updatedByUserId       String?                     @map("updated_by_user_id") @db.Uuid
+  createdAt             DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  platformIntegration PlatformIntegration?             @relation(fields: [platformIntegrationId], references: [id], onDelete: SetNull)
+  plans               PlatformIntegrationCatalogPlan[]
+  firmRules           PlatformIntegrationCatalogFirm[]
+
+  @@index([status, sortOrder])
+  @@map("platform_integration_catalog")
+}
+
+/// The plans a SELECTED_PLANS catalog entry is available on.
+model PlatformIntegrationCatalogPlan {
+  catalogId String   @map("catalog_id") @db.Uuid
+  planId    String   @map("plan_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  catalog PlatformIntegrationCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  plan    PlatformPlan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@id([catalogId, planId])
+  @@index([planId])
+  @@map("platform_integration_catalog_plans")
+}
+
+/// A firm-specific allow or deny for a catalog entry (goes with the firm's data).
+model PlatformIntegrationCatalogFirm {
+  catalogId       String                    @map("catalog_id") @db.Uuid
+  businessId      String                    @map("business_id") @db.Uuid
+  access          PlatformCatalogFirmAccess
+  reason          String?
+  updatedByUserId String?                   @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  catalog  PlatformIntegrationCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  business Business                   @relation("PlatformCatalogFirmRule", fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@id([catalogId, businessId])
+  @@index([businessId])
+  @@map("platform_integration_catalog_firms")
+}
+
+/// A Firmivra-issued API key. Only its SHA-256 hash is stored (the key is shown once, at creation),
+/// with a prefix and last four for display. Revoked once; a rotation is a new key naming the old.
+model PlatformApiKey {
+  id                 String                 @id @default(uuid(7)) @db.Uuid
+  name               String
+  /// e.g. "fv_live_8k2q": shown in lists.
+  prefix             String
+  lastFour           String                 @map("last_four")
+  keyHash            String                 @unique @map("key_hash")
+  scopes             String[]               @default([])
+  environment        IntegrationEnvironment @default(TEST)
+  rateLimitPerMinute Int?                   @map("rate_limit_per_minute")
+  expiresAt          DateTime?              @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt         DateTime?              @map("last_used_at") @db.Timestamptz(3)
+  rotatedFromId      String?                @unique @map("rotated_from_id") @db.Uuid
+  revokedAt          DateTime?              @map("revoked_at") @db.Timestamptz(3)
+  revokedByUserId    String?                @map("revoked_by_user_id") @db.Uuid
+  createdByUserId    String?                @map("created_by_user_id") @db.Uuid
+  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rotatedFrom PlatformApiKey? @relation("PlatformApiKeyRotation", fields: [rotatedFromId], references: [id], onDelete: Restrict)
+  rotatedTo   PlatformApiKey? @relation("PlatformApiKeyRotation")
+
+  @@index([revokedAt])
+  @@map("platform_api_keys")
+}
+
+/// A webhook endpoint: outbound (Firmivra calls it) or inbound (a provider calls Firmivra). The
+/// signing secret lives in the secret store; `signingSecretRef` only names where.
+model PlatformWebhookEndpoint {
+  id               String                   @id @default(uuid(7)) @db.Uuid
+  direction        PlatformWebhookDirection
+  url              String
+  description      String?
+  events           String[]                 @default([])
+  signingSecretRef String?                  @map("signing_secret_ref")
+  secretRotatedAt  DateTime?                @map("secret_rotated_at") @db.Timestamptz(3)
+  status           PlatformWebhookStatus    @default(ACTIVE)
+  maxRetries       Int                      @default(5) @map("max_retries")
+  createdByUserId  String?                  @map("created_by_user_id") @db.Uuid
+  updatedByUserId  String?                  @map("updated_by_user_id") @db.Uuid
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  deliveries PlatformWebhookDelivery[]
+
+  @@index([direction, status])
+  @@map("platform_webhook_endpoints")
+}
+
+/// One delivery attempt of one event to one endpoint. Recorded by the platform; its result is
+/// written once. A redelivery is a new attempt naming the original.
+model PlatformWebhookDelivery {
+  id                 String                 @id @default(uuid(7)) @db.Uuid
+  endpointId         String                 @map("endpoint_id") @db.Uuid
+  eventType          String                 @map("event_type")
+  eventId            String                 @map("event_id")
+  attempt            Int                    @default(1)
+  redeliveryOfId     String?                @map("redelivery_of_id") @db.Uuid
+  status             PlatformDeliveryStatus @default(PENDING)
+  responseStatusCode Int?                   @map("response_status_code")
+  durationMs         Int?                   @map("duration_ms")
+  requestId          String?                @map("request_id")
+  errorCode          String?                @map("error_code")
+  requestedByUserId  String?                @map("requested_by_user_id") @db.Uuid
+  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  finishedAt         DateTime?              @map("finished_at") @db.Timestamptz(3)
+
+  endpoint     PlatformWebhookEndpoint   @relation(fields: [endpointId], references: [id], onDelete: Restrict)
+  redeliveryOf PlatformWebhookDelivery?  @relation("PlatformWebhookRedelivery", fields: [redeliveryOfId], references: [id], onDelete: Restrict)
+  redeliveries PlatformWebhookDelivery[] @relation("PlatformWebhookRedelivery")
+
+  @@unique([endpointId, eventId, attempt])
+  @@index([endpointId, createdAt])
+  @@index([status])
+  @@map("platform_webhook_deliveries")
+}
+
+/// A day's rollup for one subject (a platform integration's id, a catalog provider key, or an API
+/// key's id), written by the platform's daily job. Cross-firm adoption comes from here, never from
+/// reading firms' connections in admin scope.
+model PlatformIntegrationUsageDaily {
+  day            DateTime           @db.Date
+  scope          PlatformUsageScope
+  subjectKey     String             @map("subject_key")
+  requests       Int                @default(0)
+  successes      Int                @default(0)
+  failures       Int                @default(0)
+  avgLatencyMs   Int?               @map("avg_latency_ms")
+  volume         BigInt?
+  costCents      Int?               @map("cost_cents")
+  connectedFirms Int?               @map("connected_firms")
+  activeFirms    Int?               @map("active_firms")
+  connects       Int?
+  disconnects    Int?
+  computedAt     DateTime           @default(now()) @map("computed_at") @db.Timestamptz(3)
+
+  @@id([day, scope, subjectKey])
+  @@index([scope, subjectKey, day])
+  @@map("platform_integration_usage_daily")
+}
+
+// ---------- R0 stage B9: Super Admin Reports & Analytics ----------
+// Saved custom reports (the configuration, never the data) and two daily rollups the platform's job
+// writes, so cross-firm dashboards and the Firm Report Detail never read firm tables in admin
+// scope: per-firm feature usage and per-firm activity metrics. Exports use B1's
+// platform_export_jobs (module REPORTS). Contract note: docs/work/R0-stage-b9-reports.md.
+
+enum PlatformReportType {
+  FIRMS
+  USERS
+  SUBSCRIPTIONS_REVENUE
+  SUPPORT
+  FEATURE_USAGE
+  ACTIVITY_LOG
+}
+
+/// A saved custom report: type, columns, filters, date range and sort, run against current data.
+/// Private to its owner unless shared with the team; only its owner edits or deletes it.
+model PlatformSavedReport {
+  id               String             @id @default(uuid(7)) @db.Uuid
+  ownerUserId      String             @map("owner_user_id") @db.Uuid
+  name             String
+  description      String?
+  reportType       PlatformReportType @map("report_type")
+  /// The selected columns, in order (field keys from the API's catalogue for the type).
+  fields           String[]
+  filters          Json               @default("{}")
+  /// A preset ("LAST_30_DAYS", "THIS_QUARTER"...) or a custom from and to.
+  dateRange        Json               @map("date_range")
+  sort             Json               @default("[]")
+  shared           Boolean            @default(false)
+  duplicatedFromId String?            @map("duplicated_from_id") @db.Uuid
+  lastRunAt        DateTime?          @map("last_run_at") @db.Timestamptz(3)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  owner          PlatformAdmin         @relation("PlatformSavedReportOwner", fields: [ownerUserId], references: [userId], onDelete: Cascade)
+  duplicatedFrom PlatformSavedReport?  @relation("PlatformSavedReportCopy", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
+  copies         PlatformSavedReport[] @relation("PlatformSavedReportCopy")
+
+  @@unique([ownerUserId, name])
+  @@index([shared])
+  @@map("platform_saved_reports")
+}
+
+/// One firm's use of one feature on one day (actual use, not whether it is on): events and the
+/// distinct users who used it. Written by the platform's daily job; goes with the firm's data.
+model PlatformFeatureUsageDaily {
+  day         DateTime @db.Date
+  businessId  String   @map("business_id") @db.Uuid
+  /// A stable feature key, e.g. "documents.generate", "esign.send", "crm.lead_created".
+  feature     String
+  events      Int      @default(0)
+  activeUsers Int      @default(0) @map("active_users")
+  computedAt  DateTime @default(now()) @map("computed_at") @db.Timestamptz(3)
+
+  business Business @relation("PlatformFeatureUsageDaily", fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@id([day, businessId, feature])
+  @@index([feature, day])
+  @@index([businessId, day])
+  @@map("platform_feature_usage_daily")
+}
+
+/// One firm's activity on one day: counts the Firm Report Detail and the Users tab chart. Written
+/// by the platform's daily job (it reads each firm in that firm's scope); goes with the firm's data.
+model PlatformFirmMetricsDaily {
+  day                DateTime  @db.Date
+  businessId         String    @map("business_id") @db.Uuid
+  totalUsers         Int       @default(0) @map("total_users")
+  activeUsers        Int       @default(0) @map("active_users")
+  newUsers           Int       @default(0) @map("new_users")
+  logins             Int       @default(0)
+  totalClients       Int       @default(0) @map("total_clients")
+  documentsCreated   Int       @default(0) @map("documents_created")
+  documentsCompleted Int       @default(0) @map("documents_completed")
+  activeDocuments    Int       @default(0) @map("active_documents")
+  leadsCreated       Int       @default(0) @map("leads_created")
+  esignSent          Int       @default(0) @map("esign_sent")
+  esignCompleted     Int       @default(0) @map("esign_completed")
+  lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(3)
+  computedAt         DateTime  @default(now()) @map("computed_at") @db.Timestamptz(3)
+
+  business Business @relation("PlatformFirmMetricsDaily", fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@id([day, businessId])
+  @@index([businessId, day])
+  @@map("platform_firm_metrics_daily")
+}
+
+// ---------- R0 stage C1: Bookkeeping transactions, refunds, settlements, report versions, terms ----------
+// The Bookkeeping API's schema request (#718), from the Bookkeeping developer instructions: the
+// transaction workspace (categorize, split, transfer, match, exclude, receipt), refunds and
+// chargebacks and settlements or payouts as distinct events with source linkage and bank-deposit
+// matching, report versions (snapshots of what was generated and sent), and the client's
+// engagement terms (six tabs; versioned, never overwritten once signed). Firm data: each firm sees
+// only its own; every row stays on one client's bookkeeping engagement (composite keys). A closed
+// period locks its transactions. Contract note: docs/work/R0-stage-c1-bookkeeping.md.
+
+enum BookkeepingCategoryType {
+  INCOME
+  COST_OF_GOODS
+  EXPENSE
+  ASSET
+  LIABILITY
+  EQUITY
+  OTHER
+}
+
+/// From the account's side: DEBIT is money out of a bank account (or a charge on a card), CREDIT is
+/// money in (or a card payment or refund).
+enum BookkeepingTxnDirection {
+  DEBIT
+  CREDIT
+}
+
+enum BookkeepingTxnKind {
+  STANDARD
+  TRANSFER
+  PAYMENT
+  REFUND
+  CHARGEBACK
+  FEE
+  PAYOUT
+  ADJUSTMENT
+}
+
+enum BookkeepingTxnStatus {
+  UNCATEGORIZED
+  CATEGORIZED
+  MATCHED
+  EXCLUDED
+  NEEDS_REVIEW
+}
+
+enum BookkeepingTxnSource {
+  SYNC
+  IMPORT
+  MANUAL
+}
+
+enum BookkeepingRefundKind {
+  /// A vendor refunded the client (link the original expense; not ordinary income).
+  REFUND_RECEIVED
+  /// The client refunded a customer (link the original sale or payment).
+  REFUND_ISSUED
+  CHARGEBACK
+}
+
+enum BookkeepingRefundStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REVERSED
+}
+
+enum BookkeepingDisputeStatus {
+  OPEN
+  WON
+  LOST
+  ACCEPTED
+}
+
+enum BookkeepingNetSource {
+  /// The processor's own net figure.
+  SOURCE
+  /// Gross minus refunds, chargebacks and fees, plus adjustments.
+  CALCULATED
+}
+
+enum BookkeepingSettlementStatus {
+  UNMATCHED
+  PARTIALLY_MATCHED
+  MATCHED
+  NEEDS_REVIEW
+}
+
+enum BookkeepingDeliveryStatus {
+  NOT_SENT
+  SENT
+  FAILED
+}
+
+/// DRAFT (editable) -> SENT -> ACTIVE (signed or accepted; then frozen) -> SUPERSEDED by the next
+/// version, or TERMINATED.
+enum BookkeepingTermsStatus {
+  DRAFT
+  SENT
+  ACTIVE
+  SUPERSEDED
+  TERMINATED
+}
+
+enum BookkeepingRenewalType {
+  AUTO
+  MANUAL
+  FIXED_TERM
+}
+
+enum BookkeepingBillingFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum BookkeepingBillingTiming {
+  ADVANCE
+  ARREARS
+}
+
+enum BookkeepingPaymentTerms {
+  DUE_ON_RECEIPT
+  NET_7
+  NET_15
+  NET_30
+  CUSTOM
+}
+
+enum BookkeepingTermsEventKind {
+  CREATED
+  SENT
+  SIGNED
+  ACTIVATED
+  SUPERSEDED
+  PACKAGE_CHANGED
+  PRICING_CHANGED
+  SCOPE_CHANGED
+  RENEWAL_CHANGED
+  PRICE_CHANGE_NOTICE
+  TERMINATION_NOTICE
+  TERMINATED
+  RENEWED
+  NOTE
+}
+
+/// A client's chart-of-accounts category: synced from its accounting connection (with the
+/// provider's id) or added by hand. Deactivated, never deleted.
+model BookkeepingCategory {
+  id               String                  @id @default(uuid(7)) @db.Uuid
+  businessId       String                  @map("business_id") @db.Uuid
+  engagementId     String                  @map("engagement_id") @db.Uuid
+  connectionId     String?                 @map("connection_id") @db.Uuid
+  sourceCategoryId String?                 @map("source_category_id")
+  name             String
+  type             BookkeepingCategoryType
+  parentId         String?                 @map("parent_id") @db.Uuid
+  isActive         Boolean                 @default(true) @map("is_active")
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement   Engagement                    @relation("BookkeepingCategories", fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  connection   BookkeepingConnection?        @relation(fields: [businessId, engagementId, connectionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  parent       BookkeepingCategory?          @relation("BookkeepingCategoryParent", fields: [businessId, engagementId, parentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  children     BookkeepingCategory[]         @relation("BookkeepingCategoryParent")
+  transactions BookkeepingTransaction[]
+  splits       BookkeepingTransactionSplit[]
+  refunds      BookkeepingRefund[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, id])
+  @@unique([businessId, engagementId, name])
+  @@unique([businessId, connectionId, sourceCategoryId])
+  @@map("bookkeeping_categories")
+}
+
+/// One transaction of a client's bank or card account (the Transactions grid): synced, imported or
+/// entered by hand, with its source id. Categorized (a category, or splits that add up to the
+/// amount), a transfer (linked to its other side), matched to an existing transaction, or excluded
+/// (with a reason). Never deleted (a possible duplicate is flagged, never silently removed). Locked
+/// while its period is closed.
+model BookkeepingTransaction {
+  id                      String                  @id @default(uuid(7)) @db.Uuid
+  businessId              String                  @map("business_id") @db.Uuid
+  engagementId            String                  @map("engagement_id") @db.Uuid
+  accountId               String                  @map("account_id") @db.Uuid
+  connectionId            String?                 @map("connection_id") @db.Uuid
+  sourceTransactionId     String?                 @map("source_transaction_id")
+  transactionDate         DateTime                @map("transaction_date") @db.Date
+  description             String
+  payee                   String?
+  /// Always positive; the direction says which way it went.
+  amountCents             Int                     @map("amount_cents")
+  direction               BookkeepingTxnDirection
+  kind                    BookkeepingTxnKind      @default(STANDARD)
+  status                  BookkeepingTxnStatus    @default(UNCATEGORIZED)
+  /// Null when uncategorized or split.
+  categoryId              String?                 @map("category_id") @db.Uuid
+  classLabel              String?                 @map("class_label")
+  locationLabel           String?                 @map("location_label")
+  /// A transfer's other side (both rows name each other).
+  transferPairId          String?                 @map("transfer_pair_id") @db.Uuid
+  /// The existing transaction this feed item was matched to.
+  matchedToId             String?                 @map("matched_to_id") @db.Uuid
+  excludedReason          String?                 @map("excluded_reason")
+  /// A probable duplicate of this transaction (flagged for review).
+  duplicateOfId           String?                 @map("duplicate_of_id") @db.Uuid
+  receiptDocumentId       String?                 @map("receipt_document_id") @db.Uuid
+  /// The reconciliation it was cleared in.
+  clearedReconciliationId String?                 @map("cleared_reconciliation_id") @db.Uuid
+  clearedAt               DateTime?               @map("cleared_at") @db.Timestamptz(3)
+  source                  BookkeepingTxnSource
+  createdByUserId         String?                 @map("created_by_user_id") @db.Uuid
+  createdAt               DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement            Engagement                    @relation("BookkeepingTransactions", fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  account               BookkeepingAccount            @relation(fields: [businessId, engagementId, accountId], references: [businessId, engagementId, id], onDelete: Restrict)
+  connection            BookkeepingConnection?        @relation(fields: [businessId, engagementId, connectionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  category              BookkeepingCategory?          @relation(fields: [businessId, engagementId, categoryId], references: [businessId, engagementId, id], onDelete: Restrict)
+  transferPair          BookkeepingTransaction?       @relation("BookkeepingTransferPair", fields: [businessId, engagementId, transferPairId], references: [businessId, engagementId, id], onDelete: Restrict)
+  transferPairOf        BookkeepingTransaction[]      @relation("BookkeepingTransferPair")
+  matchedTo             BookkeepingTransaction?       @relation("BookkeepingMatchedTo", fields: [businessId, engagementId, matchedToId], references: [businessId, engagementId, id], onDelete: Restrict)
+  matchedFrom           BookkeepingTransaction[]      @relation("BookkeepingMatchedTo")
+  duplicateOf           BookkeepingTransaction?       @relation("BookkeepingDuplicateOf", fields: [businessId, engagementId, duplicateOfId], references: [businessId, engagementId, id], onDelete: Restrict)
+  duplicates            BookkeepingTransaction[]      @relation("BookkeepingDuplicateOf")
+  receipt               Document?                     @relation("BookkeepingTransactionReceipt", fields: [businessId, engagementId, receiptDocumentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  clearedReconciliation BookkeepingReconciliation?    @relation(fields: [businessId, clearedReconciliationId], references: [businessId, id], onDelete: Restrict)
+  splits                BookkeepingTransactionSplit[]
+  refundsOf             BookkeepingRefund[]           @relation("BookkeepingRefundOriginal")
+  refundsAs             BookkeepingRefund[]           @relation("BookkeepingRefundTransaction")
+  depositFor            BookkeepingSettlement[]
+  settlementItems       BookkeepingSettlementItem[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, id])
+  @@unique([businessId, connectionId, sourceTransactionId])
+  @@index([businessId, engagementId, transactionDate])
+  @@index([businessId, engagementId, status])
+  @@index([businessId, accountId, transactionDate])
+  @@map("bookkeeping_transactions")
+}
+
+/// One part of a split transaction; a split transaction's parts add up to its amount.
+model BookkeepingTransactionSplit {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  engagementId  String   @map("engagement_id") @db.Uuid
+  transactionId String   @map("transaction_id") @db.Uuid
+  categoryId    String   @map("category_id") @db.Uuid
+  amountCents   Int      @map("amount_cents")
+  memo          String?
+  classLabel    String?  @map("class_label")
+  locationLabel String?  @map("location_label")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  transaction BookkeepingTransaction @relation(fields: [businessId, engagementId, transactionId], references: [businessId, engagementId, id], onDelete: Cascade)
+  category    BookkeepingCategory    @relation(fields: [businessId, engagementId, categoryId], references: [businessId, engagementId, id], onDelete: Restrict)
+
+  @@index([businessId, transactionId])
+  @@map("bookkeeping_transaction_splits")
+}
+
+/// A refund received or issued, or a chargeback: its own event, linked to the original transaction
+/// and, when known, to its own transaction and the settlement that carried it.
+model BookkeepingRefund {
+  id                    String                    @id @default(uuid(7)) @db.Uuid
+  businessId            String                    @map("business_id") @db.Uuid
+  engagementId          String                    @map("engagement_id") @db.Uuid
+  kind                  BookkeepingRefundKind
+  /// The payment processor's code ("stripe", "square"), when there is one.
+  processor             String?
+  sourceRefundId        String?                   @map("source_refund_id")
+  originalTransactionId String?                   @map("original_transaction_id") @db.Uuid
+  transactionId         String?                   @map("transaction_id") @db.Uuid
+  refundDate            DateTime                  @map("refund_date") @db.Date
+  amountCents           Int                       @map("amount_cents")
+  reason                String?
+  method                String?
+  status                BookkeepingRefundStatus   @default(PENDING)
+  /// Chargebacks only.
+  disputeStatus         BookkeepingDisputeStatus? @map("dispute_status")
+  resolution            String?
+  /// The category or contra account the firm's rules map it to.
+  categoryId            String?                   @map("category_id") @db.Uuid
+  settlementId          String?                   @map("settlement_id") @db.Uuid
+  includeInReport       Boolean                   @default(true) @map("include_in_report")
+  createdByUserId       String?                   @map("created_by_user_id") @db.Uuid
+  createdAt             DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement          Engagement              @relation("BookkeepingRefunds", fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  originalTransaction BookkeepingTransaction? @relation("BookkeepingRefundOriginal", fields: [businessId, engagementId, originalTransactionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  transaction         BookkeepingTransaction? @relation("BookkeepingRefundTransaction", fields: [businessId, engagementId, transactionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  category            BookkeepingCategory?    @relation(fields: [businessId, engagementId, categoryId], references: [businessId, engagementId, id], onDelete: Restrict)
+  settlement          BookkeepingSettlement?  @relation(fields: [businessId, engagementId, settlementId], references: [businessId, engagementId, id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, processor, sourceRefundId])
+  @@index([businessId, engagementId, refundDate])
+  @@index([businessId, engagementId, status])
+  @@map("bookkeeping_refunds")
+}
+
+/// A processor's settlement or payout batch: gross, refunds, chargebacks, fees and adjustments kept
+/// apart, the net, and the bank deposit it was matched to.
+model BookkeepingSettlement {
+  id                   String                      @id @default(uuid(7)) @db.Uuid
+  businessId           String                      @map("business_id") @db.Uuid
+  engagementId         String                      @map("engagement_id") @db.Uuid
+  connectionId         String?                     @map("connection_id") @db.Uuid
+  processor            String
+  sourceSettlementId   String?                     @map("source_settlement_id")
+  periodStart          DateTime                    @map("period_start") @db.Date
+  periodEnd            DateTime                    @map("period_end") @db.Date
+  payoutDate           DateTime                    @map("payout_date") @db.Date
+  grossCents           Int                         @map("gross_cents")
+  refundsCents         Int                         @default(0) @map("refunds_cents")
+  chargebacksCents     Int                         @default(0) @map("chargebacks_cents")
+  feesCents            Int                         @default(0) @map("fees_cents")
+  /// Signed: a credit adds, a debit subtracts.
+  adjustmentsCents     Int                         @default(0) @map("adjustments_cents")
+  netPayoutCents       Int                         @map("net_payout_cents")
+  netSource            BookkeepingNetSource        @default(SOURCE) @map("net_source")
+  /// The matched bank-feed deposit.
+  depositTransactionId String?                     @map("deposit_transaction_id") @db.Uuid
+  status               BookkeepingSettlementStatus @default(UNMATCHED)
+  matchedAt            DateTime?                   @map("matched_at") @db.Timestamptz(3)
+  matchedByUserId      String?                     @map("matched_by_user_id") @db.Uuid
+  note                 String?
+  createdAt            DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement         Engagement                  @relation("BookkeepingSettlements", fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  connection         BookkeepingConnection?      @relation(fields: [businessId, engagementId, connectionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  depositTransaction BookkeepingTransaction?     @relation(fields: [businessId, engagementId, depositTransactionId], references: [businessId, engagementId, id], onDelete: Restrict)
+  items              BookkeepingSettlementItem[]
+  refunds            BookkeepingRefund[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, id])
+  @@unique([businessId, engagementId, processor, sourceSettlementId])
+  @@index([businessId, engagementId, payoutDate])
+  @@index([businessId, engagementId, status])
+  @@map("bookkeeping_settlements")
+}
+
+/// A payment, refund or fee included in a settlement (the drill-down).
+model BookkeepingSettlementItem {
+  businessId    String   @map("business_id") @db.Uuid
+  engagementId  String   @map("engagement_id") @db.Uuid
+  settlementId  String   @map("settlement_id") @db.Uuid
+  transactionId String   @map("transaction_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  settlement  BookkeepingSettlement  @relation(fields: [businessId, engagementId, settlementId], references: [businessId, engagementId, id], onDelete: Cascade)
+  transaction BookkeepingTransaction @relation(fields: [businessId, engagementId, transactionId], references: [businessId, engagementId, id], onDelete: Restrict)
+
+  @@id([settlementId, transactionId])
+  @@index([businessId, transactionId])
+  @@map("bookkeeping_settlement_items")
+}
+
+/// One generated version of a bookkeeping report (the report's history): its parameters, a summary
+/// of its figures, the generated file, and whether and when it was sent. Numbered per report by the
+/// database; what was generated never changes.
+model BookkeepingReportVersion {
+  id                String                    @id @default(uuid(7)) @db.Uuid
+  businessId        String                    @map("business_id") @db.Uuid
+  engagementId      String                    @map("engagement_id") @db.Uuid
+  reportId          String                    @map("report_id") @db.Uuid
+  version           Int
+  /// Period, basis, comparison and filters used.
+  parameters        Json                      @default("{}")
+  /// The headline figures at generation (totals only, never transaction detail).
+  summary           Json                      @default("{}")
+  documentId        String?                   @map("document_id") @db.Uuid
+  generatedAt       DateTime                  @default(now()) @map("generated_at") @db.Timestamptz(3)
+  generatedByUserId String?                   @map("generated_by_user_id") @db.Uuid
+  deliveryStatus    BookkeepingDeliveryStatus @default(NOT_SENT) @map("delivery_status")
+  sentAt            DateTime?                 @map("sent_at") @db.Timestamptz(3)
+  sentByUserId      String?                   @map("sent_by_user_id") @db.Uuid
+  deliveryError     String?                   @map("delivery_error")
+
+  report   BookkeepingReport @relation(fields: [businessId, reportId], references: [businessId, id], onDelete: Restrict)
+  document Document?         @relation("BookkeepingReportVersionFile", fields: [businessId, engagementId, documentId], references: [businessId, engagementId, id], onDelete: Restrict)
+
+  @@unique([businessId, reportId, version])
+  @@index([businessId, engagementId, generatedAt])
+  @@map("bookkeeping_report_versions")
+}
+
+/// One version of a client's bookkeeping engagement terms (the Terms page's six tabs). Edited only
+/// as a DRAFT; once ACTIVE it never changes and a change is a new version that supersedes it. The
+/// database numbers versions per engagement and keeps one ACTIVE version at a time.
+model BookkeepingTerms {
+  id                        String                      @id @default(uuid(7)) @db.Uuid
+  businessId                String                      @map("business_id") @db.Uuid
+  engagementId              String                      @map("engagement_id") @db.Uuid
+  version                   Int
+  status                    BookkeepingTermsStatus      @default(DRAFT)
+  /// The package name from Services & Pricing at the time (a snapshot).
+  packageName               String?                     @map("package_name")
+  startDate                 DateTime                    @map("start_date") @db.Date
+  endDate                   DateTime?                   @map("end_date") @db.Date
+  renewalType               BookkeepingRenewalType      @default(AUTO) @map("renewal_type")
+  renewalDate               DateTime?                   @map("renewal_date") @db.Date
+  noticeDays                Int?                        @map("notice_days")
+  billingFrequency          BookkeepingBillingFrequency @default(MONTHLY) @map("billing_frequency")
+  billingTiming             BookkeepingBillingTiming    @default(ADVANCE) @map("billing_timing")
+  paymentTerms              BookkeepingPaymentTerms     @default(DUE_ON_RECEIPT) @map("payment_terms")
+  /// For CUSTOM payment terms.
+  paymentTermsDays          Int?                        @map("payment_terms_days")
+  preferredPaymentMethod    String?                     @map("preferred_payment_method")
+  autopay                   Boolean                     @default(false)
+  monthlyFeeCents           Int                         @default(0) @map("monthly_fee_cents")
+  setupFeeCents             Int                         @default(0) @map("setup_fee_cents")
+  /// Additional-service billing, late-fee rule and discounts or credits (the API's schema).
+  additionalBilling         Json                        @default("[]") @map("additional_billing")
+  lateFeeRule               Json?                       @map("late_fee_rule")
+  discounts                 Json                        @default("[]")
+  /// Service Details: included, excluded, add-ons, deliverables and both sides' responsibilities.
+  includedServices          Json                        @default("[]") @map("included_services")
+  excludedServices          Json                        @default("[]") @map("excluded_services")
+  addOns                    Json                        @default("[]") @map("add_ons")
+  deliverables              Json                        @default("[]")
+  clientResponsibilities    Json                        @default("[]") @map("client_responsibilities")
+  firmResponsibilities      Json                        @default("[]") @map("firm_responsibilities")
+  effectiveFrom             DateTime                    @map("effective_from") @db.Date
+  internalNotes             String?                     @map("internal_notes")
+  /// The agreement generated from these terms, the signed copy, and its e-signature request.
+  agreementDocumentId       String?                     @map("agreement_document_id") @db.Uuid
+  signedAgreementDocumentId String?                     @map("signed_agreement_document_id") @db.Uuid
+  esignRequestId            String?                     @map("esign_request_id") @db.Uuid
+  sentAt                    DateTime?                   @map("sent_at") @db.Timestamptz(3)
+  signedAt                  DateTime?                   @map("signed_at") @db.Timestamptz(3)
+  activatedAt               DateTime?                   @map("activated_at") @db.Timestamptz(3)
+  supersededAt              DateTime?                   @map("superseded_at") @db.Timestamptz(3)
+  terminatedAt              DateTime?                   @map("terminated_at") @db.Timestamptz(3)
+  terminationReason         String?                     @map("termination_reason")
+  createdByUserId           String?                     @map("created_by_user_id") @db.Uuid
+  createdAt                 DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                 DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement      Engagement              @relation("BookkeepingTerms", fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  agreement       Document?               @relation("BookkeepingTermsAgreement", fields: [businessId, engagementId, agreementDocumentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  signedAgreement Document?               @relation("BookkeepingTermsSignedAgreement", fields: [businessId, engagementId, signedAgreementDocumentId], references: [businessId, engagementId, id], onDelete: Restrict)
+  esignRequest    EsignRequest?           @relation("BookkeepingTermsEsign", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
+  events          BookkeepingTermsEvent[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, engagementId, version])
+  @@index([businessId, engagementId, status])
+  @@index([businessId, renewalDate])
+  @@map("bookkeeping_terms")
+}
+
+/// The terms' history (the History tab): package, pricing, scope, agreement, renewal, notice and
+/// termination events. Append-only.
+model BookkeepingTermsEvent {
+  id            String                    @id @default(uuid(7)) @db.Uuid
+  businessId    String                    @map("business_id") @db.Uuid
+  termsId       String                    @map("terms_id") @db.Uuid
+  kind          BookkeepingTermsEventKind
+  effectiveDate DateTime?                 @map("effective_date") @db.Date
+  noticeSentAt  DateTime?                 @map("notice_sent_at") @db.Timestamptz(3)
+  reason        String?
+  /// Ids and old and new values only.
+  details       Json                      @default("{}")
+  actorUserId   String?                   @map("actor_user_id") @db.Uuid
+  createdAt     DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  terms BookkeepingTerms @relation(fields: [businessId, termsId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, termsId, createdAt])
+  @@map("bookkeeping_terms_events")
+}
+
+// ---------- R0 stage C2: Compliance follow-ups ----------
+// The Compliance API's follow-ups (#719): structured client facts the applicability rules can use
+// (a fact left unset means unknown, so a rule that needs it still returns NEEDS_REVIEW), the
+// client's sales tax registrations, a holiday table by jurisdiction (platform reference data), and
+// the firm's deadline-to-task due-date sync setting. Contract note:
+// docs/work/R0-stage-c2-compliance.md.
+
+/// How the client is taxed (distinct from its legal entity type on the profile).
+enum ComplianceTaxClassification {
+  INDIVIDUAL
+  SOLE_PROPRIETOR
+  DISREGARDED_ENTITY
+  PARTNERSHIP
+  S_CORPORATION
+  C_CORPORATION
+  TRUST
+  ESTATE
+  NONPROFIT
+  OTHER
+}
+
+/// The federal payroll tax deposit schedule.
+enum CompliancePayrollDepositSchedule {
+  MONTHLY
+  SEMIWEEKLY
+  NEXT_DAY
+  ANNUAL
+}
+
+enum ComplianceFilingFrequency {
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  ANNUAL
+}
+
+/// How a deadline's due date carries to its tasks.
+enum ComplianceTaskDueSync {
+  /// Tasks keep their own due dates.
+  NONE
+  /// A task is due on the deadline's due date.
+  MATCH_DEADLINE
+  /// A task is due `taskDueLeadDays` before the deadline's due date.
+  LEAD_DAYS
+}
+
+/// What the firm knows about a client for compliance applicability. One row per client; every fact
+/// is optional and unset means unknown.
+model ClientComplianceFacts {
+  businessId                 String                            @map("business_id") @db.Uuid
+  clientId                   String                            @map("client_id") @db.Uuid
+  fiscalYearEndMonth         Int?                              @map("fiscal_year_end_month")
+  fiscalYearEndDay           Int?                              @map("fiscal_year_end_day")
+  taxClassification          ComplianceTaxClassification?      @map("tax_classification")
+  /// Elections in force, as keys (e.g. "s_corp_2553", "entity_classification_8832").
+  elections                  String[]                          @default([])
+  isPayrollEmployer          Boolean?                          @map("is_payroll_employer")
+  payrollDepositSchedule     CompliancePayrollDepositSchedule? @map("payroll_deposit_schedule")
+  /// Two-letter state codes where the client has payroll.
+  payrollStates              String[]                          @default([]) @map("payroll_states")
+  isSalesTaxRegistered       Boolean?                          @map("is_sales_tax_registered")
+  priorYearTaxLiabilityCents Int?                              @map("prior_year_tax_liability_cents")
+  priorYearTaxYear           Int?                              @map("prior_year_tax_year")
+  notes                      String?
+  verifiedAt                 DateTime?                         @map("verified_at") @db.Timestamptz(3)
+  verifiedByUserId           String?                           @map("verified_by_user_id") @db.Uuid
+  updatedByUserId            String?                           @map("updated_by_user_id") @db.Uuid
+  createdAt                  DateTime                          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client Client @relation("ClientComplianceFacts", fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([businessId, clientId])
+  @@index([businessId, taxClassification])
+  @@map("client_compliance_facts")
+}
+
+/// A client's sales tax registration in one state, with its filing frequency. Closed, never
+/// deleted; at most one open registration per state.
+model ClientSalesTaxRegistration {
+  id           String                    @id @default(uuid(7)) @db.Uuid
+  businessId   String                    @map("business_id") @db.Uuid
+  clientId     String                    @map("client_id") @db.Uuid
+  state        String
+  frequency    ComplianceFilingFrequency
+  /// The last 4 characters of the state account number, for the masked display.
+  accountLast4 String?                   @map("account_last4")
+  registeredOn DateTime?                 @map("registered_on") @db.Date
+  closedOn     DateTime?                 @map("closed_on") @db.Date
+  createdAt    DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client Client @relation("ClientSalesTaxRegistrations", fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@index([businessId, clientId])
+  @@index([businessId, state])
+  @@map("client_sales_tax_registrations")
+}
+
+/// A holiday that moves a due date, by jurisdiction ("US" federal, "US-DC", "US-CA"...): the
+/// observed date. Platform reference data: every scope reads it; only the Super Admin team or the
+/// platform maintains it. The migration ships 2026 and 2027.
+model ComplianceHoliday {
+  jurisdiction String
+  holidayOn    DateTime @map("holiday_on") @db.Date
+  name         String
+  /// Where the date comes from (e.g. "5 U.S.C. 6103", "D.C. Code 1-612.02").
+  source       String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([jurisdiction, holidayOn])
+  @@index([holidayOn])
+  @@map("compliance_holidays")
+}
+
+// ---------- R0 stage D1: Sales Center (targets and lead imports) ----------
+
+/// Whose target: the whole company, one team (a platform department) or one rep.
+enum SalesTargetScope {
+  COMPANY
+  TEAM
+  REP
+}
+
+/// What a target measures. The API computes attainment from the source records with B5's
+/// definitions (docs/work/R0-stage-d1-sales-center.md); nothing is stored as an "actual".
+enum SalesTargetMetric {
+  /// Opportunities created in the period.
+  NEW_LEADS
+  /// DEMO follow-ups due in the period, not cancelled.
+  DEMOS_SCHEDULED
+  /// Platform subscriptions whose trial started in the period, linked to an opportunity.
+  TRIALS_STARTED
+  /// Opportunities converted (converted_at) in the period.
+  WON_DEALS
+  /// value_cents of the opportunities won in the period (cents).
+  REVENUE_WON
+  /// B5's conversion rate for opportunities created in the period (basis points, 0 to 10,000).
+  CONVERSION_RATE
+  /// Outbound activities logged in the period.
+  OUTBOUND_ACTIVITIES
+}
+
+enum SalesTargetPeriod {
+  MONTH
+  QUARTER
+  YEAR
+  CUSTOM
+}
+
+/// A sales target or goal (Sales Center): a metric's goal for the company, a team or a rep over a
+/// calendar month, quarter, year or a custom range of up to 366 days (dates inclusive, UTC days).
+/// Archived, never deleted; one live target per subject, metric and period.
+model SalesTarget {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  name            String
+  scope           SalesTargetScope
+  /// TEAM only.
+  departmentId    String?           @map("department_id") @db.Uuid
+  /// REP only.
+  userId          String?           @map("user_id") @db.Uuid
+  metric          SalesTargetMetric
+  /// A count, cents (REVENUE_WON) or basis points (CONVERSION_RATE); always above 0.
+  targetValue     Int               @map("target_value")
+  periodType      SalesTargetPeriod @map("period_type")
+  periodStart     DateTime          @map("period_start") @db.Date
+  periodEnd       DateTime          @map("period_end") @db.Date
+  note            String?
+  /// Set once (the database's time); an archived target never changes.
+  archivedAt      DateTime?         @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String?           @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?           @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  department PlatformDepartment? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  rep        PlatformAdmin?      @relation("SalesTargetRep", fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([periodStart, periodEnd])
+  @@index([departmentId])
+  @@index([userId])
+  @@map("sales_targets")
+}
+
+enum SalesImportStatus {
+  /// Uploaded and mapped; nothing created yet.
+  PENDING
+  /// The import job is creating records and writing row outcomes.
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+/// What a row that matches an existing contact (normalized email or phone) does.
+enum SalesImportDuplicateMode {
+  /// Record the match and create nothing.
+  SKIP
+  /// Add a new opportunity to the existing contact (never a second contact).
+  ATTACH_TO_EXISTING
+}
+
+enum SalesImportRowOutcome {
+  IMPORTED
+  DUPLICATE
+  SKIPPED
+  FAILED
+}
+
+enum SalesImportMatch {
+  EMAIL
+  PHONE
+  EMAIL_AND_PHONE
+}
+
+/// A lead import batch (Leads / CRM import and dedupe): the file, where its leads go and how
+/// duplicates are handled, and the counts. The counts are the database's: each row outcome adds
+/// one. A finished batch never changes.
+model SalesLeadImport {
+  id               String                   @id @default(uuid(7)) @db.Uuid
+  fileName         String                   @map("file_name")
+  fileSizeBytes    Int                      @map("file_size_bytes")
+  /// Hex SHA-256 of the file, to warn before the same file is imported twice.
+  fileSha256       String?                  @map("file_sha256")
+  /// The uploaded file, under `platform/sales-imports/`; it holds contact data, so it expires.
+  s3Key            String?                  @map("s3_key")
+  status           SalesImportStatus        @default(PENDING)
+  duplicateMode    SalesImportDuplicateMode @default(SKIP) @map("duplicate_mode")
+  /// Where new opportunities go: the pipeline and its starting stage (null: its first active one).
+  pipelineId       String                   @map("pipeline_id") @db.Uuid
+  stageId          String?                  @map("stage_id") @db.Uuid
+  /// The lead source for rows that don't name one.
+  defaultSource    SalesLeadSource          @default(OTHER) @map("default_source")
+  /// The owner of the imported records (null: unassigned).
+  assignedToUserId String?                  @map("assigned_to_user_id") @db.Uuid
+  /// File column to field, e.g. { "Email Address": "email" }.
+  columnMapping    Json                     @default("{}") @map("column_mapping")
+  totalRows        Int                      @default(0) @map("total_rows")
+  importedCount    Int                      @default(0) @map("imported_count")
+  duplicateCount   Int                      @default(0) @map("duplicate_count")
+  skippedCount     Int                      @default(0) @map("skipped_count")
+  failedCount      Int                      @default(0) @map("failed_count")
+  /// FAILED only: why the whole batch stopped (a short code, no row data).
+  failureCode      String?                  @map("failure_code")
+  startedAt        DateTime?                @map("started_at") @db.Timestamptz(3)
+  finishedAt       DateTime?                @map("finished_at") @db.Timestamptz(3)
+  createdByUserId  String?                  @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  pipeline SalesPipeline        @relation(fields: [pipelineId], references: [id], onDelete: Restrict)
+  stage    SalesPipelineStage?  @relation("SalesLeadImportStage", fields: [pipelineId, stageId], references: [pipelineId, id], onDelete: Restrict)
+  assignee PlatformAdmin?       @relation("SalesLeadImportAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+  rows     SalesLeadImportRow[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([fileSha256])
+  @@map("sales_lead_imports")
+}
+
+/// One file row's outcome: what it created or matched, or why it was skipped. Insert-only, written
+/// while the batch is PROCESSING. Never a copy of the row's data.
+model SalesLeadImportRow {
+  id            String                @id @default(uuid(7)) @db.Uuid
+  importId      String                @map("import_id") @db.Uuid
+  /// 1 for the first data row.
+  rowNumber     Int                   @map("row_number")
+  outcome       SalesImportRowOutcome
+  /// IMPORTED: the new contact; DUPLICATE: the existing one it matched.
+  contactId     String?               @map("contact_id") @db.Uuid
+  /// The opportunity created (IMPORTED, or DUPLICATE with ATTACH_TO_EXISTING).
+  opportunityId String?               @map("opportunity_id") @db.Uuid
+  /// DUPLICATE only: how it matched.
+  matchedBy     SalesImportMatch?     @map("matched_by")
+  /// SKIPPED and FAILED: a short code ("missing_name", "invalid_email").
+  reasonCode    String?               @map("reason_code")
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  import      SalesLeadImport   @relation(fields: [importId], references: [id], onDelete: Cascade)
+  contact     SalesContact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  opportunity SalesOpportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  @@unique([importId, rowNumber])
+  @@index([contactId])
+  @@index([opportunityId])
+  @@map("sales_lead_import_rows")
 }

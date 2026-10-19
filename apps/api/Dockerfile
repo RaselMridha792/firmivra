@@ -1,19 +1,26 @@
 # syntax=docker/dockerfile:1
 # Build from the repo root: docker build -f apps/api/Dockerfile -t firmivra-api .
 
-FROM public.ecr.aws/docker/library/node:22-alpine AS base
+# Deploy dev passes our ECR pull-through cache (<registry>/ecr-public); local builds pull from
+# ECR Public as before.
+ARG BASE_REGISTRY=public.ecr.aws
+FROM ${BASE_REGISTRY}/docker/library/node:22-alpine AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH HUSKY=0
 RUN corepack enable
 WORKDIR /repo
 
 FROM base AS build
+# Dependencies first: this layer changes only with the lockfile, so the build cache keeps the
+# download when only source changes. package.json gives corepack the pnpm version.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm fetch
 COPY . .
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --offline --frozen-lockfile
 RUN pnpm exec turbo run build --filter=@firmivra/api...
 # A self-contained copy of the API with production dependencies only.
 RUN pnpm --filter @firmivra/api deploy --prod --legacy /out
 
-FROM public.ecr.aws/docker/library/node:22-alpine AS runtime
+FROM ${BASE_REGISTRY}/docker/library/node:22-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /out/package.json ./package.json
