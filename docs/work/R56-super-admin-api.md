@@ -110,6 +110,24 @@ The contract keeps Tumit's method names and field names, so his screens switch w
 | `reconnectPlatform` | OAuth providers run the test, which says the account is not linked (the provider sign-in needs R1); others 409 INVALID_STATE |
 | errors 422 in the mock | 409 with the same code (NOT_FOUND 404, validation 400) |
 
+### Integrations, part 2 (Tumit, same mock → `api.adminIntegrations`)
+
+| Mock | Contract |
+| --- | --- |
+| `ApiKey.createdBy` (always set) | nullable (a key from a seed) |
+| `usage24h.requests` | the rollup's latest day for the key; null without a row |
+| `usage24h.peakPerMinute`, `rateLimited` | null: not tracked |
+| `CreateWebhookBody.integrationId`, `WebhookEndpoint.integration` | B8 links no endpoint to an integration: no body field, `integration` always null |
+| `signingSecretHint` (`whsec_••••91c2`) | `whsec_••••••••` when set (no last four is kept) |
+| `WebhookDelivery.payload` | null (B8 keeps none); `retries` is the earlier attempts of the event |
+| `redeliver` result | a `PENDING` attempt: R1's webhook worker sends it |
+| `IntegrationLog.action` | a label made from the stored action code |
+| `LogQuery.platformOnly`, `descending` | `'true'` / `'false'` in the query (`descending` defaults to true) |
+| `exportLogs({ query, format })` → file `content` | 202 with a queued `AdminExportJob` (B1); CSV only (B1's `ReportFormat` has no JSON); R1's export worker makes the file; `logExports()` lists mine |
+| `usage().planDistribution`, `alerts` | always empty: the rollup has no per-plan counts and thresholds have no table |
+| `thresholds`, `saveThresholds` | not in the contract (no table; "Needs from others") |
+| `auditTrail` | from `audit_logs` (`integrations.*` actions); `changes` lists the changed fields, never values |
+
 ## Needs from others
 
 - **R1: the communications dispatcher job** (platform scope): moves `SCHEDULED` messages to `SENDING` at their time and sends them (the API's `CommInboxService.dispatch` does the sending for one message), and wires SES and SNS delivery events to the recipients by `provider_message_id`, plus inbound mail and SMS as `RECEIVED` messages (B6 "Needs from R1"). Until then a scheduled message stays scheduled and delivery stops at `SENT`.
@@ -118,6 +136,8 @@ The contract keeps Tumit's method names and field names, so his screens switch w
 
 - **R1: Integrations workers and secrets** (B8 "Needs from R1"): the sync worker (a `SYNC` run stays `QUEUED` until it runs), real provider connection tests (today a local check of the values), the health checks, the daily usage rollup (`platform_integration_usage_daily`; until it runs, usage and uptime show N/A), the API role's Secrets Manager grant on `firmivra/platform/integrations/*` (SECRETS_MODE=aws), the S3 grant on `platform/integrations/*` for catalog logos (the contract keeps the logo's metadata only), and an OAuth app per OAuth provider (DocuSign) for reconnect.
 - **R0: webhook to integration link** (schema request, not edited here): `platform_webhook_endpoints` has no integration column, so an integration's dependents list no webhooks.
+- **R0: Integrations part 2 gaps** (schema request, not edited here): a usage alert thresholds table (error rate, latency, quota, cost, sync failures, versioned); per-plan adoption in `platform_integration_usage_daily` (the Usage page's plan distribution); a redacted payload on `platform_webhook_deliveries` (the deliveries drawer shows one).
+- **R1: Integrations part 2 workers**: the webhook delivery worker (sends `PENDING` deliveries, redeliveries included, and writes each result), the export worker for `INTEGRATION_LOGS` jobs (the file under `platform/exports/<id>/`), and B1's download route (`GET /api/v1/admin/exports/:id` with a signed URL).
 
 ## Progress log
 
@@ -129,6 +149,7 @@ The contract keeps Tumit's method names and field names, so his screens switch w
 - 2026-10-19: Broadcasts API (`admin-broadcasts.controller.ts`, `comm-broadcasts.service.ts`), stacked on #878 and #886: 19 routes; audiences resolved per channel (firm owners, leads, team; in-app to the team's bells), send and retry through NotifyService with per-recipient results, schedules wait for the dispatcher (R1); unit (5) and e2e (9) tests; 14 more writes in `WRITES`.
 - 2026-10-19: Broadcasts contract #886 and API #891 merged. Integrations contract, part 1 (`packages/types/src/admin-integrations`: summary, access, providers, plans, firm options, platform integrations, catalog), committed on `rasel/R56-admin-integrations-contract`; 6 contract tests; `api.adminIntegrations` points at Tumit's mock (cast).
 - 2026-10-19: Integrations contract part 1 PR #896. Integrations API part 1 (`apps/api/src/admin-integrations`), stacked on #896: 24 routes (dashboard, providers, platform integrations, runs, catalog, plans and firm rules, preview); provider definitions in code; credentials in a platform secret store (a new reference per save, so the database stamps each rotation; masked hints only); a test is a TEST run queued in admin scope and finished by `IntegrationRunWorker` in platform scope (only the platform moves a run); audit rows carry B4's fields (INTEGRATION, SECURITY for credentials); unit (13) and e2e (18) tests; 16 writes in `WRITES` (`admin-integrations-writes.ts`, plus a `params` hook for `:planId`).
+- 2026-10-19: Integrations contract, part 2 (`packages/types/src/admin-integrations/operations.ts` and the client): API keys, webhooks and deliveries, logs (filters, facets, record, B1 export job), usage report, the audit trail; 5 contract tests; committed on `rasel/R56-admin-integrations-contract-2` (stacked on #896), opened after #896 merges.
 
 ## Handoff for a fresh session (written Oct 19, 15:20 UTC)
 
