@@ -1,13 +1,8 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { BroadcastMessageStep } from './_components/broadcast-message-step';
 
-export const metadata: Metadata = { title: 'Broadcast message' };
+export const metadata: Metadata = { title: 'Create broadcast: Message' };
 
 export default function AdminCommunicationsBroadcastsNewMessagePage() {
-  return (
-    <PageHeader
-      title="Broadcast Message"
-      subtitle="Create the message content for this broadcast."
-    />
-  );
+  return <BroadcastMessageStep />;
 }

@@ -554,6 +554,17 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     text: `${b.name}: ${requiredText(d, 'body')}`,
   }),
 
+  'platform.message-email': (d) => ({
+    channel: 'email',
+    subject: capped(oneLine(requiredText(d, 'subject')), 200),
+    blocks: [hello(d), text(requiredText(d, 'body'))],
+  }),
+
+  'platform.message-sms': (d) => ({
+    channel: 'sms',
+    text: `Firmivra: ${requiredText(d, 'body')}`,
+  }),
+
   'esign.request': (d, b, o) => {
     const firm = b.name;
     const sender = required(d, 'senderName');
