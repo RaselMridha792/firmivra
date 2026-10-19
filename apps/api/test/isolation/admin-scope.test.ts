@@ -216,6 +216,21 @@ afterAll(async () => {
   await app.close();
 });
 
+/**
+ * One token per person for the whole file: a token per call ran into the sign-in rate limit (429)
+ * once the admin site had more routes.
+ */
+const tokens = new Map<string, string>();
+async function tokenFor(email: string): Promise<string> {
+  const cached = tokens.get(email);
+  if (cached) return cached;
+  const { token } = (
+    await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email }).expect(200)
+  ).body as { token: string };
+  tokens.set(email, token);
+  return token;
+}
+
 async function call(
   method: 'get' | 'post' | 'put' | 'patch' | 'delete',
   path: string,
@@ -223,9 +238,7 @@ async function call(
   firm?: string,
   body?: object,
 ) {
-  const { token } = (
-    await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email }).expect(200)
-  ).body as { token: string };
+  const token = await tokenFor(email);
   const req = request(app.getHttpServer())[method](path).set('authorization', `Bearer ${token}`);
   const scoped = firm ? req.set('x-business-id', firm) : req;
   return body === undefined ? scoped : scoped.send(body);
