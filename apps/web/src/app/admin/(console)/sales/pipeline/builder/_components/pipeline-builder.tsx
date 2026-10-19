@@ -15,16 +15,16 @@ import {
 import { FlowArrow, Info, Kanban, Plus, SlidersHorizontal } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState, type FormEvent, type ReactNode } from 'react';
+import { useApiMutation } from '../../../../../../../lib/query';
+import { usePipelines } from '../../../_components/add-lead-panel';
 import {
   adminSales,
+  errorMessage,
   fieldErrors,
   type CreatePipeline,
   type SalesPipeline,
   type SavePipeline,
-} from '../../../../../../../mocks/admin-sales';
-import { errorMessage } from '../../../../../../../lib/errors';
-import { useApiMutation } from '../../../../../../../lib/query';
-import { usePipelines } from '../../../_components/add-lead-panel';
+} from '../../../_components/sales-api';
 import {
   Crumbs,
   FrameError,
@@ -244,6 +244,8 @@ function PipelineEditor({
     save.mutate(
       {
         id: pipeline.id,
+        // The version this editor opened: someone else's save in between is refused.
+        expectedUpdatedAt: pipeline.updatedAt,
         name,
         description,
         stages: stages.map(({ key: _key, ...stage }) => stage),

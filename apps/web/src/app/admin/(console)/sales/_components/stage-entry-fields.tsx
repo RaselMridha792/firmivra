@@ -4,12 +4,13 @@ import { Input, Select, Textarea } from '@firmivra/ui';
 import {
   APPOINTMENT_TYPES,
   LOST_REASONS,
+  TRANSACTION_BY_REFERENCE,
   type AppointmentType,
   type LostReason,
   type PipelineStage,
   type SalesRep,
   type StageEntryInput,
-} from '../../../../../mocks/admin-sales';
+} from './sales-api';
 
 /** What a stage may require on entry, as the form holds it. */
 export interface EntryState {
@@ -39,7 +40,7 @@ export function entryInput(state: EntryState, stage: PipelineStage | undefined):
     ...(requires.includes('LOST_REASON')
       ? { lostReason: state.lostReason || null, lostNote: state.lostNote }
       : {}),
-    ...(requires.includes('TRANSACTION')
+    ...(requires.includes('TRANSACTION') && TRANSACTION_BY_REFERENCE
       ? { transactionReference: state.transactionReference }
       : {}),
     ...(requires.includes('APPOINTMENT') && state.appointmentDate
@@ -55,14 +56,19 @@ export function entryInput(state: EntryState, stage: PipelineStage | undefined):
   };
 }
 
-/** True when the stage needs something this record does not have yet. */
+/**
+ * True when the stage needs something this record does not have yet. On the API a transaction is
+ * linked on the record page, never typed in here: the move goes ahead and the API's answer shows.
+ */
 export function needsEntryData(
   stage: PipelineStage,
   record: { hasAppointment: boolean; hasTransaction: boolean },
 ) {
   return (
     stage.requires.includes('LOST_REASON') ||
-    (stage.requires.includes('TRANSACTION') && !record.hasTransaction) ||
+    (TRANSACTION_BY_REFERENCE &&
+      stage.requires.includes('TRANSACTION') &&
+      !record.hasTransaction) ||
     (stage.requires.includes('APPOINTMENT') && !record.hasAppointment)
   );
 }
@@ -92,7 +98,8 @@ export function StageEntryFields({
   const set = <K extends keyof EntryState>(key: K, next: EntryState[K]) =>
     onChange({ ...value, [key]: next });
   const lost = stage.requires.includes('LOST_REASON');
-  const transaction = stage.requires.includes('TRANSACTION') && !hasTransaction;
+  const transaction =
+    TRANSACTION_BY_REFERENCE && stage.requires.includes('TRANSACTION') && !hasTransaction;
   const appointment = stage.requires.includes('APPOINTMENT') && !hasAppointment;
   if (!lost && !transaction && !appointment) return null;
   return (

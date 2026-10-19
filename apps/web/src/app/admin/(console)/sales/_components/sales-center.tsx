@@ -17,15 +17,6 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
-import {
-  adminSales,
-  PERIOD_LABELS,
-  type CenterKpis,
-  type PlanId,
-  type SalesPeriod,
-  type SalesPlan,
-} from '../../../../../mocks/admin-sales';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { AddLeadPanel } from './add-lead-panel';
 import {
@@ -40,6 +31,15 @@ import {
 import { ActivityDrawer, AppointmentsDrawer } from './feed-drawers';
 import { ComparePackagesModal, PlanDetailsModal, PlansPricing } from './plans-pricing';
 import { SalesActionDialog, type SalesAction } from './sales-action-dialog';
+import {
+  adminSales,
+  errorMessage,
+  PERIOD_LABELS,
+  type CenterKpis,
+  type PlanId,
+  type SalesPeriod,
+  type SalesPlan,
+} from './sales-api';
 import { CompactSelect, Crumbs, money, SALES_KEY, SalesKpi, type SalesTileTone } from './sales-ui';
 
 const PERIODS: SalesPeriod[] = ['LAST_7_DAYS', 'LAST_30_DAYS', 'LAST_90_DAYS', 'THIS_YEAR'];

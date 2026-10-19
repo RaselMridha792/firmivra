@@ -4,8 +4,10 @@ import { Badge, BulkBar, Button, Modal, Select, Table, type Column } from '@firm
 import { ArrowsClockwise, Tag, Users } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
+import { useApiMutation } from '../../../../../../lib/query';
 import {
   adminSales,
+  errorMessage,
   fieldErrors,
   planName,
   sourceLabel,
@@ -13,9 +15,7 @@ import {
   type SalesMeta,
   type SalesOpportunity,
   type StageEntryInput,
-} from '../../../../../../mocks/admin-sales';
-import { errorMessage } from '../../../../../../lib/errors';
-import { useApiMutation } from '../../../../../../lib/query';
+} from '../../_components/sales-api';
 import {
   ATTENTION_TONE,
   attentionLabel,

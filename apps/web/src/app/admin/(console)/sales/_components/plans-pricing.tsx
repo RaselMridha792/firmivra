@@ -12,8 +12,8 @@ import {
   Users,
   type Icon,
 } from '@phosphor-icons/react';
-import { adminSales, type PlanId, type SalesPlan } from '../../../../../mocks/admin-sales';
 import { useApiQuery } from '../../../../../lib/query';
+import { adminSales, type PlanId, type SalesPlan } from './sales-api';
 import { FrameState, moneyExact, SALES_KEY } from './sales-ui';
 
 /** Each plan's colour: icon tile, ticks and its main button (white text only where it reads). */
@@ -123,7 +123,7 @@ export function PlansPricing({
                     </span>
                     <div className="min-w-0">
                       <h3 className="font-semibold text-heading">{plan.name}</h3>
-                      <p className="text-xs text-muted">{plan.tagline}</p>
+                      {plan.tagline ? <p className="text-xs text-muted">{plan.tagline}</p> : null}
                     </div>
                   </div>
                   <p className="flex flex-wrap items-baseline gap-1 text-heading">
@@ -180,18 +180,21 @@ export function PlanDetailsModal({
   onTrial: (plan: PlanId) => void;
   onContactSales: (plan: PlanId) => void;
 }) {
-  const rows: [string, string][] = [
-    ['Price', `${plan.priceFrom ? 'From ' : ''}${moneyExact(plan.priceCents)} a month`],
-    ['Capacity', plan.capacity],
-    ['Expansion', plan.expansion],
-    ['Locations', plan.locations],
-    ['Best fit', plan.bestFit],
-  ];
+  // The API stores no plan copy (outcome, best fit, when to move up): those lines stay out.
+  const rows = (
+    [
+      ['Price', `${plan.priceFrom ? 'From ' : ''}${moneyExact(plan.priceCents)} a month`],
+      ['Capacity', plan.capacity],
+      ['Expansion', plan.expansion],
+      ['Locations', plan.locations],
+      ['Best fit', plan.bestFit],
+    ] satisfies [string, string][]
+  ).filter(([, value]) => value);
   return (
     <Modal
       open
       title={plan.name}
-      subtitle={`${plan.outcome}: ${plan.whyUpgrade}`}
+      subtitle={plan.outcome ? `${plan.outcome}: ${plan.whyUpgrade}` : undefined}
       onClose={onClose}
       footer={
         <>
@@ -221,10 +224,12 @@ export function PlanDetailsModal({
           </li>
         ))}
       </ul>
-      <p className="mt-4 rounded-lg bg-info-soft p-3 text-sm text-text">
-        <span className="font-semibold text-heading">When to move up: </span>
-        {plan.upgradeTrigger}
-      </p>
+      {plan.upgradeTrigger ? (
+        <p className="mt-4 rounded-lg bg-info-soft p-3 text-sm text-text">
+          <span className="font-semibold text-heading">When to move up: </span>
+          {plan.upgradeTrigger}
+        </p>
+      ) : null}
     </Modal>
   );
 }
