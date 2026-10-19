@@ -243,7 +243,44 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
 
 - Oct 19, decisions (Rasel through the Scrum thread): R0 finishes demo seed stage 5 before anything else; a new session R60 takes the Super Admin Support, Billing and Sales APIs (not R0). R55's Super Admin schema gaps are triaged under "Schema gaps from the Super Admin API sessions" in the migration queue: platform legal documents (stage D4) and an MRR daily rollup (in D2) need migrations; backups, environment variables, role templates, custom CSS, uptime and the unfilled daily metrics do not.
 
-## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
+## Handoff, Oct 19 (read this first; it supersedes the Oct 18 handoff below)
+
+**Rasel's order (Oct 19, ~12:00Z), in this order:**
+1. **Schema gaps first, so the Super Admin API sessions (R55, R56, R60) are never blocked.** Decisions are in "Schema gaps from the Super Admin API sessions" in the migration queue above.
+   - Two need migrations: platform legal documents (D4) and MRR history.
+   - Ship them one migration PR at a time; Rasel merges in the windows.
+   - New gaps arrive from R55, R56 and R60 through the Scrum thread.
+2. **Then the firm Business Advisory module:** 24 placeholder pages under `apps/web/src/app/firm/(workspace)/business-advisory`, with designs in `docs/mockups/firm-workspace`.
+   - Contract PR, then API PR, wherever the API is missing.
+   - Then the screens: every widget built, empty states rather than fake data, three-state screenshots at 1440 px, and `docs/design-match.md`.
+3. **No more demo seed groups.** The demo data gets replaced later, and nobody reseeds dev now (R1 has been told).
+
+**Open PRs:**
+- **#868: fix `r0_demo_unseed_automations`** (`app_delete_business_data` breaks the automation rule/version cycle).
+  - Main is merged in; head `493eb20a`; the local tests pass.
+  - It carries a migration, so Rasel merges it himself.
+- **#871: demo seed Communications group** (16 tables). Merges cleanly with main.
+
+**Shelved, pushed, no PR:** `rasel/R0-demo-stage5-automations` (6 tables, stacked on #868). Don't open it unless Rasel asks.
+
+**Merged today:**
+- #815 (D1 Sales Center)
+- #832 (`staff_import_previews`)
+- #834, #841, #850, #855 and #856 (demo groups: Tasks, Payroll, Compliance, Templates, Bookkeeping)
+- #860 (the gap queue)
+
+**Not R0's any more:** the Super Admin Support, Billing and Sales APIs (R60 has them). Stages D2 and D3 stay queued; MRR history goes into D2.
+
+**Local rules (Scrum, 11:46Z):**
+- Run only lint on changed files, typecheck of the changed package, and the touched module's tests. CI's 4 shards are the full gate.
+- No Playwright from an API session.
+- At most two heavy jobs on the laptop.
+- On the shared Postgres, add `?connect_timeout=60` to both DB URLs (Prisma P1001 otherwise).
+- When `migrate dev` can't build its shadow database, generate the SQL with `migrate diff` against a scratch DB that has every migration applied.
+
+**Scrum thread:** this session can't reply to it (no remote `send_message` tool), so Rasel relays PR numbers.
+
+## Handoff, Oct 18 afternoon (superseded by the Oct 19 handoff above)
 
 **Where things stand.**
 - **Merged on Oct 18:**
