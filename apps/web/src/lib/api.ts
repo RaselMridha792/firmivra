@@ -2,6 +2,7 @@ import {
   createAdminSupportAccessClient,
   createAdminSupportClient,
   createAdminBillingClient,
+  createAdminSalesClient,
   createAgreementsClient,
   createApiClient,
   createAppointmentsClient,
@@ -24,6 +25,7 @@ import {
   createFirmApplicationsClient,
   createAdminNotificationsClient,
   createAdminCommunicationsClient,
+  createAdminBroadcastsClient,
   createIntakeFormsClient,
   createInvoicesClient,
   createLeadPipelineClient,
@@ -93,6 +95,7 @@ import {
 import { createAuditLogMock } from '../mocks/audit-log';
 import { createAdminNotificationsMock } from '../mocks/admin-notifications-api';
 import { createAdminCommunicationsMock } from '../mocks/admin-communications-api';
+import { createAdminBroadcastsMock } from '../mocks/admin-broadcasts-api';
 import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
@@ -454,6 +457,8 @@ export const api = {
   adminSupport: createAdminSupportClient(request),
   /** Super Admin Billing (R60 on R0's B3): Firmivra bills firms. Mock: mocks/admin-billing.ts until the screens switch. */
   adminBilling: createAdminBillingClient(request),
+  /** Super Admin Sales (R60 on R0's B5 and D1): the Sales Center and the pipeline. Mock: mocks/admin-sales.ts until the screens switch. */
+  adminSales: createAdminSalesClient(request),
   /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
   notifications:
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
@@ -472,6 +477,11 @@ export const api = {
     dev && mocked('adminCommunications')
       ? createAdminCommunicationsMock()
       : createAdminCommunicationsClient(request),
+  /** Super Admin broadcasts, audiences and files (R56 on R0's B6). Same mock key as the inbox. */
+  adminBroadcasts:
+    dev && mocked('adminCommunications')
+      ? createAdminBroadcastsMock()
+      : createAdminBroadcastsClient(request),
   /** Super Admin notifications (R56 on R0's B1): the member's notification center and bell. */
   adminNotifications:
     dev && mocked('adminNotifications')
