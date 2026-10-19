@@ -75,6 +75,7 @@ export function RightColumn({
   showInvoiceInfo = false,
   businessPage = false,
   showIntakeTip = false,
+  documentsPage = false,
 }: {
   slug: string;
   isMessagesPage?: boolean;
@@ -82,6 +83,8 @@ export function RightColumn({
   showInvoiceInfo?: boolean;
   businessPage?: boolean;
   showIntakeTip?: boolean;
+  /** The My Uploaded Documents tab: its two document cards (My docs tab.png). */
+  documentsPage?: boolean;
 }) {
   return isMessagesPage ? (
     <MessagesRightColumn slug={slug} />
@@ -92,6 +95,7 @@ export function RightColumn({
       businessPage={businessPage}
       showIntakeTip={showIntakeTip}
       showInvoiceInfo={showInvoiceInfo}
+      documentsPage={documentsPage}
     />
   );
 }
@@ -140,12 +144,14 @@ function DefaultRightColumn({
   businessPage,
   showIntakeTip,
   showInvoiceInfo,
+  documentsPage,
 }: {
   slug: string;
   blueAccents: boolean;
   businessPage: boolean;
   showIntakeTip: boolean;
   showInvoiceInfo: boolean;
+  documentsPage: boolean;
 }) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
@@ -191,7 +197,7 @@ function DefaultRightColumn({
             </div>
           </div>
         </Card>
-      ) : (
+      ) : documentsPage ? (
         <>
           <LinkCard
             icon={FileUp}
@@ -212,7 +218,7 @@ function DefaultRightColumn({
             View documents shared with you by the firm.
           </LinkCard>
         </>
-      )}
+      ) : null}
     </aside>
   );
 }

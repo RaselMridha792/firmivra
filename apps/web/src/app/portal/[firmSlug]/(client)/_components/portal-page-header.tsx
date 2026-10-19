@@ -4,13 +4,15 @@ import type { ReactNode } from 'react';
  * The band above a portal page's content (Octavia's Oct 8 portal mockups, Appointments and My
  * Services): a soft gradient, leaves on the right in place of the mockup's plant photo, the title
  * and sub-line on the left and a short script line on the right (hidden below 768 px). Nothing in
- * it is a firm's own branding, so every firm uses it.
+ * it is a firm's own branding, so every firm uses it. `plain` is the title alone on the page
+ * background, as the My Client Portal tab designs draw it (Intake form tab.png and the others, R61).
  */
 export function PortalPageHeader({
   title,
   subtitle,
   script = 'Your Goals. Our Support. Brighter Tomorrows.',
   titleAs: Title = 'h1',
+  plain = false,
 }: {
   title: ReactNode;
   /** Left out where a page has nothing to say under the title. */
@@ -19,10 +21,22 @@ export function PortalPageHeader({
   script?: string;
   /** "p" where each tab's own card holds the page's h1. */
   titleAs?: 'h1' | 'p';
+  /** No band, leaves or script line: the title and sub-line on the page background. */
+  plain?: boolean;
 }) {
   const sentences = script.split(/(?<=\.)\s+/);
   const last = sentences.length > 1 ? sentences.pop() : undefined;
   const titleSize = Title === 'p' ? 'text-5xl md:text-6xl' : 'text-4xl md:text-5xl';
+  if (plain) {
+    return (
+      <header data-testid="portal-page-header">
+        <Title className={`font-display ${titleSize} leading-tight font-bold text-heading`}>
+          {title}
+        </Title>
+        {subtitle ? <p className="mt-1 text-xl text-text">{subtitle}</p> : null}
+      </header>
+    );
+  }
   return (
     <header
       data-testid="portal-page-header"
