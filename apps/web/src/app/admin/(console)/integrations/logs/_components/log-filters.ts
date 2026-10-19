@@ -5,10 +5,11 @@ import {
   LOG_SOURCES,
   type IntegrationEnvironment,
   type LogOutcome,
+  type LogExportQuery,
   type LogQuery,
   type LogSeverity,
   type LogSource,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 
 /**
  * The Integration Logs filters (docx §9: search, integration, source, severity, event type,
@@ -132,22 +133,31 @@ export const isFiltered = (filters: LogFilters) =>
 const startOf = (day: string) => (day ? new Date(`${day}T00:00:00`).toISOString() : undefined);
 const endOf = (day: string) => (day ? new Date(`${day}T23:59:59.999`).toISOString() : undefined);
 
-/** The list call's query for these filters (the export leaves out the paging). */
+const fieldsOf = (filters: LogFilters) => ({
+  search: filters.search.trim() || undefined,
+  integrationId: filters.integration || undefined,
+  source: filters.source || undefined,
+  severity: filters.severity || undefined,
+  eventType: filters.eventType || undefined,
+  environment: filters.environment || undefined,
+  outcome: filters.outcome || undefined,
+  requestId: filters.requestId.trim() || undefined,
+  firmId: filters.firm || undefined,
+  from: startOf(filters.from),
+  to: endOf(filters.to),
+});
+
+/** The list call's query for these filters (its flags are text in the address). */
 export function queryOf(filters: LogFilters): LogQuery {
   return {
-    search: filters.search.trim() || undefined,
-    integrationId: filters.integration || undefined,
-    source: filters.source || undefined,
-    severity: filters.severity || undefined,
-    eventType: filters.eventType || undefined,
-    environment: filters.environment || undefined,
-    outcome: filters.outcome || undefined,
-    requestId: filters.requestId.trim() || undefined,
-    firmId: filters.firm || undefined,
-    from: startOf(filters.from),
-    to: endOf(filters.to),
-    descending: filters.descending,
+    ...fieldsOf(filters),
+    descending: filters.descending ? 'true' : 'false',
     page: filters.page,
     pageSize: PAGE_SIZE,
   };
+}
+
+/** The export's filters: the list's without the paging. */
+export function exportQueryOf(filters: LogFilters): LogExportQuery {
+  return { ...fieldsOf(filters), descending: filters.descending };
 }

@@ -16,7 +16,7 @@ import {
   type CreateApiKeyBody,
   type IntegrationEnvironment,
   type IssuedApiKey,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import { formatNumber } from '../../_components/integration-format';
 import { integrationErrorMessage } from '../../_components/integration-states';
 import { keyText, SecretOnceDialog } from './api-webhooks-parts';

@@ -429,9 +429,10 @@ export type UploadTargets = z.infer<typeof UploadTargets>;
  * POST /portal/{firmSlug}/me/documents/uploads. 404 for a service, request or category that
  * isn't the client's or their firm's; then 409 NO_OPEN_SERVICE (service not ACTIVE),
  * REQUEST_CLOSED (request of another service, or not open: a SUBMITTED request takes no second
- * file until the firm marks it missing or its newest file comes back INFECTED or FAILED; an item of
- * an OPEN request packet that allows multiple files takes more files while SUBMITTED; an item of
- * a submitted, completed or expired packet takes none) or CATEGORY_ARCHIVED. An upload with a `requestId` answers it (SUBMITTED). A replacement is a new
+ * file until the firm marks it missing or its newest file comes back INFECTED or FAILED; an item
+ * of an OPEN, unexpired request packet also takes a file while SUBMITTED, another or a
+ * replacement; an item of a submitted, completed or expired packet takes none) or
+ * CATEGORY_ARCHIVED. An upload with a `requestId` answers it (SUBMITTED). A replacement is a new
  * upload for the same request; the old file stays.
  */
 export const CreateMyUploadRequest = z
@@ -460,8 +461,8 @@ export const MyDocumentRequest = z.object({
   status: RequestStatus,
   statusNote: z.string().nullable(),
   /**
-   * The request packet this item is part of ("#DR-0024"); null for a request made on its own.
-   * Optional until the API sends it (the request-packets API PR).
+   * The request packet this item is part of ("DR-0024"); null for a request made on its own.
+   * The API always sends it; optional for older readers.
    */
   packet: z
     .object({ id: z.uuid(), reference: z.string(), title: z.string() })

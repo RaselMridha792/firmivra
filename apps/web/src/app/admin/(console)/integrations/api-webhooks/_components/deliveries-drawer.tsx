@@ -10,7 +10,7 @@ import {
   type DeliveryStatus,
   type WebhookDelivery,
   type WebhookEndpoint,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import { DeliveryStatusBadge } from '../../_components/integration-badges';
 import { formatDateTime, formatDuration } from '../../_components/integration-format';
 import {
@@ -145,19 +145,23 @@ export function DeliveriesDrawer({
                 <Facts
                   items={[
                     `Event ${delivery.eventId}`,
-                    `Request ${delivery.requestId}`,
+                    delivery.requestId ? `Request ${delivery.requestId}` : null,
                     delivery.errorCode ? `Error ${delivery.errorCode}` : null,
                     delivery.requestedBy ? `Redelivered by ${delivery.requestedBy}` : null,
                   ]}
                 />
-                <details className="rounded-control border border-divider bg-subtle px-3 py-2 text-sm">
-                  <summary className="cursor-pointer font-medium text-heading">
-                    Payload (sensitive fields redacted)
-                  </summary>
-                  <pre className="mt-2 max-h-60 overflow-auto font-mono text-xs whitespace-pre-wrap wrap-anywhere text-text">
-                    {delivery.payload}
-                  </pre>
-                </details>
+                {delivery.payload ? (
+                  <details className="rounded-control border border-divider bg-subtle px-3 py-2 text-sm">
+                    <summary className="cursor-pointer font-medium text-heading">
+                      Payload (sensitive fields redacted)
+                    </summary>
+                    <pre className="mt-2 max-h-60 overflow-auto font-mono text-xs whitespace-pre-wrap wrap-anywhere text-text">
+                      {delivery.payload}
+                    </pre>
+                  </details>
+                ) : (
+                  <p className="text-xs text-muted">The payload is not kept for deliveries.</p>
+                )}
                 {delivery.canRedeliver ? (
                   confirming === delivery.id ? (
                     <div
