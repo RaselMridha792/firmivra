@@ -174,3 +174,14 @@ Bookkeeping, Payroll and Compliance were reassigned.
 - The admin's own audit rows: admin scope allows only `business_id NULL` with `actor_user_id` the admin; set the four normalized fields together (`writeAdminEvent` in `admin-audit.common.ts`).
 - Admin routes are swept by `test/isolation/admin-scope.test.ts`: every write needs a `WRITES` entry that answers below 400 (seed its record; `record` and a computed `body` are supported now). `tenant-isolation.test.ts` covers Super Admin routes on its own (no cases).
 - **Local test database gotcha:** a test database reused from before R0 kept migration reference rows can lack them (`platform_security_policy` was empty here); a test that needs one inserts it with `ON CONFLICT DO NOTHING`.
+
+### Update, 2026-10-19 evening (third session)
+
+**Open:** #876 Audit & Security API (green, with the review thread), #892 System Settings API (stacked on #876; merges `origin/main` often: the admin-scope sweep file conflicts each time another Super Admin module lands, resolve by keeping every side's WRITES fields), #893 Reports & Analytics contract. Merged: #859, #877 contracts.
+
+**Next:** the Reports API (local until a slot frees: build it on `rasel/R55-admin-reports-api`, stacked on #892 for `writeAdminEvent`), then the screens of Audit & Security, System Settings and Reports.
+
+**Gotchas from today:**
+- `admin-scope.test.ts` is shared by every Super Admin module: each adds its own WRITES fields (`record` for Support, `item` for Notifications, `comm` for Communications, `auditRecord`, `settingsId`/`params` for R55). Our System Settings cases live in `test/isolation/admin-settings-writes.ts` (seeded records, `settingsParams`).
+- A local test database emptied by an older run lacks migration reference rows (security policy, support categories): drop this worktree's own `firmivra_r55_test_api` and let the global setup migrate it again.
+- Job keys, feature keys and secret keys follow the database's patterns (no hyphens in job keys).
