@@ -26,9 +26,9 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRef, useState } from 'react';
-import { PageState } from '../../../../../../components/page-state';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
+import { errorMessage } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
 import { MarketplaceCard, MarketplaceAction } from './marketplace-card';
 import { categories, categoryOptions, categoryLabel } from './marketplace-shared';
@@ -110,7 +110,7 @@ export function MarketplaceScreen() {
           <Card
             data-testid="marketplace-categories"
             title="Categories"
-            className="w-full !rounded-lg !p-3"
+            className="w-full !rounded-lg !p-3 [&>h2]:text-base [&>h2]:font-semibold"
           >
             <nav aria-label="Integration categories" className="flex flex-col gap-1">
               <Button
@@ -181,10 +181,30 @@ export function MarketplaceScreen() {
               <PlugsConnected weight="fill" className="size-8" />
             </div>
           </section>
-          {catalog.isPending || catalog.isError ? (
-            <PageState query={catalog}>{() => null}</PageState>
+          {catalog.isError || permission.isError ? (
+            <div
+              data-testid="marketplace-unavailable"
+              role="status"
+              className="rounded-control border border-border bg-subtle px-4 py-3 text-sm text-muted"
+            >
+              The marketplace is temporarily unavailable. Existing page sections remain visible;
+              permission-sensitive actions are disabled.{' '}
+              <Button
+                variant="ghost"
+                className="!min-h-0 !p-0 align-baseline text-sm underline"
+                onClick={() => {
+                  void catalog.refetch();
+                  void permission.refetch();
+                }}
+              >
+                Try again
+              </Button>
+              <span className="sr-only">
+                {' '}
+                {catalog.isError ? errorMessage(catalog.error) : errorMessage(permission.error)}
+              </span>
+            </div>
           ) : null}
-          {permission.isError ? <PageState query={permission}>{() => null}</PageState> : null}
           <section data-testid="marketplace-featured" aria-labelledby="featured-integrations">
             <div className="mb-2 flex items-center justify-between gap-3">
               <h2 id="featured-integrations" className="text-base font-bold text-heading">

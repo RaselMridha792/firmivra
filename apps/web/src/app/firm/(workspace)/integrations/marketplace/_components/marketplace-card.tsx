@@ -51,7 +51,7 @@ export function MarketplaceCard({
   return (
     <Card
       data-testid={featured ? 'featured-integration' : 'marketplace-integration'}
-      className={`relative flex min-w-0 flex-col gap-2 !rounded-lg !bg-subtle !p-3 ${list ? 'sm:flex-row sm:items-center' : ''}`}
+      className={`relative flex min-w-0 flex-col gap-1.5 !rounded-lg !bg-subtle !p-3 ${list ? 'sm:flex-row sm:items-center' : ''}`}
     >
       <div className={`flex min-w-0 gap-2 pr-4 ${list ? 'sm:w-64 sm:shrink-0' : ''}`}>
         <span
@@ -62,7 +62,7 @@ export function MarketplaceCard({
         </span>
         <div className="min-w-0">
           <h3 className="text-xs font-bold text-heading">{item.provider.name}</h3>
-          <p className="mt-1 text-xs text-muted">{categoryLabel(item.provider.category)}</p>
+          <p className="mt-0.5 text-xs text-muted">{categoryLabel(item.provider.category)}</p>
         </div>
       </div>
       <ActionMenu
