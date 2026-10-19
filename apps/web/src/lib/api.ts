@@ -1,11 +1,13 @@
 import {
   createAdminSupportAccessClient,
   createAdminSupportClient,
+  createAdminBillingClient,
   createAgreementsClient,
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
   createAdminAuditClient,
+  createAdminSettingsClient,
   createAuditLogClient,
   createAvailabilityClient,
   createBrandingClient,
@@ -141,6 +143,7 @@ import { createPayrollMock } from '../mocks/payroll';
 import { createReportsMock } from '../mocks/reports';
 import { createTaskWorkMock } from '../mocks/tasks-work';
 import { createTaxPlanningMock } from '../mocks/tax-planning';
+import { createAdvisoryMock } from '../mocks/business-advisory';
 import { createCommunicationsMock } from '../mocks/communications';
 import { createTemplatesMock } from '../mocks/templates';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
@@ -379,9 +382,12 @@ export const api = {
       : createReportsClient(request),
   /**
    * Business Advisory & Development (R55): overview, advisory clients, business plans, goals,
-   * financial analysis, action plans and resources. Real API only until its mock is written.
+   * financial analysis, action plans and resources. Mocked with NEXT_PUBLIC_API_MOCK=advisory.
    */
-  advisory: createAdvisoryClient(request),
+  advisory:
+    dev && mocked('advisory')
+      ? createAdvisoryMock({ role: MOCK_ROLE, empty: mockedEmpty('advisory') })
+      : createAdvisoryClient(request),
   /**
    * Integrations (R55): the main page, marketplace, connect and configure, manage a connection,
    * requests and Custom API. Real API only until its mock is written.
@@ -434,6 +440,8 @@ export const api = {
       : createAuditLogClient(request),
   /** Super Admin Audit & Security (R55): the cross-firm event log, alerts, notes and the security policy. Mock: mocks/admin-audit-security.ts until the screens switch. */
   adminAudit: createAdminAuditClient(request),
+  /** Super Admin System Settings (R55): sections, branding, features, retention, maintenance, defaults. */
+  adminSettings: createAdminSettingsClient(request),
   /** Support access (R8): Firmivra Support's requests to the firm; Owner and Admin read, an Owner decides. */
   supportAccess:
     dev && mocked('supportAccess')
@@ -446,6 +454,8 @@ export const api = {
       : createAdminSupportAccessClient(request),
   /** Super Admin Support (R60 on R0's B2): tickets, Ticket Detail and Support Settings. Mock: mocks/admin-support.ts until the screens switch. */
   adminSupport: createAdminSupportClient(request),
+  /** Super Admin Billing (R60 on R0's B3): Firmivra bills firms. Mock: mocks/admin-billing.ts until the screens switch. */
+  adminBilling: createAdminBillingClient(request),
   /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
   notifications:
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
