@@ -970,3 +970,42 @@ describe('LogActivationMailer (until R6)', () => {
     expect(logged).not.toContain('new@lvp.test');
   });
 });
+
+// Staff Management's Reset MFA (R55): the authenticator preference off, then every session ends.
+describe('CognitoIdentityProvider: reset MFA', () => {
+  it("turns the login's authenticator off and signs it out everywhere", async () => {
+    const { provider, sent } = fakeCognito({
+      ListUsers: knownUser,
+      AdminSetUserMFAPreference: () => ({}),
+      AdminUserGlobalSignOut: () => ({}),
+    });
+    await provider.resetMfa('STAFF', 'sub-1');
+    expect(sent.map((s) => s.command)).toEqual([
+      'ListUsers',
+      'AdminSetUserMFAPreference',
+      'AdminUserGlobalSignOut',
+    ]);
+    expect(sent[1]!.input).toEqual({
+      UserPoolId: STAFF_POOL.userPoolId,
+      Username: 'cognito-user-1',
+      SoftwareTokenMfaSettings: { Enabled: false, PreferredMfa: false },
+    });
+  });
+
+  it('does nothing for an unknown login', async () => {
+    const { provider, sent } = fakeCognito({ ListUsers: noUser });
+    await provider.resetMfa('STAFF', 'sub-unknown');
+    expect(sent.map((s) => s.command)).toEqual(['ListUsers']);
+  });
+
+  it('passes a Cognito failure on, and signs nothing out', async () => {
+    const { provider, sent } = fakeCognito({
+      ListUsers: knownUser,
+      AdminSetUserMFAPreference: () => {
+        throw awsError('InternalErrorException');
+      },
+    });
+    await expect(provider.resetMfa('STAFF', 'sub-1')).rejects.toThrow('InternalErrorException');
+    expect(sent.map((s) => s.command)).not.toContain('AdminUserGlobalSignOut');
+  });
+});

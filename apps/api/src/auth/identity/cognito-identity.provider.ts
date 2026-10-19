@@ -3,6 +3,7 @@ import { isIP } from 'node:net';
 import {
   AdminCreateUserCommand,
   AdminDisableUserCommand,
+  AdminSetUserMFAPreferenceCommand,
   AdminSetUserPasswordCommand,
   AdminUpdateUserAttributesCommand,
   type AttributeType,
@@ -404,6 +405,22 @@ export class CognitoIdentityProvider implements IdentityProvider {
     await this.client
       .send(new AdminDisableUserCommand({ UserPoolId: p.userPoolId, Username: user.Username }))
       .catch((e: unknown) => fail(e, {}));
+  }
+
+  async resetMfa(pool: IdentityPool, sub: string): Promise<void> {
+    const p = this.pool(pool);
+    const user = await this.userBySub(p, sub);
+    if (!user?.Username) return;
+    await this.client
+      .send(
+        new AdminSetUserMFAPreferenceCommand({
+          UserPoolId: p.userPoolId,
+          Username: user.Username,
+          SoftwareTokenMfaSettings: { Enabled: false, PreferredMfa: false },
+        }),
+      )
+      .catch((e: unknown) => fail(e, {}));
+    await this.signOutEverywhere(pool, user.Username);
   }
 
   /** The Cognito username for a sub, or undefined for an unknown or disabled user. */
