@@ -340,6 +340,7 @@ export function CreateTemplateScreen({
   const [activePopup, setActivePopup] = useState<ActivePopup>(null);
   const [mergeTarget, setMergeTarget] = useState<'subject' | 'body'>('body');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [savedAttachments, setSavedAttachments] = useState<string[]>([]);
   const [fullscreen, setFullscreen] = useState(false);
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -355,6 +356,7 @@ export function CreateTemplateScreen({
         const template = templates.find((item) => item.id === templateId);
         if (!template) {
           setForm(blankTemplate());
+          setSavedAttachments([]);
           setEditLoadState('not-found');
           return;
         }
@@ -362,11 +364,13 @@ export function CreateTemplateScreen({
         setForm(templateToForm(template));
         setChannel(template.channel);
         setStatus(template.status === 'Archived' ? 'ARCHIVED' : 'ACTIVE');
+        setSavedAttachments(template.attachments.map((attachment) => attachment.name));
         setEditLoadState('ready');
       })
       .catch((error: unknown) => {
         if (!isCurrent) return;
         setForm(blankTemplate());
+        setSavedAttachments([]);
         setEditLoadState(
           error instanceof ApiRequestError && error.status === 403 ? 'forbidden' : 'unavailable',
         );
@@ -885,8 +889,16 @@ export function CreateTemplateScreen({
                 className="sr-only"
               />
             </label>
-            {attachedFiles.length ? (
+            {savedAttachments.length || attachedFiles.length ? (
               <ul className="mt-2 flex flex-wrap gap-2" aria-label="Selected attachments">
+                {savedAttachments.map((name) => (
+                  <li
+                    key={`saved-${name}`}
+                    className="rounded-control bg-info-soft px-2 py-1 text-xs text-text"
+                  >
+                    {name}
+                  </li>
+                ))}
                 {attachedFiles.map((file) => (
                   <li
                     key={`${file.name}-${file.size}-${file.lastModified}`}
@@ -916,7 +928,7 @@ export function CreateTemplateScreen({
                 disabled={noPermission}
               >
                 <FloppyDisk aria-hidden weight="fill" className="size-4" />
-                {isEdit ? 'Save Changes' : 'Save Template'}
+                Save Template
               </Button>
               <Button
                 variant="secondary"

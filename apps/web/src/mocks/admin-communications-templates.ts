@@ -24,6 +24,7 @@ export interface CommunicationTemplate {
   subject: string;
   body: string;
   mergeFields: string[];
+  attachments: { id: string; name: string }[];
 }
 
 type TemplateSeed = [
@@ -177,6 +178,8 @@ export async function listCommunicationTemplates(): Promise<CommunicationTemplat
         '{{firm_owner}}',
         '{{support_email}}',
       ],
+      attachments:
+        index === 0 ? [{ id: 'template-1-welcome-guide', name: 'welcome-guide.pdf' }] : [],
     }),
   );
 }

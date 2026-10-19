@@ -20,7 +20,10 @@ test('edits a template with data, empty, unavailable, and mobile states', async 
   await expect(page.getByRole('textbox', { name: 'Message Body *' })).toContainText(
     'Hi {{contact_name}},',
   );
-  await expect(page.getByRole('button', { name: 'Save Changes' })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Selected attachments' })).toContainText(
+    'welcome-guide.pdf',
+  );
+  await expect(page.getByRole('button', { name: 'Save Template' })).toBeVisible();
   await page.screenshot({
     path: test.info().outputPath('edit-template-data-1440.png'),
     animations: 'disabled',
