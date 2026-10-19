@@ -272,7 +272,7 @@ export function TaxDeductionsScreen() {
           <ArrowLeft aria-hidden className="size-4" /> Back to Resources
         </Link>
         <h1 className="mt-1 font-display text-4xl leading-tight font-bold text-firm-text md:text-5xl">
-          Tax Deductions for <span className="text-firm-accent">Small Businesses</span>
+          Tax Deductions for <span className="text-action">Small Businesses</span>
         </h1>
         <p className="mt-1 text-sm leading-relaxed text-text md:text-base">
           Reduce your tax liability and keep more of what you earn. Here are some of the most common
