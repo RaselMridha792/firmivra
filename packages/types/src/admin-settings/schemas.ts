@@ -64,8 +64,6 @@ export const AdminSettingsErrorCode = z.enum([
   'UPLOAD_MISMATCH',
   /** 409: the file is still being scanned or failed the scan. */
   'ASSET_NOT_READY',
-  /** 503: the email sender is not configured or did not answer. */
-  'EMAIL_UNAVAILABLE',
 ]);
 export type AdminSettingsErrorCode = z.infer<typeof AdminSettingsErrorCode>;
 
@@ -572,7 +570,7 @@ export type AdminJobList = z.infer<typeof AdminJobList>;
 
 export const PauseAdminJobRequest = z.strictObject({ reason: Name(500) });
 export type PauseAdminJobRequest = z.input<typeof PauseAdminJobRequest>;
-export const AdminJobKey = z.string().regex(/^[a-z][a-z0-9_.-]{0,99}$/);
+export const AdminJobKey = z.string().regex(/^[a-z][a-z0-9_.]{0,79}$/);
 
 // ---------- Defaults for new firms and users ----------
 
