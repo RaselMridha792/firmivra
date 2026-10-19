@@ -1,7 +1,15 @@
 // The Super Admin Integrations rules (R56 on R0's B8): the checks the database would refuse, the
 // local connection test, catalog visibility in B8's order, the access-loss count, the stored JSON
-// falling back field by field, and secret references the database accepts.
+// falling back field by field, secret references the database accepts; part 2: API keys the
+// database takes, key status, the rollup's totals and ranges, log labels.
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { keyStatus, newApiKey } from '../../src/admin-integrations/api-access.service.js';
+import {
+  actionLabel,
+  totalsOf,
+  usageRange,
+} from '../../src/admin-integrations/integration-insights.service.js';
 import {
   checkValue,
   cleanUrl,
@@ -211,5 +219,92 @@ describe('providers and secrets', () => {
     expect(await store.read(second)).toEqual({ apiKey: 'two' });
     await store.revoke(first);
     expect(await store.read(first)).toBeNull();
+  });
+});
+
+describe('API keys (part 2)', () => {
+  it('issues keys the database takes, keeping only the prefix, last four and hash', () => {
+    const live = newApiKey('LIVE');
+    expect(live.secret).toMatch(/^fv_live_[a-z0-9]{40}$/);
+    expect(live.prefix).toMatch(/^fv_live_[a-z0-9]{4,12}$/);
+    expect(live.secret.startsWith(live.prefix)).toBe(true);
+    expect(live.lastFour).toBe(live.secret.slice(-4));
+    expect(live.hash).toBe(createHash('sha256').update(live.secret).digest('hex'));
+    expect(newApiKey('TEST').secret).toMatch(/^fv_test_/);
+    expect(newApiKey('TEST').secret).not.toBe(newApiKey('TEST').secret);
+  });
+
+  it('is revoked, expired or active, in that order', () => {
+    const now = new Date('2026-10-19T12:00:00Z');
+    expect(keyStatus({ revokedAt: now, expiresAt: null }, now)).toBe('REVOKED');
+    expect(keyStatus({ revokedAt: null, expiresAt: new Date('2026-10-19T11:00:00Z') }, now)).toBe(
+      'EXPIRED',
+    );
+    expect(keyStatus({ revokedAt: null, expiresAt: null }, now)).toBe('ACTIVE');
+  });
+});
+
+describe('usage and the log (part 2)', () => {
+  const row = (day: string, patch: Record<string, unknown> = {}) =>
+    ({
+      day: new Date(`${day}T00:00:00Z`),
+      scope: 'PLATFORM_INTEGRATION',
+      subjectKey: 'a',
+      requests: 100,
+      successes: 90,
+      failures: 10,
+      avgLatencyMs: 200,
+      volume: 10n,
+      costCents: null,
+      connectedFirms: null,
+      activeFirms: null,
+      connects: null,
+      disconnects: null,
+      computedAt: new Date(),
+      ...patch,
+    }) as Parameters<typeof totalsOf>[0][number];
+
+  it('totals the rollup: rates, weighted latency, the last day’s firm counts', () => {
+    const t = totalsOf(
+      [
+        row('2026-10-01'),
+        row('2026-10-02', {
+          requests: 300,
+          successes: 300,
+          failures: 0,
+          avgLatencyMs: 100,
+          connectedFirms: 4,
+        }),
+      ],
+      true,
+    );
+    expect(t).toMatchObject({
+      requests: 400,
+      successRate: 97.5,
+      avgLatencyMs: 125,
+      volume: 20,
+      connectedFirms: 4,
+    });
+    expect(totalsOf([row('2026-10-01')], false).volume).toBeNull();
+    expect(totalsOf([], true)).toMatchObject({
+      requests: 0,
+      successRate: null,
+      avgLatencyMs: null,
+    });
+  });
+
+  it('reads the last 30 days by default, and refuses a reversed or long range', () => {
+    expect(usageRange(undefined, undefined, new Date('2026-10-19T08:00:00Z'))).toEqual({
+      from: '2026-09-20',
+      to: '2026-10-19',
+    });
+    expect(() => usageRange('2026-10-02', '2026-10-01')).toThrow(/on or before/);
+    expect(() => usageRange('2025-01-01', '2026-10-01')).toThrow(/a year or less/);
+  });
+
+  it('labels stored action codes for people', () => {
+    expect(actionLabel('test_connection', 'connection.test')).toBe('Test connection');
+    expect(actionLabel('some_new_code', 'x.y')).toBe('Some new code');
+    expect(actionLabel(null, 'sync.requested')).toBe('Sync requested');
   });
 });

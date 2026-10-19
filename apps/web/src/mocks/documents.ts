@@ -8,6 +8,7 @@ import {
   DOCUMENT_ERRORS,
   DocumentId,
   DocumentRequestId,
+  MyRequestPacketId,
   type DocumentsClient,
   type Engagement,
   type FirmDocument,
@@ -652,8 +653,24 @@ export function createMyDocumentsMock(): MyDocumentsClient {
             dueOn,
             status,
             statusNote,
+            packet: null,
           }),
         );
+    },
+    // The mock has single requests only: no request packets yet (an empty list, and 404 for one).
+    packets: async () => {
+      await mockDelay();
+      return [];
+    },
+    packet: async (id) => {
+      await mockDelay();
+      parseInput(MyRequestPacketId, id);
+      throw notFound();
+    },
+    submitPacket: async (id) => {
+      await mockDelay();
+      parseInput(MyRequestPacketId, id);
+      throw notFound();
     },
     notAvailable: async (id, body) => {
       await mockDelay();

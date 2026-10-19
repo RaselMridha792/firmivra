@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 import type {
   AccountStatus,
   AlertState,
+  AuditActor,
   EventCategory,
   Outcome,
   Severity,
@@ -42,15 +43,13 @@ export function SeverityBadge({ severity, suffix }: { severity: Severity; suffix
 
 export const OUTCOME_LABELS: Record<Outcome, string> = {
   SUCCESS: 'Success',
-  FAILED: 'Failed',
-  BLOCKED: 'Blocked',
-  DETECTED: 'Detected',
+  FAILURE: 'Failed',
+  DENIED: 'Denied',
 };
 const OUTCOME_TONES = {
   SUCCESS: 'success',
-  FAILED: 'danger',
-  BLOCKED: 'danger',
-  DETECTED: 'purple',
+  FAILURE: 'danger',
+  DENIED: 'purple',
 } as const;
 
 export function OutcomeBadge({ outcome }: { outcome: Outcome }) {
@@ -83,12 +82,22 @@ export function AccountBadge({ status }: { status: AccountStatus }) {
   );
 }
 
+export const ACTOR_TYPE_LABELS: Record<AuditActor['type'], string> = {
+  STAFF: 'Firm staff',
+  CLIENT: 'Client',
+  PLATFORM: 'Firmivra team',
+  SERVICE: 'Service account',
+  SYSTEM: 'Firmivra system',
+  ANONYMOUS: 'Not signed in',
+};
+
 export const CATEGORY_LABELS: Record<EventCategory, string> = {
   AUTHENTICATION: 'Authentication',
   AUTHORIZATION: 'Authorization',
   DATA: 'Data',
   INTEGRATION: 'Integration',
   SECURITY: 'Security',
+  SYSTEM: 'System',
 };
 
 // Times are stored in UTC and shown in the viewer's own time zone, with the zone named (docx §1).
