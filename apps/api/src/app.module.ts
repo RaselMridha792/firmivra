@@ -43,6 +43,7 @@ import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
 import { CalculatorsModule } from './calculators/calculators.controller.js';
 import { ContentModule } from './content/content.controller.js';
 import { SupportAccessModule } from './support-access/support-access.controller.js';
+import { AdminSupportModule } from './admin-support/admin-support.module.js';
 import { TeamModule } from './team/team.controller.js';
 import { TasksModule } from './tasks/tasks.module.js';
 import { AutomationsModule } from './automations/automations.module.js';
@@ -135,6 +136,7 @@ export class AppModule {
         PayrollModule,
         AuditViewerModule,
         SupportAccessModule,
+        AdminSupportModule,
         WorkspacesModule,
         TasksModule,
         DashboardModule,
