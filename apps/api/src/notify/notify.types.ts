@@ -64,6 +64,15 @@ export interface NotifyTemplates {
   /** Send SMS from the Leads page: the member's own text. */
   'lead.message-sms': IgnoredFirmName & { body: string };
 
+  // ----- Super Admin Communications (R56; Firmivra's own messages, businessId null) -----
+  /**
+   * A Super Admin team member's message to a firm's person, a sales lead or a team member: their
+   * own subject and text (merge fields already filled). It goes out, and nowhere else.
+   */
+  'platform.message-email': { name: string; subject: string; body: string };
+  /** The same as a text message. */
+  'platform.message-sms': { body: string };
+
   // ----- Firm applications (R4; Firmivra's own messages, businessId null) -----
   /**
    * No data: the address is not verified yet, so nothing the applicant typed goes into this email
@@ -205,6 +214,8 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'message.received': 'email',
   'lead.message-email': 'email',
   'lead.message-sms': 'sms',
+  'platform.message-email': 'email',
+  'platform.message-sms': 'sms',
 };
 
 /**
@@ -247,6 +258,8 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'message.received': 'firm',
   'lead.message-email': 'firm',
   'lead.message-sms': 'firm',
+  'platform.message-email': 'platform',
+  'platform.message-sms': 'platform',
 };
 
 /**
@@ -276,6 +289,9 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   // A lead has no account, so no preferences to switch it off; the member chose to send it.
   'lead.message-email',
   'lead.message-sms',
+  // The team member chose to write to this person (B6); there is no preference to switch it off.
+  'platform.message-email',
+  'platform.message-sms',
 ]);
 
 /**
@@ -316,6 +332,8 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'message.received': 'MESSAGES',
   'lead.message-email': 'ACCOUNT',
   'lead.message-sms': 'ACCOUNT',
+  'platform.message-email': 'ACCOUNT',
+  'platform.message-sms': 'ACCOUNT',
 };
 
 export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
