@@ -23,7 +23,7 @@ import {
   type PlatformIntegrationDetail,
   type ProviderTemplate,
   type SyncSchedule,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { EnvironmentBadge } from '../../../_components/integration-badges';
 import { formatDateTime } from '../../../_components/integration-format';
 import {

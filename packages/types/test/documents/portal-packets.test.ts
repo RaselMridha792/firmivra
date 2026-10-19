@@ -17,7 +17,7 @@ const request = (fn: typeof fetch) => createRequest({ baseUrl: '/api/v1', fetch:
 const progress = { requiredTotal: 4, requiredAnswered: 2, itemsTotal: 5, itemsAnswered: 2 };
 const row = {
   id,
-  reference: '#DR-0024',
+  reference: 'DR-0024',
   title: 'Fake 2024 tax documents',
   service: { id, title: 'Personal Tax' },
   status: 'OPEN',
@@ -85,7 +85,7 @@ describe('request packets (portal)', () => {
       statusNote: null,
     };
     expect(MyDocumentRequest.parse({ ...base, packet: null }).packet).toBeNull();
-    const ref = { id, reference: '#DR-0024', title: 'Fake 2024 tax documents' };
+    const ref = { id, reference: 'DR-0024', title: 'Fake 2024 tax documents' };
     expect(MyDocumentRequest.parse({ ...base, packet: ref }).packet).toEqual(ref);
   });
 

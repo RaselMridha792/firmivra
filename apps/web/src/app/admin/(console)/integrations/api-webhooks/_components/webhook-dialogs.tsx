@@ -2,7 +2,7 @@
 
 import { Button, Checkbox, Input, Modal, Radio, Select, Textarea } from '@firmivra/ui';
 import { useId, useState, type FormEvent } from 'react';
-import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useApiMutation } from '../../../../../../lib/query';
 import {
   adminIntegrations,
   WEBHOOK_DIRECTIONS,
@@ -12,7 +12,7 @@ import {
   type WebhookEndpoint,
   type WebhookStatus,
   type WebhookWithSecret,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import { formatDate } from '../../_components/integration-format';
 import { integrationErrorMessage } from '../../_components/integration-states';
 import { DIRECTION_LABELS, SecretOnceDialog } from './api-webhooks-parts';
@@ -73,13 +73,9 @@ export function WebhookFormDialog({
   const [inboundEvents, setInboundEvents] = useState(
     endpoint?.direction === 'INBOUND' ? endpoint.events.join('\n') : '',
   );
-  const [integrationId, setIntegrationId] = useState('');
   const [maxRetries, setMaxRetries] = useState(String(endpoint?.maxRetries ?? 5));
   const [status, setStatus] = useState<WebhookStatus>(endpoint?.status ?? 'ACTIVE');
   const [errors, setErrors] = useState<Partial<Record<HookField, string>>>({});
-  const integrations = useApiQuery(['admin-integrations', 'platform', 'list', 'webhooks'], () =>
-    adminIntegrations.listPlatform({ sort: 'name', pageSize: 100 }),
-  );
   const save = useApiMutation(
     (body: CreateWebhookBody) =>
       endpoint
@@ -126,13 +122,11 @@ export function WebhookFormDialog({
         description: description.trim() || null,
         events: list,
         maxRetries: Number(maxRetries),
-        integrationId: direction === 'INBOUND' && integrationId ? integrationId : null,
       },
       { onSuccess: onSaved },
     );
   }
 
-  const options = integrations.data?.items ?? [];
   return (
     <Modal
       open
@@ -227,21 +221,6 @@ export function WebhookFormDialog({
               error={errors.events}
               onChange={(event) => setInboundEvents(event.target.value)}
             />
-            {endpoint ? null : (
-              <Select
-                label="Platform integration that calls it (optional)"
-                value={integrationId}
-                disabled={!integrations.data}
-                onChange={(event) => setIntegrationId(event.target.value)}
-                options={[
-                  {
-                    value: '',
-                    label: integrations.isError ? 'Could not load the integrations' : 'None',
-                  },
-                  ...options.map((item) => ({ value: item.id, label: item.name })),
-                ]}
-              />
-            )}
           </>
         )}
         <div className="grid gap-4 sm:grid-cols-2">

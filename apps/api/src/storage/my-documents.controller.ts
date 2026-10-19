@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
-import type { z } from 'zod';
+import { z as zod, type z } from 'zod';
 import {
   ConfirmUploadRequest,
   CreateMyUploadRequest,
@@ -12,6 +12,9 @@ import {
   type MyDocumentList,
   type MyDocumentRequest,
   type MyDocumentRequestList,
+  type MyRequestPacket,
+  MyRequestPacketId,
+  type MyRequestPacketList,
   NotAvailableRequest,
   type UploadTargets,
   type UploadTicket,
@@ -22,6 +25,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import type { PortalCaller } from './document-records.js';
 import { DocumentRequestsService } from './document-requests.service.js';
 import { MyDocumentsService } from './my-documents.service.js';
+import { MyPacketsService } from './my-packets.service.js';
 
 const docPipe = new ZodValidationPipe(DocumentId);
 
@@ -47,6 +51,7 @@ export class MyDocumentsController {
   constructor(
     private readonly documents: MyDocumentsService,
     private readonly requests: DocumentRequestsService,
+    private readonly packetsService: MyPacketsService,
   ) {}
 
   @Get('documents')
@@ -132,5 +137,35 @@ export class MyDocumentsController {
     @Body(new ZodValidationPipe(NotAvailableRequest)) body: z.output<typeof NotAvailableRequest>,
   ): Promise<MyDocumentRequest> {
     return this.requests.notAvailable(callerOf(auth, tenant), id, body.reason);
+  }
+
+  // Request packets (R55, Frame 7): the client's sent requests with their checklists.
+  @Get('request-packets')
+  async packets(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<MyRequestPacketList> {
+    return { items: await this.packetsService.list(callerOf(auth, tenant)) };
+  }
+
+  @Get('request-packets/:id')
+  packet(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', new ZodValidationPipe(MyRequestPacketId)) id: string,
+  ): Promise<MyRequestPacket> {
+    return this.packetsService.get(callerOf(auth, tenant), id);
+  }
+
+  @Post('request-packets/:id/submit')
+  @HttpCode(200)
+  submitPacket(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', new ZodValidationPipe(MyRequestPacketId)) id: string,
+    // Submit for Review takes no body: an empty one, or nothing.
+    @Body(new ZodValidationPipe(zod.strictObject({}).optional())) _body: object,
+  ): Promise<MyRequestPacket> {
+    return this.packetsService.submit(callerOf(auth, tenant), id);
   }
 }

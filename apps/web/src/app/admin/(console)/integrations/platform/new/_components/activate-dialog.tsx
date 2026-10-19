@@ -10,7 +10,7 @@ import {
   ENVIRONMENT_LABELS,
   type ConnectionTestResult,
   type PlatformIntegration,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { integrationErrorMessage } from '../../../_components/integration-states';
 import { logsHref } from '../../../_components/integrations-shell';
 import { TestResult } from './test-result';

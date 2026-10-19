@@ -8,7 +8,7 @@ import {
   adminIntegrations,
   type UsageDay,
   type UsageReport,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import {
   formatCents,
   formatDate,
