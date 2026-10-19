@@ -3,6 +3,7 @@ import {
   createAdminSupportClient,
   createAdminBillingClient,
   createAdminSalesClient,
+  createAdminTeamClient,
   createAgreementsClient,
   createApiClient,
   createAppointmentsClient,
@@ -465,6 +466,8 @@ export const api = {
   adminBilling: createAdminBillingClient(request),
   /** Super Admin Sales (R60 on R0's B5 and D1): the Sales Center and the pipeline. Mock: mocks/admin-sales.ts until the screens switch. */
   adminSales: createAdminSalesClient(request),
+  /** Super Admin Team (R60 on R0's stage A org chart): the directory, Add and Edit Team Member. Mock: mocks/admin-team.ts until the screens switch. */
+  adminTeam: createAdminTeamClient(request),
   /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
   notifications:
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
