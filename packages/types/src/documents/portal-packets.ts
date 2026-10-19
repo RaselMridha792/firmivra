@@ -49,7 +49,7 @@ export type MyRequestPacketProgress = z.infer<typeof MyRequestPacketProgress>;
 /** One row of the client's requests. */
 export const MyRequestPacketRow = z.object({
   id: z.uuid(),
-  /** "#DR-0024". */
+  /** "DR-0024" (the firm sees the same). */
   reference: z.string(),
   title: z.string(),
   service: ServiceRef,
@@ -121,10 +121,16 @@ export const MyRequestPacket = MyRequestPacketRow.extend({
   /** The service's tax year, if it has one. */
   taxYear: z.number().int().nullable(),
   expiresAt: DateTime.nullable(),
-  /** More than one file per item; otherwise an answered item takes a replacement only. */
+  /**
+   * More than one file per item: the screen keeps every file. Otherwise it shows Replace: a new
+   * upload for the item, and the newest file is the answer (the older one stays on record).
+   */
   allowMultipleFiles: z.boolean(),
   items: z.array(MyRequestPacketItem),
-  /** Whether Submit for Review is open now (OPEN, not expired, every required item answered). */
+  /**
+   * Whether Submit for Review is open now: OPEN, not expired, every required item answered, and
+   * a household login (PRIMARY or SPOUSE; an AUTHORIZED login gets 403, as for "I don't have this").
+   */
   canSubmit: z.boolean(),
   activity: z.array(MyRequestPacketEvent).max(200),
 });
