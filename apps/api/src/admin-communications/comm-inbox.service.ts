@@ -55,13 +55,13 @@ export const commFailure = (code: AdminCommErrorCode) =>
 const conversationInclude = {
   linkedBusiness: { select: { id: true, name: true } },
   assignee: { select: { userId: true, user: { select: { name: true } } } },
-} as const;
+} satisfies Prisma.CommConversationInclude;
 type ConversationRow = Prisma.CommConversationGetPayload<{ include: typeof conversationInclude }>;
 const messageInclude = {
   template: { select: { id: true, name: true } },
-  recipients: { orderBy: [{ kind: 'asc' as const }, { createdAt: 'asc' as const }] },
+  recipients: { orderBy: [{ kind: 'asc' }, { createdAt: 'asc' }] },
   mentions: { select: { userId: true, user: { select: { user: { select: { name: true } } } } } },
-} as const;
+} satisfies Prisma.CommMessageInclude;
 type MessageRow = Prisma.CommMessageGetPayload<{ include: typeof messageInclude }>;
 
 const iso = (d: Date | null) => d?.toISOString() ?? null;
@@ -344,12 +344,13 @@ export class CommInboxService {
       if (!conversation) throw commFailure('NOT_FOUND');
 
       const internal = b.channel === 'INTERNAL';
-      const to = internal
-        ? null
-        : destinationFor(b.channel, {
-            email: conversation.contactEmail,
-            phone: conversation.contactPhone,
-          });
+      const to =
+        b.channel === 'INTERNAL'
+          ? null
+          : destinationFor(b.channel, {
+              email: conversation.contactEmail,
+              phone: conversation.contactPhone,
+            });
       if (!internal && !to) throw commFailure('NO_DESTINATION');
 
       const message = await tx.commMessage.create({
