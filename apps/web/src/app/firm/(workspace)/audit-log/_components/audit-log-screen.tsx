@@ -1,7 +1,8 @@
 'use client';
 
 import type { AuditEntry } from '@firmivra/types';
-import { Button, Card, EmptyState, Table, type Column } from '@firmivra/ui';
+import { Avatar, Button, Card, EmptyState, Table, type Column } from '@firmivra/ui';
+import { ShieldCheck } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { RequireRole } from '../../../../../components/require-role';
@@ -23,6 +24,24 @@ function who(entry: AuditEntry) {
   if (!entry.actor) return 'System';
   return entry.actor.kind === 'CLIENT' ? `${entry.actor.name} (client)` : entry.actor.name;
 }
+
+/** The quick views above the log: each is an action prefix the API filters by. */
+const AREAS = [
+  { prefix: '', label: 'All activity' },
+  { prefix: 'auth.', label: 'Sign-ins' },
+  { prefix: 'client.', label: 'Clients' },
+  { prefix: 'client_account.', label: 'Portal accounts' },
+  { prefix: 'document.', label: 'Documents' },
+  { prefix: 'appointment.', label: 'Appointments' },
+  { prefix: 'invoice.', label: 'Invoices' },
+  { prefix: 'membership.', label: 'Team' },
+] as const;
+
+/** "client_account.approved" → "Client account approved": the code stays beside it. */
+const actionText = (action: string) => {
+  const words = action.replace(/[._]/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
 
 /** Metadata holds ids and flags only (the API never records secrets or document content). */
 const shown = (value: unknown) =>
@@ -63,11 +82,25 @@ const columns: Column<AuditEntry>[] = [
       </time>
     ),
   },
-  { id: 'who', label: 'Who', cell: who },
+  {
+    id: 'who',
+    label: 'Who',
+    cell: (entry) => (
+      <span className="flex min-w-0 items-center gap-2">
+        <Avatar name={entry.actor?.name ?? 'System'} size="sm" />
+        <span className="min-w-0 wrap-anywhere">{who(entry)}</span>
+      </span>
+    ),
+  },
   {
     id: 'action',
     label: 'Action',
-    cell: (entry) => <span className="font-mono text-xs">{entry.action}</span>,
+    cell: (entry) => (
+      <span className="block min-w-0">
+        <span className="block font-medium text-heading">{actionText(entry.action)}</span>
+        <span className="block font-mono text-xs text-muted">{entry.action}</span>
+      </span>
+    ),
   },
   {
     id: 'record',
@@ -96,19 +129,48 @@ export function AuditLogScreen() {
   const cursor = cursors.at(-1);
   const query = { ...filters, ...(cursor ? { cursor } : {}) };
   const log = useApiQuery(['audit-log', query], () => api.auditLog.list(query));
+  const area = filters.action ?? '';
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <div>
-        <h1 data-testid="page-title" className="text-2xl font-semibold text-text">
-          Audit log
-        </h1>
-        <p className="text-sm text-muted">
-          Who did what in your firm, newest first. Entries can&apos;t be changed or removed.
-        </p>
-      </div>
-      {/* Outside the page state, so the typed filters stay while a page loads. */}
+    <div className="flex min-w-0 flex-col gap-5">
+      <header className="flex min-w-0 items-center gap-4">
+        <span
+          aria-hidden
+          className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-action text-on-action sm:size-20"
+        >
+          <ShieldCheck weight="fill" className="size-10" />
+        </span>
+        <div className="min-w-0">
+          <h1
+            data-testid="page-title"
+            className="font-display text-3xl font-bold text-heading sm:text-4xl"
+          >
+            Audit log
+          </h1>
+          <p className="text-base text-muted">
+            Who did what in your firm, newest first. Entries can&apos;t be changed or removed.
+          </p>
+        </div>
+      </header>
       <RequireRole roles={['OWNER', 'ADMIN']}>
+        <nav aria-label="Audit log areas" className="flex flex-wrap gap-2">
+          {AREAS.map((a) => (
+            <button
+              key={a.label}
+              type="button"
+              aria-pressed={area === a.prefix}
+              onClick={() => {
+                const { action: _drop, ...rest } = filters;
+                setFilters(a.prefix ? { ...rest, action: a.prefix } : rest);
+                setCursors([]);
+              }}
+              className={`min-h-9 rounded-full border px-4 text-sm font-medium ${area === a.prefix ? 'border-action bg-action text-on-action' : 'border-border bg-surface text-text hover:bg-canvas'}`}
+            >
+              {a.label}
+            </button>
+          ))}
+        </nav>
+        {/* Outside the page state, so the typed filters stay while a page loads. */}
         <Card>
           <AuditLogFilters
             onApply={(next) => {
@@ -175,7 +237,7 @@ export function AuditLogScreen() {
                   </Button>
                 </nav>
               </section>
-              <div className="hidden min-w-0 xl:block">
+              <div className="hidden min-w-0 rounded-xl bg-surface p-2 shadow-md xl:block">
                 <Table
                   caption="Audit log"
                   rows={page.items}
