@@ -59,6 +59,43 @@ describe('createApiClient', () => {
   });
 });
 
+describe('details on ApiRequestError', () => {
+  it('keeps the { path, message } lines the API sends', async () => {
+    const { fn } = fakeFetch(409, {
+      error: {
+        code: 'PLAN_NOT_READY',
+        message: 'The plan is not ready yet',
+        details: [
+          { path: 'plan', message: 'Add at least one goal to the plan' },
+          { path: 'plan', message: 'Add the financial figures' },
+        ],
+      },
+    });
+    await expect(createApiClient({ baseUrl: '', fetch: fn }).me()).rejects.toMatchObject({
+      code: 'PLAN_NOT_READY',
+      details: [
+        { path: 'plan', message: 'Add at least one goal to the plan' },
+        { path: 'plan', message: 'Add the financial figures' },
+      ],
+    });
+  });
+
+  it.each([
+    ['none', undefined],
+    ['another shape', { field: 'name' }],
+    ['lines without a message', [{ path: 'name' }]],
+  ])('leaves them undefined for %s', async (_name, details) => {
+    const { fn } = fakeFetch(400, {
+      error: { code: 'VALIDATION_FAILED', message: 'Bad', details },
+    });
+    const error: unknown = await createApiClient({ baseUrl: '', fetch: fn })
+      .me()
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiRequestError);
+    expect((error as ApiRequestError).details).toBeUndefined();
+  });
+});
+
 describe('Retry-After on ApiRequestError', () => {
   const busy = { error: { code: 'SERVICE_UNAVAILABLE', message: 'Busy', requestId: 'r2' } };
 

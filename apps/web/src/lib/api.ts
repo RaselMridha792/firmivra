@@ -24,6 +24,8 @@ import {
   createEngagementsClient,
   createEsignClient,
   createFirmApplicationsClient,
+  createAdminIntegrationsClient,
+  type AdminIntegrationsClient,
   createAdminNotificationsClient,
   createAdminCommunicationsClient,
   createAdminBroadcastsClient,
@@ -94,6 +96,7 @@ import {
   publicAgreementsMock,
 } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { adminIntegrations as adminIntegrationsMock } from '../mocks/admin-integrations';
 import { createAdminNotificationsMock } from '../mocks/admin-notifications-api';
 import { createAdminCommunicationsMock } from '../mocks/admin-communications-api';
 import { createAdminBroadcastsMock } from '../mocks/admin-broadcasts-api';
@@ -475,6 +478,15 @@ export const api = {
     dev && mocked('firmApplications')
       ? createFirmApplicationsMock()
       : createFirmApplicationsClient(request),
+  /**
+   * Super Admin integrations (R56 on R0's B8), part 1: dashboard, platform integrations, catalog.
+   * Mock mode uses Tumit's mock as it is; its local types are a little wider than the contract
+   * (see the mapping in docs/work/R56-super-admin-api.md), hence the cast until the screens switch.
+   */
+  adminIntegrations:
+    dev && mocked('adminIntegrations')
+      ? (adminIntegrationsMock as unknown as AdminIntegrationsClient)
+      : createAdminIntegrationsClient(request),
   /** Super Admin communications (R56 on R0's B6): the inbox, New Message, templates. */
   adminCommunications:
     dev && mocked('adminCommunications')
