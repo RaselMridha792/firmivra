@@ -48,6 +48,8 @@ const ONBOARDING = new Set([
 
 /** A pending application per write case, so each action meets a record it can act on. */
 const applications: Record<string, string> = {};
+/** An open notification of the fixture Super Admin per write case that acts on one (R56). */
+const items: Record<string, string> = {};
 
 /**
  * Every admin write, with a body that passes validation, run in this order; `app` names the
@@ -76,7 +78,7 @@ async function policyVersion(): Promise<number> {
 
 const WRITES: Record<
   string,
-  { body: object | (() => Promise<object>); app?: string; record?: AuditRecord }
+  { body: object | (() => Promise<object>); app?: string; record?: AuditRecord; item?: string }
 > = {
   'POST /api/v1/admin/firm-applications/:id/approve': { body: {}, app: 'approve' },
   'POST /api/v1/admin/firm-applications/:id/request-info': {
@@ -111,6 +113,12 @@ const WRITES: Record<
     record: 'event',
   },
   'POST /api/v1/admin/audit/events/:id/notes': { body: { text: 'Fake note' }, record: 'event' },
+  'POST /api/v1/admin/notifications/bulk': { body: { ids: [randomUUID()], action: 'READ' } },
+  'POST /api/v1/admin/notifications/mark-all-read': { body: {} },
+  'POST /api/v1/admin/notifications/:id/read': { body: {}, item: 'read' },
+  'POST /api/v1/admin/notifications/:id/unread': { body: {}, item: 'unread' },
+  'POST /api/v1/admin/notifications/:id/resolve': { body: {}, item: 'resolve' },
+  'POST /api/v1/admin/notifications/:id/dismiss': { body: {}, item: 'dismiss' },
 };
 
 /** The firm an approved application created, or null. */
@@ -138,6 +146,22 @@ beforeAll(async () => {
         },
       });
       applications[c.app] = row.id;
+    }
+    for (const c of Object.values(WRITES)) {
+      if (!c.item) continue;
+      const row = await tx.platformNotification.create({
+        data: {
+          recipientUserId: fx.users.admin.id,
+          category: 'SYSTEM',
+          type: 'system.scope_check',
+          title: 'Fake scope check',
+          sourceType: 'system',
+          eventKey: `scope-${c.item}-${randomUUID()}`,
+          requiresAction: true,
+          attention: 'ACTION_REQUIRED',
+        },
+      });
+      items[c.item] = row.id;
     }
     // A platform event, its alerts (one per move) and notes by the Super Admin who calls.
     auditRecords.event = (
@@ -277,7 +301,13 @@ describe('the admin site never opens a business scope', () => {
     for (const route of writes) {
       const key = `${route.method} ${route.path}`;
       const c = WRITES[key]!;
-      const id = c.app ? applications[c.app]! : c.record ? auditRecords[c.record] : randomUUID();
+      const id = c.item
+        ? items[c.item]!
+        : c.app
+          ? applications[c.app]!
+          : c.record
+            ? auditRecords[c.record]
+            : randomUUID();
       const values = { businessId: fx.firmA.id, id };
       const path = fillPath(route.path, values);
       const method = route.method.toLowerCase() as 'post' | 'put' | 'patch' | 'delete';
