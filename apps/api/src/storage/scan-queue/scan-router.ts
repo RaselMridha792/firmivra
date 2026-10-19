@@ -27,7 +27,14 @@ import type { ParsedScanEvent } from './scan-event.js';
  * A known prefix with no handler yet is 'UNKNOWN': its results wait in the dead-letter queue and
  * are redriven once the handler is on dev (docs/SETUP-LOG.md, step 19, command 8).
  */
-export const SCAN_PREFIXES = ['documents', 'leads', 'esign', 'agreements', 'staff'] as const;
+export const SCAN_PREFIXES = [
+  'documents',
+  'leads',
+  'esign',
+  'agreements',
+  'staff',
+  'support',
+] as const;
 export type ScanPrefix = (typeof SCAN_PREFIXES)[number];
 
 export interface RoutedScanResult {

@@ -19,6 +19,15 @@ import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { DATABASE } from '../../src/database/database.module.js';
 import { NOTIFY_SERVICE } from '../../src/notify/notify.types.js';
+import { DOCUMENT_STORAGE } from '../../src/storage/document-storage.js';
+import {
+  prepareSupport,
+  type SupportWrite,
+  supportRecord,
+  supportStorage,
+  supportWrites,
+  type WriteHelpers,
+} from './admin-support-writes.js';
 import { apiRoutes, fillPath } from './routes.js';
 
 const fx = inject('fixtures');
@@ -52,9 +61,13 @@ const items: Record<string, string> = {};
 
 /**
  * Every admin write, with a body that passes validation, run in this order; `app` names the
- * application it acts on (the owner invite resends for the one just approved).
+ * application it acts on (the owner invite resends for the one just approved). Support's writes
+ * (admin-support-writes.ts) name their own `record`, may build the body, and may add a query.
  */
-const WRITES: Record<string, { body: object; app?: string; item?: string }> = {
+const WRITES: Record<
+  string,
+  Omit<SupportWrite, 'body'> & { body: SupportWrite['body']; app?: string; item?: string }
+> = {
   'POST /api/v1/admin/firm-applications/:id/approve': { body: {}, app: 'approve' },
   'POST /api/v1/admin/firm-applications/:id/request-info': {
     body: { message: 'Fake: please send your licence' },
@@ -73,6 +86,7 @@ const WRITES: Record<string, { body: object; app?: string; item?: string }> = {
   'POST /api/v1/admin/notifications/:id/unread': { body: {}, item: 'unread' },
   'POST /api/v1/admin/notifications/:id/resolve': { body: {}, item: 'resolve' },
   'POST /api/v1/admin/notifications/:id/dismiss': { body: {}, item: 'dismiss' },
+  ...supportWrites(fx),
 };
 
 /** The firm an approved application created, or null. */
@@ -119,6 +133,7 @@ beforeAll(async () => {
     }
   });
   await owner.$disconnect();
+  await prepareSupport(fx);
   const env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',
@@ -132,6 +147,9 @@ beforeAll(async () => {
     // No mail server in tests: the invites and notices go nowhere.
     .overrideProvider(NOTIFY_SERVICE)
     .useValue({ send: () => Promise.resolve() })
+    // Support's files go to memory: no bucket in tests.
+    .overrideProvider(DOCUMENT_STORAGE)
+    .useValue(supportStorage)
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -210,14 +228,21 @@ describe('the admin site never opens a business scope', () => {
     for (const route of writes) {
       const key = `${route.method} ${route.path}`;
       const c = WRITES[key]!;
-      const values = {
-        businessId: fx.firmA.id,
-        id: c.item ? items[c.item]! : c.app ? applications[c.app]! : randomUUID(),
-      };
-      const path = fillPath(route.path, values);
+      const id = c.record
+        ? supportRecord(c.record)!
+        : c.item
+          ? items[c.item]!
+          : c.app
+            ? applications[c.app]!
+            : randomUUID();
+      const path = fillPath(route.path, { businessId: fx.firmA.id, id }) + (c.query ?? '');
       const method = route.method.toLowerCase() as 'post' | 'put' | 'patch' | 'delete';
+      const helpers: WriteHelpers = {
+        post: (p, b) => call('post', p, fx.users.admin.email, undefined, b),
+      };
+      const body = typeof c.body === 'function' ? await c.body(helpers) : c.body;
       const from = opens.length;
-      const res = await call(method, path, fx.users.admin.email, undefined, c.body);
+      const res = await call(method, path, fx.users.admin.email, undefined, body);
       expect(res.status, `${route.name} ${path} ${JSON.stringify(res.body)}`).toBeLessThan(400);
       const created = c.app ? await firmOf(applications[c.app]!) : null;
       for (const o of opens.slice(from)) {

@@ -1,11 +1,13 @@
 import {
   createAdminSupportAccessClient,
   createAdminSupportClient,
+  createAdminBillingClient,
   createAgreementsClient,
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
   createAdminAuditClient,
+  createAdminSettingsClient,
   createAuditLogClient,
   createAvailabilityClient,
   createBrandingClient,
@@ -21,6 +23,7 @@ import {
   createEsignClient,
   createFirmApplicationsClient,
   createAdminNotificationsClient,
+  createAdminCommunicationsClient,
   createIntakeFormsClient,
   createInvoicesClient,
   createLeadPipelineClient,
@@ -89,6 +92,7 @@ import {
 } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
 import { createAdminNotificationsMock } from '../mocks/admin-notifications-api';
+import { createAdminCommunicationsMock } from '../mocks/admin-communications-api';
 import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
@@ -434,6 +438,8 @@ export const api = {
       : createAuditLogClient(request),
   /** Super Admin Audit & Security (R55): the cross-firm event log, alerts, notes and the security policy. Mock: mocks/admin-audit-security.ts until the screens switch. */
   adminAudit: createAdminAuditClient(request),
+  /** Super Admin System Settings (R55): sections, branding, features, retention, maintenance, defaults. */
+  adminSettings: createAdminSettingsClient(request),
   /** Support access (R8): Firmivra Support's requests to the firm; Owner and Admin read, an Owner decides. */
   supportAccess:
     dev && mocked('supportAccess')
@@ -446,6 +452,8 @@ export const api = {
       : createAdminSupportAccessClient(request),
   /** Super Admin Support (R60 on R0's B2): tickets, Ticket Detail and Support Settings. Mock: mocks/admin-support.ts until the screens switch. */
   adminSupport: createAdminSupportClient(request),
+  /** Super Admin Billing (R60 on R0's B3): Firmivra bills firms. Mock: mocks/admin-billing.ts until the screens switch. */
+  adminBilling: createAdminBillingClient(request),
   /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
   notifications:
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
@@ -459,6 +467,11 @@ export const api = {
     dev && mocked('firmApplications')
       ? createFirmApplicationsMock()
       : createFirmApplicationsClient(request),
+  /** Super Admin communications (R56 on R0's B6): the inbox, New Message, templates. */
+  adminCommunications:
+    dev && mocked('adminCommunications')
+      ? createAdminCommunicationsMock()
+      : createAdminCommunicationsClient(request),
   /** Super Admin notifications (R56 on R0's B1): the member's notification center and bell. */
   adminNotifications:
     dev && mocked('adminNotifications')

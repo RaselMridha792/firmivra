@@ -4,6 +4,7 @@ import type { createPrismaClient } from '../src/client.js';
 import { seedDemoBilling } from './seed-demo-billing.js';
 import { seedDemoBookkeeping } from './seed-demo-bookkeeping.js';
 import { seedDemoCalendar } from './seed-demo-calendar.js';
+import { seedDemoCommunications } from './seed-demo-communications.js';
 import { seedDemoCompliance } from './seed-demo-compliance.js';
 import { seedDemoDocuments } from './seed-demo-documents.js';
 import { seedDemoMessages } from './seed-demo-messages.js';
@@ -51,5 +52,7 @@ export async function seedDemo(prisma: Prisma): Promise<DemoOrgResult> {
   await seedDemoPlatform(prisma, org);
   // Last: bell items point at rows the modules above made.
   await seedDemoNotifications(prisma, org);
+  // Stage 5, work modules: Communications (after the bell items: their deliveries).
+  await seedDemoCommunications(prisma, org);
   return org;
 }
