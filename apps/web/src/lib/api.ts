@@ -25,6 +25,7 @@ import {
   createFirmApplicationsClient,
   createAdminNotificationsClient,
   createAdminCommunicationsClient,
+  createAdminBroadcastsClient,
   createIntakeFormsClient,
   createInvoicesClient,
   createLeadPipelineClient,
@@ -94,6 +95,7 @@ import {
 import { createAuditLogMock } from '../mocks/audit-log';
 import { createAdminNotificationsMock } from '../mocks/admin-notifications-api';
 import { createAdminCommunicationsMock } from '../mocks/admin-communications-api';
+import { createAdminBroadcastsMock } from '../mocks/admin-broadcasts-api';
 import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
@@ -475,6 +477,11 @@ export const api = {
     dev && mocked('adminCommunications')
       ? createAdminCommunicationsMock()
       : createAdminCommunicationsClient(request),
+  /** Super Admin broadcasts, audiences and files (R56 on R0's B6). Same mock key as the inbox. */
+  adminBroadcasts:
+    dev && mocked('adminCommunications')
+      ? createAdminBroadcastsMock()
+      : createAdminBroadcastsClient(request),
   /** Super Admin notifications (R56 on R0's B1): the member's notification center and bell. */
   adminNotifications:
     dev && mocked('adminNotifications')
