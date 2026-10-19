@@ -368,7 +368,7 @@ export function VersionsDialog({ plan, onClose }: { plan: AdvisoryPlanRow; onClo
                 {v.deliveredAt ? (
                   <Badge tone="purple">
                     Sent {dayText(v.deliveredAt)} ·{' '}
-                    {CHANNEL[v.deliveredChannel ?? ''] ?? v.deliveredChannel}
+                    {CHANNEL[(v.deliveredChannel ?? '').toUpperCase()] ?? v.deliveredChannel}
                   </Badge>
                 ) : (
                   <Badge tone="neutral">Not sent</Badge>
