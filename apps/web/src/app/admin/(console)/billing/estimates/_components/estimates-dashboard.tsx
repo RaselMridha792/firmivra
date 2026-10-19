@@ -5,7 +5,6 @@ import { CheckCircle, Clock, FileText, MagnifyingGlass, Plus, X } from '@phospho
 import Link from 'next/link';
 import { useDeferredValue, useState } from 'react';
 import {
-  adminBilling,
   ESTIMATE_STATUSES,
   type BillingEstimate,
   type EstimateQuery,
@@ -42,6 +41,7 @@ import { useEstimateActions } from './estimate-actions';
 import { EstimateDetails } from './estimate-details';
 import { DateBox, FilterSelect, SAVED_NOTICES, useWideLayout } from './estimate-parts';
 import { EstimateTable } from './estimate-table';
+import { adminBilling } from '../../_components/billing-api';
 
 /**
  * Estimates (firmivra-estimates-dashboard.jpg, docx §10): the firm filter and Create Estimate,
