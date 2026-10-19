@@ -194,7 +194,9 @@ export function ReviewScreen({ broadcastId }: { broadcastId?: string }) {
       }
     : null;
   const editable = broadcast?.status === 'DRAFT' || broadcast?.status === 'SCHEDULED';
-  const [previewChannel, setPreviewChannel] = useState('EMAIL');
+  // The preview opens on the broadcast's first channel until a tab is chosen.
+  const [pickedChannel, setPickedChannel] = useState<string | null>(null);
+  const previewChannel = pickedChannel ?? review?.channels[0] ?? 'EMAIL';
   const [dialog, setDialog] = useState<'send' | 'schedule' | null>(null);
   const [scheduleInput, setScheduleInput] = useState('');
   const [scheduleError, setScheduleError] = useState('');
@@ -371,7 +373,7 @@ export function ReviewScreen({ broadcastId }: { broadcastId?: string }) {
                   className="h-36 w-40 shrink-0 overflow-hidden rounded-control border border-border @xl:absolute @xl:top-4 @xl:right-28"
                 >
                   <div className="w-80 origin-top-left scale-50">
-                    <MessagePreview review={review} compact />
+                    <MessagePreview review={review} channel={review?.channels[0]} compact />
                   </div>
                 </div>
               )}
@@ -404,7 +406,7 @@ export function ReviewScreen({ broadcastId }: { broadcastId?: string }) {
                 label="Message preview channel"
                 variant="underline"
                 value={previewChannel}
-                onChange={setPreviewChannel}
+                onChange={setPickedChannel}
                 items={channels.map(({ id, label }) => ({
                   id,
                   label,

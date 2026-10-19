@@ -595,7 +595,7 @@ export function AudienceStep({ broadcastId }: { broadcastId?: string }) {
                 </div>
               </div>
 
-              <div className="grid min-w-0 grid-cols-1 items-start gap-3 px-3 pb-3 xl:grid-cols-[minmax(0,1fr)_15rem]">
+              <div className="grid min-w-0 grid-cols-1 items-start gap-3 px-3 pb-3 2xl:grid-cols-[minmax(0,1fr)_15rem]">
                 <div className="min-w-0">
                   <div className="min-w-0 overflow-x-auto rounded-lg border border-border">
                     <table
@@ -659,7 +659,8 @@ export function AudienceStep({ broadcastId }: { broadcastId?: string }) {
                   </div>
                 </div>
 
-                <aside className="flex min-w-0 flex-col gap-2">
+                {/* Beside the segments from 2xl; below them, side by side, on narrower screens. */}
+                <aside className="grid min-w-0 gap-2 sm:grid-cols-2 2xl:flex 2xl:flex-col">
                   <section className="flex min-h-72 flex-col items-center rounded-lg border border-border bg-surface p-3 text-center">
                     <h3 className="w-full text-left text-base font-bold text-heading">
                       Selected Audience

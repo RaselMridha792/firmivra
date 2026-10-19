@@ -103,7 +103,7 @@ test('makes the draft, previews templates and carries it to Audience and back', 
     name: 'October product update',
     description: 'News for the sample workspace.',
     channels: ['EMAIL', 'IN_APP'],
-    templateId: expect.stringMatching(/^[0-9a-f-]{36}$/) as string,
+    templateId: expect.stringMatching(/^[0-9a-f-]{36}$/),
   });
   await page.goBack();
   await expect(page.getByLabel('Broadcast Name', { exact: true })).toHaveValue(

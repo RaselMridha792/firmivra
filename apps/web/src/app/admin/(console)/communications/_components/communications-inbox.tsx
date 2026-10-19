@@ -185,6 +185,9 @@ function messageNote(message: AdminCommMessage): string | null {
   return null;
 }
 
+/** The composer toolbar's plain glyphs (the design draws them without a box). */
+const PLAIN = { weight: 'bold', className: 'border-transparent bg-transparent' } as const;
+
 export function CommunicationsInbox() {
   const router = useRouter();
   const client = useQueryClient();
@@ -532,10 +535,10 @@ export function CommunicationsInbox() {
       ) : null}
 
       <section
-        className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-12"
+        className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-20"
         aria-label="Communications inbox"
       >
-        <Card className="!p-0 flex min-w-0 flex-col overflow-hidden lg:col-span-3">
+        <Card className="!p-0 flex min-w-0 flex-col overflow-hidden lg:col-span-6">
           <div className="shrink-0 border-b border-divider px-3 pt-3">
             <div
               className="flex gap-1 overflow-x-auto overflow-y-hidden pb-2"
@@ -556,7 +559,7 @@ export function CommunicationsInbox() {
                       setPage(1);
                     }}
                     className={
-                      'inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-control border px-2.5 text-xs font-medium ' +
+                      'inline-flex min-h-9 shrink-0 items-center gap-1 rounded-control border px-2 text-xs font-medium ' +
                       (active
                         ? 'border-action bg-info-soft text-action'
                         : 'border-divider bg-surface text-muted hover:bg-canvas')
@@ -672,7 +675,7 @@ export function CommunicationsInbox() {
           </div>
         </Card>
 
-        <Card className="!p-0 flex min-w-0 flex-col overflow-hidden lg:col-span-6">
+        <Card className="!p-0 flex min-w-0 flex-col overflow-hidden lg:col-span-9">
           {selected ? (
             <>
               <header className="flex flex-wrap items-center gap-3 border-b border-divider p-3 sm:p-4 xl:flex-nowrap xl:gap-2 xl:p-3">
@@ -845,14 +848,14 @@ export function CommunicationsInbox() {
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider pt-2">
                   <div className="flex items-center gap-1 text-action">
-                    <IconButton icon={Paperclip} label="Attach file" />
-                    <IconButton icon={Smiley} label="Add emoji" />
+                    <IconButton icon={Paperclip} label="Attach file" {...PLAIN} />
+                    <IconButton icon={Smiley} label="Add emoji" {...PLAIN} />
                     <span className="mx-1 h-5 border-l border-divider" />
-                    <IconButton icon={TextB} label="Bold" />
-                    <IconButton icon={TextItalic} label="Italic" />
-                    <IconButton icon={ListBullets} label="Bulleted list" />
-                    <IconButton icon={ListNumbers} label="Numbered list" />
-                    <IconButton icon={LinkSimple} label="Insert link" />
+                    <IconButton icon={TextB} label="Bold" {...PLAIN} />
+                    <IconButton icon={TextItalic} label="Italic" {...PLAIN} />
+                    <IconButton icon={ListBullets} label="Bulleted list" {...PLAIN} />
+                    <IconButton icon={ListNumbers} label="Numbered list" {...PLAIN} />
+                    <IconButton icon={LinkSimple} label="Insert link" {...PLAIN} />
                   </div>
                   <div className="relative flex overflow-hidden rounded-control">
                     <Button
@@ -908,7 +911,7 @@ export function CommunicationsInbox() {
           )}
         </Card>
 
-        <aside className="flex min-w-0 flex-col gap-3 lg:col-span-3 xl:gap-2">
+        <aside className="flex min-w-0 flex-col gap-3 lg:col-span-5 xl:gap-2">
           <Card className="!p-0 overflow-hidden">
             <SectionTitle
               action={

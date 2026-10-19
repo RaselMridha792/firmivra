@@ -695,7 +695,7 @@ export function BroadcastsDashboard() {
         <div className="flex min-w-0 flex-col gap-3">
           <section
             aria-label="Broadcast summary"
-            className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5"
+            className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5 xl:[&>div]:gap-2.5 xl:[&>div]:p-3 xl:[&>div>span]:size-10 xl:[&>div>span>svg]:size-5"
           >
             {summaryCards.map(({ icon, tone, key, label }) => (
               <KpiCard
@@ -710,7 +710,7 @@ export function BroadcastsDashboard() {
           </section>
 
           <section className="flex min-w-0 flex-col gap-3" aria-label="Broadcast list">
-            <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
               <div className="min-w-0 flex-1 overflow-hidden [&_[role=tablist]]:overflow-y-hidden [&_[role=tablist]]:pb-px">
                 <Tabs
                   items={tabs}
@@ -720,7 +720,7 @@ export function BroadcastsDashboard() {
                   variant="underline"
                 />
               </div>
-              <div className="flex min-w-0 flex-col gap-2 sm:flex-row lg:w-[22rem]">
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row 2xl:w-[22rem]">
                 <SearchField
                   label="Search broadcasts"
                   minWidth="8rem"

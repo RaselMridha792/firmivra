@@ -96,6 +96,10 @@ export function BroadcastScreen({ broadcastId }: { broadcastId?: string }) {
   const [storageError, setStorageError] = useState('');
   const [busy, setBusy] = useState(false);
   const loaded = existing.data;
+  const segmentId = loaded?.segment?.id ?? '';
+  const count = useApiQuery(['admin-communications', 'segment-count', segmentId || 'none'], () =>
+    segmentId ? api.adminBroadcasts.segments.count(segmentId) : Promise.resolve(null),
+  );
 
   // An opened draft: its name and channels are the API's; the rest is this tab's (B6 keeps none).
   useEffect(() => {
@@ -420,6 +424,12 @@ export function BroadcastScreen({ broadcastId }: { broadcastId?: string }) {
             categoryLabel={
               categories.find((category) => category.value === draft.category)?.label ?? ''
             }
+            audience={
+              loaded?.segment
+                ? `${loaded.segment.name}${count.data ? ` · ${count.data.total.toLocaleString('en-US')} recipients` : ''}`
+                : undefined
+            }
+            message={loaded?.channels.find((channel) => channel.body)?.body.slice(0, 80)}
           />
         </div>
       </div>

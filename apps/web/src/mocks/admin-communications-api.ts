@@ -81,8 +81,21 @@ function build(source: CommunicationsMock, fixtures: CommunicationTemplate[]): S
   const conversations = source.conversations.map((c, i) => {
     const id = uuid('8000', i + 1);
     const type = CONTACT_TYPE[c.contactType];
-    c.messages.forEach((msg, j) => {
-      const at = new Date(now - (i * 6 + c.messages.length - j) * 3_600_000).toISOString();
+    // A thread Arfan's fixtures give only as a preview line becomes the contact's one message.
+    const thread: typeof c.messages = c.messages.length
+      ? c.messages
+      : [
+          {
+            id: `${c.id}-1`,
+            from: 'contact',
+            sender: c.name,
+            body: c.preview.replace(/\s*\.\.\.$/, '…'),
+            time: c.time,
+            channel: c.channel,
+          },
+        ];
+    thread.forEach((msg, j) => {
+      const at = new Date(now - (i * 6 + thread.length - j) * 3_600_000).toISOString();
       const inbound = msg.from === 'contact';
       const channel = CHANNEL[msg.channel];
       messages.push({

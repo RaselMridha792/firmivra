@@ -31,8 +31,14 @@ test('review keeps every frame with a draft and without one', async ({ page }) =
         'Application Follow Up',
       );
       await expect(page.getByRole('button', { name: 'Send Now', exact: true })).toBeEnabled();
-      await page.getByRole('tab', { name: 'SMS', exact: true }).click();
-      await expect(page.getByText('SMS preview', { exact: true })).toBeVisible();
+      // An SMS-only broadcast: the preview opens on its SMS tab.
+      await expect(page.getByRole('tab', { name: 'SMS', exact: true })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      await expect(
+        page.getByRole('tabpanel').getByText('SMS preview', { exact: true }),
+      ).toBeVisible();
     } else {
       await expect(page.getByText('No broadcast to review yet.', { exact: false })).toBeVisible();
       await expect(page.getByRole('tabpanel')).toContainText('No message to preview.');
