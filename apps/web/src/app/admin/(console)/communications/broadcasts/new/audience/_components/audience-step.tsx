@@ -23,15 +23,7 @@ import {
   WarningCircle,
   type Icon,
 } from '@phosphor-icons/react';
-import {
-  Button,
-  Input,
-  Modal,
-  PageHeader,
-  Pagination,
-  Select,
-  Textarea,
-} from '@firmivra/ui';
+import { Button, Input, Modal, PageHeader, Pagination, Select, Textarea } from '@firmivra/ui';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
@@ -132,7 +124,7 @@ function AudienceProgress() {
             >
               {step.title}
             </span>
-              <span className="mt-1 hidden text-xs text-muted sm:block">{step.description}</span>
+            <span className="mt-1 hidden text-xs text-muted sm:block">{step.description}</span>
           </span>
         </li>
       ))}
@@ -140,15 +132,7 @@ function AudienceProgress() {
   );
 }
 
-function SummaryRow({
-  icon: Glyph,
-  label,
-  value,
-}: {
-  icon: Icon;
-  label: string;
-  value: string;
-}) {
+function SummaryRow({ icon: Glyph, label, value }: { icon: Icon; label: string; value: string }) {
   return (
     <div className="flex items-center gap-3 border-b border-divider py-3 last:border-b-0">
       <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-info-soft text-action">
@@ -166,9 +150,7 @@ function BroadcastSummary({ recipientCount }: { recipientCount: number }) {
   return (
     <section className="rounded-card border border-border bg-surface p-4 shadow-card">
       <h2 className="font-display text-xl font-bold text-heading">Broadcast Summary</h2>
-      <p className="mt-1 text-sm text-muted">
-        This summary will update as you complete each step.
-      </p>
+      <p className="mt-1 text-sm text-muted">This summary will update as you complete each step.</p>
       <div className="mt-2">
         <SummaryRow icon={FileText} label="Broadcast Name" value="—" />
         <SummaryRow icon={EnvelopeSimple} label="Channel(s)" value="Email, SMS, In-App" />
@@ -241,7 +223,10 @@ function SegmentRow({
         <div className="flex items-center gap-3">
           <span
             aria-hidden="true"
-            className={'flex size-9 shrink-0 items-center justify-center rounded-xl ' + toneClass[segment.tone]}
+            className={
+              'flex size-9 shrink-0 items-center justify-center rounded-xl ' +
+              toneClass[segment.tone]
+            }
           >
             <Glyph weight="fill" className="size-5" />
           </span>
@@ -460,7 +445,11 @@ export function AudienceStep({
           </div>
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-b border-divider px-3">
-            <div aria-label="Audience selection method" className="flex min-w-0 flex-1 overflow-x-auto" role="tablist">
+            <div
+              aria-label="Audience selection method"
+              className="flex min-w-0 flex-1 overflow-x-auto"
+              role="tablist"
+            >
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
@@ -534,7 +523,10 @@ export function AudienceStep({
               <div className="grid min-w-0 grid-cols-1 items-start gap-3 px-3 pb-3 xl:grid-cols-[minmax(0,1fr)_15rem]">
                 <div className="min-w-0">
                   <div className="min-w-0 overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full min-w-max border-collapse text-left" data-testid="audience-segments">
+                    <table
+                      className="w-full min-w-max border-collapse text-left"
+                      data-testid="audience-segments"
+                    >
                       <thead className="bg-table-head text-sm font-bold text-heading">
                         <tr>
                           <th className="w-10 px-3 py-2.5">
@@ -557,9 +549,18 @@ export function AudienceStep({
                         {hasLoadError ? (
                           <tr>
                             <td className="px-4 py-12 text-center text-sm text-muted" colSpan={6}>
-                              <span className="mx-auto flex max-w-sm flex-col items-center gap-2" role="alert">
-                                <WarningCircle aria-hidden weight="fill" className="size-6 text-warning" />
-                                <span>We couldn&apos;t load audience segments. Please try again.</span>
+                              <span
+                                className="mx-auto flex max-w-sm flex-col items-center gap-2"
+                                role="alert"
+                              >
+                                <WarningCircle
+                                  aria-hidden
+                                  weight="fill"
+                                  className="size-6 text-warning"
+                                />
+                                <span>
+                                  We couldn&apos;t load audience segments. Please try again.
+                                </span>
                               </span>
                             </td>
                           </tr>
@@ -585,11 +586,7 @@ export function AudienceStep({
                     </table>
                   </div>
                   <div className="mt-3 w-fit">
-                    <Pagination
-                      page={currentPage}
-                      pageCount={pageCount}
-                      onPage={setCurrentPage}
-                    />
+                    <Pagination page={currentPage} pageCount={pageCount} onPage={setCurrentPage} />
                   </div>
                 </div>
 
@@ -626,7 +623,9 @@ export function AudienceStep({
                         <span className="mt-5 flex size-20 items-center justify-center rounded-full bg-canvas text-chart-grey">
                           <UsersThree aria-hidden weight="fill" className="size-10" />
                         </span>
-                        <p className="mt-4 text-sm font-semibold text-heading">No audience selected</p>
+                        <p className="mt-4 text-sm font-semibold text-heading">
+                          No audience selected
+                        </p>
                         <p className="mt-2 text-xs leading-5 text-muted">
                           Select one or more segments, use filters, upload a list, or choose
                           individuals to see your estimated recipients here.
@@ -638,7 +637,9 @@ export function AudienceStep({
                   <section className="rounded-lg bg-info-soft p-3">
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-heading">
                       <span className="flex size-4 items-center justify-center rounded-full bg-action text-on-action">
-                        <span aria-hidden="true" className="text-xs leading-none">i</span>
+                        <span aria-hidden="true" className="text-xs leading-none">
+                          i
+                        </span>
                       </span>
                       Audience Tips
                     </div>
@@ -651,7 +652,6 @@ export function AudienceStep({
                   </section>
                 </aside>
               </div>
-
             </>
           ) : (
             <div role="tabpanel" className="px-3 pb-3">

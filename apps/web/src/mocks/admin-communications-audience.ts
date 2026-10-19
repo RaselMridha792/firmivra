@@ -1,12 +1,5 @@
 export type AudienceSegmentIcon =
-  | 'users'
-  | 'user'
-  | 'briefcase'
-  | 'clock'
-  | 'funnel'
-  | 'file'
-  | 'warning'
-  | 'tag';
+  'users' | 'user' | 'briefcase' | 'clock' | 'funnel' | 'file' | 'warning' | 'tag';
 
 export type AudienceSegmentTone = 'blue' | 'green' | 'navy' | 'amber' | 'purple' | 'red';
 
