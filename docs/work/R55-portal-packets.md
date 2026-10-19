@@ -1,11 +1,11 @@
 # R55: Request packets in the client portal
 
-Contract: `packages/types/src/documents/portal-packets.ts` and three methods on `api.myDocuments(slug)`: `packets`, `packet`, `submitPacket`. API: `apps/api/src/storage/` (next PR). Design: `docs/mockups/firm-workspace/documents/source/firmivra-frame-7-client-document-request-upload.jpg` (Document Request & Upload). Tables: R37's `document_request_packets` and `document_requests` (`packet_id`, `required`, `sort_order`).
+Contract: `packages/types/src/documents/portal-packets.ts` and three methods on `api.myDocuments(slug)`: `packets`, `packet`, `submitPacket`. API: `apps/api/src/storage/my-packets.service.ts` and the portal documents controller. Design: `docs/mockups/firm-workspace/documents/source/firmivra-frame-7-client-document-request-upload.jpg` (Document Request & Upload). Tables: R37's `document_request_packets` and `document_requests` (`packet_id`, `required`, `sort_order`).
 
 ## Steps
 
 - [x] 1. Contract: the list, one packet (items with their files, progress, request details, activity), Submit for Review, and two error codes.
-- [ ] 2. API, with unit, e2e and tenant-isolation tests.
+- [x] 2. API, with unit, e2e and tenant-isolation tests.
 - [ ] 3. The portal screen (whoever owns the portal Documents pages), on this contract.
 
 ## Decisions (contract)
@@ -23,7 +23,7 @@ Contract: `packages/types/src/documents/portal-packets.ts` and three methods on 
 4. **Submit for Review.** The packet goes OPEN → SUBMITTED; the database stamps `submitted_at`. It is refused with:
    - 409 PACKET_INCOMPLETE while a required item is unanswered;
    - 409 PACKET_CLOSED once the packet is not open (already submitted, completed or expired).
-   It is audited, and the firm is notified as for a single request.
+   Only a household login (PRIMARY or SPOUSE) submits; an AUTHORIZED login gets 403, as for "I don't have this". It is audited (`request_packet.submitted`).
 5. **The view** (NOT_STARTED, IN_PROGRESS, READY, SUBMITTED, COMPLETED, EXPIRED) and `overdue` are computed, not stored.
 6. **Activity** comes from the records' own times: sent, each file uploaded, each item's latest answer or review, submitted, completed. Who acted is only "You" or "Your firm": the records don't name the staff member for a review.
 7. **No new table.**
@@ -33,6 +33,8 @@ Contract: `packages/types/src/documents/portal-packets.ts` and three methods on 
 8. **Single requests are unchanged.** The existing request list (`requests()`) gains an optional `packet` reference, so the screen can group items by packet; the API PR fills it.
 
 ## Needs from others
+
+- **The notifications owner:** a `request-packet.submitted` event for the firm's bell and email. The single-request "Document received" event names one item, so it isn't reused; until then Submit is in the audit log and on the requests dashboard (SUBMITTED).
 
 - None for the API: the packet table's firm-scoped policy and status rules already allow OPEN → SUBMITTED.
 - A packet message thread (the Messages tab) would need a table: R0, if wanted.
