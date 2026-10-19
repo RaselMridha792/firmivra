@@ -49,10 +49,12 @@ const channelIcons: Record<BroadcastChannel, Icon> = {
   IN_APP: Bell,
 };
 
-export function BroadcastScreen() {
+export function BroadcastScreen({ mockState }: { mockState?: 'empty' | 'api-unavailable' }) {
   const router = useRouter();
   // S10 has no API contract. The isolated fixture loader makes no network requests.
-  const options = useApiQuery(['admin-communications', 'broadcast-options'], listBroadcastOptions);
+  const options = useApiQuery(['admin-communications', 'broadcast-options', mockState], () =>
+    listBroadcastOptions(mockState),
+  );
   const {
     register,
     control,

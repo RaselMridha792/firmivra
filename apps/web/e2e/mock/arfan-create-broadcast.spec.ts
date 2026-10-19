@@ -2,12 +2,7 @@ import { expect, test } from '@playwright/test';
 
 const port = Number(process.env['WEB_PORT'] ?? '3000') + 1;
 const url = `http://admin.localhost:${port}/communications/broadcasts/new`;
-const screenshotDir = 'e2e/screenshots/arfan-create-broadcast';
 const draftKey = 'firmivra.broadcast.basic-information';
-const modules = (process.env['PLAYWRIGHT_API_MOCK'] ?? 'all').split(',');
-const emptyModules = (process.env['PLAYWRIGHT_API_MOCK_EMPTY'] ?? '').split(',');
-const unavailable = !modules.includes('all') && !modules.includes('adminCommunications');
-const empty = emptyModules.includes('all') || emptyModules.includes('adminCommunications');
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/v1/**', (route) => route.abort());
@@ -19,35 +14,46 @@ test.beforeEach(async ({ page }) => {
 test('keeps the design frame in data, empty and unavailable states at desktop, tablet and mobile widths', async ({
   page,
 }) => {
-  if (unavailable) await expect(page.getByTestId('page-error')).toBeVisible();
-  else if (empty) await expect(page.getByTestId('page-empty')).toBeVisible();
-  else await expect(page.getByLabel('Category (Optional)')).toBeEnabled();
+  for (const state of ['data', 'empty', 'api-unavailable'] as const) {
+    await page.goto(state === 'data' ? url : `${url}?mockState=${state}`);
+    if (state === 'api-unavailable') await expect(page.getByTestId('page-error')).toBeVisible();
+    else if (state === 'empty') await expect(page.getByTestId('page-empty')).toBeVisible();
+    else await expect(page.getByLabel('Category (Optional)')).toBeEnabled();
 
-  await expect(
-    page.getByRole('list', { name: 'Broadcast progress' }).getByRole('listitem'),
-  ).toHaveCount(4);
-  await expect(page.getByRole('heading', { name: 'Basic Information', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Broadcast Summary' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Need Help?' })).toBeVisible();
-  await expect(page.getByRole('checkbox', { name: 'Email', exact: true })).toBeChecked();
-  await expect(page.getByRole('checkbox', { name: 'SMS', exact: true })).toBeChecked();
-  await expect(page.getByRole('checkbox', { name: 'In-App', exact: true })).toBeChecked();
-  await page.addStyleTag({
-    content: '[data-testid="mock-badge"], nextjs-portal { display: none !important; }',
-  });
-  const state = unavailable ? 'api-unavailable' : empty ? 'empty' : 'data';
-  for (const width of unavailable || empty ? [1440, 375] : [1536, 1440, 1024, 768, 375]) {
-    await page.setViewportSize({ width, height: 1024 });
-    await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Save as Draft' })).toBeVisible();
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-    ).toBe(true);
-    await page.screenshot({ path: `${screenshotDir}/${state}-${width}.png`, fullPage: true });
-  }
-  if (unavailable || empty) {
-    await expect(page.getByLabel('Category (Optional)')).toBeDisabled();
-    await expect(page.getByLabel('Broadcast Name', { exact: true })).toBeEnabled();
+    await expect(
+      page.getByRole('list', { name: 'Broadcast progress' }).getByRole('listitem'),
+    ).toHaveCount(4);
+    await expect(
+      page.getByRole('heading', { name: 'Basic Information', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Broadcast Summary' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Need Help?' })).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: 'Email', exact: true })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'SMS', exact: true })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'In-App', exact: true })).toBeChecked();
+    await page.addStyleTag({
+      content: '[data-testid="mock-badge"], nextjs-portal { display: none !important; }',
+    });
+
+    const widths = state === 'data' ? [1536, 1440, 1024, 768, 375] : [1440, 375];
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 1024 });
+      await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Save as Draft' })).toBeVisible();
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true);
+      await page.screenshot({
+        path: test.info().outputPath(`broadcast-basic-information-${state}-${width}.png`),
+        animations: 'disabled',
+        fullPage: true,
+      });
+    }
+
+    if (state !== 'data') {
+      await expect(page.getByLabel('Category (Optional)')).toBeDisabled();
+      await expect(page.getByLabel('Broadcast Name', { exact: true })).toBeEnabled();
+    }
   }
 });
 
@@ -71,7 +77,6 @@ test('requires a nonblank name and a channel; All Channels allows individual des
 test('updates the summary, previews templates and carries the draft to Audience and back', async ({
   page,
 }) => {
-  test.skip(unavailable || empty, 'This interaction uses the populated display fixtures.');
   await page.getByLabel('Broadcast Name', { exact: true }).fill('October product update');
   await page.getByLabel('Description (Optional)').fill('News for the sample workspace.');
   await page.getByLabel('Category (Optional)').selectOption('system-notices');

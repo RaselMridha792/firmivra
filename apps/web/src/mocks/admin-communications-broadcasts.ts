@@ -13,10 +13,16 @@ export interface BroadcastOptionsFixture {
   templates: BroadcastTemplateFixture[];
 }
 
-export async function listBroadcastOptions(): Promise<BroadcastOptionsFixture> {
+export async function listBroadcastOptions(
+  mockState?: 'empty' | 'api-unavailable',
+): Promise<BroadcastOptionsFixture> {
   await mockDelay();
-  if (!mocked('adminCommunications')) throw new TypeError('Broadcast options are unavailable');
-  if (mockedEmpty('adminCommunications')) return { categories: [], templates: [] };
+  if (mockState === 'api-unavailable' || !mocked('adminCommunications')) {
+    throw new TypeError('Broadcast options are unavailable');
+  }
+  if (mockState === 'empty' || mockedEmpty('adminCommunications')) {
+    return { categories: [], templates: [] };
+  }
 
   return {
     categories: [
