@@ -24,6 +24,7 @@ import { SystemStatusModule } from './system-status/system-status.controller.js'
 import { FirmApplicationsModule } from './firm-applications/firm-applications.controller.js';
 import { AdminNotificationsModule } from './admin-notifications/admin-notifications.controller.js';
 import { AdminCommunicationsModule } from './admin-communications/admin-communications.controller.js';
+import { AdminIntegrationsModule } from './admin-integrations/admin-integrations.controller.js';
 import { MeModule } from './me/me.controller.js';
 import { NotificationsModule } from './notifications/notifications.controller.js';
 import { NotifyModule } from './notify/notify.module.js';
@@ -122,6 +123,7 @@ export class AppModule {
         FirmApplicationsModule,
         AdminNotificationsModule,
         AdminCommunicationsModule,
+        AdminIntegrationsModule,
         TaxStatusesModule,
         ClientsModule,
         TaxReturnsModule,
