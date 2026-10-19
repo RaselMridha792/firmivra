@@ -17,7 +17,15 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { usePortal } from '../../../../layout';
-import { InvoiceStatus, PayButton, PayError, day, money, usePay } from './invoice-parts';
+import {
+  InvoiceStatus,
+  MakePaymentButton,
+  PayButton,
+  PayError,
+  day,
+  money,
+  usePay,
+} from './invoice-parts';
 
 const VIEWS: [MyInvoiceView, string][] = [
   ['ALL', 'All Invoices'],
@@ -68,6 +76,7 @@ export function InvoicesScreen() {
             keep your records in one place.
           </p>
         </div>
+        <MakePaymentButton slug={slug} pay={pay} />
       </header>
       {back.checkout === 'success' ? (
         <p role="status" className="rounded-card bg-success-soft p-3 text-sm text-success">
@@ -145,7 +154,16 @@ function InvoiceTable({
 }) {
   const current = section === 'CURRENT';
   const columns: Column<MyInvoice>[] = [
-    { id: 'number', label: 'Invoice #', cell: (i) => i.number },
+    {
+      id: 'number',
+      label: 'Invoice #',
+      // The number opens the invoice, in the button blue (invoices tab.png).
+      cell: (i) => (
+        <Link href={`/${slug}/invoices/${i.id}`} className="text-action hover:underline">
+          {i.number}
+        </Link>
+      ),
+    },
     { id: 'service', label: 'Service', cell: (i) => i.title },
     { id: 'issued', label: 'Issue Date', cell: (i) => day(i.issuedOn) },
     {

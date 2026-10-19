@@ -2,7 +2,8 @@ import { expect, test } from '@playwright/test';
 
 // Super Admin Integrations: API & Webhooks, Integration Logs and Usage & Analytics (#813), in
 // mock mode: playwright.mock.config.ts runs NEXT_PUBLIC_API_MOCK=all, which signs the console in
-// as Morgan Admin and serves mocks/admin-integrations.ts. Each test opens its page fresh, so the
+// as Morgan Admin and serves the contract over mocks/admin-integrations.ts (admin-integrations-api.ts:
+// like the API, no key peaks, alerts or plan counts yet). Each test opens its page fresh, so the
 // mock starts from its seed: three API keys (two active, one revoked by a rotation), four webhook
 // endpoints with their deliveries, the integration log and 90 days of usage.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
@@ -27,7 +28,9 @@ test('API & Webhooks shows the keys, rate limits and webhook endpoints', async (
   await page.getByRole('combobox', { name: 'Key status' }).selectOption('ACTIVE');
   await expect(keys.locator('tbody tr')).toHaveCount(2);
 
-  await expect(page.getByTestId('rate-limits')).toContainText('Peak 212 of 600 per minute');
+  await expect(page.getByTestId('rate-limits')).toContainText(
+    'Limit 600 per minute · peak not tracked yet',
+  );
   const hooks = page.getByTestId('webhooks');
   await expect(hooks.locator('tbody tr')).toHaveCount(4);
   await expect(hooks).toContainText(BILLING_HOOK);
@@ -118,11 +121,12 @@ test('the logs filter, open a record with its metadata, and export', async ({ pa
   await expect(page).toHaveURL(/log=0199d1a0-1a03-/);
   await record.getByRole('button', { name: 'Close panel' }).click();
 
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Export as CSV' }).click();
-  expect((await download).suggestedFilename()).toMatch(/^firmivra-integration-logs-\d{8}\.csv$/);
-  await expect(page.getByText(/Exported 4 records as CSV/)).toBeVisible();
+  const exports = page.getByTestId('log-exports');
+  await expect(exports).toContainText('No exports yet.');
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  await expect(page.getByText(/^Export queued: a CSV of the filtered records/)).toBeVisible();
+  await expect(exports.locator('li')).toHaveCount(1);
+  await expect(exports).toContainText('Ready · 4 records');
 });
 
 test('a link with ?integration= opens the log filtered to it, with the run behind a record', async ({
@@ -171,7 +175,10 @@ test('usage shows its totals and chart, and follows the range and the subject', 
 
   await page.getByRole('combobox', { name: 'Scope' }).selectOption('CATALOG');
   await expect(page.getByTestId('usage-connected')).toContainText('Connected Firms');
-  await expect(page.getByTestId('plan-distribution').locator('figure')).toBeVisible();
+  await expect(page.getByTestId('plan-distribution')).toContainText(
+    'Connected firms are not counted by plan yet.',
+  );
+  await expect(page.getByTestId('usage-alerts')).toContainText('No alerts in this range.');
 });
 
 for (const [name, path, ready] of [

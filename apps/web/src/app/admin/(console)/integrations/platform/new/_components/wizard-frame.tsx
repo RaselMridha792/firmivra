@@ -24,7 +24,7 @@ import {
   type PlatformIntegrationDetail,
   type ProviderTemplate,
   type SetupStep,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import {
   CATEGORY_ICONS,
   CategoryPill,

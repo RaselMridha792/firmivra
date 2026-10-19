@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import {
-  adminBilling,
   computeTotals,
   CREDIT_REASONS,
   creditNoteErrors,
@@ -38,6 +37,7 @@ import {
 } from '../../_components/billing-labels';
 import { QuietLine, quietErrorText } from '../../_components/billing-parts';
 import { BillingHeader, type Crumb } from '../../_components/billing-shell';
+import { adminBilling } from '../../_components/billing-api';
 
 /**
  * Create Credit Note (credit-note-creation-dashboard.jpg, docx §14): the details, the credit as

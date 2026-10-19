@@ -15,7 +15,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState, type FormEvent } from 'react';
 import {
-  adminBilling,
   computeTotals,
   CURRENCIES,
   INVOICE_TYPES,
@@ -62,6 +61,7 @@ import {
   type InvoiceDocumentData,
 } from '../../_components/invoice-document';
 import { RecurringDrawer } from '../../_components/recurring-drawer';
+import { adminBilling, issuerOf } from '../../_components/billing-api';
 
 /**
  * Create Invoice and Edit Invoice: one form (docx §7; firmivra-create-invoice-dashboard.jpg).
@@ -1029,7 +1029,12 @@ function InvoiceForm({
             </button>
           }
         >
-          <InvoiceDocument data={previewData} firm={firm} client={client} variant="preview" />
+          <InvoiceDocument
+            data={previewData}
+            firm={issuerOf(firm)}
+            client={client}
+            variant="preview"
+          />
         </BillingCard>
       </div>
 
@@ -1038,7 +1043,7 @@ function InvoiceForm({
         title={`Invoice ${draft.number || 'preview'}`}
         onClose={() => setPreview(false)}
       >
-        <InvoiceDocument data={previewData} firm={firm} client={client} />
+        <InvoiceDocument data={previewData} firm={issuerOf(firm)} client={client} />
       </DocumentViewer>
 
       <Modal

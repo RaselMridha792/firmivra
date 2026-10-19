@@ -54,12 +54,10 @@ export function ProfileScreen() {
   const profile = useApiQuery(['my-profile', slug], () => api.myProfile(slug).get());
   return (
     <div className="grid min-w-0 gap-4">
+      {/* A plain navy title on the page background (My profile.png, R61). */}
       <PortalPageHeader
-        title={
-          <>
-            My <span className="text-firm-accent">Profile</span>
-          </>
-        }
+        plain
+        title="My Profile"
         subtitle="Manage your information, preferences, and account settings."
       />
       <PageState query={profile} isEmpty={() => false}>
@@ -191,12 +189,15 @@ function ProfileContent({ slug, profile: p }: { slug: string; profile: MyProfile
                   )}
                   {primary ? (
                     <div className="flex flex-wrap gap-2">
-                      <Button type="submit" variant="dark">
+                      <Button
+                        type="submit"
+                        className="bg-firm-button! text-on-firm-button! hover:bg-firm-button-hover!"
+                      >
                         <Save aria-hidden className="size-5" /> Save Changes
                       </Button>
                       <Button
                         variant="secondary"
-                        className="border-firm-primary text-firm-text hover:bg-folder-surface"
+                        className="border-action text-action hover:bg-folder-surface"
                         onClick={() => setNaming(true)}
                       >
                         <Pencil aria-hidden className="size-5" /> Request Name Change

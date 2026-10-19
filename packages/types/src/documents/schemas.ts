@@ -429,7 +429,9 @@ export type UploadTargets = z.infer<typeof UploadTargets>;
  * POST /portal/{firmSlug}/me/documents/uploads. 404 for a service, request or category that
  * isn't the client's or their firm's; then 409 NO_OPEN_SERVICE (service not ACTIVE),
  * REQUEST_CLOSED (request of another service, or not open: a SUBMITTED request takes no second
- * file until the firm marks it missing or its newest file comes back INFECTED or FAILED) or
+ * file until the firm marks it missing or its newest file comes back INFECTED or FAILED; an item
+ * of an OPEN, unexpired request packet also takes a file while SUBMITTED, another or a
+ * replacement; an item of a submitted, completed or expired packet takes none) or
  * CATEGORY_ARCHIVED. An upload with a `requestId` answers it (SUBMITTED). A replacement is a new
  * upload for the same request; the old file stays.
  */
@@ -458,6 +460,14 @@ export const MyDocumentRequest = z.object({
   dueOn: CalendarDate.nullable(),
   status: RequestStatus,
   statusNote: z.string().nullable(),
+  /**
+   * The request packet this item is part of ("DR-0024"); null for a request made on its own.
+   * The API always sends it; optional for older readers.
+   */
+  packet: z
+    .object({ id: z.uuid(), reference: z.string(), title: z.string() })
+    .nullable()
+    .optional(),
 });
 export type MyDocumentRequest = z.infer<typeof MyDocumentRequest>;
 /** At most 200: open ones first, then the newest. */
@@ -487,6 +497,10 @@ export const DocumentErrorCode = z.enum([
   'NOTHING_SUBMITTED',
   /** 409: the category is archived. */
   'CATEGORY_ARCHIVED',
+  /** 409 (Submit for Review): a required item of the packet is not answered yet. */
+  'PACKET_INCOMPLETE',
+  /** 409 (Submit for Review): the packet is not open: submitted already, completed or expired. */
+  'PACKET_CLOSED',
   /** 410: the upload ticket is too old or was used; start the upload again. */
   'UPLOAD_EXPIRED',
   /**
@@ -543,6 +557,9 @@ export const DOCUMENT_ERRORS = {
   REQUEST_CLOSED: 'This request is no longer open. Reload and try again.',
   NOTHING_SUBMITTED: 'Nothing new has been uploaded for this request.',
   CATEGORY_ARCHIVED: 'This category is archived. Choose another one.',
+  PACKET_INCOMPLETE:
+    "Upload every required item, or tell your firm you don't have it, then submit.",
+  PACKET_CLOSED: 'This request is no longer open. Reload to see where it stands.',
   UPLOAD_EXPIRED: 'This upload has expired. Please try again.',
   UPLOAD_MISMATCH: "This file doesn't match its type. Check the file and upload it again.",
   FILE_PASSWORD_PROTECTED: 'Remove the password and upload the file again.',

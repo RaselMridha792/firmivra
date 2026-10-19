@@ -19,13 +19,9 @@ import Link from 'next/link';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 
-const when = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-});
+// The date over the time, at the row's right (Intake form tab.png).
+const day = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 
 type ActivityGlyph =
   | 'file'
@@ -145,15 +141,16 @@ export function RecentActivity({
                     notificationLink(item.target, { site: 'portal', firmSlug: slug }) ??
                     `/${slug}/notifications`
                   }
-                  className="flex flex-wrap items-start gap-x-3 py-2 hover:bg-folder-surface"
+                  className="flex items-start gap-x-3 py-1.5 hover:bg-folder-surface"
                 >
                   <ActivityIcon item={item} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-semibold text-heading">{item.title}</span>
-                    <span className="block text-sm text-text">{item.body}</span>
+                  <span className="min-w-0 flex-1 leading-tight">
+                    <span className="block text-sm font-semibold text-heading">{item.title}</span>
+                    <span className="block truncate text-xs text-text">{item.body}</span>
                   </span>
-                  <span className="text-xs text-muted">
-                    {when.format(new Date(item.createdAt))}
+                  <span className="shrink-0 text-right text-xs leading-tight text-text">
+                    <span className="block">{day.format(new Date(item.createdAt))}</span>
+                    <span className="block">{time.format(new Date(item.createdAt))}</span>
                   </span>
                 </Link>
               </li>

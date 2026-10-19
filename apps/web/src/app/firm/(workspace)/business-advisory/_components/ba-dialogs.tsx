@@ -6,19 +6,18 @@ import { Plus, Trash } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
-import { AREA_LABEL, BA_ERRORS, BA_KEY, BUSINESS_STAGES, GOAL_STATUS, today } from './ba-shared';
+import { AREA_LABEL, BA_KEY, BUSINESS_STAGES, GOAL_STATUS, today, errorText } from './ba-shared';
 
 /** The firm's active members, for the advisor and owner pickers; empty when the role may not list them. */
-function useMembers() {
+export function useMembers() {
   const q = useApiQuery([...BA_KEY, 'members'], () => api.team.list());
   return (q.data ?? [])
     .filter((m) => m.status === 'ACTIVE')
     .map((m) => ({ value: m.user.id, label: m.user.name }));
 }
 
-const ErrorLine = ({ text }: { text: string | undefined }) =>
+export const ErrorLine = ({ text }: { text: string | undefined }) =>
   text ? (
     <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
       {text}
@@ -69,7 +68,7 @@ export function AddClientDialog({
       await qc.invalidateQueries({ queryKey: [...BA_KEY] });
       onAdded(c.id, c.client.name);
     } catch (e) {
-      setError(errorMessage(e, BA_ERRORS));
+      setError(errorText(e));
     } finally {
       setSaving(false);
     }
@@ -183,10 +182,13 @@ export function AddClientDialog({
  */
 export function AddGoalDialog({
   advisoryClientId: preset,
+  planId: presetPlan,
   onClose,
   onAdded,
 }: {
   advisoryClientId?: string;
+  /** Add the goal to this plan (the wizard's Goals & Strategy step). */
+  planId?: string;
   onClose: () => void;
   onAdded: (title: string) => void;
 }) {
@@ -201,7 +203,7 @@ export function AddGoalDialog({
       ? api.advisory.plans({ advisoryClientId: clientId, pageSize: 100 })
       : Promise.resolve(null),
   );
-  const [planId, setPlanId] = useState('');
+  const [planId, setPlanId] = useState(presetPlan ?? '');
   const [title, setTitle] = useState('');
   const [area, setArea] = useState('');
   const [targetDate, setTargetDate] = useState('');
@@ -237,7 +239,7 @@ export function AddGoalDialog({
       await qc.invalidateQueries({ queryKey: [...BA_KEY] });
       onAdded(title.trim());
     } catch (e) {
-      setError(errorMessage(e, BA_ERRORS));
+      setError(errorText(e));
     } finally {
       setSaving(false);
     }

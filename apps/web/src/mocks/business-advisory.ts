@@ -64,7 +64,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
-import { clientFixtures, mockStaff } from './clients';
+import { clientFixtures } from './clients';
 import { teamFixtures } from './team';
 
 /**
@@ -122,8 +122,13 @@ const at = (offset: number, hour = 15) => {
 const uid = (block: string, n: number) =>
   `0199c0f1-${block}-7000-8000-${String(n).padStart(12, '0')}`;
 
-const JORDAN: MemberRef = { userId: '0199c0f1-a000-7000-8000-000000000001', name: 'Jordan Lee' };
-const MEMBERS: MemberRef[] = [mockMe, mockStaff, JORDAN];
+/**
+ * The advisors are the team mock's members (mocks/team.ts), so the advisor filters, which list
+ * `api.team`, find their clients: Sam Staff (the Staff role's signed-in user) and Adam Admin.
+ */
+const SAM: MemberRef = { userId: '0199b6a0-0000-7000-8000-000000000103', name: 'Sam Staff' };
+const ADAM: MemberRef = { userId: '0199b6a0-0000-7000-8000-000000000102', name: 'Adam Admin' };
+const MEMBERS: MemberRef[] = [mockMe, SAM, ADAM];
 
 // ---------- Services (Services & Pricing) and the resource library ----------
 
@@ -271,7 +276,7 @@ const SEEDS: Seed[] = [
     primary: 'Growth Strategy',
     additional: ['Financial Analysis', 'Funding & Expansion'],
     status: 'IN_PROGRESS',
-    advisor: mockStaff,
+    advisor: SAM,
     sinceDays: -560,
     entityType: 'LLC',
     years: 6,
@@ -308,7 +313,7 @@ const SEEDS: Seed[] = [
     primary: 'Financial Analysis',
     additional: ['Operational Efficiency'],
     status: 'IN_PROGRESS',
-    advisor: JORDAN,
+    advisor: ADAM,
     sinceDays: -300,
     entityType: 'S Corporation',
     years: 8,
@@ -328,7 +333,7 @@ const SEEDS: Seed[] = [
     primary: 'Operational Efficiency',
     additional: [],
     status: 'NEEDS_REVIEW',
-    advisor: mockStaff,
+    advisor: SAM,
     sinceDays: -200,
     entityType: 'Sole Proprietorship',
     years: 11,
@@ -365,7 +370,7 @@ const SEEDS: Seed[] = [
     primary: 'Growth Strategy',
     additional: [],
     status: 'ON_HOLD',
-    advisor: JORDAN,
+    advisor: ADAM,
     sinceDays: -700,
     entityType: 'Professional Corporation',
     years: 14,
@@ -399,7 +404,7 @@ const SEEDS: Seed[] = [
     primary: 'Business Formation',
     additional: [],
     status: 'ARCHIVED',
-    advisor: mockStaff,
+    advisor: SAM,
     sinceDays: -400,
     entityType: 'LLC',
     years: 2,
@@ -467,7 +472,7 @@ export function createAdvisoryMock({
     await mockDelay();
     return copy(work());
   };
-  const signedIn = role === 'STAFF' ? mockStaff : mockMe;
+  const signedIn = role === 'STAFF' ? SAM : mockMe;
   const canViewFinancials = true;
   const canSend = true;
   const admin = () => {
@@ -939,14 +944,14 @@ export function createAdvisoryMock({
         completedAt: status === 'DONE' ? at(-3) : null,
         updatedAt: at(-n),
       });
-    act(1, 1, 'Prepare funding application', 'STAFF', mockStaff, 10, 'IN_PROGRESS', 'HIGH');
+    act(1, 1, 'Prepare funding application', 'STAFF', SAM, 10, 'IN_PROGRESS', 'HIGH');
     act(2, 1, 'Gather 3 vendor quotes', 'CLIENT', null, -2, 'IN_PROGRESS');
     act(3, 1, 'Complete financial projections', 'TEAM', null, 15, 'NOT_STARTED');
-    act(4, 1, 'Research second location areas', 'STAFF', mockStaff, 30, 'NOT_STARTED');
+    act(4, 1, 'Research second location areas', 'STAFF', SAM, 30, 'NOT_STARTED');
     act(5, 1, 'Send the signed engagement letter', 'CLIENT', null, -30, 'DONE');
     act(6, 2, 'Register the business name', 'CLIENT', null, 7, 'NOT_STARTED', 'HIGH');
-    act(7, 3, 'Request lender quotes', 'STAFF', JORDAN, -5, 'IN_PROGRESS', 'HIGH');
-    act(8, 4, 'Map the invoicing process', 'STAFF', mockStaff, 3, 'IN_PROGRESS');
+    act(7, 3, 'Request lender quotes', 'STAFF', ADAM, -5, 'IN_PROGRESS', 'HIGH');
+    act(8, 4, 'Map the invoicing process', 'STAFF', SAM, 3, 'IN_PROGRESS');
     act(9, 5, 'Collect two years of tax returns', 'CLIENT', null, 12, 'NOT_STARTED');
 
     // Meetings (Appointments tagged Business Advisory).
@@ -999,12 +1004,12 @@ export function createAdvisoryMock({
           at(SEEDS[i]!.sinceDays + 10),
         );
     });
-    log(C(1).id, 'advisory.plan_finalized', 'Plan finalized', mockStaff, at(-21));
+    log(C(1).id, 'advisory.plan_finalized', 'Plan finalized', SAM, at(-21));
     log(C(1).id, 'advisory.plan_sent', 'Plan sent to the client portal', mockMe, at(-20));
-    log(C(1).id, 'advisory.goal_updated', 'Goal progress updated', mockStaff, at(-4));
+    log(C(1).id, 'advisory.goal_updated', 'Goal progress updated', SAM, at(-4));
 
     // The sent plan's first version.
-    const snap = snapshot(sent, 1, mockStaff, at(-21));
+    const snap = snapshot(sent, 1, SAM, at(-21));
     snap.deliveredAt = at(-20);
     snap.deliveredChannel = 'portal';
     snap.deliveredBy = mockMe;
@@ -1021,14 +1026,14 @@ export function createAdvisoryMock({
         snapshot(
           plans.find((p) => p.status === 'FINALIZED')!,
           1,
-          mockStaff,
+          SAM,
           at(-6),
         ),
       );
   }
 
   // ----- Reads -----
-  const reachable = (c: ClientState) => role !== 'STAFF' || c.advisor?.userId === mockStaff.userId;
+  const reachable = (c: ClientState) => role !== 'STAFF' || c.advisor?.userId === SAM.userId;
   const findClient = (advisoryClientId: string) => {
     const c = clients.find((x) => x.id === advisoryClientId);
     if (!c || !reachable(c)) throw notFound();
@@ -1563,7 +1568,7 @@ export function createAdvisoryMock({
           engagementId: id('a230'),
           version: 1,
         };
-        if (role === 'STAFF' && advisor?.userId !== mockStaff.userId) c.advisor = mockStaff;
+        if (role === 'STAFF' && advisor?.userId !== SAM.userId) c.advisor = SAM;
         clients.push(c);
         log(c.id, 'advisory.client_added', 'Added to the advisory program');
         return clientDetail(c);

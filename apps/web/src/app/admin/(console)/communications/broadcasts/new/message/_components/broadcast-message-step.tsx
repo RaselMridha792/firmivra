@@ -32,12 +32,20 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
+import {
+  ADMIN_COMM_BROADCAST_ERRORS,
+  ADMIN_COMM_SMS_MAX,
+  type AdminCommBroadcastChannel,
+  type AdminCommMedia,
+} from '@firmivra/types';
+import { useQueryClient } from '@tanstack/react-query';
+import { api } from '../../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../../lib/query';
-import {
-  getBroadcastMessage,
-  type BroadcastMessageChannel,
-} from '../../../../../../../../mocks/admin-communications-broadcast-message';
+import { readBroadcastDraft, stepHref } from '../../_components/broadcast-draft';
+
+type BroadcastMessageChannel = AdminCommBroadcastChannel;
+type Messages = Record<BroadcastMessageChannel, { subject: string; body: string }>;
 
 const basePath = '/communications/broadcasts/new';
 const channels: { id: BroadcastMessageChannel; label: string; icon: Icon }[] = [
@@ -46,13 +54,14 @@ const channels: { id: BroadcastMessageChannel; label: string; icon: Icon }[] = [
   { id: 'IN_APP', label: 'In-App', icon: Bell },
 ];
 const steps = [
-  { label: 'Basic Information', description: 'Set up your broadcast', href: basePath },
-  { label: 'Audience', description: 'Choose recipients', href: `${basePath}/audience` },
-  { label: 'Message', description: 'Create your content', href: `${basePath}/message` },
-  { label: 'Review & Send', description: 'Confirm and send', href: `${basePath}/review` },
+  { label: 'Basic Information', description: 'Set up your broadcast', step: '' as const },
+  { label: 'Audience', description: 'Choose recipients', step: 'audience' as const },
+  { label: 'Message', description: 'Create your content', step: 'message' as const },
+  { label: 'Review & Send', description: 'Confirm and send', step: 'review' as const },
 ];
-const mergeFields = ['{{firm_name}}', '{{contact_name}}', '{{first_name}}'];
-const emptyMessages: Record<BroadcastMessageChannel, { subject: string; body: string }> = {
+/** The contract's merge fields (ADMIN_COMM_MERGE_FIELDS). */
+const mergeFields = ['{{firm.name}}', '{{contact.name}}', '{{contact.first_name}}'];
+const emptyMessages: Messages = {
   EMAIL: { subject: '', body: '' },
   SMS: { subject: '', body: '' },
   IN_APP: { subject: '', body: '' },
@@ -71,7 +80,7 @@ const editorTools: { label: string; icon: Icon }[] = [
   { label: 'Insert date', icon: CalendarBlank },
 ];
 
-function BroadcastProgress() {
+function BroadcastProgress({ broadcastId }: { broadcastId?: string }) {
   return (
     <nav aria-label="Broadcast creation progress" className="py-1 lg:px-8">
       <ol className="grid grid-cols-2 gap-x-4 gap-y-5 lg:flex lg:gap-3">
@@ -81,7 +90,11 @@ function BroadcastProgress() {
           return (
             <li key={step.label} className="flex min-w-0 flex-1 items-center gap-3">
               <Link
-                href={step.href}
+                href={
+                  broadcastId
+                    ? stepHref(step.step, broadcastId)
+                    : `${basePath}${step.step ? `/${step.step}` : ''}`
+                }
                 aria-current={current ? 'step' : undefined}
                 className="flex min-w-0 items-center gap-3 rounded-control focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
               >
@@ -172,28 +185,107 @@ function ToolButton({
   );
 }
 
-export function BroadcastMessageStep() {
+/** Step 3 of the broadcast `?id=`: each channel's content, saved on the broadcast. */
+export function BroadcastMessageStep({ broadcastId }: { broadcastId?: string }) {
+  const broadcast = useApiQuery(
+    ['admin-communications', 'broadcasts', 'one', broadcastId ?? 'new'],
+    () => (broadcastId ? api.adminBroadcasts.broadcasts.get(broadcastId) : Promise.resolve(null)),
+  );
+  const draft = broadcastId ? readBroadcastDraft(broadcastId) : null;
+  const template = useApiQuery(
+    ['admin-communications', 'templates', 'one', draft?.templateId || 'none'],
+    () =>
+      draft?.templateId && draft.messageSource === 'template'
+        ? api.adminCommunications.templates.get(draft.templateId)
+        : Promise.resolve(null),
+  );
+  if (broadcast.isPending || template.isPending)
+    return (
+      <div data-testid="broadcast-message-step" className="space-y-5">
+        <h1 className="font-display text-3xl font-bold text-heading">Create Broadcast</h1>
+        <p role="status" className="text-sm text-muted">
+          Loading the broadcast…
+        </p>
+      </div>
+    );
+  const saved = broadcast.data?.channels ?? [];
+  const shown: BroadcastMessageChannel[] = saved.length
+    ? saved.map((c) => c.channel)
+    : draft?.channels.length
+      ? draft.channels
+      : ['EMAIL', 'SMS', 'IN_APP'];
+  const seeded = template.data;
+  const messages: Messages = { ...emptyMessages };
+  for (const channel of shown) {
+    const content = saved.find((c) => c.channel === channel);
+    messages[channel] = content
+      ? { subject: content.subject ?? '', body: content.body }
+      : seeded
+        ? { subject: channel === 'EMAIL' ? (seeded.subject ?? '') : '', body: seeded.body }
+        : { subject: '', body: '' };
+  }
+  return (
+    <MessageEditor
+      broadcastId={broadcastId}
+      broadcastName={broadcast.data?.name ?? draft?.name ?? ''}
+      categoryId={draft?.category ?? ''}
+      shown={shown}
+      initial={messages}
+      initialMedia={saved.find((c) => c.channel === 'EMAIL')?.media ?? []}
+      loadError={
+        broadcast.isError ? errorMessage(broadcast.error, ADMIN_COMM_BROADCAST_ERRORS) : ''
+      }
+    />
+  );
+}
+
+function MessageEditor({
+  broadcastId,
+  broadcastName,
+  categoryId,
+  shown,
+  initial,
+  initialMedia,
+  loadError,
+}: {
+  broadcastId?: string;
+  broadcastName: string;
+  categoryId: string;
+  shown: BroadcastMessageChannel[];
+  initial: Messages;
+  initialMedia: AdminCommMedia[];
+  loadError: string;
+}) {
   const router = useRouter();
-  const query = useApiQuery(['admin-communications', 'broadcast-message'], getBroadcastMessage);
-  const fixture = query.data ?? null;
-  const visibleChannels = channels.filter(({ id }) => fixture?.channels.includes(id) ?? true);
-  const [channel, setChannel] = useState<BroadcastMessageChannel>('EMAIL');
-  const [previewChannel, setPreviewChannel] = useState<BroadcastMessageChannel>('EMAIL');
-  const [messages, setMessages] = useState(emptyMessages);
+  const client = useQueryClient();
+  const visibleChannels = channels.filter(({ id }) => shown.includes(id));
+  const first = visibleChannels[0]?.id ?? 'EMAIL';
+  const [channel, setChannel] = useState<BroadcastMessageChannel>(first);
+  const [previewChannel, setPreviewChannel] = useState<BroadcastMessageChannel>(first);
+  const [messages, setMessages] = useState<Messages>(initial);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [validation, setValidation] = useState('');
-  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<AdminCommMedia[]>(initialMedia);
+  const templates = useApiQuery(['admin-communications', 'templates', 'active', channel], () =>
+    channel === 'IN_APP'
+      ? Promise.resolve(null)
+      : api.adminCommunications.templates.list({
+          status: 'ACTIVE',
+          channel,
+          sort: 'NAME',
+          pageSize: 100,
+        }),
+  );
   const [toolbarActive, setToolbarActive] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const subject = messages[channel].subject;
   const body = messages[channel].body;
   const words = body.trim() ? body.trim().split(/\s+/).length : 0;
-  const messageNotice = query.isError
-    ? errorMessage(query.error)
-    : query.data === null && !query.isPending
-      ? 'No saved message data yet. Start composing your broadcast below.'
-      : '';
+  const messageNotice =
+    loadError || (!broadcastId ? 'Start the broadcast with its basic information first.' : '');
   const selectedPreview =
     visibleChannels.find(({ id }) => id === previewChannel) ?? visibleChannels[0]!;
   const previewLabel = selectedPreview.label;
@@ -232,17 +324,113 @@ export function BroadcastMessageStep() {
     );
   }
 
-  function continueToReview() {
-    if (channel === 'EMAIL' && !subject.trim()) {
-      setValidation('Enter a subject line before continuing.');
-      return;
+  /** Every channel's content, checked; the first channel with a problem opens. */
+  function contentOrProblem() {
+    for (const { id, label } of visibleChannels) {
+      const m = messages[id];
+      if (id === 'EMAIL' && !m.subject.trim())
+        return { channel: id, problem: 'Enter a subject line before continuing.' };
+      if (!m.body.trim())
+        return { channel: id, problem: `Enter message content for ${label} before continuing.` };
+      if (id === 'SMS' && m.body.length > ADMIN_COMM_SMS_MAX)
+        return {
+          channel: id,
+          problem: `A text message is at most ${ADMIN_COMM_SMS_MAX} characters.`,
+        };
     }
-    if (!body.trim()) {
-      setValidation('Enter message content before continuing.');
-      return;
+    return null;
+  }
+
+  /** Saves the content on the broadcast; returns false when it could not. */
+  async function saveContent(): Promise<boolean> {
+    if (!broadcastId) {
+      setValidation('Start the broadcast with its basic information first.');
+      return false;
+    }
+    const issue = contentOrProblem();
+    if (issue) {
+      setChannel(issue.channel);
+      setValidation(issue.problem);
+      return false;
     }
     setValidation('');
-    router.push(`${basePath}/review`);
+    setBusy(true);
+    try {
+      const usable = attachments.filter((m) => m.scanStatus === 'CLEAN').map((m) => m.id);
+      await api.adminBroadcasts.broadcasts.update(broadcastId, {
+        channels: visibleChannels.map(({ id }) => ({
+          channel: id,
+          ...(id === 'EMAIL' ? { subject: messages[id].subject.trim() } : {}),
+          body: messages[id].body.trim(),
+          ...(id === 'EMAIL' && usable.length ? { mediaIds: usable } : {}),
+        })),
+      });
+      await client.invalidateQueries({ queryKey: ['admin-communications', 'broadcasts'] });
+      return true;
+    } catch (error) {
+      setNotice(errorMessage(error, ADMIN_COMM_BROADCAST_ERRORS));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function continueToReview() {
+    if ((await saveContent()) && broadcastId) router.push(stepHref('review', broadcastId));
+  }
+
+  /** Uploads files to the communications library (email attachments, once scanned clean). */
+  async function attach(files: File[]) {
+    for (const file of files) {
+      try {
+        const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+        const sha256 = Array.from(new Uint8Array(digest), (b) =>
+          b.toString(16).padStart(2, '0'),
+        ).join('');
+        const ticket = await api.adminBroadcasts.media.create({
+          kind: file.type.startsWith('image/') ? 'INLINE_IMAGE' : 'ATTACHMENT',
+          fileName: file.name,
+          contentType: file.type || 'application/octet-stream',
+          sizeBytes: file.size,
+          sha256,
+        });
+        if (!ticket.uploadUrl.startsWith('mock:')) {
+          const stored = await fetch(ticket.uploadUrl, {
+            method: 'PUT',
+            headers: ticket.headers,
+            body: file,
+          });
+          if (!stored.ok) throw new Error(`${file.name} could not be stored. Try again.`);
+        }
+        setAttachments((current) => [...current, ticket.media]);
+      } catch (error) {
+        setNotice(errorMessage(error, ADMIN_COMM_BROADCAST_ERRORS));
+      }
+    }
+  }
+
+  async function saveAsTemplate() {
+    if (channel === 'IN_APP') {
+      setNotice('Templates are for email and SMS.');
+      return;
+    }
+    try {
+      const category = categoryId || (await api.adminCommunications.categories.list()).items[0]?.id;
+      if (!category) {
+        setNotice('Add a template category first.');
+        return;
+      }
+      const made = await api.adminCommunications.templates.create({
+        categoryId: category,
+        name: `${broadcastName || 'Broadcast'} (${channel === 'EMAIL' ? 'Email' : 'SMS'})`,
+        channel,
+        ...(channel === 'EMAIL' ? { subject: messages.EMAIL.subject.trim() } : {}),
+        body: messages[channel].body.trim(),
+      });
+      setNotice(`Saved as the template ${made.name}.`);
+    } catch (error) {
+      setNotice(errorMessage(error, ADMIN_COMM_BROADCAST_ERRORS));
+    }
   }
 
   return (
@@ -266,7 +454,11 @@ export function BroadcastMessageStep() {
             <Button
               variant="secondary"
               className="border-transparent! bg-info-soft! text-link! hover:bg-folder-hover!"
-              onClick={() => setNotice('No saved draft was found for this broadcast.')}
+              onClick={() => {
+                setMessages(initial);
+                setAttachments(initialMedia);
+                setNotice(broadcastId ? 'Saved content loaded.' : 'There is no saved draft yet.');
+              }}
             >
               <FileText aria-hidden weight="fill" className="size-4" />
               Load Saved Draft
@@ -283,7 +475,7 @@ export function BroadcastMessageStep() {
         </div>
       </header>
 
-      <BroadcastProgress />
+      <BroadcastProgress broadcastId={broadcastId} />
 
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(18rem,1fr)]">
         <Card className="min-w-0 overflow-hidden p-0! shadow-none!">
@@ -298,8 +490,8 @@ export function BroadcastMessageStep() {
 
             {messageNotice ? (
               <p
-                role={query.isError ? 'alert' : 'status'}
-                className={`rounded-control border px-3 py-2 text-sm ${query.isError ? 'border-danger text-danger' : 'border-border text-muted'} bg-info-soft`}
+                role={loadError ? 'alert' : 'status'}
+                className={`rounded-control border px-3 py-2 text-sm ${loadError ? 'border-danger text-danger' : 'border-border text-muted'} bg-info-soft`}
               >
                 {messageNotice}
               </p>
@@ -348,11 +540,49 @@ export function BroadcastMessageStep() {
                       : 'Write the message your audience will receive in this channel.'}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="relative flex flex-wrap gap-2">
+                  {templatesOpen ? (
+                    <div
+                      role="menu"
+                      aria-label="Templates"
+                      className="absolute top-full left-0 z-30 mt-1 max-h-64 w-64 overflow-y-auto rounded-xl border border-divider bg-surface p-1 shadow-lg"
+                    >
+                      {templates.data?.items.length ? (
+                        templates.data.items.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setMessages((current) => ({
+                                ...current,
+                                [channel]: {
+                                  subject: channel === 'EMAIL' ? (t.subject ?? '') : '',
+                                  body: t.body,
+                                },
+                              }));
+                              setTemplatesOpen(false);
+                            }}
+                            className="w-full rounded-md px-3 py-2 text-left text-sm text-text hover:bg-canvas"
+                          >
+                            {t.name}
+                          </button>
+                        ))
+                      ) : (
+                        <p className="px-3 py-2 text-sm text-muted">
+                          {templates.isPending
+                            ? 'Loading templates…'
+                            : 'No templates for this channel.'}
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
                   <Button
                     variant="secondary"
                     className="min-h-10! border-transparent! bg-info-soft! px-3! text-link! hover:bg-folder-hover!"
-                    onClick={() => setNotice('No saved templates are available yet.')}
+                    aria-expanded={templatesOpen}
+                    disabled={channel === 'IN_APP'}
+                    onClick={() => setTemplatesOpen((open) => !open)}
                   >
                     <FileText aria-hidden weight="fill" className="size-4" />
                     Use a Template
@@ -360,7 +590,7 @@ export function BroadcastMessageStep() {
                   <Button
                     variant="secondary"
                     className="min-h-10! border-transparent! bg-info-soft! px-3! text-link! hover:bg-folder-hover!"
-                    onClick={() => setNotice('Template saving is not connected yet.')}
+                    onClick={() => void saveAsTemplate()}
                   >
                     <FloppyDisk aria-hidden weight="fill" className="size-4" />
                     Save as Template
@@ -528,9 +758,8 @@ export function BroadcastMessageStep() {
                       className="sr-only"
                       aria-label="Attach files"
                       onChange={(event) => {
-                        setAttachments(
-                          Array.from(event.target.files ?? []).map((file) => file.name),
-                        );
+                        void attach(Array.from(event.target.files ?? []));
+                        event.target.value = '';
                       }}
                     />
                     <Button
@@ -547,7 +776,7 @@ export function BroadcastMessageStep() {
                   </div>
                   <span className="text-xs text-muted">
                     {attachments.length
-                      ? `${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`
+                      ? `${attachments.length} attachment${attachments.length === 1 ? '' : 's'} (${attachments.filter((m) => m.scanStatus !== 'CLEAN').length} waiting for the scan)`
                       : `${words} words`}
                   </span>
                 </div>
@@ -566,7 +795,11 @@ export function BroadcastMessageStep() {
               <Button
                 variant="secondary"
                 className="w-full border-transparent! bg-info-soft! text-link! hover:bg-folder-hover! sm:w-auto"
-                onClick={() => router.push(`${basePath}/audience`)}
+                onClick={() =>
+                  router.push(
+                    broadcastId ? stepHref('audience', broadcastId) : `${basePath}/audience`,
+                  )
+                }
               >
                 <ArrowLeft aria-hidden weight="bold" className="size-4" />
                 Back
@@ -575,16 +808,21 @@ export function BroadcastMessageStep() {
                 <Button
                   variant="secondary"
                   className="w-full border-transparent! bg-info-soft! text-link! hover:bg-folder-hover! sm:w-auto"
+                  disabled={busy}
                   onClick={() =>
-                    setNotice(
-                      'Draft saving is not connected yet. Your content remains on this page.',
-                    )
+                    void saveContent().then((ok) => {
+                      if (ok) setNotice('Draft saved.');
+                    })
                   }
                 >
                   <FloppyDisk aria-hidden weight="fill" className="size-4" />
                   Save as Draft
                 </Button>
-                <Button className="w-full min-w-36 sm:w-auto" onClick={continueToReview}>
+                <Button
+                  className="w-full min-w-36 sm:w-auto"
+                  disabled={busy}
+                  onClick={() => void continueToReview()}
+                >
                   Next
                   <ArrowRight aria-hidden weight="bold" className="size-4" />
                 </Button>
@@ -636,12 +874,8 @@ export function BroadcastMessageStep() {
                         <span className="font-display text-lg font-bold">F</span>
                       </span>
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-heading">
-                          {fixture?.senderName ?? 'Your Firm Name'}
-                        </p>
-                        <p className="truncate text-xs text-muted">
-                          {fixture?.senderEmail ?? 'you@yourfirm.com'}
-                        </p>
+                        <p className="truncate text-sm font-semibold text-heading">Firmivra</p>
+                        <p className="truncate text-xs text-muted">From the Firmivra team</p>
                       </div>
                     </div>
                     <div className="flex h-20 items-center justify-center rounded-control bg-canvas text-muted">

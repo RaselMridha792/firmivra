@@ -24,7 +24,7 @@ import {
   type ConnectionTestResult,
   type PlatformIntegrationDetail,
   type SetupStep,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { EnvironmentBadge } from '../../../_components/integration-badges';
 import { formatBytes, formatDate } from '../../../_components/integration-format';
 import { integrationErrorMessage } from '../../../_components/integration-states';

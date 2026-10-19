@@ -27,7 +27,7 @@ import {
   type ConnectionValue,
   type IntegrationCategory,
   type PlatformIntegrationDetail,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import {
   EnvironmentBadge,
   LogSeverityBadge,

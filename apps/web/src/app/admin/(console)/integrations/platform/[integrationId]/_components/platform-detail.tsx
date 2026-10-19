@@ -28,7 +28,7 @@ import {
   type ConnectionTestResult,
   type IntegrationStatus,
   type PlatformIntegrationDetail,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { EnvironmentBadge, ServiceLogo } from '../../../_components/integration-badges';
 import {
   formatDateTime,

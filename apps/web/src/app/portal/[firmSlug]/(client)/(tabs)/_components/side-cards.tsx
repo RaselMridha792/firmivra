@@ -21,6 +21,7 @@ import { useApiQuery } from '../../../../../../lib/query';
 import { ButtonLink } from '../../../(public)/_components/button-link';
 import { NotesCard } from '../messages/_components/notes-card';
 import { HelpfulResources } from '../business/_components/business-cards';
+import { TaxPaymentCard } from '../taxes/_components/tax-cards';
 
 const dateTime = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
@@ -75,6 +76,8 @@ export function RightColumn({
   showInvoiceInfo = false,
   businessPage = false,
   showIntakeTip = false,
+  documentsPage = false,
+  taxesPage = false,
 }: {
   slug: string;
   isMessagesPage?: boolean;
@@ -82,6 +85,10 @@ export function RightColumn({
   showInvoiceInfo?: boolean;
   businessPage?: boolean;
   showIntakeTip?: boolean;
+  /** The My Uploaded Documents tab: its two document cards (My docs tab.png). */
+  documentsPage?: boolean;
+  /** The Tax Returns tab: its Tax Return Payment card (Taxes tab.png). */
+  taxesPage?: boolean;
 }) {
   return isMessagesPage ? (
     <MessagesRightColumn slug={slug} />
@@ -92,6 +99,8 @@ export function RightColumn({
       businessPage={businessPage}
       showIntakeTip={showIntakeTip}
       showInvoiceInfo={showInvoiceInfo}
+      documentsPage={documentsPage}
+      taxesPage={taxesPage}
     />
   );
 }
@@ -140,12 +149,16 @@ function DefaultRightColumn({
   businessPage,
   showIntakeTip,
   showInvoiceInfo,
+  documentsPage,
+  taxesPage,
 }: {
   slug: string;
   blueAccents: boolean;
   businessPage: boolean;
   showIntakeTip: boolean;
   showInvoiceInfo: boolean;
+  documentsPage: boolean;
+  taxesPage: boolean;
 }) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
@@ -191,7 +204,9 @@ function DefaultRightColumn({
             </div>
           </div>
         </Card>
-      ) : (
+      ) : taxesPage ? (
+        <TaxPaymentCard slug={slug} />
+      ) : documentsPage ? (
         <>
           <LinkCard
             icon={FileUp}
@@ -212,7 +227,7 @@ function DefaultRightColumn({
             View documents shared with you by the firm.
           </LinkCard>
         </>
-      )}
+      ) : null}
     </aside>
   );
 }
@@ -280,7 +295,7 @@ export function QuickLinks({
       <h2 className="mb-2 font-display text-2xl font-bold text-heading">Quick Links</h2>
       <ul
         className={
-          businessLayout ? 'grid grid-cols-2 gap-2 2xl:grid-cols-4' : 'divide-y divide-border'
+          businessLayout ? 'grid grid-cols-2 gap-2 xl:grid-cols-4' : 'divide-y divide-border'
         }
       >
         {quickLinks(slug).map(([Icon, title, description, href]) => (
@@ -298,7 +313,11 @@ export function QuickLinks({
                 className={`size-8 shrink-0 ${blueAccents ? 'text-action' : 'text-firm-accent'}`}
               />
               <span className={businessLayout ? 'min-w-0' : 'min-w-0 flex-1'}>
-                <span className="block font-semibold text-heading">{title}</span>
+                <span
+                  className={`block font-semibold text-heading ${businessLayout ? 'text-xs leading-tight' : ''}`}
+                >
+                  {title}
+                </span>
                 <span className={`block text-sm text-text ${businessLayout ? 'sr-only' : ''}`}>
                   {description}
                 </span>
