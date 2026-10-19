@@ -13,7 +13,7 @@ import {
   type IntegrationAuditEntry,
   type PlatformIntegrationDetail,
   type PlatformRole,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { formatDateTime } from '../../../_components/integration-format';
 import { Loaded, loadError, QuietLine } from '../../../_components/integration-states';
 import { Panel } from './detail-parts';

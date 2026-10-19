@@ -33,7 +33,7 @@ import {
   type WebhookEndpoint,
   type WebhookStatus,
   type WebhookWithSecret,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import { DashboardPanel, MiniStat } from '../../_components/dashboard-parts';
 import { DeliveryStatusBadge, EnvironmentBadge } from '../../_components/integration-badges';
 import { formatDate, formatDateTime, formatNumber } from '../../_components/integration-format';
@@ -101,6 +101,14 @@ type HookDialog =
   | { kind: 'secret'; result: WebhookWithSecret & { signingSecret: string }; rotated: boolean };
 
 /** What a key's status line says: when it expires, expired, or was revoked. */
+/** The sum of the counts B8 keeps; unknown when the keys have none yet. */
+function known(values: readonly (number | null)[] | undefined): number | undefined {
+  if (!values) return undefined;
+  const numbers = values.filter((value): value is number => value !== null);
+  if (values.length && !numbers.length) return undefined;
+  return numbers.reduce((total, value) => total + value, 0);
+}
+
 function keyNote(key: ApiKey, now: number): { text: string; warn: boolean } {
   if (key.status === 'REVOKED' && key.revokedAt)
     return { text: `Revoked ${formatDate(key.revokedAt)}`, warn: false };
@@ -175,9 +183,6 @@ export function ApiWebhooksPage() {
   const hooks = useApiQuery(['admin-integrations', 'webhooks', 'list', hookQuery], () =>
     adminIntegrations.listWebhooks(hookQuery),
   );
-  const thresholds = useApiQuery(['admin-integrations', 'thresholds'], () =>
-    adminIntegrations.thresholds(),
-  );
 
   const canSecrets = access.data?.canManageSecrets ?? false;
   const canConfigure = access.data?.canManageConfiguration ?? false;
@@ -188,11 +193,10 @@ export function ApiWebhooksPage() {
   const liveKeys = allKeys.data?.filter((key) => key.status === 'ACTIVE');
   const count = (value: number | undefined) =>
     value === undefined ? <Unavailable /> : formatNumber(value);
-  const requests24h = liveKeys?.reduce((total, key) => total + key.usage24h.requests, 0);
-  const limited24h = liveKeys?.reduce((total, key) => total + key.usage24h.rateLimited, 0);
+  const requests24h = known(liveKeys?.map((key) => key.usage24h.requests));
+  const limited24h = known(liveKeys?.map((key) => key.usage24h.rateLimited));
   const sent7d = allHooks.data?.reduce((total, hook) => total + hook.stats.deliveries7d, 0);
   const failed7d = allHooks.data?.reduce((total, hook) => total + hook.stats.failures7d, 0);
-  const quota = thresholds.data?.quotaPercent ?? null;
 
   function issued(result: IssuedApiKey, rotated?: ApiKey) {
     setKeyDialog({ kind: 'issued', issued: result, rotated });
@@ -561,8 +565,7 @@ export function ApiWebhooksPage() {
               {liveKeys.map((key) => {
                 const limit = key.rateLimitPerMinute ?? SYSTEM_RATE_LIMIT_PER_MINUTE;
                 const peak = key.usage24h.peakPerMinute;
-                const used = limit ? Math.round((peak / limit) * 100) : 0;
-                const warn = quota !== null && used >= quota;
+                const used = peak !== null && limit ? Math.round((peak / limit) * 100) : null;
                 return (
                   <li key={key.id} className="flex flex-col gap-2 border-b border-divider py-3">
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -572,16 +575,22 @@ export function ApiWebhooksPage() {
                           {keyText(key)}
                         </code>
                       </span>
-                      <span
-                        className={`text-sm ${warn ? 'font-semibold text-warning' : 'text-text'}`}
-                      >
-                        Peak {formatNumber(peak)} of {formatNumber(limit)} per minute ({used}%)
+                      <span className="text-sm text-text">
+                        {peak === null
+                          ? `Limit ${formatNumber(limit)} per minute · peak not tracked yet`
+                          : `Peak ${formatNumber(peak)} of ${formatNumber(limit)} per minute (${used ?? 0}%)`}
                       </span>
                     </div>
-                    <Meter value={peak} max={limit} warn={warn} />
+                    <Meter value={peak ?? 0} max={limit} warn={false} />
                     <p className="flex flex-wrap gap-x-4 text-xs text-muted">
-                      <span>{formatNumber(key.usage24h.requests)} requests in 24 hours</span>
-                      <span>{formatNumber(key.usage24h.rateLimited)} rate-limited</span>
+                      <span>
+                        {key.usage24h.requests === null
+                          ? 'No usage recorded yet'
+                          : `${formatNumber(key.usage24h.requests)} requests in 24 hours`}
+                      </span>
+                      {key.usage24h.rateLimited === null ? null : (
+                        <span>{formatNumber(key.usage24h.rateLimited)} rate-limited</span>
+                      )}
                       <span>
                         {key.rateLimitPerMinute === null ? 'System limit' : 'Own limit'} ·{' '}
                         {ENVIRONMENT_LABELS[key.environment]}
@@ -595,9 +604,6 @@ export function ApiWebhooksPage() {
           <p className="py-3 text-xs text-muted">
             Keys without a limit of their own share the system limit of{' '}
             {formatNumber(SYSTEM_RATE_LIMIT_PER_MINUTE)} requests per minute.
-            {quota !== null
-              ? ` A key is flagged at ${quota}% of its limit (the quota threshold in Usage & Analytics).`
-              : ''}
           </p>
         </div>
       </DashboardPanel>

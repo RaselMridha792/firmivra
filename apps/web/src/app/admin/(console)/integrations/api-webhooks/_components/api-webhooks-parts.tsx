@@ -15,10 +15,9 @@ import { useId, useState, type ReactNode } from 'react';
 import type {
   ApiKey,
   ApiKeyStatus,
-  ApiScope,
   WebhookDirection,
   WebhookStatus,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 
 /**
  * Small parts of the API & Webhooks page (docx §8): the key as it may be shown (prefix and last
@@ -91,7 +90,7 @@ export function CodePills({ items, label }: { items: readonly string[]; label: s
     </ul>
   );
 }
-export const ScopePills = ({ scopes }: { scopes: readonly ApiScope[] }) => (
+export const ScopePills = ({ scopes }: { scopes: readonly string[] }) => (
   <CodePills items={scopes} label="Scopes" />
 );
 

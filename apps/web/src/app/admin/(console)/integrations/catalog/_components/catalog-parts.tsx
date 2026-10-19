@@ -10,7 +10,7 @@ import {
   type CatalogAuthType,
   type CatalogItem,
   type CatalogStatus,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import { INTEGRATION_ERROR_TEXTS } from '../../_components/integration-states';
 
 /**

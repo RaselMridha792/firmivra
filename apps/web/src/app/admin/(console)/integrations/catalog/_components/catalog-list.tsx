@@ -37,7 +37,7 @@ import {
   type CatalogItem,
   type CatalogStatus,
   type IntegrationCategory,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import { ServiceLogo } from '../../_components/integration-badges';
 import { formatNumber, formatPercent } from '../../_components/integration-format';
 import { loadError, QuietLine, Unavailable } from '../../_components/integration-states';

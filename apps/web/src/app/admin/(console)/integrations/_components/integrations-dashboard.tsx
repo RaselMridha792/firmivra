@@ -21,7 +21,7 @@ import {
   STATUS_LABELS,
   type IntegrationStatus,
   type PlatformIntegration,
-} from '../../../../../mocks/admin-integrations';
+} from './integrations-contract';
 import { DashboardPanel, MiniStat, SummaryCard } from './dashboard-parts';
 import {
   ActivityDot,
@@ -92,10 +92,10 @@ export function IntegrationsDashboard() {
 
   const summary = useApiQuery(['admin-integrations', 'summary'], () => adminIntegrations.summary());
   const platform = useApiQuery(['admin-integrations', 'platform', 'list', filter], () =>
-    adminIntegrations.listPlatform({ status: statuses, sort: 'order', pageSize: ROWS }),
+    adminIntegrations.listPlatform({ status: statuses?.join(','), sort: 'order', pageSize: ROWS }),
   );
   const activity = useApiQuery(['admin-integrations', 'logs', 'dashboard'], () =>
-    adminIntegrations.listLogs({ platformOnly: true, pageSize: 5 }),
+    adminIntegrations.listLogs({ platformOnly: 'true', pageSize: 5 }),
   );
   const access = useApiQuery(['admin-integrations', 'access'], () => adminIntegrations.access());
 

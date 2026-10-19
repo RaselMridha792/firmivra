@@ -22,7 +22,7 @@ import {
   type PlatformIntegration,
   type PlatformIntegrationDetail,
   type SetupStep,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { EnvironmentBadge } from '../../../_components/integration-badges';
 import { formatDate, formatDateTime } from '../../../_components/integration-format';
 import { integrationErrorMessage } from '../../../_components/integration-states';

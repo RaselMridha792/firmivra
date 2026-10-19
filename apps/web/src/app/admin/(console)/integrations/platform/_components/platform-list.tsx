@@ -24,7 +24,7 @@ import {
   STATUS_LABELS,
   type PlatformIntegration,
   type PlatformQuery,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import { EnvironmentBadge, ServiceLogo } from '../../_components/integration-badges';
 import { loadError, QuietLine } from '../../_components/integration-states';
 import {
@@ -149,7 +149,7 @@ export function PlatformList({ address }: { address: AddressQuery }) {
     status: oneOf(INTEGRATION_STATUSES, shown.status),
     environment: oneOf(ENVIRONMENTS, shown.environment),
     sort: shown.sort,
-    descending: shown.descending,
+    descending: shown.descending ? 'true' : 'false',
     page: shown.page,
     pageSize: PAGE_SIZE,
   };

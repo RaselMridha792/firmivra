@@ -27,7 +27,7 @@ import {
   type PlatformRun,
   type RunKind,
   type RunStatus,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { LogSeverityBadge, RunStatusBadge } from '../../../_components/integration-badges';
 import {
   formatDateTime,
