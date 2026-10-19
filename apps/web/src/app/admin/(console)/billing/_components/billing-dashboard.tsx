@@ -25,7 +25,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import {
-  adminBilling,
   INVOICE_STATUSES,
   INVOICE_TYPES,
   type BillingInvoice,
@@ -57,6 +56,7 @@ import {
 } from './billing-table';
 import { useInvoiceActions } from './invoice-actions';
 import { QuickActions } from './quick-actions';
+import { adminBilling } from './billing-api';
 
 /**
  * The Billing dashboard (modern-saas-billing-dashboard.jpg, docx §6): firm filter, Create

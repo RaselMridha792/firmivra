@@ -15,7 +15,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { adminBilling, type BillingCreditNote } from '../../../../../../mocks/admin-billing';
+import { type BillingCreditNote } from '../../../../../../mocks/admin-billing';
 import { useApiQuery } from '../../../../../../lib/query';
 import {
   formatDate,
@@ -31,6 +31,7 @@ import {
   quietErrorText,
 } from '../../_components/billing-parts';
 import { creditAbilities, type CreditNoteActions } from './credit-note-actions';
+import { adminBilling } from '../../_components/billing-api';
 
 /**
  * Credit Note Details (docx §13.2, §17.4): the drawer the list opens from a credit note number.
