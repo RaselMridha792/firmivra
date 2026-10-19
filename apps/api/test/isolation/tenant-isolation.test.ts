@@ -86,6 +86,12 @@ const {
 } = await loadCases();
 
 /**
+ * The sweeps over every body case (one request per body id, more with each module) get the
+ * positive control's time; the 30 s default is for single checks.
+ */
+const SWEEP_MS = 180_000;
+
+/**
  * Path params that are not records, each tied to the routes that use it, with a value valid for
  * any firm. The same name on any other route is a record param and needs a case.
  */
@@ -577,29 +583,41 @@ describe('tenant isolation (R8 step 2)', () => {
       expect(failures).toEqual([]);
     });
 
-    it("a member of firm Q is refused firm P's records named in a body, in firm Q", async () => {
-      const actor = as.firm(people.ownerQ, firms.q.id);
-      const res = await bodySwaps(routes.filter(isFirmRoute), q, actor, firms.q.slug, own.q);
-      expect(res.failures).toEqual([]);
-      expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isFirmRoute));
-    });
+    it(
+      "a member of firm Q is refused firm P's records named in a body, in firm Q",
+      async () => {
+        const actor = as.firm(people.ownerQ, firms.q.id);
+        const res = await bodySwaps(routes.filter(isFirmRoute), q, actor, firms.q.slug, own.q);
+        expect(res.failures).toEqual([]);
+        expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isFirmRoute));
+      },
+      SWEEP_MS,
+    );
 
-    it("a client of firm Q is refused firm P's records named in a body", async () => {
-      const actor = as.client(q.client!);
-      const res = await bodySwaps(routes.filter(isPortalRoute), q, actor, firms.q.slug, own.q);
-      expect(res.failures).toEqual([]);
-      expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isPortalRoute));
-    });
+    it(
+      "a client of firm Q is refused firm P's records named in a body",
+      async () => {
+        const actor = as.client(q.client!);
+        const res = await bodySwaps(routes.filter(isPortalRoute), q, actor, firms.q.slug, own.q);
+        expect(res.failures).toEqual([]);
+        expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isPortalRoute));
+      },
+      SWEEP_MS,
+    );
 
-    it("client Y is refused client X's records named in a body, in the same firm", async () => {
-      const actor = as.client(peer.client!);
-      const only = (record: string) => RECORDS[record]?.clientPrivate === true;
-      const portal = routes.filter(isPortalRoute);
-      const res = await bodySwaps(portal, peer, actor, firms.p.slug, own.p, only);
-      expect(res.failures).toEqual([]);
-      expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isPortalRoute, only));
-      expect(res.sent).toBeGreaterThan(0);
-    });
+    it(
+      "client Y is refused client X's records named in a body, in the same firm",
+      async () => {
+        const actor = as.client(peer.client!);
+        const only = (record: string) => RECORDS[record]?.clientPrivate === true;
+        const portal = routes.filter(isPortalRoute);
+        const res = await bodySwaps(portal, peer, actor, firms.p.slug, own.p, only);
+        expect(res.failures).toEqual([]);
+        expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isPortalRoute, only));
+        expect(res.sent).toBeGreaterThan(0);
+      },
+      SWEEP_MS,
+    );
 
     it("a client of firm P gets 404 at firm Q's portal, on every client route", async () => {
       const failures: string[] = [];
@@ -777,27 +795,31 @@ describe('tenant isolation (R8 step 2)', () => {
     expect(failures).toEqual([]);
   });
 
-  it("the body cases' control: firm Q's own people reach them with Q's own records", async () => {
-    const me = routes.find((r) => keyOf(r) === 'GET /api/v1/portal/:firmSlug/me')!;
-    expect((await call(me, fill(me, firms.q.slug), as.client(q.client!))).status).toBe(200);
-    expect((await call(me, fill(me, firms.p.slug), as.client(peer.client!))).status).toBe(200);
-    const failures: string[] = [];
-    for (const route of routes.filter((r) => isFirmRoute(r) || isPortalRoute(r)).filter(ready)) {
-      const c = CASES[keyOf(route)];
-      if (!c?.bodyIds) continue;
-      const keys = ['client', ...Object.values(c.params), ...Object.values(c.bodyIds)];
-      const world = await buildWorld(keys, 'q');
-      const res = await call(
-        route,
-        fill(route, firms.q.slug, recordsOf(c, world)),
-        isPortalRoute(route) ? as.client(world.client!) : as.firm(people.ownerQ, firms.q.id),
-        bodyOf(route, own.q, world),
-      );
-      const ok = c.expect === undefined ? is2xx(res.status) : res.status === c.expect;
-      if (!ok) failures.push(`${keyOf(route)} (${c.file}): ${show(res)}`);
-    }
-    expect(failures).toEqual([]);
-  });
+  it(
+    "the body cases' control: firm Q's own people reach them with Q's own records",
+    async () => {
+      const me = routes.find((r) => keyOf(r) === 'GET /api/v1/portal/:firmSlug/me')!;
+      expect((await call(me, fill(me, firms.q.slug), as.client(q.client!))).status).toBe(200);
+      expect((await call(me, fill(me, firms.p.slug), as.client(peer.client!))).status).toBe(200);
+      const failures: string[] = [];
+      for (const route of routes.filter((r) => isFirmRoute(r) || isPortalRoute(r)).filter(ready)) {
+        const c = CASES[keyOf(route)];
+        if (!c?.bodyIds) continue;
+        const keys = ['client', ...Object.values(c.params), ...Object.values(c.bodyIds)];
+        const world = await buildWorld(keys, 'q');
+        const res = await call(
+          route,
+          fill(route, firms.q.slug, recordsOf(c, world)),
+          isPortalRoute(route) ? as.client(world.client!) : as.firm(people.ownerQ, firms.q.id),
+          bodyOf(route, own.q, world),
+        );
+        const ok = c.expect === undefined ? is2xx(res.status) : res.status === c.expect;
+        if (!ok) failures.push(`${keyOf(route)} (${c.file}): ${show(res)}`);
+      }
+      expect(failures).toEqual([]);
+    },
+    SWEEP_MS,
+  );
 
   it("the positive control: firm P's Owner and client X reach every case", async () => {
     const failures: string[] = [];

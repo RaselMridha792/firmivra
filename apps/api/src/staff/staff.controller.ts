@@ -3,6 +3,7 @@ import type {
   StaffDetail,
   StaffFormOptions,
   StaffListResponse,
+  StaffPermissions,
   StaffSummary,
 } from '@firmivra/types';
 import type { z } from 'zod';
@@ -57,5 +58,13 @@ export class StaffController {
     @Param('id', new ZodValidationPipe(StaffIdParam)) id: string,
   ): Promise<StaffDetail> {
     return this.read.get(tenant, auth.userId, id);
+  }
+
+  @Get(':id/permissions')
+  permissions(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', new ZodValidationPipe(StaffIdParam)) id: string,
+  ): Promise<StaffPermissions> {
+    return this.read.permissions(tenant, id);
   }
 }
