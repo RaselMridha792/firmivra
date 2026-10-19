@@ -19,8 +19,8 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 
 - [x] 1. Notifications contract (`packages/types/src/admin-notifications`, contract mock, `api.adminNotifications`)
 - [x] 2. Notifications API (`/api/v1/admin/notifications`)
-- [ ] 3. Communications inbox contract (`packages/types/src/admin-communications`), then API
-- [ ] 4. Broadcasts contract, then API
+- [x] 3. Communications inbox contract (`packages/types/src/admin-communications`), then API (#873, #878)
+- [x] 4. Broadcasts contract, then API (#886, #891)
 - [ ] 5. Integrations catalog and platform contract, then API
 - [ ] 6. API keys, webhooks, logs and usage contract, then API
 - [ ] 7. Screens (Rasel, Oct 19): once a module's API is on main, switch its screens from the local mock to the contract (Arfan's Notifications and Communications, Tumit's Integrations), finish the placeholder pages (communications/new, templates, templates/new, templates/[id]/edit) and fix design gaps against `docs/mockups/super-admin`. Files Arfan or Tumit still change (Arfan's open #853, #862, #869) are coordinated through the Scrum thread.
@@ -102,3 +102,19 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 - 2026-10-19: Communications inbox contract: summary, contacts, conversations, messages (draft, send, schedule, cancel, retry, delete draft), templates and categories, merge fields; contract mock on Arfan's inbox data; 8 contract tests.
 - 2026-10-19: Broadcasts contract (`api.adminBroadcasts`): broadcasts with per-channel content, audiences (segments) and counts, the file library upload ticket, recipient results; contract mock on Arfan's broadcast and audience fixtures; 6 contract tests.
 - 2026-10-19: Communications inbox API (`apps/api/src/admin-communications`), stacked on #873: 25 routes; send now through NotifyService (two new Firmivra templates, `platform.message-email` and `platform.message-sms`); scheduled messages wait for the dispatcher job (R1); unit (11) and e2e (16) tests; the admin isolation test's `WRITES` has the 19 writes, each on a seeded record.
+- 2026-10-19: Broadcasts contract (`api.adminBroadcasts`): broadcasts with per-channel content, audiences (segments) and counts, the file library upload ticket, recipient results; contract mock on Arfan's broadcast and audience fixtures; 6 contract tests.
+- 2026-10-19: Broadcasts API (`admin-broadcasts.controller.ts`, `comm-broadcasts.service.ts`), stacked on #878 and #886: 19 routes; audiences resolved per channel (firm owners, leads, team; in-app to the team's bells), send and retry through NotifyService with per-recipient results, schedules wait for the dispatcher (R1); unit (5) and e2e (9) tests; 14 more writes in `WRITES`.
+
+## Handoff for a fresh session (written Oct 19)
+
+**State:** #858, #866, #873 and #878 merged. Open: #886 (broadcasts contract, green) and #891 (broadcasts API, stacked on #886; main merged in by hand at 2488bb2c). Contract PRs open one at a time; at most 2 open non-contract PRs (#891 is one). After a lower PR is squash-merged, `git merge origin/main` into the stacked branch (never rebase or force-push; if a push is rejected because the review thread merged main on GitHub, merge `origin/<branch>` too and keep the wider resolution).
+
+**Next, in order:**
+1. **Integrations contract, part 1** (`packages/types/src/admin-integrations`): summary, providers, platform integrations (list, create draft, get, PATCH with `version`, test, activate, disable, enable, remove, `PUT credentials`, runs, usage) and the catalog (list, create, get, PATCH with `version`, plans and firms PUT/DELETE, preview). Tumit's mock (`apps/web/src/mocks/admin-integrations.ts`, 3,766 lines) is already shaped as a contract: each method's comment names its route. Mirror his interfaces in zod where they fit B8, so `api.adminIntegrations` can point at his `adminIntegrations` object and his screens barely change; his enums match the database (categories, statuses, LIVE/TEST, run statuses incl. PARTIAL). Fields B8 has no column for (long description, logo, status URL, sync schedule, features, data access, retry, firm exposure, setup step, required role, display label) live in the non-secret `settings` / `setup` / `advanced` JSON; provider templates stay in code (API).
+2. **Integrations contract, part 2**: API keys (full key once, hash only, `fv_live_`/`fv_test_` prefix, rotate = new key with `rotated_from_id`), webhooks and deliveries (redeliver), logs (filters, export via B1 `platform_export_jobs`), usage (from `platform_integration_usage_daily`).
+3. The APIs for both; credentials and signing secrets are stored as a **secret reference only** (Secrets Manager adapter is R1's; locally a reference string).
+4. **Screens** (step 7): switch Notifications, Communications (inbox, broadcasts, templates) and Integrations from local mocks to the contracts using the mapping tables above; finish the placeholder pages; design gaps against `docs/mockups/super-admin`; three states at 1440 px; empty states, no fake numbers.
+
+**Local checks (laptop rule, Oct 19):** lint the changed files, typecheck the changed package, run only the module's tests; never the isolation sweeps or Playwright from an API session (CI runs them). Build `@firmivra/db` (`prisma generate` then build) and `@firmivra/types` after merging main.
+
+**Gotchas:** every new admin write needs an entry in `test/isolation/admin-scope.test.ts` `WRITES` with a seeded record (`comm` key, lazy bodies allowed); Prisma `create` on `platform_notifications` for another member fails (RETURNING meets the own-read policy): use `createMany`; B6 error codes must match `^[a-z][a-z0-9_.]{0,59}$`; only email rows carry a subject; a broadcast's recipients are inserted only while it is SENDING; NotifyService templates need entries in `TEMPLATE_CHANNEL`, `TEMPLATE_SENDER`, `ALWAYS_SENT`, `TEMPLATE_CATEGORY`, `templates.ts` and the notify unit tests' fixtures and tables.
