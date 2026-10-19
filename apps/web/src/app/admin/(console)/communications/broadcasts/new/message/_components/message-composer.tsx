@@ -269,7 +269,10 @@ export function MessageComposer() {
             </Button>
             <div className="relative">
               <div className="flex overflow-hidden rounded-control">
-                <Button className="rounded-r-none">
+                <Button
+                  className="rounded-r-none"
+                  onClick={() => router.push('/communications/broadcasts/new/review')}
+                >
                   <PaperPlaneTilt aria-hidden weight="fill" className="size-4" />
                   Send Now
                 </Button>
@@ -665,7 +668,10 @@ export function MessageComposer() {
               <Button variant="secondary" className="w-full sm:w-auto">
                 <FloppyDisk aria-hidden weight="fill" className="size-4" /> Save as Draft
               </Button>
-              <Button className="w-full sm:w-auto">
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => router.push('/communications/broadcasts/new/review')}
+              >
                 <PaperPlaneTilt aria-hidden weight="fill" className="size-4" /> Send Now
               </Button>
               <div className="relative flex">

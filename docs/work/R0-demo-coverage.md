@@ -52,6 +52,14 @@ Stages (one PR each, in Rasel's priority order: pages whose backend already exis
 | --- | --- |
 | `seed-demo-platform.ts` | 8 firms: 5 active (one on trial, one past due), 1 pending setup, 1 suspended, 1 closed; each with an owner login, settings, services, its approved application (with history) and a plan subscription (every plan; active, trial, past due, suspended, cancelled; monthly and annual). 4 applications without a firm: 2 pending review, 1 info requested, 1 declined. The demo firm gets a Business plan subscription |
 
+## What Stage 5 seeds (work modules, one group per PR)
+
+| Module file | Rows |
+| --- | --- |
+| `seed-demo-compliance.ts` | Compliance & Deadlines: settings (reminders two weeks and three days ahead, tasks due 5 days early); this year's IRS calendar (4 entries) published, with its log; two recurring definitions (quarterly estimates from the calendar, a monthly sales tax return) and two applicability rules, with 23 decisions (confirmed with their deadline, suggested, needs review); compliance facts for every business client and half the individuals (classification, elections, payroll states, prior-year liability; some verified); 8 sales tax registrations; 62 deadlines: last year's return (filed with its document and confirmation number, or extended and still open, or waiting on the client), Q4 estimates linked to the return, Q3 941s for payroll clients, sales tax returns, state annual reports (two not applicable), with reminders on the open ones |
+| `seed-demo-tasks.ts` | Tasks: 7 task types (set on every demo task by its engagement), 4 templates (onboarding, annual return, monthly close, quarterly estimate), 2 recurring series (a monthly close and quarterly estimates) with 7 due dates (one made into a task each, upcoming ones, one skipped month), checklists on about half the open tasks (first step done) and a third of the done ones (all done), collaborators, reminders (3 days before by email, and on the day), client documents attached to tasks; 6 tags on half the clients (Harper: Referral Partner, Extension Filed) and on some leads |
+| `seed-demo-payroll.ts` | Payroll: the firm's payroll settings; the four payroll clients (Gusto, ADP, QuickBooks Payroll; biweekly), each with a roster of 3 to 5 workers (salaried, hourly, part-time, a contractor, one on leave, one new hire pending setup), two completed pay runs with lines and confirmed figures, and a current run that is ready for review, blocked by a missing direct deposit (an ERROR issue), submitted to the provider, or in progress; overtime warnings; this year's Q2 941 and state withholding filed and paid, Q3 941 in progress, last year's 940; registers per completed run; last year's year-end (delivered, reconciled, in progress); status history and activity |
+
 Dates are relative to the day the seed runs (overdue stays overdue, "today" is today). Run it again
 and nothing changes; `pnpm db:unseed:demo` removes all of it.
 
