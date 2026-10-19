@@ -243,6 +243,8 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
 
 - Oct 19, decisions (Rasel through the Scrum thread): R0 finishes demo seed stage 5 before anything else; a new session R60 takes the Super Admin Support, Billing and Sales APIs (not R0). R55's Super Admin schema gaps are triaged under "Schema gaps from the Super Admin API sessions" in the migration queue: platform legal documents (stage D4) and an MRR daily rollup (in D2) need migrations; backups, environment variables, role templates, custom CSS, uptime and the unfilled daily metrics do not.
 
+- Oct 19, MRR history (Super Admin schema gaps; part of D2), branch `rasel/R0-mrr-history` from main: migration `r0_mrr_history`. `platform_subscription_changes.mrr_cents` (the subscription's MRR after each change, set by the billing service; null on older rows, never negative) and `platform_mrr_daily` (one row per UTC day: MRR, active, trial, past-due, new and churned counts, MRR by plan; the platform's job writes and may recompute a day, the team reads, no firm; stamped like B9's rollups). Tests: `test/platform-mrr.test.ts` (4). Migration order: #868, then D4, then this, one PR at a time.
+
 ## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
 
 **Where things stand.**

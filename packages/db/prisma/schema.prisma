@@ -2328,6 +2328,9 @@ model PlatformSubscriptionChange {
   toStatus        PlatformSubscriptionStatus?    @map("to_status")
   fromSeats       Int?                           @map("from_seats")
   toSeats         Int?                           @map("to_seats")
+  /// The subscription's MRR in cents after this change (monthly equivalent of its price), set by
+  /// the billing service with each change; null on rows written before r0_mrr_history.
+  mrrCents        Int?                           @map("mrr_cents")
   reason          String?
   effectiveAt     DateTime                       @default(now()) @map("effective_at") @db.Timestamptz(3)
   changedByUserId String?                        @map("changed_by_user_id") @db.Uuid
@@ -13539,4 +13542,27 @@ model SalesLeadImportRow {
   @@index([contactId])
   @@index([opportunityId])
   @@map("sales_lead_import_rows")
+}
+
+// ---------- R0: MRR history (Super Admin schema gaps, Oct 19; part of stage D2) ----------
+
+/// Platform MRR for one UTC day, written by the platform's daily job (platform scope) and read by
+/// the Super Admin team: the Subscriptions and Dashboard trends and the "30 days ago" figures.
+/// One row per day; the job may recompute today's. Past MRR can't be rebuilt from
+/// platform_subscription_changes alone (plan prices change), so the job keeps this from the start.
+model PlatformMrrDaily {
+  day          DateTime @id @db.Date
+  /// Sum of the paying subscriptions' monthly equivalent, in cents (ARR is 12 times this).
+  mrrCents     Int      @map("mrr_cents")
+  activeCount  Int      @default(0) @map("active_count")
+  trialCount   Int      @default(0) @map("trial_count")
+  pastDueCount Int      @default(0) @map("past_due_count")
+  /// Subscriptions that started paying, and that ended, on this day.
+  newCount     Int      @default(0) @map("new_count")
+  churnedCount Int      @default(0) @map("churned_count")
+  /// MRR in cents by plan code, e.g. { "TEAM_PRO": 249000 }.
+  mrrByPlan    Json     @default("{}") @map("mrr_by_plan")
+  computedAt   DateTime @default(now()) @map("computed_at") @db.Timestamptz(3)
+
+  @@map("platform_mrr_daily")
 }
