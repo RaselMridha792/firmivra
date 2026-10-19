@@ -46,3 +46,27 @@ export const tintTones = {
   grey: 'bg-muted/15 text-muted',
   navy: 'bg-heading/15 text-heading',
 } as const;
+
+/**
+ * R61: the client portal's icon circles (docs/mockups/client-portal): a pastel circle per intake
+ * service around the firm's text-coloured icon. `folder` is the pale blue of the page-title circles.
+ */
+export const portalTints = {
+  blue: 'bg-portal-tint-blue',
+  peach: 'bg-portal-tint-peach',
+  mint: 'bg-portal-tint-mint',
+  lavender: 'bg-portal-tint-lavender',
+  rose: 'bg-portal-tint-rose',
+  slate: 'bg-portal-tint-slate',
+  folder: 'bg-folder-surface',
+} as const;
+export type PortalTint = keyof typeof portalTints;
+
+/** R61: the portal's strong icon colours (Recent Activity: upload, message, form, tax return). */
+export const portalIconTones = {
+  green: 'text-portal-icon-green',
+  blue: 'text-portal-icon-blue',
+  magenta: 'text-portal-icon-magenta',
+  orange: 'text-portal-icon-orange',
+} as const;
+export type PortalIconTone = keyof typeof portalIconTones;
