@@ -45,6 +45,8 @@ const BASE = '/api/v1/admin/sales';
 const run = randomUUID().slice(0, 8);
 const RUN = run.toUpperCase().replace(/[^A-Z0-9]/g, 'X');
 const rep = { id: randomUUID(), email: `r60-sales-rep-${run}@firmivra.test` };
+/** A team member outside Revenue / Sales, with no org-chart row yet: a rep too. */
+const member = { id: randomUUID(), email: `r60-sales-member-${run}@firmivra.test` };
 const ids = {
   plan: '',
   oldPlan: '',
@@ -164,6 +166,16 @@ beforeAll(async () => {
       },
     });
     await tx.platformAdmin.create({ data: { userId: rep.id, role: 'TEAM_MEMBER' } });
+    await tx.user.create({
+      data: {
+        id: member.id,
+        cognitoSub: member.id,
+        pool: 'ADMIN',
+        email: member.email,
+        name: 'Fake Team Member',
+      },
+    });
+    await tx.platformAdmin.create({ data: { userId: member.id, role: 'TEAM_MEMBER' } });
     await tx.platformMember.create({
       data: {
         userId: rep.id,
@@ -282,6 +294,10 @@ describe('the pickers', () => {
       active: true,
     });
     expect(meta.reps.find((r) => r.id === fx.users.admin.id)?.active).toBe(true);
+    expect(meta.reps.find((r) => r.id === member.id)).toMatchObject({
+      role: 'Team member',
+      active: true,
+    });
     expect(meta.plans.find((p) => p.id === ids.plan)).toMatchObject({
       code: `FAKE_${RUN}`,
       active: true,

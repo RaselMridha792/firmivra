@@ -63,6 +63,7 @@ import { feedOf } from './sales-feed.js';
 import {
   change,
   conversionOf,
+  countsForConversion,
   DAY_MS,
   entryProblem,
   OPEN_TYPES,
@@ -984,7 +985,7 @@ export function inSet(view: SalesOpportunity, set: NonNullable<Filters['set']>):
     case 'ACTIVE_CLIENTS':
       return view.stageType === 'CONVERTED' || view.stageType === 'TRANSACTION_SYNCED';
     case 'CONVERTED':
-      return view.convertedAt !== null;
+      return view.convertedAt !== null && countsForConversion(view);
   }
 }
 

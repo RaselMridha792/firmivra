@@ -74,7 +74,7 @@ describe('numbers', () => {
     expect(basisPoints(4, 0)).toBe(0);
   });
 
-  it('counts B5 conversion: converted ÷ created minus the duplicates and invalid leads', () => {
+  it('counts B5 conversion: converted ÷ created, both without the duplicates and invalid leads', () => {
     const c = new Date(NOW);
     expect(
       conversionOf([
@@ -83,8 +83,16 @@ describe('numbers', () => {
         { convertedAt: null, lostReason: 'DUPLICATE' },
         { convertedAt: null, lostReason: 'INVALID_LEAD' },
         { convertedAt: null, lostReason: null },
+        // Converted, then lost as a duplicate: out of both, so the rate never passes 100%.
+        { convertedAt: c, lostReason: 'DUPLICATE' },
       ]),
     ).toEqual({ rateBp: 3333, converted: 1, eligible: 3 });
+    expect(
+      conversionOf([
+        { convertedAt: c, lostReason: null },
+        { convertedAt: c, lostReason: 'INVALID_LEAD' },
+      ]),
+    ).toEqual({ rateBp: 10_000, converted: 1, eligible: 1 });
     expect(conversionOf([])).toEqual({ rateBp: 0, converted: 0, eligible: 0 });
   });
 

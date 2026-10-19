@@ -154,8 +154,6 @@ export function asSalesError(
 
 // ---------- The team and the settings ----------
 
-export const SALES_DEPARTMENT = 'REVENUE_SALES';
-
 export interface SalesContext {
   now: number;
   me: { id: string; name: string };
@@ -178,9 +176,11 @@ const ALL: SalesPermissions = {
 };
 
 /**
- * The Sales team: every Super Admin, and the members of the Revenue / Sales department (active
- * ones take new records). Only Super Admins sign in to the console today, so the caller has every
- * sales permission and reaches every record (recordScope COMPANY).
+ * The Sales team: every platform admin. Super Admins, team members without an org-chart row yet
+ * and ACTIVE members take new records (Scrum thread, Oct 19: any active platform admin can be a
+ * rep). Only Super Admins sign in to the console today, so the caller has every sales permission
+ * and reaches every record (recordScope COMPANY); no `sales.*` keys are read until there are more
+ * platform roles.
  */
 export async function loadContext(
   tx: TxClient,
@@ -192,13 +192,7 @@ export async function loadContext(
       select: {
         userId: true,
         role: true,
-        member: {
-          select: {
-            status: true,
-            department: { select: { code: true } },
-            roleDefinition: { select: { title: true } },
-          },
-        },
+        member: { select: { status: true, roleDefinition: { select: { title: true } } } },
       },
     }),
     tx.salesAttentionSettings.findUnique({ where: { id: 1 } }),
@@ -209,22 +203,19 @@ export async function loadContext(
   });
   const names = new Map(users.map((u) => [u.id, u.name]));
   const reps: SalesRep[] = [];
-  const everyone = new Map<string, SalesRep>();
   for (const a of admins) {
     const name = names.get(a.userId);
     if (!name) continue;
     const superAdmin = a.role === 'SUPER_ADMIN';
-    const sales = a.member?.department.code === SALES_DEPARTMENT;
-    const rep: SalesRep = {
+    reps.push({
       id: a.userId,
       name,
       role: a.member?.roleDefinition.title ?? (superAdmin ? 'Super Admin' : 'Team member'),
-      active: superAdmin || (sales && a.member?.status === 'ACTIVE'),
-    };
-    everyone.set(a.userId, rep);
-    if (superAdmin || sales) reps.push(rep);
+      active: superAdmin || !a.member || a.member.status === 'ACTIVE',
+    });
   }
   reps.sort((x, y) => Number(y.active) - Number(x.active) || x.name.localeCompare(y.name));
+  const everyone = new Map(reps.map((rep) => [rep.id, rep]));
   const me = admins.find((a) => a.userId === adminUserId);
   if (!me || me.role !== 'SUPER_ADMIN')
     throw salesError(403, 'FORBIDDEN', 'Your sales role does not allow this');

@@ -261,10 +261,11 @@ and the pure rules in `sales-math.ts`. Tests: `test/unit/admin-sales.test.ts` (1
     `.saved`, `sales_tag.created`, `.updated`, `.deleted`, `sales_attention_settings.updated`,
     `sales_target.created`, `.updated`, `.archived`, `sales_report.exported`. `AuditService.logIn`
     has no category, so B5's "category DATA" is not set (see Needs from others).
-46. **Team and rights.** Reps are every Super Admin and the members of the Revenue / Sales
-    department (`REVENUE_SALES`); ACTIVE members take new records and follow-ups (422
+46. **Team and rights.** Reps are every platform admin (answer 2). Super Admins, team members
+    without an org-chart row yet and ACTIVE members take new records and follow-ups (422
     INACTIVE_CHOICE otherwise). Only Super Admins pass `@Roles('SUPER_ADMIN')`, so every caller has
-    the six permissions and `recordScope` COMPANY; no `sales.*` keys are read yet (question 2).
+    the six permissions and `recordScope` COMPANY; no `sales.*` keys are read until there are more
+    platform roles.
 47. **Checks before the database.** Each change checks what B5's and D1's triggers and CHECKs would
     refuse and answers the contract code first: an inactive stage, the transaction lock, a lost
     stage's reason and note (the OTHER note per `lostOtherNoteRequired`), a lost reason outside a
@@ -283,9 +284,10 @@ and the pure rules in `sales-math.ts`. Tests: `test/unit/admin-sales.test.ts` (1
     memory (search, the range's first day for closed and lost records, overdue, attention, the
     set). Each record's counters (last activity, attempts, first two-way contact, next follow-up and
     appointment, badges, trial) are worked out on every read. `pipelineKpis` takes the same
-    filters; its conversion counts the records created in the range (all without one). B5's
-    numerator keeps a converted record later lost as DUPLICATE or INVALID_LEAD while the
-    denominator drops it, so in that case the rate can pass 100% (question 5).
+    filters; its conversion counts the records created in the range (all without one). A record
+    lost as DUPLICATE or INVALID_LEAD leaves the numerator as well as the denominator, even when it
+    converted first, so the rate is at most 100%; the Converted set the KPI card opens is the same
+    numerator (answer 5).
 50. **Moves.** A move to the stage the record is in changes nothing. A lost reason and note are
     stored only with a lost stage; the database stamps the conversion and lost times and writes the
     history (source MANUAL). Backward moves are allowed (question 1). Booking a CALL, DEMO,
@@ -385,13 +387,13 @@ and the pure rules in `sales-math.ts`. Tests: `test/unit/admin-sales.test.ts` (1
 
 ## Questions for Rasel
 
-1. Spec 17, section 12: which backward moves between stages are allowed? The contract allows every
-   move the database accepts.
-2. Which platform members count as sales reps, and which `sales.*` keys stand for the six
-   permissions (`managePipelines`, `assign`, `bulkEdit`, `export`, `manageTargets`,
-   `manageSettings`)? Today only Super Admins sign in, so every caller has them all.
-3. B5 counts FOLLOW_UP_DUE in Needs Attention; the mock did not. The contract follows B5: confirm.
-4. NO_CONTACT applies in "New Lead". Outside the default pipeline the contract reads it as the
-   pipeline's first stage: confirm.
-5. B5's conversion rate keeps a converted record later lost as DUPLICATE or INVALID_LEAD in the
-   numerator but not the denominator (note 49): should the numerator drop it too?
+Answered by the Scrum thread on Oct 19 with its defaults (Rasel can overrule):
+
+1. Spec 17, section 12, backward moves: every move the database accepts stays allowed, with no
+   extra rule.
+2. Reps and permissions: every Super Admin has all six permissions for now, with no `sales.*` keys,
+   and any active platform admin can be a rep. Revisit when there are more platform roles.
+3. FOLLOW_UP_DUE counts in Needs Attention, as in B5: confirmed.
+4. Outside the default pipeline, NO_CONTACT applies to the pipeline's first stage: confirmed.
+5. A converted record later lost as DUPLICATE or INVALID_LEAD leaves the numerator too, so the
+   conversion rate never passes 100%: done in the API (note 49).

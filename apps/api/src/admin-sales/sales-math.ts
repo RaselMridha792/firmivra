@@ -113,18 +113,22 @@ export const CONVERTED_TYPES: readonly SalesStageType[] = [
 ];
 export const NOT_COUNTED: readonly SalesLostReason[] = ['DUPLICATE', 'INVALID_LEAD'];
 
+/** Counted in the conversion rate: not lost as DUPLICATE or INVALID_LEAD. */
+export const countsForConversion = (r: { lostReason: SalesLostReason | null }) =>
+  !r.lostReason || !NOT_COUNTED.includes(r.lostReason);
+
 /**
  * B5's conversion rate over a set of records: those created in the period with a conversion time
- * ÷ those created in the period minus the ones lost as DUPLICATE or INVALID_LEAD.
+ * ÷ those created in the period, both without the ones lost as DUPLICATE or INVALID_LEAD, so a
+ * converted record later lost as one of them leaves the numerator too and the rate stays at most
+ * 100% (Scrum thread, Oct 19).
  */
 export function conversionOf(
   records: readonly { convertedAt: Date | null; lostReason: SalesLostReason | null }[],
 ) {
-  const converted = records.filter((r) => r.convertedAt !== null).length;
-  const eligible = records.filter(
-    (r) => !r.lostReason || !NOT_COUNTED.includes(r.lostReason),
-  ).length;
-  return { rateBp: basisPoints(converted, eligible), converted, eligible };
+  const counted = records.filter(countsForConversion);
+  const converted = counted.filter((r) => r.convertedAt !== null).length;
+  return { rateBp: basisPoints(converted, counted.length), converted, eligible: counted.length };
 }
 
 // ---------- Contact counters and attention ----------
