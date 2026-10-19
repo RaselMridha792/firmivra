@@ -58,6 +58,14 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
 
 ## Needs from others
 
+**Needs from Rasel (Oct 19):**
+
+- **Demo reseed on dev, parked:** waits for `aws sso login --profile firmivra-dev` (the session expired). Rasel's go (Oct 19) covers it: RDS snapshot, push the image built from `85419edc` (`firmivra-dev-migrate:demo-seed-85419edc`, built locally, not pushed), task definition `firmivra-dev-demo-seed:2`, `unseed-demo-task` then `seed-demo-task` (#782's real Begin Online forms need the unseed), then `link-dev-users` again: Rasel's staff login as OWNER of `demo`, and Harper's portal login (client mode, the same clients-pool sub as Oct 18), because the unseed deletes the firm's memberships and Harper's user. Check: `GET /api/v1/portal/demo/info` shows `#001F4B` and `#E68B18` (was `#2F6F4E`, `#C9A227`). If Deploy dev has moved past `85419edc` by then, rebuild from the deployed commit first.
+- **Not R1's paths, proposals only (each needs Rasel's go):**
+  - `docs/junior/PAGE-MAP.md` still lists Integrations (the section title and 12 rows) as Arfan's; the path guard gives it to Tumit since #797.
+  - `.github/pull_request_template.md` asks for the mockup next to a screenshot at desktop width and 375 px; the review thread wants 1440 px in three states (data, empty, API unreachable).
+- **CI after #829 (4 shards):** the first full run's slowest shard took 5.7 min (was about 7.5 min with 2 shards). The tenant-isolation sweep timeout is already 180 s on `main` (`SWEEP_MS`), so that flake needs nothing more.
+
 Questions for Rasel (Oct 8 evening; BOARD.md is closed, so they live here):
 
 - **Rasel: #101's order** (the commands are in `docs/SETUP-LOG.md`, step 14). The real `cdk diff` ran on Oct 8 and is posted on #101.

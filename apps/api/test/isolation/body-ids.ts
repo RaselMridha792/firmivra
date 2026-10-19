@@ -17,6 +17,27 @@ export interface BodyIdField {
  * and any field named `...Id`, `...Ids` or `ids`, is a record id and needs the case's `bodyIds`.
  */
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
+  ...['details.employeeId', 'compensation.payrollId'].map((field) => ({
+    field,
+    routes: /^(POST|PATCH) \/api\/v1\/business\/staff(\/:id)?$/,
+    why: "the firm's own HR or payroll number (free text), not a record (R55)",
+  })),
+  {
+    field: 'payrollId',
+    routes: /^PUT \/api\/v1\/business\/staff\/:id\/compensation$/,
+    why: "the payroll system's number for the member (free text), not a record (R55)",
+  },
+  ...[
+    'data.account.departmentIds',
+    'data.details.supervisorId',
+    'data.details.employeeId',
+    'data.details.primaryTeamId',
+    'data.details.backupTeamId',
+  ].map((field) => ({
+    field,
+    routes: /^(POST|PUT) \/api\/v1\/business\/staff-drafts(\/:id)?$/,
+    why: 'a draft keeps the Create Staff form as typed, read by no one but the firm; Create Staff checks each id when it is sent (staff-write.e2e) (R55)',
+  })),
   {
     field: 'general.autoSubmissionId',
     routes: /^PUT \/api\/v1\/business\/intake-settings$/,
