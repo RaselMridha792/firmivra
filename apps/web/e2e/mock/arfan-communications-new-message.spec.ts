@@ -20,9 +20,9 @@ test('direct New Message route renders the composer design', async ({ page }) =>
   await expect(page.getByRole('heading', { name: 'Recent Activity' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send Now' })).toHaveCount(2);
   await page.getByRole('button', { name: 'Send Now' }).first().click();
-  await expect(page.getByRole('status')).toHaveText(
-    'Message sending is not connected in this preview.',
-  );
+  await expect(
+    page.getByText('Message sending is not connected in this preview.', { exact: true }),
+  ).toBeVisible();
   await expect(page).toHaveURL(url);
 
   for (const recipient of ['Karen Wilson', 'Blue Ridge Consulting (Firm)', 'Team: Onboarding']) {
