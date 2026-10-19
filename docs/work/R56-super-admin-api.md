@@ -69,9 +69,31 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 | `activity` | not in the contract (the audit trail is Audit & Security's) |
 | `currentAdmin` | the signed-in admin (`api.adminMe` / session), not this module |
 
+### Broadcasts (Arfan, `mocks/admin-communications-broadcasts.ts`, `-audience.ts`, `-review.ts` → `api.adminBroadcasts`)
+
+| Mock | Contract |
+| --- | --- |
+| `AdminBroadcastStatus` `DRAFT` / `SCHEDULED` / `SENT` / `FAILED` | `CommBroadcastStatus`, also `SENDING`, `PARTIALLY_SENT`, `CANCELLED` |
+| broadcast `channel` (one) | `channels[]` (EMAIL, SMS, IN_APP), each with its own subject, body, status and counts |
+| `audience` (a name) | `segment { id, name }` |
+| `recipients` | `recipientCount` (counted when the send starts) and `channels[].sentCount` / `failedCount` |
+| `date`, `dateLabel`, `timeLabel` | `scheduledAt` + `scheduledTimeZone`, or `finishedAt` (ISO; format on the screen) |
+| `createdBy` (a name) | `createdBy { userId, name }` |
+| `description` | not stored (no column in B6); see "Needs from others" |
+| `openRate`, `clickRate` | not tracked (no open or click events); show the quiet empty state, not numbers |
+| `metrics` (total, drafts, scheduled, sent, failed) | `broadcasts.summary()` |
+| `listBroadcastOptions().categories` | template categories (`api.adminCommunications.categories.list`) |
+| `listBroadcastOptions().templates` | `api.adminCommunications.templates.list` |
+| `AudienceSegment` `contacts`, `updatedLabel` | `lastCount`, `lastCountedAt` |
+| `AudienceSegment` `icon`, `tone` | the screen's own |
+| audiences "All Clients", "Active Clients"... | **not allowed**: a firm's clients are never reached (B6). Audiences are firm owners (by firm status or a list of firms), sales leads and the team (`definition.contactTypes`) |
+| review `category`, `filters`, `uploadedList` | `filters` is the segment's `definition`; `category` and an uploaded list are not stored (see "Needs from others") |
+
 ## Needs from others
 
-- (none yet)
+- **R1: the communications dispatcher job** (platform scope): moves `SCHEDULED` messages to `SENDING` at their time and sends them (the API's `CommInboxService.dispatch` does the sending for one message), and wires SES and SNS delivery events to the recipients by `provider_message_id`, plus inbound mail and SMS as `RECEIVED` messages (B6 "Needs from R1"). Until then a scheduled message stays scheduled and delivery stops at `SENT`.
+- **Cc on one email**: NotifyService sends one address per message, so a Cc or Bcc recipient gets their own copy (no shared Cc header). R6 could add `cc` to `NotifyMessage` later.
+- **R0: broadcast fields the screens show but B6 does not store** (schema request, not edited here): a broadcast's `description` and `category`, and an uploaded recipient list (a list of addresses as an audience). Open and click rates need email open and click events (SES event wiring, R1). Until then the screens leave them out.
 
 ## Progress log
 
