@@ -100,6 +100,22 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 - R0's other steps: R11 contract B by Oct 9 21:00, then R11 passes to R15; R10 steps 6 and 7 (Oct 10 and 11 21:00); q20 (Oct 11); the #57 fixes (Oct 12); R8 steps 2 and 3, the isolation suite and rate limits (merged by Oct 14 21:00); the Oct 13 18:00 checkpoint in this log; Q03 fixes Oct 15-16. Not R0's: Firm Sign, agreements, calculators, payments, firm applications, notify, the meeting-link code in appointments, the R11 API and contracts C and D, every screen.
 - Rules: one ticket or one page per PR; contract PRs exempt, one at a time; at most 2 open non-contract PRs; merge main, never rebase or force-push; at most two agents and one heavy command at a time; the Scrum thread pre-reviews, Rasel merges in the windows.
 
+### Schema gaps from the Super Admin API sessions (Oct 19)
+
+Relayed by the Scrum thread from R55's notes on Audit & Security, System Settings and Reports. R60 (Support, Billing, Sales APIs) and R55 send further notes the same way. Rasel's order for R0 stays the same: demo seed stage 5 first, then these migrations, one migration PR at a time in a merge window, each with Rasel's yes.
+
+**Queued (need a migration):**
+1. **Platform legal documents (new stage D4).** Firmivra's own Terms of Service, Privacy Policy and Data Processing Agreement for firms, versioned and published (a published version never changes), plus who accepted which version: the firm, the user, the time, the IP and the browser. `firm_legal_documents` is each firm's own text for its clients, so it doesn't cover these. Accepting the current version belongs in firm sign-up and activation (R4's flow).
+2. **MRR history (folded into stage D2, Subscriptions extras).** A daily rollup row with the date, MRR in cents, active, trialing, new and churned subscriptions, and MRR by plan. It is written by the platform's daily job. Past MRR can't be rebuilt from `platform_subscription_changes`, because those rows record plans and seats, not the price paid at the time, and plan prices change.
+
+**Not a migration (an empty state, or data from elsewhere):**
+- **Backups:** AWS keeps them (RDS automated backups and snapshots). The screen lists them through R1's AWS adapter (snapshot ids, times, sizes) or shows an empty state. A table would only copy AWS's state and drift from it.
+- **Environment variables:** never stored in the database. The screen lists the names the running API reads, with values masked and "set or not set" only. Secret values stay referenced in B7's `platform_secret_refs`.
+- **Role templates:** already exist. The Super Admin team's roles are `platform_role_definitions` with `platform_role_permissions`, and firm defaults are B7's default sets (kind `FIRM`). Any extra fields fit in their JSON.
+- **Custom CSS:** not offered. Arbitrary CSS can restyle or hide parts of the console and pull in outside content, so the branding stays in B7's typed `branding` section (accents and appearance) and brand assets. The screen shows this option as unavailable. If Rasel wants it after all, it becomes a `custom_css` settings key with a size cap and a sanitizer, which is a small migration to `platform_setting_ok`.
+- **Uptime:** read from monitoring (CloudWatch alarms and health checks through R1), or an empty state. No table.
+- **Daily metrics tables nothing fills:** the tables exist (B9's feature-use and firm-activity rollups, and the MRR rollup above once it lands). What's missing is a writer, not schema: a scheduled job in platform scope (R1's scheduler, or the API's jobs module). Until a writer runs, the screens show empty states.
+
 ## Progress log
 
 (newest last: date, step, what changed, commit)
@@ -224,6 +240,8 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 - Oct 19, demo seed stage 5, Tasks group (Rasel's Oct 19 list, item 1), branch `rasel/R0-demo-stage5-tasks` from main: `seed-demo-tasks.ts` fills task types (on every demo task), templates, two recurring series with their due dates (made, upcoming, skipped), checklists, collaborators, reminders, attachments, and tags on clients and leads (11 tables). 214 firm tables had no `demo` rows before it (the handoff's 206 predates newer tables); 203 after. Next groups, in Scrum's order: Payroll, Compliance, Templates, Bookkeeping, Communications, Automations, Services and pricing, Tax returns, Audit and logins.
 
 - Oct 19, demo seed stage 5, Payroll group, branch `rasel/R0-demo-stage5-payroll-stacked` (stacked on the Tasks group's #834, so the shared lines merge cleanly): `seed-demo-payroll.ts` fills the 11 payroll tables for the four payroll clients: rosters, completed and current runs (lines, issues, every workflow step the screens show), filings, registers, year-ends, settings. 193 of 277 firm tables without `demo` rows after it (one is `staff_import_previews`, empty by design).
+
+- Oct 19, decisions (Rasel through the Scrum thread): R0 finishes demo seed stage 5 before anything else; a new session R60 takes the Super Admin Support, Billing and Sales APIs (not R0). R55's Super Admin schema gaps are triaged under "Schema gaps from the Super Admin API sessions" in the migration queue: platform legal documents (stage D4) and an MRR daily rollup (in D2) need migrations; backups, environment variables, role templates, custom CSS, uptime and the unfilled daily metrics do not.
 
 ## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
 

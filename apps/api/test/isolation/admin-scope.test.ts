@@ -56,6 +56,8 @@ const ONBOARDING = new Set([
 
 /** A pending application per write case, so each action meets a record it can act on. */
 const applications: Record<string, string> = {};
+/** An open notification of the fixture Super Admin per write case that acts on one (R56). */
+const items: Record<string, string> = {};
 
 /**
  * Every admin write, with a body that passes validation, run in this order; `app` names the
@@ -64,7 +66,7 @@ const applications: Record<string, string> = {};
  */
 const WRITES: Record<
   string,
-  Omit<SupportWrite, 'body'> & { body: SupportWrite['body']; app?: string }
+  Omit<SupportWrite, 'body'> & { body: SupportWrite['body']; app?: string; item?: string }
 > = {
   'POST /api/v1/admin/firm-applications/:id/approve': { body: {}, app: 'approve' },
   'POST /api/v1/admin/firm-applications/:id/request-info': {
@@ -78,6 +80,12 @@ const WRITES: Record<
   'POST /api/v1/admin/firm-applications/:id/owner-invite': { body: {}, app: 'approve' },
   'PUT /api/v1/admin/firm-applications/:id/notes': { body: { notes: 'Fake note' }, app: 'notes' },
   'POST /api/v1/admin/firms/:businessId/support-access': { body: { reason: 'Fake reason' } },
+  'POST /api/v1/admin/notifications/bulk': { body: { ids: [randomUUID()], action: 'READ' } },
+  'POST /api/v1/admin/notifications/mark-all-read': { body: {} },
+  'POST /api/v1/admin/notifications/:id/read': { body: {}, item: 'read' },
+  'POST /api/v1/admin/notifications/:id/unread': { body: {}, item: 'unread' },
+  'POST /api/v1/admin/notifications/:id/resolve': { body: {}, item: 'resolve' },
+  'POST /api/v1/admin/notifications/:id/dismiss': { body: {}, item: 'dismiss' },
   ...supportWrites(fx),
 };
 
@@ -106,6 +114,22 @@ beforeAll(async () => {
         },
       });
       applications[c.app] = row.id;
+    }
+    for (const c of Object.values(WRITES)) {
+      if (!c.item) continue;
+      const row = await tx.platformNotification.create({
+        data: {
+          recipientUserId: fx.users.admin.id,
+          category: 'SYSTEM',
+          type: 'system.scope_check',
+          title: 'Fake scope check',
+          sourceType: 'system',
+          eventKey: `scope-${c.item}-${randomUUID()}`,
+          requiresAction: true,
+          attention: 'ACTION_REQUIRED',
+        },
+      });
+      items[c.item] = row.id;
     }
   });
   await owner.$disconnect();
@@ -148,6 +172,9 @@ afterAll(async () => {
   await app.close();
 });
 
+/** One token per person: a fresh one per call meets the dev token's rate limit as routes grow. */
+const tokens = new Map<string, string>();
+
 async function call(
   method: 'get' | 'post' | 'put' | 'patch' | 'delete',
   path: string,
@@ -155,9 +182,14 @@ async function call(
   firm?: string,
   body?: object,
 ) {
-  const { token } = (
-    await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email }).expect(200)
-  ).body as { token: string };
+  let token = tokens.get(email);
+  if (!token) {
+    token = (
+      (await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email }).expect(200))
+        .body as { token: string }
+    ).token;
+    tokens.set(email, token);
+  }
   const req = request(app.getHttpServer())[method](path).set('authorization', `Bearer ${token}`);
   const scoped = firm ? req.set('x-business-id', firm) : req;
   return body === undefined ? scoped : scoped.send(body);
@@ -196,7 +228,13 @@ describe('the admin site never opens a business scope', () => {
     for (const route of writes) {
       const key = `${route.method} ${route.path}`;
       const c = WRITES[key]!;
-      const id = c.record ? supportRecord(c.record)! : c.app ? applications[c.app]! : randomUUID();
+      const id = c.record
+        ? supportRecord(c.record)!
+        : c.item
+          ? items[c.item]!
+          : c.app
+            ? applications[c.app]!
+            : randomUUID();
       const path = fillPath(route.path, { businessId: fx.firmA.id, id }) + (c.query ?? '');
       const method = route.method.toLowerCase() as 'post' | 'put' | 'patch' | 'delete';
       const helpers: WriteHelpers = {
