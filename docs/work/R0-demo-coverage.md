@@ -52,6 +52,12 @@ Stages (one PR each, in Rasel's priority order: pages whose backend already exis
 | --- | --- |
 | `seed-demo-platform.ts` | 8 firms: 5 active (one on trial, one past due), 1 pending setup, 1 suspended, 1 closed; each with an owner login, settings, services, its approved application (with history) and a plan subscription (every plan; active, trial, past due, suspended, cancelled; monthly and annual). 4 applications without a firm: 2 pending review, 1 info requested, 1 declined. The demo firm gets a Business plan subscription |
 
+## What Stage 5 seeds (work modules, one group per PR)
+
+| Module file | Rows |
+| --- | --- |
+| `seed-demo-tasks.ts` | Tasks: 7 task types (set on every demo task by its engagement), 4 templates (onboarding, annual return, monthly close, quarterly estimate), 2 recurring series (a monthly close and quarterly estimates) with 7 due dates (one made into a task each, upcoming ones, one skipped month), checklists on about half the open tasks (first step done) and a third of the done ones (all done), collaborators, reminders (3 days before by email, and on the day), client documents attached to tasks; 6 tags on half the clients (Harper: Referral Partner, Extension Filed) and on some leads |
+
 Dates are relative to the day the seed runs (overdue stays overdue, "today" is today). Run it again
 and nothing changes; `pnpm db:unseed:demo` removes all of it.
 
