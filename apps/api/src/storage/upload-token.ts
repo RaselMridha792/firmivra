@@ -44,6 +44,22 @@ const UploadClaim = z
      */
     intakeId: z.uuid().optional(),
     intakeSlot: IntakeKey.optional(),
+    /**
+     * The firm-wide library's upload (R55, Frame 1): folder, description, tags, reviewer, the
+     * document's own expiry, the client's notice and the version it replaces, all checked by the
+     * library before the ticket. The document gets them on insert.
+     */
+    library: z
+      .object({
+        folderId: z.uuid().nullable(),
+        description: z.string().nullable(),
+        tags: z.array(z.string()),
+        reviewerUserId: z.uuid().nullable(),
+        expiresOn: z.string().nullable(),
+        notifyClient: z.boolean(),
+        replacesId: z.uuid().nullable(),
+      })
+      .optional(),
   })
   .refine((c) => (c.intakeId === undefined) === (c.intakeSlot === undefined), {
     message: 'intakeId and intakeSlot come together',

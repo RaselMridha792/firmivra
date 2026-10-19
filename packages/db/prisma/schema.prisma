@@ -1041,12 +1041,13 @@ model Membership {
   teamMemberships   TeamMember[]
   departments       MemberDepartment[]
 
-  staffProfile      StaffProfile?          @relation("StaffProfileMember")
-  staffSupervised   StaffProfile[]         @relation("StaffSupervisor")
-  staffNotesWritten StaffProfile[]         @relation("StaffNotesUpdatedBy")
-  staffSecurity     StaffSecuritySettings?
-  staffCompensation StaffCompensation?
-  staffDrafts       StaffDraft[]
+  staffProfile        StaffProfile?          @relation("StaffProfileMember")
+  staffSupervised     StaffProfile[]         @relation("StaffSupervisor")
+  staffNotesWritten   StaffProfile[]         @relation("StaffNotesUpdatedBy")
+  staffSecurity       StaffSecuritySettings?
+  staffCompensation   StaffCompensation?
+  staffDrafts         StaffDraft[]
+  staffImportPreviews StaffImportPreview[]
 
   staffDocuments         StaffDocument[] @relation("StaffDocumentOwner")
   staffDocumentsUploaded StaffDocument[] @relation("StaffDocumentUploader")
@@ -1160,6 +1161,9 @@ model PlatformAdmin {
   /// R0 stage B5: sales records and follow-ups assigned to this team member.
   salesDealsAssigned     SalesOpportunity[]       @relation("SalesOpportunityAssignee")
   salesFollowUps         SalesFollowUp[]          @relation("SalesFollowUpAssignee")
+  /// R0 stage D1: this rep's sales targets and the lead imports assigned to them.
+  salesTargets           SalesTarget[]            @relation("SalesTargetRep")
+  salesImportsAssigned   SalesLeadImport[]        @relation("SalesLeadImportAssignee")
   /// R0 stage B1: this admin's notification center and export jobs.
   notifications          PlatformNotification[]
   exportJobs             PlatformExportJob[]
@@ -1234,6 +1238,8 @@ model PlatformDepartment {
 
   roleDefinitions PlatformRoleDefinition[]
   members         PlatformMember[]
+  /// R0 stage D1: team sales targets.
+  salesTargets    SalesTarget[]
 
   @@map("platform_departments")
 }
@@ -8580,6 +8586,26 @@ model StaffDraft {
   @@map("staff_drafts")
 }
 
+/// A staff import's parsed rows (R55's Import Staff), kept for the preview step between upload
+/// and confirm. `rows` is a JSON array of the parsed rows (at most 1,000 and 1 MB; the database
+/// refuses password, token, secret or SSN keys). The database sets `expires_at` to an hour after
+/// creation: an expired preview is no longer read, and is deleted by the next preview of its firm
+/// or by `app_purge_expired_staff_import_previews()`. Never edited: a new upload is a new preview.
+model StaffImportPreview {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  createdById String   @map("created_by_membership_id") @db.Uuid
+  rows        Json
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt   DateTime @default(dbgenerated("(now() + '01:00:00'::interval)")) @map("expires_at") @db.Timestamptz(3)
+
+  createdBy Membership @relation(fields: [businessId, createdById], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, expiresAt])
+  @@index([expiresAt])
+  @@map("staff_import_previews")
+}
+
 // ---------- Staff documents and sessions (R35, migration r35_staff_documents_sessions) ----------
 // HR files kept for a member, and the member's signed-in sessions. Firm tables with forced RLS.
 // Documents are also walled off in the database: only the acting Owner or Admin reads or writes
@@ -11311,6 +11337,7 @@ model SalesPipeline {
   stages             SalesPipelineStage[] @relation("SalesPipelineStages")
   terminatedReturnTo SalesPipelineStage?  @relation("SalesPipelineTerminatedReturn", fields: [id, terminatedReturnStageId], references: [pipelineId, id], onDelete: Restrict)
   opportunities      SalesOpportunity[]
+  leadImports        SalesLeadImport[]
 
   @@map("sales_pipelines")
 }
@@ -11338,6 +11365,7 @@ model SalesPipelineStage {
   pipeline          SalesPipeline       @relation("SalesPipelineStages", fields: [pipelineId], references: [id], onDelete: Cascade)
   terminatedReturns SalesPipeline[]     @relation("SalesPipelineTerminatedReturn")
   opportunities     SalesOpportunity[]  @relation("SalesOpportunityStage")
+  leadImports       SalesLeadImport[]   @relation("SalesLeadImportStage")
   historyFrom       SalesStageHistory[] @relation("SalesStageHistoryFrom")
   historyTo         SalesStageHistory[] @relation("SalesStageHistoryTo")
 
@@ -11364,6 +11392,7 @@ model SalesContact {
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   opportunities SalesOpportunity[]
+  importRows    SalesLeadImportRow[]
 
   @@index([emailNormalized])
   @@index([phoneNormalized])
@@ -11420,6 +11449,7 @@ model SalesOpportunity {
   activities        SalesActivity[]
   followUps         SalesFollowUp[]
   notes             SalesNote[]
+  importRows        SalesLeadImportRow[]
 
   @@index([pipelineId, stageId])
   @@index([assignedToUserId])
@@ -13335,4 +13365,178 @@ model ComplianceHoliday {
   @@id([jurisdiction, holidayOn])
   @@index([holidayOn])
   @@map("compliance_holidays")
+}
+
+// ---------- R0 stage D1: Sales Center (targets and lead imports) ----------
+
+/// Whose target: the whole company, one team (a platform department) or one rep.
+enum SalesTargetScope {
+  COMPANY
+  TEAM
+  REP
+}
+
+/// What a target measures. The API computes attainment from the source records with B5's
+/// definitions (docs/work/R0-stage-d1-sales-center.md); nothing is stored as an "actual".
+enum SalesTargetMetric {
+  /// Opportunities created in the period.
+  NEW_LEADS
+  /// DEMO follow-ups due in the period, not cancelled.
+  DEMOS_SCHEDULED
+  /// Platform subscriptions whose trial started in the period, linked to an opportunity.
+  TRIALS_STARTED
+  /// Opportunities converted (converted_at) in the period.
+  WON_DEALS
+  /// value_cents of the opportunities won in the period (cents).
+  REVENUE_WON
+  /// B5's conversion rate for opportunities created in the period (basis points, 0 to 10,000).
+  CONVERSION_RATE
+  /// Outbound activities logged in the period.
+  OUTBOUND_ACTIVITIES
+}
+
+enum SalesTargetPeriod {
+  MONTH
+  QUARTER
+  YEAR
+  CUSTOM
+}
+
+/// A sales target or goal (Sales Center): a metric's goal for the company, a team or a rep over a
+/// calendar month, quarter, year or a custom range of up to 366 days (dates inclusive, UTC days).
+/// Archived, never deleted; one live target per subject, metric and period.
+model SalesTarget {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  name            String
+  scope           SalesTargetScope
+  /// TEAM only.
+  departmentId    String?           @map("department_id") @db.Uuid
+  /// REP only.
+  userId          String?           @map("user_id") @db.Uuid
+  metric          SalesTargetMetric
+  /// A count, cents (REVENUE_WON) or basis points (CONVERSION_RATE); always above 0.
+  targetValue     Int               @map("target_value")
+  periodType      SalesTargetPeriod @map("period_type")
+  periodStart     DateTime          @map("period_start") @db.Date
+  periodEnd       DateTime          @map("period_end") @db.Date
+  note            String?
+  /// Set once (the database's time); an archived target never changes.
+  archivedAt      DateTime?         @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String?           @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?           @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  department PlatformDepartment? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  rep        PlatformAdmin?      @relation("SalesTargetRep", fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([periodStart, periodEnd])
+  @@index([departmentId])
+  @@index([userId])
+  @@map("sales_targets")
+}
+
+enum SalesImportStatus {
+  /// Uploaded and mapped; nothing created yet.
+  PENDING
+  /// The import job is creating records and writing row outcomes.
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+/// What a row that matches an existing contact (normalized email or phone) does.
+enum SalesImportDuplicateMode {
+  /// Record the match and create nothing.
+  SKIP
+  /// Add a new opportunity to the existing contact (never a second contact).
+  ATTACH_TO_EXISTING
+}
+
+enum SalesImportRowOutcome {
+  IMPORTED
+  DUPLICATE
+  SKIPPED
+  FAILED
+}
+
+enum SalesImportMatch {
+  EMAIL
+  PHONE
+  EMAIL_AND_PHONE
+}
+
+/// A lead import batch (Leads / CRM import and dedupe): the file, where its leads go and how
+/// duplicates are handled, and the counts. The counts are the database's: each row outcome adds
+/// one. A finished batch never changes.
+model SalesLeadImport {
+  id               String                   @id @default(uuid(7)) @db.Uuid
+  fileName         String                   @map("file_name")
+  fileSizeBytes    Int                      @map("file_size_bytes")
+  /// Hex SHA-256 of the file, to warn before the same file is imported twice.
+  fileSha256       String?                  @map("file_sha256")
+  /// The uploaded file, under `platform/sales-imports/`; it holds contact data, so it expires.
+  s3Key            String?                  @map("s3_key")
+  status           SalesImportStatus        @default(PENDING)
+  duplicateMode    SalesImportDuplicateMode @default(SKIP) @map("duplicate_mode")
+  /// Where new opportunities go: the pipeline and its starting stage (null: its first active one).
+  pipelineId       String                   @map("pipeline_id") @db.Uuid
+  stageId          String?                  @map("stage_id") @db.Uuid
+  /// The lead source for rows that don't name one.
+  defaultSource    SalesLeadSource          @default(OTHER) @map("default_source")
+  /// The owner of the imported records (null: unassigned).
+  assignedToUserId String?                  @map("assigned_to_user_id") @db.Uuid
+  /// File column to field, e.g. { "Email Address": "email" }.
+  columnMapping    Json                     @default("{}") @map("column_mapping")
+  totalRows        Int                      @default(0) @map("total_rows")
+  importedCount    Int                      @default(0) @map("imported_count")
+  duplicateCount   Int                      @default(0) @map("duplicate_count")
+  skippedCount     Int                      @default(0) @map("skipped_count")
+  failedCount      Int                      @default(0) @map("failed_count")
+  /// FAILED only: why the whole batch stopped (a short code, no row data).
+  failureCode      String?                  @map("failure_code")
+  startedAt        DateTime?                @map("started_at") @db.Timestamptz(3)
+  finishedAt       DateTime?                @map("finished_at") @db.Timestamptz(3)
+  createdByUserId  String?                  @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  pipeline SalesPipeline        @relation(fields: [pipelineId], references: [id], onDelete: Restrict)
+  stage    SalesPipelineStage?  @relation("SalesLeadImportStage", fields: [pipelineId, stageId], references: [pipelineId, id], onDelete: Restrict)
+  assignee PlatformAdmin?       @relation("SalesLeadImportAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+  rows     SalesLeadImportRow[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([fileSha256])
+  @@map("sales_lead_imports")
+}
+
+/// One file row's outcome: what it created or matched, or why it was skipped. Insert-only, written
+/// while the batch is PROCESSING. Never a copy of the row's data.
+model SalesLeadImportRow {
+  id            String                @id @default(uuid(7)) @db.Uuid
+  importId      String                @map("import_id") @db.Uuid
+  /// 1 for the first data row.
+  rowNumber     Int                   @map("row_number")
+  outcome       SalesImportRowOutcome
+  /// IMPORTED: the new contact; DUPLICATE: the existing one it matched.
+  contactId     String?               @map("contact_id") @db.Uuid
+  /// The opportunity created (IMPORTED, or DUPLICATE with ATTACH_TO_EXISTING).
+  opportunityId String?               @map("opportunity_id") @db.Uuid
+  /// DUPLICATE only: how it matched.
+  matchedBy     SalesImportMatch?     @map("matched_by")
+  /// SKIPPED and FAILED: a short code ("missing_name", "invalid_email").
+  reasonCode    String?               @map("reason_code")
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  import      SalesLeadImport   @relation(fields: [importId], references: [id], onDelete: Cascade)
+  contact     SalesContact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  opportunity SalesOpportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  @@unique([importId, rowNumber])
+  @@index([contactId])
+  @@index([opportunityId])
+  @@map("sales_lead_import_rows")
 }

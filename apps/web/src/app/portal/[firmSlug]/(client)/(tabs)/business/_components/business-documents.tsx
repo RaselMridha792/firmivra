@@ -34,7 +34,7 @@ export function BusinessDocuments({ slug }: { slug: string }) {
       sortValue: (d) => d.fileName.toLowerCase(),
       cell: (d) => (
         <span className="flex items-center gap-2 font-medium break-all text-heading">
-          <FileText aria-hidden className="size-4 shrink-0 text-firm-primary" />
+          <FileText aria-hidden className="size-4 shrink-0 text-firm-text" />
           {d.fileName}
         </span>
       ),
@@ -56,7 +56,7 @@ export function BusinessDocuments({ slug }: { slug: string }) {
         d.status === 'READY' ? (
           <Button
             variant="ghost"
-            className="text-firm-primary! underline hover:bg-folder-surface"
+            className="text-firm-text! underline hover:bg-folder-surface"
             disabled={download.isPending}
             onClick={() => download.mutate(d.id)}
             aria-label={`Download ${d.fileName}`}
@@ -98,7 +98,7 @@ export function BusinessDocuments({ slug }: { slug: string }) {
             columns={columns}
             rowKey={(d) => d.id}
             pageSize={5}
-            tableClassName="text-xs [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2 [&_thead_button]:text-firm-primary! [&_thead_button:hover]:bg-folder-hover"
+            tableClassName="text-xs [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2 [&_thead_button]:text-firm-text! [&_thead_button:hover]:bg-folder-hover"
             emptyTitle="No shared documents yet"
             emptyText="Documents your firm shares with you will appear here."
           />

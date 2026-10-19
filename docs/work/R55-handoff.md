@@ -76,3 +76,78 @@ Bookkeeping, Payroll and Compliance were reassigned.
 - Count tests with a firm-scoped `where` (other test files run in parallel on the same database).
 - Full-suite runs: shards flake under load (429, 503, timeouts); rerun the failing files alone before suspecting the code. Date-dependent specs use the New York date.
 - Static routes (`summary`, `options`, `import/template`) before `:id`; audit with ids and field names only; no `Co-Authored-By` lines.
+
+## Handoff, 2026-10-19 (the second R55 session; restart in a fresh window from here)
+
+**Merged since the last handoff:**
+- Intake step 2 and 3 (#800).
+- The history-order fix (#806).
+- Theme colours: contract #802, API #804, web tokens and shells #814, portal page sweep #817.
+- Documents contract #820 and Documents API part 1 #823.
+- Company Profile & Branding API #821.
+- Tax Returns workspace contract #822.
+
+**Open:** #824, Documents API part 2 (sharing, request packets, templates). CI was running when this was written. Notes:
+- Request packets live at `/business/document-request-packets`, because R5's `/business/document-requests/:id/*` routes take item ids.
+- A draft packet's items are hidden from every client-facing read through `SENT_ITEMS` in `storage/document-records.ts`, and from R5's request lock.
+
+**Next, in this order (one PR per module, at most 2 non-contract PRs open):**
+1. **Tax Returns workspace API** on #822's contract (`packages/types/src/tax-returns/workspace.ts`, `api.taxReturnWorkspace`).
+   - Extend `apps/api/src/tax-returns`.
+   - R10's `PATCH /business/tax-returns/:id` keeps its old fields; the workspace edit is `PATCH /:id/details`. `GET /:id` is new.
+   - Map the R37 trigger errors (23514, messages starting `tax returns:`, `tax return filings:`...) to 409 `STATUS_BLOCKED` or `RETURN_LOCKED`, never 500. `status` is derived: never write it.
+   - Compute the `blockers` from the same rules as `tax_returns_2_ready` and `tax_returns_1_filings`.
+   - Likely split in two: overview, detail, status and history; then filings, checklist, approvals, authorizations, documents.
+2. **Staff write side:** create (idempotency key, invite through `InvitesService`), update, lock/unlock/deactivate/reactivate, security, per-member permissions, notes, import.
+3. **Bookkeeping Terms** contract and API.
+4. **Super Admin APIs** for modules whose tables exist on main.
+
+**Lessons from this session:**
+- **Register new controllers ahead of R5's** in the same module (`DocumentsModule`), so a static route (`documents/summary`) is never caught by `documents/:id`. Nest registers controllers in array order.
+- **Legacy Staff pass `@Roles(...FIRM_STAFF)` without the grid**, so `@Access(module, 'DELETE' | 'MANAGE')` does not stop them. Check `PermissionGrantsService.can` in the service: `requireCapability` in `documents/library.common.ts`.
+- **Isolation suite:**
+  - A body that is a strict discriminated union can't take every variant's ids in one case. Pick the variant that carries most ids and give the rest `NOT_RECORDS` entries with the e2e test that covers them.
+  - Nested dotted `bodyIds` are only set where the case's body has the key, so the other variant is skipped automatically.
+  - A non-record path param goes in `FIXED_PARAMS`.
+  - A public route goes in a case file's `excluded`.
+- **Squash merges conflict with stacked branches.** After the base PR merges, take the stacked branch's side (`git checkout --ours`) for the files it extends, rerun the tests, and push.
+- **Local servers:**
+  - Build the API with `pnpm build` (it sets the 8 GB heap); `nest start` runs out of memory.
+  - Start the web app with `node scripts/next.mjs dev`: it loads the root `.env`, including `API_BASE_URL`; plain `next dev` doesn't proxy `/api/v1`.
+  - A stale API on port 4550 from an earlier session answers 404s for new routes: stop it first.
+- **Heredocs with backslashes or nested quotes break in this bash.** Write scripts with the Write tool (into the scratchpad) and run them with node.
+- **Do not write in `packages/ui`, the app shell or portal pages without Rasel's word.** For the theme, the Scrum thread relayed his yes.
+
+**Needs from others (new):**
+- **Schema (R0):**
+  - `form_notes`, `intake_send_drafts` and per-form settings columns (Intake, #800).
+  - Tax returns: a per-firm return number, return notes and tasks, and extension status per jurisdiction (#822 lists them).
+- **Leads:** a secure link page for intake forms sent to leads (`intakes.access_token_hash` is unused).
+- **R6:** an `intake.reminder` notification event and text.
+
+### Update, 2026-10-19 (end of the second session)
+
+**Merged since the handoff above:**
+- Documents API part 2 (#824), which also fixed its isolation case for the recipient variants.
+- Tax Returns workspace API part 1 (#826).
+
+**Open:** #827, Tax Returns workspace API part 2. It also fixes part 1's move to Transmitted or Accepted, which returned a 500 because the database needs a filed date.
+
+**Done in R55, by module:**
+- **Intake Forms:** the whole contract.
+- **Theme colours:** contract, API, tokens and shells, portal sweep.
+- **Company Profile & Branding API.**
+- **Documents:** the firm-wide contract and the whole API.
+- **Tax Returns:** the workspace contract and the whole API, once #827 merges.
+
+**Left, in this order (one PR per module, at most 2 non-contract PRs open):**
+1. **Staff write side:** create (idempotency key, invite through `InvitesService`), update, lock/unlock/deactivate/reactivate/resend/revoke, security (access settings, sessions, login history, activity, reset password/MFA), per-member permissions (`member_permissions`), notes, compensation, documents, drafts, the import. The import's preview token needs a store; staff drafts need a table (R0).
+2. **Bookkeeping Terms** contract and API. R56 reported the Terms design missing in #750; read `docs/mockups/firm-workspace/bookkeeping` first.
+3. **Super Admin APIs** for modules whose tables exist on main: Team, Sales and Pipeline, Subscriptions, Support, Billing, Notifications, Reports, Integrations, Communications, System Settings. Check `schema.prisma` and list missing tables in each PR.
+4. **Not started from the contracts:** the portal side of request packets (Frame 7: `GET portal/:firmSlug/me/document-requests[/:id]` grouped by packet, `POST …/:id/submit` to SUBMITTED). It needs a small contract first.
+
+**Lessons from part 2 of the session:**
+- **The isolation body sweep times out locally.** Run it alone with a longer timeout before pushing: `SCAN_MODE=local S3_ENDPOINT=http://localhost:9 pnpm exec vitest run test/isolation/tenant-isolation.test.ts -t "named in a body, in firm Q" --testTimeout=500000`. It is the check that caught #824's union-body problem in CI.
+- **A world record must satisfy every required column**, for example `tax_return_approvals.sort_order`. Otherwise the whole suite skips with a Prisma validation error in `beforeAll`.
+- **R37's tax triggers raise 23514 for workflow rules, and the table's CHECKs also raise 23514.** `workspaceRefusal` maps both, so none reaches a 500.
+- **A field whose name ends in `Id` but is free text (`submissionId`)** needs a `NOT_RECORDS` entry. So does a list filter in a body (the export's `assignedUserId`).

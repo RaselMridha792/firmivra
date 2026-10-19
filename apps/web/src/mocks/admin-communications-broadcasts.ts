@@ -230,3 +230,48 @@ export async function getAdminBroadcastDashboard(): Promise<AdminBroadcastDashbo
   if (!mocked(MODULE)) throw new TypeError('Failed to fetch');
   return mockedEmpty(MODULE) ? emptyDashboard : sampleDashboard;
 }
+
+/** S10 display fixtures only. These are not a broadcast API contract. */
+export interface BroadcastTemplateFixture {
+  id: string;
+  name: string;
+  subject: string;
+  message: string;
+}
+
+export interface BroadcastOptionsFixture {
+  categories: { value: string; label: string }[];
+  templates: BroadcastTemplateFixture[];
+}
+
+/** Returns local template and category options for the basic-information step. */
+export async function listBroadcastOptions(): Promise<BroadcastOptionsFixture> {
+  await mockDelay();
+  if (!mocked(MODULE)) throw new TypeError('Broadcast options are unavailable');
+  if (mockedEmpty(MODULE)) return { categories: [], templates: [] };
+
+  return {
+    categories: [
+      { value: 'sales', label: 'Sales' },
+      { value: 'onboarding', label: 'Onboarding' },
+      { value: 'support', label: 'Support' },
+      { value: 'billing', label: 'Billing' },
+      { value: 'firm-applications', label: 'Firm Applications' },
+      { value: 'system-notices', label: 'System Notices' },
+    ],
+    templates: [
+      {
+        id: 'sample-newsletter',
+        name: 'Monthly Newsletter',
+        subject: 'Your monthly Firmivra update',
+        message: 'Explore this month’s updates, helpful resources, and upcoming events.',
+      },
+      {
+        id: 'sample-welcome',
+        name: 'Welcome to Firmivra',
+        subject: 'Welcome to your workspace',
+        message: 'Welcome! Your workspace is ready. Explore the resources to help you get started.',
+      },
+    ],
+  };
+}

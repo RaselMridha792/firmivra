@@ -15,9 +15,9 @@ import styles from './messages-screen.module.css';
 
 type Filter = 'all' | 'from-firm' | 'sent';
 const sidebarBlueButton =
-  'bg-firm-primary! text-on-action! hover:bg-navigation-hover! focus-visible:outline-firm-primary enabled:cursor-pointer';
+  'bg-firm-button! text-on-firm-button! hover:bg-firm-button-hover! focus-visible:outline-firm-primary enabled:cursor-pointer';
 const secondaryBlueButton =
-  'border-folder-border! text-firm-primary! hover:bg-folder-surface! enabled:cursor-pointer';
+  'border-folder-border! text-firm-text! hover:bg-folder-surface! enabled:cursor-pointer';
 
 /**
  * "Messages and Notes" (docs/mockups/client-portal/Messages and notes.png, N09): the threads with
@@ -47,9 +47,9 @@ export function MessagesScreen() {
       cell: (t) => (
         <span className="flex items-center gap-2">
           {t.from === 'FIRM' ? (
-            <Mail aria-hidden className="size-5 shrink-0 text-firm-primary" />
+            <Mail aria-hidden className="size-5 shrink-0 text-firm-text" />
           ) : (
-            <Send aria-hidden className="size-5 shrink-0 text-firm-primary" />
+            <Send aria-hidden className="size-5 shrink-0 text-firm-text" />
           )}
           <span className={t.unreadCount > 0 ? 'font-bold text-heading' : 'text-heading'}>
             {t.subject}
@@ -75,7 +75,7 @@ export function MessagesScreen() {
           ) : null}
           <Button
             variant="ghost"
-            className="text-firm-primary! underline hover:bg-folder-surface! enabled:cursor-pointer"
+            className="text-firm-text! underline hover:bg-folder-surface! enabled:cursor-pointer"
             onClick={() => setOpenId(t.id)}
             aria-label={`View ${t.subject}`}
           >
@@ -91,7 +91,7 @@ export function MessagesScreen() {
         <header className="flex flex-col gap-4 md:flex-row md:items-start">
           <MessageSquareText
             aria-hidden
-            className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-primary"
+            className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-text"
           />
           <div className="flex-1">
             <h1 className="font-display text-3xl font-bold text-heading">Messages and Notes</h1>

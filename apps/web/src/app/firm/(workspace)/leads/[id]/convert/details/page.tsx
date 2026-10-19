@@ -1,8 +1,8 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { ConvertLeadStepOne } from '../_components/convert-lead-step-one';
 
 export const metadata: Metadata = { title: 'Convert lead: Client details & services' };
 
 export default function LeadsIdConvertDetailsPage() {
-  return <PageHeader title="Convert Lead to Client" />;
+  return <ConvertLeadStepOne activeStep="details" />;
 }

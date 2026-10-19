@@ -87,7 +87,7 @@ function RequestRow({
       {r.statusNote ? <p className="text-sm text-text">Note: {r.statusNote}</p> : null}
       {open(r) && !answering ? (
         <div className="flex flex-wrap gap-2">
-          <Button onClick={onUpload} className="bg-firm-primary! hover:bg-navigation-hover!">
+          <Button onClick={onUpload} className="bg-firm-button! hover:bg-firm-button-hover!">
             Upload
           </Button>
           <Button variant="secondary" onClick={() => setAnswering(true)}>
@@ -115,7 +115,7 @@ function RequestRow({
             <Button
               type="submit"
               disabled={notAvailable.isPending}
-              className="bg-firm-primary! hover:bg-navigation-hover!"
+              className="bg-firm-button! hover:bg-firm-button-hover!"
             >
               Send
             </Button>
