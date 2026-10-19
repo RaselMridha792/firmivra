@@ -1006,13 +1006,13 @@ export function createAdvisoryMock({
     // The sent plan's first version.
     const snap = snapshot(sent, 1, mockStaff, at(-21));
     snap.deliveredAt = at(-20);
-    snap.deliveredChannel = 'PORTAL';
+    snap.deliveredChannel = 'portal';
     snap.deliveredBy = mockMe;
     sent.versions.push(snap);
     const prior = plans.find((p) => p.status === 'COMPLETED')!;
     const priorSnap = snapshot(prior, 1, mockMe, at(-300));
     priorSnap.deliveredAt = at(-298);
-    priorSnap.deliveredChannel = 'EMAIL';
+    priorSnap.deliveredChannel = 'email';
     priorSnap.deliveredBy = mockMe;
     prior.versions.push(priorSnap);
     plans
@@ -1792,7 +1792,8 @@ export function createAdvisoryMock({
           : p.versions.at(-1);
         if (!v) throw notReady(['Finalize the plan first']);
         v.deliveredAt = nowIso();
-        v.deliveredChannel = req.channel;
+        // Stored lower-case, as the API stores it.
+        v.deliveredChannel = req.channel.toLowerCase();
         v.deliveredBy = signedIn;
         if (p.status === 'FINALIZED') p.status = 'SENT';
         p.sentAt = nowIso();
