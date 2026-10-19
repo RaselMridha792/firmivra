@@ -185,3 +185,13 @@ Bookkeeping, Payroll and Compliance were reassigned.
 - `admin-scope.test.ts` is shared by every Super Admin module: each adds its own WRITES fields (`record` for Support, `item` for Notifications, `comm` for Communications, `auditRecord`, `settingsId`/`params` for R55). Our System Settings cases live in `test/isolation/admin-settings-writes.ts` (seeded records, `settingsParams`).
 - A local test database emptied by an older run lacks migration reference rows (security policy, support categories): drop this worktree's own `firmivra_r55_test_api` and let the global setup migrate it again.
 - Job keys, feature keys and secret keys follow the database's patterns (no hyphens in job keys).
+
+### Update, 2026-10-19 late (third session)
+
+**Merged:** #876 Audit & Security API. **Open:** #892 System Settings API (main merged in again, with R60's billing WRITES kept), #893 Reports contract, #900 Reports & Analytics API (`rasel/R55-admin-reports-api`, stacked on #892 and #893). That is two non-contract PRs: the next PR waits for a merge.
+
+**Next:** the screens of Audit & Security, System Settings and Reports, on a new branch from `main` once #892 or #900 merges (or kept local until then).
+
+**Gotchas:**
+- A saved-report WRITES case names its `:id` through `params` with a getter (`test/isolation/admin-reports-writes.ts`), because WRITES is built before the records are seeded.
+- After switching branches, rebuild `packages/types` (`pnpm --filter @firmivra/types build`) before the API typecheck; a stale build shows other modules' exports as missing.
