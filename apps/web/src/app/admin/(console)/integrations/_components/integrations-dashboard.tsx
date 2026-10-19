@@ -181,6 +181,7 @@ export function IntegrationsDashboard() {
           note="Platform + Customer"
           loading={kpiLoading}
           pressed={filter === 'ALL'}
+          ring={false}
           disabled={!counts}
           onClick={() => setFilter('ALL')}
         />
@@ -188,6 +189,7 @@ export function IntegrationsDashboard() {
           testId="kpi-active"
           tone="green"
           icon={Check}
+          weight="bold"
           value={kpiValue(counts?.active)}
           label="Active"
           note={
@@ -220,6 +222,7 @@ export function IntegrationsDashboard() {
           testId="kpi-disabled"
           tone="grey"
           icon={DotsThree}
+          weight="bold"
           value={kpiValue(counts?.disabled)}
           label="Disabled"
           note="Not in use"
@@ -315,16 +318,16 @@ export function IntegrationsDashboard() {
         ) : null}
       </DashboardPanel>
 
-      <div className="grid gap-5 xl:grid-cols-9">
+      <div className="grid gap-5 xl:grid-cols-12">
         <DashboardPanel
           testId="catalog-summary"
-          className="xl:col-span-5"
+          className="xl:col-span-7"
           band="purple"
           title="Customer Integration Catalog"
           subtitle="Control which integrations are available for customer firms and manage default settings."
           action={<LinkButton href="/integrations/catalog">Manage Catalog</LinkButton>}
         >
-          <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 p-4 md:grid-cols-4">
             <MiniStat
               testId="catalog-total"
               tone="blue"
@@ -337,6 +340,7 @@ export function IntegrationsDashboard() {
               testId="catalog-enabled"
               tone="green"
               icon={Check}
+              weight="bold"
               value={kpiValue(counts?.catalog.enabled)}
               label="Enabled"
               note="Available to firms"
@@ -369,7 +373,7 @@ export function IntegrationsDashboard() {
 
         <DashboardPanel
           testId="integration-activity"
-          className="xl:col-span-4"
+          className="xl:col-span-5"
           band="green"
           title="Integration Activity"
           subtitle="Recent activity across all platform integrations."

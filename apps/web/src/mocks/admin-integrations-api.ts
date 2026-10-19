@@ -3,6 +3,7 @@ import type {
   AdminExportJob,
   AdminIntegrationsClient,
   AdminIssuedApiKey,
+  AdminPlatformIntegrationDetail,
   AdminUsageReport,
   AdminWebhookEndpoint,
   AdminWebhookWithSecret,
@@ -19,7 +20,7 @@ import {
  * Tumit's mock store (admin-integrations.ts). The adapter reads the contract's text flags and
  * comma-separated statuses, turns the log export into a B1 export job, and leaves out what B8
  * keeps nothing for (a key's peak and limited calls, alerts, the plan distribution, a delivery's
- * payload, a webhook's integration), so the screens see what the API returns.
+ * payload, the link between a webhook and an integration), so the screens see what the API returns.
  */
 
 type Client = AdminIntegrationsClient;
@@ -50,6 +51,10 @@ const withSecretOf = (result: AdminWebhookWithSecret): AdminWebhookWithSecret =>
   ...result,
   endpoint: endpointOf(result.endpoint),
 });
+const detailOf = (detail: AdminPlatformIntegrationDetail): AdminPlatformIntegrationDetail => ({
+  ...detail,
+  dependents: { ...detail.dependents, webhooks: [] },
+});
 const reportOf = (report: AdminUsageReport): AdminUsageReport => ({
   ...report,
   planDistribution: [],
@@ -74,6 +79,14 @@ export function createAdminIntegrationsMock(): AdminIntegrationsClient {
           descending: flag(query.descending),
         }),
       ),
+    getPlatform: async (id) => detailOf(await base.getPlatform(id)),
+    createPlatform: async (body) => detailOf(await base.createPlatform(body)),
+    updatePlatform: async (id, body) => detailOf(await base.updatePlatform(id, body)),
+    putCredentials: async (id, body) => detailOf(await base.putCredentials(id, body)),
+    activatePlatform: async (id, body) => detailOf(await base.activatePlatform(id, body)),
+    disablePlatform: async (id, body) => detailOf(await base.disablePlatform(id, body)),
+    enablePlatform: async (id) => detailOf(await base.enablePlatform(id)),
+    removePlatform: async (id, body) => detailOf(await base.removePlatform(id, body)),
     listCatalog: async (query = {}) =>
       contract<'listCatalog'>(
         await mock.listCatalog({

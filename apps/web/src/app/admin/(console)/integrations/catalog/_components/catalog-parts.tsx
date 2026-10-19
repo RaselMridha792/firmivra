@@ -49,22 +49,29 @@ export function urlProblem(value: string, label: string): string | null {
   }
 }
 
-/** One summary card: a button that filters the list by its status, pressed while it does. */
+/**
+ * One summary card: a button that filters the list by its status, pressed while it does. The ring
+ * marks a chosen status; the Total card (the whole catalog, the default) has none.
+ */
 export function CatalogKpi({
   icon: Glyph,
   tone,
+  solid,
   label,
   value,
   note,
   good,
   loading,
   pressed,
+  ring = true,
   disabled,
   onClick,
   testId,
 }: {
   icon: Icon;
   tone: TileTone;
+  /** The design's solid disc in a soft halo (Enabled, Disabled, Coming Soon). */
+  solid?: boolean;
   label: string;
   value: ReactNode;
   note: ReactNode;
@@ -72,6 +79,7 @@ export function CatalogKpi({
   good?: boolean;
   loading: boolean;
   pressed: boolean;
+  ring?: boolean;
   disabled: boolean;
   onClick: () => void;
   testId: string;
@@ -83,21 +91,21 @@ export function CatalogKpi({
       aria-pressed={pressed}
       disabled={disabled}
       onClick={onClick}
-      className={`flex min-w-0 items-center gap-5 rounded-xl border border-border bg-surface p-5 text-left shadow-card transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-default disabled:hover:shadow-card ${pressed ? 'ring-2 ring-action' : ''}`}
+      className={`flex min-w-0 items-center gap-4 rounded-xl border border-border bg-surface px-5 py-4 text-left shadow-card transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-default disabled:hover:shadow-card ${pressed && ring ? 'ring-2 ring-action' : ''}`}
     >
       <span
-        className={`flex size-14 shrink-0 items-center justify-center rounded-full ${tintTones[tone]}`}
+        className={`flex size-12 shrink-0 items-center justify-center rounded-full ${tintTones[tone]}`}
       >
-        <Glyph aria-hidden weight="fill" className="size-7" />
+        <Glyph aria-hidden weight="fill" className={solid ? 'size-9' : 'size-6'} />
       </span>
-      <span className="flex min-w-0 flex-col gap-1">
+      <span className="flex min-w-0 flex-col gap-0.5">
         <span className="text-sm font-semibold text-heading">{label}</span>
         {loading ? (
-          <Skeleton className="h-8 w-12" />
+          <Skeleton className="h-7 w-12" />
         ) : (
           <span
             data-testid={`${testId}-value`}
-            className="text-3xl leading-none font-bold text-heading"
+            className="text-2xl leading-tight font-bold text-heading"
           >
             {value}
           </span>

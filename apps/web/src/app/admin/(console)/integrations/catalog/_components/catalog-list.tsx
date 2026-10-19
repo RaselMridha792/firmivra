@@ -175,7 +175,7 @@ export function CatalogList({ address }: { address: AddressQuery }) {
     {
       id: 'description',
       label: 'Description',
-      className: 'min-w-40',
+      className: 'min-w-36',
       cell: (item) => item.shortDescription,
     },
     { id: 'plans', label: 'Plan Access', cell: (item) => <PlanPills item={item} /> },
@@ -183,7 +183,7 @@ export function CatalogList({ address }: { address: AddressQuery }) {
       id: 'status',
       label: 'Status',
       cell: (item) => (
-        <span className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-2 whitespace-nowrap">
           <Toggle
             label={`${item.name} available to firms`}
             checked={item.status !== 'DISABLED'}
@@ -304,6 +304,7 @@ export function CatalogList({ address }: { address: AddressQuery }) {
           good={!!counts?.addedThisMonth}
           loading={kpiLoading}
           pressed={!filters.status}
+          ring={false}
           disabled={!counts}
           onClick={() => update({ status: '' })}
         />
@@ -311,6 +312,7 @@ export function CatalogList({ address }: { address: AddressQuery }) {
           testId="catalog-kpi-enabled"
           icon={CheckCircle}
           tone="green"
+          solid
           label="Enabled"
           value={counts ? formatNumber(counts.enabled) : <Unavailable />}
           note={share(counts?.enabled ?? 0)}
@@ -324,6 +326,7 @@ export function CatalogList({ address }: { address: AddressQuery }) {
           testId="catalog-kpi-disabled"
           icon={Clock}
           tone="amber"
+          solid
           label="Disabled"
           value={counts ? formatNumber(counts.disabled) : <Unavailable />}
           note={share(counts?.disabled ?? 0)}
@@ -336,6 +339,7 @@ export function CatalogList({ address }: { address: AddressQuery }) {
           testId="catalog-kpi-coming-soon"
           icon={Clock}
           tone="grey"
+          solid
           label="Coming Soon"
           value={counts ? formatNumber(counts.comingSoon) : <Unavailable />}
           note={share(counts?.comingSoon ?? 0)}
