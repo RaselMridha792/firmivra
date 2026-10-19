@@ -4,17 +4,21 @@ import { BookkeepingConnectionsService } from './bookkeeping-connections.service
 import { BookkeepingPeriodsService } from './bookkeeping-periods.service.js';
 import { BookkeepingReportsService } from './bookkeeping-reports.service.js';
 import { BookkeepingStatusService } from './bookkeeping-status.service.js';
+import { BookkeepingTermsController } from './bookkeeping-terms.controller.js';
+import { BookkeepingTermsService } from './bookkeeping-terms.service.js';
 import { BookkeepingController } from './bookkeeping.controller.js';
 
 /** The firm's bookkeeping work (contract in packages/types/src/bookkeeping). */
 @Module({
-  controllers: [BookkeepingController],
+  // Terms first: its fixed paths must never meet an `:id` route of the main controller.
+  controllers: [BookkeepingTermsController, BookkeepingController],
   providers: [
     BookkeepingStatusService,
     BookkeepingClientsService,
     BookkeepingConnectionsService,
     BookkeepingPeriodsService,
     BookkeepingReportsService,
+    BookkeepingTermsService,
   ],
 })
 export class BookkeepingModule {}
