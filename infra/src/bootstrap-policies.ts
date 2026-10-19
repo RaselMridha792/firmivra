@@ -36,6 +36,8 @@ export const SERVICE_LINKED_ROLES = [
   // Cognito sending through our SES identity (AWSServiceRoleForAmazonCognitoIdpEmailService),
   // created by the session that updates the pool: the CloudFormation execution role.
   'email.cognito-idp.amazonaws.com',
+  // The ci stack's ECR pull-through cache rule (AWSServiceRoleForECRPullThroughCache).
+  'pullthroughcache.ecr.amazonaws.com',
 ];
 
 const serviceLinkedRoles = (resource: string): Statement => ({
@@ -168,6 +170,23 @@ export function cfnExecPolicy(account: string, region: string): PolicyDocument {
           'guardduty:UntagResource',
         ],
         Resource: a.plans,
+      },
+      {
+        // The ci stack's pull-through cache of public base images and its repository creation
+        // template are registry settings: ECR has no resource ARN for them.
+        Sid: 'EcrRegistrySettings',
+        Effect: 'Allow',
+        Action: [
+          'ecr:CreatePullThroughCacheRule',
+          'ecr:DeletePullThroughCacheRule',
+          'ecr:DescribePullThroughCacheRules',
+          'ecr:UpdatePullThroughCacheRule',
+          'ecr:CreateRepositoryCreationTemplate',
+          'ecr:DeleteRepositoryCreationTemplate',
+          'ecr:DescribeRepositoryCreationTemplates',
+          'ecr:UpdateRepositoryCreationTemplate',
+        ],
+        Resource: '*',
       },
       {
         Sid: 'NamedResources',

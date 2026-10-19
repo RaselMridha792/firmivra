@@ -296,6 +296,16 @@ export function SessionsCard({
           },
           { id: 'place', label: 'Location', cell: (s) => s.place ?? 'Unknown' },
           { id: 'ip', label: 'IP Address', cell: (s) => s.ip ?? '—' },
+          // The Active Sessions tab also says when each session started.
+          ...(limit
+            ? []
+            : [
+                {
+                  id: 'started',
+                  label: 'Signed In',
+                  cell: (s: StaffSessionItem) => dateTime(s.createdAt),
+                },
+              ]),
           { id: 'last', label: 'Last Active', cell: lastActive },
         ]}
         rowActions={(s) =>

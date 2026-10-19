@@ -69,7 +69,7 @@ export function NameChangeDialog({
             </Button>
             <Button
               variant="secondary"
-              className="border-firm-primary text-firm-primary hover:bg-folder-surface"
+              className="border-firm-primary text-firm-text hover:bg-folder-surface"
               onClick={close}
             >
               Cancel

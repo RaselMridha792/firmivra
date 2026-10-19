@@ -16,7 +16,7 @@ export function TaxYearStatus({ slug }: { slug: string }) {
   return (
     <Card className="grid min-w-0 content-start gap-3">
       <h2 className="flex items-center gap-2 font-display text-xl font-bold text-heading">
-        <CalendarCheck aria-hidden className="size-6 text-firm-primary" /> Where Your Taxes Stand
+        <CalendarCheck aria-hidden className="size-6 text-firm-text" /> Where Your Taxes Stand
       </h2>
       <PageState query={years} empty="Your firm hasn't set a status for any year yet.">
         {(items) => (
@@ -46,7 +46,7 @@ export function TaxPaymentCard({ slug }: { slug: string }) {
   return (
     <Card className="grid min-w-0 content-start gap-3">
       <h2 className="flex flex-wrap items-center gap-2 font-display text-xl font-bold text-heading">
-        <CreditCard aria-hidden className="size-6 text-firm-primary" />
+        <CreditCard aria-hidden className="size-6 text-firm-text" />
         <span className="flex-1">Tax Return Payment</span>
         {next ? <Badge tone="info">Payment Due</Badge> : null}
       </h2>
@@ -59,7 +59,7 @@ export function TaxPaymentCard({ slug }: { slug: string }) {
           {next.dueOn ? <p className="text-sm text-text">Due by {day(next.dueOn)}</p> : null}
           <ButtonLink
             href={`/${slug}/invoices`}
-            className="bg-firm-primary! hover:bg-navigation-hover!"
+            className="bg-firm-button! hover:bg-firm-button-hover!"
           >
             Make a Payment
           </ButtonLink>

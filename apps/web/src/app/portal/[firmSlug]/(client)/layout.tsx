@@ -146,7 +146,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
     motto.length > 0 ? (
       <div
         data-testid="sidebar-motto"
-        className="mt-auto bg-firm-primary px-8 pt-8 pb-6 text-on-action"
+        className="mt-auto bg-firm-sidebar px-8 pt-8 pb-6 text-on-firm-sidebar"
       >
         <span aria-hidden className="block h-0.5 w-12 bg-firm-accent" />
         {motto.map((word) => (
@@ -157,7 +157,10 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
       </div>
     ) : null;
   const menu = (inDrawer: boolean) => (
-    <nav aria-label="Main" className="flex h-full flex-col bg-firm-primary p-4 text-on-action">
+    <nav
+      aria-label="Main"
+      className="flex h-full flex-col bg-firm-sidebar p-4 text-on-firm-sidebar"
+    >
       {inDrawer ? <p className="text-xl font-bold">{business.name}</p> : null}
       {nav.flat().map(({ label, icon: Icon, href, badge }) => (
         <Link
@@ -180,7 +183,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
       <hr className="my-4 border-navigation-hover" />
       <Button
         variant="ghost"
-        className="justify-start gap-4 px-4 text-base! text-on-action hover:text-firm-primary"
+        className="justify-start gap-4 px-4 text-base! text-on-firm-sidebar hover:text-firm-text"
         onClick={() => void signOut()}
       >
         <LogOut aria-hidden className="size-6" />
@@ -194,7 +197,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
       <div className="flex items-stretch border-b border-border bg-surface print:hidden">
         <Link
           href={`/${business.slug}/home`}
-          className="hidden w-sidebar shrink-0 items-center gap-3 px-4 text-lg font-bold text-firm-primary md:flex"
+          className="hidden w-sidebar shrink-0 items-center gap-3 px-4 text-lg font-bold text-firm-text md:flex"
         >
           {branding.logoUrl ? (
             <Image unoptimized src={branding.logoUrl} alt={business.name} width={176} height={56} />
@@ -219,7 +222,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
               <>
                 <p className="font-display text-xl font-bold text-heading md:text-3xl">
                   Welcome Back,{' '}
-                  <span className={documentsPage ? 'text-firm-primary' : 'text-link'}>
+                  <span className={documentsPage ? 'text-firm-text' : 'text-link'}>
                     {me.user.name.split(' ')[0]}
                   </span>
                   !
@@ -234,7 +237,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
       </div>
       <div className="flex flex-1">
         {/* The menu stays at the top while the page scrolls, the motto at the bottom. */}
-        <aside className="hidden w-sidebar shrink-0 flex-col bg-firm-primary md:flex print:hidden">
+        <aside className="hidden w-sidebar shrink-0 flex-col bg-firm-sidebar md:flex print:hidden">
           <div className="sticky top-0">{menu(false)}</div>
           {mottoBlock ? <div className="sticky bottom-0 mt-auto">{mottoBlock}</div> : null}
         </aside>

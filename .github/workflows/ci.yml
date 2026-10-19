@@ -1,8 +1,9 @@
 # Checks every pull request into main: format, lint, typecheck, test, build, in parallel jobs.
 # A PR that changes only files in apps/, infra/ or docs/ checks only the packages it changed and
 # their dependents; any other change (packages/, the lockfile, root config, CI itself) checks all.
-# No AWS access: no id-token permission and no environment. The job named `ci` is the required
-# status check: it waits for the others and fails unless they all passed.
+# AWS access only in the test job, to pull postgres from our ECR cache with the pull-only role
+# firmivra-dev-github-ci-pull; no environment. The job named `ci` is the required status check: it
+# waits for the others and fails unless they all passed.
 # Actions are pinned to commit SHAs (public repo); the comment after each one is its release.
 name: CI
 
@@ -71,33 +72,64 @@ jobs:
       - run: pnpm typecheck ${FILTER:+"--filter=$FILTER"}
 
   test:
-    name: test (shard ${{ matrix.shard }}/2)
+    name: test (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     timeout-minutes: 20
-    services:
-      # Same image, credentials and host port as docker-compose.yml, so .env.example works unchanged.
-      # Docker's official postgres:16 from its ECR Public mirror: Docker Hub rate-limits CI's pulls.
-      postgres:
-        image: public.ecr.aws/docker/library/postgres:16
-        env:
-          POSTGRES_DB: firmivra
-          POSTGRES_USER: firmivra
-          POSTGRES_PASSWORD: firmivra
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd "pg_isready -U firmivra -d firmivra"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
+    # id-token only here: the pull-only role for postgres from our ECR cache.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 2
+
+      # Postgres is started here, not as a service container: a service starts before any step,
+      # so it cannot log in to our ECR. Anonymous pulls from public.ecr.aws hit its download
+      # limit ("toomanyrequests: Data limit exceeded"), so the image comes from our ECR
+      # pull-through cache. A fork PR gets no OIDC token, and AWS can be down: then the login
+      # fails and the same official image comes from Google's Docker Hub mirror instead.
+      - name: AWS login for the image cache
+        id: aws
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::778127141557:role/firmivra-dev-github-ci-pull
+          role-session-name: ci-${{ github.run_id }}
+          aws-region: us-east-1
+
+      # Same image, credentials and host port as docker-compose.yml, so .env.example works unchanged.
+      - name: Start postgres
+        env:
+          AWS_OK: ${{ steps.aws.outcome == 'success' }}
+          CACHE: 778127141557.dkr.ecr.us-east-1.amazonaws.com
+        run: |
+          image=""
+          if [ "$AWS_OK" = true ] &&
+            aws ecr get-login-password | docker login --username AWS --password-stdin "$CACHE" &&
+            docker pull -q "$CACHE/ecr-public/docker/library/postgres:16"; then
+            image="$CACHE/ecr-public/docker/library/postgres:16"
+          else
+            echo "::warning::Our ECR cache is not available here; postgres comes from mirror.gcr.io."
+            docker pull -q mirror.gcr.io/library/postgres:16
+            image=mirror.gcr.io/library/postgres:16
+          fi
+          echo "postgres image: $image"
+          docker run -d --name postgres -p 5433:5432 \
+            -e POSTGRES_DB=firmivra -e POSTGRES_USER=firmivra -e POSTGRES_PASSWORD=firmivra \
+            --health-cmd "pg_isready -U firmivra -d firmivra" \
+            --health-interval 2s --health-timeout 3s --health-retries 30 "$image"
+          for _ in $(seq 1 60); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' postgres)" = healthy ] && exit 0
+            sleep 2
+          done
+          docker logs postgres | tail -20
+          echo "::error::postgres did not become healthy"
+          exit 1
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
@@ -113,11 +145,9 @@ jobs:
       # Synthetic local settings, as in local setup. The test configs load the root .env themselves.
       - run: cp .env.example .env
 
-      # docker/postgres/init creates the API's role locally; a service container cannot mount repo files.
+      # docker/postgres/init creates the API's role locally; here the same file runs once.
       - name: Create the app database role
-        env:
-          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
-        run: docker exec -i "$POSTGRES_CONTAINER" psql -U firmivra -d firmivra -v ON_ERROR_STOP=1 < docker/postgres/init/01-app-role.sql
+        run: docker exec -i postgres psql -U firmivra -d firmivra -v ON_ERROR_STOP=1 < docker/postgres/init/01-app-role.sql
 
       # Tests are never cached (turbo.json); this keeps the packages they build first.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -126,9 +156,10 @@ jobs:
           key: turbo-test-${{ matrix.shard }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
           restore-keys: turbo-test-${{ matrix.shard }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
-      # Each shard runs every package's test files that vitest assigns to it; the two shards
-      # together run the same tests as one full run.
-      - run: pnpm test ${FILTER:+"--filter=$FILTER"} -- --shard="$SHARD"/2
+      # Each shard runs every package's test files that vitest assigns to it; the four shards
+      # together run the same tests as one full run. A package with fewer test files than shards
+      # gets none in some shards, so it sets passWithNoTests in its own vitest setup (ui, infra).
+      - run: pnpm test ${FILTER:+"--filter=$FILTER"} -- --shard="$SHARD"/4
         env:
           SHARD: ${{ matrix.shard }}
 

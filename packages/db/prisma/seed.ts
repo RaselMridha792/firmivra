@@ -2,7 +2,6 @@
 // Test Firm B for isolation checks. Safe to run again. Runs as the owner role, inside the same
 // scopes the app uses, so it also works where the owner is not a superuser.
 import { createHash, randomBytes } from 'node:crypto';
-import { INTAKE_FORMS } from '@firmivra/types';
 import { config } from 'dotenv';
 import { createPrismaClient, runInScope, type TxClient } from '../src/client.js';
 import {
@@ -29,12 +28,20 @@ import {
   SEED_LVP_APPLICATION_FORM,
   SEED_LVP_APPLICATION_OLD_DATA,
   SEED_MEETING_URLS,
-  seedFormDefinition,
   SEED_AGREEMENT_IDS,
   SAMPLE_AGREEMENT,
   SEED_ESIGN_IDS,
   SAMPLE_ESIGN_CONSENT,
 } from './seed-data.js';
+import {
+  seedAppointmentTypes,
+  seedClient,
+  seedDocumentCategories,
+  seedFirmAgreement,
+  seedFirmBasics,
+  seedIntakeForms,
+  seedServices,
+} from './seed-helpers.js';
 import { seedR36 } from './seed-r36.js';
 import { seedR37 } from './seed-r37.js';
 import { seedR39 } from './seed-r39.js';
@@ -52,240 +59,6 @@ const prisma = createPrismaClient(url, {
   transactionOptions: { maxWait: 15_000, timeout: 60_000 },
 });
 
-/** Settings, Terms and Privacy v1 and tax statuses for one firm (business scope). */
-async function seedFirmBasics(
-  tx: TxClient,
-  businessId: string,
-  firm: {
-    name: string;
-    ownerId: string;
-    contactEmail: string;
-    brandColor?: string;
-    taxStatuses: readonly string[];
-  },
-) {
-  await tx.businessSettings.upsert({
-    where: { businessId },
-    update: {},
-    create: {
-      businessId,
-      contactEmail: firm.contactEmail,
-      brandColor: firm.brandColor ?? null,
-      setupCompletedAt: new Date(),
-    },
-  });
-  for (const [kind, title] of [
-    ['TERMS', 'Terms of Service'],
-    ['PRIVACY', 'Privacy Policy'],
-  ] as const) {
-    await tx.firmLegalDocument.upsert({
-      where: { businessId_kind_version: { businessId, kind, version: 1 } },
-      update: {},
-      create: {
-        businessId,
-        kind,
-        version: 1,
-        body: `# ${firm.name}: ${title}\n\nSample text for local development. Not legal text.`,
-        publishedByUserId: firm.ownerId,
-      },
-    });
-  }
-  for (const [sortOrder, name] of firm.taxStatuses.entries()) {
-    await tx.taxStatus.upsert({
-      where: { businessId_name: { businessId, name } },
-      update: { sortOrder },
-      create: { businessId, name, sortOrder },
-    });
-  }
-}
-
-/** The firm's client record and profile for a seeded client login, linked to that login. */
-async function seedClient(
-  tx: TxClient,
-  businessId: string,
-  clientId: string,
-  user: { id: string; email: string; name: string },
-  assignedUserId: string,
-) {
-  const [firstName, lastName] = user.name.split(' ');
-  await tx.client.upsert({
-    where: { id: clientId },
-    update: {},
-    create: { id: clientId, businessId, displayName: user.name, email: user.email, assignedUserId },
-  });
-  await tx.clientProfile.upsert({
-    where: { clientId },
-    update: {},
-    create: { clientId, businessId, firstName: firstName ?? null, lastName: lastName ?? null },
-  });
-  await tx.clientAccount.update({ where: { userId: user.id }, data: { clientId } });
-}
-
-/** The firm's services; returns their ids by name. */
-async function seedServices(
-  tx: TxClient,
-  businessId: string,
-  services: (typeof SEED_SERVICES)[keyof typeof SEED_SERVICES],
-) {
-  const ids = new Map<string, string>();
-  for (const [sortOrder, s] of services.entries()) {
-    const data = {
-      kind: s.kind,
-      billingInterval: s.billingInterval,
-      packages: [...s.packages],
-      stages: [...s.stages],
-      sortOrder,
-      // Every seeded service is offered on Begin Online: one per kind, none OTHER.
-      beginOnline: true,
-    };
-    const row = await tx.service.upsert({
-      where: { businessId_name: { businessId, name: s.name } },
-      update: data,
-      create: { businessId, name: s.name, ...data },
-    });
-    ids.set(s.name, row.id);
-  }
-  return byName('service', ids);
-}
-
-/** The firm's document categories; returns their ids by name. */
-async function seedDocumentCategories(
-  tx: TxClient,
-  businessId: string,
-  categories: (typeof SEED_DOCUMENT_CATEGORIES)[keyof typeof SEED_DOCUMENT_CATEGORIES],
-) {
-  const ids = new Map<string, string>();
-  for (const [sortOrder, c] of categories.entries()) {
-    const data = { sortOrder, retentionYears: c.retentionYears };
-    const row = await tx.documentCategory.upsert({
-      where: { businessId_name: { businessId, name: c.name } },
-      update: data,
-      create: { businessId, name: c.name, ...data },
-    });
-    ids.set(c.name, row.id);
-  }
-  return byName('document category', ids);
-}
-
-/** A published v1 intake form for each named service; returns their ids by service name. */
-async function seedIntakeForms(
-  tx: TxClient,
-  businessId: string,
-  service: (name: string) => string,
-  serviceNames: readonly string[],
-) {
-  const ids = new Map<string, string>();
-  for (const name of serviceNames) {
-    const serviceId = service(name);
-    const { kind } = await tx.service.findUniqueOrThrow({ where: { id: serviceId } });
-    // The database files a new form under the service's default template (R37).
-    const found = await tx.intakeForm.findFirst({ where: { businessId, serviceId, version: 1 } });
-    const row =
-      found ??
-      (await tx.intakeForm.create({
-        data: {
-          businessId,
-          serviceId,
-          version: 1,
-          title: `${name} intake`,
-          // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in, so
-          // the seeded lead's answers and upload slot fit their form (real forms: r0_followups).
-          definition:
-            kind === 'ANNUAL_TAX' && INTAKE_FORMS.ANNUAL_TAX
-              ? INTAKE_FORMS.ANNUAL_TAX
-              : seedFormDefinition(kind, `${name} intake`),
-          // Deprecated: the agreement comes from the firm's intake agreements (seedFirmAgreement).
-          agreementText: null,
-          status: 'PUBLISHED',
-          publishedAt: new Date(),
-        },
-      }));
-    ids.set(name, row.id);
-  }
-  return byName('intake form', ids);
-}
-
-/** The firm-wide intake agreement with a synthetic v1 and a CLEAN PDF row (no file in S3). */
-async function seedFirmAgreement(
-  tx: TxClient,
-  businessId: string,
-  ownerId: string,
-  ids: { agreement: string; file: string; version: string },
-) {
-  await tx.firmAgreement.upsert({
-    where: { id: ids.agreement },
-    update: {},
-    create: { id: ids.agreement, businessId, scope: 'ALL_INTAKES', createdByUserId: ownerId },
-  });
-  const sha256 = createHash('sha256').update(`sample agreement pdf ${businessId}`).digest('hex');
-  await tx.firmAgreementFile.upsert({
-    where: { id: ids.file },
-    update: {},
-    create: {
-      id: ids.file,
-      businessId,
-      fileName: SAMPLE_AGREEMENT.pdf.fileName,
-      sizeBytes: SAMPLE_AGREEMENT.pdf.sizeBytes,
-      sha256,
-      s3Key: `tenant/${businessId}/agreements/${ids.file}`,
-      uploadedByUserId: ownerId,
-    },
-  });
-  await tx.firmAgreementFile.updateMany({
-    where: { id: ids.file, scanStatus: 'PENDING' },
-    data: { scanStatus: 'CLEAN', scannedAt: new Date() },
-  });
-  // Versions are insert-only (an upsert may update), so create it once.
-  if (!(await tx.firmAgreementVersion.findUnique({ where: { id: ids.version } }))) {
-    await tx.firmAgreementVersion.create({
-      data: {
-        id: ids.version,
-        businessId,
-        agreementId: ids.agreement,
-        version: 1,
-        title: SAMPLE_AGREEMENT.title,
-        bodyMarkdown: SAMPLE_AGREEMENT.body,
-        acknowledgments: SAMPLE_AGREEMENT.acknowledgments.map((a) => ({ ...a })),
-        pdfFileId: ids.file,
-        pdfSha256: sha256,
-        publishedByUserId: ownerId,
-      },
-    });
-  }
-}
-
-/** The firm's appointment types; returns their ids by name. */
-async function seedAppointmentTypes(
-  tx: TxClient,
-  businessId: string,
-  types: (typeof SEED_APPOINTMENT_TYPES)[keyof typeof SEED_APPOINTMENT_TYPES],
-) {
-  const ids = new Map<string, string>();
-  for (const [sortOrder, t] of types.entries()) {
-    const data = {
-      durationMinutes: t.durationMinutes,
-      locationKind: t.locationKind,
-      clientBookable: t.clientBookable,
-      sortOrder,
-    };
-    const row = await tx.appointmentType.upsert({
-      where: { businessId_name: { businessId, name: t.name } },
-      update: data,
-      create: { businessId, name: t.name, ...data },
-    });
-    ids.set(t.name, row.id);
-  }
-  return byName('appointment type', ids);
-}
-
-function byName(kind: string, ids: Map<string, string>) {
-  return (name: string) => {
-    const id = ids.get(name);
-    if (!id) throw new Error(`Seed ${kind} ${name} is missing`);
-    return id;
-  };
-}
-
 const hex = (label: string) => createHash('sha256').update(label).digest('hex');
 /** Never a usable link, code or upload token: only a hash of random bytes is stored. */
 const randomHash = () => createHash('sha256').update(randomBytes(32)).digest('hex');
@@ -297,6 +70,207 @@ const randomHash = () => createHash('sha256').update(randomBytes(32)).digest('he
  * (on the invited member, so no one who signs in is locked) and the bulk batch that made it.
  * Synthetic data only; created once (the request is never re-created).
  */
+/** Stage B8: Firmivra's integrations (see main). Idempotent by fixed ids. */
+async function seedIntegrations(lvp: string) {
+  const ids = SEED_PLATFORM_IDS;
+  const asAdmin = { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id } as const;
+  if (
+    await runInScope(prisma, asAdmin, (tx) =>
+      tx.platformIntegration.findUnique({ where: { id: ids.integrationStripe } }),
+    )
+  ) {
+    return;
+  }
+  await runInScope(prisma, asAdmin, async (tx) => {
+    await tx.platformIntegration.create({
+      data: {
+        id: ids.integrationStripe,
+        provider: 'stripe',
+        name: 'Stripe',
+        category: 'PAYMENTS_BILLING',
+        description: 'Card payments and subscription billing for Firmivra plans.',
+        websiteUrl: 'https://stripe.com',
+        environment: 'TEST',
+        secretRef: 'local:stripe-test-secret-key',
+        settings: {
+          webhookEvents: ['invoice.paid', 'payment_intent.succeeded'],
+          retry: { max: 3 },
+        },
+      },
+    });
+    await tx.platformIntegrationRun.create({
+      data: {
+        integrationId: ids.integrationStripe,
+        kind: 'TEST',
+        correlationId: 'seed-stripe-test',
+      },
+    });
+    const teamPro = await tx.platformPlan.findUnique({ where: { code: 'TEAM_PRO' } });
+    await tx.platformIntegrationCatalog.create({
+      data: {
+        id: ids.integrationCatalog,
+        provider: 'quickbooks_online',
+        name: 'QuickBooks Online',
+        category: 'PAYMENTS_BILLING',
+        shortDescription: 'Sync clients, invoices and payments with QuickBooks Online.',
+        status: 'ENABLED',
+        planAccess: 'SELECTED_PLANS',
+        setup: {
+          authType: 'OAUTH2',
+          instructions: 'Sign in with your Intuit account and choose a company.',
+        },
+        badges: ['popular'],
+        plans: teamPro ? { create: [{ planId: teamPro.id }] } : undefined,
+        firmRules: {
+          create: [
+            { businessId: lvp, access: 'ALLOW', reason: 'Beta firm for the QuickBooks sync.' },
+          ],
+        },
+      },
+    });
+    await tx.platformApiKey.create({
+      data: {
+        id: ids.integrationApiKey,
+        name: 'Reporting export',
+        prefix: 'fv_test_k7q2',
+        lastFour: 'x9Qa',
+        keyHash: createHash('sha256').update('seed-reporting-export-key').digest('hex'),
+        scopes: ['reports:read'],
+        environment: 'TEST',
+        rateLimitPerMinute: 120,
+      },
+    });
+    await tx.platformWebhookEndpoint.create({
+      data: {
+        id: ids.integrationWebhook,
+        direction: 'OUTBOUND',
+        url: 'https://hooks.example.test/firmivra',
+        description: 'Partner notifications for new firms.',
+        events: ['firm.activated', 'firm.suspended'],
+        signingSecretRef: 'local:partner-webhook-signing-secret',
+      },
+    });
+  });
+  // The platform's part: the test passes, the integration goes live, a delivery and the rollup.
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    const run = await tx.platformIntegrationRun.findFirstOrThrow({
+      where: { integrationId: ids.integrationStripe, kind: 'TEST' },
+    });
+    await tx.platformIntegrationRun.update({ where: { id: run.id }, data: { status: 'RUNNING' } });
+    await tx.platformIntegrationRun.update({
+      where: { id: run.id },
+      data: { status: 'SUCCEEDED', objectCount: 1 },
+    });
+    await tx.platformIntegration.update({
+      where: { id: ids.integrationStripe },
+      data: { lastCheckAt: new Date(), lastCheckOk: true },
+    });
+    await tx.platformIntegrationLog.create({
+      data: {
+        source: 'PLATFORM_INTEGRATION',
+        integrationId: ids.integrationStripe,
+        provider: 'stripe',
+        environment: 'TEST',
+        severity: 'INFO',
+        eventType: 'integration.tested',
+        succeeded: true,
+        message: 'Connection test passed.',
+        correlationId: 'seed-stripe-test',
+      },
+    });
+    const delivery = await tx.platformWebhookDelivery.create({
+      data: {
+        endpointId: ids.integrationWebhook,
+        eventType: 'firm.activated',
+        eventId: `evt_firm_${lvp}`,
+      },
+    });
+    await tx.platformWebhookDelivery.update({
+      where: { id: delivery.id },
+      data: { status: 'SUCCEEDED', responseStatusCode: 200, durationMs: 182 },
+    });
+    await tx.platformIntegrationUsageDaily.create({
+      data: {
+        day: new Date(new Date().toISOString().slice(0, 10)),
+        scope: 'CATALOG',
+        subjectKey: 'quickbooks_online',
+        connectedFirms: 1,
+        activeFirms: 1,
+        connects: 1,
+        disconnects: 0,
+      },
+    });
+  });
+  await runInScope(prisma, asAdmin, (tx) =>
+    tx.platformIntegration.update({
+      where: { id: ids.integrationStripe },
+      data: { status: 'ACTIVE' },
+    }),
+  );
+}
+
+/** Stage B9: a saved report and a day of LVP's rollups (see main). Idempotent. */
+async function seedReports(lvp: string) {
+  const day = new Date(new Date().toISOString().slice(0, 10));
+  await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
+    if (await tx.platformSavedReport.findUnique({ where: { id: SEED_PLATFORM_IDS.savedReport } })) {
+      return;
+    }
+    await tx.platformSavedReport.create({
+      data: {
+        id: SEED_PLATFORM_IDS.savedReport,
+        ownerUserId: SEED_USERS.superAdmin.id,
+        name: 'Active firms on Team Pro',
+        description: 'Firms on Team Pro with their users, revenue and open tickets.',
+        reportType: 'FIRMS',
+        fields: [
+          'firm.name',
+          'firm.plan',
+          'firm.status',
+          'firm.total_users',
+          'firm.monthly_revenue',
+          'firm.open_tickets',
+        ],
+        filters: { planCodes: ['TEAM_PRO'], statuses: ['ACTIVE'] },
+        dateRange: { preset: 'LAST_30_DAYS' },
+        sort: [{ field: 'firm.monthly_revenue', direction: 'desc' }],
+        shared: true,
+      },
+    });
+  });
+  // The daily job (platform scope) upserts today's rows.
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    for (const [feature, events, activeUsers] of [
+      ['documents.generate', 14, 2],
+      ['esign.send', 3, 1],
+      ['crm.lead_created', 5, 2],
+    ] as const) {
+      await tx.platformFeatureUsageDaily.upsert({
+        where: { day_businessId_feature: { day, businessId: lvp, feature } },
+        create: { day, businessId: lvp, feature, events, activeUsers },
+        update: { events, activeUsers },
+      });
+    }
+    const metrics = {
+      totalUsers: 3,
+      activeUsers: 2,
+      logins: 6,
+      totalClients: 1,
+      documentsCreated: 4,
+      documentsCompleted: 2,
+      activeDocuments: 9,
+      leadsCreated: 1,
+      esignSent: 1,
+      lastLoginAt: new Date(),
+    };
+    await tx.platformFirmMetricsDaily.upsert({
+      where: { day_businessId: { day, businessId: lvp } },
+      create: { day, businessId: lvp, ...metrics },
+      update: metrics,
+    });
+  });
+}
+
 async function seedEsign(tx: TxClient, businessId: string) {
   const ids = SEED_ESIGN_IDS;
   const firm = { businessId };
@@ -588,6 +562,113 @@ async function seedEsign(tx: TxClient, businessId: string) {
 }
 
 /** Test Firm B: Firm Sign off, with one DRAFT request (for isolation tests). */
+/** Stage B7: Firmivra's system settings (see main). Idempotent by fixed ids. */
+async function seedSystemSettings(lvp: string) {
+  const ids = SEED_PLATFORM_IDS;
+  const asAdmin = { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id } as const;
+  if (
+    await runInScope(prisma, asAdmin, (tx) =>
+      tx.platformBrandAsset.findUnique({ where: { id: ids.settingsLogo } }),
+    )
+  ) {
+    return;
+  }
+  await runInScope(prisma, asAdmin, async (tx) => {
+    await tx.platformSecretRef.create({
+      data: { key: 'email.smtp_password', reference: 'local:ses-smtp-password', hint: '****' },
+    });
+    await tx.platformBrandAsset.create({
+      data: {
+        id: ids.settingsLogo,
+        kind: 'LOGO',
+        fileName: 'firmivra-logo.png',
+        contentType: 'image/png',
+        sizeBytes: 18_432,
+        width: 480,
+        height: 120,
+        sha256: createHash('sha256').update('firmivra-logo.png').digest('hex'),
+        s3Key: `platform/branding/${ids.settingsLogo}/firmivra-logo.png`,
+      },
+    });
+    await tx.platformFeature.create({
+      data: {
+        key: 'client_portal.messages',
+        name: 'Client portal messages',
+        description: 'Clients message their firm from the portal.',
+        defaultState: 'ON',
+      },
+    });
+    await tx.platformFeature.create({
+      data: {
+        key: 'client_portal.message_attachments',
+        name: 'Attachments in client messages',
+        defaultState: 'OFF',
+        dependsOn: ['client_portal.messages'],
+      },
+    });
+    await tx.platformFeatureOverride.create({
+      data: {
+        featureKey: 'client_portal.message_attachments',
+        businessId: lvp,
+        state: 'ON',
+        reason: 'Beta firm for attachments.',
+      },
+    });
+    await tx.platformLegalHold.create({
+      data: {
+        id: ids.settingsHold,
+        name: 'Billing records review',
+        reason: 'Keep platform billing records during the annual financial review.',
+        category: 'platform_billing',
+      },
+    });
+    await tx.platformRetentionRun.create({
+      data: { id: ids.settingsRun, category: 'export_files', policyVersion: 1 },
+    });
+    await tx.platformMaintenanceWindow.create({
+      data: {
+        id: ids.settingsWindow,
+        title: 'Database upgrade',
+        message: 'Firmivra will be unavailable for up to 30 minutes while we upgrade our database.',
+        startsAt: new Date(Date.now() + 7 * 86_400_000),
+        endsAt: new Date(Date.now() + 7 * 86_400_000 + 30 * 60_000),
+      },
+    });
+    const firmDefaults = await tx.platformDefaultSet.findFirstOrThrow({
+      where: { kind: 'FIRM' },
+      orderBy: { version: 'desc' },
+    });
+    await tx.platformDefaultSetApplication.create({
+      data: { businessId: lvp, defaultSetId: firmDefaults.id },
+    });
+  });
+  // The platform's part: the scan, the job registry and the dry run.
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    await tx.platformBrandAsset.update({
+      where: { id: ids.settingsLogo },
+      data: { scanStatus: 'CLEAN' },
+    });
+    await tx.platformJobControl.create({
+      data: { jobKey: 'retention.nightly', name: 'Nightly retention' },
+    });
+    await tx.platformRetentionRun.update({
+      where: { id: ids.settingsRun },
+      data: { status: 'RUNNING' },
+    });
+    await tx.platformRetentionRun.update({
+      where: { id: ids.settingsRun },
+      data: { status: 'COMPLETED', eligibleCount: 12, affectedCount: 0, heldCount: 0 },
+    });
+    await tx.platformJobControl.update({
+      where: { jobKey: 'retention.nightly' },
+      data: { lastRunAt: new Date(), lastStatus: 'COMPLETED' },
+    });
+  });
+  await runInScope(prisma, asAdmin, (tx) =>
+    tx.platformBrandCurrent.create({ data: { kind: 'LOGO', assetId: ids.settingsLogo } }),
+  );
+}
+
 async function seedEsignDraft(tx: TxClient, businessId: string) {
   await tx.esignRequest.upsert({
     where: { id: SEED_ESIGN_IDS.firmBRequest },
@@ -606,6 +687,182 @@ async function seedEsignDraft(tx: TxClient, businessId: string) {
       reminderMax: 3,
       expiryWarningDays: 2,
     },
+  });
+}
+
+/** Stage B6: Firmivra's communications with LVP (see main). Idempotent by fixed ids. */
+async function seedCommunications(lvp: string) {
+  const ids = SEED_PLATFORM_IDS;
+  const owner = SEED_USERS.lvpOwner;
+  const asAdmin = { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id } as const;
+  if (
+    await runInScope(prisma, asAdmin, (tx) =>
+      tx.commConversation.findUnique({ where: { id: ids.commConversation } }),
+    )
+  ) {
+    return;
+  }
+  await runInScope(prisma, asAdmin, async (tx) => {
+    const onboarding = await tx.commTemplateCategory.findUniqueOrThrow({
+      where: { systemKey: 'onboarding' },
+    });
+    await tx.commMedia.create({
+      data: {
+        id: ids.commImage,
+        kind: 'INLINE_IMAGE',
+        fileName: 'firmivra-logo.png',
+        contentType: 'image/png',
+        sizeBytes: 18_432,
+        sha256: createHash('sha256').update('firmivra-logo.png').digest('hex'),
+        s3Key: `platform/communications/${ids.commImage}/firmivra-logo.png`,
+      },
+    });
+    await tx.commTemplate.create({
+      data: {
+        id: ids.commTemplate,
+        categoryId: onboarding.id,
+        name: 'Welcome to Firmivra',
+        channel: 'EMAIL',
+        subject: 'Welcome to Firmivra, {{firm.name}}',
+        body: '<p>Hi {{contact.first_name}},</p><p>Your workspace is ready. Your onboarding call is on {{onboarding.call_date}}.</p>',
+        mergeFields: ['firm.name', 'contact.first_name', 'onboarding.call_date'],
+      },
+    });
+    await tx.commConversation.create({
+      data: {
+        id: ids.commConversation,
+        contactType: 'FIRM',
+        linkedBusinessId: lvp,
+        contactUserId: owner.id,
+        contactName: owner.name,
+        contactEmail: owner.email,
+        subject: 'Welcome to Firmivra',
+        assignedToUserId: SEED_USERS.superAdmin.id,
+        tags: ['onboarding'],
+      },
+    });
+    await tx.commMessage.create({
+      data: {
+        id: ids.commWelcome,
+        conversationId: ids.commConversation,
+        channel: 'EMAIL',
+        direction: 'OUTBOUND',
+        subject: `Welcome to Firmivra, ${SEED_BUSINESSES.lvp.name}`,
+        body: '<p>Your workspace is ready. Your onboarding call is on Tuesday at 10:00.</p>',
+        templateId: ids.commTemplate,
+        recipients: {
+          create: [
+            {
+              contactType: 'FIRM',
+              linkedBusinessId: lvp,
+              contactUserId: owner.id,
+              name: owner.name,
+              address: owner.email,
+            },
+          ],
+        },
+      },
+    });
+    // Send now: written as a draft with its recipients, then handed to the dispatcher.
+    await tx.commMessage.update({ where: { id: ids.commWelcome }, data: { status: 'SENDING' } });
+    await tx.commSegment.create({
+      data: {
+        id: ids.commSegment,
+        name: 'Active firms on Team Pro',
+        definition: { contactTypes: ['FIRM'], firmStatuses: ['ACTIVE'], planCodes: ['TEAM_PRO'] },
+        lastCount: 1,
+      },
+    });
+    await tx.commBroadcast.create({
+      data: {
+        id: ids.commBroadcast,
+        name: 'October product update',
+        segmentId: ids.commSegment,
+        recipientCount: 1,
+        channels: {
+          create: [
+            {
+              channel: 'EMAIL',
+              subject: 'What is new in Firmivra this October',
+              body: '<p>Firm Sign is live for every plan, and the client portal has a new look.</p>',
+            },
+          ],
+        },
+      },
+    });
+    await tx.commBroadcast.update({
+      where: { id: ids.commBroadcast },
+      data: { status: 'SENDING' },
+    });
+  });
+  // The dispatcher and the inbound mailbox (platform scope).
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    await tx.commMedia.update({ where: { id: ids.commImage }, data: { scanStatus: 'CLEAN' } });
+    await tx.commMessageRecipient.updateMany({
+      where: { messageId: ids.commWelcome },
+      data: { status: 'SENT', providerMessageId: 'seed-ses-0001' },
+    });
+    await tx.commMessage.update({ where: { id: ids.commWelcome }, data: { status: 'SENT' } });
+    await tx.commMessage.create({
+      data: {
+        id: ids.commReply,
+        conversationId: ids.commConversation,
+        channel: 'EMAIL',
+        direction: 'INBOUND',
+        status: 'RECEIVED',
+        subject: 'Re: Welcome to Firmivra',
+        body: 'Thanks! Tuesday works. Can two of my preparers join the call?',
+        fromAddress: owner.email,
+      },
+    });
+    const recipient = await tx.commBroadcastRecipient.create({
+      data: {
+        broadcastId: ids.commBroadcast,
+        channel: 'EMAIL',
+        contactType: 'FIRM',
+        linkedBusinessId: lvp,
+        contactUserId: owner.id,
+        name: owner.name,
+        address: owner.email,
+      },
+    });
+    await tx.commBroadcastRecipient.update({
+      where: { id: recipient.id },
+      data: { status: 'SENT', providerMessageId: 'seed-ses-0002' },
+    });
+    await tx.commBroadcastChannel.updateMany({
+      where: { broadcastId: ids.commBroadcast },
+      data: { status: 'SENDING' },
+    });
+    await tx.commBroadcastChannel.updateMany({
+      where: { broadcastId: ids.commBroadcast },
+      data: { status: 'SENT', sentCount: 1 },
+    });
+    await tx.commBroadcast.update({ where: { id: ids.commBroadcast }, data: { status: 'SENT' } });
+  });
+  // The team's internal note, mentioning the Super Admin, and their read mark.
+  await runInScope(prisma, asAdmin, async (tx) => {
+    await tx.commMessage.create({
+      data: {
+        id: ids.commNote,
+        conversationId: ids.commConversation,
+        channel: 'INTERNAL',
+        direction: 'INTERNAL',
+        status: 'SENT',
+        body: 'Owner asked to bring two preparers to the onboarding call. Send them the guest link.',
+        mentions: { create: [{ userId: SEED_USERS.superAdmin.id }] },
+      },
+    });
+    await tx.commMediaLink.create({
+      data: { mediaId: ids.commImage, usage: 'INLINE_IMAGE', templateId: ids.commTemplate },
+    });
+    await tx.commConversationRead.create({
+      data: {
+        conversationId: ids.commConversation,
+        userId: SEED_USERS.superAdmin.id,
+        lastReadAt: new Date(),
+      },
+    });
   });
 }
 
@@ -1779,6 +2036,292 @@ async function main() {
         },
       });
     }
+    // Stage B1: the Super Admin's bell item for the approval, and an audit export they asked for.
+    if (
+      !(await tx.platformNotification.findUnique({ where: { id: SEED_PLATFORM_IDS.notification } }))
+    ) {
+      await tx.platformNotification.create({
+        data: {
+          id: SEED_PLATFORM_IDS.notification,
+          recipientUserId: SEED_USERS.superAdmin.id,
+          category: 'FIRM_APPLICATIONS',
+          type: 'firm_application.approved',
+          priority: 'NORMAL',
+          title: 'Firm application approved',
+          body: 'LVP Accounting & Taxes was approved and its owner was invited.',
+          sourceType: 'firm_application',
+          sourceId: SEED_PLATFORM_IDS.lvpApplication,
+          sourceLabel: SEED_BUSINESSES.lvp.name,
+          businessId: businesses.lvp,
+          eventKey: `firm_application.approved:${SEED_PLATFORM_IDS.lvpApplication}`,
+        },
+      });
+    }
+    if (!(await tx.platformExportJob.findUnique({ where: { id: SEED_PLATFORM_IDS.exportJob } }))) {
+      await tx.platformExportJob.create({
+        data: {
+          id: SEED_PLATFORM_IDS.exportJob,
+          requestedByUserId: SEED_USERS.superAdmin.id,
+          module: 'AUDIT',
+          format: 'CSV',
+          title: 'Audit events, last 30 days',
+          filters: { range: 'LAST_30_DAYS' },
+          columns: ['occurredAt', 'actor', 'action', 'firm'],
+        },
+      });
+    }
+    // Stage B2: LVP's ticket with Firmivra support, as the team works it (admin scope): raised by
+    // email about LVP's owner, assigned, answered with a screenshot, with a note and its history.
+    if (!(await tx.supportTicket.findUnique({ where: { id: SEED_PLATFORM_IDS.supportTicket } }))) {
+      const category = await tx.supportCategory.findUniqueOrThrow({
+        where: { name: 'Account Access' },
+      });
+      const priority = await tx.supportPriority.findUniqueOrThrow({ where: { code: 'HIGH' } });
+      await tx.supportTicket.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportTicket,
+          businessId: businesses.lvp,
+          contactUserId: SEED_USERS.lvpOwner.id,
+          subject: 'Staff member cannot finish MFA setup',
+          description:
+            'Our new preparer gets "code expired" every time she scans the QR code. Can you help?',
+          categoryId: category.id,
+          priorityId: priority.id,
+          source: 'EMAIL',
+          assignedUserId: SEED_USERS.superAdmin.id,
+          createdByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      await tx.supportTicketMessage.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportStaffReply,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.superAdmin.id,
+          authorSide: 'STAFF',
+          body: 'Thanks for reaching out. Her phone clock looks out of sync; the screenshot shows where to turn on automatic time.',
+          deliveryChannel: 'EMAIL',
+        },
+      });
+      await tx.supportTicketAttachment.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportAttachment,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          messageId: SEED_PLATFORM_IDS.supportStaffReply,
+          uploadedByUserId: SEED_USERS.superAdmin.id,
+          fileName: 'automatic-time-setting.png',
+          contentType: 'image/png',
+          sizeBytes: 84213,
+          sha256: createHash('sha256').update('sample support screenshot').digest('hex'),
+          s3Key: `tenant/${businesses.lvp}/support/${SEED_PLATFORM_IDS.supportAttachment}`,
+        },
+      });
+      await tx.supportTicketNote.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportNote,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.superAdmin.id,
+          body: 'Third clock-drift case this month; worth a help article.',
+        },
+      });
+      await tx.supportTicketEvent.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportEvent,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          actorUserId: SEED_USERS.superAdmin.id,
+          actorType: 'USER',
+          action: 'ticket.assigned',
+          newValue: SEED_USERS.superAdmin.name,
+        },
+      });
+      await tx.supportTicket.update({
+        where: { id: SEED_PLATFORM_IDS.supportTicket },
+        data: { status: 'WAITING_ON_CUSTOMER', firstRespondedAt: new Date() },
+      });
+    }
+    await tx.supportHoliday.upsert({
+      where: { id: SEED_PLATFORM_IDS.supportHoliday },
+      update: {},
+      create: {
+        id: SEED_PLATFORM_IDS.supportHoliday,
+        date: new Date('2026-11-26'),
+        name: 'Thanksgiving',
+      },
+    });
+    await tx.supportCannedResponse.upsert({
+      where: { id: SEED_PLATFORM_IDS.supportCannedResponse },
+      update: {},
+      create: {
+        id: SEED_PLATFORM_IDS.supportCannedResponse,
+        title: 'MFA code expired',
+        body: 'An "expired" code usually means the phone clock is off. Turn on automatic date and time, then scan the code again.',
+        createdByUserId: SEED_USERS.superAdmin.id,
+      },
+    });
+    // Stage B3: what Firmivra billed LVP (admin scope). The database numbers the documents, works
+    // out the totals and keeps the paid, refunded and credited sums and statuses.
+    if (
+      !(await tx.platformInvoice.findUnique({
+        where: { id: SEED_PLATFORM_IDS.billingPaidInvoice },
+      }))
+    ) {
+      const billTo = {
+        billToName: SEED_USERS.lvpOwner.name,
+        billToEmail: SEED_USERS.lvpOwner.email,
+      };
+      await tx.platformFirmBillingProfile.create({
+        data: {
+          businessId: businesses.lvp,
+          billingContactName: billTo.billToName,
+          billingContactEmail: billTo.billToEmail,
+          paymentTermDays: 15,
+        },
+      });
+      // September: Team Pro, paid by card, then $20 refunded as a goodwill credit.
+      await tx.platformInvoice.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingPaidInvoice,
+          businessId: businesses.lvp,
+          invoiceDate: new Date('2026-09-01'),
+          dueDate: new Date('2026-09-16'),
+          periodStart: new Date('2026-09-01'),
+          periodEnd: new Date('2026-09-30'),
+          ...billTo,
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [
+              { description: 'Team Pro plan, September 2026', unitCents: 19900 },
+              { description: 'Additional seat', quantity: 2, unitCents: 2900, sortOrder: 1 },
+            ],
+          },
+        },
+      });
+      await tx.platformInvoice.update({
+        where: { id: SEED_PLATFORM_IDS.billingPaidInvoice },
+        data: { status: 'SENT' },
+      });
+      await tx.platformPayment.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingPayment,
+          businessId: businesses.lvp,
+          invoiceId: SEED_PLATFORM_IDS.billingPaidInvoice,
+          amountCents: 25700,
+          method: 'CARD',
+          status: 'COMPLETED',
+          paidOn: new Date('2026-09-03'),
+          reference: 'Visa ending 4242',
+          recordedByUserId: SEED_USERS.superAdmin.id,
+          idempotencyKey: SEED_PLATFORM_IDS.billingPaymentKey,
+        },
+      });
+      await tx.platformRefund.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingRefund,
+          businessId: businesses.lvp,
+          paymentId: SEED_PLATFORM_IDS.billingPayment,
+          amountCents: 2000,
+          reason: 'Goodwill credit for the September portal outage.',
+          requestedByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      await tx.platformRefund.update({
+        where: { id: SEED_PLATFORM_IDS.billingRefund },
+        data: { status: 'COMPLETED' },
+      });
+      // October: sent, part settled by a $50 credit note.
+      await tx.platformInvoice.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingCreditedInvoice,
+          businessId: businesses.lvp,
+          invoiceDate: new Date('2026-10-01'),
+          dueDate: new Date('2026-10-16'),
+          periodStart: new Date('2026-10-01'),
+          periodEnd: new Date('2026-10-31'),
+          ...billTo,
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [{ description: 'Team Pro plan, October 2026', unitCents: 19900 }],
+          },
+        },
+      });
+      await tx.platformInvoice.update({
+        where: { id: SEED_PLATFORM_IDS.billingCreditedInvoice },
+        data: { status: 'SENT' },
+      });
+      await tx.platformCreditNote.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingCreditNote,
+          businessId: businesses.lvp,
+          relatedInvoiceId: SEED_PLATFORM_IDS.billingPaidInvoice,
+          issueDate: new Date('2026-10-02'),
+          reason: 'Service credit for the September outage.',
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [{ description: 'Service credit', unitCents: 5000 }],
+          },
+        },
+      });
+      await tx.platformCreditNote.update({
+        where: { id: SEED_PLATFORM_IDS.billingCreditNote },
+        data: { status: 'AVAILABLE' },
+      });
+      await tx.platformCreditApplication.create({
+        data: {
+          businessId: businesses.lvp,
+          creditNoteId: SEED_PLATFORM_IDS.billingCreditNote,
+          invoiceId: SEED_PLATFORM_IDS.billingCreditedInvoice,
+          amountCents: 5000,
+          appliedByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      // An upgrade quote, and the monthly schedule.
+      await tx.platformEstimate.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingEstimate,
+          businessId: businesses.lvp,
+          issueDate: new Date('2026-10-05'),
+          expirationDate: new Date('2026-11-04'),
+          contactName: billTo.billToName,
+          contactEmail: billTo.billToEmail,
+          notes: 'Business plan for up to 10 staff, billed annually.',
+          assignedUserId: SEED_USERS.superAdmin.id,
+          createdByUserId: SEED_USERS.superAdmin.id,
+          lines: {
+            create: [{ description: 'Business plan, 12 months', quantity: 12, unitCents: 49900 }],
+          },
+        },
+      });
+      await tx.platformEstimate.update({
+        where: { id: SEED_PLATFORM_IDS.billingEstimate },
+        data: { status: 'SENT' },
+      });
+      await tx.platformRecurringInvoice.create({
+        data: {
+          id: SEED_PLATFORM_IDS.billingRecurring,
+          businessId: businesses.lvp,
+          description: 'Team Pro plan, monthly',
+          frequency: 'MONTHLY',
+          lineTemplate: [
+            { description: 'Team Pro plan', quantity: 1, unitCents: 19900, taxRateBps: 0 },
+          ],
+          amountCents: 19900,
+          startDate: new Date('2026-09-01'),
+          nextInvoiceDate: new Date('2026-11-01'),
+          createdByUserId: SEED_USERS.superAdmin.id,
+        },
+      });
+      await tx.platformPaymentEvent.create({
+        data: {
+          eventId: 'evt_seed_platform_payment',
+          type: 'payment_intent.succeeded',
+          paymentId: SEED_PLATFORM_IDS.billingPayment,
+          processedAt: new Date(),
+        },
+      });
+    }
     if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.platformEvent } }))) {
       await tx.auditLog.create({
         data: {
@@ -1797,6 +2340,58 @@ async function main() {
       data: { businessId: businesses.lvp },
     }),
   );
+  // The export worker's part (platform scope): the sample export ran and is ready to download.
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    const id = SEED_PLATFORM_IDS.exportJob;
+    await tx.platformExportJob.updateMany({
+      where: { id, status: 'QUEUED' },
+      data: { status: 'RUNNING', startedAt: new Date() },
+    });
+    const finishedAt = new Date();
+    await tx.platformExportJob.updateMany({
+      where: { id, status: 'RUNNING' },
+      data: {
+        status: 'COMPLETED',
+        finishedAt,
+        rowCount: 42,
+        sizeBytes: 6144,
+        s3Key: `platform/exports/${id}/audit-events.csv`,
+        expiresAt: new Date(finishedAt.getTime() + 7 * 86_400_000),
+      },
+    });
+  });
+  // Stage B2: LVP's owner answers from the firm's side (business scope, as himself), and the
+  // scanner clears the screenshot (platform scope).
+  await runInScope(
+    prisma,
+    { kind: 'business', businessId: businesses.lvp, actorUserId: SEED_USERS.lvpOwner.id },
+    async (tx) => {
+      if (
+        await tx.supportTicketMessage.findUnique({
+          where: { id: SEED_PLATFORM_IDS.supportFirmReply },
+        })
+      ) {
+        return;
+      }
+      await tx.supportTicketMessage.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportFirmReply,
+          businessId: businesses.lvp,
+          ticketId: SEED_PLATFORM_IDS.supportTicket,
+          authorUserId: SEED_USERS.lvpOwner.id,
+          authorSide: 'CUSTOMER',
+          body: 'That fixed it, thank you!',
+        },
+      });
+    },
+  );
+  await runInScope(prisma, { kind: 'platform' }, (tx) =>
+    tx.supportTicketAttachment.updateMany({
+      where: { id: SEED_PLATFORM_IDS.supportAttachment, scanStatus: 'PENDING' },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+    }),
+  );
+
   // The activation link Firmivra sent LVP's owner on approval, sent in platform scope (so the
   // database marks it and the Super Admin sees a copy) and already accepted.
   const lvpOwnerMembership = await runInScope(
@@ -1842,6 +2437,68 @@ async function main() {
         },
       });
     }
+    // Stage B4: a normalized event in the firm's log: six failed sign-ins in a row on LVP's
+    // portal for one email, from one address (documentation range).
+    if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.securityEvent } }))) {
+      await tx.auditLog.create({
+        data: {
+          id: SEED_PLATFORM_IDS.securityEvent,
+          businessId: businesses.lvp,
+          action: 'login.failed',
+          entityType: 'login',
+          metadata: { pool: 'clients', attempts: 6 },
+          ip: '203.0.113.24',
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/131.0',
+          category: 'AUTHENTICATION',
+          severity: 'MEDIUM',
+          outcome: 'FAILURE',
+          actorType: 'ANONYMOUS',
+          authMethod: 'password',
+          targetLabel: SEED_USERS.lvpClient.email,
+          subjectUserId: SEED_USERS.lvpClient.id,
+          detectionSource: 'sign_in',
+        },
+      });
+    }
+  });
+  // Stage B4: the rules engine raises an alert on it (platform scope); the Super Admin takes it,
+  // acknowledges it and notes what they found (admin scope).
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    if (!(await tx.securityAlert.findUnique({ where: { id: SEED_PLATFORM_IDS.securityAlert } }))) {
+      await tx.securityAlert.create({
+        data: {
+          id: SEED_PLATFORM_IDS.securityAlert,
+          auditLogId: SEED_PLATFORM_IDS.securityEvent,
+          businessId: businesses.lvp,
+          ruleId: 'login.failed_burst',
+          severity: 'HIGH',
+          title: 'Repeated failed sign-ins on a client account',
+          summary: 'Six failed sign-ins in 4 minutes for one client of LVP from one IP address.',
+          riskScore: 72,
+          eventKey: `login.failed_burst:${SEED_PLATFORM_IDS.securityEvent}`,
+        },
+      });
+    }
+  });
+  await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
+    await tx.securityAlert.updateMany({
+      where: { id: SEED_PLATFORM_IDS.securityAlert, status: 'OPEN' },
+      data: { status: 'ACKNOWLEDGED', assignedToUserId: SEED_USERS.superAdmin.id },
+    });
+    if (
+      !(await tx.auditInvestigationNote.findUnique({
+        where: { id: SEED_PLATFORM_IDS.securityNote },
+      }))
+    ) {
+      await tx.auditInvestigationNote.create({
+        data: {
+          id: SEED_PLATFORM_IDS.securityNote,
+          auditLogId: SEED_PLATFORM_IDS.securityEvent,
+          authorUserId: SEED_USERS.superAdmin.id,
+          body: 'The client confirmed they forgot their password and reset it. No other activity from this address.',
+        },
+      });
+    }
   });
 
   // The client's private note: written as the client, the only one the database shows it to.
@@ -1873,6 +2530,11 @@ async function main() {
       });
     },
   );
+
+  // Stage B7: Firmivra's system settings: a secret reference, the logo, two feature flags with
+  // LVP's override, a legal hold, a retention dry run, a maintenance window, a registered job and
+  // the defaults LVP was provisioned with.
+  await seedSystemSettings(businesses.lvp);
 
   // INV-1002, part paid by a check the owner recorded: the database takes an offline payment only
   // from the acting Owner or Admin, on an OPEN invoice, within the balance due.
@@ -1989,10 +2651,247 @@ async function main() {
     seedR37(tx, businesses.lvp),
   );
 
+  // Stage B6: Firmivra's communications. The Super Admin welcomes LVP's owner by email (admin
+  // scope), the dispatcher sends it and records the reply (platform scope), and the team keeps an
+  // internal note; an onboarding template with its logo, an audience and a sent broadcast.
+  await seedCommunications(businesses.lvp);
+
   // R0 stage A: Firmivra's own org chart and the plan ladder (platform reference data, not
   // tenant data). No subscription rows: no backfill for existing firms (Rasel's change C).
   await seedPlatformTeam(prisma);
+  // Stage B9: a saved report and today's rollups for LVP.
+  await seedReports(businesses.lvp);
   await seedPlatformPlans(prisma);
+  // Stage B8: Firmivra's integrations, after the plan ladder (a catalog entry is on Team Pro).
+  await seedIntegrations(businesses.lvp);
+
+  // Stage B5: Firmivra's sales pipeline (admin scope, as the Super Admin). LVP is the won deal,
+  // now an active client linked to its application and firm; a prospect firm is being worked
+  // toward a demo. The database writes the stage and assignment history.
+  await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
+    if (await tx.salesOpportunity.findUnique({ where: { id: SEED_PLATFORM_IDS.salesLvpDeal } })) {
+      return;
+    }
+    const pipeline = await tx.salesPipeline.findUniqueOrThrow({
+      where: { systemKey: 'firmivra_default' },
+      include: { stages: true },
+    });
+    const stage = (key: string) => pipeline.stages.find((s) => s.systemKey === key)!.id;
+    const teamPro = await tx.platformPlan.findUnique({ where: { code: 'TEAM_PRO' } });
+    await tx.salesContact.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesLvpContact,
+        name: SEED_USERS.lvpOwner.name,
+        email: SEED_USERS.lvpOwner.email,
+        companyName: SEED_BUSINESSES.lvp.name,
+        jobTitle: 'Owner',
+      },
+    });
+    await tx.salesOpportunity.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesLvpDeal,
+        pipelineId: pipeline.id,
+        stageId: stage('new_lead'),
+        contactId: SEED_PLATFORM_IDS.salesLvpContact,
+        title: SEED_BUSINESSES.lvp.name,
+        companyName: SEED_BUSINESSES.lvp.name,
+        source: 'REFERRAL',
+        planId: teamPro?.id ?? null,
+        valueCents: 238_800,
+        assignedToUserId: SEED_USERS.superAdmin.id,
+      },
+    });
+    for (const key of ['contacted', 'qualified', 'appointment_set', 'active_client']) {
+      await tx.salesOpportunity.update({
+        where: { id: SEED_PLATFORM_IDS.salesLvpDeal },
+        data: {
+          stageId: stage(key),
+          ...(key === 'active_client'
+            ? {
+                firmApplicationId: SEED_PLATFORM_IDS.lvpApplication,
+                linkedBusinessId: businesses.lvp,
+              }
+            : {}),
+        },
+      });
+    }
+    await tx.salesContact.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesProspectContact,
+        name: 'Marisol Ortega',
+        email: 'marisol@ortega-cpa.test',
+        phone: '(512) 555-0147',
+        companyName: 'Ortega CPA & Advisory',
+        jobTitle: 'Managing Partner',
+      },
+    });
+    await tx.salesOpportunity.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesProspectDeal,
+        pipelineId: pipeline.id,
+        stageId: stage('new_lead'),
+        contactId: SEED_PLATFORM_IDS.salesProspectContact,
+        title: 'Ortega CPA & Advisory',
+        companyName: 'Ortega CPA & Advisory',
+        source: 'WEBSITE',
+        planId: teamPro?.id ?? null,
+        valueCents: 358_800,
+        assignedToUserId: SEED_USERS.superAdmin.id,
+      },
+    });
+    await tx.salesActivity.create({
+      data: {
+        opportunityId: SEED_PLATFORM_IDS.salesProspectDeal,
+        kind: 'CALL',
+        direction: 'OUTBOUND',
+        outcome: 'CONNECTED',
+        occurredAt: new Date(Date.now() - 2 * 86_400_000),
+        summary:
+          'Five preparers, moving off spreadsheets before the extension season. Wants a demo.',
+      },
+    });
+    await tx.salesOpportunity.update({
+      where: { id: SEED_PLATFORM_IDS.salesProspectDeal },
+      data: { stageId: stage('appointment_set') },
+    });
+    await tx.salesFollowUp.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesDemo,
+        opportunityId: SEED_PLATFORM_IDS.salesProspectDeal,
+        kind: 'DEMO',
+        title: 'Firmivra demo for Ortega CPA',
+        dueAt: new Date(Date.now() + 3 * 86_400_000),
+        endsAt: new Date(Date.now() + 3 * 86_400_000 + 45 * 60_000),
+        location: 'Video call',
+        assignedToUserId: SEED_USERS.superAdmin.id,
+      },
+    });
+    await tx.salesNote.create({
+      data: {
+        opportunityId: SEED_PLATFORM_IDS.salesProspectDeal,
+        authorUserId: SEED_USERS.superAdmin.id,
+        body: 'Ask about their e-signature volume; they file about 900 returns a year.',
+      },
+    });
+    await tx.salesTag.create({
+      data: { id: SEED_PLATFORM_IDS.salesTag, name: 'Tax season', colorKey: 'accent-amber' },
+    });
+    await tx.salesOpportunityTag.create({
+      data: {
+        opportunityId: SEED_PLATFORM_IDS.salesProspectDeal,
+        tagId: SEED_PLATFORM_IDS.salesTag,
+      },
+    });
+  });
+
+  // Stage D1: the Sales Center's goals (this month's new leads for the company, this quarter's won
+  // deals for the Super Admin) and a finished lead import: the team uploads it (admin scope), the
+  // import job runs it (platform scope). One row is a new lead; one matches the prospect above by
+  // email and is skipped. The database keeps the batch's counts.
+  await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
+    if (await tx.salesTarget.findUnique({ where: { id: SEED_PLATFORM_IDS.salesTargetCompany } })) {
+      return;
+    }
+    const today = new Date();
+    const year = today.getUTCFullYear();
+    const month = today.getUTCMonth();
+    const quarter = month - (month % 3);
+    await tx.salesTarget.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesTargetCompany,
+        name: 'New leads this month',
+        scope: 'COMPANY',
+        metric: 'NEW_LEADS',
+        targetValue: 20,
+        periodType: 'MONTH',
+        periodStart: new Date(Date.UTC(year, month, 1)),
+        periodEnd: new Date(Date.UTC(year, month + 1, 0)),
+      },
+    });
+    await tx.salesTarget.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesTargetRep,
+        name: 'Won deals this quarter',
+        scope: 'REP',
+        userId: SEED_USERS.superAdmin.id,
+        metric: 'WON_DEALS',
+        targetValue: 3,
+        periodType: 'QUARTER',
+        periodStart: new Date(Date.UTC(year, quarter, 1)),
+        periodEnd: new Date(Date.UTC(year, quarter + 3, 0)),
+        note: 'Two of the three from the tax-season webinar list.',
+      },
+    });
+    const pipeline = await tx.salesPipeline.findUniqueOrThrow({
+      where: { systemKey: 'firmivra_default' },
+    });
+    await tx.salesLeadImport.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesImport,
+        fileName: 'webinar-signups-sample.csv',
+        fileSizeBytes: 2048,
+        s3Key: `platform/sales-imports/${SEED_PLATFORM_IDS.salesImport}.csv`,
+        pipelineId: pipeline.id,
+        defaultSource: 'EVENT',
+        assignedToUserId: SEED_USERS.superAdmin.id,
+        columnMapping: { 'Full Name': 'name', Email: 'email', Firm: 'companyName' },
+      },
+    });
+  });
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    const batch = await tx.salesLeadImport.findUniqueOrThrow({
+      where: { id: SEED_PLATFORM_IDS.salesImport },
+    });
+    if (batch.status !== 'PENDING') return;
+    const stage = await tx.salesPipelineStage.findFirstOrThrow({
+      where: { pipelineId: batch.pipelineId, systemKey: 'new_lead' },
+    });
+    await tx.salesLeadImport.update({
+      where: { id: batch.id },
+      data: { status: 'PROCESSING', totalRows: 2 },
+    });
+    // The stage history records these as an import.
+    await tx.$queryRaw`SELECT set_config('app.sales_change_source', 'IMPORT', true)`;
+    await tx.salesContact.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesImportContact,
+        name: 'Devon Achebe',
+        email: 'devon@achebe-tax.test',
+        companyName: 'Achebe Tax Group',
+      },
+    });
+    await tx.salesOpportunity.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesImportDeal,
+        pipelineId: batch.pipelineId,
+        stageId: stage.id,
+        contactId: SEED_PLATFORM_IDS.salesImportContact,
+        title: 'Achebe Tax Group',
+        companyName: 'Achebe Tax Group',
+        source: 'EVENT',
+        assignedToUserId: SEED_USERS.superAdmin.id,
+      },
+    });
+    await tx.salesLeadImportRow.create({
+      data: {
+        importId: batch.id,
+        rowNumber: 1,
+        outcome: 'IMPORTED',
+        contactId: SEED_PLATFORM_IDS.salesImportContact,
+        opportunityId: SEED_PLATFORM_IDS.salesImportDeal,
+      },
+    });
+    await tx.salesLeadImportRow.create({
+      data: {
+        importId: batch.id,
+        rowNumber: 2,
+        outcome: 'DUPLICATE',
+        contactId: SEED_PLATFORM_IDS.salesProspectContact,
+        matchedBy: 'EMAIL',
+      },
+    });
+    await tx.salesLeadImport.update({ where: { id: batch.id }, data: { status: 'COMPLETED' } });
+  });
 
   console.warn(
     `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, intake agreements, a signed Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request, sample audit events, Firm Sign (LVP: on, with a sent request; Firm B: off, one draft), the platform team hierarchy (13 departments, the CEO mapped from Super Admin) and the 6-plan ladder.`,

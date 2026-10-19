@@ -6,7 +6,7 @@ import { CalendarDays, Check, Clock, type LucideIcon, X } from 'lucide-react';
 
 /** The card's tint, and the icon circle's: tinted for the first two, solid for the last two. */
 const tones = {
-  info: ['bg-info-soft text-firm-primary', 'bg-surface text-firm-primary'],
+  info: ['bg-info-soft text-firm-text', 'bg-surface text-firm-text'],
   warning: ['bg-warning-soft text-warning', 'bg-surface'],
   success: ['bg-success-soft', 'bg-success text-on-action'],
   danger: ['bg-danger-soft', 'bg-danger text-on-action'],

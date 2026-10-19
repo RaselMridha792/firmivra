@@ -93,7 +93,7 @@ export function UpcomingAppointments({
         <button
           type="button"
           onClick={onViewAll}
-          className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold whitespace-nowrap text-firm-primary hover:underline"
+          className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold whitespace-nowrap text-firm-text hover:underline"
         >
           View All <ArrowRight aria-hidden className="size-4" />
         </button>
@@ -182,7 +182,7 @@ function AppointmentRow({
         <div className="flex items-start justify-between gap-2">
           <p className="font-semibold text-heading">{item.type?.name ?? 'Appointment'}</p>
           <div className="flex shrink-0 items-center gap-1">
-            <span className={status.tone === 'info' ? '[&>span]:text-firm-primary' : undefined}>
+            <span className={status.tone === 'info' ? '[&>span]:text-firm-text' : undefined}>
               <Badge tone={status.tone}>{status.label}</Badge>
             </span>
             {menu}
@@ -218,7 +218,7 @@ function Place({ item, join }: { item: MyAppointment; join: boolean }) {
         <span className="text-muted"> · with {item.staffName}</span>
       </span>
       {link && join ? (
-        <a href={link} target="_blank" rel="noreferrer" className="break-all text-firm-primary">
+        <a href={link} target="_blank" rel="noreferrer" className="break-all text-firm-text">
           Join link
         </a>
       ) : null}

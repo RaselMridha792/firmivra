@@ -52,6 +52,20 @@ describe('row-level security coverage', () => {
       'client_status_history',
       'platform_user_signups',
       'platform_owner_invites',
+      // Only support_next_ticket_number() (owner-run) moves the ticket counter.
+      'support_ticket_counters',
+      // Only platform_billing_next_number() (owner-run) moves the document counters.
+      'platform_billing_counters',
+      // One row, inserted by its migration; the app only saves it.
+      'platform_security_policy',
+      // Written only by the owner-run sales_opportunities_history() trigger.
+      'sales_stage_history',
+      'sales_assignment_history',
+      // One row, inserted by its migration; the app only saves it.
+      'sales_attention_settings',
+      // Sections and retention categories are inserted by their migration; the app only saves them.
+      'platform_settings',
+      'platform_retention_policies',
     ];
     expect(app.filter((r) => !r.select).map((r) => r.table)).toEqual([]);
     expect(app.filter((r) => !r.insert && !readOnly.includes(r.table)).map((r) => r.table)).toEqual(
@@ -104,7 +118,45 @@ describe('row-level security coverage', () => {
                    ('firm_agreement_versions', 'UPDATE'), ('firm_agreement_versions', 'DELETE'),
                    ('intake_signatures', 'UPDATE'), ('intake_signatures', 'DELETE'),
                    ('intake_signature_agreements', 'UPDATE'),
-                   ('intake_signature_agreements', 'DELETE')) AS p(tbl, privilege)`);
+                   ('intake_signature_agreements', 'DELETE'),
+                   ('security_alerts', 'DELETE'), ('audit_investigation_notes', 'DELETE'),
+                   ('platform_security_policy', 'INSERT'),
+                   ('platform_security_policy', 'DELETE'),
+                   ('sales_pipelines', 'DELETE'), ('sales_opportunities', 'DELETE'),
+                   ('sales_follow_ups', 'DELETE'),
+                   ('sales_activities', 'UPDATE'), ('sales_activities', 'DELETE'),
+                   ('sales_stage_history', 'INSERT'), ('sales_stage_history', 'UPDATE'),
+                   ('sales_stage_history', 'DELETE'),
+                   ('sales_assignment_history', 'INSERT'), ('sales_assignment_history', 'UPDATE'),
+                   ('sales_assignment_history', 'DELETE'),
+                   ('sales_attention_settings', 'INSERT'),
+                   ('sales_attention_settings', 'DELETE'),
+                   ('comm_conversations', 'DELETE'), ('comm_templates', 'DELETE'),
+                   ('comm_template_categories', 'DELETE'), ('comm_media', 'DELETE'),
+                   ('comm_segments', 'DELETE'), ('comm_broadcast_recipients', 'DELETE'),
+                   ('comm_message_mentions', 'UPDATE'), ('comm_message_mentions', 'DELETE'),
+                   ('comm_conversation_reads', 'DELETE'),
+                   ('platform_settings', 'INSERT'), ('platform_settings', 'DELETE'),
+                   ('platform_retention_policies', 'INSERT'), ('platform_retention_policies', 'DELETE'),
+                   ('platform_brand_assets', 'DELETE'), ('platform_legal_holds', 'DELETE'),
+                   ('platform_retention_runs', 'DELETE'), ('platform_maintenance_windows', 'DELETE'),
+                   ('platform_job_controls', 'DELETE'),
+                   ('platform_default_sets', 'UPDATE'), ('platform_default_sets', 'DELETE'),
+                   ('platform_default_set_applications', 'UPDATE'),
+                   ('platform_default_set_applications', 'DELETE'),
+                   ('platform_integrations', 'DELETE'), ('platform_integration_runs', 'DELETE'),
+                   ('platform_integration_logs', 'UPDATE'), ('platform_integration_logs', 'DELETE'),
+                   ('platform_integration_catalog', 'DELETE'), ('platform_api_keys', 'DELETE'),
+                   ('platform_webhook_endpoints', 'DELETE'), ('platform_webhook_deliveries', 'DELETE'),
+                   ('platform_integration_usage_daily', 'DELETE'),
+                   ('platform_feature_usage_daily', 'DELETE'),
+                   ('platform_firm_metrics_daily', 'DELETE'),
+                   ('bookkeeping_transactions', 'DELETE'), ('bookkeeping_refunds', 'DELETE'),
+                   ('bookkeeping_settlements', 'DELETE'), ('bookkeeping_report_versions', 'DELETE'),
+                   ('bookkeeping_terms', 'DELETE'), ('bookkeeping_terms_events', 'UPDATE'),
+                   ('bookkeeping_terms_events', 'DELETE'),
+                   ('client_compliance_facts', 'DELETE'),
+                   ('client_sales_tax_registrations', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 

@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { MessagesInbox } from './_components/messages-inbox';
+import { MessagesScreen } from './_components/messages-screen';
 
 export const metadata: Metadata = { title: 'Messages' };
 
 export default function MessagesPage() {
-  return <MessagesInbox />;
+  return <MessagesScreen />;
 }

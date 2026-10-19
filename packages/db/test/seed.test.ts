@@ -47,7 +47,18 @@ describe('seed', () => {
     // platform_firm_subscriptions: no backfill for existing firms (R0 stage A, Rasel's change C);
     // a missing row means no plan limits until stage B or the demo seed adds one. The seed also
     // gives the mapped CEO no individual permission override, so that table stays empty too.
-    const knownEmpty = ['platform_firm_subscriptions', 'platform_member_permission_overrides'];
+    const knownEmpty = [
+      'platform_firm_subscriptions',
+      'platform_member_permission_overrides',
+      // Stage B3: no subscription, so no subscription history (no backfill, change C).
+      'platform_subscription_changes',
+      // Stage C1: a settlement's items are the processor's own payments, refunds and fees, which come
+      // with a processor connection; the sample client's settlement is matched to its bank deposit only.
+      'bookkeeping_settlement_items',
+      // Staff import previews live for an hour between an upload and its confirm; a seeded one
+      // would be gone (no longer read) within the hour.
+      'staff_import_previews',
+    ];
     const empty: string[] = [];
     for (const t of tables) {
       const sql = t.tenant
