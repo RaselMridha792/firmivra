@@ -259,21 +259,21 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
    - Then the screens: every widget built, empty states rather than fake data, three-state screenshots at 1440 px, and `docs/design-match.md`.
 3. **No more demo seed groups.** The demo data gets replaced later, and nobody reseeds dev now (R1 has been told).
 
-**Open PRs (Oct 19, ~18:00Z):**
-- **#910: advisory reports endpoint** (API; e2e 6).
-- **#915: Business Advisory financial analysis, action plans, resources and reports tabs.**
-  - The spec has 10 tests.
-  - Mock advisors are now the team mock's Sam Staff and Adam Admin, so the advisor filters work in mock mode.
+**Open PRs (Oct 20):**
+- **#929: Business Advisory plan wizard, five steps.**
+  - The spec has 13 tests.
+  - The Review step checks the finalize rules and lists "Still needed".
+  - When the plan cannot load, each step keeps its section frames.
 - **#875:** this handoff.
-- **Merged today:**
+- **Merged since Oct 19:**
   - #868, #871, #883, #885 (D4) and #899 (MRR)
-  - #888 (overview), #897 (reports contract) and #908 (clients, plans and goals tabs)
+  - #888, #897, #908, #910 (reports API) and #915 (batch-2 tabs)
 
-**Next:**
-1. The plan wizard (`plans/new` and `plans/[planId]/edit/{,assessment,goals,action-plan,review}`, design 2).
-   - Its Review step shows the PLAN_NOT_READY details (`errorText` in `ba-shared`) and checks the same rules before finalizing.
-2. Then the client detail (11 tabs, design 3).
-3. Branch each from main once the previous PR merges, or stack on it and merge main later; take our side only when main's copy is unchanged since the branch point.
+**Next:** the client detail (`clients/[clientId]` and its 10 tabs, design 3 `client-advisory-detail-growth-plan.jpg`; guide §6–7).
+- The header card, the 11 tabs and the KPI row, including the Business Health Score with its factors and data freshness.
+- The Overview cards: Business Information, Goals & Milestones, Upcoming Meeting, Financial Snapshot, Top Recommendations, Recent Meeting Notes, Action Items, Documents and the quote card.
+- Documents, Notes and the portal read other modules (`api.documents`, `api.clientNotes`).
+- **Contract gap from #929:** the plan profile has no "How did you hear about us?" or plan notes (design 2's Additional Information card).
 
 **Business Advisory (item 2), started Oct 19:**
 - The API and contract already exist on main (R55, `de509806`: `apps/api/src/advisory/`, `packages/types/src/advisory/`).
