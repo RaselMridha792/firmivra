@@ -40,7 +40,8 @@ method names and most shapes; B3 sets what is stored. Where they differ:
     change is 422 NOT_SUPPORTED_YET until the database stores them.
 14. **Sending**: a document's email goes through NotifyService once Billing has its templates (R6).
     Until then sending issues the document and records `send_error`, so the page shows the send
-    as failed, not as sent.
+    as failed, not as sent. Send Receipt and Send Credit Note only email, so they come with the
+    templates (no route until then).
 15. **No mock** in `api.ts`: the screens keep `mocks/admin-billing.ts` until they switch.
 
 ## Needs from others

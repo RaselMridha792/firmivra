@@ -172,9 +172,6 @@ export function createAdminBillingClient(request: ApiRequest) {
         `${payment(id)}/refunds`,
         post(parseInput(RefundBillingPaymentRequest, body)),
       ),
-    sendReceipt: async (id: string): Promise<BillingPayment> =>
-      request(BillingPayment, `${payment(id)}/receipt/send`, post()),
-
     // Credit notes
     creditNotes: async (query: BillingCreditNotesQuery = {}): Promise<BillingCreditNotePage> =>
       request(
@@ -226,8 +223,6 @@ export function createAdminBillingClient(request: ApiRequest) {
         `${credit(id)}/refund`,
         post(parseInput(RefundBillingCreditRequest, body)),
       ),
-    sendCreditNote: async (id: string): Promise<BillingCreditNote> =>
-      request(BillingCreditNote, `${credit(id)}/send`, post()),
     voidCreditNote: async (id: string, body: VoidBillingRequest): Promise<BillingCreditNote> =>
       request(BillingCreditNote, `${credit(id)}/void`, post(parseInput(VoidBillingRequest, body))),
 
