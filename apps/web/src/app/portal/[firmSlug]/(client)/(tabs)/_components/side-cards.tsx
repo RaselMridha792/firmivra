@@ -262,7 +262,10 @@ const quickLinks = (slug: string): [LucideIcon, string, string, string][] => [
   [UserRound, 'Update My Profile', 'Keep your information current.', `/${slug}/profile`],
 ];
 
-/** "Quick Links" under the folder tabs. */
+/**
+ * "Quick Links" under the folder tabs: icons in the firm's accent (Intake form tab.png, orange) or,
+ * on the blue pages, its button colour (Messages and notes.png, R61).
+ */
 export function QuickLinks({
   slug,
   blueAccents = false,
@@ -292,7 +295,7 @@ export function QuickLinks({
             >
               <Icon
                 aria-hidden
-                className={`size-8 shrink-0 ${blueAccents ? 'text-firm-text' : 'text-firm-accent'}`}
+                className={`size-8 shrink-0 ${blueAccents ? 'text-action' : 'text-firm-accent'}`}
               />
               <span className={businessLayout ? 'min-w-0' : 'min-w-0 flex-1'}>
                 <span className="block font-semibold text-heading">{title}</span>
@@ -303,7 +306,7 @@ export function QuickLinks({
               {!businessLayout ? (
                 <ChevronRight
                   aria-hidden
-                  className={`size-5 shrink-0 ${blueAccents ? 'text-firm-text' : 'text-firm-accent'}`}
+                  className={`size-5 shrink-0 ${blueAccents ? 'text-action' : 'text-firm-accent'}`}
                 />
               ) : null}
             </Link>

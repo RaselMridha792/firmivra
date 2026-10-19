@@ -20,12 +20,12 @@ import { Button, Modal } from '@firmivra/ui';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Header } from '../../../../components/app-shell/header';
-import { isActive } from '../../../../components/app-shell/types';
 import lvpLogo from './_components/lvp-logo.png';
 import { usePortal } from '../layout';
 import { PortalFooter } from '../(public)/_components/portal-footer';
 import { taglineWords } from '../(public)/_components/tagline';
 import { PortalBell } from './_components/portal-bell';
+import { menuState } from './_components/portal-menu';
 import type { NavSections } from '../../../../components/app-shell/types';
 import { SignedIn, useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
@@ -62,6 +62,17 @@ const sections = (
     { label: 'My Profile', icon: UserRound, href: `/${slug}/profile` },
   ],
 ];
+
+/**
+ * A menu line by its state on the page (./_components/portal-menu.ts): the page's own line in the
+ * firm's button colour (the designs' royal blue; the accent when the firm sets none), a related
+ * line softly.
+ */
+const MENU_LINE = {
+  active: 'bg-action text-on-action',
+  related: 'bg-navigation-hover',
+  plain: 'hover:bg-navigation-hover',
+} as const;
 
 /**
  * Every signed-in portal page: the sign-in check, then the client's firm (GET /portal/{slug}/business;
@@ -165,24 +176,29 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
       className="flex h-full flex-col bg-firm-sidebar p-4 text-on-firm-sidebar"
     >
       {inDrawer ? <p className="text-xl font-bold">{business.name}</p> : null}
-      {nav.flat().map(({ label, icon: Icon, href, badge }) => (
-        <Link
-          key={label}
-          href={href ?? `/${business.slug}/home`}
-          onClick={() => setDrawer(false)}
-          aria-current={href && isActive(pathname, href) ? 'page' : undefined}
-          className={`flex items-center gap-4 rounded-control px-4 py-3 text-base ${href && isActive(pathname, href) ? 'bg-firm-accent' : 'hover:bg-navigation-hover'}`}
-        >
-          <Icon aria-hidden className="size-6 shrink-0" />
-          <span className="flex-1">{label}</span>
-          {badge ? (
-            <span className="flex size-6 items-center justify-center rounded-full bg-firm-accent text-xs font-bold text-on-action">
-              {badge}
-              <span className="sr-only"> unread</span>
-            </span>
-          ) : null}
-        </Link>
-      ))}
+      {nav.flat().map(({ label, icon: Icon, href, badge }) => {
+        const state = href ? menuState(pathname, slug, href) : undefined;
+        return (
+          <Link
+            key={label}
+            href={href ?? `/${business.slug}/home`}
+            onClick={() => setDrawer(false)}
+            aria-current={state === 'active' ? 'page' : undefined}
+            className={`flex items-center gap-4 rounded-control px-4 py-3 text-base ${MENU_LINE[state ?? 'plain']}`}
+          >
+            <Icon aria-hidden className="size-6 shrink-0" />
+            <span className="flex-1">{label}</span>
+            {badge ? (
+              <span
+                className={`flex size-6 items-center justify-center rounded-full text-xs font-bold ${state === 'active' ? 'bg-on-action text-action' : 'bg-action text-on-action'}`}
+              >
+                {badge}
+                <span className="sr-only"> unread</span>
+              </span>
+            ) : null}
+          </Link>
+        );
+      })}
       <hr className="my-4 border-navigation-hover" />
       <Button
         variant="ghost"
