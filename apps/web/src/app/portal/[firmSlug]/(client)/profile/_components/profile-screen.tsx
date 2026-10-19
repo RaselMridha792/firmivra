@@ -308,7 +308,7 @@ function SectionHeading({
   return (
     <div className="flex items-center gap-3">
       <span
-        className={`grid size-12 shrink-0 place-items-center rounded-full ${danger ? 'bg-surface text-danger' : 'bg-folder-surface text-firm-text'}`}
+        className={`grid size-12 shrink-0 place-items-center rounded-full ${danger ? 'bg-danger/15 text-danger' : 'bg-folder-surface text-firm-text'}`}
       >
         <Icon aria-hidden className="size-7" />
       </span>

@@ -1,7 +1,7 @@
 'use client';
 
 import { notificationLink, type NotificationItem } from '@firmivra/types';
-import { Card } from '@firmivra/ui';
+import { Card, portalIconTones } from '@firmivra/ui';
 import {
   ArrowRight,
   BriefcaseBusiness,
@@ -29,6 +29,7 @@ const when = new Intl.DateTimeFormat('en-US', {
 
 type ActivityGlyph =
   | 'file'
+  | 'return'
   | 'document'
   | 'intake'
   | 'message'
@@ -39,30 +40,35 @@ type ActivityGlyph =
   | 'person'
   | 'account';
 
+/**
+ * Each event's icon and colour. Intake form tab.png and Messages and notes.png colour four of them
+ * (R61): an upload green, a message blue, a submitted form magenta, a tax return orange.
+ */
 function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: string } {
   if (
     item.target.kind === 'message_thread' &&
     item.title.toLocaleLowerCase().includes('new message')
   ) {
-    return { glyph: 'file', color: 'text-firm-text' };
+    return { glyph: 'file', color: portalIconTones.blue };
   }
 
   switch (item.target.kind) {
     case 'document':
     case 'document_request':
-      return { glyph: 'document', color: 'text-success' };
+      return { glyph: 'document', color: portalIconTones.green };
     case 'intake':
-      return { glyph: 'intake', color: 'text-purple' };
+      return { glyph: 'intake', color: portalIconTones.magenta };
     case 'message_thread':
-      return { glyph: 'message', color: 'text-firm-text' };
+      return { glyph: 'message', color: portalIconTones.blue };
     case 'client_note_reminder':
       return { glyph: 'note', color: 'text-firm-text' };
     case 'appointment':
       return { glyph: 'appointment', color: 'text-firm-text' };
     case 'invoice':
       return { glyph: 'invoice', color: 'text-success' };
-    case 'engagement':
     case 'tax_return':
+      return { glyph: 'return', color: portalIconTones.orange };
+    case 'engagement':
       return { glyph: 'service', color: 'text-firm-text' };
     case 'client_account':
     case 'membership':
@@ -74,10 +80,11 @@ function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: st
 
 function ActivityIcon({ item }: { item: NotificationItem }) {
   const { glyph, color } = activityIcon(item);
-  const className = `mt-0.5 size-5 shrink-0 ${color}`;
+  const className = `mt-0.5 size-7 shrink-0 ${color}`;
 
   switch (glyph) {
     case 'file':
+    case 'return':
       return <FileText aria-hidden className={className} />;
     case 'document':
       return <CloudUpload aria-hidden className={className} />;
