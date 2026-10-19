@@ -177,6 +177,8 @@ export type CreateAdminCommMediaRequest = z.input<typeof CreateAdminCommMediaReq
 export const AdminCommMediaTicket = z.object({
   media: AdminCommMedia,
   uploadUrl: z.string(),
+  /** Send these with the PUT (the content type and checksum are signed). */
+  headers: z.record(z.string(), z.string()),
   expiresAt: DateTime,
 });
 export type AdminCommMediaTicket = z.infer<typeof AdminCommMediaTicket>;

@@ -398,6 +398,7 @@ export function createAdminBroadcastsMock(): AdminBroadcastsClient {
             createdAt: at.toISOString(),
           },
           uploadUrl: 'mock:upload',
+          headers: { 'content-type': b.contentType },
           expiresAt: new Date(at.getTime() + 15 * 60_000).toISOString(),
         };
       },
