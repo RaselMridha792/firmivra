@@ -63,6 +63,7 @@ import {
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { clientFixtures, mockStaff } from './clients';
+import { teamFixtures } from './team';
 
 /**
  * Mock data for `api.advisory` (R55 contract, Business Advisory & Development). Synthetic businesses
@@ -460,7 +461,12 @@ export function createAdvisoryMock({
   };
   const member = (userId: string | null | undefined): MemberRef | null => {
     if (userId == null) return null;
-    const found = MEMBERS.find((m) => m.userId === userId);
+    const found =
+      MEMBERS.find((m) => m.userId === userId) ??
+      teamFixtures()
+        .filter((m) => m.status === 'ACTIVE')
+        .map((m) => ({ userId: m.user.id, name: m.user.name }))
+        .find((m) => m.userId === userId);
     if (!found) throw fail(409, 'NOT_A_MEMBER', 'That person is not an active member of the firm');
     return found;
   };
@@ -947,7 +953,7 @@ export function createAdvisoryMock({
         businessName: cl.businessName,
         meetingType: type,
         joinUrl: video ? `https://meet.example.test/advisory-${n}` : null,
-        location: video ? 'Video meeting' : 'Firm office',
+        location: video ? null : 'Firm office',
         advisor: cl.advisor,
         advisoryClientId: cl.id,
       });
