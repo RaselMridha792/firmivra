@@ -223,6 +223,8 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 - Oct 19, demo seed stage 5, Tasks group (Rasel's Oct 19 list, item 1), branch `rasel/R0-demo-stage5-tasks` from main: `seed-demo-tasks.ts` fills task types (on every demo task), templates, two recurring series with their due dates (made, upcoming, skipped), checklists, collaborators, reminders, attachments, and tags on clients and leads (11 tables). 214 firm tables had no `demo` rows before it (the handoff's 206 predates newer tables); 203 after. Next groups, in Scrum's order: Payroll, Compliance, Templates, Bookkeeping, Communications, Automations, Services and pricing, Tax returns, Audit and logins.
 
+- Oct 19, demo seed stage 5, Automations group, branch `rasel/R0-demo-stage5-automations` from main: `seed-demo-automations.ts` fills the 6 automation tables (settings, rules and versions, runs and action executions, templates), patterned on LVP's automation seed.
+
 - Oct 19, demo seed stage 5, Payroll group, branch `rasel/R0-demo-stage5-payroll-stacked` (stacked on the Tasks group's #834, so the shared lines merge cleanly): `seed-demo-payroll.ts` fills the 11 payroll tables for the four payroll clients: rosters, completed and current runs (lines, issues, every workflow step the screens show), filings, registers, year-ends, settings. 193 of 277 firm tables without `demo` rows after it (one is `staff_import_previews`, empty by design).
 
 ## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)

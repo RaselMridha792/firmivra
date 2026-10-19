@@ -1,6 +1,7 @@
 // The whole demo seed, in order, as one side-effect-free function: the CLI (seed-demo.ts) and the
 // round-trip test both run exactly this. A later stage adds its module call here.
 import type { createPrismaClient } from '../src/client.js';
+import { seedDemoAutomations } from './seed-demo-automations.js';
 import { seedDemoBilling } from './seed-demo-billing.js';
 import { seedDemoBookkeeping } from './seed-demo-bookkeeping.js';
 import { seedDemoCalendar } from './seed-demo-calendar.js';
@@ -41,6 +42,8 @@ export async function seedDemo(prisma: Prisma): Promise<DemoOrgResult> {
   await seedDemoCompliance(prisma, org);
   await seedDemoEsign(prisma, org);
   await seedDemoSignups(prisma, org);
+  // Stage 5, work modules: Automations (rules, versions, run history, templates, settings).
+  await seedDemoAutomations(prisma, org);
   // Portal gaps from the Oct 18 click-through: tax-year statuses and the firm's content.
   await seedDemoPortal(prisma, org);
   // Stage 5, work modules: Tasks (after documents and leads: attachments and lead tags).
