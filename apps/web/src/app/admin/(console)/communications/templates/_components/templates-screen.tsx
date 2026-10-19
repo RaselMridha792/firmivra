@@ -26,113 +26,133 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { PageState } from '../../../../../../components/page-state';
-import { useApiQuery } from '../../../../../../lib/query';
+import { useEffect, useState } from 'react';
 import {
-  listCommunicationTemplates,
-  templateCategories,
-  type CommunicationTemplate,
-} from '../../../../../../mocks/admin-communications-templates';
+  ADMIN_COMM_ERRORS,
+  type CommTemplateStatus,
+  type ListAdminCommTemplatesQuery,
+} from '@firmivra/types';
+import { useQueryClient } from '@tanstack/react-query';
+import { api } from '../../../../../../lib/api';
+import { errorMessage } from '../../../../../../lib/errors';
+import { useApiQuery } from '../../../../../../lib/query';
 import {
   CategoryBadge,
   TemplateChannel,
   TemplateMessage,
   TemplatePanels,
   templateDate,
+  rowOf,
+  type TemplateRow,
 } from './template-panels';
 
 const basePath = '/communications/templates';
 const pageSize = 10;
 
+const TEMPLATES = ['admin-communications', 'templates'] as const;
+const statusOptions: { value: 'ALL' | CommTemplateStatus; label: string }[] = [
+  { value: 'ALL', label: 'All' },
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'INACTIVE', label: 'Inactive' },
+  { value: 'ARCHIVED', label: 'Archived' },
+];
+
 export function TemplatesScreen() {
   const router = useRouter();
-  const query = useApiQuery(['admin-communications', 'templates'], listCommunicationTemplates);
+  const client = useQueryClient();
   const [search, setSearch] = useState('');
+  const [searchText, setSearchText] = useState('');
   const [category, setCategory] = useState('ALL');
-  const [channel, setChannel] = useState('ALL');
-  const [status, setStatus] = useState('ALL');
+  const [channel, setChannel] = useState<'ALL' | 'EMAIL' | 'SMS'>('ALL');
+  const [status, setStatus] = useState<'ALL' | CommTemplateStatus>('ALL');
   const [sort, setSort] = useState<TableSort>({ id: 'updatedAt', descending: true });
   const [page, setPage] = useState(1);
-  const [activeId, setActiveId] = useState('template-1');
-  const [selectedIds, setSelectedIds] = useState(['template-1']);
-  const [copies, setCopies] = useState<CommunicationTemplate[]>([]);
-  const [archivedIds, setArchivedIds] = useState<string[]>([]);
+  const [activeId, setActiveId] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [dialog, setDialog] = useState<{
     mode: 'preview' | 'actions' | 'archive';
-    template: CommunicationTemplate;
+    template: TemplateRow;
   } | null>(null);
   const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const templates = query.isSuccess
-    ? [...copies, ...query.data].map((item): CommunicationTemplate =>
-        archivedIds.includes(item.id) ? { ...item, status: 'Archived' } : item,
-      )
-    : [];
-  const filtered = templates
-    .filter(
-      (item) =>
-        (category === 'ALL' || item.category === category) &&
-        (channel === 'ALL' || item.channel === channel) &&
-        (status === 'ALL' || item.status === status) &&
-        `${item.name} ${item.excerpt} ${item.body}`
-          .toLowerCase()
-          .includes(search.trim().toLowerCase()),
-    )
-    .sort((a, b) => {
-      const left = sort.id === 'name' ? a.name : a.updatedAt;
-      const right = sort.id === 'name' ? b.name : b.updatedAt;
-      return left.localeCompare(right) * (sort.descending ? -1 : 1);
-    });
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setSearchText(search.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
+  const categories = useApiQuery(['admin-communications', 'categories'], () =>
+    api.adminCommunications.categories.list(),
+  );
+  const filters: ListAdminCommTemplatesQuery = {
+    ...(category !== 'ALL' ? { categoryId: category } : {}),
+    ...(channel !== 'ALL' ? { channel } : {}),
+    ...(status !== 'ALL' ? { status } : {}),
+    ...(searchText ? { search: searchText } : {}),
+    sort: sort.id === 'name' ? 'NAME' : 'UPDATED',
+    page,
+    pageSize,
+  };
+  const query = useApiQuery([...TEMPLATES, filters], () =>
+    api.adminCommunications.templates.list(filters),
+  );
+  const visibleRows = (query.data?.items ?? []).map(rowOf);
+  const total = query.data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const visibleRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const activeTemplate = visibleRows.find((item) => item.id === activeId) ?? visibleRows[0] ?? null;
-  const sortValue =
-    sort.id === 'name'
-      ? sort.descending
-        ? 'name-desc'
-        : 'name'
-      : sort.descending
-        ? 'updated'
-        : 'oldest';
+  const categoryItems = (categories.data?.items ?? []).filter((c) => c.isActive);
+  const allCount = categoryItems.reduce((n, c) => n + c.templateCount, 0);
+  const sortValue = sort.id === 'name' ? 'name' : 'updated';
 
-  function selectTemplate(template: CommunicationTemplate) {
+  function selectTemplate(template: TemplateRow) {
     setActiveId(template.id);
     setSelectedIds([template.id]);
   }
-  function edit(template: CommunicationTemplate | null) {
+  function edit(template: TemplateRow | null) {
     if (template) router.push(`${basePath}/${template.id}/edit`);
   }
-  function duplicate(template: CommunicationTemplate) {
-    const today = new Date().toISOString().slice(0, 10);
-    const copy: CommunicationTemplate = {
-      ...template,
-      id: `template-copy-${crypto.randomUUID()}`,
-      name: `${template.name} (Copy)`,
-      status: 'Active',
-      createdAt: today,
-      updatedAt: today,
-    };
-    setCopies((items) => [copy, ...items]);
-    setSearch('');
-    setCategory('ALL');
-    setChannel('ALL');
-    setStatus('ALL');
-    setSort({ id: 'updatedAt', descending: true });
-    setPage(1);
-    selectTemplate(copy);
-    setDialog(null);
-    setNotice('Template duplicated in this preview. Changes are not saved to the server.');
+  async function change(work: () => Promise<string>) {
+    setBusy(true);
+    try {
+      setNotice(await work());
+    } catch (error) {
+      setNotice(errorMessage(error, ADMIN_COMM_ERRORS));
+    } finally {
+      setBusy(false);
+      setDialog(null);
+      await client.invalidateQueries({ queryKey: ['admin-communications'] });
+    }
+  }
+  function duplicate(template: TemplateRow) {
+    void change(async () => {
+      const copy = await api.adminCommunications.templates.duplicate(template.id);
+      setSearch('');
+      setSearchText('');
+      setCategory('ALL');
+      setChannel('ALL');
+      setStatus('ALL');
+      setSort({ id: 'updatedAt', descending: true });
+      setPage(1);
+      setActiveId(copy.id);
+      setSelectedIds([copy.id]);
+      return `Template duplicated as ${copy.name}.`;
+    });
   }
   function archive() {
     if (!dialog) return;
-    setArchivedIds((ids) => [...ids, dialog.template.id]);
-    setNotice('Template archived in this preview. Changes are not saved to the server.');
-    setDialog(null);
+    const { template } = dialog;
+    void change(async () => {
+      await api.adminCommunications.templates.archive(template.id);
+      return `${template.name} archived.`;
+    });
   }
 
-  const columns: Column<CommunicationTemplate>[] = [
+  const filtered = category !== 'ALL' || channel !== 'ALL' || status !== 'ALL' || searchText !== '';
+  const columns: Column<TemplateRow>[] = [
     {
       id: 'name',
       label: 'Template Name',
@@ -163,7 +183,17 @@ export function TemplatesScreen() {
       label: 'Status',
       cell: (item) => (
         <span className="[&>span]:px-2 [&>span]:font-normal">
-          <Badge tone={item.status === 'Active' ? 'success' : 'neutral'}>{item.status}</Badge>
+          <Badge
+            tone={
+              item.status === 'Active'
+                ? 'success'
+                : item.status === 'Inactive'
+                  ? 'warning'
+                  : 'neutral'
+            }
+          >
+            {item.status}
+          </Badge>
         </span>
       ),
     },
@@ -246,11 +276,8 @@ export function TemplatesScreen() {
             setPage(1);
           }}
           items={[
-            { id: 'ALL', label: `All Templates (${templates.length})` },
-            ...templateCategories.map((name) => ({
-              id: name,
-              label: `${name} (${templates.filter((item) => item.category === name).length})`,
-            })),
+            { id: 'ALL', label: `All Templates (${categories.data ? allCount : '—'})` },
+            ...categoryItems.map((c) => ({ id: c.id, label: `${c.name} (${c.templateCount})` })),
           ]}
         />
       </div>
@@ -279,7 +306,7 @@ export function TemplatesScreen() {
             }}
             options={[
               { value: 'ALL', label: 'All' },
-              ...templateCategories.map((name) => ({ value: name, label: name })),
+              ...categoryItems.map((c) => ({ value: c.id, label: c.name })),
             ]}
           />
         </div>
@@ -288,7 +315,7 @@ export function TemplatesScreen() {
           value={channel}
           className="text-sm!"
           onChange={(event) => {
-            setChannel(event.target.value);
+            setChannel(event.target.value as 'ALL' | 'EMAIL' | 'SMS');
             setPage(1);
           }}
           options={[
@@ -302,14 +329,10 @@ export function TemplatesScreen() {
           value={status}
           className="text-sm!"
           onChange={(event) => {
-            setStatus(event.target.value);
+            setStatus(event.target.value as 'ALL' | CommTemplateStatus);
             setPage(1);
           }}
-          options={[
-            { value: 'ALL', label: 'All' },
-            { value: 'Active', label: 'Active' },
-            { value: 'Archived', label: 'Archived' },
-          ]}
+          options={statusOptions}
         />
         <Select
           label="Sort by"
@@ -317,24 +340,16 @@ export function TemplatesScreen() {
           className="text-sm!"
           onChange={(event) => {
             const value = event.target.value;
-            setSort({
-              id: value.startsWith('name') ? 'name' : 'updatedAt',
-              descending: value === 'updated' || value === 'name-desc',
-            });
+            setSort({ id: value === 'name' ? 'name' : 'updatedAt', descending: value !== 'name' });
             setPage(1);
           }}
           options={[
             { value: 'updated', label: 'Last Updated' },
-            { value: 'oldest', label: 'Oldest Updated' },
             { value: 'name', label: 'Name A–Z' },
-            { value: 'name-desc', label: 'Name Z–A' },
           ]}
         />
       </div>
 
-      <PageState query={query} empty="No templates yet. Create a template to get started.">
-        {() => null}
-      </PageState>
       <p
         role="status"
         className="rounded-control bg-info-soft px-3 py-2 text-sm text-heading empty:hidden"
@@ -378,21 +393,21 @@ export function TemplatesScreen() {
                   setSort(value);
                   setPage(1);
                 },
-                total: filtered.length,
+                total,
               }}
               emptyTitle={
                 query.isError
                   ? 'Templates unavailable'
-                  : templates.length
+                  : filtered
                     ? 'No matching templates'
                     : 'No templates yet'
               }
               emptyText={
                 query.isError
                   ? 'The library will appear here when it is available.'
-                  : templates.length
+                  : filtered
                     ? 'Try another search or change the filters.'
-                    : 'Your templates will appear here when available.'
+                    : 'Create a template to get started.'
               }
             />
           </div>
@@ -401,7 +416,7 @@ export function TemplatesScreen() {
               page={currentPage}
               pageCount={pageCount}
               onPage={setPage}
-              summary={`${filtered.length ? (currentPage - 1) * pageSize + 1 : 0} – ${Math.min(currentPage * pageSize, filtered.length)} of ${filtered.length} templates`}
+              summary={`${total ? (currentPage - 1) * pageSize + 1 : 0} – ${Math.min(currentPage * pageSize, total)} of ${total} templates`}
             />
           </div>
         </Card>
@@ -440,7 +455,9 @@ export function TemplatesScreen() {
               <Button variant="secondary" onClick={() => setDialog(null)}>
                 Cancel
               </Button>
-              <Button onClick={archive}>Archive in preview</Button>
+              <Button disabled={busy} onClick={archive}>
+                Archive
+              </Button>
             </>
           ) : undefined
         }
@@ -448,7 +465,8 @@ export function TemplatesScreen() {
         {dialog?.mode === 'preview' && <TemplateMessage template={dialog.template} />}
         {dialog?.mode === 'archive' && (
           <p className="text-sm text-muted">
-            Archive this template in the local preview? No server data will be changed.
+            Archive this template? It stays in the library under Archived and can no longer be used
+            in new messages.
           </p>
         )}
         {dialog?.mode === 'actions' && (
@@ -461,7 +479,7 @@ export function TemplatesScreen() {
               <Eye aria-hidden weight="fill" className="size-4" />
               Preview
             </Button>
-            <Button variant="secondary" onClick={() => duplicate(dialog.template)}>
+            <Button variant="secondary" disabled={busy} onClick={() => duplicate(dialog.template)}>
               <Copy aria-hidden weight="fill" className="size-4" />
               Duplicate
             </Button>
