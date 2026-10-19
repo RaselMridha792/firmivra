@@ -83,9 +83,14 @@ const tips = [
 export function BroadcastPanels({
   draft,
   categoryLabel,
+  audience,
+  message,
 }: {
   draft: BroadcastDraft;
   categoryLabel: string;
+  /** A saved broadcast's segment and its count, and its message text (`?id=`). */
+  audience?: string;
+  message?: string;
 }) {
   const [help, setHelp] = useState<(typeof tips)[number] | null>(null);
   const rows: { label: string; value: string; icon: Icon }[] = [
@@ -96,8 +101,8 @@ export function BroadcastPanels({
       icon: EnvelopeSimple,
     },
     { label: 'Category', value: categoryLabel || '—', icon: Tag },
-    { label: 'Audience', value: '0 recipients', icon: Users },
-    { label: 'Message', value: '—', icon: ChatCircleDots },
+    { label: 'Audience', value: audience ?? '0 recipients', icon: Users },
+    { label: 'Message', value: message || '—', icon: ChatCircleDots },
     { label: 'Schedule', value: 'Send immediately', icon: CalendarBlank },
   ];
 

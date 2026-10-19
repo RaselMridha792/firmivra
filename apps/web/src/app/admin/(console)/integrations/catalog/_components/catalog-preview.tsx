@@ -3,7 +3,7 @@
 import { Badge, Button, Callout, Modal } from '@firmivra/ui';
 import { EyeSlash, Info, LockKey, Warning } from '@phosphor-icons/react';
 import { useApiQuery } from '../../../../../../lib/query';
-import { adminIntegrations, CATEGORY_LABELS } from '../../../../../../mocks/admin-integrations';
+import { adminIntegrations, CATEGORY_LABELS } from '../../_components/integrations-contract';
 import { CatalogStatusBadge, ServiceLogo } from '../../_components/integration-badges';
 import { Loaded } from '../../_components/integration-states';
 import { CATALOG_AUTH_LABELS } from './catalog-parts';

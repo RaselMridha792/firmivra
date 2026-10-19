@@ -23,7 +23,7 @@ import {
   type CatalogItem,
   type CatalogStatus,
   type ConnectionTestResult,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import {
   formatDate,
   formatDateTime,

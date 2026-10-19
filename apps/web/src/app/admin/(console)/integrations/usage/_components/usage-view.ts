@@ -1,4 +1,4 @@
-import { USAGE_SCOPES, type UsageScope } from '../../../../../../mocks/admin-integrations';
+import { USAGE_SCOPES, type UsageScope } from '../../_components/integrations-contract';
 
 /**
  * What Usage & Analytics shows (docx §10): a scope (Firmivra's platform integrations, the

@@ -3,18 +3,13 @@ import { AudienceStep } from './_components/audience-step';
 
 export const metadata: Metadata = { title: 'Create broadcast: Audience' };
 
+/** Step 2 of the broadcast `?id=` (made in step 1). */
 export default async function AdminCommunicationsBroadcastsNewAudiencePage({
   searchParams,
 }: {
-  searchParams: Promise<{ mockState?: string | string[] }>;
+  searchParams: Promise<{ id?: string | string[] }>;
 }) {
-  const { mockState } = await searchParams;
-  const mockMode = process.env.NEXT_PUBLIC_API_MOCK === 'all';
-
-  return (
-    <AudienceStep
-      initialSegments={mockMode && mockState === 'empty' ? [] : undefined}
-      hasLoadError={mockMode && mockState === 'api-unavailable'}
-    />
-  );
+  const { id } = await searchParams;
+  const broadcastId = typeof id === 'string' && id ? id : undefined;
+  return <AudienceStep key={broadcastId ?? 'none'} broadcastId={broadcastId} />;
 }
