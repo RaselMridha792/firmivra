@@ -3,6 +3,7 @@
 import type { createPrismaClient } from '../src/client.js';
 import { seedDemoBilling } from './seed-demo-billing.js';
 import { seedDemoCalendar } from './seed-demo-calendar.js';
+import { seedDemoCompliance } from './seed-demo-compliance.js';
 import { seedDemoDocuments } from './seed-demo-documents.js';
 import { seedDemoMessages } from './seed-demo-messages.js';
 import { seedDemoNotifications } from './seed-demo-notifications.js';
@@ -30,6 +31,8 @@ export async function seedDemo(prisma: Prisma): Promise<DemoOrgResult> {
   // Stage 3
   const form = await seedDemoIntake(prisma, org);
   await seedDemoLeads(prisma, org, form);
+  // Stage 5, work modules: Compliance & Deadlines (after documents: a filed return's document).
+  await seedDemoCompliance(prisma, org);
   await seedDemoEsign(prisma, org);
   await seedDemoSignups(prisma, org);
   // Portal gaps from the Oct 18 click-through: tax-year statuses and the firm's content.
