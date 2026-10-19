@@ -55,6 +55,7 @@ import {
   createSupportAccessClient,
   createTasksClient,
   createBookkeepingClient,
+  createBookkeepingTermsClient,
   createPayrollClient,
   createTaskWorkClient,
   createComplianceClient,
@@ -350,6 +351,8 @@ export const api = {
     dev && mocked('bookkeeping')
       ? createBookkeepingMock({ role: MOCK_ROLE, empty: mockedEmpty('bookkeeping') })
       : createBookkeepingClient(request),
+  /** Bookkeeping Terms (R55): a bookkeeping client's engagement terms, versions, notices and history. */
+  bookkeepingTerms: createBookkeepingTermsClient(request),
   /**
    * Automations (R55): overview, rules and their versions, rule templates, logs and settings.
    * Mock: NEXT_PUBLIC_API_MOCK=automations (mocks/automations.ts, R56).
