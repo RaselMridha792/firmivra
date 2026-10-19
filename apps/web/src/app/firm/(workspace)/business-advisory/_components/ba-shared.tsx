@@ -85,6 +85,17 @@ export const AREA_LABEL: Record<string, string> = {
   FINANCIAL_MANAGEMENT: 'Financial Management',
 };
 
+/** Free text in the API (max 60); these are the plan types the screens offer. */
+export const PLAN_TYPES = [
+  'Growth Plan',
+  'Startup Plan',
+  'Expansion Plan',
+  'Funding Plan',
+  'Operations Plan',
+  'Turnaround Plan',
+  'Exit Plan',
+];
+
 /** Free text in the API (max 60); these are the stages the screens offer. */
 export const BUSINESS_STAGES = ['Startup', 'Growth', 'Established', 'Expansion', 'Transition'];
 
@@ -93,7 +104,7 @@ export const BA_ERRORS: Record<string, string> = {
   DUPLICATE_SERVICE: 'This service is on the client already.',
   SAVE_CONFLICT: 'Someone saved this after you opened it. Reload and try again.',
   INVALID_STATUS: 'That does not fit the current status.',
-  PLAN_NOT_READY: 'The plan is not ready yet. Check what is missing.',
+  PLAN_NOT_READY: 'The plan is not ready yet. Open its Review step to see what is missing.',
   PLAN_ARCHIVED: 'Restore the plan before changing it.',
   INCONSISTENT_FIGURES: 'Net profit must be revenue minus expenses.',
   OVERRIDE_NOT_ALLOWED: 'Replacing figures from a source needs an override reason.',

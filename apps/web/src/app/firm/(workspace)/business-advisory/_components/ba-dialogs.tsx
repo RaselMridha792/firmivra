@@ -11,14 +11,14 @@ import { useApiQuery } from '../../../../../lib/query';
 import { AREA_LABEL, BA_ERRORS, BA_KEY, BUSINESS_STAGES, GOAL_STATUS, today } from './ba-shared';
 
 /** The firm's active members, for the advisor and owner pickers; empty when the role may not list them. */
-function useMembers() {
+export function useMembers() {
   const q = useApiQuery([...BA_KEY, 'members'], () => api.team.list());
   return (q.data ?? [])
     .filter((m) => m.status === 'ACTIVE')
     .map((m) => ({ value: m.user.id, label: m.user.name }));
 }
 
-const ErrorLine = ({ text }: { text: string | undefined }) =>
+export const ErrorLine = ({ text }: { text: string | undefined }) =>
   text ? (
     <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
       {text}
