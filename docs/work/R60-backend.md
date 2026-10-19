@@ -77,8 +77,9 @@ Checked and fine:
 - [x] 3. Support API: `apps/api/src/admin-support/` under `/api/v1/admin/support`.
 - [ ] 3b. Support screens: switch `apps/web/src/app/admin/(console)/support/` to `api.adminSupport`
   and finish them to the design (Rasel, Oct 19: R60 builds its own modules' screens).
-- [ ] 4. Billing contract.
-- [ ] 5. Billing API.
+- [x] 4. Billing contract (notes: `R60-billing.md`).
+- [x] 5. Billing API.
+- [ ] 5b. Billing screens: switch `apps/web/src/app/admin/(console)/billing/` to `api.adminBilling`.
 - [ ] 6. Sales contract (Pipeline B5 + Sales Center D1).
 - [ ] 7. Sales API.
 - [ ] 8. Firm Settings Overview and Users API (contract already on main).
@@ -95,6 +96,12 @@ Checked and fine:
 - 2026-10-19: step 3, the Support API (`apps/api/src/admin-support/`, 32 routes): 10 unit tests,
   26 e2e tests, the admin-scope sweep's writes (`test/isolation/admin-support-writes.ts`), and the
   `support` scan prefix. Notes under "Support API (step 3)".
+- 2026-10-19: Support API PR #879 (CI green after one fix: the admin-scope case picks an active
+  priority). Billing contract PR #880 (two follow-ups on its branch: the email-only sends wait for
+  R6's templates; an estimate's phone is E.164).
+- 2026-10-19: step 5, the Billing API (`apps/api/src/admin-billing/`, 48 routes): 6 unit tests,
+  19 e2e tests and the admin-scope cases (`test/isolation/admin-billing-writes.ts`). Stacked on
+  #879 (the sweep's record and body hooks). Notes in `R60-billing.md`.
 
 ### Support contract (step 2)
 
