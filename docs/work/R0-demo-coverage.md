@@ -57,6 +57,7 @@ Stages (one PR each, in Rasel's priority order: pages whose backend already exis
 | Module file | Rows |
 | --- | --- |
 | `seed-demo-tasks.ts` | Tasks: 7 task types (set on every demo task by its engagement), 4 templates (onboarding, annual return, monthly close, quarterly estimate), 2 recurring series (a monthly close and quarterly estimates) with 7 due dates (one made into a task each, upcoming ones, one skipped month), checklists on about half the open tasks (first step done) and a third of the done ones (all done), collaborators, reminders (3 days before by email, and on the day), client documents attached to tasks; 6 tags on half the clients (Harper: Referral Partner, Extension Filed) and on some leads |
+| `seed-demo-payroll.ts` | Payroll: the firm's payroll settings; the four payroll clients (Gusto, ADP, QuickBooks Payroll; biweekly), each with a roster of 3 to 5 workers (salaried, hourly, part-time, a contractor, one on leave, one new hire pending setup), two completed pay runs with lines and confirmed figures, and a current run that is ready for review, blocked by a missing direct deposit (an ERROR issue), submitted to the provider, or in progress; overtime warnings; this year's Q2 941 and state withholding filed and paid, Q3 941 in progress, last year's 940; registers per completed run; last year's year-end (delivered, reconciled, in progress); status history and activity |
 
 Dates are relative to the day the seed runs (overdue stays overdue, "today" is today). Run it again
 and nothing changes; `pnpm db:unseed:demo` removes all of it.
