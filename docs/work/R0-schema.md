@@ -247,7 +247,78 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
 
 - Oct 19, bug fix `r0_demo_unseed_automations`, branch `rasel/R0-unseed-automation-cycle`: `app_delete_business_data` stopped on a new foreign-key cycle (an automation rule names its current version, each version names its rule) once the demo seed published automation rules, so the demo unseed (and deleting any firm with a published rule) failed. The function now drafts the firm's rules and clears their current version first, as it already does for Firm Sign's final documents. Test: `test/automation-firm-delete.test.ts` (as the RDS migrate role). Found by the Automations demo group, which is stacked on it.
 
-## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
+## Handoff, Oct 19 (read this first; it supersedes the Oct 18 handoff below)
+
+**Rasel's order (Oct 19, ~12:00Z), in this order:**
+1. **Schema gaps first, so the Super Admin API sessions (R55, R56, R60) are never blocked.** Decisions are in "Schema gaps from the Super Admin API sessions" in the migration queue above.
+   - Two need migrations: platform legal documents (D4) and MRR history.
+   - Ship them one migration PR at a time; Rasel merges in the windows.
+   - New gaps arrive from R55, R56 and R60 through the Scrum thread.
+2. **Then the firm Business Advisory module:** 24 placeholder pages under `apps/web/src/app/firm/(workspace)/business-advisory`, with designs in `docs/mockups/firm-workspace`.
+   - Contract PR, then API PR, wherever the API is missing.
+   - Then the screens: every widget built, empty states rather than fake data, three-state screenshots at 1440 px, and `docs/design-match.md`.
+3. **No more demo seed groups.** The demo data gets replaced later, and nobody reseeds dev now (R1 has been told).
+
+**Open PRs (Oct 19, ~14:30Z):**
+- **#885: D4, platform legal documents** (`rasel/R0-stage-d4-platform-legal`, main merged in at `8b9d51d8`).
+  - On a fresh DB the drift check is empty; `platform-legal`, `automation-firm-delete` and `seed` pass (9 tests).
+  - It needs Rasel's yes (packages/db).
+- **#888: Business Advisory overview and module shell** (`rasel/R0-advisory-overview`, `baad10b8`).
+- **#875:** this handoff.
+- **Merged:** #868, #871 and #883 (the advisory mock).
+
+**Gap migration still waiting:** `rasel/R0-mrr-history` (`2fef0bbe`): `platform_subscription_changes.mrr_cents` plus the `platform_mrr_daily` rollup; 4 tests.
+- Open it after #885 merges, and merge main in first. The migration order is 030000, 040000, then 050000.
+- The scratch DB `firmivra_r0_gen` still holds MRR's objects, so for a drift check of anything else, use a fresh database.
+
+**Business Advisory (item 2), started Oct 19:**
+- The API and contract already exist on main (R55, `de509806`: `apps/api/src/advisory/`, `packages/types/src/advisory/`).
+- The 25 pages under `firm/(workspace)/business-advisory` are placeholders.
+- **#883: the advisory mock** (merged). Its last tweak, meetings at local business hours, rides in #888. Branch `rasel/R0-advisory-mock`, `f9556631`.
+  - `apps/web/src/mocks/business-advisory.ts` answers all 44 `api.advisory` calls; `lib/api.ts` switches it on with `NEXT_PUBLIC_API_MOCK=advisory`.
+  - Staff (Sam Staff) sees 2 of the 7 live clients, with no figures and no settings. `empty` keeps the services, resources and settings.
+  - Checked with tsc, eslint and a node smoke script (`pnpm exec tsx` from `packages/db`, importing the mock by a `file:///F:/...` URL).
+- **API gaps:** none in `api.advisory` itself. The Documents, Notes and Reports tabs read other modules:
+  - Documents: `api.documents.list(clientId, { serviceId })`
+  - Notes: `api.clientNotes`
+  - Reports: `api.reports`, category ADVISORY
+- **Next, the screens, about four PRs (at most 2 open):**
+  1. The shell (tabs) and the Overview: **#888**
+  2. The list tabs: clients, plans, goals, financial-analysis, action-plans, resources, reports
+  3. The plan wizard: `plans/new` and `plans/[planId]/edit/{,assessment,goals,action-plan,review}`
+  4. Client detail (11 tabs)
+  - Each PR: mock-mode Playwright specs and three-state screenshots at 1440 px.
+- **Mockups:** `docs/mockups/firm-workspace/business-advisory/source/` (overview, create-edit plan, client detail) plus the developer guide docx.
+- **How the screens were checked (#888):**
+  - **Dev server:** `WEB_PORT=3580 NEXT_DIST_DIR=.next/r0 NEXT_PUBLIC_API_MOCK=all NEXT_PUBLIC_API_MOCK_ROLE=OWNER node scripts/next.mjs dev`, run from `apps/web`.
+    - Empty: add `NEXT_PUBLIC_API_MOCK_EMPTY=advisory`.
+    - API unreachable: `NEXT_PUBLIC_API_MOCK=me`.
+    - Restart it when a new arbitrary Tailwind class doesn't show; Turbopack's CSS goes stale.
+  - **Spec:** run through an uncommitted copy of `playwright.mock.config.ts` with `reuseExistingServer: true` and `testMatch`, with `WEB_PORT=3579` so the spec's port is 3580.
+  - **Screenshots:** quantized to 128 colours into `apps/web/e2e/mock/r0-screenshots/`.
+  - **Git Bash:** set `MSYS_NO_PATHCONV=1` for `/path` arguments.
+  - **Clean-up:** delete `.next/r0`, `test-results` and the config copy.
+
+**Shelved, pushed, no PR:** `rasel/R0-demo-stage5-automations` (6 tables, stacked on #868). Don't open it unless Rasel asks.
+
+**Merged today:**
+- #815 (D1 Sales Center)
+- #832 (`staff_import_previews`)
+- #834, #841, #850, #855 and #856 (demo groups: Tasks, Payroll, Compliance, Templates, Bookkeeping)
+- #860 (the gap queue)
+
+**Not R0's any more:** the Super Admin Support, Billing and Sales APIs (R60 has them). Stages D2 and D3 stay queued; MRR history goes into D2.
+
+**Local rules (Scrum, 11:46Z):**
+- Run only lint on changed files, typecheck of the changed package, and the touched module's tests. CI's 4 shards are the full gate.
+- No Playwright from an API session.
+- At most two heavy jobs on the laptop.
+- On the shared Postgres, add `?connect_timeout=60` to both DB URLs (Prisma P1001 otherwise).
+- When `migrate dev` can't build its shadow database, generate the SQL with `migrate diff` against a scratch DB that has every migration applied.
+
+**Scrum thread:** this session can't reply to it (no remote `send_message` tool), so Rasel relays PR numbers.
+
+## Handoff, Oct 18 afternoon (superseded by the Oct 19 handoff above)
 
 **Where things stand.**
 - **Merged on Oct 18:**
