@@ -4,6 +4,7 @@ import {
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
+  createAdminAuditClient,
   createAuditLogClient,
   createAvailabilityClient,
   createBrandingClient,
@@ -424,6 +425,8 @@ export const api = {
     dev && mocked('auditLog')
       ? createAuditLogMock({ role: MOCK_ROLE })
       : createAuditLogClient(request),
+  /** Super Admin Audit & Security (R55): the cross-firm event log, alerts, notes and the security policy. Mock: mocks/admin-audit-security.ts until the screens switch. */
+  adminAudit: createAdminAuditClient(request),
   /** Support access (R8): Firmivra Support's requests to the firm; Owner and Admin read, an Owner decides. */
   supportAccess:
     dev && mocked('supportAccess')
