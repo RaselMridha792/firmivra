@@ -162,3 +162,76 @@ test('Goals & Milestones: filter, edit a goal and track its milestones', async (
   await expect(page.getByText('Goal saved: Increase annual revenue by 25%')).toBeVisible();
   await expect(list).toContainText('75%');
 });
+
+test('Financial Analysis: summary, filters, and adding a period of figures', async ({ page }) => {
+  await page.goto(`${base}/financial-analysis`);
+  const tab = page.getByTestId('ba-financials');
+  await expect(tab.getByTestId('financial-summary')).toContainText('Revenue');
+  await expect(tab).toContainText('Stale');
+  await tab.getByLabel('Client').selectOption({ label: 'Marcus Taylor' });
+  await expect(tab.getByRole('row')).toHaveCount(3);
+  await tab.getByRole('button', { name: 'Add Figures' }).click();
+  const dialog = page.getByTestId('add-figures');
+  await dialog.getByLabel('Advisory client').selectOption({ label: 'Sandra Lewis' });
+  await dialog.getByLabel('Revenue ($)', { exact: true }).fill('210000');
+  await dialog.getByLabel('Expenses ($)', { exact: true }).fill('180000');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add Figures' }).click();
+  await expect(page.getByText('Figures added for Sandra Lewis.')).toBeVisible();
+});
+
+test('Action Plans: move a recommendation, finish a task and add one', async ({ page }) => {
+  await page.goto(`${base}/action-plans`);
+  const recs = page.getByTestId('ba-recommendations');
+  await expect(recs.getByRole('button', { name: /^Actions for / })).toHaveCount(8);
+  await recs.getByRole('button', { name: 'Actions for Hire Operations Manager' }).click();
+  await page.getByRole('menuitem', { name: 'Accept' }).click();
+  await expect(page.getByText('Hire Operations Manager: accepted.')).toBeVisible();
+  const tasks = page.getByTestId('ba-action-items');
+  await tasks.getByRole('checkbox', { name: 'Overdue only' }).click();
+  await expect(tasks.getByRole('button', { name: /^Actions for / })).toHaveCount(2);
+  await tasks.getByRole('checkbox', { name: 'Overdue only' }).click();
+  await tasks.getByRole('button', { name: 'Actions for Register the business name' }).click();
+  await page.getByRole('menuitem', { name: 'Mark Done' }).click();
+  await expect(page.getByText('Register the business name: done.')).toBeVisible();
+  await tasks.getByRole('button', { name: 'Add Action Item' }).click();
+  const dialog = page.getByTestId('add-action-item');
+  await dialog.getByLabel('Advisory client').selectOption({ label: 'Kevin Martin' });
+  await dialog.getByLabel('Action item').fill('Call the lender');
+  await dialog.getByLabel('Priority').selectOption('HIGH');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add Action Item' }).click();
+  await expect(page.getByText('Action item added: Call the lender')).toBeVisible();
+  await expect(page.getByTestId('ba-milestones-note').getByRole('link')).toHaveAttribute(
+    'href',
+    '/business-advisory/goals',
+  );
+});
+
+test('Resources: the library by category; only client resources are sent', async ({ page }) => {
+  await page.goto(`${base}/resources`);
+  const lib = page.getByTestId('ba-resources');
+  await expect(lib.getByTestId('resource-group')).toHaveCount(10);
+  await expect(lib.getByRole('button', { name: /^Send .* to a client$/ })).toHaveCount(9);
+  await expect(lib).toContainText('Staff only');
+  await lib.getByLabel('Audience').selectOption('staff');
+  await expect(lib.getByTestId('resource-group')).toHaveCount(1);
+  await lib.getByLabel('Audience').selectOption('');
+  await lib.getByRole('button', { name: 'Send Brand Basics Guide to a client' }).click();
+  await page
+    .getByTestId('send-resource')
+    .getByLabel('Advisory client')
+    .selectOption({ label: 'Alicia Park' });
+  await page.getByRole('dialog').getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByText('Brand Basics Guide sent to Alicia Park.')).toBeVisible();
+});
+
+test('Reports: live counts by status, workload and trend, for one advisor too', async ({
+  page,
+}) => {
+  await page.goto(`${base}/reports`);
+  await expect(page.getByTestId('report-clients')).toContainText('In Progress');
+  await expect(page.getByTestId('report-plans')).toContainText('sent to clients this year');
+  await expect(page.getByTestId('report-workload')).toContainText('Sam Staff');
+  await expect(page.getByTestId('report-trend').getByRole('row')).toHaveCount(4);
+  await page.getByTestId('ba-reports').getByLabel('Advisor').selectOption({ label: 'Sam Staff' });
+  await expect(page.getByTestId('report-workload').getByRole('row')).toHaveCount(2);
+});
