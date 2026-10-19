@@ -2122,3 +2122,41 @@ export type ComplianceFilingFrequency = z.infer<typeof ComplianceFilingFrequency
 /** How a deadline's due date carries to its tasks. */
 export const ComplianceTaskDueSync = z.enum(['NONE', 'MATCH_DEADLINE', 'LEAD_DAYS']);
 export type ComplianceTaskDueSync = z.infer<typeof ComplianceTaskDueSync>;
+
+/** Whose target: the whole company, one team (a platform department) or one rep. */
+export const SalesTargetScope = z.enum(['COMPANY', 'TEAM', 'REP']);
+export type SalesTargetScope = z.infer<typeof SalesTargetScope>;
+
+/** What a target measures. The API computes attainment from the source records with B5's definitions (docs/work/R0-stage-d1-sales-center.md); nothing is stored as an "actual". */
+export const SalesTargetMetric = z.enum([
+  'NEW_LEADS',
+  'DEMOS_SCHEDULED',
+  'TRIALS_STARTED',
+  'WON_DEALS',
+  'REVENUE_WON',
+  'CONVERSION_RATE',
+  'OUTBOUND_ACTIVITIES',
+]);
+export type SalesTargetMetric = z.infer<typeof SalesTargetMetric>;
+
+export const SalesTargetPeriod = z.enum(['MONTH', 'QUARTER', 'YEAR', 'CUSTOM']);
+export type SalesTargetPeriod = z.infer<typeof SalesTargetPeriod>;
+
+export const SalesImportStatus = z.enum([
+  'PENDING',
+  'PROCESSING',
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+]);
+export type SalesImportStatus = z.infer<typeof SalesImportStatus>;
+
+/** What a row that matches an existing contact (normalized email or phone) does. */
+export const SalesImportDuplicateMode = z.enum(['SKIP', 'ATTACH_TO_EXISTING']);
+export type SalesImportDuplicateMode = z.infer<typeof SalesImportDuplicateMode>;
+
+export const SalesImportRowOutcome = z.enum(['IMPORTED', 'DUPLICATE', 'SKIPPED', 'FAILED']);
+export type SalesImportRowOutcome = z.infer<typeof SalesImportRowOutcome>;
+
+export const SalesImportMatch = z.enum(['EMAIL', 'PHONE', 'EMAIL_AND_PHONE']);
+export type SalesImportMatch = z.infer<typeof SalesImportMatch>;

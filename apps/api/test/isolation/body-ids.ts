@@ -17,10 +17,56 @@ export interface BodyIdField {
  * and any field named `...Id`, `...Ids` or `ids`, is a record id and needs the case's `bodyIds`.
  */
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
+  ...['details.employeeId', 'compensation.payrollId'].map((field) => ({
+    field,
+    routes: /^(POST|PATCH) \/api\/v1\/business\/staff(\/:id)?$/,
+    why: "the firm's own HR or payroll number (free text), not a record (R55)",
+  })),
+  {
+    field: 'payrollId',
+    routes: /^PUT \/api\/v1\/business\/staff\/:id\/compensation$/,
+    why: "the payroll system's number for the member (free text), not a record (R55)",
+  },
+  ...[
+    'data.account.departmentIds',
+    'data.details.supervisorId',
+    'data.details.employeeId',
+    'data.details.primaryTeamId',
+    'data.details.backupTeamId',
+  ].map((field) => ({
+    field,
+    routes: /^(POST|PUT) \/api\/v1\/business\/staff-drafts(\/:id)?$/,
+    why: 'a draft keeps the Create Staff form as typed, read by no one but the firm; Create Staff checks each id when it is sent (staff-write.e2e) (R55)',
+  })),
   {
     field: 'general.autoSubmissionId',
     routes: /^PUT \/api\/v1\/business\/intake-settings$/,
     why: 'a switch (give each submission a number), not a record (R55)',
+  },
+  {
+    field: 'submissionId',
+    routes: /^POST \/api\/v1\/business\/tax-returns\/:id\/filings\/:filingId\/attempts$/,
+    why: "the tax authority's submission number (free text), not a record (R55)",
+  },
+  {
+    field: 'assignedUserId',
+    routes: /^POST \/api\/v1\/business\/tax-returns\/export$/,
+    why: "the list's filter (preparer or reviewer): another firm's member matches no return of this firm, so nothing of theirs is read (R55)",
+  },
+  {
+    field: 'idempotencyKey',
+    routes: /^POST \/api\/v1\/business\/intakes\/send$/,
+    why: "the sender's retry key, not a record (R55)",
+  },
+  ...['categoryId', 'reviewerUserId'].map((field) => ({
+    field,
+    routes: /^POST \/api\/v1\/business\/documents\/bulk$/,
+    why: "records of the other bulk actions (RECLASSIFY, ASSIGN_REVIEWER): one case per route carries MOVE; documents-library.e2e refuses another firm's category and reviewer (R55)",
+  })),
+  {
+    field: 'recipient.userId',
+    routes: /^POST \/api\/v1\/business\/(documents\/:id\/shares|document-request-packets)$/,
+    why: "the MEMBER recipient variant's member: one case per route carries the CLIENT variant (a body has one variant, so a swap of the other's field would change nothing); documents-requests.e2e refuses another firm's member for both (NOT_A_MEMBER) (R55)",
   },
   ...(
     [

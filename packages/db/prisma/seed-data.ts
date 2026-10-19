@@ -417,6 +417,12 @@ export const SEED_PLATFORM_IDS = {
   securityEvent: '00000000-0000-4005-8000-000000000051',
   securityAlert: '00000000-0000-4005-8000-000000000052',
   securityNote: '00000000-0000-4005-8000-000000000053',
+  // Stage D1: a company goal, a rep goal and a finished lead import (one new lead, one duplicate).
+  salesTargetCompany: '00000000-0000-4005-8000-0000000000b1',
+  salesTargetRep: '00000000-0000-4005-8000-0000000000b2',
+  salesImport: '00000000-0000-4005-8000-0000000000b3',
+  salesImportContact: '00000000-0000-4005-8000-0000000000b4',
+  salesImportDeal: '00000000-0000-4005-8000-0000000000b5',
 } as const;
 
 /**

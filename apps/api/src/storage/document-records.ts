@@ -100,9 +100,13 @@ export async function lockRequest(tx: TxClient, businessId: string, id: string) 
   >`
     SELECT client_id::text AS client_id, engagement_id::text AS engagement_id,
            status::text AS status
-    FROM document_requests
-    WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
-    FOR UPDATE`;
+    FROM document_requests r
+    WHERE r.business_id = ${businessId}::uuid AND r.id = ${id}::uuid
+      -- An item of a request (packet) not sent yet is nobody's to act on (R55).
+      AND (r.packet_id IS NULL OR EXISTS (
+        SELECT 1 FROM document_request_packets k
+        WHERE k.business_id = r.business_id AND k.id = r.packet_id AND k.status <> 'DRAFT'))
+    FOR UPDATE OF r`;
   return row ?? null;
 }
 
@@ -160,6 +164,11 @@ export async function findTarget(
 }
 
 export const isOpen = (status: DocumentRequestStatus) => OPEN_REQUEST.includes(status);
+
+/** Items the client may see: standalone requests and items of a sent request (packet). */
+export const SENT_ITEMS: Prisma.DocumentRequestWhereInput = {
+  OR: [{ packetId: null }, { packet: { status: { not: 'DRAFT' } } }],
+};
 
 export const documentSelect = {
   id: true,

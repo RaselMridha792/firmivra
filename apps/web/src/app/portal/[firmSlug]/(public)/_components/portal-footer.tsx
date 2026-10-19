@@ -245,7 +245,7 @@ export function PortalFooter({
       <span>
         © {YEAR} <span data-testid="firm-name">{business.name}</span>. All rights reserved.
       </span>
-      <span className="flex flex-wrap items-center gap-2 md:ml-auto [&_button]:text-on-action [&_button:hover]:text-firm-primary">
+      <span className="flex flex-wrap items-center gap-2 md:ml-auto [&_button]:text-on-action [&_button:hover]:text-firm-text">
         {links.map((link, index) => (
           <span key={link.key} className="flex items-center gap-2">
             {index > 0 ? <span aria-hidden>|</span> : null}

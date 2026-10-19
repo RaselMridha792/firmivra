@@ -486,3 +486,69 @@ describe('InvitesService transaction limits', () => {
     expect(withScope.mock.calls.map((call) => call[2])).toEqual([{ timeout: 15_000 }]);
   });
 });
+
+// Create Staff's "Send welcome email" switch and its Resend offer (R55): the `delivery` option.
+describe('InvitesService.createInvite delivery option', () => {
+  function newPerson(send: ReturnType<typeof vi.fn>) {
+    const tx = {
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      membership: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'm1' }),
+      },
+      invite: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        create: vi.fn().mockResolvedValue({ id: 'i1' }),
+      },
+    };
+    const db = {
+      forBusiness: () => ({
+        business: { findUnique: vi.fn().mockResolvedValue({ name: 'LVP', status: 'ACTIVE' }) },
+        invite: { count: vi.fn().mockResolvedValue(0) },
+      }),
+      forPlatform: () => ({
+        user: { findFirst: vi.fn().mockResolvedValue({ id: 'u1' }) },
+      }),
+      withScope: (_scope: unknown, fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    } as unknown as Database;
+    const service = new InvitesService(db, {} as never, { send } as never, audit as never, env);
+    const create = (delivery?: 'send' | 'skip' | 'try') =>
+      service.createInvite({
+        businessId: 'b1',
+        email: 'new@lvp.test',
+        name: 'New Person',
+        role: 'STAFF',
+        invitedBy: null,
+        ...(delivery ? { delivery } : {}),
+      });
+    return { create, tx };
+  }
+
+  it('sends by default and reports it', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const result = await newPerson(send).create();
+    expect(send).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({ membershipId: 'm1', emailed: true });
+  });
+
+  it('still throws a failed send by default, as before', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('SES down'));
+    await expect(newPerson(send).create()).rejects.toThrow('SES down');
+  });
+
+  it("'skip' makes the invite and sends nothing", async () => {
+    const send = vi.fn();
+    const { create, tx } = newPerson(send);
+    const result = await create('skip');
+    expect(send).not.toHaveBeenCalled();
+    expect(tx.invite.create).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({ id: 'i1', membershipId: 'm1', emailed: false });
+  });
+
+  it("'try' keeps the invite when the send fails and reports emailed: false", async () => {
+    const send = vi.fn().mockRejectedValue(new Error('SES down'));
+    const result = await newPerson(send).create('try');
+    expect(send).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({ id: 'i1', membershipId: 'm1', emailed: false });
+  });
+});

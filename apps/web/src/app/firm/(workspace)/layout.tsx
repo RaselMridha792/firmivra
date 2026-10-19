@@ -54,6 +54,7 @@ import { COMPANY } from '../../../lib/company';
 import { portalAuth } from '../../../lib/auth';
 import { findModule, moduleHref } from '../../../lib/firm-modules';
 import { useApiQuery } from '../../../lib/query';
+import { applyFirmTheme } from '../../../lib/theme';
 import { claimCache } from '../../../lib/session';
 
 // The firm's menu (docs/junior/PAGE-MAP.md; Fahad owns this list, F03). Items marked `managers`
@@ -112,7 +113,7 @@ const items: (NavItem & { managers?: true })[] = [
 const newLinks = [
   { label: 'New client', href: '/clients' },
   { label: 'New appointment', href: '/calendar' },
-  { label: 'New invoice', href: '/invoices', managers: true },
+  { label: 'New invoice', href: '/invoices/new', managers: true },
   { label: 'New message', href: '/messages' },
 ];
 
@@ -222,6 +223,9 @@ function FirmShell({
   const unread = useApiQuery(['messages', 'unread-count'], () => api.messages.unreadCount());
   const branding = info.data?.branding;
   const badge = unread.data?.total;
+  // The firm's theme colours on the page root, so dialogs and menus drawn outside the shell follow
+  // them too; removed when the workspace closes (another firm, or signing out).
+  useEffect(() => applyFirmTheme(document.documentElement.style, branding), [branding]);
   return (
     <AppShell
       subtitle="Firm workspace"

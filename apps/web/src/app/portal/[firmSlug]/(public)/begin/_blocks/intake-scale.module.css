@@ -36,7 +36,8 @@
   line-height: var(--text-sm--line-height);
 }
 
-.scale > div {
+.scale > div,
+.scale .frame {
   width: calc(100% - var(--space-8));
   max-width: none;
   padding-inline: 0;
@@ -156,7 +157,8 @@
 }
 
 @media (width >= 64rem) {
-  .scale > div {
+  .scale > div,
+  .scale .frame {
     width: min(calc(100% - var(--space-8)), clamp(0px, calc(87.5vw - var(--space-5)), 85rem));
   }
 }

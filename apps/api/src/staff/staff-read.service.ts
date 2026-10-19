@@ -9,6 +9,7 @@ import {
   type StaffFormOptions,
   type StaffListResponse,
   type StaffMfaState,
+  type StaffPermissions,
   type StaffRef,
   type StaffSummary,
 } from '@firmivra/types';
@@ -19,6 +20,7 @@ import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { ROLE_DESCRIPTIONS } from '../roles/roles-catalog.js';
 import { notFound } from '../workspaces/common.js';
 import type { StaffListQ } from './staff-input.js';
+import { memberGrid, toPermissions } from './staff-permissions.service.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -57,7 +59,8 @@ const ref = (m: Prisma.MembershipGetPayload<{ select: typeof memberSelect }>): S
  * The sign-in method state is not kept in our database (Cognito knows it): until the API asks
  * Cognito, an invited member shows PENDING and the others DISABLED.
  */
-const mfaOf = (status: string): StaffMfaState => (status === 'INVITED' ? 'PENDING' : 'DISABLED');
+export const mfaOf = (status: string): StaffMfaState =>
+  status === 'INVITED' ? 'PENDING' : 'DISABLED';
 
 const BOM = String.fromCharCode(0xfeff);
 
@@ -344,8 +347,9 @@ export class StaffReadService {
           ? { at: security.lastLoginAt.toISOString(), device: null, place: null }
           : null,
         invite: m.status === 'INVITED' ? (invites.get(m.id) ?? null) : null,
+        // Internal notes are for Owners and Admins: null (the card hidden) for everyone else.
         notes:
-          p?.notes && p.notesUpdatedAt
+          (tenant.role === 'OWNER' || tenant.role === 'ADMIN') && p?.notes && p.notesUpdatedAt
             ? {
                 text: p.notes,
                 updatedAt: p.notesUpdatedAt.toISOString(),
@@ -355,6 +359,18 @@ export class StaffReadService {
         isYou: m.userId === userId,
         version: (p && p.updatedAt > m.updatedAt ? p.updatedAt : m.updatedAt).toISOString(),
       };
+    });
+  }
+
+  /** A member's permissions (Access Summary, the Permissions tab): whoever reads the directory. */
+  permissions(tenant: TenantContext, id: string): Promise<StaffPermissions> {
+    return this.inFirm(tenant, async (tx) => {
+      const m = await tx.membership.findFirst({
+        where: { businessId: tenant.businessId, id },
+        select: { id: true, role: true },
+      });
+      if (!m) throw notFound();
+      return toPermissions(m.role, await memberGrid(tx, tenant.businessId, m.role, m.id));
     });
   }
 
