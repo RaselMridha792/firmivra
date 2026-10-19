@@ -423,6 +423,10 @@ export const SEED_PLATFORM_IDS = {
   salesImport: '00000000-0000-4005-8000-0000000000b3',
   salesImportContact: '00000000-0000-4005-8000-0000000000b4',
   salesImportDeal: '00000000-0000-4005-8000-0000000000b5',
+  // Stage D4: Firmivra's Terms and Privacy Policy v1, and LVP's owner's acceptance of the Terms.
+  legalTerms: '00000000-0000-4005-8000-0000000000c1',
+  legalPrivacy: '00000000-0000-4005-8000-0000000000c2',
+  legalAcceptance: '00000000-0000-4005-8000-0000000000c3',
 } as const;
 
 /**

@@ -113,10 +113,10 @@ const nowIso = () => new Date().toISOString();
 const DAY = 86_400_000;
 /** A calendar date `offset` days from today. */
 const day = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10);
-/** A time `offset` days from today at `hour` UTC. */
+/** A time `offset` days from today at `hour` local time (meetings show in business hours). */
 const at = (offset: number, hour = 15) => {
   const d = new Date(Date.now() + offset * DAY);
-  d.setUTCHours(hour, 0, 0, 0);
+  d.setHours(hour, 0, 0, 0);
   return d.toISOString();
 };
 const uid = (block: string, n: number) =>
@@ -972,14 +972,14 @@ export function createAdvisoryMock({
         advisoryClientId: cl.id,
       });
     };
-    meet(1, 1, 3, 15, 'Strategy Review');
-    meet(2, 2, 5, 18, 'Business Plan Review');
-    meet(3, 3, 7, 15, 'Financial Analysis');
-    meet(4, 4, 10, 17, 'Growth Planning', false);
-    meet(5, 5, 12, 19, 'Funding Options');
-    meet(6, 1, -42, 15, 'Quarterly Review');
-    meet(7, 1, -70, 15, 'Initial Consultation');
-    meet(8, 3, -20, 16, 'Kickoff');
+    meet(1, 1, 3, 10, 'Strategy Review');
+    meet(2, 2, 5, 14, 'Business Plan Review');
+    meet(3, 3, 7, 11, 'Financial Analysis');
+    meet(4, 4, 10, 13, 'Growth Planning', false);
+    meet(5, 5, 12, 15, 'Funding Options');
+    meet(6, 1, -42, 10, 'Quarterly Review');
+    meet(7, 1, -70, 11, 'Initial Consultation');
+    meet(8, 3, -20, 9, 'Kickoff');
 
     // History of each client (newest first).
     clients.forEach((cl, i) => {
@@ -1006,13 +1006,13 @@ export function createAdvisoryMock({
     // The sent plan's first version.
     const snap = snapshot(sent, 1, mockStaff, at(-21));
     snap.deliveredAt = at(-20);
-    snap.deliveredChannel = 'PORTAL';
+    snap.deliveredChannel = 'portal';
     snap.deliveredBy = mockMe;
     sent.versions.push(snap);
     const prior = plans.find((p) => p.status === 'COMPLETED')!;
     const priorSnap = snapshot(prior, 1, mockMe, at(-300));
     priorSnap.deliveredAt = at(-298);
-    priorSnap.deliveredChannel = 'EMAIL';
+    priorSnap.deliveredChannel = 'email';
     priorSnap.deliveredBy = mockMe;
     prior.versions.push(priorSnap);
     plans
@@ -1792,7 +1792,8 @@ export function createAdvisoryMock({
           : p.versions.at(-1);
         if (!v) throw notReady(['Finalize the plan first']);
         v.deliveredAt = nowIso();
-        v.deliveredChannel = req.channel;
+        // Stored lower-case, as the API stores it.
+        v.deliveredChannel = req.channel.toLowerCase();
         v.deliveredBy = signedIn;
         if (p.status === 'FINALIZED') p.status = 'SENT';
         p.sentAt = nowIso();
