@@ -16,8 +16,7 @@ Contract: `packages/types/src/documents/portal-packets.ts` and three methods on 
    - Another client's packet is 404.
 2. **An item is a document request.**
    - Its upload is the portal's ordinary upload with `requestId`; there is no new upload route.
-   - While the packet is OPEN and allows multiple files, a SUBMITTED item takes more files.
-   - Replace is a new upload; the old file stays.
+   - While the packet is OPEN and not expired, a SUBMITTED item takes another file. With `allowMultipleFiles` the screen keeps every file; without it, it shows Replace, and the newest file is the answer (the old one stays on record).
    - A submitted, completed or expired packet takes no uploads (409 REQUEST_CLOSED).
 3. **Progress.** An item counts as answered when it is SUBMITTED, ACCEPTED or NOT_AVAILABLE ("I don't have this", with a reason). Optional items don't count toward "x of y required".
 4. **Submit for Review.** The packet goes OPEN → SUBMITTED; the database stamps `submitted_at`. It is refused with:
@@ -35,6 +34,5 @@ Contract: `packages/types/src/documents/portal-packets.ts` and three methods on 
 ## Needs from others
 
 - **The notifications owner:** a `request-packet.submitted` event for the firm's bell and email. The single-request "Document received" event names one item, so it isn't reused; until then Submit is in the audit log and on the requests dashboard (SUBMITTED).
-
 - None for the API: the packet table's firm-scoped policy and status rules already allow OPEN → SUBMITTED.
 - A packet message thread (the Messages tab) would need a table: R0, if wanted.
