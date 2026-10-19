@@ -59,7 +59,7 @@ export function InvoicesScreen() {
       <header className="flex flex-col gap-4 md:flex-row md:items-start">
         <Receipt
           aria-hidden
-          className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-primary"
+          className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-text"
         />
         <div className="flex-1">
           <h1 className="font-display text-3xl font-bold text-heading">Receipts &amp; Invoices</h1>
@@ -174,7 +174,7 @@ function InvoiceTable({
           {i.canPay ? <PayButton invoice={i} pay={pay} /> : null}
           <Link
             href={`/${slug}/invoices/${i.id}`}
-            className="inline-flex items-center gap-1 text-firm-primary underline"
+            className="inline-flex items-center gap-1 text-firm-text underline"
             aria-label={`View ${i.number}`}
           >
             <Eye aria-hidden className="size-4" /> View
@@ -190,7 +190,7 @@ function InvoiceTable({
       columns={columns}
       rowKey={(i) => i.id}
       pageSize={10}
-      tableClassName="text-firm-primary"
+      tableClassName="text-firm-text"
       emptyTitle={current ? 'Nothing to pay' : 'No past invoices'}
       emptyText={
         current ? 'Open and upcoming invoices will appear here.' : 'Paid and canceled invoices.'

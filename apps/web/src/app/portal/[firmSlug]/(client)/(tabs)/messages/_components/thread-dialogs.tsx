@@ -75,7 +75,7 @@ function ThreadBody({
           {t.messages.some((m) => m.from === 'FIRM') ? (
             <Button
               variant="ghost"
-              className="justify-self-start text-firm-primary! underline hover:bg-folder-surface! enabled:cursor-pointer"
+              className="justify-self-start text-firm-text! underline hover:bg-folder-surface! enabled:cursor-pointer"
               disabled={markUnread.isPending}
               onClick={() => markUnread.mutate(t.id, { onSuccess: onClose })}
             >
@@ -144,7 +144,7 @@ function ReplyForm({ slug, threadId }: { slug: string; threadId: string }) {
       ) : null}
       <Button
         type="submit"
-        className="justify-self-start bg-firm-primary! text-on-action! hover:bg-navigation-hover! focus-visible:outline-firm-primary enabled:cursor-pointer"
+        className="justify-self-start bg-firm-button! text-on-firm-button! hover:bg-firm-button-hover! focus-visible:outline-firm-primary enabled:cursor-pointer"
         disabled={reply.isPending}
       >
         Send Reply
@@ -202,14 +202,14 @@ export function NewMessageDialog({
         <div className="flex flex-wrap gap-2">
           <Button
             type="submit"
-            className="bg-firm-primary! text-on-action! hover:bg-navigation-hover! focus-visible:outline-firm-primary enabled:cursor-pointer"
+            className="bg-firm-button! text-on-firm-button! hover:bg-firm-button-hover! focus-visible:outline-firm-primary enabled:cursor-pointer"
             disabled={create.isPending}
           >
             Send Message
           </Button>
           <Button
             variant="secondary"
-            className="border-folder-border! text-firm-primary! hover:bg-folder-surface! enabled:cursor-pointer"
+            className="border-folder-border! text-firm-text! hover:bg-folder-surface! enabled:cursor-pointer"
             onClick={onClose}
           >
             Cancel

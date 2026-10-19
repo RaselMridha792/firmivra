@@ -45,6 +45,7 @@ The firm Tax Planning screens on the R55 contract (`api.taxPlanning`, `createTax
 - **Opportunity "Edit Client"** opens the client record. **Send Client Resource** and **Schedule Appointment** use the resources dialog and the calendar page.
 - **Schedule Client Discussion** records the date on the opportunity; it does not make an appointment (the contract takes an optional appointment id).
 - The savings **Reports** tab lists plans with their projected savings; the contract has no separate report call.
+- **Invoices (R7 contract)**: the page reads every invoice page by page (up to 2,000) for its KPIs and charts. An invoice summary call (totals, monthly activity, payment methods) would replace that; until then **Payment Methods** stays empty (the list has no method) and the table has no Payment Method column. Not in the contract: Viewed and Refunded tabs, Send Reminder, payment links, PDF and preview, recurring invoices, tax lines, notes and attachments on an invoice, Deposit To, Send receipt. The invoices mock has no empty mode.
 
 - **Bookkeeping Terms and Transactions** (R0 / R55): still no contract on main (Oct 18). The bookkeeping contract says Terms, transactions, refunds and settlements need tables that do not exist yet; R56 builds them once a schema and contract land.
 - **Tax Returns workspace and firm-wide Documents** (R55): no module contract on main yet (checked Oct 18 after #801).
@@ -53,6 +54,7 @@ The firm Tax Planning screens on the R55 contract (`api.taxPlanning`, `createTax
 
 - 2026-10-18: Tax Planning built on the R55 contract with a new mock; 7-test spec passes; screenshots committed.
 - 2026-10-18: Messages: "Mark unread" shows only when the thread has a client message (the API answers 409 otherwise) and errors show; r56-messages and nahid-client-messages pass; r17-messages (portal page, not touched here) fails on "Set as reminder".
+- 2026-10-18: Invoices & Payments (asked by Rasel; the routes were Fahad's F10 list): `/invoices` overview, `/invoices/new`, `/invoices/[invoiceId]`, `/[invoiceId]/edit`, `/invoices/record-payment`; `e2e/mock/r56-invoices.spec.ts` (4 tests); the client record's Invoices tab keeps `invoices-screen.tsx`; the New menu's "New invoice" opens `/invoices/new`.
 - 2026-10-18: Audit log and Sign-ups (no design folders): module header, area chips on the log (action prefixes), avatars and plain action labels beside the codes; Sign-ups view counts, avatars and "How approval works". Tumit's, Fahad's and R23's specs still pass; `r56-audit-signups.spec.ts` (2 tests).
 
 ## Handoff for a fresh session (written Oct 18, for the next window)

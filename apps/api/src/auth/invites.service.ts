@@ -64,6 +64,13 @@ export interface CreateInviteInput {
    * Super Admin's token-free copy (`platform_owner_invites`); the membership stays in the firm's.
    */
   fromPlatform?: boolean;
+  /**
+   * The activation email. 'send' (the default): sent, and a failed send throws, as always.
+   * 'skip': the invite is made and nothing is sent (Create Staff with "Send welcome email" off;
+   * Resend makes a new link later). 'try': sent, and a failed send is answered as `emailed:
+   * false` instead of thrown, so the caller keeps the member and offers Resend.
+   */
+  delivery?: 'send' | 'skip' | 'try';
 }
 
 export interface InviteResult {
@@ -73,6 +80,8 @@ export interface InviteResult {
   name: string;
   role: MembershipRole;
   expiresAt: string;
+  /** Whether the activation email went out (always true with the default 'send'). */
+  emailed: boolean;
 }
 
 /** Who a link goes to, and as what: the details an invite stores and emails. */
@@ -229,6 +238,7 @@ export class InvitesService {
       input.invitedBy,
       { kind: 'invite', name, email, role: input.role },
       input.fromPlatform,
+      input.delivery,
     );
   }
 
@@ -241,6 +251,7 @@ export class InvitesService {
     invitedBy: Inviter | null,
     link: NewLink,
     fromPlatform = false,
+    delivery: 'send' | 'skip' | 'try' = 'send',
   ): Promise<InviteResult> {
     if (link.kind === 'invite') assertMayInvite(invitedBy, link.role);
     if (fromPlatform && invitedBy) throw new Error('A platform invite has no inviting member');
@@ -383,15 +394,30 @@ export class InvitesService {
       { type: 'membership', id: membershipId },
       { inviteId, role, resent },
     );
-    await this.mailer.send({
-      inviteId,
-      businessId,
-      to: email,
-      name,
-      businessName: business.name,
-      link: this.activationLink(token),
-      expiresAt,
-    });
+    let emailed = false;
+    if (delivery !== 'skip') {
+      const send = this.mailer.send({
+        inviteId,
+        businessId,
+        to: email,
+        name,
+        businessName: business.name,
+        link: this.activationLink(token),
+        expiresAt,
+      });
+      if (delivery === 'send') {
+        await send;
+        emailed = true;
+      } else {
+        try {
+          await send;
+          emailed = true;
+        } catch (e) {
+          // The invite id and the error's name only: never the address or the link.
+          this.logger.warn(`Activation email for invite ${inviteId} failed: ${errorName(e)}`);
+        }
+      }
+    }
     return {
       id: inviteId,
       membershipId,
@@ -399,6 +425,7 @@ export class InvitesService {
       name,
       role,
       expiresAt: expiresAt.toISOString(),
+      emailed,
     };
   }
 

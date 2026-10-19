@@ -60,7 +60,7 @@ export function AppointmentsScreen() {
   };
 
   return (
-    <div className="flex w-full flex-col gap-6 [&_.ui-dialog>div>button]:text-firm-primary">
+    <div className="flex w-full flex-col gap-6 [&_.ui-dialog>div>button]:text-firm-text">
       <PortalPageHeader
         title={<span data-testid="page-title">Appointments</span>}
         subtitle={`Schedule, view, and manage your appointments with ${business.name}.`}

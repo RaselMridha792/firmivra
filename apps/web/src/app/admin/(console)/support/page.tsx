@@ -1,8 +1,8 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { SupportDashboard } from './_components/support-dashboard';
 
 export const metadata: Metadata = { title: 'Support' };
 
 export default function AdminSupportPage() {
-  return <PageHeader title="Support" />;
+  return <SupportDashboard />;
 }

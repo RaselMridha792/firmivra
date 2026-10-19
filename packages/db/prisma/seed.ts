@@ -2784,6 +2784,115 @@ async function main() {
     });
   });
 
+  // Stage D1: the Sales Center's goals (this month's new leads for the company, this quarter's won
+  // deals for the Super Admin) and a finished lead import: the team uploads it (admin scope), the
+  // import job runs it (platform scope). One row is a new lead; one matches the prospect above by
+  // email and is skipped. The database keeps the batch's counts.
+  await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
+    if (await tx.salesTarget.findUnique({ where: { id: SEED_PLATFORM_IDS.salesTargetCompany } })) {
+      return;
+    }
+    const today = new Date();
+    const year = today.getUTCFullYear();
+    const month = today.getUTCMonth();
+    const quarter = month - (month % 3);
+    await tx.salesTarget.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesTargetCompany,
+        name: 'New leads this month',
+        scope: 'COMPANY',
+        metric: 'NEW_LEADS',
+        targetValue: 20,
+        periodType: 'MONTH',
+        periodStart: new Date(Date.UTC(year, month, 1)),
+        periodEnd: new Date(Date.UTC(year, month + 1, 0)),
+      },
+    });
+    await tx.salesTarget.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesTargetRep,
+        name: 'Won deals this quarter',
+        scope: 'REP',
+        userId: SEED_USERS.superAdmin.id,
+        metric: 'WON_DEALS',
+        targetValue: 3,
+        periodType: 'QUARTER',
+        periodStart: new Date(Date.UTC(year, quarter, 1)),
+        periodEnd: new Date(Date.UTC(year, quarter + 3, 0)),
+        note: 'Two of the three from the tax-season webinar list.',
+      },
+    });
+    const pipeline = await tx.salesPipeline.findUniqueOrThrow({
+      where: { systemKey: 'firmivra_default' },
+    });
+    await tx.salesLeadImport.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesImport,
+        fileName: 'webinar-signups-sample.csv',
+        fileSizeBytes: 2048,
+        s3Key: `platform/sales-imports/${SEED_PLATFORM_IDS.salesImport}.csv`,
+        pipelineId: pipeline.id,
+        defaultSource: 'EVENT',
+        assignedToUserId: SEED_USERS.superAdmin.id,
+        columnMapping: { 'Full Name': 'name', Email: 'email', Firm: 'companyName' },
+      },
+    });
+  });
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    const batch = await tx.salesLeadImport.findUniqueOrThrow({
+      where: { id: SEED_PLATFORM_IDS.salesImport },
+    });
+    if (batch.status !== 'PENDING') return;
+    const stage = await tx.salesPipelineStage.findFirstOrThrow({
+      where: { pipelineId: batch.pipelineId, systemKey: 'new_lead' },
+    });
+    await tx.salesLeadImport.update({
+      where: { id: batch.id },
+      data: { status: 'PROCESSING', totalRows: 2 },
+    });
+    // The stage history records these as an import.
+    await tx.$queryRaw`SELECT set_config('app.sales_change_source', 'IMPORT', true)`;
+    await tx.salesContact.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesImportContact,
+        name: 'Devon Achebe',
+        email: 'devon@achebe-tax.test',
+        companyName: 'Achebe Tax Group',
+      },
+    });
+    await tx.salesOpportunity.create({
+      data: {
+        id: SEED_PLATFORM_IDS.salesImportDeal,
+        pipelineId: batch.pipelineId,
+        stageId: stage.id,
+        contactId: SEED_PLATFORM_IDS.salesImportContact,
+        title: 'Achebe Tax Group',
+        companyName: 'Achebe Tax Group',
+        source: 'EVENT',
+        assignedToUserId: SEED_USERS.superAdmin.id,
+      },
+    });
+    await tx.salesLeadImportRow.create({
+      data: {
+        importId: batch.id,
+        rowNumber: 1,
+        outcome: 'IMPORTED',
+        contactId: SEED_PLATFORM_IDS.salesImportContact,
+        opportunityId: SEED_PLATFORM_IDS.salesImportDeal,
+      },
+    });
+    await tx.salesLeadImportRow.create({
+      data: {
+        importId: batch.id,
+        rowNumber: 2,
+        outcome: 'DUPLICATE',
+        contactId: SEED_PLATFORM_IDS.salesProspectContact,
+        matchedBy: 'EMAIL',
+      },
+    });
+    await tx.salesLeadImport.update({ where: { id: batch.id }, data: { status: 'COMPLETED' } });
+  });
+
   console.warn(
     `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, intake agreements, a signed Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request, sample audit events, Firm Sign (LVP: on, with a sent request; Firm B: off, one draft), the platform team hierarchy (13 departments, the CEO mapped from Super Admin) and the 6-plan ladder.`,
   );

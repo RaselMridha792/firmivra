@@ -20,6 +20,7 @@ import {
   lockClient,
   lockReachableClient,
   lockRequest,
+  SENT_ITEMS,
   myRequestSelect,
   notFound,
   OPEN_REQUEST,
@@ -92,6 +93,8 @@ export class DocumentRequestsService {
           clientId,
           ...(q.status && { status: q.status }),
           ...(q.serviceId && { engagementId: q.serviceId }),
+          // A draft request's items show on the requests dashboard, not as the client's requests.
+          ...SENT_ITEMS,
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: MAX_REQUESTS,
@@ -278,7 +281,7 @@ export class DocumentRequestsService {
     const { items, clientId } = await this.inFirm(caller.businessId, async (tx) => {
       const login = await portalLogin(tx, caller);
       if (!login.clientId) return { items: [], clientId: null };
-      const where = { businessId: caller.businessId, clientId: login.clientId };
+      const where = { businessId: caller.businessId, clientId: login.clientId, ...SENT_ITEMS };
       const order = [{ createdAt: 'desc' }, { id: 'desc' }] as const;
       const open = await tx.documentRequest.findMany({
         where: { ...where, status: { in: [...OPEN_REQUEST] } },

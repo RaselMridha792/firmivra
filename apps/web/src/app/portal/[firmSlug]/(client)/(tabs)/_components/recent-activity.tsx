@@ -44,7 +44,7 @@ function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: st
     item.target.kind === 'message_thread' &&
     item.title.toLocaleLowerCase().includes('new message')
   ) {
-    return { glyph: 'file', color: 'text-firm-primary' };
+    return { glyph: 'file', color: 'text-firm-text' };
   }
 
   switch (item.target.kind) {
@@ -54,21 +54,21 @@ function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: st
     case 'intake':
       return { glyph: 'intake', color: 'text-purple' };
     case 'message_thread':
-      return { glyph: 'message', color: 'text-firm-primary' };
+      return { glyph: 'message', color: 'text-firm-text' };
     case 'client_note_reminder':
-      return { glyph: 'note', color: 'text-firm-primary' };
+      return { glyph: 'note', color: 'text-firm-text' };
     case 'appointment':
-      return { glyph: 'appointment', color: 'text-firm-primary' };
+      return { glyph: 'appointment', color: 'text-firm-text' };
     case 'invoice':
       return { glyph: 'invoice', color: 'text-success' };
     case 'engagement':
     case 'tax_return':
-      return { glyph: 'service', color: 'text-firm-primary' };
+      return { glyph: 'service', color: 'text-firm-text' };
     case 'client_account':
     case 'membership':
       return { glyph: 'person', color: 'text-purple' };
     case 'user':
-      return { glyph: 'account', color: 'text-firm-primary' };
+      return { glyph: 'account', color: 'text-firm-text' };
   }
 }
 
@@ -120,7 +120,7 @@ export function RecentActivity({
       <div className="mb-2 flex items-baseline gap-2">
         <h2 className="flex-1 font-display text-2xl font-bold text-heading">Recent Activity</h2>
         <Link
-          className={`inline-flex items-center gap-1 text-sm underline ${blueAccents ? 'text-firm-primary' : 'text-link'}`}
+          className={`inline-flex items-center gap-1 text-sm underline ${blueAccents ? 'text-firm-text' : 'text-link'}`}
           href={`/${slug}/notifications`}
         >
           View All <ArrowRight aria-hidden className="size-4" />

@@ -16,6 +16,7 @@ import {
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { usePortal } from '../../../../layout';
+import styles from '../../_blocks/intake-scale.module.css';
 
 function Tile({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
@@ -46,7 +47,7 @@ export function DoneScreen({ firmSlug, formPath }: { firmSlug: string; formPath:
     <div
       data-theme="begin-online"
       data-testid="begin-done"
-      className="bg-surface py-8 text-firm-primary"
+      className={`bg-surface py-8 text-firm-primary ${styles.scale}`}
     >
       <PageContainer className="flex flex-col items-center text-center">
         <span

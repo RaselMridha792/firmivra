@@ -44,6 +44,11 @@ export interface BrandDraft {
   secondaryColor: string;
   accentColor: string;
   backgroundColor: string;
+  /** Theme colours (FirmSettings); '' derives them from the primary colour. */
+  sidebarColor: string;
+  textPrimaryColor: string;
+  textSecondaryColor: string;
+  buttonColor: string;
   themeMode: ThemeMode;
   sidebarStyle: SidebarStyle;
   sidebarPosition: SidebarPosition;
@@ -65,7 +70,11 @@ type SettingsKey =
   | 'contactPhone'
   | 'contactEmail'
   | 'primaryColor'
-  | 'accentColor';
+  | 'accentColor'
+  | 'sidebarColor'
+  | 'textPrimaryColor'
+  | 'textSecondaryColor'
+  | 'buttonColor';
 const SETTINGS_KEYS: SettingsKey[] = [
   'name',
   'website',
@@ -80,6 +89,10 @@ const SETTINGS_KEYS: SettingsKey[] = [
   'contactEmail',
   'primaryColor',
   'accentColor',
+  'sidebarColor',
+  'textPrimaryColor',
+  'textSecondaryColor',
+  'buttonColor',
 ];
 type BrandingKey =
   | 'businessCategory'
@@ -123,6 +136,10 @@ export function fromData(s: FirmSettings, b: BrandingSettings): BrandDraft {
     secondaryColor: b.secondaryColor ?? '',
     accentColor: s.accentColor ?? '',
     backgroundColor: b.backgroundColor ?? '',
+    sidebarColor: s.sidebarColor ?? '',
+    textPrimaryColor: s.textPrimaryColor ?? '',
+    textSecondaryColor: s.textSecondaryColor ?? '',
+    buttonColor: s.buttonColor ?? '',
     themeMode: b.themeMode,
     sidebarStyle: b.sidebarStyle,
     sidebarPosition: b.sidebarPosition,

@@ -63,11 +63,11 @@ const SERVICE_DESCRIPTION: Record<MyService['service']['kind'], string> = {
 const SERVICE_ICON_TONE: Record<MyService['service']['kind'], string> = {
   ANNUAL_TAX: 'bg-success-soft text-success',
   QUARTERLY_TAX: 'bg-info-soft text-info',
-  BOOKKEEPING: 'bg-accent-soft text-firm-primary',
+  BOOKKEEPING: 'bg-accent-soft text-firm-text',
   PAYROLL: 'bg-info-soft text-info',
-  TAX_PLANNING: 'bg-accent-soft text-firm-primary',
+  TAX_PLANNING: 'bg-accent-soft text-firm-text',
   BUSINESS_DEVELOPMENT: 'bg-success-soft text-success',
-  OTHER: 'bg-accent-soft text-firm-primary',
+  OTHER: 'bg-accent-soft text-firm-text',
 };
 const day = (date: string) =>
   new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
@@ -141,7 +141,7 @@ export function ServiceCard({ slug, service: s }: { slug: string; service: MySer
           aria-label={`Next step: ${s.stage}. ${nextStep.action}.`}
           className="flex min-h-[4.25rem] items-center gap-3 rounded-control bg-canvas px-3 py-2.5 transition-colors hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
         >
-          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-accent-soft text-firm-primary">
+          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-accent-soft text-firm-text">
             <CalendarCheck aria-hidden className="size-4" />
           </span>
           <div className="min-w-0 flex-1">
