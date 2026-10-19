@@ -15,6 +15,7 @@ import { seedDemoPlatform } from './seed-demo-platform.js';
 import { seedDemoPortal } from './seed-demo-portal.js';
 import { seedDemoSignups } from './seed-demo-signups.js';
 import { seedDemoTasks } from './seed-demo-tasks.js';
+import { seedDemoTemplates } from './seed-demo-templates.js';
 
 type Prisma = ReturnType<typeof createPrismaClient>;
 
@@ -26,6 +27,8 @@ export async function seedDemo(prisma: Prisma): Promise<DemoOrgResult> {
   await seedDemoDocuments(prisma, org);
   // After documents: a message attaches one of them.
   await seedDemoMessages(prisma, org);
+  // Stage 5, work modules: Templates (message, document request and invoice templates).
+  await seedDemoTemplates(prisma, org);
   // Stage 3
   const form = await seedDemoIntake(prisma, org);
   await seedDemoLeads(prisma, org, form);
