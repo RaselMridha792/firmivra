@@ -27,6 +27,10 @@ import {
   type CommunicationsMock,
   loadAdminCommunicationsMock,
 } from './admin-communications-inbox';
+import {
+  type CommunicationTemplate,
+  listCommunicationTemplates,
+} from './admin-communications-templates';
 
 /**
  * `api.adminCommunications` in mock mode (R56): the inbox contract's calls on Arfan's inbox
@@ -70,7 +74,7 @@ interface Store {
   keys: Map<string, string>;
 }
 
-function build(source: CommunicationsMock): Store {
+function build(source: CommunicationsMock, fixtures: CommunicationTemplate[]): Store {
   const now = Date.now();
   const messages: AdminCommMessage[] = [];
   let m = 0;
@@ -127,7 +131,6 @@ function build(source: CommunicationsMock): Store {
       readAt: c.unread ? null : new Date(now).toISOString(),
     };
   });
-  const at = new Date(now - 86_400_000).toISOString();
   const categories = CATEGORIES.map((name, i) => ({
     id: uuid('8005', i + 1),
     name,
@@ -136,36 +139,26 @@ function build(source: CommunicationsMock): Store {
     isActive: true,
     templateCount: 0,
   }));
-  const templates: AdminCommTemplate[] = [
-    {
-      id: uuid('8006', 1),
-      category: { id: categories[1]!.id, name: 'Onboarding' },
-      name: 'Welcome to Firmivra',
-      channel: 'EMAIL',
-      status: 'ACTIVE',
-      subject: 'Welcome to Firmivra, {{firm.name}}',
-      body: 'Hi {{contact.first_name}},\n\nWelcome aboard. — {{sender.name}}',
-      mergeFields: ['firm.name', 'contact.first_name', 'sender.name'],
-      createdBy: ME,
-      updatedBy: ME,
-      createdAt: at,
-      updatedAt: at,
-    },
-    {
-      id: uuid('8006', 2),
-      category: { id: categories[3]!.id, name: 'Billing' },
-      name: 'Payment reminder (text)',
-      channel: 'SMS',
-      status: 'ACTIVE',
-      subject: null,
-      body: 'Hi {{contact.first_name}}, a reminder that your Firmivra invoice is due.',
-      mergeFields: ['contact.first_name'],
-      createdBy: ME,
-      updatedBy: ME,
-      createdAt: at,
-      updatedAt: at,
-    },
-  ];
+  // Arfan's template library (mocks/admin-communications-templates.ts), in the contract's shape.
+  const day = (d: string) => new Date(`${d}T12:00:00Z`).toISOString();
+  const templates: AdminCommTemplate[] = fixtures.map((f, i) => {
+    const cat = categories.find((c) => c.name === f.category) ?? categories[0]!;
+    const author = { userId: ME.userId, name: f.createdBy };
+    return {
+      id: uuid('8006', i + 1),
+      category: { id: cat.id, name: cat.name },
+      name: f.name,
+      channel: f.channel,
+      status: f.status === 'Archived' ? ('ARCHIVED' as const) : ('ACTIVE' as const),
+      subject: f.channel === 'EMAIL' ? f.subject : null,
+      body: f.body,
+      mergeFields: fieldsIn(f.subject, f.body),
+      createdBy: author,
+      updatedBy: author,
+      createdAt: day(f.createdAt),
+      updatedAt: day(f.updatedAt),
+    };
+  });
   return { conversations, messages, categories, templates, keys: new Map() };
 }
 
@@ -183,7 +176,11 @@ const samples = () =>
 
 export function createAdminCommunicationsMock(): AdminCommunicationsClient {
   let store: Store | undefined;
-  const s = async () => (store ??= build(await loadAdminCommunicationsMock()));
+  const s = async () =>
+    (store ??= build(
+      await loadAdminCommunicationsMock(),
+      await listCommunicationTemplates().catch(() => []),
+    ));
   const conv = (st: Store, id: string) => st.conversations.find((c) => c.id === id) ?? null;
   const msg = (st: Store, id: string) => st.messages.find((x) => x.id === id) ?? null;
   const shape = (st: Store, c: Store['conversations'][number]): AdminCommConversation => {
@@ -573,6 +570,8 @@ export function createAdminCommunicationsMock(): AdminCommunicationsClient {
           id: uuid('8006', st.templates.length + 1),
           name: `${t.name} (copy)`,
           status: 'INACTIVE' as const,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
         st.templates.push(copy);
         return copy;

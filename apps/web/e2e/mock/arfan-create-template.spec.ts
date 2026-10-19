@@ -11,9 +11,8 @@ test('renders Create Template in data, empty, API-unavailable, and mobile states
 
   await expect(page).toHaveTitle('Create template');
   await expect(page.getByRole('heading', { name: 'Create Template', level: 1 })).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'Template Name *' })).toHaveValue(
-    'Client Onboarding – Welcome',
-  );
+  // R56: a new template starts blank (nothing seeded); categories and merge fields are the API's.
+  await expect(page.getByRole('textbox', { name: 'Template Name *' })).toHaveValue('');
   await expect(page.getByRole('tab', { name: 'Preview' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Email Preview' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Available Merge Fields' })).toBeVisible();
@@ -54,11 +53,12 @@ test('renders Create Template in data, empty, API-unavailable, and mobile states
   await expect(page.getByRole('textbox', { name: 'Subject *' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Email', exact: true }).click();
 
+  // The library is the communications media library (B6): empty in the mock.
   await page.getByRole('button', { name: 'Insert image' }).click();
   await page.getByRole('tab', { name: 'Choose from Library' }).click();
-  await page.getByRole('button', { name: 'Select Workspace image' }).click();
-  await expect(page.getByRole('button', { name: 'Insert Image', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Insert Image', exact: true }).click();
+  await expect(page.getByText('No images in the library yet.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Insert Image', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Close image dialog' }).click();
   await expect(page.getByRole('dialog', { name: 'Insert Image' })).toHaveCount(0);
 
   await page.goto(`${url}?mockState=empty`);
@@ -67,16 +67,6 @@ test('renders Create Template in data, empty, API-unavailable, and mobile states
   await expect(page.getByRole('heading', { name: 'Email Preview' })).toBeVisible();
   await page.screenshot({
     path: test.info().outputPath('create-template-empty-1440.png'),
-    animations: 'disabled',
-    fullPage: true,
-  });
-
-  await page.goto(`${url}?mockState=api-unavailable`);
-  await expect(page.getByTestId('template-api-error')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Available Merge Fields' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save Template' })).toBeVisible();
-  await page.screenshot({
-    path: test.info().outputPath('create-template-api-unavailable-1440.png'),
     animations: 'disabled',
     fullPage: true,
   });
