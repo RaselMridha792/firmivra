@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import {
   ApiError,
+  ApiErrorDetails,
   BusinessSummary,
   DevSignOutRequest,
   DevTokenRequest,
@@ -8,6 +9,7 @@ import {
   HealthResponse,
   MeResponse,
   OkResponse,
+  type ApiErrorDetail,
 } from './schemas.js';
 
 /** Thrown for any non-2xx response. `code` comes from the API error body when there is one. */
@@ -19,6 +21,8 @@ export class ApiRequestError extends Error {
     readonly requestId?: string,
     /** Seconds to wait before trying again, from the response's Retry-After (a 429 or 503). */
     readonly retryAfter?: number,
+    /** The body's `details` when they are `{ path, message }` lines: what is wrong or missing. */
+    readonly details?: ApiErrorDetail[],
   ) {
     super(message);
     this.name = 'ApiRequestError';
@@ -152,12 +156,14 @@ export function createRequest(options: ApiClientOptions) {
     if (!res.ok) {
       const parsed = ApiError.safeParse(json);
       const e = parsed.success ? parsed.data.error : undefined;
+      const details = ApiErrorDetails.safeParse(e?.details);
       throw new ApiRequestError(
         res.status,
         e?.code ?? `HTTP_${res.status}`,
         e?.message ?? res.statusText,
         e?.requestId,
         retryAfterSeconds(res.headers.get('retry-after')),
+        details.success ? details.data : undefined,
       );
     }
     return schema.parse(json);
