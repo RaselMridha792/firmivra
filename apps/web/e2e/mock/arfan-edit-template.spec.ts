@@ -53,9 +53,8 @@ test('edits a template with data, empty, unavailable, and mobile states', async 
   await page.goto(url);
   await expect(page.getByRole('heading', { name: 'Edit Template', level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Email Preview' })).toBeVisible();
-  await expect(page.locator('body').evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(
-    375,
-  );
+  const bodyWidth = await page.locator('body').evaluate((element) => element.scrollWidth);
+  expect(bodyWidth).toBeLessThanOrEqual(375);
   await page.screenshot({
     path: test.info().outputPath('edit-template-data-375.png'),
     animations: 'disabled',
