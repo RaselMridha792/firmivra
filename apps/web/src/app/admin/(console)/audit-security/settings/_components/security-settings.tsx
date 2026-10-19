@@ -29,13 +29,14 @@ import { useId, useState, type ReactNode } from 'react';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import {
-  adminAuditSecurity,
   CONCURRENT_SESSIONS,
   daysLabel,
   DEFAULT_SECURITY_SETTINGS,
   describeSettingsChanges,
   EXPORT_ROLE_LABELS,
   EXPORT_ROLES,
+  exportLevel,
+  exportRolesFor,
   IDLE_TIMEOUT_MINUTES,
   isIpEntry,
   LOCKOUT_MINUTES,
@@ -43,15 +44,17 @@ import {
   minutesLabel,
   PASSWORD_EXPIRATION_DAYS,
   REMEMBER_ME_DAYS,
-  RETENTION_LABELS,
-  RETENTION_PERIODS,
+  RETENTION_DAYS,
+  retentionLabel,
   sessionsLabel,
+  SEVERITY_FLOOR_LABELS,
   validateSecuritySettings,
   type IpMode,
   type MfaScope,
   type SecuritySettings,
   type SettingsErrors,
 } from '../../../../../../mocks/admin-audit-security';
+import { adminAuditSecurity } from '../../_components/audit-api';
 import {
   Breadcrumbs,
   formatShortStamp,
@@ -78,14 +81,19 @@ const SECTIONS = [
 ] as const;
 type SectionId = (typeof SECTIONS)[number]['id'];
 
-const MFA_OPTIONS: { value: MfaScope; label: string; hint: string }[] = [
+/** Optional is shown as the design has it, but never chosen: Super Admins always use MFA. */
+const MFA_OPTIONS: { value: MfaScope | 'OPTIONAL'; label: string; hint: string }[] = [
   { value: 'ALL', label: 'Required for all users', hint: 'All users must enable MFA.' },
   {
     value: 'ADMINS',
     label: 'Required for admin users only',
     hint: 'Only Super Admins and Firm Admins must enable MFA.',
   },
-  { value: 'OPTIONAL', label: 'Optional', hint: 'Users can choose to enable MFA.' },
+  {
+    value: 'OPTIONAL',
+    label: 'Optional',
+    hint: 'Users can choose to enable MFA. Not available: Firmivra always requires MFA for Super Admins.',
+  },
 ];
 const IP_OPTIONS: { value: IpMode; label: string; hint: string }[] = [
   {
@@ -110,7 +118,8 @@ const METHODS: { key: keyof SecuritySettings['methods']; label: string }[] = [
   { key: 'email', label: 'Email Verification' },
   { key: 'hardwareKey', label: 'Hardware Security Key (e.g. YubiKey)' },
 ];
-const ALERTS: { key: keyof SecuritySettings['notifications']; label: string }[] = [
+type AlertKey = Exclude<keyof SecuritySettings['notifications'], 'minimumSeverity'>;
+const ALERTS: { key: AlertKey; label: string }[] = [
   { key: 'failedLogins', label: 'Failed login attempts' },
   { key: 'newDevice', label: 'New device login' },
   { key: 'passwordChanges', label: 'Password changes' },
@@ -240,7 +249,7 @@ export function SecuritySettingsForm() {
   }
 
   const lastChanged = saved
-    ? `Last changed ${formatShortStamp(saved.updatedAt, true)} by ${saved.updatedBy} · version ${saved.version}`
+    ? `Last changed ${formatShortStamp(saved.updatedAt, true)}${saved.updatedBy ? ` by ${saved.updatedBy}` : ''} · version ${saved.version}`
     : null;
 
   return (
@@ -293,11 +302,13 @@ export function SecuritySettingsForm() {
             current ? (
               <span className="flex items-center gap-3 text-sm font-semibold text-heading">
                 <Toggle
-                  label="Multi-factor authentication"
-                  checked={current.mfa.enabled}
-                  onChange={(enabled) => patch('mfa', { enabled })}
+                  label="Multi-factor authentication (always on for Super Admins)"
+                  checked
+                  disabled
+                  title="Always on: Super Admins must use MFA"
+                  onChange={() => undefined}
                 />
-                <span aria-hidden>{current.mfa.enabled ? 'Enabled' : 'Disabled'}</span>
+                <span aria-hidden>Enabled</span>
               </span>
             ) : null
           }
@@ -312,8 +323,10 @@ export function SecuritySettingsForm() {
                   label={option.label}
                   hint={option.hint}
                   checked={value.mfa.scope === option.value}
-                  disabled={!value.mfa.enabled}
-                  onSelect={() => patch('mfa', { scope: option.value })}
+                  disabled={option.value === 'OPTIONAL'}
+                  onSelect={() => {
+                    if (option.value !== 'OPTIONAL') patch('mfa', { scope: option.value });
+                  }}
                 />
               ))}
             </fieldset>
@@ -378,9 +391,9 @@ export function SecuritySettingsForm() {
                           event.target.value === '' ? Number.NaN : Number(event.target.value),
                       })
                     }
-                    className="w-full min-w-0 rounded-control bg-transparent px-3 text-base text-text outline-none"
+                    className="w-full min-w-8 [appearance:textfield] rounded-control bg-transparent px-3 text-base text-text outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   />
-                  <span className="shrink-0 border-l border-divider px-3 text-sm text-muted">
+                  <span className="shrink-0 border-l border-divider px-2 text-sm text-muted">
                     characters
                   </span>
                 </span>
@@ -410,7 +423,11 @@ export function SecuritySettingsForm() {
                 value={value.password.expirationDays}
                 choices={PASSWORD_EXPIRATION_DAYS}
                 show={daysLabel}
-                onChange={(expirationDays) => patch('password', { expirationDays })}
+                onChange={(days) =>
+                  patch('password', {
+                    expirationDays: days as SecuritySettings['password']['expirationDays'],
+                  })
+                }
               />
             </div>
           ))}
@@ -590,7 +607,7 @@ export function SecuritySettingsForm() {
               </fieldset>
               <fieldset className="flex flex-col gap-1 border-t border-divider pt-3">
                 <legend className="text-sm font-medium text-text">
-                  Send high and critical alerts by
+                  Send {SEVERITY_FLOOR_LABELS[value.notifications.minimumSeverity]} alerts by
                 </legend>
                 <div className="flex flex-wrap gap-x-6">
                   <Checkbox label="In-app (always on)" checked disabled readOnly />
@@ -619,37 +636,33 @@ export function SecuritySettingsForm() {
           {body(3, (value) => (
             <>
               <div className="grid items-end gap-3 sm:grid-cols-2">
-                <Select
+                <NumberSelect
                   label="Retention Period"
-                  value={value.retention.period}
-                  onChange={(event) =>
+                  value={value.retention.retentionDays}
+                  choices={RETENTION_DAYS}
+                  show={retentionLabel}
+                  disabled={saved?.retentionEditable === false}
+                  onChange={(retentionDays) =>
                     patch('retention', {
-                      period:
-                        RETENTION_PERIODS.find((period) => period === event.target.value) ??
-                        value.retention.period,
+                      retentionDays,
+                      archiveAfterDays: Math.min(value.retention.archiveAfterDays, retentionDays),
                     })
                   }
-                  options={RETENTION_PERIODS.map((period) => ({
-                    value: period,
-                    label: RETENTION_LABELS[period],
-                  }))}
                 />
                 <p className="rounded-lg bg-info-soft p-3 text-xs text-text">
-                  Logs older than the selected period will be automatically archived and removed
-                  from the active database.
+                  {saved?.retentionEditable === false
+                    ? 'Retention is fixed by Firmivra policy and cannot change here.'
+                    : 'Logs older than the selected period will be automatically archived and removed from the active database.'}
                 </p>
               </div>
               <div className="grid items-end gap-3 sm:grid-cols-2">
                 <Select
                   label="Who Can Export Logs"
-                  value={value.retention.exportRoles}
-                  onChange={(event) =>
-                    patch('retention', {
-                      exportRoles:
-                        EXPORT_ROLES.find((role) => role === event.target.value) ??
-                        value.retention.exportRoles,
-                    })
-                  }
+                  value={exportLevel(value.exports.roles)}
+                  onChange={(event) => {
+                    const level = EXPORT_ROLES.find((role) => role === event.target.value);
+                    if (level) patch('exports', { roles: exportRolesFor(level) });
+                  }}
                   options={EXPORT_ROLES.map((role) => ({
                     value: role,
                     label: EXPORT_ROLE_LABELS[role],
@@ -657,8 +670,8 @@ export function SecuritySettingsForm() {
                 />
                 <ToggleRow
                   label="Require re-authentication to export logs"
-                  checked={value.retention.exportReauth}
-                  onChange={(exportReauth) => patch('retention', { exportReauth })}
+                  checked={value.exports.requireReauth}
+                  onChange={(requireReauth) => patch('exports', { requireReauth })}
                 />
               </div>
             </>
@@ -776,8 +789,10 @@ export function SecuritySettingsForm() {
         }
       >
         <Callout size="compact" surface="info" icon={Info}>
-          The defaults require MFA for everyone, a 12-character password without forced expiry, and
-          keep audit logs for 1 year. Review them, then Save Changes.
+          The defaults require MFA for admin users, a {DEFAULT_SECURITY_SETTINGS.password.minLength}
+          -character password without forced expiry, and keep audit logs for{' '}
+          {retentionLabel(DEFAULT_SECURITY_SETTINGS.retention.retentionDays)}. Review them, then
+          Save Changes.
         </Callout>
       </Modal>
 
