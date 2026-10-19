@@ -501,6 +501,13 @@ export class BillingService {
         !['DRAFT', 'SENT'].includes(row.status)
       )
         throw billingError(409, 'HAS_MONEY', 'Payments or credits are recorded on it');
+      // B3 gives every invoice that is not a draft a sent time, so a draft is issued (not
+      // emailed) and voided in this one transaction.
+      if (row.status === 'DRAFT')
+        await tx.platformInvoice.update({
+          where: { id },
+          data: { status: 'SENT', sendError: NOT_EMAILED },
+        });
       await tx.platformInvoice.update({
         where: { id },
         data: { status: 'VOIDED', voidReason: body.reason },
@@ -1080,6 +1087,9 @@ export class BillingService {
         throw billingError(409, 'ALREADY_VOIDED', 'This credit note was already voided');
       if (c.appliedCents > 0 || c.refundedCents > 0 || !['DRAFT', 'AVAILABLE'].includes(c.status))
         throw billingError(409, 'HAS_MONEY', 'Credit was already used from it');
+      // As invoices: B3 gives every credit note that is not a draft an issue time.
+      if (c.status === 'DRAFT')
+        await tx.platformCreditNote.update({ where: { id }, data: { status: 'AVAILABLE' } });
       await tx.platformCreditNote.update({
         where: { id },
         data: { status: 'VOIDED', voidReason: body.reason },
@@ -1317,7 +1327,16 @@ export class BillingService {
       if (row.status === body.status) return this.estimateDetail(tx, id);
       if (row.status === 'DRAFT' && body.status !== 'DRAFT' && row.totalCents <= 0)
         throw invalid('An estimate needs an amount');
-      await tx.platformEstimate.update({ where: { id }, data: { status: body.status } });
+      // What was quoted is fixed once sent (B3), so a sent estimate never becomes a draft again.
+      if (body.status === 'DRAFT')
+        throw billingError(409, 'NOT_A_DRAFT', 'A sent estimate cannot go back to draft');
+      // Only a decided estimate keeps a decision time: leaving Approved clears it.
+      const undecided =
+        row.status === 'APPROVED' && (body.status === 'SENT' || body.status === 'PENDING');
+      await tx.platformEstimate.update({
+        where: { id },
+        data: { status: body.status, ...(undecided ? { decidedAt: null } : {}) },
+      });
       await this.log(
         tx,
         'billing_estimate.status_changed',

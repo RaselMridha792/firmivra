@@ -63,12 +63,22 @@ method names and most shapes; B3 sets what is stored. Where they differ:
     one invoice per occurrence (B3's unique key), dated on the occurrence, due by the firm's terms,
     for the period up to the next date, sent when the schedule auto-sends.
 
+21. **Voiding a draft**: B3's checks give every invoice that is not a draft a sent time (and every
+    credit note an issue time), so a draft is issued without email and voided in one transaction.
+22. **Estimate status moves**: a sent estimate never goes back to Draft (409 NOT_A_DRAFT: what was
+    quoted is fixed once sent), and leaving Approved for Sent or Pending clears the decision time
+    (B3 keeps one only on decided estimates).
+
 ## Needs from others
 
 - **R0 (Billing, B3), a bug:** `platform_invoice_recompute` sets PARTIALLY_REFUNDED or REFUNDED
   on any refund, but `platform_invoices_values` allows those statuses only when the invoice is fully
   paid, so refunding a payment on a part-paid invoice fails the check. The API refuses that refund
   (422 NOT_SUPPORTED_YET, "once its invoice is fully paid") until the rule is settled.
+- **R0 (Billing, B3), for the record:** the trigger allows DRAFT -> VOIDED for invoices and credit
+  notes, but the checks `(status = 'DRAFT') = (sent_at IS NULL)` and
+  `(status = 'DRAFT') = (issued_at IS NULL)` refuse it; the API issues a draft first (point 21).
+  Leaving APPROVED keeps `decided_at`, which the estimate check refuses; the API clears it.
 - **R0 (Billing, B3):** a `preferences` JSON column on `platform_billing_settings` (the settings
   page's other options), `platform_refunds.method`, and later invoice attachments and named tax
   rates if the design keeps them.

@@ -777,6 +777,60 @@ describe('recurring schedules', () => {
   });
 });
 
+describe("B3's state rules", () => {
+  it('voids a draft invoice and a draft credit note (issued unsent, then voided)', async () => {
+    const draft = await newInvoice();
+    const voided = BillingInvoiceDetail.parse(
+      ok(await call('post', `/invoices/${draft.id}/void`, { reason: 'Fake: started by mistake' })),
+    );
+    expect(voided).toMatchObject({ status: 'VOIDED', sendStatus: 'NOT_SENT' });
+    const note = BillingCreditNote.parse(
+      ok(
+        await call('post', '/credit-notes', {
+          firmId: fx.firmA.id,
+          date: t0,
+          reason: 'OTHER',
+          method: 'ADJUSTMENT',
+          adjustmentCents: 100,
+        }),
+        201,
+      ),
+    );
+    expect(
+      BillingCreditNote.parse(
+        ok(await call('post', `/credit-notes/${note.id}/void`, { reason: 'Fake: mistake' })),
+      ).status,
+    ).toBe('VOIDED');
+  });
+
+  it('moves an estimate back from Approved, but never back to Draft once sent', async () => {
+    const e = BillingEstimate.parse(
+      ok(
+        await call('post', '/estimates', {
+          firmId: fx.firmA.id,
+          contactName: 'Fake Prospect Contact',
+          email: 'quotes@e2e-a.test',
+          phone: '(770) 555-0123',
+          issueDate: t0,
+          expirationDate: plus(30),
+          lines: [{ description: 'Fake plan', quantity: 1, rateCents: 1_000 }],
+          send: true,
+          emailFirm: false,
+        }),
+        201,
+      ),
+    );
+    expect(e.phone).toBe('+17705550123');
+    ok(await call('post', `/estimates/${e.id}/status`, { status: 'APPROVED' }));
+    const back = BillingEstimate.parse(
+      ok(await call('post', `/estimates/${e.id}/status`, { status: 'PENDING' })),
+    );
+    expect(back).toMatchObject({ status: 'PENDING', decidedAt: null });
+    const draft = await call('post', `/estimates/${e.id}/status`, { status: 'DRAFT' });
+    expect([draft.status, code(draft)]).toEqual([409, 'NOT_A_DRAFT']);
+  });
+});
+
 describe('the Super Admin site only', () => {
   it("a firm Owner's session reaches no Billing route", async () => {
     for (const [method, path] of [
