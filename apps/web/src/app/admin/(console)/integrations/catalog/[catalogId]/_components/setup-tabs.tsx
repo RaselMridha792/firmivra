@@ -11,7 +11,7 @@ import {
   STATUS_LABELS,
   type Page,
   type PlatformIntegration,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { ServiceLogo } from '../../../_components/integration-badges';
 import { CATALOG_AUTH_LABELS, OutlineButton } from '../../_components/catalog-parts';
 import {

@@ -3,26 +3,16 @@
 import type { AdvisoryClientRow, AdvisoryGoalRow, AdvisoryMeetingRow } from '@firmivra/types';
 import { ActionMenu, Avatar, Table, Toast, type Column } from '@firmivra/ui';
 import {
-  Bank,
   BookOpen,
-  Buildings,
   CalendarDots,
   CaretRight,
-  ChartBar,
-  ChartLineUp,
   DotsThree,
   Eye,
   FileText,
-  Globe,
-  HandCoins,
   Lightbulb,
-  PaintBrush,
-  PlayCircle,
   Target,
-  TrendUp,
   Users,
   UsersThree,
-  type Icon,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -34,6 +24,7 @@ import { BaShell } from './ba-shell';
 import {
   BASE,
   BA_KEY,
+  RESOURCE_ICON,
   ClientStatusPill,
   DateTimeCell,
   GoalStatusPill,
@@ -45,20 +36,6 @@ import {
   primary,
   quiet,
 } from './ba-shared';
-
-/** The resource library's categories (apps/api/src/advisory/catalog.ts), each with its icon. */
-const RESOURCE_ICON: Record<string, Icon> = {
-  'Formation / EIN': Buildings,
-  Branding: PaintBrush,
-  Website: Globe,
-  Banking: Bank,
-  Funding: HandCoins,
-  'Business Planning': FileText,
-  'Market Research': ChartBar,
-  'Financial Management': ChartLineUp,
-  'Growth / Operations': TrendUp,
-  Education: PlayCircle,
-};
 
 /** /business-advisory: KPIs, quick actions, recent clients, meetings, goals and resources. */
 export function AdvisoryOverview() {

@@ -1,6 +1,20 @@
 import { ApiRequestError } from '@firmivra/types';
 import { Badge } from '@firmivra/ui';
-import { ArrowRight, CheckCircle, type Icon } from '@phosphor-icons/react';
+import {
+  ArrowRight,
+  Bank,
+  Buildings,
+  ChartBar,
+  ChartLineUp,
+  CheckCircle,
+  FileText,
+  Globe,
+  HandCoins,
+  PaintBrush,
+  PlayCircle,
+  TrendUp,
+  type Icon,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { errorMessage } from '../../../../../lib/errors';
@@ -74,6 +88,86 @@ export const GoalStatusPill = pill(GOAL_STATUS, {
   COMPLETED: 'purple',
   CANCELLED: 'neutral',
 });
+
+/** The resource library's categories (apps/api/src/advisory/catalog.ts), each with its icon. */
+export const RESOURCE_ICON: Record<string, Icon> = {
+  'Formation / EIN': Buildings,
+  Branding: PaintBrush,
+  Website: Globe,
+  Banking: Bank,
+  Funding: HandCoins,
+  'Business Planning': FileText,
+  'Market Research': ChartBar,
+  'Financial Management': ChartLineUp,
+  'Growth / Operations': TrendUp,
+  Education: PlayCircle,
+};
+
+export const REC_STATUS: Record<string, string> = {
+  PROPOSED: 'Proposed',
+  ACCEPTED: 'Accepted',
+  IN_PROGRESS: 'In Progress',
+  IMPLEMENTED: 'Implemented',
+  NOT_APPLICABLE: 'Not Applicable',
+  DECLINED: 'Declined',
+};
+export const RecStatusPill = pill(REC_STATUS, {
+  PROPOSED: 'info',
+  ACCEPTED: 'purple',
+  IN_PROGRESS: 'success',
+  IMPLEMENTED: 'success',
+  NOT_APPLICABLE: 'neutral',
+  DECLINED: 'danger',
+});
+
+export const ACTION_STATUS: Record<string, string> = {
+  NOT_STARTED: 'Not Started',
+  IN_PROGRESS: 'In Progress',
+  DONE: 'Done',
+  CANCELLED: 'Cancelled',
+};
+export const ActionStatusPill = pill(ACTION_STATUS, {
+  NOT_STARTED: 'neutral',
+  IN_PROGRESS: 'info',
+  DONE: 'success',
+  CANCELLED: 'neutral',
+});
+
+export const PRIORITY: Record<string, string> = { HIGH: 'High', NORMAL: 'Normal', LOW: 'Low' };
+export function PriorityPill({ priority }: { priority: string }) {
+  return (
+    <Badge tone={priority === 'HIGH' ? 'danger' : priority === 'NORMAL' ? 'info' : 'neutral'}>
+      {PRIORITY[priority] ?? priority}
+    </Badge>
+  );
+}
+
+export const ASSIGNEE_KIND: Record<string, string> = {
+  STAFF: 'Staff',
+  CLIENT: 'Client',
+  TEAM: 'Team',
+};
+export const SOURCE: Record<string, string> = {
+  MANUAL: 'Manual',
+  BOOKKEEPING: 'Bookkeeping',
+  PAYROLL: 'Payroll',
+  BANK: 'Bank / Integration',
+  UPLOADED: 'Uploaded',
+};
+export const RESOURCE_KIND: Record<string, string> = {
+  PDF: 'PDF',
+  CHECKLIST: 'Checklist',
+  GUIDE: 'Guide',
+  TEMPLATE: 'Template',
+  VIDEO: 'Video',
+  LINK: 'Link',
+};
+
+/** "$1,250" typed in a field to cents; undefined when empty, NaN when not a number. */
+export const centsOf = (v: string): number | undefined => {
+  const t = v.replace(/[$,\s]/g, '');
+  return t === '' ? undefined : Math.round(Number(t) * 100);
+};
 
 export const AREA_LABEL: Record<string, string> = {
   REVENUE_GROWTH: 'Revenue Growth',

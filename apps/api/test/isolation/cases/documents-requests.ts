@@ -48,6 +48,47 @@ export const records: CaseModule['records'] = {
       return get('requestPacketItem');
     },
   },
+  /**
+   * Client X's sent request (packet), OPEN, with one required item not answered yet: what the
+   * client's portal shows (a draft is nobody's there). Made as a draft, then sent (the database's
+   * rule: items change only while it is a draft).
+   */
+  sentRequestPacket: {
+    clientPrivate: true,
+    async create({ tx, businessId, owner, get }) {
+      const clientId = await get('client');
+      const engagementId = await get('engagement');
+      const packet = await tx.documentRequestPacket.create({
+        data: {
+          businessId,
+          clientId,
+          engagementId,
+          title: 'Fake sent documents',
+          requestedByUserId: owner.id,
+        },
+      });
+      await tx.documentRequest.create({
+        data: {
+          businessId,
+          clientId,
+          engagementId,
+          packetId: packet.id,
+          title: 'Fake 1099',
+          requestedByUserId: owner.id,
+        },
+      });
+      await tx.documentRequestPacket.update({
+        where: { id: packet.id },
+        data: {
+          status: 'OPEN',
+          dueOn: new Date(Date.now() + 10 * 86_400_000),
+          messageSubject: 'Fake subject',
+          messageBody: 'Fake message',
+        },
+      });
+      return packet.id;
+    },
+  },
   /** A firm request type with one item. */
   requestTemplate: {
     async create({ tx, businessId }) {
@@ -167,5 +208,16 @@ export const cases: CaseModule['cases'] = {
   },
   'POST /api/v1/business/document-request-templates/:id/archive': {
     params: { id: 'requestTemplate' },
+  },
+
+  // The client's side of request packets (R55, Frame 7). Submit is found, but its required item
+  // is not answered yet.
+  'GET /api/v1/portal/:firmSlug/me/request-packets/:id': {
+    params: { id: 'sentRequestPacket' },
+  },
+  'POST /api/v1/portal/:firmSlug/me/request-packets/:id/submit': {
+    params: { id: 'sentRequestPacket' },
+    body: {},
+    expect: 409,
   },
 };

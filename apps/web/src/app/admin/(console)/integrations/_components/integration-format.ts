@@ -1,4 +1,4 @@
-import type { MetricUnit } from '../../../../../mocks/admin-integrations';
+import type { MetricUnit } from './integrations-contract';
 
 /**
  * Shared formatters for every Integrations page: moments in the viewer's own time zone (the API

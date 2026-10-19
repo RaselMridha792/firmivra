@@ -16,7 +16,6 @@ import { useRouter } from 'next/navigation';
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import { useMe } from '../../../../../../components/signed-in';
 import {
-  adminBilling,
   computeTotals,
   ESTIMATE_TEMPLATES,
   estimateErrors,
@@ -59,6 +58,7 @@ import { BillingCard, QuietLine, quietErrorText } from '../../_components/billin
 import { BillingHeader, type Crumb } from '../../_components/billing-shell';
 import { DocumentViewer } from '../../_components/invoice-document';
 import { EstimateDocument, type EstimateDocumentData } from './estimate-document';
+import { adminBilling, issuerOf } from '../../_components/billing-api';
 
 /**
  * Create Estimate and Edit Estimate: one form (modern-estimate-creation-dashboard.jpg, docx §11).
@@ -1052,7 +1052,7 @@ function EstimateForm({
         title={`Estimate ${draft.number || 'preview'}`}
         onClose={() => setPreview(false)}
       >
-        <EstimateDocument data={previewData} firm={firm} client={client} />
+        <EstimateDocument data={previewData} firm={issuerOf(firm)} client={client} />
       </DocumentViewer>
 
       <Modal

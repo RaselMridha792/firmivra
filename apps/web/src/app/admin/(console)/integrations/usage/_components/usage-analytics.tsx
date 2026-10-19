@@ -8,7 +8,6 @@ import {
   Select,
   Skeleton,
   Table,
-  Toast,
   type ChartTone,
   type Column,
   type DateRange,
@@ -40,7 +39,7 @@ import {
   type UsageReport,
   type UsageScope,
   type UsageSubject,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import { DashboardPanel, MiniStat, type DashboardTone } from '../../_components/dashboard-parts';
 import { ServiceLogo } from '../../_components/integration-badges';
 import {
@@ -62,7 +61,6 @@ import {
   LinkButton,
   logsHref,
 } from '../../_components/integrations-shell';
-import type { Notice } from '../../_components/platform-actions';
 import { UsageChart } from './usage-chart';
 import { UsageThresholdsForm } from './usage-thresholds';
 import {
@@ -84,8 +82,8 @@ import {
  * usage of each platform integration (requests, success and failure, latency, volume in the
  * provider's own unit, provider cost where reported), the customer catalog's adoption (connected
  * and active firms, connects and disconnects, plan distribution), and API key traffic, over a
- * preset or custom range of UTC days (30 by default). Alerts list what crossed a threshold; the
- * thresholds are edited below. Cross-firm numbers are aggregates only (docx §10).
+ * preset or custom range of UTC days (30 by default). Alerts list what crossed a threshold (none
+ * until thresholds can be set). Cross-firm numbers are aggregates only (docx §10).
  */
 
 const SCOPE_LABELS: Record<UsageScope, string> = {
@@ -287,7 +285,6 @@ export function UsageAnalytics({ address }: { address: AddressQuery }) {
   const [view, setView] = useState<UsageView>(() => readView(address, today));
   const [draft, setDraft] = useState<DateRange>(() => ({ from: view.from, to: view.to }));
   const [rangeError, setRangeError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<Notice | null>(null);
 
   useEffect(() => {
     const next = addressOf(view);
@@ -295,7 +292,6 @@ export function UsageAnalytics({ address }: { address: AddressQuery }) {
       window.history.replaceState(null, '', next);
   }, [view]);
 
-  const access = useApiQuery(['admin-integrations', 'access'], () => adminIntegrations.access());
   const subjects = useApiQuery(['admin-integrations', 'usage', 'subjects', view.scope], () =>
     subjectOptions(view.scope),
   );
@@ -308,9 +304,6 @@ export function UsageAnalytics({ address }: { address: AddressQuery }) {
         from: view.from,
         to: view.to,
       }),
-  );
-  const thresholds = useApiQuery(['admin-integrations', 'thresholds'], () =>
-    adminIntegrations.thresholds(),
   );
 
   const pick = (subject: string) => setView((current) => ({ ...current, subject }));
@@ -477,10 +470,6 @@ export function UsageAnalytics({ address }: { address: AddressQuery }) {
         }
       />
 
-      {notice ? (
-        <Toast message={notice.text} tone={notice.tone} onDismiss={() => setNotice(null)} />
-      ) : null}
-
       <IntegrationsNav current="usage" />
 
       <Card data-testid="usage-controls" className="flex min-w-0 flex-col gap-3">
@@ -633,18 +622,22 @@ export function UsageAnalytics({ address }: { address: AddressQuery }) {
               </div>
             ) : (
               <Frame pending={report.isPending} error={report.error}>
-                {() => (
-                  <DonutChart
-                    segments={plans.map((plan, index) => ({
-                      label: plan.planName,
-                      value: plan.firms,
-                      tone: PLAN_TONES[index % PLAN_TONES.length] ?? 'grey',
-                    }))}
-                    centerValue={formatNumber(planFirms)}
-                    centerLabel="Firms"
-                    emptyText="No firms are connected in this range."
-                  />
-                )}
+                {() =>
+                  plans.length ? (
+                    <DonutChart
+                      segments={plans.map((plan, index) => ({
+                        label: plan.planName,
+                        value: plan.firms,
+                        tone: PLAN_TONES[index % PLAN_TONES.length] ?? 'grey',
+                      }))}
+                      centerValue={formatNumber(planFirms)}
+                      centerLabel="Firms"
+                      emptyText="No firms are connected in this range."
+                    />
+                  ) : (
+                    <QuietLine>Connected firms are not counted by plan yet.</QuietLine>
+                  )
+                }
               </Frame>
             )}
           </div>
@@ -698,7 +691,9 @@ export function UsageAnalytics({ address }: { address: AddressQuery }) {
                     })}
                   </ul>
                 ) : (
-                  <QuietLine>No thresholds were crossed in this range.</QuietLine>
+                  <QuietLine>
+                    No alerts in this range. Alerts start once thresholds can be set.
+                  </QuietLine>
                 )
               }
             </Frame>
@@ -712,11 +707,7 @@ export function UsageAnalytics({ address }: { address: AddressQuery }) {
           subtitle="Optional limits for error rate, latency, rate-limit use, cost and failed syncs."
         >
           <div className="px-5 py-4">
-            <UsageThresholdsForm
-              query={thresholds}
-              canEdit={access.data?.canManageConfiguration ?? false}
-              onNotice={setNotice}
-            />
+            <UsageThresholdsForm />
           </div>
         </DashboardPanel>
       </div>

@@ -22,7 +22,7 @@ import {
   type PlatformIntegration,
   type ProviderTemplate,
   type UpdatePlatformBody,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { formatBytes } from '../../../_components/integration-format';
 import { integrationErrorMessage } from '../../../_components/integration-states';
 import {
@@ -455,9 +455,14 @@ function ServiceForm({
             multiple={false}
             onFiles={(files) => {
               const file = files[0];
+              const contentType = LOGO_TYPES.find((type) => type === file?.type);
               if (!file) return;
+              if (!contentType) {
+                setLogoProblem('Upload the logo as PNG, JPEG or WebP.');
+                return;
+              }
               setLogoProblem(null);
-              set({ logo: { fileName: file.name, contentType: file.type, sizeBytes: file.size } });
+              set({ logo: { fileName: file.name, contentType, sizeBytes: file.size } });
             }}
             onReject={(rejections) =>
               setLogoProblem(
