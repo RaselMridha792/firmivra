@@ -2893,6 +2893,53 @@ async function main() {
     await tx.salesLeadImport.update({ where: { id: batch.id }, data: { status: 'COMPLETED' } });
   });
 
+  // Stage D4: Firmivra's own Terms of Service and Privacy Policy, version 1, published by the
+  // Super Admin (a kind that already has a version is left alone); LVP's owner accepted the Terms
+  // in force at activation (the platform records it).
+  await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
+    for (const [id, kind, title] of [
+      [SEED_PLATFORM_IDS.legalTerms, 'TERMS_OF_SERVICE', 'Firmivra Terms of Service'],
+      [SEED_PLATFORM_IDS.legalPrivacy, 'PRIVACY_POLICY', 'Firmivra Privacy Policy'],
+    ] as const) {
+      if (await tx.platformLegalDocument.count({ where: { kind } })) continue;
+      await tx.platformLegalDocument.create({
+        data: {
+          id,
+          kind,
+          version: 1,
+          title,
+          body: `# ${title}
+
+Sample text for local development. Not legal text.`,
+        },
+      });
+      await tx.platformLegalDocument.update({ where: { id }, data: { status: 'PUBLISHED' } });
+    }
+  });
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    const terms = await tx.platformLegalDocument.findFirst({
+      where: { kind: 'TERMS_OF_SERVICE', status: 'PUBLISHED' },
+    });
+    if (
+      !terms ||
+      (await tx.platformLegalAcceptance.findUnique({
+        where: { id: SEED_PLATFORM_IDS.legalAcceptance },
+      }))
+    ) {
+      return;
+    }
+    await tx.platformLegalAcceptance.create({
+      data: {
+        id: SEED_PLATFORM_IDS.legalAcceptance,
+        documentId: terms.id,
+        linkedBusinessId: businesses.lvp,
+        userId: SEED_USERS.lvpOwner.id,
+        ipAddress: '203.0.113.10',
+        userAgent: 'Seed (synthetic)',
+      },
+    });
+  });
+
   console.warn(
     `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, intake agreements, a signed Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request, sample audit events, Firm Sign (LVP: on, with a sent request; Firm B: off, one draft), the platform team hierarchy (13 departments, the CEO mapped from Super Admin) and the 6-plan ladder.`,
   );
