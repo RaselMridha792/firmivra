@@ -183,7 +183,8 @@ export function ClientFirmCard({
 }: {
   ticket: TicketDetail;
   directory: SupportDirectory | undefined;
-  onEdit: () => void;
+  /** Left out: the ticket's firm and contact are fixed (B2), so there is nothing to edit. */
+  onEdit?: () => void;
 }) {
   const firm = directory?.firms.find((f) => f.id === ticket.firm.id);
   const primary = firm?.contacts.find((c) => c.id === ticket.contact.id)?.primary ?? true;
@@ -191,13 +192,15 @@ export function ClientFirmCard({
     <Panel label="Client / Firm" testId="client-firm" className="p-5">
       <div className="mb-4 flex items-center justify-between gap-2">
         <h2 className="text-lg font-bold text-heading">Client / Firm</h2>
-        <button
-          type="button"
-          onClick={onEdit}
-          className="text-sm font-medium text-link hover:underline"
-        >
-          Edit
-        </button>
+        {onEdit ? (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="text-sm font-medium text-link hover:underline"
+          >
+            Edit
+          </button>
+        ) : null}
       </div>
       <div className="flex gap-4">
         <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-info-soft text-info">

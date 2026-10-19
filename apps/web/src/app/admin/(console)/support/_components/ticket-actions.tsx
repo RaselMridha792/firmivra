@@ -4,7 +4,6 @@ import { Button, Callout, Checkbox, Modal } from '@firmivra/ui';
 import { Warning } from '@phosphor-icons/react';
 import { useId, useState } from 'react';
 import {
-  adminSupport,
   isActive,
   TICKET_STATUSES,
   type SupportDirectory,
@@ -13,6 +12,7 @@ import {
   type SupportTicket,
   type TicketStatus,
 } from '../../../../../mocks/admin-support';
+import { adminSupport } from './support-api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { AreaField, SelectField } from './fields';
@@ -31,8 +31,7 @@ import {
  * Actions): each is a modal on the page, with no route. Every one sends the ticket's version, so a
  * change made elsewhere in the meantime is refused instead of overwritten.
  */
-export type TicketAction =
-  'assign' | 'status' | 'escalate' | 'close' | 'merge' | 'contact' | 'delete';
+export type TicketAction = 'assign' | 'status' | 'escalate' | 'close' | 'merge' | 'delete';
 
 interface ActionProps {
   ticket: SupportTicket;
@@ -52,8 +51,6 @@ export function TicketActionModal({ action, ...props }: ActionProps & { action: 
       return <CloseModal {...props} />;
     case 'merge':
       return <MergeModal {...props} />;
-    case 'contact':
-      return <ContactModal {...props} />;
     case 'delete':
       return <DeleteModal {...props} />;
   }
@@ -429,70 +426,6 @@ function MergeModal({ ticket, onClose, onDone }: ActionProps) {
         </div>
       )}
       <ErrorLine error={merge.error} />
-    </Modal>
-  );
-}
-
-function ContactModal({ ticket, onClose, onDone }: ActionProps) {
-  const id = useId();
-  const directory = useApiQuery(supportKeys.directory, () => adminSupport.directory());
-  const [firmId, setFirmId] = useState(ticket.firm.id);
-  const [contactId, setContactId] = useState(ticket.contact.id);
-  const save = useApiMutation(
-    () => adminSupport.changeContact(ticket.id, { version: ticket.version, firmId, contactId }),
-    { invalidate: SUPPORT },
-  );
-  const firm = directory.data?.firms.find((f) => f.id === firmId);
-  return (
-    <Modal
-      open
-      title="Change Firm / Contact"
-      subtitle={`${ticketNo(ticket.number)} · ${ticket.subject}`}
-      onClose={onClose}
-      footer={
-        <Footer
-          onClose={onClose}
-          label="Save"
-          busy={save.isPending}
-          disabled={!contactId || Boolean(directory.error)}
-          onConfirm={() =>
-            save.mutate(undefined, {
-              onSuccess: (saved) =>
-                onDone(`${ticketNo(saved.number)} now belongs to ${saved.firm.name}.`),
-            })
-          }
-        />
-      }
-    >
-      {directory.error ? (
-        <QuietLine>{loadError(directory.error)}</QuietLine>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <SelectField
-            id={`${id}-firm`}
-            label="Firm"
-            required
-            disabled={directory.isPending}
-            options={(directory.data?.firms ?? []).map((f) => ({ value: f.id, label: f.name }))}
-            value={firmId}
-            onChange={(event) => {
-              setFirmId(event.target.value);
-              setContactId('');
-            }}
-          />
-          <SelectField
-            id={`${id}-contact`}
-            label="Contact / User"
-            required
-            placeholder="Select a contact"
-            disabled={!firm}
-            options={(firm?.contacts ?? []).map((c) => ({ value: c.id, label: c.name }))}
-            value={contactId}
-            onChange={(event) => setContactId(event.target.value)}
-          />
-        </div>
-      )}
-      <ErrorLine error={save.error} />
     </Modal>
   );
 }
