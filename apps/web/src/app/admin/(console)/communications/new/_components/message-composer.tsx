@@ -165,9 +165,9 @@ function ToolbarButton({
       aria-pressed={active}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
-      className={`flex size-9 shrink-0 items-center justify-center rounded-control ${active ? 'border border-action bg-surface text-action' : 'text-text hover:bg-folder-surface'}`}
+      className={`flex size-8 shrink-0 items-center justify-center rounded-control 2xl:size-9 ${active ? 'border border-action bg-surface text-action' : 'text-text hover:bg-folder-surface'}`}
     >
-      <Glyph aria-hidden weight={iconWeight} className="size-4.5" />
+      <Glyph aria-hidden weight={iconWeight} className="size-4 2xl:size-4.5" />
     </button>
   );
 }
