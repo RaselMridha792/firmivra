@@ -31,6 +31,9 @@ import { SignedIn, useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
 import { useApiQuery } from '../../../../lib/query';
 
+/** The sidebar's motto when the firm sets none, as every portal design shows it (R61). */
+const DEFAULT_MOTTO = ['Plan', 'Prepare', 'Prosper'];
+
 // Client menu (docs/junior/PAGE-MAP.md). Messages shows the unread firm messages. "Signatures" shows
 // when the firm uses Firm Sign, "Tax Calculators" when the firm shares at least one calculator.
 const sections = (
@@ -136,26 +139,26 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
   const unread = useApiQuery(['my-messages', slug, 'unread'], () =>
     api.myMessages(slug).unreadCount(),
   );
-  const motto = taglineWords(branding);
+  const firmMotto = taglineWords(branding);
+  const motto = firmMotto.length > 0 ? firmMotto : DEFAULT_MOTTO;
   const nav = sections(slug, {
     signatures: signatures.data?.enabled === true,
     calculators: (calculators.data?.length ?? 0) > 0,
     unread: unread.data?.count ?? 0,
   });
-  const mottoBlock =
-    motto.length > 0 ? (
-      <div
-        data-testid="sidebar-motto"
-        className="mt-auto bg-firm-sidebar px-8 pt-8 pb-6 text-on-firm-sidebar"
-      >
-        <span aria-hidden className="block h-0.5 w-12 bg-firm-accent" />
-        {motto.map((word) => (
-          <span key={word} className="mt-2 block text-sm tracking-brand uppercase">
-            {word}
-          </span>
-        ))}
-      </div>
-    ) : null;
+  const mottoBlock = (
+    <div
+      data-testid="sidebar-motto"
+      className="mt-auto bg-firm-sidebar px-8 pt-8 pb-6 text-on-firm-sidebar"
+    >
+      <span aria-hidden className="block h-0.5 w-12 bg-firm-accent" />
+      {motto.map((word) => (
+        <span key={word} className="mt-2 block text-sm tracking-brand uppercase">
+          {word}
+        </span>
+      ))}
+    </div>
+  );
   const menu = (inDrawer: boolean) => (
     <nav
       aria-label="Main"
@@ -212,7 +215,8 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
             business.name
           )}
         </Link>
-        <div className="min-w-0 flex-1 [&_header]:border-b-0 [&_header>div:first-of-type]:flex-1 [&_header>div:first-of-type]:text-center">
+        {/* The user menu's avatar as the designs draw it: a pale circle with navy initials (R61). */}
+        <div className="min-w-0 flex-1 [&_header]:border-b-0 [&_header>div:first-of-type]:flex-1 [&_header>div:first-of-type]:text-center [&_button[aria-haspopup=menu]>span:first-child]:bg-folder-surface [&_button[aria-haspopup=menu]>span:first-child]:text-heading">
           <Header
             roleLabel="Client"
             hideRole
@@ -239,7 +243,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
         {/* The menu stays at the top while the page scrolls, the motto at the bottom. */}
         <aside className="hidden w-sidebar shrink-0 flex-col bg-firm-sidebar md:flex print:hidden">
           <div className="sticky top-0">{menu(false)}</div>
-          {mottoBlock ? <div className="sticky bottom-0 mt-auto">{mottoBlock}</div> : null}
+          <div className="sticky bottom-0 mt-auto">{mottoBlock}</div>
         </aside>
         <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
       </div>
