@@ -7,11 +7,11 @@ import type {
   AuditStore,
   AuditTarget,
   AuditTone,
-  EventCategory,
   MockAccount,
   MockSession,
   Severity,
 } from './admin-audit-security';
+import { CATEGORY_GUIDANCE, SEVERITY_MEANINGS } from './admin-audit-security';
 
 /**
  * Synthetic fixtures for mocks/admin-audit-security.ts: invented firms, people, devices and
@@ -25,7 +25,7 @@ export const auditUuid = (block: string, n: number) =>
 
 /** The mock Super Admin, the same person mocks/admin-auth.ts signs in. */
 export const AUDIT_ADMIN: AuditActor = {
-  type: 'USER',
+  type: 'PLATFORM',
   id: '0199b6a2-0000-7000-8000-0000000000a1',
   name: 'Morgan Admin',
   email: 'morgan.admin@example.test',
@@ -106,47 +106,12 @@ export type EventSeed = Partial<Omit<AuditEvent, 'id' | 'reference'>> &
     | 'target'
   > & { n: number };
 
-const RISK_REASONS: Record<Severity, string> = {
-  INFO: 'Info: routine successful activity.',
-  LOW: 'Low: a minor policy or operational signal.',
-  MEDIUM: 'Medium: suspicious or privileged activity that needs awareness.',
-  HIGH: 'High: a probable security risk or a major admin privilege change.',
-  CRITICAL: 'Critical: a confirmed or immediate threat.',
-};
 const RISK_SCORES: Record<Severity, number> = {
   INFO: 5,
   LOW: 20,
   MEDIUM: 45,
   HIGH: 75,
   CRITICAL: 95,
-};
-const RECOMMENDATIONS: Record<EventCategory, string[]> = {
-  AUTHENTICATION: [
-    'Verify if this activity is from the legitimate user.',
-    'Contact the user if the activity is suspicious.',
-    "If unauthorized, reset the user's password.",
-    'Review recent account activity.',
-  ],
-  AUTHORIZATION: [
-    'Confirm the change was requested and approved.',
-    'Check that the new access follows least privilege.',
-    'Revert the change if it was not authorized.',
-  ],
-  DATA: [
-    'Confirm the user needed this data for their work.',
-    'Check the related records for other unexpected changes.',
-    'Restore the record if the change was not authorized.',
-  ],
-  INTEGRATION: [
-    "Check the integration's connection and credentials.",
-    'Rotate the credentials if they may be exposed.',
-    'Disable the integration if the activity is not expected.',
-  ],
-  SECURITY: [
-    'Review the change and who made it.',
-    "Confirm it matches the platform's security policy.",
-    'Send a security alert if it was not expected.',
-  ],
 };
 const TONES: Record<Severity, AuditTone> = {
   INFO: 'info',
@@ -155,11 +120,13 @@ const TONES: Record<Severity, AuditTone> = {
   HIGH: 'danger',
   CRITICAL: 'danger',
 };
+/** The actor types that are a person (response actions apply to them). */
+const PEOPLE_TYPES: AuditActor['type'][] = ['STAFF', 'CLIENT', 'PLATFORM'];
+
 const OUTCOME_TEXT = {
   SUCCESS: 'Success',
-  FAILED: 'Failed',
-  BLOCKED: 'Blocked',
-  DETECTED: 'Detected',
+  FAILURE: 'Failed',
+  DENIED: 'Denied',
 };
 
 /** One event with the defaults every event has; `fields` override them. */
@@ -179,13 +146,13 @@ export function makeEvent({ n, ...fields }: EventSeed): AuditEvent {
     sessionId: null,
     requestId: `req_01JAUD${String(n).padStart(4, '0')}${((n * 7919) % 1_000_000).toString(36).toUpperCase().padStart(4, '0')}`,
     referrerUrl: null,
-    subjectUserId: fields.actor.type === 'USER' ? fields.actor.id : null,
+    subjectUserId: PEOPLE_TYPES.includes(fields.actor.type) ? fields.actor.id : null,
     facts: [],
     changes: [],
     risk: {
       score: RISK_SCORES[fields.severity],
       rule: null,
-      reason: RISK_REASONS[fields.severity],
+      reason: SEVERITY_MEANINGS[fields.severity],
       indicators: [],
     },
     recommendations:
@@ -194,7 +161,7 @@ export function makeEvent({ n, ...fields }: EventSeed): AuditEvent {
             'No action is needed for routine activity.',
             'Review recent account activity if anything looks unusual.',
           ]
-        : RECOMMENDATIONS[fields.category],
+        : CATEGORY_GUIDANCE[fields.category],
     quickInfo: [
       { label: 'Recorded', at: fields.at, show: 'datetime' },
       { label: 'Source', value: source },
@@ -240,7 +207,7 @@ const risk = (
 ): AuditRisk => ({
   score: RISK_SCORES[severity],
   rule,
-  reason: RISK_REASONS[severity],
+  reason: SEVERITY_MEANINGS[severity],
   indicators,
 });
 
@@ -253,8 +220,9 @@ export function seedAuditStore(empty: boolean): AuditStore {
     version: 3,
     updatedAt: ago(4 * 1440 + 95),
     updatedBy: AUDIT_ADMIN.name,
+    retentionEditable: true,
     settings: {
-      mfa: { enabled: true, scope: 'ALL' },
+      mfa: { scope: 'ALL' },
       methods: { authenticatorApp: true, sms: true, email: true, hardwareKey: false },
       password: {
         minLength: 12,
@@ -263,13 +231,16 @@ export function seedAuditStore(empty: boolean): AuditStore {
         numbers: true,
         special: true,
         expirationDays: 90,
+        preventReuseCount: 5,
       },
       session: {
         idleTimeoutMinutes: 30,
+        maxLifetimeHours: 12,
         rememberMeDays: 7,
         concurrentSessions: 5,
         selfManage: true,
         reauthSensitive: true,
+        reauthWindowMinutes: 10,
         reauthDeviceSwitch: false,
       },
       protection: {
@@ -290,8 +261,10 @@ export function seedAuditStore(empty: boolean): AuditStore {
         suspicious: true,
         email: true,
         sms: false,
+        minimumSeverity: 'HIGH',
       },
-      retention: { period: 'ONE_YEAR', exportRoles: 'SUPER_ADMINS', exportReauth: true },
+      retention: { retentionDays: 365, archiveAfterDays: 365 },
+      exports: { roles: ['SUPER_ADMINS'], requireReauth: true, linkExpiryHours: 24 },
     },
   };
   if (empty)
@@ -322,7 +295,7 @@ export function seedAuditStore(empty: boolean): AuditStore {
     code: string,
   ): Person => ({
     actor: {
-      type: 'USER',
+      type: home.id === null ? 'PLATFORM' : 'STAFF',
       id: auditUuid('0e02', n),
       name,
       email: `${name.toLowerCase().replace(' ', '.')}@example.test`,
@@ -497,7 +470,7 @@ export function seedAuditStore(empty: boolean): AuditStore {
       at: failedAt[2] ?? lockedAt,
       ...chain,
       severity: 'HIGH',
-      outcome: 'BLOCKED',
+      outcome: 'DENIED',
       alertState: 'OPEN',
       title: 'Login Failed',
       summary: 'Multiple failed login attempts detected.',
@@ -701,7 +674,7 @@ export function seedAuditStore(empty: boolean): AuditStore {
       at: failedAt[0] ?? lockedAt,
       ...chain,
       severity: 'LOW',
-      outcome: 'DETECTED',
+      outcome: 'DENIED',
       details: 'Invalid password (1st attempt)',
       title: 'Login Failed (1st attempt)',
       facts: [{ label: 'Failure Reason', value: 'Invalid password' }],
@@ -711,7 +684,7 @@ export function seedAuditStore(empty: boolean): AuditStore {
       at: failedAt[1] ?? lockedAt,
       ...chain,
       severity: 'MEDIUM',
-      outcome: 'DETECTED',
+      outcome: 'DENIED',
       details: 'Invalid password (2nd attempt)',
       title: 'Login Failed (2nd attempt)',
       facts: [{ label: 'Failure Reason', value: 'Invalid password' }],
@@ -778,7 +751,7 @@ export function seedAuditStore(empty: boolean): AuditStore {
       action: 'Login Failed',
       category: 'AUTHENTICATION',
       severity: 'LOW',
-      outcome: 'FAILED',
+      outcome: 'FAILURE',
       details: 'Invalid password (1 attempt)',
       authMethod: 'Password',
       target: userTarget(who),
@@ -803,7 +776,7 @@ export function seedAuditStore(empty: boolean): AuditStore {
       action: 'MFA Failed',
       category: 'AUTHENTICATION',
       severity: 'MEDIUM',
-      outcome: 'FAILED',
+      outcome: 'FAILURE',
       details: 'Wrong authenticator code (2 attempts)',
       authMethod: 'Password + MFA',
       target: userTarget(who),
@@ -874,7 +847,7 @@ export function seedAuditStore(empty: boolean): AuditStore {
       action: 'Login Failed',
       category: 'AUTHENTICATION',
       severity: 'MEDIUM',
-      outcome: 'FAILED',
+      outcome: 'FAILURE',
       details: 'Unknown device (2 attempts)',
       authMethod: 'Password',
       target: userTarget(who),
@@ -915,7 +888,7 @@ export function seedAuditStore(empty: boolean): AuditStore {
       action: 'Webhook Failed',
       category: 'INTEGRATION',
       severity: 'MEDIUM',
-      outcome: 'FAILED',
+      outcome: 'FAILURE',
       details: 'Delivery failed: endpoint returned 500',
       target: {
         type: 'Integration',
@@ -933,7 +906,7 @@ export function seedAuditStore(empty: boolean): AuditStore {
       action: 'Suspicious Login',
       category: 'SECURITY',
       severity: 'MEDIUM',
-      outcome: 'DETECTED',
+      outcome: 'DENIED',
       alertState: (['OPEN', 'ACKNOWLEDGED', 'RESOLVED'] as const)[cycle % 3] ?? 'OPEN',
       details: 'Sign-in from a new country',
       source: 'Security rules',
@@ -956,7 +929,7 @@ export function seedAuditStore(empty: boolean): AuditStore {
       action: 'Integration Auth Failed',
       category: 'INTEGRATION',
       severity: 'HIGH',
-      outcome: 'FAILED',
+      outcome: 'FAILURE',
       alertState: cycle === 0 ? 'OPEN' : 'RESOLVED',
       details: 'API key rejected (Payroll Sync)',
       target: {
