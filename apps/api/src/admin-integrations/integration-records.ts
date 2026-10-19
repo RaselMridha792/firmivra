@@ -50,7 +50,12 @@ export async function auditIn(tx: TxClient, a: IntegrationAudit): Promise<void> 
 }
 
 export interface IntegrationLogEntry {
-  integration: { id: string; provider: string; environment: 'LIVE' | 'TEST' };
+  /** The platform integration it is about; null for an API key or webhook event. */
+  integration: { id: string; provider: string; environment: 'LIVE' | 'TEST' } | null;
+  /** PLATFORM_INTEGRATION by default (it then names its integration). */
+  source?: 'PLATFORM_INTEGRATION' | 'API' | 'WEBHOOK';
+  /** Without an integration: the key's environment, for example. */
+  environment?: 'LIVE' | 'TEST';
   eventType: string;
   action: string;
   message: string;
@@ -63,14 +68,14 @@ export interface IntegrationLogEntry {
   actorUserId?: string | null;
 }
 
-/** One row of the central integration log about a platform integration; returns its id. */
+/** One row of the central integration log; returns its id. */
 export async function logIn(tx: TxClient, e: IntegrationLogEntry): Promise<string> {
   const row = await tx.platformIntegrationLog.create({
     data: {
-      source: 'PLATFORM_INTEGRATION',
-      integrationId: e.integration.id,
-      provider: e.integration.provider,
-      environment: e.integration.environment,
+      source: e.source ?? 'PLATFORM_INTEGRATION',
+      integrationId: e.integration?.id ?? null,
+      provider: e.integration?.provider ?? null,
+      environment: e.integration?.environment ?? e.environment ?? null,
       severity: e.severity ?? 'INFO',
       eventType: e.eventType,
       action: e.action,
