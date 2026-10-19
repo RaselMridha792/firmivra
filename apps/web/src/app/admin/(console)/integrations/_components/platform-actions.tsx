@@ -20,7 +20,7 @@ import {
   adminIntegrations,
   CATALOG_STATUS_LABELS,
   type PlatformIntegration,
-} from '../../../../../mocks/admin-integrations';
+} from './integrations-contract';
 import { integrationErrorMessage, Loaded } from './integration-states';
 import { LinkButton, logsHref, platformHref, setupHref } from './integrations-shell';
 

@@ -14,7 +14,7 @@ import {
   SETUP_STEPS,
   type IntegrationCategory,
   type PlatformIntegration,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import { IntegrationStatusBadge } from '../../_components/integration-badges';
 import { formatDate, formatTime, uptimeText } from '../../_components/integration-format';
 

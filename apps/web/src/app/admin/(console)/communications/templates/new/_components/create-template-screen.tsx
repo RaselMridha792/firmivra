@@ -11,13 +11,11 @@ import {
   EnvelopeSimple,
   FloppyDisk,
   Image as ImageIcon,
-  Laptop,
   LinkSimple,
   ListBullets,
   ListNumbers,
   Paperclip,
   PaperPlaneTilt,
-  Plant,
   TextB,
   TextItalic,
   TextUnderline,
@@ -27,30 +25,71 @@ import {
 import { Badge, Button, Card, Input, Select } from '@firmivra/ui';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import firmivraLogoWhite from '../../../../../../../components/app-shell/firmivra-logo-white.png';
 import {
-  createTemplateMock,
-  getTemplateCategoryOptions,
-  getTemplateLibraryImages,
-  getTemplateMergeFields,
-  type CreateTemplateMock,
-  type TemplateLibraryImageMock,
-} from '../../../../../../../mocks/admin-communications-create-template';
+  ADMIN_COMM_ERRORS,
+  ADMIN_COMM_MERGE_FIELDS,
+  type AdminCommMedia,
+  type AdminCommTemplate,
+} from '@firmivra/types';
+import { useQueryClient } from '@tanstack/react-query';
+import { api } from '../../../../../../../lib/api';
+import { errorMessage } from '../../../../../../../lib/errors';
+import { useApiQuery } from '../../../../../../../lib/query';
 
 type Channel = 'EMAIL' | 'SMS';
 type ActivePopup = 'status' | 'subject-merge' | 'body-merge' | 'image' | 'save' | null;
 type Notice = { tone: 'info' | 'success' | 'error'; text: string };
 type FieldError = Partial<Record<'name' | 'category' | 'subject' | 'body', string>>;
 
-const blankTemplate = (): CreateTemplateMock => ({
-  ...createTemplateMock(),
-  name: '',
-  category: '',
-  subject: '',
-  body: '',
-});
+interface TemplateForm {
+  name: string;
+  categoryId: string;
+  subject: string;
+  body: string;
+}
+const blankForm: TemplateForm = { name: '', categoryId: '', subject: '', body: '' };
+
+/** The contract's merge fields, as the editor inserts them. */
+const MERGE_FIELDS = Object.entries(ADMIN_COMM_MERGE_FIELDS).map(([key, field]) => ({
+  token: `{{${key}}}`,
+  label: field.label,
+  sample: field.sample,
+}));
+const escapeHtml = (text: string) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/** A saved template's text in the editor: one paragraph per blank line. */
+const htmlFromText = (text: string) =>
+  text
+    .split(/\n{2,}/)
+    .map((part) => `<p>${escapeHtml(part).replace(/\n/g, '<br />')}</p>`)
+    .join('');
+const hex = (bytes: ArrayBuffer) =>
+  Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
+
+/** Puts an image in the communications library (B6): a ticket, then the file to storage. */
+async function uploadLibraryImage(file: File): Promise<AdminCommMedia> {
+  const sha256 = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
+  const ticket = await api.adminBroadcasts.media.create({
+    kind: 'INLINE_IMAGE',
+    fileName: file.name,
+    contentType: file.type,
+    sizeBytes: file.size,
+    sha256,
+  });
+  // The mock's ticket has no storage behind it.
+  if (!ticket.uploadUrl.startsWith('mock:')) {
+    const stored = await fetch(ticket.uploadUrl, {
+      method: 'PUT',
+      headers: ticket.headers,
+      body: file,
+    });
+    if (!stored.ok) throw new Error('The image could not be stored. Try again.');
+  }
+  return ticket.media;
+}
 
 const textFromHtml = (html: string) =>
   html
@@ -97,31 +136,11 @@ function ToolbarButton({
   );
 }
 
-function LibraryThumbnail({ image }: { image: TemplateLibraryImageMock }) {
-  if (image.kind === 'brand') {
-    return (
-      <span className="flex h-13 items-center justify-center rounded-control bg-navigation px-2">
-        <Image src={firmivraLogoWhite} alt="" className="h-auto w-16" />
-      </span>
-    );
-  }
-  if (image.kind === 'workspace') {
-    return (
-      <span className="flex h-13 items-center justify-center rounded-control bg-info-soft text-action">
-        <Laptop aria-hidden weight="fill" className="size-7" />
-      </span>
-    );
-  }
-  if (image.kind === 'plant') {
-    return (
-      <span className="flex h-13 items-center justify-center rounded-control bg-success-soft text-success">
-        <Plant aria-hidden weight="fill" className="size-7" />
-      </span>
-    );
-  }
+function LibraryThumbnail({ image }: { image: AdminCommMedia }) {
   return (
-    <span className="flex h-13 items-center justify-center rounded-control border border-border bg-surface text-base font-semibold italic text-heading">
-      Welcome
+    <span className="flex h-13 flex-col items-center justify-center gap-0.5 rounded-control bg-info-soft px-1 text-action">
+      <ImageIcon aria-hidden weight="fill" className="size-6" />
+      <span className="w-full truncate text-center text-xs text-text">{image.fileName}</span>
     </span>
   );
 }
@@ -131,9 +150,30 @@ function InsertImagePopover({
   onInsert,
 }: {
   onClose: () => void;
-  onInsert: (imageId: string, file?: File) => void;
+  onInsert: (fileName: string) => void;
 }) {
   const [tab, setTab] = useState<'upload' | 'library'>('upload');
+  const [uploading, setUploading] = useState(false);
+  const library = useApiQuery(['admin-communications', 'media', 'INLINE_IMAGE'], () =>
+    api.adminBroadcasts.media.list({ kind: 'INLINE_IMAGE', pageSize: 24 }),
+  );
+  const images = (library.data?.items ?? []).filter((m) => m.scanStatus === 'CLEAN');
+  const insert = async () => {
+    if (selectedFile && selectedImage === 'uploaded') {
+      setUploading(true);
+      try {
+        const media = await uploadLibraryImage(selectedFile);
+        onInsert(media.fileName);
+      } catch (e) {
+        setError(errorMessage(e, ADMIN_COMM_ERRORS));
+      } finally {
+        setUploading(false);
+      }
+      return;
+    }
+    const image = images.find((m) => m.id === selectedImage);
+    if (image) onInsert(image.fileName);
+  };
   const [selectedImage, setSelectedImage] = useState('');
   const [selectedFile, setSelectedFile] = useState<File>();
   const [error, setError] = useState('');
@@ -241,12 +281,17 @@ function InsertImagePopover({
               View All <span aria-hidden>›</span>
             </button>
           </div>
-          <LibraryGrid selected={selectedImage} onSelect={setSelectedImage} compact />
+          <LibraryGrid
+            images={images.slice(0, 4)}
+            selected={selectedImage}
+            onSelect={setSelectedImage}
+            compact
+          />
         </div>
       ) : (
         <div className="mt-3">
           <p className="mb-2 text-xs text-muted">Choose a recently used image to insert.</p>
-          <LibraryGrid selected={selectedImage} onSelect={setSelectedImage} />
+          <LibraryGrid images={images} selected={selectedImage} onSelect={setSelectedImage} />
         </div>
       )}
 
@@ -256,8 +301,8 @@ function InsertImagePopover({
         </Button>
         <Button
           className="min-h-9 px-3 py-1.5"
-          disabled={!selectedImage}
-          onClick={() => onInsert(selectedImage, selectedFile)}
+          disabled={!selectedImage || uploading}
+          onClick={() => void insert()}
         >
           Insert Image
           <CaretDown aria-hidden weight="bold" className="size-3.5" />
@@ -268,21 +313,26 @@ function InsertImagePopover({
 }
 
 function LibraryGrid({
+  images,
   selected,
   onSelect,
   compact = false,
 }: {
+  images: AdminCommMedia[];
   selected: string;
   onSelect: (id: string) => void;
   compact?: boolean;
 }) {
   return (
     <div className={`mt-2 grid grid-cols-4 gap-2 ${compact ? '' : 'gap-3'}`}>
-      {getTemplateLibraryImages().map((image) => (
+      {!images.length ? (
+        <p className="col-span-4 py-2 text-xs text-muted">No images in the library yet.</p>
+      ) : null}
+      {images.map((image) => (
         <button
           key={image.id}
           type="button"
-          aria-label={`Select ${image.name} image`}
+          aria-label={`Select ${image.fileName} image`}
           aria-pressed={selected === image.id}
           onClick={() => onSelect(image.id)}
           className={`min-w-0 rounded-control p-0.5 text-left focus-visible:outline-2 focus-visible:outline-focus ${selected === image.id ? 'ring-2 ring-action' : 'hover:bg-info-soft'}`}
@@ -294,23 +344,55 @@ function LibraryGrid({
   );
 }
 
-export function CreateTemplateScreen() {
-  const searchParams = useSearchParams();
-  const mockState = searchParams.get('mockState');
-  const isEmpty = mockState === 'empty';
-  const apiUnavailable = mockState === 'api-unavailable';
-  const noPermission = mockState === 'no-permission';
-  const [form, setForm] = useState<CreateTemplateMock>(() =>
-    isEmpty || noPermission ? blankTemplate() : createTemplateMock(),
+/** Create Template, or Edit Template with `templateId` (the editor opens once it has loaded). */
+export function CreateTemplateScreen({ templateId }: { templateId?: string } = {}) {
+  const existing = useApiQuery(
+    ['admin-communications', 'templates', 'one', templateId ?? 'new'],
+    () => (templateId ? api.adminCommunications.templates.get(templateId) : Promise.resolve(null)),
   );
-  const [channel, setChannel] = useState<Channel>('EMAIL');
-  const [status, setStatus] = useState('ACTIVE');
+  if (templateId && !existing.data)
+    return (
+      <main data-testid="create-template-screen" className="flex min-w-0 flex-col gap-4">
+        <h1 className="font-display text-3xl font-bold text-heading">Edit Template</h1>
+        <p role={existing.isError ? 'alert' : 'status'} className="text-sm text-muted">
+          {existing.isError
+            ? errorMessage(existing.error, ADMIN_COMM_ERRORS)
+            : 'Loading the template…'}
+        </p>
+      </main>
+    );
+  return <TemplateEditor key={existing.data?.id ?? 'new'} template={existing.data ?? null} />;
+}
+
+function TemplateEditor({ template }: { template: AdminCommTemplate | null }) {
+  const router = useRouter();
+  const client = useQueryClient();
+  const searchParams = useSearchParams();
+  const editing = template !== null;
+  const categories = useApiQuery(['admin-communications', 'categories'], () =>
+    api.adminCommunications.categories.list(),
+  );
+  const apiUnavailable = categories.isError;
+  const [form, setForm] = useState<TemplateForm>(() =>
+    template
+      ? {
+          name: template.name,
+          categoryId: template.category.id,
+          subject: template.subject ?? '',
+          body: template.channel === 'EMAIL' ? htmlFromText(template.body) : template.body,
+        }
+      : blankForm,
+  );
+  const [channel, setChannel] = useState<Channel>(
+    template?.channel ?? (searchParams.get('channel') === 'SMS' ? 'SMS' : 'EMAIL'),
+  );
+  const [status, setStatus] = useState(template?.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE');
+  const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<FieldError>({});
   const [notice, setNotice] = useState<Notice>();
   const [previewTab, setPreviewTab] = useState<'preview' | 'fields'>('preview');
   const [activePopup, setActivePopup] = useState<ActivePopup>(null);
   const [mergeTarget, setMergeTarget] = useState<'subject' | 'body'>('body');
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [fullscreen, setFullscreen] = useState(false);
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -333,7 +415,7 @@ export function CreateTemplateScreen() {
     return () => document.removeEventListener('pointerdown', closePopupOnOutsideClick);
   }, []);
 
-  const updateForm = <K extends keyof CreateTemplateMock>(key: K, value: CreateTemplateMock[K]) =>
+  const updateForm = <K extends keyof TemplateForm>(key: K, value: TemplateForm[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
 
   const insertMergeField = (token: string) => {
@@ -359,62 +441,72 @@ export function CreateTemplateScreen() {
     if (bodyRef.current) updateForm('body', bodyRef.current.innerHTML);
   };
 
-  const insertImage = (imageId: string, file?: File) => {
-    const source = imageId === 'firmivra' ? firmivraLogoWhite.src : undefined;
-    if (source) {
-      bodyRef.current?.focus();
-      document.execCommand('insertImage', false, source);
-      if (bodyRef.current) updateForm('body', bodyRef.current.innerHTML);
-    } else if (file) {
-      setNotice({
-        tone: 'info',
-        text: `${file.name} is selected for inline placement in the preview.`,
-      });
-    } else {
-      const image = getTemplateLibraryImages().find((item) => item.id === imageId);
-      if (image) applyFormat('insertText', `[${image.name} image]`);
-    }
+  /** A template is text (B6): an image goes in as a reference to its library file. */
+  const insertImage = (fileName: string) => {
+    applyFormat('insertText', `[Image: ${fileName}]`);
     setActivePopup(null);
   };
 
-  const addAttachments = (files: FileList | null) => {
-    const accepted = Array.from(files ?? []).filter((file) => file.size <= 10 * 1024 * 1024);
-    if (accepted.length) setAttachedFiles((current) => [...current, ...accepted]);
-    if (files?.length && accepted.length !== files.length) {
-      setNotice({ tone: 'error', text: 'Attachments must be 10 MB or smaller.' });
-    }
-  };
-
-  const saveTemplate = () => {
+  const saveTemplate = async (nextStatus = status) => {
     setActivePopup(null);
     const nextErrors: FieldError = {};
+    const body = channel === 'EMAIL' ? textFromHtml(form.body) : form.body.trim();
     if (!form.name.trim()) nextErrors.name = 'Enter a template name.';
-    if (!form.category) nextErrors.category = 'Choose a category.';
+    if (!form.categoryId) nextErrors.category = 'Choose a category.';
     if (channel === 'EMAIL' && !form.subject.trim()) nextErrors.subject = 'Enter a subject.';
-    if (!textFromHtml(form.body)) nextErrors.body = 'Enter a message body.';
+    if (!body) nextErrors.body = 'Enter a message body.';
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
-    setNotice({
-      tone: 'error',
-      text: apiUnavailable
-        ? 'The Super Admin template service is unavailable. Your work is still on this page.'
-        : 'Template saving is not connected for the Super Admin console yet. Your work is still on this page.',
-    });
+    setSaving(true);
+    try {
+      const fields = {
+        categoryId: form.categoryId,
+        name: form.name.trim(),
+        body,
+        status: nextStatus as 'ACTIVE' | 'INACTIVE',
+      };
+      if (template)
+        await api.adminCommunications.templates.update(template.id, {
+          ...fields,
+          subject: channel === 'EMAIL' ? form.subject.trim() : null,
+        });
+      else
+        await api.adminCommunications.templates.create({
+          ...fields,
+          channel,
+          ...(channel === 'EMAIL' ? { subject: form.subject.trim() } : {}),
+        });
+      await client.invalidateQueries({ queryKey: ['admin-communications'] });
+      router.push('/communications/templates');
+    } catch (error) {
+      setNotice({ tone: 'error', text: errorMessage(error, ADMIN_COMM_ERRORS) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sendTest = async () => {
+    if (!template) {
+      setNotice({ tone: 'info', text: 'Save the template first, then send yourself a test.' });
+      return;
+    }
+    try {
+      const sent = await api.adminCommunications.templates.test(template.id);
+      setNotice({ tone: 'success', text: `Test sent to ${sent.sentTo}.` });
+    } catch (error) {
+      setNotice({ tone: 'error', text: errorMessage(error, ADMIN_COMM_ERRORS) });
+    }
   };
 
   const copyAllMergeFields = () => {
-    void navigator.clipboard?.writeText(
-      getTemplateMergeFields()
-        .map((field) => field.token)
-        .join('\n'),
-    );
+    void navigator.clipboard?.writeText(MERGE_FIELDS.map((field) => field.token).join('\n'));
     setNotice({ tone: 'success', text: 'Merge field tokens copied.' });
   };
 
-  const previewBody = textFromHtml(form.body)
-    .replaceAll('{{contact_name}}', createTemplateMock().previewName)
-    .replaceAll('{{first_name}}', 'John')
-    .replaceAll('{{firm_name}}', 'Firmivra');
+  const fill = (text: string) =>
+    MERGE_FIELDS.reduce((out, field) => out.replaceAll(field.token, field.sample), text);
+  const previewBody = fill(channel === 'EMAIL' ? textFromHtml(form.body) : form.body);
+  const previewName = ADMIN_COMM_MERGE_FIELDS['contact.name'].sample;
 
   return (
     <main data-testid="create-template-screen" className="flex min-w-0 flex-col gap-4">
@@ -427,9 +519,13 @@ export function CreateTemplateScreen() {
           Back to Templates
         </Link>
         <div>
-          <h1 className="font-display text-3xl font-bold text-heading">Create Template</h1>
+          <h1 className="font-display text-3xl font-bold text-heading">
+            {editing ? 'Edit Template' : 'Create Template'}
+          </h1>
           <p className="text-base text-muted">
-            Create a reusable message template for email or SMS communications.
+            {editing
+              ? 'Change a reusable message template. Its channel stays as it was created.'
+              : 'Create a reusable message template for email or SMS communications.'}
           </p>
         </div>
       </header>
@@ -440,20 +536,10 @@ export function CreateTemplateScreen() {
           data-testid="template-api-error"
           className="rounded-control border border-danger bg-danger-soft px-4 py-3 text-sm text-danger"
         >
-          The Super Admin template service is unavailable. The editor and preview remain available.
+          The template service is unavailable. The editor and preview remain available.
         </div>
       ) : null}
-      {noPermission ? (
-        <div
-          role="alert"
-          data-testid="template-no-permission"
-          className="rounded-control border border-warning bg-warning-soft px-4 py-3 text-sm text-warning"
-        >
-          You don&apos;t have permission to create templates. The form layout remains available for
-          review.
-        </div>
-      ) : null}
-      {isEmpty ? (
+      {!editing ? (
         <p data-testid="template-empty-state" className="text-xs text-muted">
           Start with a blank template. Required fields are marked with an asterisk.
         </p>
@@ -489,12 +575,14 @@ export function CreateTemplateScreen() {
                 id="template-category"
                 label="Category"
                 hideLabel
-                value={form.category}
+                value={form.categoryId}
                 error={errors.category}
-                onChange={(event) => updateForm('category', event.currentTarget.value)}
+                onChange={(event) => updateForm('categoryId', event.currentTarget.value)}
                 options={[
                   { value: '', label: 'Select a category' },
-                  ...getTemplateCategoryOptions().map((value) => ({ value, label: value })),
+                  ...(categories.data?.items ?? [])
+                    .filter((c) => c.isActive || c.id === form.categoryId)
+                    .map((c) => ({ value: c.id, label: c.name })),
                 ]}
               />
             </div>
@@ -508,6 +596,7 @@ export function CreateTemplateScreen() {
                   type="button"
                   variant="outline"
                   aria-pressed={channel === 'EMAIL'}
+                  disabled={editing && channel !== 'EMAIL'}
                   onClick={() => setChannel('EMAIL')}
                   className={`min-h-10 px-3 py-1.5 ${channel === 'EMAIL' ? 'border-action bg-info-soft text-action' : 'border-border bg-surface text-text'}`}
                 >
@@ -517,6 +606,7 @@ export function CreateTemplateScreen() {
                   type="button"
                   variant="outline"
                   aria-pressed={channel === 'SMS'}
+                  disabled={editing && channel !== 'SMS'}
                   onClick={() => setChannel('SMS')}
                   className={`min-h-10 px-3 py-1.5 ${channel === 'SMS' ? 'border-action bg-info-soft text-action' : 'border-border bg-surface text-text'}`}
                 >
@@ -777,33 +867,12 @@ export function CreateTemplateScreen() {
             <h2 id="attachments-label" className="mb-1 text-sm font-medium text-text">
               Attachments (Optional)
             </h2>
-            <label className="flex min-h-20 cursor-pointer items-center gap-3 rounded-control border border-dashed border-control-border bg-subtle px-4 py-3 text-sm text-muted hover:bg-info-soft">
+            <div className="flex min-h-20 items-center gap-3 rounded-control border border-dashed border-control-border bg-subtle px-4 py-3 text-sm text-muted">
               <Paperclip aria-hidden weight="fill" className="size-5 shrink-0 text-action" />
               <span>
-                Drag and drop files here, or <span className="text-link">click to upload</span>
-                <span className="mt-1 block text-xs">PDF, DOC, DOCX, PNG, JPG (Max 10 MB)</span>
+                A template is the message text. Files are added to a broadcast when it is sent.
               </span>
-              <input
-                type="file"
-                multiple
-                aria-label="Upload attachments"
-                accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-                onChange={(event) => addAttachments(event.currentTarget.files)}
-                className="sr-only"
-              />
-            </label>
-            {attachedFiles.length ? (
-              <ul className="mt-2 flex flex-wrap gap-2" aria-label="Selected attachments">
-                {attachedFiles.map((file) => (
-                  <li
-                    key={`${file.name}-${file.size}-${file.lastModified}`}
-                    className="rounded-control bg-info-soft px-2 py-1 text-xs text-text"
-                  >
-                    {file.name}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+            </div>
           </section>
 
           <footer className="mt-auto flex flex-col-reverse items-stretch justify-between gap-3 border-t border-border pt-4 sm:flex-row sm:items-center">
@@ -818,9 +887,9 @@ export function CreateTemplateScreen() {
               className={`relative flex w-full sm:w-auto ${activePopup ? 'z-40' : ''}`}
             >
               <Button
-                onClick={saveTemplate}
+                onClick={() => void saveTemplate()}
                 className="w-full rounded-r-none sm:w-auto"
-                disabled={noPermission}
+                disabled={saving}
               >
                 <FloppyDisk aria-hidden weight="fill" className="size-4" /> Save Template
               </Button>
@@ -829,18 +898,20 @@ export function CreateTemplateScreen() {
                 aria-label="More save options"
                 aria-expanded={activePopup === 'save'}
                 onClick={() => setActivePopup((popup) => (popup === 'save' ? null : 'save'))}
-                disabled={noPermission}
+                disabled={saving}
                 className="min-h-11 rounded-l-none border-l-0 px-3"
               >
                 <CaretDown aria-hidden weight="bold" className="size-4" />
               </Button>
               {activePopup === 'save' ? (
                 <div className="absolute right-0 bottom-full z-20 mb-1 w-48 rounded-card border border-border bg-surface p-1 shadow-lg">
-                  {['Save as Draft', 'Save and Activate'].map((option) => (
+                  {(['Save as Inactive', 'Save and Activate'] as const).map((option) => (
                     <button
                       key={option}
                       type="button"
-                      onClick={saveTemplate}
+                      onClick={() =>
+                        void saveTemplate(option === 'Save as Inactive' ? 'INACTIVE' : 'ACTIVE')
+                      }
                       className="w-full rounded-control px-3 py-2 text-left text-sm text-text hover:bg-info-soft"
                     >
                       {option}
@@ -880,12 +951,7 @@ export function CreateTemplateScreen() {
                 </h2>
                 <Button
                   variant="secondary"
-                  onClick={() =>
-                    setNotice({
-                      tone: 'info',
-                      text: 'Test sending is not connected for this Super Admin screen.',
-                    })
-                  }
+                  onClick={() => void sendTest()}
                   className="min-h-9 px-3 py-1.5 text-xs"
                 >
                   <PaperPlaneTilt aria-hidden weight="fill" className="size-4" /> Send Test
@@ -896,7 +962,11 @@ export function CreateTemplateScreen() {
                   <>
                     <div className="bg-info-soft px-3 py-3 text-sm text-text">
                       <span className="font-semibold">Subject:</span>{' '}
-                      {form.subject || <span className="text-muted">No subject added</span>}
+                      {form.subject ? (
+                        fill(form.subject)
+                      ) : (
+                        <span className="text-muted">No subject added</span>
+                      )}
                     </div>
                     <div className="space-y-4 px-4 py-4 text-sm leading-6 text-text">
                       <div className="flex h-20 items-center justify-center rounded-control bg-navigation px-4">
@@ -920,7 +990,7 @@ export function CreateTemplateScreen() {
                     <div className="ml-auto max-w-[85%] rounded-card bg-info-soft p-3 text-sm leading-6 text-text">
                       {previewBody || 'Your SMS preview will appear here as you write.'}
                     </div>
-                    <p className="mt-2 text-right text-xs text-muted">Preview for John Doe</p>
+                    <p className="mt-2 text-right text-xs text-muted">Preview for {previewName}</p>
                   </div>
                 )}
               </div>
@@ -949,7 +1019,7 @@ function MergeFieldMenu({ onSelect }: { onSelect: (token: string) => void }) {
       data-testid="template-merge-field-menu"
       className="absolute top-full right-0 z-30 mt-1 max-h-64 w-64 overflow-auto rounded-card border border-border bg-surface p-2 shadow-lg"
     >
-      {getTemplateMergeFields().map((field) => (
+      {MERGE_FIELDS.map((field) => (
         <button
           key={field.token}
           type="button"
@@ -981,7 +1051,7 @@ function MergeFieldsCard({
         </Button>
       </div>
       <div className="grid min-w-0 grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
-        {getTemplateMergeFields().map((field) => (
+        {MERGE_FIELDS.map((field) => (
           <button
             key={field.token}
             type="button"

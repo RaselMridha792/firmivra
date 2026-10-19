@@ -12,7 +12,7 @@ import {
   CATEGORY_LABELS,
   type CatalogStatus,
   type UpdateCatalogBody,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { ServiceLogo } from '../../../_components/integration-badges';
 import { Loaded, loadError } from '../../../_components/integration-states';
 import { IntegrationsHeader, LinkButton } from '../../../_components/integrations-shell';

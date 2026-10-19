@@ -28,36 +28,28 @@ test('templates search, filters, pagination and selection update the library', a
   await expect(page.getByRole('dialog')).toContainText('Your meeting is confirmed');
   await page.keyboard.press('Escape');
   await details.getByRole('button', { name: 'Duplicate', exact: true }).click();
-  await expect(details.getByRole('heading', { name: 'Meeting Confirmation (Copy)' })).toBeVisible();
+  // R56: the contract's duplicate is "<name> (copy)", inactive; archive goes to the API.
+  await expect(details.getByRole('heading', { name: 'Meeting Confirmation (copy)' })).toBeVisible();
   await details.getByRole('button', { name: 'Archive', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Archive in preview' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Archive', exact: true }).click();
   await page.getByLabel('Status', { exact: true }).selectOption('Archived');
   await expect(library.locator('tbody tr')).toHaveCount(1);
   await expect(details.getByRole('button', { name: 'Archive', exact: true })).toBeDisabled();
 });
 
-test('templates preserve the panels in empty, API-unavailable and forbidden states', async ({
-  page,
-}) => {
-  for (const [state, notice] of [
-    ['empty', 'page-empty'],
-    ['api-unavailable', 'page-error'],
-    ['forbidden', 'page-forbidden'],
-  ]) {
-    await page.goto(`${url}?mockState=${state}`);
-    await expect(page.getByTestId(notice!)).toBeVisible();
-    await expect(page.getByTestId('templates-library')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Template Details' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Message Preview' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeDisabled();
-    if (state !== 'forbidden') {
-      await page.screenshot({
-        path: test.info().outputPath(`templates-${state}-1440.png`),
-        fullPage: true,
-        animations: 'disabled',
-      });
-    }
-  }
+test('templates keep the library and panels when nothing matches', async ({ page }) => {
+  await page.goto(url);
+  await page.getByLabel('Search templates').fill('nothing matches this search');
+  await expect(page.getByText('No matching templates')).toBeVisible();
+  await expect(page.getByTestId('templates-library')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Template Details' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Message Preview' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeDisabled();
+  await page.screenshot({
+    path: test.info().outputPath('templates-no-match-1440.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
 });
 
 test('templates remain usable at tablet and mobile widths', async ({ page }) => {

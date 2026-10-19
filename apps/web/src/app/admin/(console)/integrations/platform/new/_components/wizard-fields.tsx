@@ -142,7 +142,7 @@ export function UrlField({
       <span className="relative block">
         <LinkSimple
           aria-hidden
-          weight="fill"
+          weight="bold"
           className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted"
         />
         <input

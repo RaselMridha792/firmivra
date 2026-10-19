@@ -176,7 +176,7 @@ export function createMyDocumentsClient(request: ApiRequest, firmSlug: string) {
       (await request(MyRequestPacketList, `${portalMe(firmSlug)}/request-packets`)).items,
     /** Document Request & Upload. 404 for another client's packet or one not sent. */
     packet: async (id: string): Promise<MyRequestPacket> => request(MyRequestPacket, packet(id)),
-    /** Submit for Review: SUBMITTED. 409 PACKET_INCOMPLETE or PACKET_CLOSED. */
+    /** Submit for Review: SUBMITTED. 403 for an AUTHORIZED login; 409 PACKET_INCOMPLETE or PACKET_CLOSED. */
     submitPacket: async (id: string): Promise<MyRequestPacket> =>
       request(MyRequestPacket, `${packet(id)}/submit`, { method: 'POST', body: {} }),
     /** "I don't have this". 409 NO_OPEN_SERVICE (an archived client) or REQUEST_CLOSED. */

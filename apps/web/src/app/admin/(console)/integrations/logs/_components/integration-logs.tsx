@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  ActionMenu,
   Button,
   Card,
   DateRangePicker,
@@ -16,7 +15,7 @@ import {
   Toast,
   type Column,
 } from '@firmivra/ui';
-import { DownloadSimple, FileCsv, FileText } from '@phosphor-icons/react';
+import { DownloadSimple } from '@phosphor-icons/react';
 import { useDeferredValue, useEffect, useState } from 'react';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import {
@@ -28,12 +27,16 @@ import {
   LOG_SEVERITY_LABELS,
   LOG_SOURCE_LABELS,
   LOG_SOURCES,
-  type ExportFormat,
   type IntegrationLog,
   type LogExport,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import { LogSeverityBadge, OutcomeBadge } from '../../_components/integration-badges';
-import { formatDate, formatTime } from '../../_components/integration-format';
+import {
+  formatDate,
+  formatDateTime,
+  formatNumber,
+  formatTime,
+} from '../../_components/integration-format';
 import {
   integrationErrorMessage,
   loadError,
@@ -46,6 +49,7 @@ import {
   addressOf,
   addressValue,
   EMPTY_FILTERS,
+  exportQueryOf,
   isFiltered,
   queryOf,
   readFilters,
@@ -57,8 +61,9 @@ import {
  * Integration Logs (docx §9; no design frame, built in the dashboard's look): the central,
  * searchable log of every integration's syncs, tests, webhooks, API calls and firm connections.
  * Filters combine with AND and live in the address (`?integration=<id>` from a platform
- * integration pre-fills the filter); a record opens in a side panel (`?log=<id>`); Export
- * downloads the filtered rows as CSV or JSON, redacted, and the export is audited.
+ * integration pre-fills the filter); a record opens in a side panel (`?log=<id>`); Export queues
+ * a CSV of the filtered rows, redacted and audited, which the export worker makes (B1); the
+ * recent exports show where each one is.
  */
 
 const OUTCOME_LABELS = { SUCCESS: 'Success', FAILURE: 'Failed' } as const;
@@ -73,16 +78,25 @@ const CLEAR_MORE: Record<MoreKey, Partial<LogFilters>> = {
 };
 const option = (value: string, label: string) => ({ value, label });
 
-/** Hands the export to the browser as a file; the link is short-lived. */
-function saveFile(file: LogExport) {
-  const url = URL.createObjectURL(new Blob([file.content], { type: file.mimeType }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = file.fileName;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+const EXPORT_STATUS_LABELS: Record<LogExport['status'], string> = {
+  QUEUED: 'Queued',
+  RUNNING: 'Preparing',
+  COMPLETED: 'Ready',
+  FAILED: 'Failed',
+  EXPIRED: 'Expired',
+};
+
+/** One export job: its rows, when it was asked for, and where it is. */
+function exportLine(job: LogExport) {
+  const rows =
+    job.rowCount === null
+      ? ''
+      : ` · ${formatNumber(job.rowCount)} ${job.rowCount === 1 ? 'record' : 'records'}`;
+  const until =
+    job.status === 'COMPLETED' && job.expiresAt
+      ? ` · kept until ${formatDateTime(job.expiresAt)}`
+      : '';
+  return `${EXPORT_STATUS_LABELS[job.status]}${rows}${until}`;
 }
 
 /** The slim "View" button of a row (the dashboard's "Manage" look). */
@@ -123,25 +137,22 @@ export function IntegrationLogs({ address }: { address: AddressQuery }) {
   const logs = useApiQuery(['admin-integrations', 'logs', 'list', query], () =>
     adminIntegrations.listLogs(query),
   );
+  const exports = useApiQuery(['admin-integrations', 'logs', 'exports'], () =>
+    adminIntegrations.logExports(),
+  );
   const exporter = useApiMutation(
-    (format: ExportFormat) =>
-      adminIntegrations.exportLogs({
-        query: { ...query, page: undefined, pageSize: undefined },
-        format,
-      }),
-    { invalidate: ['admin-integrations'] },
+    () => adminIntegrations.exportLogs({ query: exportQueryOf(shown), format: 'CSV' }),
+    { invalidate: ['admin-integrations', 'logs', 'exports'] },
   );
 
-  function exportAs(format: ExportFormat) {
+  function exportCsv() {
     setNotice(null);
-    exporter.mutate(format, {
-      onSuccess: (file) => {
-        saveFile(file);
+    exporter.mutate(undefined, {
+      onSuccess: () =>
         setNotice({
           tone: 'success',
-          text: `Exported ${file.rowCount} ${file.rowCount === 1 ? 'record' : 'records'} as ${format}, with sensitive fields redacted. The export was added to the audit log.`,
-        });
-      },
+          text: 'Export queued: a CSV of the filtered records, with sensitive fields redacted. It shows under Recent Exports, and the export was added to the audit log.',
+        }),
       onError: (error) => setNotice({ tone: 'error', text: integrationErrorMessage(error) }),
     });
   }
@@ -256,31 +267,14 @@ export function IntegrationLogs({ address }: { address: AddressQuery }) {
         subtitle="Search sync events, connection tests, webhooks, API calls and errors across every integration."
         crumbs={[{ label: 'Integrations', href: '/integrations' }, { label: 'Integration Logs' }]}
         actions={
-          logs.isError ? (
-            <Button variant="secondary" disabled>
-              <DownloadSimple aria-hidden weight="fill" className="size-4" />
-              Export
-            </Button>
-          ) : (
-            <ActionMenu
-              label="Export"
-              trigger={
-                <span className="inline-flex items-center gap-2 text-action">
-                  <DownloadSimple aria-hidden weight="fill" className="size-4" />
-                  {exporter.isPending ? 'Exporting…' : 'Export'}
-                </span>
-              }
-              sections={[
-                {
-                  title: 'Filtered results, redacted',
-                  items: [
-                    { label: 'Export as CSV', icon: FileCsv, onSelect: () => exportAs('CSV') },
-                    { label: 'Export as JSON', icon: FileText, onSelect: () => exportAs('JSON') },
-                  ],
-                },
-              ]}
-            />
-          )
+          <Button
+            variant="secondary"
+            disabled={logs.isError || !page?.total || exporter.isPending}
+            onClick={exportCsv}
+          >
+            <DownloadSimple aria-hidden weight="fill" className="size-4" />
+            {exporter.isPending ? 'Exporting…' : 'Export CSV'}
+          </Button>
         }
       />
 
@@ -512,6 +506,29 @@ export function IntegrationLogs({ address }: { address: AddressQuery }) {
           summary={`Showing ${first} – ${last} of ${page.total} records`}
         />
       ) : null}
+
+      <Card data-testid="log-exports" className="flex min-w-0 flex-col gap-2 p-5">
+        <h2 className="text-base font-bold text-heading">Recent Exports</h2>
+        {exports.isError ? (
+          <QuietLine>{loadError(exports.error)}</QuietLine>
+        ) : exports.data && !exports.data.length ? (
+          <QuietLine>No exports yet. Export CSV queues the filtered records.</QuietLine>
+        ) : (
+          <ul className="divide-y divide-divider text-sm">
+            {(exports.data ?? []).map((job) => (
+              <li
+                key={job.id}
+                className="flex flex-col gap-0.5 py-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
+              >
+                <span className="min-w-0 font-semibold text-heading">{job.title}</span>
+                <span className={job.status === 'FAILED' ? 'text-danger' : 'text-muted'}>
+                  {exportLine(job)} · asked {formatDateTime(job.createdAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       {logId ? (
         <LogDetailDrawer logId={logId} onOpen={setLogId} onClose={() => setLogId(null)} />
