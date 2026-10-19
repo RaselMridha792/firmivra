@@ -3,9 +3,9 @@
 import { Button, DateRangePicker, FormField, type DateRange } from '@firmivra/ui';
 import { Funnel } from '@phosphor-icons/react';
 import { useEffect, useId, useRef, useState } from 'react';
-import { adminBilling } from '../../../../../../mocks/admin-billing';
 import { useApiQuery } from '../../../../../../lib/query';
 import { SelectControl } from '../../_components/billing-fields';
+import { adminBilling } from '../../_components/billing-api';
 
 /**
  * The Recurring list's "Filter" button (the design's label; the kit's FilterBar says "More

@@ -29,7 +29,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 import {
-  adminBilling,
   type BillingDocument,
   type InvoiceDetail,
   type InvoiceStatus,
@@ -60,6 +59,7 @@ import {
 import { BillingHeader } from '../../_components/billing-shell';
 import { InvoiceDocument, type InvoiceDocumentData } from '../../_components/invoice-document';
 import { invoiceAbilities, useInvoiceActions } from '../../_components/invoice-actions';
+import { adminBilling, issuerOf } from '../../_components/billing-api';
 
 /**
  * Invoice Details (firmivra-invoice-dashboard.jpg, docx §8): the firm-branded invoice, its status
@@ -475,7 +475,7 @@ export function InvoiceDetails({ invoiceId, saved }: { invoiceId: string; saved:
           <BillingCard testId="invoice-document-card" className="md:p-6">
             <InvoiceDocument
               data={documentData(invoice)}
-              firm={invoice.firm}
+              firm={issuerOf(invoice.firm)}
               client={invoice.client}
             />
           </BillingCard>
@@ -605,7 +605,10 @@ export function InvoiceDetails({ invoiceId, saved }: { invoiceId: string; saved:
                 <p className="text-muted">{invoice.client.contactName}</p>
                 <p className="wrap-anywhere text-muted">{invoice.client.email}</p>
                 <p className="text-muted">{invoice.client.phone}</p>
-                <p className="text-muted">Client #{invoice.client.number}</p>
+                {/* Firmivra bills firms (B3): the client is the firm's billing contact, unnumbered. */}
+                {invoice.client.number > 0 ? (
+                  <p className="text-muted">Client #{invoice.client.number}</p>
+                ) : null}
                 <span
                   aria-disabled="true"
                   title="Client profiles open in Leads / CRM once that module is built."
