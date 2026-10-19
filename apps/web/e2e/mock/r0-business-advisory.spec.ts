@@ -95,3 +95,70 @@ test('Add Advisory Client: a firm client joins with a service focus; adding twic
   await page.getByRole('dialog').getByRole('button', { name: 'Add Client' }).click();
   await expect(dialog.getByRole('alert')).toContainText('in the advisory program already');
 });
+
+test('Advisory Clients: search, filter, archive and restore', async ({ page }) => {
+  await page.goto(`${base}/clients`);
+  const list = page.getByTestId('ba-clients');
+  await expect(list.getByTestId('client-link')).toHaveCount(7);
+  await list.getByLabel('Search clients').fill('logistics');
+  await expect(list.getByTestId('client-link')).toHaveCount(1);
+  await expect(list).toContainText('KM Logistics');
+  await list.getByLabel('Search clients').fill('');
+  await list.getByLabel('Status').selectOption('SCHEDULED');
+  await expect(list.getByTestId('client-link')).toHaveCount(2);
+  await list.getByLabel('Status').selectOption('');
+  await list.getByRole('button', { name: 'Actions for Priya Shah' }).click();
+  await page.getByRole('menuitem', { name: 'Archive' }).click();
+  await expect(page.getByText('Priya Shah archived.')).toBeVisible();
+  await expect(list.getByTestId('client-link')).toHaveCount(6);
+  await list.getByRole('checkbox', { name: 'Show archived' }).click();
+  await expect(list.getByTestId('client-link')).toHaveCount(8);
+  await list.getByRole('button', { name: 'Actions for Priya Shah' }).click();
+  await page.getByRole('menuitem', { name: 'Restore' }).click();
+  await expect(page.getByText('Priya Shah restored.')).toBeVisible();
+});
+
+test('Business Plans: review, finalize, send, and the version history', async ({ page }) => {
+  await page.goto(`${base}/plans`);
+  const list = page.getByTestId('ba-plans');
+  await expect(list.getByTestId('plan-link')).toHaveCount(6);
+  // A draft without a strategy cannot be finalized.
+  await list.getByRole('button', { name: 'Actions for 2026 Startup Launch Plan' }).click();
+  await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
+  await expect(page.getByText('The plan is not ready yet.')).toBeVisible();
+  await expect(page.getByText(/Still needed: Add the strategy summary or an area/)).toBeVisible();
+  // The plan in review finalizes, then goes to the client.
+  await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
+  await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
+  await expect(page.getByText('Fleet Expansion Plan finalized.')).toBeVisible();
+  await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
+  await page.getByRole('menuitem', { name: 'Send to Client' }).click();
+  await page.getByTestId('send-plan').getByLabel('Send by').selectOption('EMAIL');
+  await page.getByRole('dialog').getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByText('Fleet Expansion Plan sent (email).')).toBeVisible();
+  await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
+  await page.getByRole('menuitem', { name: 'Version History' }).click();
+  await expect(page.getByTestId('plan-versions')).toContainText('Version 1');
+  await expect(page.getByTestId('plan-versions')).toContainText('Email');
+});
+
+test('Goals & Milestones: filter, edit a goal and track its milestones', async ({ page }) => {
+  await page.goto(`${base}/goals`);
+  const list = page.getByTestId('ba-goals');
+  await expect(list.getByTestId('goal-link')).toHaveCount(10);
+  await list.getByLabel('Status').selectOption('AT_RISK');
+  await expect(list.getByTestId('goal-link')).toHaveCount(1);
+  await list.getByLabel('Status').selectOption('');
+  await list.getByTestId('goal-link').filter({ hasText: 'Increase annual revenue by 25%' }).click();
+  const form = page.getByTestId('edit-goal');
+  await expect(form.getByTestId('milestones')).toContainText('1 of 3 done');
+  await form.getByLabel('Status of Launch referral program').selectOption('COMPLETED');
+  await expect(form.getByTestId('milestones')).toContainText('2 of 3 done');
+  await form.getByLabel('New milestone').fill('Open the second office');
+  await form.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(form.getByTestId('milestones')).toContainText('Open the second office');
+  await form.getByLabel('Progress (%)').fill('75');
+  await form.getByRole('button', { name: 'Save Goal' }).click();
+  await expect(page.getByText('Goal saved: Increase annual revenue by 25%')).toBeVisible();
+  await expect(list).toContainText('75%');
+});

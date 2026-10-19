@@ -24,6 +24,7 @@ import { SystemStatusModule } from './system-status/system-status.controller.js'
 import { FirmApplicationsModule } from './firm-applications/firm-applications.controller.js';
 import { AdminNotificationsModule } from './admin-notifications/admin-notifications.controller.js';
 import { AdminCommunicationsModule } from './admin-communications/admin-communications.controller.js';
+import { AdminIntegrationsModule } from './admin-integrations/admin-integrations.controller.js';
 import { MeModule } from './me/me.controller.js';
 import { NotificationsModule } from './notifications/notifications.controller.js';
 import { NotifyModule } from './notify/notify.module.js';
@@ -44,6 +45,8 @@ import { CalculatorsModule } from './calculators/calculators.controller.js';
 import { ContentModule } from './content/content.controller.js';
 import { SupportAccessModule } from './support-access/support-access.controller.js';
 import { AdminAuditModule } from './admin-audit/admin-audit.controller.js';
+import { AdminSettingsModule } from './admin-settings/admin-settings.controller.js';
+import { AdminReportsModule } from './admin-reports/admin-reports.controller.js';
 import { AdminSupportModule } from './admin-support/admin-support.module.js';
 import { AdminBillingModule } from './admin-billing/admin-billing.module.js';
 import { TeamModule } from './team/team.controller.js';
@@ -121,6 +124,7 @@ export class AppModule {
         FirmApplicationsModule,
         AdminNotificationsModule,
         AdminCommunicationsModule,
+        AdminIntegrationsModule,
         TaxStatusesModule,
         ClientsModule,
         TaxReturnsModule,
@@ -139,6 +143,8 @@ export class AppModule {
         AuditViewerModule,
         SupportAccessModule,
         AdminAuditModule,
+        AdminSettingsModule,
+        AdminReportsModule,
         AdminSupportModule,
         AdminBillingModule,
         WorkspacesModule,

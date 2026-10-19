@@ -117,7 +117,7 @@ describe('api.adminSettings', () => {
       api.createRetentionRun('communications'),
       api.releaseHold(ID, { reason: 'Matter closed' }),
       api.startMaintenance(ID),
-      api.pauseJob('email-queue', { reason: 'Fake' }),
+      api.pauseJob('email_queue', { reason: 'Fake' }),
       api.firmDefaults(),
       api.defaultVersions('user'),
     ]);
@@ -140,7 +140,7 @@ describe('api.adminSettings', () => {
       'POST /api/v1/admin/system-settings/retention/communications/runs',
       `POST /api/v1/admin/system-settings/holds/${ID}/release`,
       `POST /api/v1/admin/system-settings/maintenance/${ID}/start`,
-      'POST /api/v1/admin/system-settings/jobs/email-queue/pause',
+      'POST /api/v1/admin/system-settings/jobs/email_queue/pause',
       'GET /api/v1/admin/system-settings/defaults/firm',
       'GET /api/v1/admin/system-settings/defaults/user/versions',
     ]);
