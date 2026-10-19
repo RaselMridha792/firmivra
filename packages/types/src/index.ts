@@ -42,6 +42,7 @@ export * from './admin-billing/index.js';
 export * from './admin-sales/index.js';
 export * from './admin-audit/index.js';
 export * from './admin-settings/index.js';
+export * from './admin-reports/index.js';
 export * from './payments/index.js';
 export * from './notifications/index.js';
 export * from './esign/index.js';

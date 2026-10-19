@@ -8,6 +8,7 @@ import {
   createAppointmentsClient,
   createAppointmentTypesClient,
   createAdminAuditClient,
+  createAdminReportsClient,
   createAdminSettingsClient,
   createAuditLogClient,
   createAvailabilityClient,
@@ -441,6 +442,8 @@ export const api = {
       : createAuditLogClient(request),
   /** Super Admin Audit & Security (R55): the cross-firm event log, alerts, notes and the security policy. Mock: mocks/admin-audit-security.ts until the screens switch. */
   adminAudit: createAdminAuditClient(request),
+  /** Super Admin Reports & Analytics (R55): overview, tabs, firm reports, the builder and saved reports. */
+  adminReports: createAdminReportsClient(request),
   /** Super Admin System Settings (R55): sections, branding, features, retention, maintenance, defaults. */
   adminSettings: createAdminSettingsClient(request),
   /** Support access (R8): Firmivra Support's requests to the firm; Owner and Admin read, an Owner decides. */
