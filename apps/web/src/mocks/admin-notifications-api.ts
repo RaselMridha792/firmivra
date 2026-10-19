@@ -12,6 +12,20 @@ import {
 import { mockDelay, mockedEmpty } from '../lib/mock';
 import { createAdminNotificationFixtures } from './admin-notifications';
 
+const SOURCE_TYPES: Record<string, string> = {
+  'Firm Account': 'business',
+  'Firm Application': 'firm_application',
+  Lead: 'lead',
+  'Platform Update': 'system',
+  'Support Ticket': 'support_ticket',
+  'User Account': 'user',
+};
+/** The first two records of mocks/firm-applications.ts. */
+const APPLICATIONS = [
+  { id: '0199b6a2-0000-7000-8000-000000000001', name: 'Sample Tax Partners LLC' },
+  { id: '0199b6a2-0000-7000-8000-000000000002', name: 'Example Books & Payroll' },
+];
+
 /**
  * `api.adminNotifications` in mock mode (R56): the contract's calls on Arfan's S08 fixtures
  * (mocks/admin-notifications.ts, unchanged), mapped to the contract's shape. Same rules and error
@@ -32,6 +46,14 @@ const statusIs = (n: AdminNotification, s: AdminNotificationStatus) =>
 
 export function createAdminNotificationsMock(): AdminNotificationsClient {
   let rows: AdminNotification[] | undefined;
+  // Arfan's fixtures name the source in words; the API sends the producer's key. The firm
+  // application items open records the firm-applications mock has.
+  let applications = 0;
+  const sourceOf = (f: { relatedType: string; relatedName: string }) => {
+    const type = SOURCE_TYPES[f.relatedType] ?? 'system';
+    const app = type === 'firm_application' ? APPLICATIONS[applications++] : undefined;
+    return app ? { type, id: app.id, label: app.name } : { type, id: null, label: f.relatedName };
+  };
   const all = () => {
     rows ??= mockedEmpty('adminNotifications')
       ? []
@@ -42,7 +64,7 @@ export function createAdminNotificationsMock(): AdminNotificationsClient {
           priority: f.priority,
           title: f.title,
           body: f.description,
-          source: { type: f.relatedType, id: null, label: f.relatedName },
+          source: sourceOf(f),
           business: null,
           requiresAction: f.attention === 'ACTION_REQUIRED',
           attention: f.attention,
