@@ -298,7 +298,11 @@ export function QuickLinks({
                 className={`size-8 shrink-0 ${blueAccents ? 'text-action' : 'text-firm-accent'}`}
               />
               <span className={businessLayout ? 'min-w-0' : 'min-w-0 flex-1'}>
-                <span className="block font-semibold text-heading">{title}</span>
+                <span
+                  className={`block font-semibold text-heading ${businessLayout ? 'text-xs leading-tight' : ''}`}
+                >
+                  {title}
+                </span>
                 <span className={`block text-sm text-text ${businessLayout ? 'sr-only' : ''}`}>
                   {description}
                 </span>
