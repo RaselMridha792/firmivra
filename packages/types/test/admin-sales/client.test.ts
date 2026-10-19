@@ -287,13 +287,10 @@ describe('admin sales client', () => {
     await api.assign(id(1), { ownerId: id(7) });
     await api.linkTransaction(id(1), { subscriptionId: id(11) });
     await api.linkTransaction(id(1), { subscriptionId: null });
-    await api.startTrial(id(1), { planId: id(8) });
     await api.logOutreach(id(1), { kind: 'CALL', outcome: 'NO_ANSWER' });
     await api.addNote(id(1), { body: 'Asked about payroll.' }).catch(() => undefined);
-    await api
-      .updateNote(id(1), id(12), { body: 'Asked about payroll and tax.' })
-      .catch(() => undefined);
-    await api.deleteNote(id(1), id(12)).catch(() => undefined);
+    await api.updateNote(id(12), { body: 'Asked about payroll and tax.' }).catch(() => undefined);
+    await api.deleteNote(id(12)).catch(() => undefined);
     await api
       .addFollowUp(id(1), { kind: 'DEMO', title: 'Demo', dueAt: due })
       .catch(() => undefined);
@@ -304,32 +301,31 @@ describe('admin sales client', () => {
       `POST /opportunities/${id(1)}/assign`,
       `POST /opportunities/${id(1)}/transaction`,
       `POST /opportunities/${id(1)}/transaction`,
-      `POST /opportunities/${id(1)}/trial`,
       `POST /opportunities/${id(1)}/activities`,
       `POST /opportunities/${id(1)}/notes`,
-      `PATCH /opportunities/${id(1)}/notes/${id(12)}`,
-      `DELETE /opportunities/${id(1)}/notes/${id(12)}`,
+      `PATCH /notes/${id(12)}`,
+      `DELETE /notes/${id(12)}`,
       `POST /opportunities/${id(1)}/follow-ups`,
       `PATCH /follow-ups/${id(13)}`,
       `POST /follow-ups/${id(13)}/complete`,
       `POST /follow-ups/${id(13)}/cancel`,
     ]);
     expect(calls[2]!.body).toEqual({ subscriptionId: null });
-    expect(calls[4]!.body).toEqual({
+    expect(calls[3]!.body).toEqual({
       kind: 'CALL',
       direction: 'OUTBOUND',
       outcome: 'NO_ANSWER',
       summary: '',
       followUpId: null,
     });
-    expect(calls[8]!.body).toEqual({
+    expect(calls[7]!.body).toEqual({
       kind: 'DEMO',
       title: 'Demo',
       dueAt: due,
       endsAt: null,
       location: '',
     });
-    expect(calls[10]!.body).toEqual({});
+    expect(calls[9]!.body).toEqual({});
   });
 
   it('reads and lists from their own paths', async () => {
