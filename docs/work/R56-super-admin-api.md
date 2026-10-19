@@ -18,11 +18,12 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 ## Steps
 
 - [x] 1. Notifications contract (`packages/types/src/admin-notifications`, contract mock, `api.adminNotifications`)
-- [ ] 2. Notifications API (`/api/v1/admin/notifications`)
-- [ ] 3. Communications inbox contract, then API
+- [x] 2. Notifications API (`/api/v1/admin/notifications`)
+- [ ] 3. Communications inbox contract (`packages/types/src/admin-communications`), then API
 - [ ] 4. Broadcasts contract, then API
 - [ ] 5. Integrations catalog and platform contract, then API
 - [ ] 6. API keys, webhooks, logs and usage contract, then API
+- [ ] 7. Screens (Rasel, Oct 19): once a module's API is on main, switch its screens from the local mock to the contract (Arfan's Notifications and Communications, Tumit's Integrations), finish the placeholder pages (communications/new, templates, templates/new, templates/[id]/edit) and fix design gaps against `docs/mockups/super-admin`. Files Arfan or Tumit still change (Arfan's open #853, #862, #869) are coordinated through the Scrum thread.
 
 ## Mock to contract mappings
 
@@ -43,6 +44,31 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 | Filter `CRITICAL` (summary card) | `priority: 'CRITICAL'` |
 | `listAdminNotifications()` (all 124, filtered and paged on the page) | `api.adminNotifications.list({ ...filters, page, pageSize })` (server paging); cards from `summary()` (`total`, `unread`, `actionRequired`, `critical`, `resolvedToday`); bulk bar `bulk({ ids, action })`; "Mark all as read" `markAllRead(filters)`; row actions `read`, `unread`, `resolve`, `dismiss` |
 
+### Communications inbox (Arfan, `mocks/admin-communications-inbox.ts` → `admin-communications`)
+
+| Mock (`CommunicationsMock`, `CommunicationConversation`, `CommunicationMessage`) | Contract |
+| --- | --- |
+| `CommunicationChannel` `Email` / `SMS` / `Internal` | `CommChannel` `EMAIL` / `SMS` / `INTERNAL` (also `IN_APP`) |
+| `CommunicationContactType` `Client` / `Support` | `FIRM` (a firm's people; a firm's own clients are never contacts, B6) |
+| `Lead` / `Internal` | `LEAD` / `TEAM` |
+| conversation `id` (`blue-ridge`) | `id` (uuid) |
+| `name`, `initials`, `avatarTone` | `contact.name` (initials and tone are the screen's own) |
+| `preview`, `time` (display strings) | `lastMessage.excerpt`, `lastMessage.at` / `lastMessageAt` (ISO; format on the screen) |
+| `channel` | `lastMessage.channel` |
+| `unread`, `mention`, `scheduled` | `unread`, `mentionsMe`, `hasScheduled` (also `hasFailed`) |
+| `assignedTo` (a name) | `assignedTo { userId, name }` |
+| `messages` (in the list) | only in `conversations.get(id).messages` |
+| message `from: 'contact' \| 'admin'` | `direction` `INBOUND` / `OUTBOUND` / `INTERNAL` |
+| message `sender` (a name), `time` | `sender { userId, name }` (null inbound) or `fromAddress`; `sentAt` / `createdAt` |
+| (new) | message `status`, `subject`, `recipients` with delivery results, `mentions`, `scheduledAt`, `errorCode` |
+| `summary.unread`, `open`, `waiting`, `scheduled`, `failed` | `summary()` `unread`, `open`, `waitingOnReply`, `scheduled`, `failed` |
+| `summary.channels` (`All`, `Email`, `SMS`, `Internal`) | `byChannel` (`EMAIL`, `SMS`, `INTERNAL`, `IN_APP`); All is their sum |
+| `summary.trends`, `trendNote` | not in the contract: no history to compare; leave the trend chips out |
+| `contactDetails` (plan, status, source) | `contact` (type, business, email, phone); plan and status are the firm record's (Firms page) |
+| `tags` (label + tone) | `tags` (strings); the tone is the screen's own |
+| `activity` | not in the contract (the audit trail is Audit & Security's) |
+| `currentAdmin` | the signed-in admin (`api.adminMe` / session), not this module |
+
 ## Needs from others
 
 - (none yet)
@@ -50,3 +76,5 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 ## Progress log
 
 - 2026-10-19: Plan agreed with the Scrum thread; this file added.
+- 2026-10-19: Notifications contract #858. Notifications API (`apps/api/src/admin-notifications`): 12 routes, `AdminPrisma` only, audit rows for resolving or dismissing security and billing items; unit (9) and e2e (12) tests; the admin isolation test's `WRITES` has the six writes and now keeps one dev token per person (a token per call hit the token rate limit).
+- 2026-10-19: Communications inbox contract: summary, contacts, conversations, messages (draft, send, schedule, cancel, retry, delete draft), templates and categories, merge fields; contract mock on Arfan's inbox data; 8 contract tests.
