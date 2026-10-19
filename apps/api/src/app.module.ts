@@ -46,6 +46,7 @@ import { ContentModule } from './content/content.controller.js';
 import { SupportAccessModule } from './support-access/support-access.controller.js';
 import { AdminAuditModule } from './admin-audit/admin-audit.controller.js';
 import { AdminSettingsModule } from './admin-settings/admin-settings.controller.js';
+import { AdminReportsModule } from './admin-reports/admin-reports.controller.js';
 import { AdminSupportModule } from './admin-support/admin-support.module.js';
 import { AdminBillingModule } from './admin-billing/admin-billing.module.js';
 import { TeamModule } from './team/team.controller.js';
@@ -143,6 +144,7 @@ export class AppModule {
         SupportAccessModule,
         AdminAuditModule,
         AdminSettingsModule,
+        AdminReportsModule,
         AdminSupportModule,
         AdminBillingModule,
         WorkspacesModule,

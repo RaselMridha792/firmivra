@@ -185,3 +185,21 @@ Bookkeeping, Payroll and Compliance were reassigned.
 - `admin-scope.test.ts` is shared by every Super Admin module: each adds its own WRITES fields (`record` for Support, `item` for Notifications, `comm` for Communications, `auditRecord`, `settingsId`/`params` for R55). Our System Settings cases live in `test/isolation/admin-settings-writes.ts` (seeded records, `settingsParams`).
 - A local test database emptied by an older run lacks migration reference rows (security policy, support categories): drop this worktree's own `firmivra_r55_test_api` and let the global setup migrate it again.
 - Job keys, feature keys and secret keys follow the database's patterns (no hyphens in job keys).
+
+### Update, 2026-10-19 late (third session)
+
+**Merged:** #876 Audit & Security API. **Open:** #892 System Settings API (main merged in again, with R60's billing WRITES kept), #893 Reports contract, #900 Reports & Analytics API (`rasel/R55-admin-reports-api`, stacked on #892 and #893). That is two non-contract PRs: the next PR waits for a merge.
+
+**Next:** the screens of Audit & Security, System Settings and Reports, on a new branch from `main` once #892 or #900 merges (or kept local until then).
+
+**Gotchas:**
+- A saved-report WRITES case names its `:id` through `params` with a getter (`test/isolation/admin-reports-writes.ts`), because WRITES is built before the records are seeded.
+- After switching branches, rebuild `packages/types` (`pnpm --filter @firmivra/types build`) before the API typecheck; a stale build shows other modules' exports as missing.
+
+### Update, 2026-10-19 night (third session)
+
+**Built, not opened (no slot while #892 and #900 are open):** the Audit & Security screens on the real API, `rasel/R55-admin-audit-screens` (pushed, from `main`). The PR text is ready. The adapter is `audit-security/_components/audit-api.ts`; the mock now follows the contract (outcomes, the SYSTEM category, actor types, settings shape). Screenshots are in `apps/web/e2e/mock/r55-screenshots/audit-security/`.
+
+**Decided (Scrum thread, 16:55 UTC):** Arfan builds System Settings (#903, FIR-894) and Reports. This session does not build them. Open the Audit & Security screens PR within the two non-contract PRs. After each of Arfan's PRs merges, wire his pages to #892 and #900 in a separate PR per module. Meanwhile finish #900 and take the next item in the R file. Every widget, empty states, no seeding.
+
+**Screens how-to:** apply pending migrations to this worktree's own database with `prisma migrate deploy` (never `migrate dev`). Then `pnpm dev`, and take screenshots with a small Playwright script (sign in with the local quick sign-in, `superadmin@firmivra.test`). The down state aborts only the module's `/api/v1/admin/<module>/*`: aborting all of `/api/v1/admin/*` also drops the console's own account call. Stop both servers afterwards (on Windows, kill the processes listening on WEB_PORT and API_PORT), then delete `.next` and `dist`.
