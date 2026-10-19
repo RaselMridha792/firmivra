@@ -259,22 +259,21 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
    - Then the screens: every widget built, empty states rather than fake data, three-state screenshots at 1440 px, and `docs/design-match.md`.
 3. **No more demo seed groups.** The demo data gets replaced later, and nobody reseeds dev now (R1 has been told).
 
-**Open PRs (Oct 19, ~17:15Z):**
-- **#899: MRR history.** Green; waits for Rasel's own merge (packages/db).
-- **#908: Business Advisory clients, plans and goals tabs.**
-  - Main is merged in. The spec has 6 tests, and errors show the API's "Still needed" lines.
+**Open PRs (Oct 19, ~18:00Z):**
+- **#910: advisory reports endpoint** (API; e2e 6).
+- **#915: Business Advisory financial analysis, action plans, resources and reports tabs.**
+  - The spec has 10 tests.
+  - Mock advisors are now the team mock's Sam Staff and Adam Admin, so the advisor filters work in mock mode.
 - **#875:** this handoff.
 - **Merged today:**
-  - #868, #871, #883 and #885 (D4)
-  - #888 (advisory overview)
-  - #897 (reports contract and error details)
-
-**Pushed, waiting for a slot:** `rasel/R0-advisory-reports-api` (`945df5a1`, main merged in): the reports endpoint and its e2e test (6). Its diff against main is the five API files. Open it when #899 or #908 merges.
+  - #868, #871, #883, #885 (D4) and #899 (MRR)
+  - #888 (overview), #897 (reports contract) and #908 (clients, plans and goals tabs)
 
 **Next:**
-1. List tabs 2b: Financial Analysis, Action Plans, Resources, and Reports (on `api.advisory.reports`).
-2. The plan wizard; its Review step shows the PLAN_NOT_READY details.
-3. The client detail (11 tabs).
+1. The plan wizard (`plans/new` and `plans/[planId]/edit/{,assessment,goals,action-plan,review}`, design 2).
+   - Its Review step shows the PLAN_NOT_READY details (`errorText` in `ba-shared`) and checks the same rules before finalizing.
+2. Then the client detail (11 tabs, design 3).
+3. Branch each from main once the previous PR merges, or stack on it and merge main later; take our side only when main's copy is unchanged since the branch point.
 
 **Business Advisory (item 2), started Oct 19:**
 - The API and contract already exist on main (R55, `de509806`: `apps/api/src/advisory/`, `packages/types/src/advisory/`).
