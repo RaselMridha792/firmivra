@@ -5,7 +5,7 @@ Contract: `packages/types/src/admin-audit/` (`api.adminAudit`). API: `apps/api/s
 ## Steps
 
 - [x] 1. Contract: events (list, facets, summary, detail, export), response actions, notes, alerts, the security policy.
-- [ ] 2. API, with unit, e2e and isolation cases.
+- [x] 2. API, with unit, e2e and the admin-scope WRITES cases (`rasel/R55-admin-audit-api`).
 
 ## Decisions (contract)
 
@@ -16,6 +16,14 @@ Contract: `packages/types/src/admin-audit/` (`api.adminAudit`). API: `apps/api/s
 5. **Active Sessions** (summary card) is null for the same reason: `staff_sessions` is firm data.
 6. **Export** builds the file in the answer (CSV or JSON, at most 10,000 rows, 409 EXPORT_TOO_LARGE beyond) and is audited; `platform_export_jobs` waits for an export worker.
 7. **Security Settings** keep the mock's sections, inside the database's floors: audit retention 365 to 3650 days (the mock's 90 days and 6 months are not allowed), MFA always required for Super Admins (`ALL` adds everyone; no "Optional"). The API maps them onto `platform_security_policy`'s nine JSON sections (extra keys where a section has no field for one).
+
+## Notes (API)
+
+1. `apps/api/src/admin-audit/`: `AdminAuditController` (`/admin/audit`, `@Roles('SUPER_ADMIN')`, static paths first), `AdminAuditService` (log, facets, summary, Event Details, export), `AdminAuditActionsService` (responses, notes, alerts), `AdminSecurityPolicyService` (the policy), `classify.ts` (pure: the action rules, the database filters built from them, labels, references, devices, masked changes).
+2. Reads run in admin scope (`AdminPrisma`); names of users come from the platform's `users` (`PlatformPrisma`, a platform table read for a Super Admin). No business scope is ever opened (the admin-scope sweep checks it).
+3. The admins' own rows are written in admin scope with all four normalized fields (`writeAdminEvent`), `parent_event_id` naming the event. A review is `audit.event_reviewed` (one per event; a repeat answers the first) and is left out of the log: it is its event's timeline.
+4. The firm filter is `business_id = X OR subject_business_id = X`, so a firm's view includes the Super Admins' rows about it (alerts raised, notes).
+5. The policy page maps onto the nine sections, keeping keys it does not manage (`roleKeys`, `adminsCanRevokeAll`, the integration settings, `webhook`); its own extra keys (`rememberMeDays`, `concurrentLimit`, `ipMode`, the notice toggles under `alertRouting.events`...) sit beside them. `policy.changed` keeps the changed fields with old and new values (lists as a count).
 
 ## Needs from others
 
