@@ -31,11 +31,10 @@ All under `/api/v1/admin/sales`.
 | `bulk(body)`                       | `POST /opportunities/bulk`                              |
 | `linkTransaction(id, body)`        | `POST /opportunities/:id/transaction`                   |
 | `subscriptions(query)`             | `GET /subscriptions`                                    |
-| `startTrial(id, body)`             | `POST /opportunities/:id/trial` (422 NOT_SUPPORTED_YET) |
 | `logOutreach(id, body)`            | `POST /opportunities/:id/activities`                    |
 | `addNote(id, body)`                | `POST /opportunities/:id/notes`                         |
-| `updateNote(id, noteId, body)`     | `PATCH /opportunities/:id/notes/:noteId`                |
-| `deleteNote(id, noteId)`           | `DELETE /opportunities/:id/notes/:noteId`               |
+| `updateNote(noteId, body)`         | `PATCH /notes/:id`                                      |
+| `deleteNote(noteId)`               | `DELETE /notes/:id`                                     |
 | `addFollowUp(id, body)`            | `POST /opportunities/:id/follow-ups`                    |
 | `updateFollowUp(followUpId, body)` | `PATCH /follow-ups/:id`                                 |
 | `completeFollowUp(followUpId)`     | `POST /follow-ups/:id/complete`                         |
@@ -205,8 +204,8 @@ sit outside `/opportunities/:id`, and `:id` is a UUID, so none can be read as a 
 30. **sendProposal** is dropped. The plan and the value go through `updateOpportunity`. The proposal
     PDF and the "Proposal sent" entry have no table (platform estimates need a firm), so the record's
     Documents panel has no data.
-31. **startTrial** stays, answering 422 NOT_SUPPORTED_YET. A trial is a firm's platform subscription,
-    which needs a provisioned firm, and no Subscriptions API exists yet.
+31. **startTrial** is removed (Sales API, note 44). A trial is a firm's platform subscription, which
+    needs a provisioned firm, and no Subscriptions API exists yet.
 32. **nextStep** has no column and is left out.
 33. **viewPreference / setViewPreference** have no table and are left out. The screen keeps the Card
     or List choice for the viewer.
@@ -237,6 +236,105 @@ confirmedCount, action })` (B5's bulk route with the confirmed count) replace `a
     order the ACTIVE stages, and B5 leaves the rule to the API (spec 17, section 12). The contract
     allows every move the database accepts (see the questions below).
 
+## Sales API (step 7)
+
+`apps/api/src/admin-sales/` (40 routes): `AdminSalesController`, `SalesRecordsService` (records,
+moves, owners, bulk, the linked subscription, outreach, notes, follow-ups, the list and KPI row),
+`SalesAnalyticsService` (Sales Center numbers, stage counts, revenue by plan, lead sources, Recent
+Activity, upcoming follow-ups, the report), `SalesSetupService` (meta, plans, the pipeline builder,
+tags, attention settings), `SalesTargetsService` (D1 targets), `sales-common.ts`, `sales-feed.ts`
+and the pure rules in `sales-math.ts`. Tests: `test/unit/admin-sales.test.ts` (18),
+`test/e2e/admin-sales.e2e.test.ts` (32, every route), and 24 write cases in
+`test/isolation/admin-sales-writes.ts` for the admin-scope sweep.
+
+44. **Contract changes made with the API.** `startTrial` is removed: the admin-scope sweep calls
+    every admin write with a valid body and needs it to succeed, and a trial cannot be stored for a
+    prospect (note 31). Editing and deleting a note moved to `PATCH /notes/:id` and
+    `DELETE /notes/:id` (`updateNote(noteId, body)`, `deleteNote(noteId)`): the sweep fills only
+    `:id`. The contract test follows both.
+45. **Admin scope only** (`AdminPrisma`): every read and write runs as the signed-in Super Admin;
+    nothing opens a firm's scope or platform scope. Audit rows are the platform's
+    (`businessId: null`) with ids and codes only, never names, emails, notes or summaries:
+    `sales_opportunity.created`, `.updated`, `.stage_changed`, `.assigned`, `.transaction_linked`,
+    `.transaction_unlinked`, `sales_activity.logged`, `sales_note.added`, `.updated`, `.deleted`,
+    `sales_follow_up.scheduled`, `.updated`, `.completed`, `.cancelled`, `sales_pipeline.created`,
+    `.saved`, `sales_tag.created`, `.updated`, `.deleted`, `sales_attention_settings.updated`,
+    `sales_target.created`, `.updated`, `.archived`, `sales_report.exported`. `AuditService.logIn`
+    has no category, so B5's "category DATA" is not set (see Needs from others).
+46. **Team and rights.** Reps are every Super Admin and the members of the Revenue / Sales
+    department (`REVENUE_SALES`); ACTIVE members take new records and follow-ups (422
+    INACTIVE_CHOICE otherwise). Only Super Admins pass `@Roles('SUPER_ADMIN')`, so every caller has
+    the six permissions and `recordScope` COMPANY; no `sales.*` keys are read yet (question 2).
+47. **Checks before the database.** Each change checks what B5's and D1's triggers and CHECKs would
+    refuse and answers the contract code first: an inactive stage, the transaction lock, a lost
+    stage's reason and note (the OTHER note per `lostOtherNoteRequired`), a lost reason outside a
+    lost stage, each required field (VALUE, ASSIGNEE, PLAN, TRANSACTION, LOST_NOTE), inactive plans,
+    reps and tags, and a follow-up already completed or cancelled. A refusal the checks miss is
+    mapped from the trigger's message (`asSalesError`) instead of surfacing as a 500.
+48. **Add Lead runs once per `requestId`.** There is no idempotency column, so the API takes a
+    transaction advisory lock on the request id and looks for its own `sales_opportunity.created`
+    audit row with that id, answering the record it made. Without `allowDuplicate`, a match is 409
+    POSSIBLE_DUPLICATE: the same normalized email, the same phone digits (a US number with or
+    without its 1), or the same firm name (ignoring case) on a record's title or company or a
+    contact's company. A new record starts in the pipeline's first active stage that is not
+    TRANSACTION_SYNCED.
+49. **Lists and the KPI row** read the pipeline's 5,000 newest records with the cheap filters in
+    Prisma (stages, owner or unassigned, plan, source, tag, the range's last day) and the rest in
+    memory (search, the range's first day for closed and lost records, overdue, attention, the
+    set). Each record's counters (last activity, attempts, first two-way contact, next follow-up and
+    appointment, badges, trial) are worked out on every read. `pipelineKpis` takes the same
+    filters; its conversion counts the records created in the range (all without one). B5's
+    numerator keeps a converted record later lost as DUPLICATE or INVALID_LEAD while the
+    denominator drops it, so in that case the rate can pass 100% (question 5).
+50. **Moves.** A move to the stage the record is in changes nothing. A lost reason and note are
+    stored only with a lost stage; the database stamps the conversion and lost times and writes the
+    history (source MANUAL). Backward moves are allowed (question 1). Booking a CALL, DEMO,
+    CONSULTATION or MEETING for a record in an earlier ACTIVE stage moves it to the shipped
+    `appointment_set` stage after `set_config('app.sales_change_source', 'AUTOMATION', true)`; when
+    that stage's required fields are missing, nothing moves. A stage's CREATE_FOLLOW_UP action adds
+    a FOLLOW_UP "Follow up: <stage>" for the owner, due in two days.
+51. **The linked subscription.** Linking stores it OPEN, sets the record's firm, then applies the
+    subscription's current state in the same transaction (ACTIVE, PAST_DUE and NON_RENEWING are
+    UNDER_CONTRACT; EXPIRED is CLOSED; CANCELLED is TERMINATED; TRIAL and SUSPENDED stay OPEN), so
+    the database moves the record into Under Contract or Closed (history source TRANSACTION, actor
+    the admin). That stage's required fields must be there. A subscription linked to another record
+    is 409 TRANSACTION_IN_USE (no unique index holds this), one of another firm 422 FIRM_MISMATCH,
+    and a pipeline without active Under Contract and Closed stages 422 SYNC_STAGE_REQUIRED.
+    Unlinking with nothing linked changes nothing. Later status changes are Billing's (Needs from
+    others).
+52. **Save Pipeline** compares `expectedUpdatedAt` with the latest change to the pipeline or its
+    stages (409 CONFLICT), then checks: SHIPPED_STAGE, STAGE_HAS_RECORDS (a type change, or a removed
+    stage with records and no target), RETURN_STAGE_INVALID (the return stage must stay an active
+    ACTIVE or CONVERTED stage), NOT_SUPPORTED_YET (stage actions other than CREATE_FOLLOW_UP), 400
+    for a LOST_NOTE requirement outside a lost stage (it could never be met), SYNC_STAGE_REQUIRED
+    when records have a transaction, and each record of a removed stage against its target (a
+    move's rules; a record under contract or closed only to a stage of its transaction's type; a
+    lost record keeps its reason). Then it writes: temporary names (a swap of two names never meets
+    the unique index), the layout, the moves (the database writes their history), the pipeline,
+    and last the deletions. A deletion the database still refuses (a lead import pointing at the
+    stage) is 422 STAGE_HAS_RECORDS.
+53. **Create Pipeline.** DEFAULT copies the shipped pipeline's stored stages (names, types, required
+    fields) without their keys; the copy's CONVERTED stage is its return stage. Prisma makes no id
+    for `sales_pipelines` (the id is a key of the pipeline's own return-stage relation, so the
+    insert failed with a NOT NULL error), so the API passes a v7 id (for R0).
+54. **The Sales Center's numbers** are counted per D1 with database counts: leads by creation, demos
+    by due date (not cancelled), wins by conversion time, lost deals from the stage history
+    (distinct records), revenue won from `value_cents`; trials and projected MRR from the linked
+    subscriptions (the negotiated price or the plan's base price, plus purchased seats and
+    locations at the plan's prices; an annual plan's price divided by 12; each subscription once).
+55. **Stage counts** take a closed or lost record's date from its stage entry; lost reasons count the
+    pipeline's entries into lost stages in the period. Revenue by plan lists active plans (and
+    inactive ones with deals) in display order, then "No plan".
+56. **Recent Activity** is read per request from the latest rows of each source, merged: stage rows
+    (WON is the row stamped with the record's `converted_at`), owner rows, follow-ups (who completed
+    or cancelled one comes from this API's audit row: the table keeps no actor), activities, notes
+    and the linked subscriptions' trial starts ("Billing"). The record page shows up to 500 entries.
+57. **The report** is CSV (`text/csv`, attachment, no-store) of the records created in the period,
+    every pipeline unless one is given, at most 50,000 rows, with an audit row of the count.
+58. **Targets.** Attainment is counted per D1 on every read (TEAM: the department's members, any
+    status; REP: a platform admin). A live duplicate is 409 TARGET_EXISTS before the unique index
+    would refuse it; archiving lets the database stamp the time.
+
 ## Needs from others
 
 - **R0 (B5 schema):**
@@ -251,13 +349,32 @@ confirmedCount, action })` (B5's bulk route with the confirmed count) replace `a
   - A per-member preference for the Card or List view, if it must follow the member across
     devices.
   - A sales time zone setting, if the team wants local days instead of UTC.
+- **R0 (B5, found while building the API):**
+  - `sales_pipelines.id` has no database default and Prisma makes none for it (the id is a key of
+    the pipeline's own `terminatedReturnTo` relation), so an insert without an id fails NOT NULL.
+    The API passes a v7 id; a `DEFAULT` on the column, or a relation that does not reuse the id,
+    would remove the trap.
+  - No unique index keeps one open link per transaction (`transaction_kind`, `transaction_id`): two
+    records on one subscription would both move and count. The API checks (409
+    TRANSACTION_IN_USE).
+  - `sales_follow_ups` keeps no `completed_by_user_id` / `cancelled_by_user_id`; the feed reads the
+    actor from this API's audit rows.
+  - No idempotency key on `sales_opportunities`; Add Lead's `requestId` lives in the audit row.
+  - The stages' CHECK allows a `lost_note` requirement on a stage that is not LOST, which no record
+    can ever meet (a lost note needs a lost reason, and a reason needs a lost stage). The API
+    refuses it at save.
+  - The pipelines trigger checks the return stage's type only when the pipeline row changes: a
+    stage update can still turn the return stage into a LOST stage or switch it off. The API checks.
+  - B5 asks for audit rows in category DATA; `audit_logs` and `AuditService.logIn` have no category.
 - **R0 (platform plans):** the plan card copy (tagline, outcome, why upgrade, best fit, highlights,
   upgrade trigger, "From" price) and a self-serve trial flag on `platform_plans`, or a decision that
   this copy lives in the web app.
 - **Billing and Subscriptions (B3; later R60 steps):** report subscription status changes to the
   linked opportunities in platform scope (B5's mapping: signed contract or active paid plan
-  UNDER_CONTRACT, end of term CLOSED, early cancellation TERMINATED), and start a firm's trial (a
-  TRIAL subscription) so `startTrial` can work. A prospect without a firm cannot have one.
+  UNDER_CONTRACT, end of term CLOSED, early cancellation TERMINATED) after the link (the Sales API
+  applies the state at link time only), and start a firm's trial (a
+  TRIAL subscription), so the Sales Center's Start 14-Day Trial can come back. A prospect without a
+  firm cannot have one.
 - **R56:** a bell-notification producer, so NOTIFY_OWNER can run. **R6:** a welcome email template
   (SEND_WELCOME_EMAIL). **Firm onboarding owner:** START_ONBOARDING.
 - **Admin Sales screen owners:** switch to `api.adminSales`. Changes: plan ids from `plans()` and
@@ -276,3 +393,5 @@ confirmedCount, action })` (B5's bulk route with the confirmed count) replace `a
 3. B5 counts FOLLOW_UP_DUE in Needs Attention; the mock did not. The contract follows B5: confirm.
 4. NO_CONTACT applies in "New Lead". Outside the default pipeline the contract reads it as the
    pipeline's first stage: confirm.
+5. B5's conversion rate keeps a converted record later lost as DUPLICATE or INVALID_LEAD in the
+   numerator but not the denominator (note 49): should the numerator drop it too?

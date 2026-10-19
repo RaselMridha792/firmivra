@@ -29,6 +29,7 @@ import {
   type WriteHelpers,
 } from './admin-support-writes.js';
 import { billingWrites, prepareBilling } from './admin-billing-writes.js';
+import { prepareSales, salesWrites } from './admin-sales-writes.js';
 import { apiRoutes, fillPath } from './routes.js';
 
 const fx = inject('fixtures');
@@ -200,6 +201,7 @@ const WRITES: Record<
   },
   ...supportWrites(fx),
   ...billingWrites(fx),
+  ...salesWrites(fx),
 };
 
 /** The thread, messages, template and category the communications writes act on (R56). */
@@ -385,6 +387,7 @@ beforeAll(async () => {
   await owner.$disconnect();
   await prepareSupport(fx);
   await prepareBilling(fx);
+  await prepareSales(fx);
   const env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',
