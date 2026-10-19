@@ -1,7 +1,9 @@
+import { ApiRequestError } from '@firmivra/types';
 import { Badge } from '@firmivra/ui';
 import { ArrowRight, CheckCircle, type Icon } from '@phosphor-icons/react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { errorMessage } from '../../../../../lib/errors';
 
 /** Every query of the Business Advisory module starts here: a change in one view refreshes the others. */
 export const BA_KEY = ['business-advisory'] as const;
@@ -104,7 +106,7 @@ export const BA_ERRORS: Record<string, string> = {
   DUPLICATE_SERVICE: 'This service is on the client already.',
   SAVE_CONFLICT: 'Someone saved this after you opened it. Reload and try again.',
   INVALID_STATUS: 'That does not fit the current status.',
-  PLAN_NOT_READY: 'The plan is not ready yet. Open its Review step to see what is missing.',
+  PLAN_NOT_READY: 'The plan is not ready yet.',
   PLAN_ARCHIVED: 'Restore the plan before changing it.',
   INCONSISTENT_FIGURES: 'Net profit must be revenue minus expenses.',
   OVERRIDE_NOT_ALLOWED: 'Replacing figures from a source needs an override reason.',
@@ -114,6 +116,16 @@ export const BA_ERRORS: Record<string, string> = {
   NOT_THIS_CLIENT: 'That plan, goal or service belongs to another client.',
   FORBIDDEN: 'Your role cannot do this.',
 };
+
+/**
+ * What went wrong, for a toast or a dialog: the code's message, then the API's details lines
+ * ("Still needed: Add at least one goal to the plan; Add the financial figures.").
+ */
+export function errorText(error: unknown): string {
+  const text = errorMessage(error, BA_ERRORS);
+  const lines = error instanceof ApiRequestError ? (error.details ?? []).map((d) => d.message) : [];
+  return lines.length ? `${text} Still needed: ${lines.join('; ')}.` : text;
+}
 
 /** A goal's or milestone's progress: the bar and its percent. */
 export function ProgressBar({ value, label }: { value: number; label: string }) {

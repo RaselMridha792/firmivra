@@ -126,6 +126,7 @@ test('Business Plans: review, finalize, send, and the version history', async ({
   await list.getByRole('button', { name: 'Actions for 2026 Startup Launch Plan' }).click();
   await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
   await expect(page.getByText('The plan is not ready yet.')).toBeVisible();
+  await expect(page.getByText(/Still needed: Add the strategy summary or an area/)).toBeVisible();
   // The plan in review finalizes, then goes to the client.
   await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
   await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();

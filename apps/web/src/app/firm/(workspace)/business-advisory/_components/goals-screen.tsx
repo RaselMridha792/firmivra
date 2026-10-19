@@ -29,7 +29,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { AddGoalDialog, ErrorLine, useMembers } from './ba-dialogs';
 import { FilterSelect, SearchBox, serverPaging, useAct } from './ba-list-kit';
@@ -37,7 +36,6 @@ import { BaShell } from './ba-shell';
 import {
   AREA_LABEL,
   BASE,
-  BA_ERRORS,
   BA_KEY,
   GOAL_STATUS,
   GoalStatusPill,
@@ -45,6 +43,7 @@ import {
   card,
   dayText,
   primary,
+  errorText,
 } from './ba-shared';
 
 const SIZE = 10;
@@ -398,7 +397,7 @@ function GoalForm({
       await refresh();
       onSaved(title.trim());
     } catch (e) {
-      setError(errorMessage(e, BA_ERRORS));
+      setError(errorText(e));
     } finally {
       setSaving(false);
     }
@@ -491,7 +490,7 @@ function Milestones({
       await work();
       await qc.invalidateQueries({ queryKey: [...BA_KEY] });
     } catch (e) {
-      onError(errorMessage(e, BA_ERRORS));
+      onError(errorText(e));
     }
   };
   const ids = goal.milestones.map((m) => m.id);

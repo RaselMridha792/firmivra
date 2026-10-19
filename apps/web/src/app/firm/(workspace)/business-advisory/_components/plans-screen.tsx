@@ -29,14 +29,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { ErrorLine, useMembers } from './ba-dialogs';
 import { FilterSelect, SearchBox, serverPaging, useAct } from './ba-list-kit';
 import { BaShell } from './ba-shell';
 import {
   BASE,
-  BA_ERRORS,
   BA_KEY,
   PLAN_STATUS,
   PLAN_TYPES,
@@ -44,6 +42,7 @@ import {
   card,
   dayText,
   primary,
+  errorText,
 } from './ba-shared';
 
 const SIZE = 10;
@@ -421,7 +420,7 @@ export function SendPlanDialog({
                 });
                 onSent(channel);
               } catch (e) {
-                setError(errorMessage(e, BA_ERRORS));
+                setError(errorText(e));
               } finally {
                 setSaving(false);
               }

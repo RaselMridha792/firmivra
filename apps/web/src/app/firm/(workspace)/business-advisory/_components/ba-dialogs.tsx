@@ -6,9 +6,8 @@ import { Plus, Trash } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
-import { AREA_LABEL, BA_ERRORS, BA_KEY, BUSINESS_STAGES, GOAL_STATUS, today } from './ba-shared';
+import { AREA_LABEL, BA_KEY, BUSINESS_STAGES, GOAL_STATUS, today, errorText } from './ba-shared';
 
 /** The firm's active members, for the advisor and owner pickers; empty when the role may not list them. */
 export function useMembers() {
@@ -69,7 +68,7 @@ export function AddClientDialog({
       await qc.invalidateQueries({ queryKey: [...BA_KEY] });
       onAdded(c.id, c.client.name);
     } catch (e) {
-      setError(errorMessage(e, BA_ERRORS));
+      setError(errorText(e));
     } finally {
       setSaving(false);
     }
@@ -237,7 +236,7 @@ export function AddGoalDialog({
       await qc.invalidateQueries({ queryKey: [...BA_KEY] });
       onAdded(title.trim());
     } catch (e) {
-      setError(errorMessage(e, BA_ERRORS));
+      setError(errorText(e));
     } finally {
       setSaving(false);
     }

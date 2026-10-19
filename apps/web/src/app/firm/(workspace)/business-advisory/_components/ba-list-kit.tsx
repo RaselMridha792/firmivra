@@ -4,8 +4,7 @@ import { Select, Toast } from '@firmivra/ui';
 import { MagnifyingGlass } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { errorMessage } from '../../../../../lib/errors';
-import { BA_ERRORS, BA_KEY } from './ba-shared';
+import { BA_KEY, errorText } from './ba-shared';
 
 /** The search field of a list's filter row. */
 export function SearchBox({
@@ -92,7 +91,7 @@ export function useAct() {
       setMsg({ text: done, tone: 'success' });
       return r;
     } catch (e) {
-      setMsg({ text: errorMessage(e, BA_ERRORS), tone: 'error' });
+      setMsg({ text: errorText(e), tone: 'error' });
       return undefined;
     }
   };
