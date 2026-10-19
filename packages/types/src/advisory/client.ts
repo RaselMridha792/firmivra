@@ -28,6 +28,8 @@ import {
   AdvisoryPlanDetail,
   AdvisoryPlanId,
   AdvisoryPlanPage,
+  AdvisoryReports,
+  AdvisoryReportsQuery,
   AdvisoryPlansQuery,
   AdvisoryRecommendationId,
   AdvisoryRecommendationPage,
@@ -313,6 +315,12 @@ export function createAdvisoryClient(request: ApiRequest) {
       }),
 
     // ----- Meetings, resources, settings -----
+    /** The Reports tab: live counts, by status, services, workload; the financial trend with the permission. */
+    reports: async (query: AdvisoryReportsQuery = {}): Promise<AdvisoryReports> =>
+      request(
+        AdvisoryReports,
+        `${BASE}/reports${toQuery(parseInput(AdvisoryReportsQuery, query))}`,
+      ),
     meetings: async (query: AdvisoryMeetingsQuery = {}): Promise<AdvisoryMeetingPage> =>
       request(
         AdvisoryMeetingPage,
