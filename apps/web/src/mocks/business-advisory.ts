@@ -74,9 +74,11 @@ import { teamFixtures } from './team';
  * PLAN_ARCHIVED, INCONSISTENT_FIGURES, OVERRIDE_NOT_ALLOWED, FINANCIALS_RESTRICTED, NOT_A_MEMBER,
  * RESOURCE_NOT_CLIENT_FACING, NOT_THIS_CLIENT, plus 403 FORBIDDEN and 404 NOT_FOUND.
  *
- * Roles: Owner and Admin reach every advisory client; Staff (Sam Staff) only the clients assigned
- * to them (any other is 404), without "View financial analysis" (figures null, the financials list
- * 403 FINANCIALS_RESTRICTED), without sending plans or resources, and without Advisory Admin.
+ * Roles, as the API's permsOf (apps/api/src/advisory/advisory.common.ts): Owner and Admin reach
+ * every advisory client; Staff (Sam Staff) only the clients assigned to them (any other is 404),
+ * and may view figures and send, but not Advisory Admin (settings 403). The figures-restricted
+ * state (FINANCIALS_RESTRICTED, money null) is for roles the grid limits; the mock role list has
+ * none, so `canViewFinancials` is true here.
  * The Business Health Score follows the API's default formula (apps/api/src/advisory/health.ts).
  * `empty: true` (NEXT_PUBLIC_API_MOCK_EMPTY=advisory) starts with no advisory clients; the services,
  * the resource library and the settings stay, as the API's do.
@@ -466,8 +468,8 @@ export function createAdvisoryMock({
     return copy(work());
   };
   const signedIn = role === 'STAFF' ? mockStaff : mockMe;
-  const canViewFinancials = role !== 'STAFF';
-  const canSend = role !== 'STAFF';
+  const canViewFinancials = true;
+  const canSend = true;
   const admin = () => {
     if (role === 'STAFF') throw forbidden();
   };
