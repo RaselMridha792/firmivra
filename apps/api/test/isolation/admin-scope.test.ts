@@ -145,6 +145,54 @@ const WRITES: Record<
   'POST /api/v1/admin/communications/template-categories': {
     body: { name: `Fake scope category new ${tag}` },
   },
+  'POST /api/v1/admin/communications/broadcasts': { body: { name: 'Fake scope broadcast new' } },
+  'PATCH /api/v1/admin/communications/broadcasts/:id': {
+    body: { name: 'Fake scope edit' },
+    comm: 'b-patch',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/test': {
+    body: { channels: ['EMAIL'] },
+    comm: 'b-test',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/schedule': {
+    body: () => ({
+      scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+      scheduledTimeZone: 'America/New_York',
+    }),
+    comm: 'b-schedule',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/send': {
+    body: () => ({ idempotencyKey: randomUUID() }),
+    comm: 'b-send',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/cancel': { body: {}, comm: 'b-cancel' },
+  'POST /api/v1/admin/communications/broadcasts/:id/retry': {
+    body: () => ({ idempotencyKey: randomUUID() }),
+    comm: 'b-retry',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/duplicate': {
+    body: {},
+    comm: 'b-duplicate',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/archive': { body: {}, comm: 'b-archive' },
+  'DELETE /api/v1/admin/communications/broadcasts/:id': { body: {}, comm: 'b-delete' },
+  'POST /api/v1/admin/communications/segments': {
+    body: { name: `Fake scope audience new ${tag}`, definition: { contactTypes: ['TEAM'] } },
+  },
+  'PATCH /api/v1/admin/communications/segments/:id': {
+    body: { description: 'Fake scope' },
+    comm: 'seg',
+  },
+  'POST /api/v1/admin/communications/segments/:id/count': { body: {}, comm: 'seg' },
+  'POST /api/v1/admin/communications/media': {
+    body: {
+      kind: 'ATTACHMENT',
+      fileName: 'fake-scope.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 100,
+      sha256: 'a'.repeat(64),
+    },
+  },
   'PATCH /api/v1/admin/communications/template-categories/:id': {
     body: { isActive: true },
     comm: 'cat',
@@ -221,6 +269,71 @@ async function seedComms(tx: Parameters<Parameters<typeof runInScope>[2]>[0]) {
       },
     })
   ).id;
+  await seedBroadcasts(tx);
+}
+
+/** An audience of the fixture Super Admin's own team and broadcasts in each state a write needs. */
+async function seedBroadcasts(tx: Parameters<Parameters<typeof runInScope>[2]>[0]) {
+  const admin = fx.users.admin.id;
+  const seg = await tx.commSegment.create({
+    data: { name: `Fake scope audience ${tag}`, definition: { contactTypes: ['TEAM'] } },
+  });
+  comms['seg'] = seg.id;
+  const make = async (key: string) => {
+    const b = await tx.commBroadcast.create({
+      data: { name: `Fake scope broadcast ${key}`, segmentId: seg.id },
+    });
+    await tx.commBroadcastChannel.create({
+      data: { broadcastId: b.id, channel: 'EMAIL', subject: 'Fake scope', body: 'Fake scope' },
+    });
+    comms[`b-${key}`] = b.id;
+    return b.id;
+  };
+  for (const key of ['patch', 'test', 'schedule', 'send', 'duplicate', 'delete']) await make(key);
+  const later = new Date(Date.now() + 86_400_000);
+  const scheduled = await make('cancel');
+  await tx.commBroadcast.update({
+    where: { id: scheduled },
+    data: { status: 'SCHEDULED', scheduledAt: later, scheduledTimeZone: 'America/New_York' },
+  });
+  const done = await make('archive');
+  await tx.commBroadcast.update({
+    where: { id: done },
+    data: { status: 'SCHEDULED', scheduledAt: later, scheduledTimeZone: 'America/New_York' },
+  });
+  await tx.commBroadcast.update({ where: { id: done }, data: { status: 'CANCELLED' } });
+  // A failed broadcast with one failed recipient (the retry sends it again).
+  const failed = await make('retry');
+  await tx.commBroadcast.update({
+    where: { id: failed },
+    data: { status: 'SENDING', recipientCount: 1 },
+  });
+  await tx.commBroadcastChannel.updateMany({
+    where: { broadcastId: failed },
+    data: { status: 'SENDING' },
+  });
+  const r = await tx.commBroadcastRecipient.create({
+    data: {
+      broadcastId: failed,
+      channel: 'EMAIL',
+      contactType: 'TEAM',
+      contactUserId: admin,
+      name: 'Fake Scope Admin',
+      address: ADMIN_EMAIL,
+    },
+  });
+  await tx.commBroadcastRecipient.update({
+    where: { id: r.id },
+    data: { status: 'FAILED', errorCode: 'invalid_recipient' },
+  });
+  await tx.commBroadcastChannel.updateMany({
+    where: { broadcastId: failed },
+    data: { status: 'FAILED', failedCount: 1 },
+  });
+  await tx.commBroadcast.update({
+    where: { id: failed },
+    data: { status: 'FAILED', errorMessage: 'Fake scope failure' },
+  });
 }
 
 /** The firm an approved application created, or null. */

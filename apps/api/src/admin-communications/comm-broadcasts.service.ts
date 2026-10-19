@@ -875,18 +875,21 @@ export class CommBroadcastsService {
     body: string,
     eventKey: string,
   ) {
-    await tx.platformNotification.create({
-      data: {
-        recipientUserId: userId,
-        category: 'SYSTEM',
-        type: 'communications.broadcast',
-        title: title.slice(0, 200),
-        body: body.slice(0, 1000),
-        sourceType: 'comm_broadcast',
-        sourceId: broadcastId,
-        sourceLabel: label.slice(0, 200),
-        eventKey,
-      },
+    // createMany: no RETURNING, since a member may insert another's item but only reads their own.
+    await tx.platformNotification.createMany({
+      data: [
+        {
+          recipientUserId: userId,
+          category: 'SYSTEM',
+          type: 'communications.broadcast',
+          title: title.slice(0, 200),
+          body: body.slice(0, 1000),
+          sourceType: 'comm_broadcast',
+          sourceId: broadcastId,
+          sourceLabel: label.slice(0, 200),
+          eventKey,
+        },
+      ],
     });
   }
 
