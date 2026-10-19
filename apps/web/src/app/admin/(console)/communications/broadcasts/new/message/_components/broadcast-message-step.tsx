@@ -561,30 +561,34 @@ export function BroadcastMessageStep() {
             </section>
           </div>
 
-          <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-4 sm:px-5">
-            <Button
-              variant="secondary"
-              className="border-transparent! bg-info-soft! text-link! hover:bg-folder-hover!"
-              onClick={() => router.push(`${basePath}/audience`)}
-            >
-              <ArrowLeft aria-hidden weight="bold" className="size-4" />
-              Back
-            </Button>
-            <div className="ml-auto flex flex-wrap justify-end gap-3">
+          <footer className="border-t border-border px-4 py-4 sm:px-5">
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Button
                 variant="secondary"
-                className="border-transparent! bg-info-soft! text-link! hover:bg-folder-hover!"
-                onClick={() =>
-                  setNotice('Draft saving is not connected yet. Your content remains on this page.')
-                }
+                className="w-full border-transparent! bg-info-soft! text-link! hover:bg-folder-hover! sm:w-auto"
+                onClick={() => router.push(`${basePath}/audience`)}
               >
-                <FloppyDisk aria-hidden weight="fill" className="size-4" />
-                Save as Draft
+                <ArrowLeft aria-hidden weight="bold" className="size-4" />
+                Back
               </Button>
-              <Button onClick={continueToReview}>
-                Next
-                <ArrowRight aria-hidden weight="bold" className="size-4" />
-              </Button>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Button
+                  variant="secondary"
+                  className="w-full border-transparent! bg-info-soft! text-link! hover:bg-folder-hover! sm:w-auto"
+                  onClick={() =>
+                    setNotice(
+                      'Draft saving is not connected yet. Your content remains on this page.',
+                    )
+                  }
+                >
+                  <FloppyDisk aria-hidden weight="fill" className="size-4" />
+                  Save as Draft
+                </Button>
+                <Button className="w-full min-w-36 sm:w-auto" onClick={continueToReview}>
+                  Next
+                  <ArrowRight aria-hidden weight="bold" className="size-4" />
+                </Button>
+              </div>
             </div>
           </footer>
         </Card>
