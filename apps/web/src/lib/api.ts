@@ -19,6 +19,7 @@ import {
   createEngagementsClient,
   createEsignClient,
   createFirmApplicationsClient,
+  createAdminCommunicationsClient,
   createIntakeFormsClient,
   createInvoicesClient,
   createLeadPipelineClient,
@@ -86,6 +87,7 @@ import {
   publicAgreementsMock,
 } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { createAdminCommunicationsMock } from '../mocks/admin-communications-api';
 import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
@@ -450,6 +452,11 @@ export const api = {
     dev && mocked('firmApplications')
       ? createFirmApplicationsMock()
       : createFirmApplicationsClient(request),
+  /** Super Admin communications (R56 on R0's B6): the inbox, New Message, templates. */
+  adminCommunications:
+    dev && mocked('adminCommunications')
+      ? createAdminCommunicationsMock()
+      : createAdminCommunicationsClient(request),
   /** Invoices (R7): the firm's invoices with lines; create, send, cancel (docs/api/invoices.yaml). */
   invoices:
     dev && mocked('invoices')
