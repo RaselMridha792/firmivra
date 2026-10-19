@@ -26,7 +26,13 @@ import {
 import { Button, Input, Modal, PageHeader, Pagination, Select, Textarea } from '@firmivra/ui';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import {
+  type FormEvent,
+  type SetStateAction,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   mockAudienceSegments,
   type AudienceSegment,
@@ -38,6 +44,7 @@ type AudienceTab = 'saved' | 'filters' | 'upload' | 'individuals';
 type AudienceSort = 'recent' | 'contacts' | 'name';
 
 const DRAFT_KEY = 'firmivra.broadcast.audience';
+const DRAFT_CHANGE_EVENT = 'firmivra.broadcast.audience.change';
 const PAGE_SIZE = 8;
 
 const iconForSegment: Record<AudienceSegmentIcon, Icon> = {
@@ -75,6 +82,31 @@ const readDraftIds = (raw: string | null): string[] => {
   } catch {
     return [];
   }
+};
+
+const subscribeToDraft = (onStoreChange: () => void) => {
+  if (typeof window === 'undefined') return () => {};
+
+  window.addEventListener('storage', onStoreChange);
+  window.addEventListener(DRAFT_CHANGE_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener('storage', onStoreChange);
+    window.removeEventListener(DRAFT_CHANGE_EVENT, onStoreChange);
+  };
+};
+
+const getDraftSnapshot = () =>
+  typeof window === 'undefined' ? null : window.sessionStorage.getItem(DRAFT_KEY);
+
+const getServerDraftSnapshot = () => null;
+
+const writeDraftSelection = (update: SetStateAction<string[]>) => {
+  if (typeof window === 'undefined') return;
+
+  const current = readDraftIds(window.sessionStorage.getItem(DRAFT_KEY));
+  const next = typeof update === 'function' ? update(current) : update;
+  window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify(next));
+  window.dispatchEvent(new Event(DRAFT_CHANGE_EVENT));
 };
 
 function AudienceProgress() {
@@ -309,26 +341,21 @@ export function AudienceStep({
   const router = useRouter();
   const [segments, setSegments] = useState<AudienceSegment[]>(initialSegments);
   const [activeTab, setActiveTab] = useState<AudienceTab>('saved');
-  const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
+  const draftSnapshot = useSyncExternalStore(
+    subscribeToDraft,
+    getDraftSnapshot,
+    getServerDraftSnapshot,
+  );
+  const selectedSegmentIds = useMemo(() => readDraftIds(draftSnapshot), [draftSnapshot]);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<AudienceSort>('recent');
   const [currentPage, setCurrentPage] = useState(1);
-  const [isDraftLoaded, setIsDraftLoaded] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newSegmentName, setNewSegmentName] = useState('');
   const [newSegmentDescription, setNewSegmentDescription] = useState('');
   const [selectedFileName, setSelectedFileName] = useState('');
   const [selectionError, setSelectionError] = useState('');
   const [draftSaved, setDraftSaved] = useState(false);
-
-  useEffect(() => {
-    setSelectedSegmentIds(readDraftIds(sessionStorage.getItem(DRAFT_KEY)));
-    setIsDraftLoaded(true);
-  }, []);
-
-  useEffect(() => {
-    if (isDraftLoaded) sessionStorage.setItem(DRAFT_KEY, JSON.stringify(selectedSegmentIds));
-  }, [isDraftLoaded, selectedSegmentIds]);
 
   const sortedSegments = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -357,7 +384,7 @@ export function AudienceStep({
   const toggleSegment = (segmentId: string) => {
     setSelectionError('');
     setDraftSaved(false);
-    setSelectedSegmentIds((current) =>
+    writeDraftSelection((current) =>
       current.includes(segmentId)
         ? current.filter((id) => id !== segmentId)
         : [...current, segmentId],
@@ -367,7 +394,7 @@ export function AudienceStep({
   const toggleVisibleSegments = () => {
     setSelectionError('');
     setDraftSaved(false);
-    setSelectedSegmentIds((current) =>
+    writeDraftSelection((current) =>
       allVisibleSelected
         ? current.filter((id) => !visibleSegments.some((segment) => segment.id === id))
         : Array.from(new Set([...current, ...visibleSegments.map((segment) => segment.id)])),
@@ -394,7 +421,7 @@ export function AudienceStep({
     setSearchTerm('');
     setSortBy('recent');
     setCurrentPage(1);
-    setSelectedSegmentIds((current) => [...current, segment.id]);
+    writeDraftSelection((current) => [...current, segment.id]);
     setNewSegmentName('');
     setNewSegmentDescription('');
     setIsCreateOpen(false);
