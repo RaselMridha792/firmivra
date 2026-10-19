@@ -69,6 +69,20 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 | `activity` | not in the contract (the audit trail is Audit & Security's) |
 | `currentAdmin` | the signed-in admin (`api.adminMe` / session), not this module |
 
+### Integrations, part 1 (Tumit, `mocks/admin-integrations.ts` → `api.adminIntegrations`)
+
+The contract keeps Tumit's method names and field names, so his screens switch with few changes. `api.adminIntegrations` points at his mock object in mock mode (cast) until then.
+
+| Mock | Contract |
+| --- | --- |
+| `listPlatform({ status: [a, b] })` | `status: 'A,B'` (comma separated) |
+| `includeRemoved`, `descending` (booleans) | `'true'` / `'false'` in the query |
+| `LogoFile.contentType` (string) | one of `image/png`, `image/jpeg`, `image/webp` |
+| `firmOptions().planId`, `planName` (always set) | nullable (a firm with no plan) |
+| `INTEGRATION_ERRORS` | `ADMIN_INTEGRATION_ERRORS` (adds `NOT_FOUND`, `DUPLICATE_PROVIDER`) |
+| `platformUsage`, API keys, webhooks, logs, usage, thresholds, `auditTrail` | part 2 contract (usage thresholds and an integrations audit trail have no B8 table: see "Needs from others") |
+| `CATEGORIES`, `INTEGRATION_STATUSES`, run statuses, environments | the database enums (`PlatformIntegrationCategory`, `PlatformIntegrationStatus`, `IntegrationSyncRunStatus`, `IntegrationEnvironment`): same values |
+
 ## Needs from others
 
 - **R1: the communications dispatcher job** (platform scope): moves `SCHEDULED` messages to `SENDING` at their time and sends them (the API's `CommInboxService.dispatch` does the sending for one message), and wires SES and SNS delivery events to the recipients by `provider_message_id`, plus inbound mail and SMS as `RECEIVED` messages (B6 "Needs from R1"). Until then a scheduled message stays scheduled and delivery stops at `SENT`.
