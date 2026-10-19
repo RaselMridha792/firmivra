@@ -225,7 +225,7 @@ export function IntakePage({
     <div
       data-theme="begin-online"
       data-testid="intake-page"
-      className={`bg-subtle py-4 text-sm text-firm-primary ${className}`}
+      className={`bg-subtle pt-4 text-sm text-firm-primary ${className}`}
     >
       <PageContainer className="frame">
         <PageState query={draft} isEmpty={() => false}>
