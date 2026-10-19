@@ -174,7 +174,6 @@ describe('admin support client', () => {
     await api.merge(id(1), { version: 3, sourceId: id(8) });
     await api.reply(id(1), { mode: 'NOTE', body: 'Checked the logs' });
     await api.addAttachments(id(1), { uploadTokens: ['token'] });
-    await api.changeContact(id(1), { version: 4, firmId: id(4), contactId: id(5) });
     expect(
       calls.map(
         (c) => `${c.method} ${c.url.replace(`/api/v1/admin/support/tickets/${id(1)}`, '')}`,
@@ -185,7 +184,6 @@ describe('admin support client', () => {
       'POST /merge',
       'POST /replies',
       'POST /attachments',
-      'PUT /contact',
     ]);
     expect(calls[0]!.body).toEqual({ version: 1, assignTo: id(7), notify: true });
     expect(calls[3]!.body).toEqual({

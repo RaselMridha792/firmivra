@@ -34,18 +34,19 @@ in `apps/api/src` (1,051 routes, declaration order kept, to find static paths sh
 Ordered by screens affected. "Mock only" = the screens import `apps/web/src/mocks/admin-*.ts`
 directly; outside mock mode every call fails.
 
-| # | Module | Screens | State on main | Tables | Owner |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Super Admin Billing (invoices, estimates, credit notes, payments, recurring, settings) | 12 | Mock only (`admin-billing.ts`, 4,779 lines; `admin-billing-settings.ts`) | B3 (15 tables) | **R60**, after Support |
-| 2 | Firm Settings: Overview, Users & Roles (`GET /business/settings/overview`, `GET /business/users`, `/users/summary`, `POST /users/invite`) | 4 (overview, users, billing, security) | Contract on main (R42's `settings-contract.md`), no routes | memberships, invites, audit_logs, staff_security_settings | **R60** (no owner found) |
-| 3 | Super Admin Sales (Sales Center, opportunity, pipeline, pipeline builder) | 4 | Mock only (`admin-sales.ts` + `admin-sales-seed.ts`) | B5 (12) + D1 (3) | **R60**, after Billing |
-| 4 | Super Admin Support (dashboard, ticket detail, settings) | 3 | Mock only (`admin-support.ts`, 2,653 lines) | B2 (13) | **R60, first** |
-| 5 | Super Admin Team (list, new, edit) | 3 | Mock only (`admin-team.ts`, `admin-team-catalog.ts`) | platform_admins, org chart, platform_role_permissions | **R60** (no owner found) |
-| 6 | Super Admin Subscriptions | 1 | Mock only (`admin-subscriptions.ts`, 2,711 lines) | stage A `platform_firm_subscriptions`, plans, B3 subscription history | **R60** (no owner found; could sit with Billing) |
-| 7 | Firm Sign request detail: `POST /esign/requests/:id/resend-copy`, `GET /esign/requests/:id/download` | 1 | Client calls them, no route | esign tables | **R60** (R13 finished) |
-| 8 | Templates: `PATCH /business/template-categories/:id` (rename) | 1 (template dialogs) | Client calls it, no route (create, merge, archive, restore exist) | template_categories | **R60** |
+| #   | Module                                                                                                                                    | Screens                                | State on main                                                            | Tables                                                                | Owner                                            |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------- | ------------------------------------------------ |
+| 1   | Super Admin Billing (invoices, estimates, credit notes, payments, recurring, settings)                                                    | 12                                     | Mock only (`admin-billing.ts`, 4,779 lines; `admin-billing-settings.ts`) | B3 (15 tables)                                                        | **R60**, after Support                           |
+| 2   | Firm Settings: Overview, Users & Roles (`GET /business/settings/overview`, `GET /business/users`, `/users/summary`, `POST /users/invite`) | 4 (overview, users, billing, security) | Contract on main (R42's `settings-contract.md`), no routes               | memberships, invites, audit_logs, staff_security_settings             | **R60** (no owner found)                         |
+| 3   | Super Admin Sales (Sales Center, opportunity, pipeline, pipeline builder)                                                                 | 4                                      | Mock only (`admin-sales.ts` + `admin-sales-seed.ts`)                     | B5 (12) + D1 (3)                                                      | **R60**, after Billing                           |
+| 4   | Super Admin Support (dashboard, ticket detail, settings)                                                                                  | 3                                      | Mock only (`admin-support.ts`, 2,653 lines)                              | B2 (13)                                                               | **R60, first**                                   |
+| 5   | Super Admin Team (list, new, edit)                                                                                                        | 3                                      | Mock only (`admin-team.ts`, `admin-team-catalog.ts`)                     | platform_admins, org chart, platform_role_permissions                 | **R60** (no owner found)                         |
+| 6   | Super Admin Subscriptions                                                                                                                 | 1                                      | Mock only (`admin-subscriptions.ts`, 2,711 lines)                        | stage A `platform_firm_subscriptions`, plans, B3 subscription history | **R60** (no owner found; could sit with Billing) |
+| 7   | Firm Sign request detail: `POST /esign/requests/:id/resend-copy`, `GET /esign/requests/:id/download`                                      | 1                                      | Client calls them, no route                                              | esign tables                                                          | **R60** (R13 finished)                           |
+| 8   | Templates: `PATCH /business/template-categories/:id` (rename)                                                                             | 1 (template dialogs)                   | Client calls it, no route (create, merge, archive, restore exist)        | template_categories                                                   | **R60**                                          |
 
 Owned elsewhere, not on my list:
+
 - Bookkeeping Terms (12 client calls without routes): R55's #857.
 - Admin Audit & Security (3), System Settings (8), Reports (17): R55. Admin Notifications (1),
   Communications (10), Integrations (12): R56 (contracts #858, #859 open).
@@ -55,6 +56,7 @@ Owned elsewhere, not on my list:
 - Arfan's #853 (admin communications templates library): R56's Communications.
 
 Checked and fine:
+
 - #716 (Payroll), #718 (Bookkeeping), #719 (Compliance) are merged; every call of their clients
   has a route.
 - Advisory, Tax Planning, Tasks, Templates, Automations, Payroll, Compliance, Bookkeeping (firm):
@@ -71,7 +73,7 @@ Checked and fine:
 
 - [x] 1. Gap list (above).
 - [x] 2. Support contract: `packages/types/src/admin-support/` (`createAdminSupportClient`,
-  `api.adminSupport`), the typed mock, client tests. Own PR from fresh `main`.
+      `api.adminSupport`), the typed mock, client tests. Own PR from fresh `main`.
 - [ ] 3. Support API: `apps/api/src/admin-support/` under `/api/v1/admin/support`.
 - [ ] 4. Billing contract.
 - [ ] 5. Billing API.
@@ -138,6 +140,10 @@ tables set what is stored. Where they differ:
     one opening time for every open day; 422 NOT_SUPPORTED_YET otherwise), `defaultQueue` off, and
     an agent's `available` (reads as `active`).
 12. **No mock** in `api.ts`: the screens keep `mocks/admin-support.ts` until they switch.
+13. **Firm and contact are fixed** (a B2 trigger: firm, number, source, contact and creator never
+    change), so the mock's Change Firm / Contact is not in the contract: a ticket raised for the
+    wrong firm is closed and raised again. A new ticket is stored OPEN and moved to the form's
+    status in the same transaction (the database starts every ticket OPEN).
 
 ## Needs from others
 

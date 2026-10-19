@@ -4,7 +4,6 @@ import {
   AddSupportAttachmentsRequest,
   AddSupportHolidayRequest,
   AssignSupportTicketRequest,
-  ChangeSupportContactRequest,
   CreateSupportTicketRequest,
   CreateSupportUploadRequest,
   DeleteSupportTicketQuery,
@@ -144,12 +143,6 @@ export function createAdminSupportClient(request: ApiRequest) {
       request(
         SupportAttachmentLink,
         `${ticket(id)}/attachments/${parseInput(SupportAttachmentId, attachmentId)}/download`,
-      ),
-    changeContact: async (id: string, body: ChangeSupportContactRequest): Promise<SupportTicket> =>
-      request(
-        SupportTicket,
-        `${ticket(id)}/contact`,
-        send('PUT', parseInput(ChangeSupportContactRequest, body)),
       ),
     /** Soft delete: the ticket leaves every list; it stays for the audit trail. */
     deleteTicket: async (id: string, query: DeleteSupportTicketQuery): Promise<SupportOk> =>
