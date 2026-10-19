@@ -268,7 +268,21 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
 **Business Advisory (item 2), started Oct 19:**
 - The API and contract already exist on main (R55, `de509806`: `apps/api/src/advisory/`, `packages/types/src/advisory/`).
 - The 25 pages under `firm/(workspace)/business-advisory` are placeholders.
-- Next: map each page to its mockup and route, fill API gaps (contract PR first), then build the screens.
+- **#883: the advisory mock** (contract side, no screens). Branch `rasel/R0-advisory-mock`, `f9556631`.
+  - `apps/web/src/mocks/business-advisory.ts` answers all 44 `api.advisory` calls; `lib/api.ts` switches it on with `NEXT_PUBLIC_API_MOCK=advisory`.
+  - Staff (Sam Staff) sees 2 of the 7 live clients, with no figures and no settings. `empty` keeps the services, resources and settings.
+  - Checked with tsc, eslint and a node smoke script (`pnpm exec tsx` from `packages/db`, importing the mock by a `file:///F:/...` URL).
+- **API gaps:** none in `api.advisory` itself. The Documents, Notes and Reports tabs read other modules:
+  - Documents: `api.documents.list(clientId, { serviceId })`
+  - Notes: `api.clientNotes`
+  - Reports: `api.reports`, category ADVISORY
+- **Next, the screens, about four PRs (at most 2 open):**
+  1. The shell (tabs) and the Overview
+  2. The list tabs: clients, plans, goals, financial-analysis, action-plans, resources, reports
+  3. The plan wizard: `plans/new` and `plans/[planId]/edit/{,assessment,goals,action-plan,review}`
+  4. Client detail (11 tabs)
+  - Each PR: mock-mode Playwright specs and three-state screenshots at 1440 px.
+- **Mockups:** `docs/mockups/firm-workspace/business-advisory/source/` (overview, create-edit plan, client detail) plus the developer guide docx.
 
 **Shelved, pushed, no PR:** `rasel/R0-demo-stage5-automations` (6 tables, stacked on #868). Don't open it unless Rasel asks.
 
