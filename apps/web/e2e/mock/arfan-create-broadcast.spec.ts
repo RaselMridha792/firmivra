@@ -68,40 +68,42 @@ test('requires a nonblank name and a channel; All Channels allows individual des
   await expect(page.getByText('Select at least one channel.')).not.toBeVisible();
 });
 
-test('updates the summary, previews templates and carries the draft to Audience and back', async ({
+test('makes the draft, previews templates and carries it to Audience and back', async ({
   page,
 }) => {
-  test.skip(unavailable || empty, 'This interaction uses the populated display fixtures.');
+  test.skip(unavailable || empty, 'This interaction uses the populated contract mock.');
+  // R56: Next and Save as Draft make the broadcast through the contract; the steps carry ?id=.
   await page.getByLabel('Broadcast Name', { exact: true }).fill('October product update');
   await page.getByLabel('Description (Optional)').fill('News for the sample workspace.');
-  await page.getByLabel('Category (Optional)').selectOption('system-notices');
+  await page.getByLabel('Category (Optional)').selectOption({ label: 'System Notices' });
   await page.getByRole('checkbox', { name: 'SMS', exact: true }).uncheck();
   await expect(page.getByTestId('broadcast-summary')).toContainText('October product update');
   await expect(page.getByTestId('broadcast-summary')).toContainText('Email, In-App');
   await expect(page.getByTestId('broadcast-summary')).toContainText('System Notices');
   await page.getByRole('button', { name: 'Browse Templates' }).click();
-  await page.getByRole('button', { name: 'Monthly Newsletter', exact: true }).click();
+  await page.getByRole('button', { name: 'Welcome to Firmivra', exact: true }).click();
   await page.getByRole('button', { name: 'Preview Template' }).click();
-  await expect(page.getByRole('dialog')).toContainText('Your monthly Firmivra update');
+  await expect(page.getByRole('dialog')).toContainText('Welcome to Firmivra');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Save as Draft' }).click();
-  await expect(page.getByText('Draft saved in this tab.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Draft saved.', { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/communications\/broadcasts\/new\?id=/);
+  const id = new URL(page.url()).searchParams.get('id') ?? '';
   await page.reload();
   await expect(page.getByLabel('Broadcast Name', { exact: true })).toHaveValue(
     'October product update',
   );
   await page.getByRole('button', { name: 'Next', exact: true }).click();
-  await expect(page).toHaveURL(`${url}/audience`);
+  await expect(page).toHaveURL(`${url}/audience?id=${id}`);
   const draft = await page.evaluate(
     (key) => JSON.parse(sessionStorage.getItem(key) ?? '{}') as Record<string, unknown>,
-    draftKey,
+    `${draftKey}.${id}`,
   );
   expect(draft).toMatchObject({
     name: 'October product update',
     description: 'News for the sample workspace.',
     channels: ['EMAIL', 'IN_APP'],
-    category: 'system-notices',
-    templateId: 'sample-newsletter',
+    templateId: expect.stringMatching(/^[0-9a-f-]{36}$/),
   });
   await page.goBack();
   await expect(page.getByLabel('Broadcast Name', { exact: true })).toHaveValue(

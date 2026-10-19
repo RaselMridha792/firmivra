@@ -71,7 +71,7 @@ const CATALOG: Record<Type, { fields: AdminReportField[]; filters: string[]; def
         f('firm.open_tickets', 'Open Support Tickets', 'number'),
         f('firm.cancellation_date', 'Cancellation Date', 'date'),
       ],
-      filters: ['status', 'plan', 'search'],
+      filters: ['status', 'plan', 'joinedFrom', 'joinedTo', 'search'],
       defaults: [
         'firm.name',
         'firm.plan',
@@ -164,7 +164,12 @@ const FILTER_LABELS: Record<string, string> = {
   subscriptionStatus: 'Subscription Status',
   ticketStatus: 'Ticket Status',
   feature: 'Feature',
+  joinedFrom: 'Joined From',
+  joinedTo: 'Joined To',
 };
+/** Filters that take a day (YYYY-MM-DD). */
+const DATE_FILTERS = new Set(['joinedFrom', 'joinedTo']);
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A date range's days (UTC): a preset ends today. */
 export function datesOf(
@@ -245,7 +250,12 @@ export class AdminReportBuilderService {
       filters: c.filters.map((key) => ({
         key,
         label: FILTER_LABELS[key] ?? key,
-        type: key === 'search' ? ('text' as const) : ('select' as const),
+        type:
+          key === 'search'
+            ? ('text' as const)
+            : DATE_FILTERS.has(key)
+              ? ('date' as const)
+              : ('select' as const),
         options: options[key] ?? [],
       })),
       defaultFields: c.defaults,
@@ -256,8 +266,10 @@ export class AdminReportBuilderService {
     const c = CATALOG[type];
     for (const k of fields)
       if (!c.fields.some((x) => x.key === k)) throw unknownField(`field ${k}`);
-    for (const k of Object.keys(filters))
+    for (const [k, v] of Object.entries(filters)) {
       if (!c.filters.includes(k)) throw unknownField(`filter ${k}`);
+      if (DATE_FILTERS.has(k) && !DAY_PATTERN.test(v)) throw unknownField(`date ${v} for ${k}`);
+    }
     for (const s of sort)
       if (!fields.includes(s.field))
         throw unknownField(`sort on ${s.field} (choose it as a field)`);
@@ -273,10 +285,19 @@ export class AdminReportBuilderService {
   ): Promise<Row[]> {
     const search = filters.search?.toLowerCase();
     const firms = await tx.business.findMany({
-      where:
-        filters.status && (type === 'FIRMS' || type === 'USERS')
+      where: {
+        ...(filters.status && (type === 'FIRMS' || type === 'USERS')
           ? { status: filters.status as never }
-          : {},
+          : {}),
+        ...(type === 'FIRMS' && (filters.joinedFrom || filters.joinedTo)
+          ? {
+              createdAt: {
+                ...(filters.joinedFrom ? { gte: dayStart(filters.joinedFrom) } : {}),
+                ...(filters.joinedTo ? { lte: dayEnd(filters.joinedTo) } : {}),
+              },
+            }
+          : {}),
+      },
       select: { id: true, name: true, status: true, createdAt: true },
     });
     const firmName = new Map(firms.map((x) => [x.id, x.name]));

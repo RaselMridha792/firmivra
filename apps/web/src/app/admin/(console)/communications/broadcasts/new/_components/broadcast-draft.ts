@@ -2,7 +2,11 @@ import type { CommChannel } from '@firmivra/types';
 
 export type BroadcastChannel = Extract<CommChannel, 'EMAIL' | 'SMS' | 'IN_APP'>;
 
-/** Browser-only form state, not an API request or a persisted server broadcast. */
+/**
+ * Step 1's choices B6 does not keep (description, category, the channels and template chosen
+ * before step 3 writes their content), in this tab, per broadcast. The broadcast itself (name,
+ * audience, content, schedule) is the API's: the steps carry its id as `?id=`.
+ */
 export interface BroadcastDraft {
   name: string;
   description: string;
@@ -29,10 +33,15 @@ export const initialBroadcastDraft: BroadcastDraft = {
   templateId: '',
 };
 
-/** The existing Audience route can consume this draft without a new route or an invented API. */
-export function readBroadcastDraft(): BroadcastDraft | null {
+const keyOf = (id: string | null) => (id ? `${BROADCAST_DRAFT_KEY}.${id}` : BROADCAST_DRAFT_KEY);
+
+/** A wizard step's link for a broadcast. */
+export const stepHref = (step: '' | 'audience' | 'message' | 'review', id: string) =>
+  `/communications/broadcasts/new${step ? `/${step}` : ''}?id=${encodeURIComponent(id)}`;
+
+export function readBroadcastDraft(id: string | null = null): BroadcastDraft | null {
   try {
-    const stored = sessionStorage.getItem(BROADCAST_DRAFT_KEY);
+    const stored = sessionStorage.getItem(keyOf(id));
     if (!stored) return null;
     const value: unknown = JSON.parse(stored);
     if (!value || typeof value !== 'object') return null;
@@ -67,6 +76,10 @@ export function readBroadcastDraft(): BroadcastDraft | null {
   }
 }
 
-export function saveBroadcastDraft(draft: BroadcastDraft): void {
-  sessionStorage.setItem(BROADCAST_DRAFT_KEY, JSON.stringify(draft));
+export function saveBroadcastDraft(draft: BroadcastDraft, id: string | null = null): void {
+  try {
+    sessionStorage.setItem(keyOf(id), JSON.stringify(draft));
+  } catch {
+    // Private windows may refuse storage: the broadcast itself is saved by the API.
+  }
 }

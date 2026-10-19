@@ -11,7 +11,7 @@ import {
   LOG_SOURCE_LABELS,
   type IntegrationLog,
   type LogRecord,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import {
   ActivityDot,
   EnvironmentBadge,

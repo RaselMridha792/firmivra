@@ -8,6 +8,7 @@ import {
   AdvisoryMeetingsQuery,
   AdvisoryPlansQuery,
   AdvisoryRecommendationsQuery,
+  AdvisoryReportsQuery,
   AdvisoryResourcesQuery,
   CreateAdvisoryActionItemRequest,
   CreateAdvisoryClientRequest,
@@ -85,5 +86,6 @@ export const UpdateActionItemBody = clean(UpdateAdvisoryActionItemRequest);
 
 export const MeetingsQuery = clean(AdvisoryMeetingsQuery);
 export const ResourcesQuery = clean(AdvisoryResourcesQuery);
+export const ReportsQuery = clean(AdvisoryReportsQuery);
 export const SendResourceBody = clean(SendAdvisoryResourceRequest);
 export const SettingsBody = clean(SaveAdvisorySettingsRequest);

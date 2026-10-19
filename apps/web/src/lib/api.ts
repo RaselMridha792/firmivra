@@ -3,6 +3,7 @@ import {
   createAdminSupportClient,
   createAdminBillingClient,
   createAdminSalesClient,
+  createAdminSubscriptionsClient,
   createAdminTeamClient,
   createAgreementsClient,
   createApiClient,
@@ -26,7 +27,6 @@ import {
   createEsignClient,
   createFirmApplicationsClient,
   createAdminIntegrationsClient,
-  type AdminIntegrationsClient,
   createAdminNotificationsClient,
   createAdminCommunicationsClient,
   createAdminBroadcastsClient,
@@ -97,7 +97,7 @@ import {
   publicAgreementsMock,
 } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
-import { adminIntegrations as adminIntegrationsMock } from '../mocks/admin-integrations';
+import { createAdminIntegrationsMock } from '../mocks/admin-integrations-api';
 import { createAdminNotificationsMock } from '../mocks/admin-notifications-api';
 import { createAdminCommunicationsMock } from '../mocks/admin-communications-api';
 import { createAdminBroadcastsMock } from '../mocks/admin-broadcasts-api';
@@ -466,6 +466,8 @@ export const api = {
   adminBilling: createAdminBillingClient(request),
   /** Super Admin Sales (R60 on R0's B5 and D1): the Sales Center and the pipeline. Mock: mocks/admin-sales.ts until the screens switch. */
   adminSales: createAdminSalesClient(request),
+  /** Super Admin Subscriptions (R60 on R0's stage A, B3 and the MRR rollup): the cards, the table and the detail panel. Mock: mocks/admin-subscriptions.ts until the screen switches. */
+  adminSubscriptions: createAdminSubscriptionsClient(request),
   /** Super Admin Team (R60 on R0's stage A org chart): the directory, Add and Edit Team Member. Mock: mocks/admin-team.ts until the screens switch. */
   adminTeam: createAdminTeamClient(request),
   /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
@@ -482,13 +484,12 @@ export const api = {
       ? createFirmApplicationsMock()
       : createFirmApplicationsClient(request),
   /**
-   * Super Admin integrations (R56 on R0's B8), part 1: dashboard, platform integrations, catalog.
-   * Mock mode uses Tumit's mock as it is; its local types are a little wider than the contract
-   * (see the mapping in docs/work/R56-super-admin-api.md), hence the cast until the screens switch.
+   * Super Admin integrations (R56 on R0's B8): dashboard, platform integrations, catalog, API keys,
+   * webhooks, logs, usage. Mock mode: the contract over Tumit's mock (mocks/admin-integrations-api).
    */
   adminIntegrations:
     dev && mocked('adminIntegrations')
-      ? (adminIntegrationsMock as unknown as AdminIntegrationsClient)
+      ? createAdminIntegrationsMock()
       : createAdminIntegrationsClient(request),
   /** Super Admin communications (R56 on R0's B6): the inbox, New Message, templates. */
   adminCommunications:

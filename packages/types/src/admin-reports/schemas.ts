@@ -185,6 +185,9 @@ export const AdminFirmsReportQuery = AdminReportRange.extend({
   search: z.string().trim().max(100).optional(),
   status: BusinessStatus.optional(),
   planCode: z.string().max(40).optional(),
+  /** Joined on or after / on or before these days (the firm's sign-up), inclusive. */
+  joinedFrom: CalendarDate.optional(),
+  joinedTo: CalendarDate.optional(),
   sort: z.enum(['name', 'joined', 'revenue', 'users']).optional().default('name'),
   descending: z.union([z.boolean(), z.stringbool()]).optional().default(false),
   page: Page,
@@ -277,7 +280,8 @@ export type AdminReportField = z.infer<typeof AdminReportField>;
 export const AdminReportFilterDef = z.object({
   key: z.string(),
   label: z.string(),
-  type: z.enum(['select', 'text']),
+  /** `date` takes a day (YYYY-MM-DD). */
+  type: z.enum(['select', 'text', 'date']),
   options: z.array(z.object({ value: z.string(), label: z.string() })),
 });
 

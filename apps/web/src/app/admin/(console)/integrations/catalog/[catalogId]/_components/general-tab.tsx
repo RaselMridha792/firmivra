@@ -11,7 +11,7 @@ import {
   LOGO_TYPES,
   NAME_MAX,
   SHORT_DESCRIPTION_MAX,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { ServiceLogo } from '../../../_components/integration-badges';
 import { formatBytes } from '../../../_components/integration-format';
 import { OutlineButton } from '../../_components/catalog-parts';
@@ -38,7 +38,8 @@ export function GeneralTab({ draft, set, errorFor, locked }: TabProps) {
 
   function pickLogo(file: File | undefined) {
     if (!file) return;
-    if (!LOGO_TYPES.some((type) => type === file.type)) {
+    const contentType = LOGO_TYPES.find((type) => type === file.type);
+    if (!contentType) {
       setLogoError('Upload the logo as PNG, JPEG or WebP.');
       return;
     }
@@ -47,7 +48,7 @@ export function GeneralTab({ draft, set, errorFor, locked }: TabProps) {
       return;
     }
     setLogoError(null);
-    set({ logo: { fileName: file.name, contentType: file.type, sizeBytes: file.size } });
+    set({ logo: { fileName: file.name, contentType, sizeBytes: file.size } });
   }
 
   return (

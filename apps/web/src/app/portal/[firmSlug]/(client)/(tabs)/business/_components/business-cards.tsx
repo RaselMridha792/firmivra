@@ -99,7 +99,11 @@ export function ActionItems({ slug }: { slug: string }) {
                     <span className="text-sm text-text">{r.title}</span>
                     <span className="flex flex-wrap gap-x-4 text-sm">
                       {r.dueOn ? <span className="text-danger">Due {due(r.dueOn)}</span> : null}
-                      <Link className="text-firm-text underline" href={`/${slug}/documents`}>
+                      {/* A button, as Business Tab.png draws each action item's step (R61). */}
+                      <Link
+                        className="rounded-control bg-firm-button px-3 py-1 text-xs font-semibold text-on-firm-button hover:bg-firm-button-hover"
+                        href={`/${slug}/documents`}
+                      >
                         Upload Now
                       </Link>
                     </span>
@@ -192,7 +196,7 @@ export function HelpfulResources({ slug, compact = false }: { slug: string; comp
     return (
       <Card className="grid min-w-0 content-start gap-3 p-4">
         <header className="flex items-center gap-2">
-          <BookOpen aria-hidden className="size-6 shrink-0 text-firm-text" />
+          <BookOpen aria-hidden className="size-6 shrink-0 text-action" />
           <h2 id="helpful-resources" className="flex-1 font-display text-lg font-bold text-heading">
             Helpful Resources
           </h2>
@@ -201,7 +205,7 @@ export function HelpfulResources({ slug, compact = false }: { slug: string; comp
           {RESOURCES.map(([Icon, title, text, path]) => (
             <li key={path} className="border-t border-border first:border-0">
               <Link href={`/${slug}/resources/${path}`} className="flex items-center gap-2 py-2">
-                <Icon aria-hidden className="size-6 shrink-0 text-firm-text" />
+                <Icon aria-hidden className="size-6 shrink-0 text-action" />
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold text-heading">{title}</span>
                   <span className="block text-xs text-text">{text}</span>
@@ -231,7 +235,7 @@ export function HelpfulResources({ slug, compact = false }: { slug: string; comp
               href={`/${slug}/resources/${path}`}
               className="flex h-full gap-3 rounded-card border border-folder-border p-3 hover:bg-folder-hover"
             >
-              <Icon aria-hidden className="size-8 shrink-0 text-firm-text" />
+              <Icon aria-hidden className="size-8 shrink-0 text-action" />
               <span>
                 <span className="block font-semibold text-heading">{title}</span>
                 <span className="block text-sm text-text">{text}</span>

@@ -8,19 +8,51 @@ import {
   Trash,
 } from '@phosphor-icons/react';
 import { useState } from 'react';
-import type {
-  CommunicationTemplate,
-  TemplateCategory,
-} from '../../../../../../mocks/admin-communications-templates';
+import type { AdminCommTemplate } from '@firmivra/types';
 
-const categoryTones = {
+/** A template as the library's table and panels show it. */
+export interface TemplateRow {
+  id: string;
+  name: string;
+  excerpt: string;
+  category: string;
+  channel: 'EMAIL' | 'SMS';
+  status: 'Active' | 'Inactive' | 'Archived';
+  updatedAt: string;
+  createdAt: string;
+  createdBy: string;
+  subject: string;
+  body: string;
+  mergeFields: string[];
+}
+const statusLabels = { ACTIVE: 'Active', INACTIVE: 'Inactive', ARCHIVED: 'Archived' } as const;
+export const rowOf = (t: AdminCommTemplate): TemplateRow => ({
+  id: t.id,
+  name: t.name,
+  excerpt: t.body.replace(/\s+/g, ' ').slice(0, 120),
+  category: t.category.name,
+  channel: t.channel,
+  status: statusLabels[t.status],
+  updatedAt: t.updatedAt,
+  createdAt: t.createdAt,
+  createdBy: t.createdBy?.name ?? 'Firmivra',
+  subject: t.subject ?? '',
+  body: t.body,
+  mergeFields: t.mergeFields.map((field) => `{{${field}}}`),
+});
+
+/** The six shipped categories have their colour; a category the team adds is neutral. */
+const categoryTones: Record<
+  string,
+  'success' | 'info' | 'warning' | 'purple' | 'danger' | 'neutral'
+> = {
   Sales: 'success',
   Onboarding: 'info',
   Support: 'warning',
   Billing: 'purple',
   'Firm Applications': 'danger',
   'System Notices': 'neutral',
-} as const;
+};
 export const softAction = 'border-transparent! bg-info-soft! text-link! hover:bg-folder-hover!';
 export const templateDate = (value: string) =>
   new Intl.DateTimeFormat('en-US', {
@@ -28,17 +60,17 @@ export const templateDate = (value: string) =>
     day: 'numeric',
     year: 'numeric',
     timeZone: 'UTC',
-  }).format(new Date(`${value}T12:00:00Z`));
+  }).format(new Date(value));
 
-export function CategoryBadge({ category }: { category: TemplateCategory }) {
+export function CategoryBadge({ category }: { category: string }) {
   return (
     <span className="inline-flex whitespace-nowrap [&>span]:rounded-control [&>span]:px-2 [&>span]:py-1 [&>span]:font-normal">
-      <Badge tone={categoryTones[category]}>{category}</Badge>
+      <Badge tone={categoryTones[category] ?? 'neutral'}>{category}</Badge>
     </span>
   );
 }
 
-export function TemplateChannel({ channel }: { channel: CommunicationTemplate['channel'] }) {
+export function TemplateChannel({ channel }: { channel: TemplateRow['channel'] }) {
   const ChannelIcon = channel === 'EMAIL' ? EnvelopeSimple : ChatCircleDots;
   return (
     <span className="inline-flex items-center gap-2 whitespace-nowrap">
@@ -48,7 +80,7 @@ export function TemplateChannel({ channel }: { channel: CommunicationTemplate['c
   );
 }
 
-export function TemplateMessage({ template }: { template: CommunicationTemplate | null }) {
+export function TemplateMessage({ template }: { template: TemplateRow | null }) {
   return (
     <div className="min-h-56 rounded-control bg-canvas/60 text-sm leading-relaxed text-heading">
       {template?.channel === 'EMAIL' && (
@@ -65,7 +97,7 @@ export function TemplateMessage({ template }: { template: CommunicationTemplate 
 }
 
 interface TemplatePanelsProps {
-  template: CommunicationTemplate | null;
+  template: TemplateRow | null;
   onEdit: () => void;
   onPreview: () => void;
   onDuplicate: () => void;
