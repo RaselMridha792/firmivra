@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { MessageComposer } from './_components/message-composer';
+import { BroadcastMessageStep } from './_components/broadcast-message-step';
 
-export const metadata: Metadata = { title: 'New message' };
+export const metadata: Metadata = { title: 'Create broadcast: Message' };
 
 export default function AdminCommunicationsBroadcastsNewMessagePage() {
-  return <MessageComposer />;
+  return <BroadcastMessageStep />;
 }
