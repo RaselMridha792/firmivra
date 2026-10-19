@@ -167,6 +167,17 @@ describe('demo seed and unseed', () => {
         'tags',
         'client_tags',
         'lead_tags',
+        'payroll_settings',
+        'payroll_clients',
+        'payroll_client_changes',
+        'payroll_activities',
+        'payroll_workers',
+        'payroll_runs',
+        'payroll_run_lines',
+        'payroll_run_issues',
+        'payroll_filings',
+        'payroll_reports',
+        'payroll_year_ends',
       ]) {
         expect(first[table], table).toBeGreaterThan(0);
       }
