@@ -89,11 +89,46 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 | audiences "All Clients", "Active Clients"... | **not allowed**: a firm's clients are never reached (B6). Audiences are firm owners (by firm status or a list of firms), sales leads and the team (`definition.contactTypes`) |
 | review `category`, `filters`, `uploadedList` | `filters` is the segment's `definition`; `category` and an uploaded list are not stored (see "Needs from others") |
 
+### Integrations, part 1 (Tumit, `mocks/admin-integrations.ts` → `api.adminIntegrations`)
+
+The contract keeps Tumit's method names and field names, so his screens switch with few changes. `api.adminIntegrations` points at his mock object in mock mode (cast) until then.
+
+| Mock | Contract |
+| --- | --- |
+| `listPlatform({ status: [a, b] })` | `status: 'A,B'` (comma separated) |
+| `includeRemoved`, `descending` (booleans) | `'true'` / `'false'` in the query |
+| `LogoFile.contentType` (string) | one of `image/png`, `image/jpeg`, `image/webp` |
+| `firmOptions().planId`, `planName` (always set) | nullable (a firm with no plan) |
+| `INTEGRATION_ERRORS` | `ADMIN_INTEGRATION_ERRORS` (adds `NOT_FOUND`, `DUPLICATE_PROVIDER`) |
+| `platformUsage`, API keys, webhooks, logs, usage, thresholds, `auditTrail` | part 2 contract (usage thresholds and an integrations audit trail have no B8 table: see "Needs from others") |
+| `CATEGORIES`, `INTEGRATION_STATUSES`, run statuses, environments | the database enums (`PlatformIntegrationCategory`, `PlatformIntegrationStatus`, `IntegrationSyncRunStatus`, `IntegrationEnvironment`): same values |
+
+### Integrations, part 2 (Tumit, same mock → `api.adminIntegrations`)
+
+| Mock | Contract |
+| --- | --- |
+| `ApiKey.createdBy` (always set) | nullable (a key from a seed) |
+| `usage24h.requests` | the rollup's latest day for the key; null without a row |
+| `usage24h.peakPerMinute`, `rateLimited` | null: not tracked |
+| `CreateWebhookBody.integrationId`, `WebhookEndpoint.integration` | B8 links no endpoint to an integration: no body field, `integration` always null |
+| `signingSecretHint` (`whsec_••••91c2`) | `whsec_••••••••` when set (no last four is kept) |
+| `WebhookDelivery.payload` | null (B8 keeps none); `retries` is the earlier attempts of the event |
+| `redeliver` result | a `PENDING` attempt: R1's webhook worker sends it |
+| `IntegrationLog.action` | a label made from the stored action code |
+| `LogQuery.platformOnly`, `descending` | `'true'` / `'false'` in the query (`descending` defaults to true) |
+| `exportLogs({ query, format })` → file `content` | 202 with a queued `AdminExportJob` (B1); CSV only (B1's `ReportFormat` has no JSON); R1's export worker makes the file; `logExports()` lists mine |
+| `usage().planDistribution`, `alerts` | always empty: the rollup has no per-plan counts and thresholds have no table |
+| `thresholds`, `saveThresholds` | not in the contract (no table; "Needs from others") |
+| `auditTrail` | from `audit_logs` (`integrations.*` actions); `changes` lists the changed fields, never values |
+
 ## Needs from others
 
 - **R1: the communications dispatcher job** (platform scope): moves `SCHEDULED` messages to `SENDING` at their time and sends them (the API's `CommInboxService.dispatch` does the sending for one message), and wires SES and SNS delivery events to the recipients by `provider_message_id`, plus inbound mail and SMS as `RECEIVED` messages (B6 "Needs from R1"). Until then a scheduled message stays scheduled and delivery stops at `SENT`.
 - **Cc on one email**: NotifyService sends one address per message, so a Cc or Bcc recipient gets their own copy (no shared Cc header). R6 could add `cc` to `NotifyMessage` later.
 - **R0: broadcast fields the screens show but B6 does not store** (schema request, not edited here): a broadcast's `description` and `category`, and an uploaded recipient list (a list of addresses as an audience). Open and click rates need email open and click events (SES event wiring, R1). Until then the screens leave them out.
+
+- **R0: Integrations part 2 gaps** (schema request, not edited here): a usage alert thresholds table (error rate, latency, quota, cost, sync failures, versioned); per-plan adoption in `platform_integration_usage_daily` (the Usage page's plan distribution); a redacted payload on `platform_webhook_deliveries` (the deliveries drawer shows one).
+- **R1: Integrations part 2 workers**: the webhook delivery worker (sends `PENDING` deliveries, redeliveries included, and writes each result), the export worker for `INTEGRATION_LOGS` jobs (the file under `platform/exports/<id>/`), and B1's download route (`GET /api/v1/admin/exports/:id` with a signed URL).
 
 ## Progress log
 
@@ -102,19 +137,20 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 - 2026-10-19: Communications inbox contract: summary, contacts, conversations, messages (draft, send, schedule, cancel, retry, delete draft), templates and categories, merge fields; contract mock on Arfan's inbox data; 8 contract tests.
 - 2026-10-19: Broadcasts contract (`api.adminBroadcasts`): broadcasts with per-channel content, audiences (segments) and counts, the file library upload ticket, recipient results; contract mock on Arfan's broadcast and audience fixtures; 6 contract tests.
 - 2026-10-19: Communications inbox API (`apps/api/src/admin-communications`), stacked on #873: 25 routes; send now through NotifyService (two new Firmivra templates, `platform.message-email` and `platform.message-sms`); scheduled messages wait for the dispatcher job (R1); unit (11) and e2e (16) tests; the admin isolation test's `WRITES` has the 19 writes, each on a seeded record.
-- 2026-10-19: Broadcasts contract (`api.adminBroadcasts`): broadcasts with per-channel content, audiences (segments) and counts, the file library upload ticket, recipient results; contract mock on Arfan's broadcast and audience fixtures; 6 contract tests.
 - 2026-10-19: Broadcasts API (`admin-broadcasts.controller.ts`, `comm-broadcasts.service.ts`), stacked on #878 and #886: 19 routes; audiences resolved per channel (firm owners, leads, team; in-app to the team's bells), send and retry through NotifyService with per-recipient results, schedules wait for the dispatcher (R1); unit (5) and e2e (9) tests; 14 more writes in `WRITES`.
+- 2026-10-19: Broadcasts contract #886 and API #891 merged. Integrations contract, part 1 (`packages/types/src/admin-integrations`: summary, access, providers, plans, firm options, platform integrations, catalog), committed on `rasel/R56-admin-integrations-contract`; 6 contract tests; `api.adminIntegrations` points at Tumit's mock (cast).
+- 2026-10-19: Integrations contract, part 2 (`packages/types/src/admin-integrations/operations.ts` and the client): API keys, webhooks and deliveries, logs (filters, facets, record, B1 export job), usage report, the audit trail; 5 contract tests; committed on `rasel/R56-admin-integrations-contract-2` (stacked on #896), opened after #896 merges.
 
-## Handoff for a fresh session (written Oct 19)
+## Handoff for a fresh session (written Oct 19, 15:20 UTC)
 
-**State:** #858, #866, #873 and #878 merged. Open: #886 (broadcasts contract, green) and #891 (broadcasts API, stacked on #886; main merged in by hand at 2488bb2c). Contract PRs open one at a time; at most 2 open non-contract PRs (#891 is one). After a lower PR is squash-merged, `git merge origin/main` into the stacked branch (never rebase or force-push; if a push is rejected because the review thread merged main on GitHub, merge `origin/<branch>` too and keep the wider resolution).
+**State:** merged #858, #866, #873, #878, #886, #891. Open: the Integrations contract part 1 PR (`rasel/R56-admin-integrations-contract`, main merged in). Contract PRs open one at a time and do not count against the 2 open non-contract PRs. After a lower PR is squash-merged, `git merge origin/main` into the stacked branch (never rebase or force-push; if a push is rejected because the review thread merged main on GitHub, merge `origin/<branch>` too and keep the wider resolution).
 
 **Next, in order:**
-1. **Integrations contract, part 1** (`packages/types/src/admin-integrations`): summary, providers, platform integrations (list, create draft, get, PATCH with `version`, test, activate, disable, enable, remove, `PUT credentials`, runs, usage) and the catalog (list, create, get, PATCH with `version`, plans and firms PUT/DELETE, preview). Tumit's mock (`apps/web/src/mocks/admin-integrations.ts`, 3,766 lines) is already shaped as a contract: each method's comment names its route. Mirror his interfaces in zod where they fit B8, so `api.adminIntegrations` can point at his `adminIntegrations` object and his screens barely change; his enums match the database (categories, statuses, LIVE/TEST, run statuses incl. PARTIAL). Fields B8 has no column for (long description, logo, status URL, sync schedule, features, data access, retry, firm exposure, setup step, required role, display label) live in the non-secret `settings` / `setup` / `advanced` JSON; provider templates stay in code (API).
-2. **Integrations contract, part 2**: API keys (full key once, hash only, `fv_live_`/`fv_test_` prefix, rotate = new key with `rotated_from_id`), webhooks and deliveries (redeliver), logs (filters, export via B1 `platform_export_jobs`), usage (from `platform_integration_usage_daily`).
-3. The APIs for both; credentials and signing secrets are stored as a **secret reference only** (Secrets Manager adapter is R1's; locally a reference string).
-4. **Screens** (step 7): switch Notifications, Communications (inbox, broadcasts, templates) and Integrations from local mocks to the contracts using the mapping tables above; finish the placeholder pages; design gaps against `docs/mockups/super-admin`; three states at 1440 px; empty states, no fake numbers.
+1. Integrations contract part 1 PR: opened (above).
+2. **Integrations API, part 1** (`apps/api/src/admin-integrations/`): provider definitions in code (Stripe, Twilio, SES, S3, an AI provider at least; fields, auth type, test support, volume unit); platform integrations on `platform_integrations` with Tumit's extra fields in the non-secret `settings` JSON; credentials through a secret-store adapter (local: a reference string; AWS Secrets Manager is R1's); connection tests recorded as `platform_integration_runs` (kind TEST) and `platform_integration_logs` (a local tester checks that required values are present and carry the environment's prefix; real provider calls come with R1's secrets); activation rules (passing test, or `confirmWithoutTest` when the provider has no test); disable, enable, remove are SUPER_ADMIN; versioned saves (`version`, 409 CONFLICT); one live connection per provider and environment; catalog CRUD with plans and firm rules (`platform_integration_catalog*`), access-loss warning, preview; summary and stats from `platform_integration_usage_daily`. Audit: category INTEGRATION, SECURITY for credentials. Add every write to the admin isolation test's `WRITES`.
+3. **Integrations contract and API, part 2:** API keys (`fv_live_`/`fv_test_`, hash only, shown once, rotate, revoke), webhooks and deliveries (signing secret once, redeliver), logs (filters, facets, record with related events, export via B1 `platform_export_jobs`), usage report from the rollup, `platformUsage`. Usage thresholds and an integrations audit trail have no B8 table: put them under "Needs from others" (R0).
+4. **Screens** (Rasel, Oct 19): switch Notifications, Communications (inbox, broadcasts, templates) and Integrations from local mocks to the contracts using the mapping tables above; finish placeholder pages; match `docs/mockups/super-admin` (every widget, empty states, no fake numbers, no seeding); three states at 1440 px. Coordinate files Arfan or Tumit still change through the Scrum thread.
 
-**Local checks (laptop rule, Oct 19):** lint the changed files, typecheck the changed package, run only the module's tests; never the isolation sweeps or Playwright from an API session (CI runs them). Build `@firmivra/db` (`prisma generate` then build) and `@firmivra/types` after merging main.
+**Local checks (laptop rule, Oct 19):** lint the changed files, typecheck the changed package, run only the module's tests; never the isolation sweeps or Playwright from an API session (CI runs them). After merging main: `pnpm install --frozen-lockfile`, `pnpm --filter @firmivra/db generate` and build, `pnpm --filter @firmivra/types build`.
 
-**Gotchas:** every new admin write needs an entry in `test/isolation/admin-scope.test.ts` `WRITES` with a seeded record (`comm` key, lazy bodies allowed); Prisma `create` on `platform_notifications` for another member fails (RETURNING meets the own-read policy): use `createMany`; B6 error codes must match `^[a-z][a-z0-9_.]{0,59}$`; only email rows carry a subject; a broadcast's recipients are inserted only while it is SENDING; NotifyService templates need entries in `TEMPLATE_CHANNEL`, `TEMPLATE_SENDER`, `ALWAYS_SENT`, `TEMPLATE_CATEGORY`, `templates.ts` and the notify unit tests' fixtures and tables.
+**Gotchas:** every new admin write needs a `WRITES` entry in `test/isolation/admin-scope.test.ts` with a seeded record (`comm`-style key, lazy bodies allowed; Support's writes use `record`); Prisma `create` on `platform_notifications` for another member fails (RETURNING meets the own-read policy): use `createMany`; B6/B8 error codes match `^[a-z][a-z0-9_.]{0,59}$`; only email rows carry a subject; a broadcast's recipients are inserted only while it is SENDING; NotifyService templates need entries in `TEMPLATE_CHANNEL`, `TEMPLATE_SENDER`, `ALWAYS_SENT`, `TEMPLATE_CATEGORY`, `templates.ts` and the notify unit tests' fixtures and tables; `toQuery` takes scalars only (lists as comma strings).

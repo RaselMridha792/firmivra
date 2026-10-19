@@ -2160,3 +2160,14 @@ export type SalesImportRowOutcome = z.infer<typeof SalesImportRowOutcome>;
 
 export const SalesImportMatch = z.enum(['EMAIL', 'PHONE', 'EMAIL_AND_PHONE']);
 export type SalesImportMatch = z.infer<typeof SalesImportMatch>;
+
+export const PlatformLegalDocumentKind = z.enum([
+  'TERMS_OF_SERVICE',
+  'PRIVACY_POLICY',
+  'DATA_PROCESSING_AGREEMENT',
+  'ACCEPTABLE_USE',
+]);
+export type PlatformLegalDocumentKind = z.infer<typeof PlatformLegalDocumentKind>;
+
+export const PlatformLegalDocumentStatus = z.enum(['DRAFT', 'PUBLISHED', 'RETIRED']);
+export type PlatformLegalDocumentStatus = z.infer<typeof PlatformLegalDocumentStatus>;
