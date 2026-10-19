@@ -32,6 +32,9 @@
   --color-accent-500: var(--color-platform-blue);
   width: 100%;
   min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   font-size: var(--intake-font);
   line-height: var(--text-sm--line-height);
 }
@@ -41,6 +44,16 @@
   width: calc(100% - var(--space-8));
   max-width: none;
   padding-inline: 0;
+}
+
+/* Fill the public layout's main area so its unused height sits before, never after, the CTA. */
+:global(main):has(.scale) {
+  display: flex;
+  flex-direction: column;
+}
+
+.scale > .frame {
+  flex: 1 0 auto;
 }
 
 /* Align the shared public header with Begin's larger fluid form frame. */

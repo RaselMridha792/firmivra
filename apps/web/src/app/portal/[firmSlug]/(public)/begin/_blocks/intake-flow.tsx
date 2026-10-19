@@ -249,7 +249,7 @@ function BeginCta({ firmSlug }: { firmSlug: string }) {
     <section
       aria-labelledby="begin-cta-heading"
       data-begin-cta
-      className="border-y border-on-action/20 bg-navigation py-5 text-on-action"
+      className="mt-8 border-y border-on-action/20 bg-navigation py-5 text-on-action"
     >
       <PageContainer className="frame grid items-center gap-5 text-center lg:grid-cols-4 lg:gap-6">
         <p className="font-display text-2xl leading-relaxed italic lg:border-r lg:border-on-action/40 lg:pr-5">
