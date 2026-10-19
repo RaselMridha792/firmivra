@@ -63,6 +63,19 @@
   font-size: var(--intake-font) !important;
 }
 
+.scale :is(input, select, textarea):not(:disabled) {
+  color: var(--color-firm-primary);
+}
+
+.scale :is(input, select, textarea)::placeholder {
+  color: var(--color-muted);
+  opacity: 1;
+}
+
+.scale :is(input, select, textarea):hover:not(:disabled, :focus-visible) {
+  border-color: var(--color-platform-blue);
+}
+
 .scale textarea {
   width: 100%;
   min-height: calc(var(--intake-control) * 2) !important;
@@ -143,10 +156,22 @@
 
 .scale [data-intake-panel] {
   padding: calc(var(--intake-gap) * 1.35) !important;
+  border-color: var(--color-control-border) !important;
 }
 
 .scale [data-intake-panel] > header {
   margin-bottom: var(--intake-gap);
+  padding-bottom: calc(var(--intake-gap) * 0.8);
+  border-bottom: var(--container-border) solid var(--color-divider);
+}
+
+.scale :is(label, legend) {
+  color: var(--color-heading);
+  font-weight: var(--font-weight-semibold);
+}
+
+.scale [data-intake-panel] :is(p, span):not([class*='text-on-action']) {
+  line-height: var(--text-sm--line-height);
 }
 
 .scale [data-section='spouse'] {
