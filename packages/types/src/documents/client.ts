@@ -28,6 +28,12 @@ import {
   UploadTargets,
   UploadTicket,
 } from './schemas.js';
+import {
+  MyRequestPacket,
+  MyRequestPacketId,
+  MyRequestPacketList,
+  type MyRequestPacketRow,
+} from './portal-packets.js';
 
 const doc = (id: string) => `/business/documents/${parseInput(DocumentId, id)}`;
 const req = (id: string) => `/business/document-requests/${parseInput(DocumentRequestId, id)}`;
@@ -128,6 +134,8 @@ export type DocumentsClient = ReturnType<typeof createDocumentsClient>;
 export function createMyDocumentsClient(request: ApiRequest, firmSlug: string) {
   const base = () => `${portalMe(firmSlug)}/documents`;
   const one = (id: string) => `${base()}/${parseInput(DocumentId, id)}`;
+  const packet = (id: string) =>
+    `${portalMe(firmSlug)}/request-packets/${parseInput(MyRequestPacketId, id)}`;
   return {
     /** "My Uploaded Documents" (default) or the firm's shared files (`source: 'FIRM'`). */
     list: async (query: ListMyDocumentsQuery = {}): Promise<MyDocumentList> =>
@@ -163,6 +171,14 @@ export function createMyDocumentsClient(request: ApiRequest, firmSlug: string) {
     /** The client's document requests, open ones first. */
     requests: async (): Promise<MyDocumentRequest[]> =>
       (await request(MyDocumentRequestList, `${portalMe(firmSlug)}/document-requests`)).items,
+    /** The client's request packets (portal-packets.ts): open ones first. */
+    packets: async (): Promise<MyRequestPacketRow[]> =>
+      (await request(MyRequestPacketList, `${portalMe(firmSlug)}/request-packets`)).items,
+    /** Document Request & Upload. 404 for another client's packet or one not sent. */
+    packet: async (id: string): Promise<MyRequestPacket> => request(MyRequestPacket, packet(id)),
+    /** Submit for Review: SUBMITTED. 409 PACKET_INCOMPLETE or PACKET_CLOSED. */
+    submitPacket: async (id: string): Promise<MyRequestPacket> =>
+      request(MyRequestPacket, `${packet(id)}/submit`, { method: 'POST', body: {} }),
     /** "I don't have this". 409 NO_OPEN_SERVICE (an archived client) or REQUEST_CLOSED. */
     notAvailable: async (id: string, body: NotAvailableRequest): Promise<MyDocumentRequest> =>
       request(
