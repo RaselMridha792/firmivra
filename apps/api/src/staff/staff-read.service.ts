@@ -59,7 +59,8 @@ const ref = (m: Prisma.MembershipGetPayload<{ select: typeof memberSelect }>): S
  * The sign-in method state is not kept in our database (Cognito knows it): until the API asks
  * Cognito, an invited member shows PENDING and the others DISABLED.
  */
-const mfaOf = (status: string): StaffMfaState => (status === 'INVITED' ? 'PENDING' : 'DISABLED');
+export const mfaOf = (status: string): StaffMfaState =>
+  status === 'INVITED' ? 'PENDING' : 'DISABLED';
 
 const BOM = String.fromCharCode(0xfeff);
 

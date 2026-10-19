@@ -4,11 +4,14 @@ import {
   SaveStaffDraftRequest,
   SetStaffNoteRequest,
   SetStaffPermissionsRequest,
+  StaffAccessInput,
   StaffCompensationInput,
+  StaffCursorQuery,
   StaffDraftId,
   StaffId,
   StaffListQuery,
   StaffSecurityActionRequest,
+  StaffSessionId,
   UpdateStaffRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
@@ -35,3 +38,6 @@ export const SetStaffNoteBody = clean(SetStaffNoteRequest);
 export const StaffCompensationBody = clean(StaffCompensationInput);
 export const SaveStaffDraftBody = clean(SaveStaffDraftRequest);
 export const SetStaffPermissionsBody = clean(SetStaffPermissionsRequest);
+export const StaffSessionIdParam = StaffSessionId;
+export const StaffAccessBody = clean(StaffAccessInput);
+export const StaffCursorQ = clean(StaffCursorQuery);
