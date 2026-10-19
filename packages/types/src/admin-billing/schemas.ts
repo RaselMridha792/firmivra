@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Phone } from '../client-auth/schemas.js';
 import { SearchText, text } from '../clients/text.js';
 import {
   BusinessStatus,
@@ -844,7 +845,8 @@ export const SaveBillingEstimateRequest = z
     firmId: Id,
     contactName: text(200, 'one', 'Enter the contact'),
     email: z.email('Enter an email address').max(320),
-    phone: Note(40),
+    /** Stored as E.164 (a US number may be typed without +1); '' for none. */
+    phone: z.union([z.literal(''), Phone]).default(''),
     issueDate: Day,
     expirationDate: Day,
     reference: Note(100),
