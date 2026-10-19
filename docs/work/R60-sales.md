@@ -247,7 +247,7 @@ and the pure rules in `sales-math.ts`. Tests: `test/unit/admin-sales.test.ts` (1
 `test/e2e/admin-sales.e2e.test.ts` (32, every route), and 24 write cases in
 `test/isolation/admin-sales-writes.ts` for the admin-scope sweep.
 
-44. **Contract changes made with the API.** `startTrial` is removed: the admin-scope sweep calls
+44. **Contract changes found with the API** (their own PR, #902). `startTrial` is removed: the admin-scope sweep calls
     every admin write with a valid body and needs it to succeed, and a trial cannot be stored for a
     prospect (note 31). Editing and deleting a note moved to `PATCH /notes/:id` and
     `DELETE /notes/:id` (`updateNote(noteId, body)`, `deleteNote(noteId)`): the sweep fills only

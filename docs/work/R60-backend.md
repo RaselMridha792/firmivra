@@ -81,7 +81,7 @@ Checked and fine:
 - [x] 5. Billing API.
 - [ ] 5b. Billing screens: switch `apps/web/src/app/admin/(console)/billing/` to `api.adminBilling`.
 - [x] 6. Sales contract (Pipeline B5 + Sales Center D1; notes: `R60-sales.md`).
-- [ ] 7. Sales API.
+- [x] 7. Sales API (notes: `R60-sales.md`, "Sales API (step 7)").
 - [ ] 8. Firm Settings Overview and Users API (contract already on main).
 - [ ] 9. Super Admin Team contract and API.
 - [ ] 10. Super Admin Subscriptions contract and API.
@@ -106,6 +106,10 @@ Checked and fine:
   contract) merged. Step 3b, the Support screens on `api.adminSupport`: PR #890. Step 5b, the
   Billing screens on `api.adminBilling` (Firmivra as the issuer, browser PDFs): PR #898. Both
   checked on the local API at 1440 px and 375 px; their screenshots are not attached yet.
+- 2026-10-19: step 7, the Sales API (`apps/api/src/admin-sales/`, 40 routes): 18 unit tests,
+  32 e2e tests and 24 admin-scope write cases (`test/isolation/admin-sales-writes.ts`). Two
+  contract changes it needed (note routes by note id; no `startTrial`) in their own PR, #902.
+  The API PR waits for a free slot (two non-contract PRs open: #890, #898).
 
 ### Support contract (step 2)
 
