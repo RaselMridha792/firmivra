@@ -3,7 +3,6 @@
 import { Button, Checkbox, Drawer, FormField, Toggle } from '@firmivra/ui';
 import { useId, useState, type FormEvent } from 'react';
 import {
-  adminBilling,
   hasErrors,
   nextOccurrence,
   RECURRING_FREQUENCIES,
@@ -24,6 +23,7 @@ import {
   RECURRING_FREQUENCY_LABELS,
   RECURRING_STATUS_LABELS,
 } from './billing-labels';
+import { adminBilling } from './billing-api';
 
 /**
  * The one recurring invoice form (docx §9.2, §16 "Recurring Create/Edit"): the Recurring page's

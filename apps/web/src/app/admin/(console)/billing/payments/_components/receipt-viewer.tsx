@@ -1,11 +1,7 @@
 'use client';
 
 import { Skeleton } from '@firmivra/ui';
-import {
-  adminBilling,
-  type BillingFirm,
-  type BillingPayment,
-} from '../../../../../../mocks/admin-billing';
+import { type BillingFirm, type BillingPayment } from '../../../../../../mocks/admin-billing';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import {
   addressLines,
@@ -17,6 +13,7 @@ import {
 import { PAYMENT_METHOD_LABELS } from '../../_components/billing-labels';
 import { quietErrorText } from '../../_components/billing-parts';
 import { DocumentViewer, FirmMark } from '../../_components/invoice-document';
+import { adminBilling, issuerOf } from '../../_components/billing-api';
 
 /**
  * The Receipt Viewer (docx §16, §17.5): the firm-branded receipt of one payment, read-only, with
@@ -51,7 +48,7 @@ export function ReceiptViewer({
       {payment ? (
         <ReceiptDocument
           payment={payment}
-          firm={firm.data ?? null}
+          firm={issuerOf(firm.data ?? null)}
           firmLoading={firm.isLoading}
           firmError={firm.error}
         />
