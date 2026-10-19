@@ -50,7 +50,6 @@ const FEATURE_ERRORS = {
   ...SETTINGS_ERRORS,
   FEATURE_DEPENDENCY:
     'That would make features depend on each other in a circle, or names a feature that does not exist.',
-  DUPLICATE_KEY: 'A feature with this key exists already.',
 };
 const moduleOf = (key: string) => {
   const head = key.split('.')[0] ?? key;
