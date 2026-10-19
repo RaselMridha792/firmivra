@@ -13,12 +13,23 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type Database, type Scope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
+import { ADMIN_SECURITY_DEFAULTS } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { requestContext } from '../../src/common/request-context.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { DATABASE } from '../../src/database/database.module.js';
 import { NOTIFY_SERVICE } from '../../src/notify/notify.types.js';
+import { DOCUMENT_STORAGE } from '../../src/storage/document-storage.js';
+import {
+  prepareSupport,
+  type SupportWrite,
+  supportRecord,
+  supportStorage,
+  supportWrites,
+  type WriteHelpers,
+} from './admin-support-writes.js';
+import { billingWrites, prepareBilling } from './admin-billing-writes.js';
 import { apiRoutes, fillPath } from './routes.js';
 
 const fx = inject('fixtures');
@@ -49,12 +60,49 @@ const ONBOARDING = new Set([
 const applications: Record<string, string> = {};
 /** An open notification of the fixture Super Admin per write case that acts on one (R56). */
 const items: Record<string, string> = {};
+/** Communications records (R56) each write case acts on: a thread, messages, templates, a category. */
+const comms: Record<string, string> = {};
+const tag = randomUUID().slice(0, 8);
+const ADMIN_EMAIL = 'admin@firmivra.test';
 
 /**
  * Every admin write, with a body that passes validation, run in this order; `app` names the
- * application it acts on (the owner invite resends for the one just approved).
+ * application it acts on (the owner invite resends for the one just approved), `item` a
+ * notification and `comm` a communications record (R56). Support's writes
+ * (admin-support-writes.ts) name their own `record`, may build the body, and may add a query. A
+ * body may be a function, read when it runs.
  */
-const WRITES: Record<string, { body: object; app?: string; item?: string }> = {
+/** Audit & Security records (R55) a write case acts on: seeded once, one per case that changes it. */
+type AuditRecord =
+  | 'event'
+  | 'alertAck'
+  | 'alertResolve'
+  | 'alertDismiss'
+  | 'alertAssign'
+  | 'noteEdit'
+  | 'noteRetract';
+const auditRecords = {} as Record<AuditRecord, string>;
+
+/** The security policy's version now (a save names the version it started from). */
+async function policyVersion(): Promise<number> {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+  const row = await runInScope(owner, { kind: 'platform' }, (tx) =>
+    tx.platformSecurityPolicy.findUniqueOrThrow({ where: { id: 1 }, select: { version: true } }),
+  );
+  await owner.$disconnect();
+  return row.version;
+}
+
+const WRITES: Record<
+  string,
+  Omit<SupportWrite, 'body'> & {
+    body: SupportWrite['body'] | (() => object);
+    app?: string;
+    item?: string;
+    comm?: string;
+    auditRecord?: AuditRecord;
+  }
+> = {
   'POST /api/v1/admin/firm-applications/:id/approve': { body: {}, app: 'approve' },
   'POST /api/v1/admin/firm-applications/:id/request-info': {
     body: { message: 'Fake: please send your licence' },
@@ -67,13 +115,278 @@ const WRITES: Record<string, { body: object; app?: string; item?: string }> = {
   'POST /api/v1/admin/firm-applications/:id/owner-invite': { body: {}, app: 'approve' },
   'PUT /api/v1/admin/firm-applications/:id/notes': { body: { notes: 'Fake note' }, app: 'notes' },
   'POST /api/v1/admin/firms/:businessId/support-access': { body: { reason: 'Fake reason' } },
+  'POST /api/v1/admin/audit/exports': { body: { format: 'CSV', query: { view: 'login' } } },
+  'PUT /api/v1/admin/audit/policy': {
+    body: async () => ({ version: await policyVersion(), settings: ADMIN_SECURITY_DEFAULTS }),
+  },
+  'POST /api/v1/admin/audit/alerts/:id/acknowledge': { body: {}, auditRecord: 'alertAck' },
+  'POST /api/v1/admin/audit/alerts/:id/resolve': {
+    body: { note: 'Fake resolution' },
+    auditRecord: 'alertResolve',
+  },
+  'POST /api/v1/admin/audit/alerts/:id/dismiss': { body: {}, auditRecord: 'alertDismiss' },
+  'POST /api/v1/admin/audit/alerts/:id/assign': {
+    body: { userId: null },
+    auditRecord: 'alertAssign',
+  },
+  'POST /api/v1/admin/audit/notes/:id/edit': {
+    body: { text: 'Fake correction' },
+    auditRecord: 'noteEdit',
+  },
+  'POST /api/v1/admin/audit/notes/:id/retract': { body: {}, auditRecord: 'noteRetract' },
+  'POST /api/v1/admin/audit/events/:id/respond': {
+    body: { action: 'MARK_REVIEWED' },
+    auditRecord: 'event',
+  },
+  'POST /api/v1/admin/audit/events/:id/notes': {
+    body: { text: 'Fake note' },
+    auditRecord: 'event',
+  },
   'POST /api/v1/admin/notifications/bulk': { body: { ids: [randomUUID()], action: 'READ' } },
   'POST /api/v1/admin/notifications/mark-all-read': { body: {} },
   'POST /api/v1/admin/notifications/:id/read': { body: {}, item: 'read' },
   'POST /api/v1/admin/notifications/:id/unread': { body: {}, item: 'unread' },
   'POST /api/v1/admin/notifications/:id/resolve': { body: {}, item: 'resolve' },
   'POST /api/v1/admin/notifications/:id/dismiss': { body: {}, item: 'dismiss' },
+  'POST /api/v1/admin/communications/conversations/:id/read': { body: {}, comm: 'conv' },
+  'PATCH /api/v1/admin/communications/conversations/:id': {
+    body: { status: 'OPEN' },
+    comm: 'conv',
+  },
+  'POST /api/v1/admin/communications/messages': {
+    body: () => ({
+      contact: { type: 'TEAM', userId: fx.users.admin.id },
+      channel: 'INTERNAL',
+      body: 'Fake scope note',
+      mode: 'SEND',
+      idempotencyKey: randomUUID(),
+    }),
+  },
+  'PATCH /api/v1/admin/communications/messages/:id': { body: { body: 'Fake edit' }, comm: 'edit' },
+  'POST /api/v1/admin/communications/messages/:id/send': {
+    body: () => ({ idempotencyKey: randomUUID() }),
+    comm: 'send',
+  },
+  'POST /api/v1/admin/communications/messages/:id/schedule': {
+    body: () => ({
+      scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+      scheduledTimeZone: 'America/New_York',
+    }),
+    comm: 'schedule',
+  },
+  'POST /api/v1/admin/communications/messages/:id/cancel': { body: {}, comm: 'cancel' },
+  'POST /api/v1/admin/communications/messages/:id/retry': {
+    body: () => ({ idempotencyKey: randomUUID() }),
+    comm: 'retry',
+  },
+  'DELETE /api/v1/admin/communications/messages/:id': { body: {}, comm: 'delete' },
+  'POST /api/v1/admin/communications/templates': {
+    body: () => ({
+      categoryId: comms['cat'],
+      name: `Fake scope template new ${tag}`,
+      channel: 'SMS',
+      body: 'Fake {{contact.first_name}}',
+    }),
+  },
+  'PATCH /api/v1/admin/communications/templates/:id': { body: { body: 'Fake edit' }, comm: 'tpl' },
+  'POST /api/v1/admin/communications/templates/:id/duplicate': { body: {}, comm: 'tpl' },
+  'POST /api/v1/admin/communications/templates/:id/preview': { body: {}, comm: 'tpl' },
+  'POST /api/v1/admin/communications/templates/:id/test': { body: {}, comm: 'tpl' },
+  'POST /api/v1/admin/communications/templates/:id/archive': { body: {}, comm: 'tpl' },
+  'POST /api/v1/admin/communications/template-categories': {
+    body: { name: `Fake scope category new ${tag}` },
+  },
+  'POST /api/v1/admin/communications/broadcasts': { body: { name: 'Fake scope broadcast new' } },
+  'PATCH /api/v1/admin/communications/broadcasts/:id': {
+    body: { name: 'Fake scope edit' },
+    comm: 'b-patch',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/test': {
+    body: { channels: ['EMAIL'] },
+    comm: 'b-test',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/schedule': {
+    body: () => ({
+      scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+      scheduledTimeZone: 'America/New_York',
+    }),
+    comm: 'b-schedule',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/send': {
+    body: () => ({ idempotencyKey: randomUUID() }),
+    comm: 'b-send',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/cancel': { body: {}, comm: 'b-cancel' },
+  'POST /api/v1/admin/communications/broadcasts/:id/retry': {
+    body: () => ({ idempotencyKey: randomUUID() }),
+    comm: 'b-retry',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/duplicate': {
+    body: {},
+    comm: 'b-duplicate',
+  },
+  'POST /api/v1/admin/communications/broadcasts/:id/archive': { body: {}, comm: 'b-archive' },
+  'DELETE /api/v1/admin/communications/broadcasts/:id': { body: {}, comm: 'b-delete' },
+  'POST /api/v1/admin/communications/segments': {
+    body: { name: `Fake scope audience new ${tag}`, definition: { contactTypes: ['TEAM'] } },
+  },
+  'PATCH /api/v1/admin/communications/segments/:id': {
+    body: { description: 'Fake scope' },
+    comm: 'seg',
+  },
+  'POST /api/v1/admin/communications/segments/:id/count': { body: {}, comm: 'seg' },
+  'POST /api/v1/admin/communications/media': {
+    body: {
+      kind: 'ATTACHMENT',
+      fileName: 'fake-scope.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 100,
+      sha256: 'a'.repeat(64),
+    },
+  },
+  'PATCH /api/v1/admin/communications/template-categories/:id': {
+    body: { isActive: true },
+    comm: 'cat',
+  },
+  ...supportWrites(fx),
+  ...billingWrites(fx),
 };
+
+/** The thread, messages, template and category the communications writes act on (R56). */
+async function seedComms(tx: Parameters<Parameters<typeof runInScope>[2]>[0]) {
+  const admin = fx.users.admin.id;
+  const conv = await tx.commConversation.create({
+    data: {
+      contactType: 'TEAM',
+      contactUserId: admin,
+      contactName: 'Fake Scope Admin',
+      contactEmail: ADMIN_EMAIL,
+    },
+  });
+  comms['conv'] = conv.id;
+  const draft = async (key: string, scheduled = false) => {
+    const m = await tx.commMessage.create({
+      data: {
+        conversationId: conv.id,
+        channel: 'EMAIL',
+        direction: 'OUTBOUND',
+        status: scheduled ? 'SCHEDULED' : 'DRAFT',
+        subject: 'Fake scope',
+        body: 'Fake scope body',
+        ...(scheduled
+          ? {
+              scheduledAt: new Date(Date.now() + 86_400_000),
+              scheduledTimeZone: 'America/New_York',
+            }
+          : {}),
+      },
+    });
+    const r = await tx.commMessageRecipient.create({
+      data: {
+        messageId: m.id,
+        contactType: 'TEAM',
+        contactUserId: admin,
+        name: 'Fake Scope Admin',
+        address: ADMIN_EMAIL,
+      },
+    });
+    comms[key] = m.id;
+    return { m, r };
+  };
+  for (const key of ['edit', 'send', 'schedule', 'delete']) await draft(key);
+  await draft('cancel', true);
+  const failed = await draft('retry');
+  await tx.commMessage.update({ where: { id: failed.m.id }, data: { status: 'SENDING' } });
+  await tx.commMessageRecipient.update({
+    where: { id: failed.r.id },
+    data: { status: 'FAILED', errorCode: 'invalid_recipient' },
+  });
+  await tx.commMessage.update({
+    where: { id: failed.m.id },
+    data: { status: 'FAILED', errorCode: 'delivery_failed' },
+  });
+  const cat = await tx.commTemplateCategory.create({
+    data: { name: `Fake scope category ${tag}`, position: 100 },
+  });
+  comms['cat'] = cat.id;
+  comms['tpl'] = (
+    await tx.commTemplate.create({
+      data: {
+        categoryId: cat.id,
+        name: `Fake scope template ${tag}`,
+        channel: 'EMAIL',
+        subject: 'Fake scope',
+        body: 'Fake {{contact.first_name}}',
+        mergeFields: ['contact.first_name'],
+      },
+    })
+  ).id;
+  await seedBroadcasts(tx);
+}
+
+/** An audience of the fixture Super Admin's own team and broadcasts in each state a write needs. */
+async function seedBroadcasts(tx: Parameters<Parameters<typeof runInScope>[2]>[0]) {
+  const admin = fx.users.admin.id;
+  const seg = await tx.commSegment.create({
+    data: { name: `Fake scope audience ${tag}`, definition: { contactTypes: ['TEAM'] } },
+  });
+  comms['seg'] = seg.id;
+  const make = async (key: string) => {
+    const b = await tx.commBroadcast.create({
+      data: { name: `Fake scope broadcast ${key}`, segmentId: seg.id },
+    });
+    await tx.commBroadcastChannel.create({
+      data: { broadcastId: b.id, channel: 'EMAIL', subject: 'Fake scope', body: 'Fake scope' },
+    });
+    comms[`b-${key}`] = b.id;
+    return b.id;
+  };
+  for (const key of ['patch', 'test', 'schedule', 'send', 'duplicate', 'delete']) await make(key);
+  const later = new Date(Date.now() + 86_400_000);
+  const scheduled = await make('cancel');
+  await tx.commBroadcast.update({
+    where: { id: scheduled },
+    data: { status: 'SCHEDULED', scheduledAt: later, scheduledTimeZone: 'America/New_York' },
+  });
+  const done = await make('archive');
+  await tx.commBroadcast.update({
+    where: { id: done },
+    data: { status: 'SCHEDULED', scheduledAt: later, scheduledTimeZone: 'America/New_York' },
+  });
+  await tx.commBroadcast.update({ where: { id: done }, data: { status: 'CANCELLED' } });
+  // A failed broadcast with one failed recipient (the retry sends it again).
+  const failed = await make('retry');
+  await tx.commBroadcast.update({
+    where: { id: failed },
+    data: { status: 'SENDING', recipientCount: 1 },
+  });
+  await tx.commBroadcastChannel.updateMany({
+    where: { broadcastId: failed },
+    data: { status: 'SENDING' },
+  });
+  const r = await tx.commBroadcastRecipient.create({
+    data: {
+      broadcastId: failed,
+      channel: 'EMAIL',
+      contactType: 'TEAM',
+      contactUserId: admin,
+      name: 'Fake Scope Admin',
+      address: ADMIN_EMAIL,
+    },
+  });
+  await tx.commBroadcastRecipient.update({
+    where: { id: r.id },
+    data: { status: 'FAILED', errorCode: 'invalid_recipient' },
+  });
+  await tx.commBroadcastChannel.updateMany({
+    where: { broadcastId: failed },
+    data: { status: 'FAILED', failedCount: 1 },
+  });
+  await tx.commBroadcast.update({
+    where: { id: failed },
+    data: { status: 'FAILED', errorMessage: 'Fake scope failure' },
+  });
+}
 
 /** The firm an approved application created, or null. */
 async function firmOf(applicationId: string): Promise<string | null> {
@@ -117,8 +430,51 @@ beforeAll(async () => {
       });
       items[c.item] = row.id;
     }
+    // A platform event, its alerts (one per move) and notes by the Super Admin who calls.
+    auditRecords.event = (
+      await tx.auditLog.create({
+        data: {
+          action: 'auth.sign_in_failed',
+          entityType: 'login',
+          targetLabel: 'Fake scope event',
+        },
+        select: { id: true },
+      })
+    ).id;
+    for (const key of ['alertAck', 'alertResolve', 'alertDismiss', 'alertAssign'] as const) {
+      auditRecords[key] = (
+        await tx.securityAlert.create({
+          data: {
+            auditLogId: auditRecords.event,
+            ruleId: 'fake.scope',
+            severity: 'MEDIUM',
+            title: 'Fake scope alert',
+            eventKey: `scope:${key}:${randomUUID()}`,
+          },
+          select: { id: true },
+        })
+      ).id;
+    }
+    await seedComms(tx);
+  });
+  // Notes are written as their author (the admin scope's own admin).
+  await runInScope(owner, { kind: 'admin', adminUserId: fx.users.admin.id }, async (tx) => {
+    for (const key of ['noteEdit', 'noteRetract'] as const) {
+      auditRecords[key] = (
+        await tx.auditInvestigationNote.create({
+          data: {
+            auditLogId: auditRecords.event,
+            authorUserId: fx.users.admin.id,
+            body: 'Fake note',
+          },
+          select: { id: true },
+        })
+      ).id;
+    }
   });
   await owner.$disconnect();
+  await prepareSupport(fx);
+  await prepareBilling(fx);
   const env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',
@@ -132,6 +488,9 @@ beforeAll(async () => {
     // No mail server in tests: the invites and notices go nowhere.
     .overrideProvider(NOTIFY_SERVICE)
     .useValue({ send: () => Promise.resolve() })
+    // Support's files go to memory: no bucket in tests.
+    .overrideProvider(DOCUMENT_STORAGE)
+    .useValue(supportStorage)
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -154,8 +513,20 @@ afterAll(async () => {
   await app.close();
 });
 
-/** One token per person: a fresh one per call meets the dev token's rate limit as routes grow. */
+/**
+ * One token per person for the whole file: a token per call ran into the sign-in rate limit (429)
+ * once the admin site had more routes.
+ */
 const tokens = new Map<string, string>();
+async function tokenFor(email: string): Promise<string> {
+  const cached = tokens.get(email);
+  if (cached) return cached;
+  const { token } = (
+    await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email }).expect(200)
+  ).body as { token: string };
+  tokens.set(email, token);
+  return token;
+}
 
 async function call(
   method: 'get' | 'post' | 'put' | 'patch' | 'delete',
@@ -164,14 +535,7 @@ async function call(
   firm?: string,
   body?: object,
 ) {
-  let token = tokens.get(email);
-  if (!token) {
-    token = (
-      (await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email }).expect(200))
-        .body as { token: string }
-    ).token;
-    tokens.set(email, token);
-  }
+  const token = await tokenFor(email);
   const req = request(app.getHttpServer())[method](path).set('authorization', `Bearer ${token}`);
   const scoped = firm ? req.set('x-business-id', firm) : req;
   return body === undefined ? scoped : scoped.send(body);
@@ -210,14 +574,25 @@ describe('the admin site never opens a business scope', () => {
     for (const route of writes) {
       const key = `${route.method} ${route.path}`;
       const c = WRITES[key]!;
-      const values = {
-        businessId: fx.firmA.id,
-        id: c.item ? items[c.item]! : c.app ? applications[c.app]! : randomUUID(),
-      };
-      const path = fillPath(route.path, values);
+      const id = c.record
+        ? supportRecord(c.record)!
+        : c.auditRecord
+          ? auditRecords[c.auditRecord]
+          : c.comm
+            ? comms[c.comm]!
+            : c.item
+              ? items[c.item]!
+              : c.app
+                ? applications[c.app]!
+                : randomUUID();
+      const path = fillPath(route.path, { businessId: fx.firmA.id, id }) + (c.query ?? '');
       const method = route.method.toLowerCase() as 'post' | 'put' | 'patch' | 'delete';
+      const helpers: WriteHelpers = {
+        post: (p, b) => call('post', p, fx.users.admin.email, undefined, b),
+      };
+      const body = typeof c.body === 'function' ? await c.body(helpers) : c.body;
       const from = opens.length;
-      const res = await call(method, path, fx.users.admin.email, undefined, c.body);
+      const res = await call(method, path, fx.users.admin.email, undefined, body);
       expect(res.status, `${route.name} ${path} ${JSON.stringify(res.body)}`).toBeLessThan(400);
       const created = c.app ? await firmOf(applications[c.app]!) : null;
       for (const o of opens.slice(from)) {

@@ -74,9 +74,12 @@ Checked and fine:
 - [x] 1. Gap list (above).
 - [x] 2. Support contract: `packages/types/src/admin-support/` (`createAdminSupportClient`,
       `api.adminSupport`), the typed mock, client tests. Own PR from fresh `main`.
-- [ ] 3. Support API: `apps/api/src/admin-support/` under `/api/v1/admin/support`.
-- [ ] 4. Billing contract.
-- [ ] 5. Billing API.
+- [x] 3. Support API: `apps/api/src/admin-support/` under `/api/v1/admin/support`.
+- [ ] 3b. Support screens: switch `apps/web/src/app/admin/(console)/support/` to `api.adminSupport`
+  and finish them to the design (Rasel, Oct 19: R60 builds its own modules' screens).
+- [x] 4. Billing contract (notes: `R60-billing.md`).
+- [x] 5. Billing API.
+- [ ] 5b. Billing screens: switch `apps/web/src/app/admin/(console)/billing/` to `api.adminBilling`.
 - [ ] 6. Sales contract (Pipeline B5 + Sales Center D1).
 - [ ] 7. Sales API.
 - [ ] 8. Firm Settings Overview and Users API (contract already on main).
@@ -88,7 +91,17 @@ Checked and fine:
 
 - 2026-10-19: step 1, gap list (above). Scrum's correction: Support, Billing and Sales first.
 - 2026-10-19: step 2, the Super Admin Support contract (`packages/types/src/admin-support/`,
-  `createAdminSupportClient` as `api.adminSupport`, 12 client tests). Notes below.
+  `createAdminSupportClient` as `api.adminSupport`, 12 client tests). Notes below. PRs #867
+  (merged) and #870 (firm and contact fixed).
+- 2026-10-19: step 3, the Support API (`apps/api/src/admin-support/`, 32 routes): 10 unit tests,
+  26 e2e tests, the admin-scope sweep's writes (`test/isolation/admin-support-writes.ts`), and the
+  `support` scan prefix. Notes under "Support API (step 3)".
+- 2026-10-19: Support API PR #879 (CI green after one fix: the admin-scope case picks an active
+  priority). Billing contract PR #880 (two follow-ups on its branch: the email-only sends wait for
+  R6's templates; an estimate's phone is E.164).
+- 2026-10-19: step 5, the Billing API (`apps/api/src/admin-billing/`, 48 routes): 6 unit tests,
+  19 e2e tests and the admin-scope cases (`test/isolation/admin-billing-writes.ts`). Stacked on
+  #879 (the sweep's record and body hooks). Notes in `R60-billing.md`.
 
 ### Support contract (step 2)
 
@@ -145,7 +158,38 @@ tables set what is stored. Where they differ:
     wrong firm is closed and raised again. A new ticket is stored OPEN and moved to the form's
     status in the same transaction (the database starts every ticket OPEN).
 
+### Support API (step 3)
+
+14. **Admin scope only** (`AdminPrisma`): every read and write runs as the signed-in Super Admin;
+    no route opens a firm's scope. Audit rows are the platform's (`businessId: null`, the firm in
+    the metadata): ids, statuses and counts, never text or file names.
+15. **Lists and the summary** work over the 5,000 most recently active tickets the member may see
+    (VIEW_ALL, or VIEW_OWN = assigned to them), filtered, tabbed and searched in memory, because
+    the SLA state is worked out, not stored. Days in filters are the support time zone's.
+16. **Rules run when tickets are read** (summary, list, detail), at most every 30 s per API task,
+    one runner at a time (an advisory lock): SLA warning and breach once each (history rows), the
+    SLA breach escalation, the high-priority escalation once its time has passed since creation,
+    and reassignment (round robin) of a ticket its assignee has not acted on in time. Rule actions
+    are the System's. A scheduled job can call the same runner later.
+17. **Opening message:** the ticket's description is the first message (the admin scope can
+    write only STAFF messages), with the files added at creation.
+18. **Replies:** a reply sent to the client stops the response clock and sets the first response;
+    it is stored with `delivery_channel` PORTAL (kept replies: none). The firm's side reads every
+    message of its ticket (B2's policy), so the firm API must show only delivered ones. No email or
+    bell notification is sent yet (see Needs from others); the history records no notification.
+19. **Files:** sealed upload tokens (`fv-support-upload-v1`, admin pool, 15 minutes, one firm);
+    the action checks the stored bytes and deletes a refused file. GuardDuty results reach
+    `SupportFilesService.handle` through the scan router's new `support` prefix and are recorded in
+    platform scope (B2's scanner); `SCAN_MODE=local` marks a file clean at once in admin scope.
+
 ## Needs from others
+
+- **R6 (notify):** email templates for Support (`support.replied` to the firm's contact, Firmivra's
+  own sender), so a reply sent to the client also goes by email (`delivery_channel` EMAIL).
+- **R56 (notifications):** a producer for Support's bell items (new ticket, assignment,
+  escalation, SLA warning and breach) following `support_notification_rules`.
+- **R1 (infra):** files now land under `tenant/<firm>/support/` in the documents bucket (GuardDuty
+  scans all of `tenant/`); confirm the task role's S3 grant covers the prefix.
 
 - **R0 (Support, B2), small columns for what the settings page offers:** per-day opening hours
   (`support_settings` has one `opens_at` / `closes_at` for all working days), a `default_queue`

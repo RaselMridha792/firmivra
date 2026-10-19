@@ -1,9 +1,13 @@
 'use client';
 
-import { Card } from '@firmivra/ui';
+import type { IntakeFormKey } from '@firmivra/types';
+import { Card, IconCircle, type PortalTint } from '@firmivra/ui';
 import {
   ArrowRight,
+  BriefcaseBusiness,
+  Calculator,
   ChartColumn,
+  ChartNoAxesColumn,
   ClipboardCheck,
   CloudUpload,
   CreditCard,
@@ -11,11 +15,23 @@ import {
   Lightbulb,
   ListChecks,
   type LucideIcon,
+  UserRound,
+  Users,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ButtonLink } from '../../../../(public)/_components/button-link';
 import { FORMS } from './forms';
+
+/** Each card's icon and circle colour, measured from Intake form tab.png (R61). */
+const CARD_ICONS: Record<IntakeFormKey, { icon: LucideIcon; tint: PortalTint }> = {
+  ANNUAL_TAX: { icon: UserRound, tint: 'blue' },
+  QUARTERLY_TAX: { icon: BriefcaseBusiness, tint: 'peach' },
+  TAX_PLANNING: { icon: ChartNoAxesColumn, tint: 'mint' },
+  BOOKKEEPING: { icon: Calculator, tint: 'lavender' },
+  PAYROLL: { icon: Users, tint: 'rose' },
+  BUSINESS_DEVELOPMENT: { icon: Lightbulb, tint: 'blue' },
+};
 
 const primaryButton = 'min-h-9! px-2! py-1! text-xs! bg-firm-button! hover:bg-firm-button-hover!';
 
@@ -47,10 +63,7 @@ export function IntakeCards() {
     <div className="grid min-w-0 gap-4">
       <Card className="grid min-w-0 gap-4 bg-folder-surface!">
         <header className="flex flex-col gap-4 md:flex-row md:items-start">
-          <FileText
-            aria-hidden
-            className="size-16 shrink-0 rounded-full bg-surface p-4 text-firm-text"
-          />
+          <IconCircle icon={FileText} tint="blue" size="lg" />
           <div className="flex-1">
             <h1 className="font-display text-4xl font-bold text-heading md:text-5xl">
               Select an Intake Form
@@ -74,10 +87,7 @@ export function IntakeCards() {
             <IntakeFormOption key={form.path} form={form} slug={slug} />
           ))}
           <li className="col-span-full flex min-w-0 flex-col items-center gap-2 rounded-card border border-folder-border bg-surface p-3 text-center shadow-card sm:col-span-1">
-            <Lightbulb
-              aria-hidden
-              className="size-12 rounded-full bg-folder-surface p-3 text-firm-text"
-            />
+            <IconCircle icon={FileText} tint="slate" />
             <h2 className="flex-1 font-display text-base font-bold leading-tight text-heading">
               Other Tax Services Intake Form
             </h2>
@@ -96,10 +106,10 @@ export function IntakeCards() {
 }
 
 function IntakeFormOption({ form, slug }: { form: (typeof FORMS)[number]; slug: string }) {
-  const Icon = form.icon;
+  const { icon, tint } = CARD_ICONS[form.key];
   return (
     <li className="col-span-full flex min-w-0 flex-col items-center gap-2 rounded-card border border-folder-border bg-surface p-3 text-center shadow-card sm:col-span-1">
-      <Icon aria-hidden className="size-12 rounded-full bg-folder-surface p-3 text-firm-text" />
+      <IconCircle icon={icon} tint={tint} />
       <h2 className="flex-1 font-display text-base font-bold leading-tight text-heading">
         {form.title}
       </h2>
@@ -120,7 +130,7 @@ function IntakeOverview({ slug }: { slug: string }) {
     <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-4">
       <Card className="min-w-0 p-4! 2xl:col-span-2">
         <div className="mb-3 flex items-center gap-2">
-          <ClipboardCheck aria-hidden className="size-6 text-firm-text" />
+          <ClipboardCheck aria-hidden className="size-6 text-action" />
           <h2 className="flex-1 font-display text-lg font-bold text-heading">Your Next Steps</h2>
           <Link
             className="inline-flex items-center text-sm text-firm-accent underline"
@@ -151,7 +161,7 @@ function IntakeOverview({ slug }: { slug: string }) {
       </Card>
       <Card className="min-w-0 p-4!">
         <div className="mb-3 flex items-center gap-2">
-          <ChartColumn aria-hidden className="size-6 text-firm-text" />
+          <ChartColumn aria-hidden className="size-6 text-action" />
           <h2 className="flex-1 font-display text-lg font-bold text-heading">Service Progress</h2>
           <Link
             className="inline-flex items-center text-sm text-firm-accent underline"
