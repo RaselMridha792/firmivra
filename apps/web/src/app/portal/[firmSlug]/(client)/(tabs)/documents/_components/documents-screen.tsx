@@ -184,7 +184,7 @@ function DocumentTable({ slug, rows, firm }: { slug: string; rows: MyDocument[];
         d.status === 'READY' ? (
           <Button
             variant="ghost"
-            className="text-firm-text! underline"
+            className="text-action! underline"
             disabled={download.isPending}
             onClick={() => download.mutate(d.id)}
             aria-label={`Download ${d.fileName}`}
