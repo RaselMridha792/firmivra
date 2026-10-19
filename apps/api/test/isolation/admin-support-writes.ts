@@ -69,7 +69,10 @@ export async function prepareSupport(fx: Fixtures): Promise<void> {
   const tag = randomUUID().slice(0, 8);
   try {
     await runInScope(owner, { kind: 'platform' }, async (tx) => {
-      const priorities = await tx.supportPriority.findMany({ orderBy: { sortOrder: 'asc' } });
+      const priorities = await tx.supportPriority.findMany({
+        where: { isActive: true },
+        orderBy: { sortOrder: 'asc' },
+      });
       const categories = await tx.supportCategory.findMany({ where: { isActive: true }, take: 1 });
       refs.categoryId = categories[0]!.id;
       refs.priorityId = priorities[priorities.length - 1]!.id;
