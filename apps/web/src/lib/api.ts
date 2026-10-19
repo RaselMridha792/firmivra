@@ -1,6 +1,7 @@
 import {
   createAdminSupportAccessClient,
   createAdminSupportClient,
+  createAdminBillingClient,
   createAgreementsClient,
   createApiClient,
   createAppointmentsClient,
@@ -442,6 +443,8 @@ export const api = {
       : createAdminSupportAccessClient(request),
   /** Super Admin Support (R60 on R0's B2): tickets, Ticket Detail and Support Settings. Mock: mocks/admin-support.ts until the screens switch. */
   adminSupport: createAdminSupportClient(request),
+  /** Super Admin Billing (R60 on R0's B3): Firmivra bills firms. Mock: mocks/admin-billing.ts until the screens switch. */
+  adminBilling: createAdminBillingClient(request),
   /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
   notifications:
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
