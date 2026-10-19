@@ -1,11 +1,12 @@
 'use client';
 
-import { Avatar, Badge, Callout, Skeleton } from '@firmivra/ui';
+import { Badge, Callout, Skeleton } from '@firmivra/ui';
 import { ArrowLeft, GearSix, Info, LockSimple } from '@phosphor-icons/react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { NOT_LOADED } from '../../../_components/quiet-card';
 import { STATUS_LOOKS, longDate } from '../../_components/staff-parts';
+import { BigAvatar } from '../../_components/staff-side';
 import { useMember } from '../../_components/use-member';
 import { AccountButtons } from './account-buttons';
 import { Panel } from './panel';
@@ -55,7 +56,7 @@ export function SecurityShell({
               <LockSimple aria-hidden weight="fill" className="size-9" />
             </span>
             <div className="min-w-0">
-              <h1 data-testid="page-title" className="text-3xl font-bold text-heading">
+              <h1 data-testid="page-title" className="font-display text-4xl font-bold text-heading">
                 Staff Account Access &amp; Security
               </h1>
               <p className="text-base text-link">
@@ -67,9 +68,11 @@ export function SecurityShell({
             aria-hidden
             className="hidden items-center gap-5 text-xs tracking-brand text-heading uppercase xl:flex"
           >
-            <p className="flex flex-col gap-1 text-sm font-semibold">
-              <span>Secure people.</span>
-              <span>Stronger practices.</span>
+            <p className="flex flex-col gap-0.5 text-sm font-bold">
+              <span>Secure</span>
+              <span>people.</span>
+              <span>Stronger</span>
+              <span>practices.</span>
             </p>
             <span className="h-14 w-px bg-gold" />
             <p className="flex flex-col gap-1.5">
@@ -108,11 +111,13 @@ export function SecurityShell({
               <p className="rounded-lg bg-subtle p-4 text-sm text-muted">{failed ?? NOT_LOADED}</p>
             )
           ) : (
-            <div className="grid gap-4 md:grid-cols-3 md:divide-x md:divide-divider">
+            <div className="grid gap-4 md:grid-cols-[1.6fr_1fr_1fr] md:divide-x md:divide-divider">
               <div className="flex min-w-0 items-start gap-3">
-                <Avatar name={m.name} src={m.avatarUrl ?? undefined} size="xl" />
+                <BigAvatar name={m.name} src={m.avatarUrl} />
                 <div className="flex min-w-0 flex-col gap-1">
-                  <p className="text-xl font-bold break-words text-heading">{m.name}</p>
+                  <p className="font-display text-2xl font-bold break-words text-heading">
+                    {m.name}
+                  </p>
                   <span className="w-fit">
                     <Badge tone={STATUS_LOOKS[m.status].tone} dot>
                       {STATUS_LOOKS[m.status].label}
