@@ -33,8 +33,13 @@ test('Home opens the Intake Form tab and stays lit there', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(portal('/lvp/messages'));
   const menu = page.getByRole('navigation', { name: 'Main' });
+  await expect(menu.getByRole('link', { name: 'Messages' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
   await menu.getByRole('link', { name: 'Home' }).click();
-  await expect(page).toHaveURL(/\/lvp\/intake$/);
+  // The dev server compiles the /home redirect on its first visit.
+  await expect(page).toHaveURL(/\/lvp\/intake$/, { timeout: 60_000 });
   await expect(menu.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
   await expect(menu.getByRole('link', { name: 'Intake Forms' })).not.toHaveAttribute(
     'aria-current',
