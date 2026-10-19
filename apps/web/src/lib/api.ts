@@ -2,11 +2,13 @@ import {
   createAdminSupportAccessClient,
   createAdminSupportClient,
   createAdminBillingClient,
+  createAdminSalesClient,
   createAgreementsClient,
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
   createAdminAuditClient,
+  createAdminReportsClient,
   createAdminSettingsClient,
   createAuditLogClient,
   createAvailabilityClient,
@@ -22,8 +24,11 @@ import {
   createEngagementsClient,
   createEsignClient,
   createFirmApplicationsClient,
+  createAdminIntegrationsClient,
+  type AdminIntegrationsClient,
   createAdminNotificationsClient,
   createAdminCommunicationsClient,
+  createAdminBroadcastsClient,
   createIntakeFormsClient,
   createInvoicesClient,
   createLeadPipelineClient,
@@ -91,8 +96,10 @@ import {
   publicAgreementsMock,
 } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { adminIntegrations as adminIntegrationsMock } from '../mocks/admin-integrations';
 import { createAdminNotificationsMock } from '../mocks/admin-notifications-api';
 import { createAdminCommunicationsMock } from '../mocks/admin-communications-api';
+import { createAdminBroadcastsMock } from '../mocks/admin-broadcasts-api';
 import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
@@ -438,6 +445,8 @@ export const api = {
       : createAuditLogClient(request),
   /** Super Admin Audit & Security (R55): the cross-firm event log, alerts, notes and the security policy. Mock: mocks/admin-audit-security.ts until the screens switch. */
   adminAudit: createAdminAuditClient(request),
+  /** Super Admin Reports & Analytics (R55): overview, tabs, firm reports, the builder and saved reports. */
+  adminReports: createAdminReportsClient(request),
   /** Super Admin System Settings (R55): sections, branding, features, retention, maintenance, defaults. */
   adminSettings: createAdminSettingsClient(request),
   /** Support access (R8): Firmivra Support's requests to the firm; Owner and Admin read, an Owner decides. */
@@ -454,6 +463,8 @@ export const api = {
   adminSupport: createAdminSupportClient(request),
   /** Super Admin Billing (R60 on R0's B3): Firmivra bills firms. Mock: mocks/admin-billing.ts until the screens switch. */
   adminBilling: createAdminBillingClient(request),
+  /** Super Admin Sales (R60 on R0's B5 and D1): the Sales Center and the pipeline. Mock: mocks/admin-sales.ts until the screens switch. */
+  adminSales: createAdminSalesClient(request),
   /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
   notifications:
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
@@ -467,11 +478,25 @@ export const api = {
     dev && mocked('firmApplications')
       ? createFirmApplicationsMock()
       : createFirmApplicationsClient(request),
+  /**
+   * Super Admin integrations (R56 on R0's B8), part 1: dashboard, platform integrations, catalog.
+   * Mock mode uses Tumit's mock as it is; its local types are a little wider than the contract
+   * (see the mapping in docs/work/R56-super-admin-api.md), hence the cast until the screens switch.
+   */
+  adminIntegrations:
+    dev && mocked('adminIntegrations')
+      ? (adminIntegrationsMock as unknown as AdminIntegrationsClient)
+      : createAdminIntegrationsClient(request),
   /** Super Admin communications (R56 on R0's B6): the inbox, New Message, templates. */
   adminCommunications:
     dev && mocked('adminCommunications')
       ? createAdminCommunicationsMock()
       : createAdminCommunicationsClient(request),
+  /** Super Admin broadcasts, audiences and files (R56 on R0's B6). Same mock key as the inbox. */
+  adminBroadcasts:
+    dev && mocked('adminCommunications')
+      ? createAdminBroadcastsMock()
+      : createAdminBroadcastsClient(request),
   /** Super Admin notifications (R56 on R0's B1): the member's notification center and bell. */
   adminNotifications:
     dev && mocked('adminNotifications')
