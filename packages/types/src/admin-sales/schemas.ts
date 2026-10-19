@@ -1341,10 +1341,6 @@ export type SalesLinkableSubscription = z.infer<typeof SalesLinkableSubscription
 export const SalesSubscriptionList = z.object({ items: z.array(SalesLinkableSubscription) });
 export type SalesSubscriptionList = z.infer<typeof SalesSubscriptionList>;
 
-/** Start 14-Day Trial: a trial is a firm's platform subscription (422 NOT_SUPPORTED_YET now). */
-export const StartSalesTrialRequest = z.strictObject({ planId: Id });
-export type StartSalesTrialRequest = z.input<typeof StartSalesTrialRequest>;
-
 /** Log Outreach: a call, email, text or meeting, as the signed-in member. Insert-only. */
 export const LogSalesActivityRequest = z
   .strictObject({
