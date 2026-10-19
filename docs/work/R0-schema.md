@@ -259,27 +259,22 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
    - Then the screens: every widget built, empty states rather than fake data, three-state screenshots at 1440 px, and `docs/design-match.md`.
 3. **No more demo seed groups.** The demo data gets replaced later, and nobody reseeds dev now (R1 has been told).
 
-**Open PRs (Oct 19, ~16:30Z):**
-- **#888: Business Advisory overview and module shell.** In review.
-- **#899: MRR history** (`20261019050000_r0_mrr_history`). Main is merged in (D4).
-  - The drift check on a fresh database is empty; `platform-mrr`, `platform-legal` and `seed` pass (12 tests).
-  - It needs Rasel's yes.
-- **#897: contract** (does not count toward the 2):
-  - `ApiRequestError.details`: the API's `{ path, message }` lines.
-  - `GET /business/advisory/reports` (`api.advisory.reports`).
-  - Mock changes: reports; PLAN_NOT_READY details; Staff may view figures and send, as the API's `permsOf`; the delivery channel stored lower-case.
+**Open PRs (Oct 19, ~17:15Z):**
+- **#899: MRR history.** Green; waits for Rasel's own merge (packages/db).
+- **#908: Business Advisory clients, plans and goals tabs.**
+  - Main is merged in. The spec has 6 tests, and errors show the API's "Still needed" lines.
 - **#875:** this handoff.
-- **Merged today:** #868, #871, #883 and #885 (D4).
+- **Merged today:**
+  - #868, #871, #883 and #885 (D4)
+  - #888 (advisory overview)
+  - #897 (reports contract and error details)
 
-**Pushed, waiting for a slot (at most 2 open; #888 and #899 hold them now):**
-- **`rasel/R0-advisory-lists`** (`df129fd9`, stacked on #888): the Clients, Plans and Goals tabs. Open it after #888 merges, merging main first.
-- **`rasel/R0-advisory-reports-api`** (`0753eb8d`, on #897's branch): the reports endpoint (`advisory-reports.service.ts`) and its e2e test (6). The 20 advisory e2e tests still pass.
-  - No isolation case is needed: the route takes no ids, and the sweep covers firm routes.
-  - Open it after a slot frees and #897 merges.
+**Pushed, waiting for a slot:** `rasel/R0-advisory-reports-api` (`945df5a1`, main merged in): the reports endpoint and its e2e test (6). Its diff against main is the five API files. Open it when #899 or #908 merges.
 
-**Scrum answers (Oct 19, ~15:30Z):**
-- Reports go through the advisory module's own endpoint (done above); don't touch the reports module.
-- The web client keeps error details (done in #897). Show them in the plans list and the wizard's Review step once #897 merges.
+**Next:**
+1. List tabs 2b: Financial Analysis, Action Plans, Resources, and Reports (on `api.advisory.reports`).
+2. The plan wizard; its Review step shows the PLAN_NOT_READY details.
+3. The client detail (11 tabs).
 
 **Business Advisory (item 2), started Oct 19:**
 - The API and contract already exist on main (R55, `de509806`: `apps/api/src/advisory/`, `packages/types/src/advisory/`).
