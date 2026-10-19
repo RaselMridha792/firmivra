@@ -24,6 +24,26 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** A file kept for staffMembership, still waiting for its scan. */
+  staffDocument: {
+    async create({ tx, businessId, get }) {
+      const membershipId = await get('staffMembership');
+      const row = await tx.staffDocument.create({
+        data: {
+          businessId,
+          membershipId,
+          type: 'W4',
+          fileName: 'Fake W-4.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 9,
+          sha256: 'a'.repeat(64),
+          s3Key: `tenant/${businessId}/staff/${membershipId}/${randomUUID()}`,
+        },
+        select: { id: true },
+      });
+      return row.id;
+    },
+  },
   /** Another active member: a supervisor, or the grid to copy from. */
   staffSupervisor: {
     async create({ tx, businessId, person }) {
@@ -150,6 +170,37 @@ export const cases: CaseModule['cases'] = {
     body: { confirm: true },
   },
   [`POST ${BASE}/:id/reset-mfa`]: { params: { id: 'staffMembership' }, body: { confirm: true } },
+  [`GET ${BASE}/:id/documents`]: { params: { id: 'staffMembership' } },
+  [`POST ${BASE}/:id/documents/uploads`]: {
+    params: { id: 'staffMembership' },
+    bodyIds: { replacesId: 'staffDocument' },
+    body: {
+      type: 'W4',
+      fileName: 'Fake W-4.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 9,
+      sha256: 'b'.repeat(64),
+      replacesId: PLACEHOLDER,
+    },
+  },
+  // Found, but the token opens nothing: 410 UPLOAD_EXPIRED.
+  [`POST ${BASE}/:id/documents/uploads/confirm`]: {
+    params: { id: 'staffMembership' },
+    body: { uploadToken: 'fake-upload-token' },
+    expect: 410,
+  },
+  // Found, but still being scanned.
+  [`GET ${BASE}/:id/documents/:docId/download`]: {
+    params: { id: 'staffMembership', docId: 'staffDocument' },
+    expect: 409,
+  },
+  [`PATCH ${BASE}/:id/documents/:docId`]: {
+    params: { id: 'staffMembership', docId: 'staffDocument' },
+    body: { type: 'NDA' },
+  },
+  [`POST ${BASE}/:id/documents/:docId/archive`]: {
+    params: { id: 'staffMembership', docId: 'staffDocument' },
+  },
   ['GET /api/v1/business/staff-drafts/:id']: { params: { id: 'staffDraft' } },
   ['PUT /api/v1/business/staff-drafts/:id']: {
     params: { id: 'staffDraft' },

@@ -13,6 +13,8 @@ import { AgreementScanHandler } from '../../src/agreements/agreement-scan-handle
 import type { AgreementFilesService } from '../../src/agreements/agreement-files.service.js';
 import { LeadScanHandler } from '../../src/begin-online/lead-scan-handler.js';
 import { EsignScanHandler } from '../../src/esign/esign-scan-handler.js';
+import type { StaffDocumentsService } from '../../src/staff/staff-documents.service.js';
+import { StaffScanHandler } from '../../src/staff/staff-scan-handler.js';
 import { ORPHAN_AFTER_MS } from '../../src/storage/document-scan-handler.js';
 import {
   type InFirm,
@@ -107,6 +109,7 @@ describe('registration', () => {
     ['leads', () => leads()],
     ['esign', () => esign()],
     ['agreements', () => new AgreementScanHandler(asRouter(), {} as AgreementFilesService)],
+    ['staff', () => new StaffScanHandler(asRouter(), {} as StaffDocumentsService)],
   ] as const)('%s registers itself with the router on start', (prefix, make) => {
     const handler = make();
     expect(handler.prefix).toBe(prefix);
