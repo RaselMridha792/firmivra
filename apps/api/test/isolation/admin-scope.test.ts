@@ -32,6 +32,7 @@ import {
 import { prepareSettings, settingsParams, settingsWrites } from './admin-settings-writes.js';
 import { prepareReports, reportsWrites } from './admin-reports-writes.js';
 import { billingWrites, prepareBilling } from './admin-billing-writes.js';
+import { prepareSubscriptions, subscriptionsWrites } from './admin-subscriptions-writes.js';
 import { integrationsWrites, prepareIntegrations } from './admin-integrations-writes.js';
 import { apiRoutes, fillPath } from './routes.js';
 
@@ -259,6 +260,7 @@ const WRITES: Record<
   ...settingsWrites(fx),
   ...reportsWrites(),
   ...billingWrites(fx),
+  ...subscriptionsWrites(),
   ...integrationsWrites(fx),
 };
 
@@ -527,6 +529,7 @@ beforeAll(async () => {
   await prepareSettings(fx);
   await prepareReports(fx);
   await prepareBilling(fx);
+  await prepareSubscriptions(fx);
   await prepareIntegrations(fx);
   const env = loadEnv({
     ...process.env,
