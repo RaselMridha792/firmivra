@@ -280,7 +280,7 @@ export function QuickLinks({
       <h2 className="mb-2 font-display text-2xl font-bold text-heading">Quick Links</h2>
       <ul
         className={
-          businessLayout ? 'grid grid-cols-2 gap-2 2xl:grid-cols-4' : 'divide-y divide-border'
+          businessLayout ? 'grid grid-cols-2 gap-2 xl:grid-cols-4' : 'divide-y divide-border'
         }
       >
         {quickLinks(slug).map(([Icon, title, description, href]) => (
