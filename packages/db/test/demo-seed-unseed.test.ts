@@ -169,6 +169,17 @@ describe('demo seed and unseed', () => {
         'firm_application_status_history',
         'client_tax_statuses',
         'content_items',
+        'task_types',
+        'task_templates',
+        'task_series',
+        'task_occurrences',
+        'task_checklist_items',
+        'task_assignees',
+        'task_reminders',
+        'task_attachments',
+        'tags',
+        'client_tags',
+        'lead_tags',
       ]) {
         expect(first[table], table).toBeGreaterThan(0);
       }
