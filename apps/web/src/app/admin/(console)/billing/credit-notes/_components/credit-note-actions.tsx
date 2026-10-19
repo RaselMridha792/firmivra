@@ -11,7 +11,7 @@ import {
   Receipt,
 } from '@phosphor-icons/react';
 import { useState, type ReactNode } from 'react';
-import { adminBilling, type BillingCreditNote } from '../../../../../../mocks/admin-billing';
+import { type BillingCreditNote } from '../../../../../../mocks/admin-billing';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
 import { ApplyCreditModal } from '../../_components/billing-actions';
@@ -19,6 +19,7 @@ import { formatMoney, saveFile } from '../../_components/billing-format';
 import { BILLING_ERRORS } from '../../_components/billing-labels';
 import type { Notice } from '../../_components/billing-parts';
 import { RefundCreditModal, VoidCreditModal } from './credit-note-dialogs';
+import { adminBilling } from '../../_components/billing-api';
 
 /**
  * What a credit note can do (docx §13.2): Apply to Invoice, Refund Remaining Balance, Download

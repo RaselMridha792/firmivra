@@ -140,7 +140,11 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
   const { business, branding } = usePortal();
   const { me, signOut } = useMe();
   const pathname = usePathname();
-  const documentsPage = pathname === `/${slug}/documents`;
+  // The first name in the greeting: the firm's button blue on the Business, My Uploaded Documents,
+  // Tax Returns and Receipts & Invoices tabs, its accent elsewhere (the tab designs, R61).
+  const blueName = ['business', 'documents', 'taxes', 'invoices'].some(
+    (page) => pathname === `/${slug}/${page}`,
+  );
   const [drawer, setDrawer] = useState(false);
   // A failed check only hides the menu line.
   const signatures = useApiQuery(['my-signatures-status', slug], () =>
@@ -242,7 +246,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
               <>
                 <p className="font-display text-xl font-bold text-heading md:text-3xl">
                   Welcome Back,{' '}
-                  <span className={documentsPage ? 'text-firm-text' : 'text-link'}>
+                  <span className={blueName ? 'text-action' : 'text-link'}>
                     {me.user.name.split(' ')[0]}
                   </span>
                   !

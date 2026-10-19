@@ -68,7 +68,7 @@ function NoteForm({ slug, note }: { slug: string; note: MyNote | null }) {
         onChange={(e) => setBody(e.target.value)}
       />
       <Checkbox
-        label="Set a reminder"
+        label="Set as reminder"
         className="[&_input]:accent-firm-primary"
         checked={remind}
         onChange={(e) => setRemind(e.target.checked)}

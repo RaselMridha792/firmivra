@@ -103,9 +103,10 @@ export function formatBytes(bytes: number): string {
 
 /** The address as lines: street, suite, "City, ST 12345". */
 export function addressLines(address: BillingAddress): string[] {
-  return [address.line1, address.line2, `${address.city}, ${address.state} ${address.zip}`].filter(
-    Boolean,
-  );
+  const place = [address.city, [address.state, address.zip].filter(Boolean).join(' ')]
+    .filter(Boolean)
+    .join(', ');
+  return [address.line1, address.line2, place].filter(Boolean);
 }
 
 /** Hands a downloaded file to the browser. */

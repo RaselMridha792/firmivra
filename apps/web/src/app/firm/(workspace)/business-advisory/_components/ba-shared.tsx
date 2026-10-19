@@ -1,7 +1,23 @@
+import { ApiRequestError } from '@firmivra/types';
 import { Badge } from '@firmivra/ui';
-import { ArrowRight, CheckCircle, type Icon } from '@phosphor-icons/react';
+import {
+  ArrowRight,
+  Bank,
+  Buildings,
+  ChartBar,
+  ChartLineUp,
+  CheckCircle,
+  FileText,
+  Globe,
+  HandCoins,
+  PaintBrush,
+  PlayCircle,
+  TrendUp,
+  type Icon,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { errorMessage } from '../../../../../lib/errors';
 
 /** Every query of the Business Advisory module starts here: a change in one view refreshes the others. */
 export const BA_KEY = ['business-advisory'] as const;
@@ -73,6 +89,86 @@ export const GoalStatusPill = pill(GOAL_STATUS, {
   CANCELLED: 'neutral',
 });
 
+/** The resource library's categories (apps/api/src/advisory/catalog.ts), each with its icon. */
+export const RESOURCE_ICON: Record<string, Icon> = {
+  'Formation / EIN': Buildings,
+  Branding: PaintBrush,
+  Website: Globe,
+  Banking: Bank,
+  Funding: HandCoins,
+  'Business Planning': FileText,
+  'Market Research': ChartBar,
+  'Financial Management': ChartLineUp,
+  'Growth / Operations': TrendUp,
+  Education: PlayCircle,
+};
+
+export const REC_STATUS: Record<string, string> = {
+  PROPOSED: 'Proposed',
+  ACCEPTED: 'Accepted',
+  IN_PROGRESS: 'In Progress',
+  IMPLEMENTED: 'Implemented',
+  NOT_APPLICABLE: 'Not Applicable',
+  DECLINED: 'Declined',
+};
+export const RecStatusPill = pill(REC_STATUS, {
+  PROPOSED: 'info',
+  ACCEPTED: 'purple',
+  IN_PROGRESS: 'success',
+  IMPLEMENTED: 'success',
+  NOT_APPLICABLE: 'neutral',
+  DECLINED: 'danger',
+});
+
+export const ACTION_STATUS: Record<string, string> = {
+  NOT_STARTED: 'Not Started',
+  IN_PROGRESS: 'In Progress',
+  DONE: 'Done',
+  CANCELLED: 'Cancelled',
+};
+export const ActionStatusPill = pill(ACTION_STATUS, {
+  NOT_STARTED: 'neutral',
+  IN_PROGRESS: 'info',
+  DONE: 'success',
+  CANCELLED: 'neutral',
+});
+
+export const PRIORITY: Record<string, string> = { HIGH: 'High', NORMAL: 'Normal', LOW: 'Low' };
+export function PriorityPill({ priority }: { priority: string }) {
+  return (
+    <Badge tone={priority === 'HIGH' ? 'danger' : priority === 'NORMAL' ? 'info' : 'neutral'}>
+      {PRIORITY[priority] ?? priority}
+    </Badge>
+  );
+}
+
+export const ASSIGNEE_KIND: Record<string, string> = {
+  STAFF: 'Staff',
+  CLIENT: 'Client',
+  TEAM: 'Team',
+};
+export const SOURCE: Record<string, string> = {
+  MANUAL: 'Manual',
+  BOOKKEEPING: 'Bookkeeping',
+  PAYROLL: 'Payroll',
+  BANK: 'Bank / Integration',
+  UPLOADED: 'Uploaded',
+};
+export const RESOURCE_KIND: Record<string, string> = {
+  PDF: 'PDF',
+  CHECKLIST: 'Checklist',
+  GUIDE: 'Guide',
+  TEMPLATE: 'Template',
+  VIDEO: 'Video',
+  LINK: 'Link',
+};
+
+/** "$1,250" typed in a field to cents; undefined when empty, NaN when not a number. */
+export const centsOf = (v: string): number | undefined => {
+  const t = v.replace(/[$,\s]/g, '');
+  return t === '' ? undefined : Math.round(Number(t) * 100);
+};
+
 export const AREA_LABEL: Record<string, string> = {
   REVENUE_GROWTH: 'Revenue Growth',
   PROFITABILITY: 'Profitability',
@@ -85,6 +181,17 @@ export const AREA_LABEL: Record<string, string> = {
   FINANCIAL_MANAGEMENT: 'Financial Management',
 };
 
+/** Free text in the API (max 60); these are the plan types the screens offer. */
+export const PLAN_TYPES = [
+  'Growth Plan',
+  'Startup Plan',
+  'Expansion Plan',
+  'Funding Plan',
+  'Operations Plan',
+  'Turnaround Plan',
+  'Exit Plan',
+];
+
 /** Free text in the API (max 60); these are the stages the screens offer. */
 export const BUSINESS_STAGES = ['Startup', 'Growth', 'Established', 'Expansion', 'Transition'];
 
@@ -93,7 +200,7 @@ export const BA_ERRORS: Record<string, string> = {
   DUPLICATE_SERVICE: 'This service is on the client already.',
   SAVE_CONFLICT: 'Someone saved this after you opened it. Reload and try again.',
   INVALID_STATUS: 'That does not fit the current status.',
-  PLAN_NOT_READY: 'The plan is not ready yet. Check what is missing.',
+  PLAN_NOT_READY: 'The plan is not ready yet.',
   PLAN_ARCHIVED: 'Restore the plan before changing it.',
   INCONSISTENT_FIGURES: 'Net profit must be revenue minus expenses.',
   OVERRIDE_NOT_ALLOWED: 'Replacing figures from a source needs an override reason.',
@@ -103,6 +210,16 @@ export const BA_ERRORS: Record<string, string> = {
   NOT_THIS_CLIENT: 'That plan, goal or service belongs to another client.',
   FORBIDDEN: 'Your role cannot do this.',
 };
+
+/**
+ * What went wrong, for a toast or a dialog: the code's message, then the API's details lines
+ * ("Still needed: Add at least one goal to the plan; Add the financial figures.").
+ */
+export function errorText(error: unknown): string {
+  const text = errorMessage(error, BA_ERRORS);
+  const lines = error instanceof ApiRequestError ? (error.details ?? []).map((d) => d.message) : [];
+  return lines.length ? `${text} Still needed: ${lines.join('; ')}.` : text;
+}
 
 /** A goal's or milestone's progress: the bar and its percent. */
 export function ProgressBar({ value, label }: { value: number; label: string }) {
