@@ -17,22 +17,22 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
-import { PageState } from '../../../../../../../../components/page-state';
+import { ADMIN_COMM_BROADCAST_ERRORS } from '@firmivra/types';
+import { useQueryClient } from '@tanstack/react-query';
+import { api } from '../../../../../../../../lib/api';
+import { errorMessage } from '../../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../../lib/query';
-import {
-  getBroadcastReview,
-  type BroadcastReviewFixture,
-} from '../../../../../../../../mocks/admin-communications-review';
-import { MessagePreview } from './message-preview';
+import { readBroadcastDraft, stepHref } from '../../_components/broadcast-draft';
+import { MessagePreview, type ReviewChannel, type ReviewView } from './message-preview';
 
 const basePath = '/communications/broadcasts/new';
 const steps = [
-  { label: 'Basic Information', description: 'Set up your broadcast', href: basePath },
-  { label: 'Audience', description: 'Choose recipients', href: `${basePath}/audience` },
-  { label: 'Message', description: 'Create your content', href: `${basePath}/message` },
-  { label: 'Review & Send', description: 'Confirm and send', href: `${basePath}/review` },
+  { label: 'Basic Information', description: 'Set up your broadcast', step: '' as const },
+  { label: 'Audience', description: 'Choose recipients', step: 'audience' as const },
+  { label: 'Message', description: 'Create your content', step: 'message' as const },
+  { label: 'Review & Send', description: 'Confirm and send', step: 'review' as const },
 ];
-const channels: { id: BroadcastReviewFixture['channels'][number]; label: string; icon: Icon }[] = [
+const channels: { id: ReviewChannel; label: string; icon: Icon }[] = [
   { id: 'EMAIL', label: 'Email', icon: EnvelopeSimple },
   { id: 'SMS', label: 'SMS', icon: ChatCircleDots },
   { id: 'IN_APP', label: 'In-App', icon: Bell },
@@ -40,14 +40,18 @@ const channels: { id: BroadcastReviewFixture['channels'][number]; label: string;
 const softButton = 'border-transparent! bg-info-soft! text-link! hover:bg-folder-hover!';
 
 // The shared Stepper does not support the reference's descriptions and connecting lines.
-function ReviewProgress() {
+function ReviewProgress({ broadcastId }: { broadcastId?: string }) {
   return (
     <nav aria-label="Broadcast creation progress" className="py-1 lg:px-8">
       <ol className="grid grid-cols-2 gap-x-4 gap-y-5 lg:flex lg:gap-3">
         {steps.map((step, index) => (
           <li key={step.label} className="flex min-w-0 flex-1 items-center gap-3">
             <Link
-              href={step.href}
+              href={
+                broadcastId
+                  ? stepHref(step.step, broadcastId)
+                  : `${basePath}${step.step ? `/${step.step}` : ''}`
+              }
               aria-current={index === 3 ? 'step' : undefined}
               className="flex min-w-0 items-center gap-3 rounded-control focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
             >
@@ -143,41 +147,127 @@ function ReviewSection({
   );
 }
 
-export function ReviewScreen() {
+const when = (iso: string, zone: string | null) =>
+  new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    ...(zone ? { timeZone: zone } : {}),
+  }).format(new Date(iso)) + (zone ? ` (${zone})` : '');
+
+/** Step 4 of the broadcast `?id=`: test, send now or schedule (B6's lifecycle). */
+export function ReviewScreen({ broadcastId }: { broadcastId?: string }) {
   const router = useRouter();
-  const query = useApiQuery(['admin-communications', 'broadcast-review'], getBroadcastReview);
-  const review = query.isError ? null : (query.data ?? null);
+  const client = useQueryClient();
+  const query = useApiQuery(
+    ['admin-communications', 'broadcasts', 'one', broadcastId ?? 'new'],
+    () => (broadcastId ? api.adminBroadcasts.broadcasts.get(broadcastId) : Promise.resolve(null)),
+  );
+  const broadcast = query.data ?? null;
+  const segmentId = broadcast?.segment?.id ?? '';
+  const count = useApiQuery(['admin-communications', 'segment-count', segmentId || 'none'], () =>
+    segmentId ? api.adminBroadcasts.segments.count(segmentId) : Promise.resolve(null),
+  );
+  const categories = useApiQuery(['admin-communications', 'categories'], () =>
+    api.adminCommunications.categories.list(),
+  );
+  const draft = broadcastId ? readBroadcastDraft(broadcastId) : null;
+  const review: ReviewView | null = broadcast
+    ? {
+        name: broadcast.name,
+        category: categories.data?.items.find((c) => c.id === draft?.category)?.name ?? '',
+        description: draft?.description ?? '',
+        createdBy: broadcast.createdBy?.name ?? 'Firmivra',
+        audience: broadcast.segment?.name ?? '',
+        recipients: count.data?.total ?? null,
+        filters: '',
+        uploadedList: '',
+        channels: broadcast.channels.map((c) => c.channel),
+        messageSummary: broadcast.channels[0]
+          ? (broadcast.channels[0].subject ?? broadcast.channels[0].body).slice(0, 160)
+          : '',
+        scheduledLabel: broadcast.scheduledAt
+          ? when(broadcast.scheduledAt, broadcast.scheduledTimeZone)
+          : 'Send immediately',
+        contents: Object.fromEntries(
+          broadcast.channels.map((c) => [c.channel, { subject: c.subject, body: c.body }]),
+        ),
+      }
+    : null;
+  const editable = broadcast?.status === 'DRAFT' || broadcast?.status === 'SCHEDULED';
   const [previewChannel, setPreviewChannel] = useState('EMAIL');
   const [dialog, setDialog] = useState<'send' | 'schedule' | null>(null);
   const [scheduleInput, setScheduleInput] = useState('');
   const [scheduleError, setScheduleError] = useState('');
-  const [scheduleLabel, setScheduleLabel] = useState('');
   const [notice, setNotice] = useState('');
-  const canSend = Boolean(review?.name && review.recipients > 0 && review.channels.length);
-  const recipientCount = review?.recipients.toLocaleString('en-US') ?? '0';
+  const [busy, setBusy] = useState(false);
+  const canSend = Boolean(
+    editable && review?.name && review.audience && review.channels.length && review.recipients,
+  );
+  const recipientCount = review?.recipients?.toLocaleString('en-US') ?? '—';
   const selectedChannels = channels.filter((channel) => review?.channels.includes(channel.id));
   const channelLabel = selectedChannels.map((channel) => channel.label).join(', ');
+  const go = (step: '' | 'audience' | 'message') =>
+    router.push(broadcastId ? stepHref(step, broadcastId) : basePath);
 
   function openSchedule() {
     setScheduleError('');
     setDialog('schedule');
   }
 
-  function confirmPreview() {
+  async function run(work: () => Promise<unknown>, done: string, leave = true) {
+    setBusy(true);
+    try {
+      await work();
+      await client.invalidateQueries({ queryKey: ['admin-communications', 'broadcasts'] });
+      setNotice(done);
+      setDialog(null);
+      if (leave) router.push('/communications/broadcasts');
+    } catch (error) {
+      setNotice(errorMessage(error, ADMIN_COMM_BROADCAST_ERRORS));
+      setDialog(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirm() {
+    if (!broadcastId) return;
     if (dialog === 'schedule') {
       const date = new Date(scheduleInput);
       if (!scheduleInput || !Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) {
         setScheduleError('Choose a future date and time.');
         return;
       }
-      setScheduleLabel(
-        new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(date),
+      void run(
+        () =>
+          api.adminBroadcasts.broadcasts.schedule(broadcastId, {
+            scheduledAt: date.toISOString(),
+            scheduledTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          }),
+        'Broadcast scheduled.',
       );
-      setNotice('Schedule preview updated. No broadcast has been scheduled.');
-    } else {
-      setNotice('Send preview complete. No messages were sent.');
-    }
-    setDialog(null);
+    } else
+      void run(
+        () =>
+          api.adminBroadcasts.broadcasts.send(broadcastId, {
+            idempotencyKey: crypto.randomUUID(),
+          }),
+        'Broadcast is going out now.',
+      );
+  }
+
+  function sendTest() {
+    if (!broadcastId || !review?.channels.length) return;
+    void run(
+      async () => {
+        const sent = await api.adminBroadcasts.broadcasts.test(broadcastId, {
+          channels: review.channels,
+        });
+        setNotice(`Test sent to ${sent.sentTo.join(', ')}.`);
+      },
+      'Test sent.',
+      false,
+    );
   }
 
   return (
@@ -196,15 +286,20 @@ export function ReviewScreen() {
         />
       </header>
 
-      <ReviewProgress />
+      <ReviewProgress broadcastId={broadcastId} />
 
-      <PageState
-        query={query}
-        empty="No broadcast to review yet. Complete the previous steps to get started."
-        isEmpty={(data) => data === null}
-      >
-        {() => null}
-      </PageState>
+      {query.isError || !broadcastId || (broadcast && !editable) ? (
+        <p
+          role={query.isError ? 'alert' : 'status'}
+          className={`rounded-control px-3 py-2 text-sm ${query.isError ? 'bg-danger-soft text-danger' : 'bg-info-soft text-heading'}`}
+        >
+          {query.isError
+            ? errorMessage(query.error, ADMIN_COMM_BROADCAST_ERRORS)
+            : !broadcastId
+              ? 'No broadcast to review yet. Complete the previous steps to get started.'
+              : 'This broadcast can no longer change: its details are shown as they were sent.'}
+        </p>
+      ) : null}
 
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-10">
         <Card className="min-w-0 space-y-4 p-3! shadow-none! sm:p-5! xl:col-span-7">
@@ -221,18 +316,15 @@ export function ReviewScreen() {
             <Button
               variant="secondary"
               className={softButton}
-              onClick={() => router.push(basePath)}
+              disabled={!editable}
+              onClick={() => go('')}
             >
               <ArrowLeft aria-hidden weight="bold" className="size-4" />
               Edit Details
             </Button>
           </div>
 
-          <ReviewSection
-            title="Basic Information"
-            icon={FileText}
-            onEdit={() => router.push(basePath)}
-          >
+          <ReviewSection title="Basic Information" icon={FileText} onEdit={() => go('')}>
             <dl className="grid gap-x-6 gap-y-3 pb-1 sm:grid-cols-2">
               <Detail label="Broadcast Name" value={review?.name} />
               <Detail label="Category" value={review?.category} />
@@ -241,28 +333,20 @@ export function ReviewScreen() {
             </dl>
           </ReviewSection>
 
-          <ReviewSection
-            title="Audience"
-            icon={UsersThree}
-            onEdit={() => router.push(`${basePath}/audience`)}
-          >
+          <ReviewSection title="Audience" icon={UsersThree} onEdit={() => go('audience')}>
             <dl className="grid gap-x-6 gap-y-3 pb-1 sm:grid-cols-2">
               <Detail label="Selected Audience" value={review?.audience} />
               <Detail label="Additional Filters" value={review?.filters} />
               <Detail
                 label="Recipients"
-                value={review ? `${recipientCount} clients` : undefined}
+                value={review ? `${recipientCount} recipients` : undefined}
                 muted
               />
               <Detail label="Uploaded List" value={review?.uploadedList} muted />
             </dl>
           </ReviewSection>
 
-          <ReviewSection
-            title="Message Content"
-            icon={ChatCircleDots}
-            onEdit={() => router.push(`${basePath}/message`)}
-          >
+          <ReviewSection title="Message Content" icon={ChatCircleDots} onEdit={() => go('message')}>
             <div className="flex flex-wrap items-start gap-4 pb-1 @xl:pr-64">
               <dl className="min-w-0 flex-1 basis-64 space-y-3">
                 <div>
@@ -298,11 +382,11 @@ export function ReviewScreen() {
             <dl className="grid gap-x-6 gap-y-3 pb-1 sm:grid-cols-2">
               <Detail
                 label="Send"
-                value={review ? (scheduleLabel ? 'Scheduled' : 'Immediately') : undefined}
+                value={review ? (broadcast?.scheduledAt ? 'Scheduled' : 'Immediately') : undefined}
               />
               <Detail
                 label="Date & Time"
-                value={review ? scheduleLabel || review.scheduledLabel : undefined}
+                value={review ? review.scheduledLabel : undefined}
                 muted
               />
             </dl>
@@ -344,18 +428,31 @@ export function ReviewScreen() {
                 </p>
               </div>
             </div>
-            <Button className="w-full" disabled={!canSend} onClick={() => setDialog('send')}>
+            <Button
+              className="w-full"
+              disabled={!canSend || busy}
+              onClick={() => setDialog('send')}
+            >
               <PaperPlaneTilt aria-hidden weight="fill" className="size-5" />
               Send Now
             </Button>
             <Button
               variant="secondary"
               className={`${softButton} w-full`}
-              disabled={!canSend}
+              disabled={!canSend || busy}
               onClick={openSchedule}
             >
               <CalendarBlank aria-hidden weight="fill" className="size-5" />
-              Schedule for Later
+              {broadcast?.status === 'SCHEDULED' ? 'Reschedule' : 'Schedule for Later'}
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              disabled={!editable || !review?.channels.length || busy}
+              onClick={sendTest}
+            >
+              <PaperPlaneTilt aria-hidden weight="bold" className="size-5" />
+              Send a Test to Me
             </Button>
             <p role="status" className="empty:hidden text-sm text-muted">
               {notice}
@@ -368,14 +465,14 @@ export function ReviewScreen() {
         open={dialog !== null}
         onClose={() => setDialog(null)}
         title={dialog === 'schedule' ? 'Schedule for Later' : 'Send This Broadcast'}
-        subtitle="This is a mock preview. Sending and scheduling are not connected yet."
+        subtitle={review?.name}
         footer={
           <>
             <Button variant="secondary" onClick={() => setDialog(null)}>
               Cancel
             </Button>
-            <Button disabled={!canSend} onClick={confirmPreview}>
-              Confirm preview
+            <Button disabled={!canSend || busy} onClick={confirm}>
+              {dialog === 'schedule' ? 'Schedule' : 'Send Now'}
             </Button>
           </>
         }
@@ -399,7 +496,8 @@ export function ReviewScreen() {
           </div>
         ) : (
           <p className="text-sm text-muted">
-            Review sending “{review?.name}” to {recipientCount} recipients via {channelLabel}.
+            Send “{review?.name}” to {recipientCount} recipients via {channelLabel} now? It cannot
+            be stopped once it starts.
           </p>
         )}
       </Modal>

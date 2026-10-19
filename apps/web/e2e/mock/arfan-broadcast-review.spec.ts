@@ -4,18 +4,20 @@ const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const baseUrl = `http://admin.localhost:${port}/communications/broadcasts/new`;
 const url = `${baseUrl}/review`;
 const sections = ['Basic Information', 'Audience', 'Message Content', 'Schedule'];
+// R56: drafts of the contract mock, carried as ?id= (Application Follow Up, Share Your Feedback).
+const draftId = '0199c3a0-0000-7000-8101-000000000004';
+const otherDraftId = '0199c3a0-0000-7000-8101-000000000012';
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/v1/**', (route) => route.abort());
   await page.setViewportSize({ width: 1440, height: 1024 });
 });
 
-test('review keeps every frame in data, empty and API-unavailable states', async ({ page }) => {
-  for (const state of ['data', 'empty', 'api-unavailable']) {
-    await page.goto(`${url}?mockState=${state}`);
+test('review keeps every frame with a draft and without one', async ({ page }) => {
+  for (const state of ['data', 'empty']) {
+    await page.goto(state === 'data' ? `${url}?id=${draftId}` : url);
     await expect(page).toHaveTitle('Create broadcast: Review & send');
     await expect(page.getByRole('heading', { level: 1, name: 'Create Broadcast' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Back to message' })).toHaveCount(0);
     const progress = page.getByRole('navigation', { name: 'Broadcast creation progress' });
     await expect(progress.getByRole('listitem')).toHaveCount(4);
     await expect(progress.getByText('Completed:', { exact: true })).toHaveCount(3);
@@ -26,23 +28,18 @@ test('review keeps every frame in data, empty and API-unavailable states', async
 
     if (state === 'data') {
       await expect(page.getByRole('region', { name: 'Basic Information' })).toContainText(
-        'Monthly Newsletter - October 2026',
+        'Application Follow Up',
       );
       await expect(page.getByRole('button', { name: 'Send Now', exact: true })).toBeEnabled();
       await page.getByRole('tab', { name: 'SMS', exact: true }).click();
       await expect(page.getByText('SMS preview', { exact: true })).toBeVisible();
-      await page.getByRole('tab', { name: 'In-App', exact: true }).click();
-      await expect(page.getByRole('tabpanel')).toContainText('Your Business. Our Priority.');
-      await page.getByRole('tab', { name: 'Email', exact: true }).click();
     } else {
-      await expect(page.getByTestId(state === 'empty' ? 'page-empty' : 'page-error')).toBeVisible();
+      await expect(page.getByText('No broadcast to review yet.', { exact: false })).toBeVisible();
       await expect(page.getByRole('tabpanel')).toContainText('No message to preview.');
       await expect(page.getByRole('button', { name: 'Send Now', exact: true })).toBeDisabled();
       await expect(
         page.getByRole('button', { name: 'Schedule for Later', exact: true }),
       ).toBeDisabled();
-      if (state === 'api-unavailable')
-        await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
     }
     await page.screenshot({
       path: test.info().outputPath(`review-${state}-1440.png`),
@@ -53,7 +50,7 @@ test('review keeps every frame in data, empty and API-unavailable states', async
 });
 
 test('review is responsive on tablet and mobile without horizontal overflow', async ({ page }) => {
-  await page.goto(url);
+  await page.goto(`${url}?id=${draftId}`);
   await expect(page.getByRole('button', { name: 'Send Now', exact: true })).toBeEnabled();
   for (const width of [1024, 768, 375]) {
     await page.setViewportSize({ width, height: 1024 });
@@ -70,27 +67,19 @@ test('review is responsive on tablet and mobile without horizontal overflow', as
   }
 });
 
-test('both Message Send Now buttons open review and confirmations remain mock-only', async ({
-  page,
-}) => {
-  for (const index of [0, 1]) {
-    await page.goto(`${baseUrl}/message`);
-    await page.getByRole('button', { name: 'Send Now', exact: true }).nth(index).click();
-    await expect(page).toHaveURL(url);
-  }
-  await page.getByRole('button', { name: 'Send Now', exact: true }).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('This is a mock preview.');
-  await dialog.getByRole('button', { name: 'Confirm preview' }).click();
-  const sendPanel = page.getByRole('complementary', { name: 'Broadcast preview and sending' });
-  await expect(sendPanel.getByRole('status')).toContainText('No messages were sent.');
+test('schedules a draft and sends another through the contract', async ({ page }) => {
+  await page.goto(`${url}?id=${draftId}`);
   await page.getByRole('button', { name: 'Schedule for Later', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Confirm preview' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Schedule', exact: true }).click();
   await expect(dialog.getByText('Choose a future date and time.')).toBeVisible();
   await dialog.getByLabel('Date & time').fill('2099-10-20T10:00');
-  await dialog.getByRole('button', { name: 'Confirm preview' }).click();
-  await expect(sendPanel.getByRole('status')).toContainText('No broadcast has been scheduled.');
-  await expect(page.getByRole('region', { name: 'Schedule', exact: true })).toContainText(
-    'Scheduled',
-  );
+  await dialog.getByRole('button', { name: 'Schedule', exact: true }).click();
+  await expect(page).toHaveURL(`http://admin.localhost:${port}/communications/broadcasts`);
+
+  await page.goto(`${url}?id=${otherDraftId}`);
+  await page.getByRole('button', { name: 'Send Now', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('It cannot be stopped once it starts.');
+  await page.getByRole('dialog').getByRole('button', { name: 'Send Now', exact: true }).click();
+  await expect(page).toHaveURL(`http://admin.localhost:${port}/communications/broadcasts`);
 });

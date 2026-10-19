@@ -26,25 +26,76 @@ import {
 import { Button, Input, Modal, PageHeader, Pagination, Select, Textarea } from '@firmivra/ui';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { type FormEvent, useMemo, useState } from 'react';
 import {
-  type FormEvent,
-  type SetStateAction,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from 'react';
-import {
-  mockAudienceSegments,
-  type AudienceSegment,
-  type AudienceSegmentIcon,
-  type AudienceSegmentTone,
-} from '../../../../../../../../mocks/admin-communications-audience';
+  ADMIN_COMM_BROADCAST_ERRORS,
+  type AdminCommSegment,
+  type AdminCommSegmentDefinition,
+} from '@firmivra/types';
+import { useQueryClient } from '@tanstack/react-query';
+import { api } from '../../../../../../../../lib/api';
+import { errorMessage } from '../../../../../../../../lib/errors';
+import { useApiQuery } from '../../../../../../../../lib/query';
+import { channelLabels, readBroadcastDraft, stepHref } from '../../_components/broadcast-draft';
+
+type AudienceSegmentIcon =
+  'users' | 'user' | 'briefcase' | 'clock' | 'funnel' | 'file' | 'warning' | 'tag';
+type AudienceSegmentTone = 'blue' | 'green' | 'navy' | 'amber' | 'purple' | 'red';
+/** A saved segment as the table shows it. */
+interface AudienceSegment {
+  id: string;
+  name: string;
+  description: string;
+  /** The last count; null until the segment is counted. */
+  contacts: number | null;
+  updatedAt: string;
+  updatedLabel: string;
+  icon: AudienceSegmentIcon;
+  tone: AudienceSegmentTone;
+}
+type ContactType = AdminCommSegmentDefinition['contactTypes'][number];
+const reachLabels: Record<ContactType, string> = {
+  FIRM: 'Firm owners',
+  LEAD: 'Sales leads',
+  TEAM: 'Firmivra team',
+};
+const tones: AudienceSegmentTone[] = ['blue', 'green', 'navy', 'amber', 'purple', 'red'];
+/** Who a segment reaches, in words (a firm's clients are never reached, B6). */
+const describe = (d: AdminCommSegmentDefinition) =>
+  d.contactTypes.map((t) => reachLabels[t]).join(', ') +
+  (d.firmStatuses?.length
+    ? ` (${d.firmStatuses.map((x) => x.toLowerCase()).join(', ')} firms)`
+    : '') +
+  (d.firmIds?.length ? ` (${d.firmIds.length} firms)` : '') +
+  (d.salesContactIds?.length ? ` (${d.salesContactIds.length} leads)` : '');
+const segmentView = (seg: AdminCommSegment, index: number): AudienceSegment => {
+  const [only] = seg.definition.contactTypes;
+  return {
+    id: seg.id,
+    name: seg.name,
+    description: seg.description ?? describe(seg.definition),
+    contacts: seg.lastCount,
+    updatedAt: seg.updatedAt,
+    updatedLabel: new Date(seg.updatedAt).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }),
+    icon:
+      seg.definition.contactTypes.length > 1
+        ? 'users'
+        : only === 'FIRM'
+          ? 'briefcase'
+          : only === 'LEAD'
+            ? 'funnel'
+            : 'user',
+    tone: tones[index % tones.length] ?? 'blue',
+  };
+};
 
 type AudienceTab = 'saved' | 'filters' | 'upload' | 'individuals';
 type AudienceSort = 'recent' | 'contacts' | 'name';
 
-const DRAFT_KEY = 'firmivra.broadcast.audience';
-const DRAFT_CHANGE_EVENT = 'firmivra.broadcast.audience.change';
 const PAGE_SIZE = 8;
 
 const iconForSegment: Record<AudienceSegmentIcon, Icon> = {
@@ -73,41 +124,6 @@ const tabs: { id: AudienceTab; label: string }[] = [
   { id: 'upload', label: 'Upload List' },
   { id: 'individuals', label: 'Select Individually' },
 ];
-
-const readDraftIds = (raw: string | null): string[] => {
-  if (!raw) return [];
-  try {
-    const value: unknown = JSON.parse(raw);
-    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
-  } catch {
-    return [];
-  }
-};
-
-const subscribeToDraft = (onStoreChange: () => void) => {
-  if (typeof window === 'undefined') return () => {};
-
-  window.addEventListener('storage', onStoreChange);
-  window.addEventListener(DRAFT_CHANGE_EVENT, onStoreChange);
-  return () => {
-    window.removeEventListener('storage', onStoreChange);
-    window.removeEventListener(DRAFT_CHANGE_EVENT, onStoreChange);
-  };
-};
-
-const getDraftSnapshot = () =>
-  typeof window === 'undefined' ? null : window.sessionStorage.getItem(DRAFT_KEY);
-
-const getServerDraftSnapshot = () => null;
-
-const writeDraftSelection = (update: SetStateAction<string[]>) => {
-  if (typeof window === 'undefined') return;
-
-  const current = readDraftIds(window.sessionStorage.getItem(DRAFT_KEY));
-  const next = typeof update === 'function' ? update(current) : update;
-  window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify(next));
-  window.dispatchEvent(new Event(DRAFT_CHANGE_EVENT));
-};
 
 function AudienceProgress() {
   const steps = [
@@ -178,19 +194,29 @@ function SummaryRow({ icon: Glyph, label, value }: { icon: Icon; label: string; 
   );
 }
 
-function BroadcastSummary({ recipientCount }: { recipientCount: number }) {
+function BroadcastSummary({
+  recipientCount,
+  name,
+  channels,
+  category,
+}: {
+  recipientCount: number | null;
+  name: string;
+  channels: string;
+  category: string;
+}) {
   return (
     <section className="rounded-card border border-border bg-surface p-4 shadow-card">
       <h2 className="font-display text-xl font-bold text-heading">Broadcast Summary</h2>
       <p className="mt-1 text-sm text-muted">This summary will update as you complete each step.</p>
       <div className="mt-2">
-        <SummaryRow icon={FileText} label="Broadcast Name" value="—" />
-        <SummaryRow icon={EnvelopeSimple} label="Channel(s)" value="Email, SMS, In-App" />
-        <SummaryRow icon={Tag} label="Category" value="—" />
+        <SummaryRow icon={FileText} label="Broadcast Name" value={name || '—'} />
+        <SummaryRow icon={EnvelopeSimple} label="Channel(s)" value={channels || '—'} />
+        <SummaryRow icon={Tag} label="Category" value={category || '—'} />
         <SummaryRow
           icon={UsersThree}
           label="Audience"
-          value={recipientCount.toLocaleString() + ' recipients'}
+          value={recipientCount === null ? '—' : recipientCount.toLocaleString() + ' recipients'}
         />
         <SummaryRow icon={ChatCircleDots} label="Message" value="—" />
         <SummaryRow icon={CalendarBlank} label="Schedule" value="Send immediately" />
@@ -267,7 +293,7 @@ function SegmentRow({
       </td>
       <td className="min-w-48 px-3 py-2 text-xs text-muted">{segment.description}</td>
       <td className="whitespace-nowrap px-3 py-2 text-center text-sm font-medium text-heading">
-        {segment.contacts.toLocaleString()}
+        {segment.contacts === null ? '—' : segment.contacts.toLocaleString()}
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-xs text-muted">{segment.updatedLabel}</td>
       <td className="px-3 py-2 text-center text-action">
@@ -294,7 +320,8 @@ function EmptyTab({
         </span>
         <h3 className="font-display text-lg font-bold text-heading">Upload a contact list</h3>
         <p className="max-w-md text-sm text-muted">
-          Choose a CSV file to add contacts to this audience.
+          A broadcast reaches a saved segment: an uploaded list is not kept yet. Choose or create a
+          segment instead.
         </p>
         <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-control border border-action bg-surface px-4 text-sm font-medium text-action hover:bg-info-soft">
           <Plus aria-hidden weight="bold" className="size-4" />
@@ -329,24 +356,36 @@ function EmptyTab({
   );
 }
 
-interface AudienceStepProps {
-  initialSegments?: AudienceSegment[];
-  hasLoadError?: boolean;
-}
-
-export function AudienceStep({
-  initialSegments = mockAudienceSegments,
-  hasLoadError = false,
-}: AudienceStepProps = {}) {
+/** Step 2: one saved segment for the broadcast (B6), counted when chosen. */
+export function AudienceStep({ broadcastId }: { broadcastId?: string }) {
   const router = useRouter();
-  const [segments, setSegments] = useState<AudienceSegment[]>(initialSegments);
+  const client = useQueryClient();
   const [activeTab, setActiveTab] = useState<AudienceTab>('saved');
-  const draftSnapshot = useSyncExternalStore(
-    subscribeToDraft,
-    getDraftSnapshot,
-    getServerDraftSnapshot,
+  const broadcast = useApiQuery(
+    ['admin-communications', 'broadcasts', 'one', broadcastId ?? 'new'],
+    () => (broadcastId ? api.adminBroadcasts.broadcasts.get(broadcastId) : Promise.resolve(null)),
   );
-  const selectedSegmentIds = useMemo(() => readDraftIds(draftSnapshot), [draftSnapshot]);
+  const segmentsQuery = useApiQuery(['admin-communications', 'segments'], () =>
+    api.adminBroadcasts.segments.list({ pageSize: 100 }),
+  );
+  const categories = useApiQuery(['admin-communications', 'categories'], () =>
+    api.adminCommunications.categories.list(),
+  );
+  const hasLoadError = segmentsQuery.isError;
+  const segments = useMemo(
+    () => (segmentsQuery.data?.items ?? []).map(segmentView),
+    [segmentsQuery.data],
+  );
+  // '' is "none chosen"; null is "as saved on the broadcast".
+  const [chosen, setChosen] = useState<string | null>(null);
+  const selectedId = chosen ?? broadcast.data?.segment?.id ?? '';
+  const selectedSegmentIds = selectedId ? [selectedId] : [];
+  const count = useApiQuery(['admin-communications', 'segment-count', selectedId || 'none'], () =>
+    selectedId ? api.adminBroadcasts.segments.count(selectedId) : Promise.resolve(null),
+  );
+  const draft = broadcastId ? readBroadcastDraft(broadcastId) : null;
+  const [busy, setBusy] = useState(false);
+  const [newReach, setNewReach] = useState<ContactType[]>(['FIRM']);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<AudienceSort>('recent');
   const [currentPage, setCurrentPage] = useState(1);
@@ -364,7 +403,7 @@ export function AudienceStep({
         (segment.name + ' ' + segment.description).toLowerCase().includes(normalizedSearch),
       )
       .sort((left, right) => {
-        if (sortBy === 'contacts') return right.contacts - left.contacts;
+        if (sortBy === 'contacts') return (right.contacts ?? 0) - (left.contacts ?? 0);
         if (sortBy === 'name') return left.name.localeCompare(right.name);
         return right.updatedAt.localeCompare(left.updatedAt);
       });
@@ -376,71 +415,80 @@ export function AudienceStep({
     currentPage * PAGE_SIZE,
   );
   const selectedSegments = segments.filter((segment) => selectedSegmentIds.includes(segment.id));
-  const recipientCount = selectedSegments.reduce((total, segment) => total + segment.contacts, 0);
-  const allVisibleSelected =
-    visibleSegments.length > 0 &&
-    visibleSegments.every((segment) => selectedSegmentIds.includes(segment.id));
+  const recipientCount = selectedId
+    ? (count.data?.total ?? selectedSegments[0]?.contacts ?? null)
+    : 0;
 
   const toggleSegment = (segmentId: string) => {
     setSelectionError('');
     setDraftSaved(false);
-    writeDraftSelection((current) =>
-      current.includes(segmentId)
-        ? current.filter((id) => id !== segmentId)
-        : [...current, segmentId],
-    );
+    setChosen(selectedId === segmentId ? '' : segmentId);
   };
 
-  const toggleVisibleSegments = () => {
-    setSelectionError('');
-    setDraftSaved(false);
-    writeDraftSelection((current) =>
-      allVisibleSelected
-        ? current.filter((id) => !visibleSegments.some((segment) => segment.id === id))
-        : Array.from(new Set([...current, ...visibleSegments.map((segment) => segment.id)])),
-    );
-  };
-
-  const createSegment = (event: FormEvent<HTMLFormElement>) => {
+  const createSegment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = newSegmentName.trim();
-    if (!name) return;
-
-    const segment: AudienceSegment = {
-      id: 'custom-' + Date.now().toString(),
-      name,
-      description: newSegmentDescription.trim() || 'Custom audience segment',
-      contacts: 0,
-      updatedAt: '2026-10-19',
-      updatedLabel: 'Oct 19, 2026',
-      icon: 'users',
-      tone: 'blue',
-    };
-    setSegments((current) => [segment, ...current]);
-    setActiveTab('saved');
-    setSearchTerm('');
-    setSortBy('recent');
-    setCurrentPage(1);
-    writeDraftSelection((current) => [...current, segment.id]);
-    setNewSegmentName('');
-    setNewSegmentDescription('');
-    setIsCreateOpen(false);
+    if (!name || !newReach.length) return;
+    setBusy(true);
+    try {
+      const made = await api.adminBroadcasts.segments.create({
+        name,
+        ...(newSegmentDescription.trim() ? { description: newSegmentDescription.trim() } : {}),
+        definition: { contactTypes: newReach },
+      });
+      await client.invalidateQueries({ queryKey: ['admin-communications', 'segments'] });
+      setChosen(made.id);
+      setActiveTab('saved');
+      setSearchTerm('');
+      setSortBy('recent');
+      setCurrentPage(1);
+      setNewSegmentName('');
+      setNewSegmentDescription('');
+      setNewReach(['FIRM']);
+      setIsCreateOpen(false);
+    } catch (error) {
+      setSelectionError(errorMessage(error, ADMIN_COMM_BROADCAST_ERRORS));
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const saveDraft = () => {
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(selectedSegmentIds));
-    setDraftSaved(true);
-    setSelectionError('');
+  /** Saves the chosen segment on the broadcast; returns false when it could not. */
+  const saveSegment = async () => {
+    if (!broadcastId) {
+      setSelectionError('Start the broadcast with its basic information first.');
+      return false;
+    }
+    setBusy(true);
+    try {
+      await api.adminBroadcasts.broadcasts.update(broadcastId, { segmentId: selectedId || null });
+      await client.invalidateQueries({ queryKey: ['admin-communications', 'broadcasts'] });
+      setSelectionError('');
+      return true;
+    } catch (error) {
+      setSelectionError(errorMessage(error, ADMIN_COMM_BROADCAST_ERRORS));
+      return false;
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const goNext = () => {
-    if (selectedSegmentIds.length === 0) {
+  const saveDraft = async () => {
+    if (await saveSegment()) setDraftSaved(true);
+  };
+
+  const goNext = async () => {
+    if (!selectedId) {
       setSelectionError('Select an audience before continuing.');
       return;
     }
-    setSelectionError('');
-    router.push('/communications/broadcasts/new/message');
+    if ((await saveSegment()) && broadcastId) router.push(stepHref('message', broadcastId));
   };
+
+  const categoryName = categories.data?.items.find((c) => c.id === draft?.category)?.name ?? '';
+  const channelNames = broadcast.data?.channels.length
+    ? broadcast.data.channels.map((c) => channelLabels[c.channel]).join(', ')
+    : (draft?.channels ?? []).map((c) => channelLabels[c]).join(', ');
 
   return (
     <div className="flex flex-col gap-5">
@@ -557,13 +605,7 @@ export function AudienceStep({
                       <thead className="bg-table-head text-sm font-bold text-heading">
                         <tr>
                           <th className="w-10 px-3 py-2.5">
-                            <input
-                              aria-label="Select all segments on this page"
-                              checked={allVisibleSelected}
-                              className="size-4 rounded border-border"
-                              onChange={toggleVisibleSegments}
-                              type="checkbox"
-                            />
+                            <span className="sr-only">Selected</span>
                           </th>
                           <th className="px-3 py-2.5">Segment Name</th>
                           <th className="px-3 py-2.5">Description</th>
@@ -623,7 +665,7 @@ export function AudienceStep({
                       Selected Audience
                     </h3>
                     <p className="mt-1 w-full text-left font-display text-3xl font-bold text-heading">
-                      {recipientCount.toLocaleString()}
+                      {recipientCount === null ? '—' : recipientCount.toLocaleString()}
                     </p>
                     <p className="w-full text-left text-xs text-muted">recipients selected</p>
                     {selectedSegments.length > 0 ? (
@@ -654,8 +696,7 @@ export function AudienceStep({
                           No audience selected
                         </p>
                         <p className="mt-2 text-xs leading-5 text-muted">
-                          Select one or more segments, use filters, upload a list, or choose
-                          individuals to see your estimated recipients here.
+                          Select a segment, or create one, to see how many people it reaches.
                         </p>
                       </>
                     )}
@@ -673,7 +714,7 @@ export function AudienceStep({
                     <ul className="mt-1 list-disc space-y-1 pl-4 text-xs leading-4 text-muted">
                       <li>Use segments to quickly target groups.</li>
                       <li>Create a new segment to save your filters for future use.</li>
-                      <li>You can combine multiple segments.</li>
+                      <li>To reach several groups at once, create a segment with them all.</li>
                       <li>Estimated recipient count will update as you make selections.</li>
                     </ul>
                   </section>
@@ -704,17 +745,30 @@ export function AudienceStep({
             <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Button
                 className="w-full sm:w-auto"
-                onClick={() => router.push('/communications/broadcasts/new')}
+                onClick={() =>
+                  router.push(
+                    broadcastId ? stepHref('', broadcastId) : '/communications/broadcasts/new',
+                  )
+                }
                 variant="secondary"
               >
                 Back
               </Button>
               <div className="flex flex-col gap-3 sm:flex-row">
-                <Button className="w-full sm:w-auto" onClick={saveDraft} variant="secondary">
+                <Button
+                  className="w-full sm:w-auto"
+                  disabled={busy}
+                  onClick={() => void saveDraft()}
+                  variant="secondary"
+                >
                   <FloppyDisk aria-hidden weight="fill" className="size-4" />
                   Save as Draft
                 </Button>
-                <Button className="w-full min-w-36 sm:w-auto" onClick={goNext}>
+                <Button
+                  className="w-full min-w-36 sm:w-auto"
+                  disabled={busy}
+                  onClick={() => void goNext()}
+                >
                   Next
                   <ArrowRight aria-hidden weight="bold" className="size-4" />
                 </Button>
@@ -724,7 +778,12 @@ export function AudienceStep({
         </section>
 
         <aside className="flex min-w-0 flex-col gap-4">
-          <BroadcastSummary recipientCount={recipientCount} />
+          <BroadcastSummary
+            recipientCount={recipientCount}
+            name={broadcast.data?.name ?? draft?.name ?? ''}
+            channels={channelNames}
+            category={categoryName}
+          />
           <NeedHelpCard />
         </aside>
       </div>
@@ -735,7 +794,11 @@ export function AudienceStep({
             <Button onClick={() => setIsCreateOpen(false)} variant="secondary">
               Cancel
             </Button>
-            <Button disabled={!newSegmentName.trim()} form="create-audience-segment" type="submit">
+            <Button
+              disabled={busy || !newSegmentName.trim() || !newReach.length}
+              form="create-audience-segment"
+              type="submit"
+            >
               Save Segment
             </Button>
           </>
@@ -745,7 +808,11 @@ export function AudienceStep({
         subtitle="Create a segment and add it to this broadcast audience."
         title="Create New Segment"
       >
-        <form className="space-y-4" id="create-audience-segment" onSubmit={createSegment}>
+        <form
+          className="space-y-4"
+          id="create-audience-segment"
+          onSubmit={(event) => void createSegment(event)}
+        >
           <Input
             autoFocus
             label="Segment Name"
@@ -761,6 +828,28 @@ export function AudienceStep({
             rows={3}
             value={newSegmentDescription}
           />
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium text-heading">Who it reaches</legend>
+            <div className="flex flex-wrap gap-3">
+              {(Object.keys(reachLabels) as ContactType[]).map((type) => (
+                <label key={type} className="inline-flex items-center gap-2 text-sm text-text">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-border"
+                    checked={newReach.includes(type)}
+                    onChange={(event) =>
+                      setNewReach((current) =>
+                        event.target.checked
+                          ? [...current, type]
+                          : current.filter((t) => t !== type),
+                      )
+                    }
+                  />
+                  {reachLabels[type]}
+                </label>
+              ))}
+            </div>
+          </fieldset>
         </form>
       </Modal>
     </div>
