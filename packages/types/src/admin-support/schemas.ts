@@ -698,13 +698,6 @@ export const AddSupportAttachmentsRequest = z.strictObject({
 });
 export type AddSupportAttachmentsRequest = z.input<typeof AddSupportAttachmentsRequest>;
 
-export const ChangeSupportContactRequest = z.strictObject({
-  version: Version,
-  firmId: Id,
-  contactId: Id,
-});
-export type ChangeSupportContactRequest = z.input<typeof ChangeSupportContactRequest>;
-
 export const DeleteSupportTicketQuery = z.strictObject({ version: z.coerce.number().int().min(1) });
 export type DeleteSupportTicketQuery = z.input<typeof DeleteSupportTicketQuery>;
 
@@ -722,7 +715,7 @@ export const SaveSupportCategoryRequest = z.strictObject({
 export type SaveSupportCategoryRequest = z.input<typeof SaveSupportCategoryRequest>;
 
 export const SaveSupportPriorityRequest = z.strictObject({
-  name: text(80, 'one', 'Enter a priority name'),
+  name: text(60, 'one', 'Enter a priority name'),
   description: Description,
   color: SupportPriorityColor,
   target: SupportTarget,
