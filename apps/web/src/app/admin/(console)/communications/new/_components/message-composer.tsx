@@ -2,8 +2,9 @@
 
 import { Badge, Button, Card, Input, PageHeader, Select } from '@firmivra/ui';
 import {
-  ArrowClockwise,
-  ArrowCounterClockwise,
+  ArrowUUpLeft,
+  ArrowUUpRight,
+  BracketsCurly,
   Buildings,
   CalendarBlank,
   CaretDown,
@@ -147,11 +148,13 @@ function ToolbarButton({
   icon: Glyph,
   label,
   active,
+  iconWeight = 'bold',
   onClick,
 }: {
   icon: Icon;
   label: string;
   active?: boolean;
+  iconWeight?: 'regular' | 'bold';
   onClick: () => void;
 }) {
   return (
@@ -164,7 +167,7 @@ function ToolbarButton({
       onClick={onClick}
       className={`flex size-9 shrink-0 items-center justify-center rounded-control ${active ? 'border border-action bg-surface text-action' : 'text-text hover:bg-folder-surface'}`}
     >
-      <Glyph aria-hidden weight="bold" className="size-4.5" />
+      <Glyph aria-hidden weight={iconWeight} className="size-4.5" />
     </button>
   );
 }
@@ -188,6 +191,7 @@ export function MessageComposer() {
   const [recipientDetailsOpen, setRecipientDetailsOpen] = useState(true);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [sendOptionsOpen, setSendOptionsOpen] = useState(false);
+  const [sendNotice, setSendNotice] = useState(false);
 
   const selectedRecipients = useMemo(
     () =>
@@ -269,10 +273,7 @@ export function MessageComposer() {
             </Button>
             <div className="relative">
               <div className="flex overflow-hidden rounded-control">
-                <Button
-                  className="rounded-r-none"
-                  onClick={() => router.push('/communications/broadcasts/new/review')}
-                >
+                <Button className="rounded-r-none" onClick={() => setSendNotice(true)}>
                   <PaperPlaneTilt aria-hidden weight="fill" className="size-4" />
                   Send Now
                 </Button>
@@ -302,6 +303,12 @@ export function MessageComposer() {
           </>
         }
       />
+      <p
+        role="status"
+        className="rounded-control bg-info-soft px-3 py-2 text-sm text-text empty:hidden"
+      >
+        {sendNotice ? 'Message sending is not connected in this preview.' : null}
+      </p>
 
       <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-7">
         <Card className="overflow-hidden !p-0 xl:col-span-5">
@@ -481,13 +488,13 @@ export function MessageComposer() {
                     className="text-sm"
                   />
                 </div>
-                <Button
-                  variant="secondary"
+                <button
+                  type="button"
                   onClick={loadTemplate}
-                  className="border-transparent bg-info-soft text-action hover:bg-folder-hover"
+                  className="inline-flex h-9 items-center justify-center rounded-control bg-info-soft px-3 text-sm font-medium text-action hover:bg-folder-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
                 >
                   Load Template
-                </Button>
+                </button>
               </div>
 
               {channel === 'EMAIL' ? (
@@ -496,13 +503,14 @@ export function MessageComposer() {
                     <label htmlFor="message-subject" className="text-sm font-medium text-text">
                       Subject <span className="text-danger">*</span>
                     </label>
-                    <Button
-                      variant="secondary"
+                    <button
+                      type="button"
                       onClick={() => insertText('{{first_name}}')}
-                      className="min-h-9 border-transparent bg-info-soft px-3 py-1 text-xs text-action hover:bg-folder-hover"
+                      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-control bg-info-soft px-3 text-xs font-medium text-action hover:bg-folder-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
                     >
-                      {'{ }'} Insert Merge Field
-                    </Button>
+                      <BracketsCurly aria-hidden weight="bold" className="size-4" />
+                      <span>Insert Merge Field</span>
+                    </button>
                   </div>
                   <Input
                     id="message-subject"
@@ -525,12 +533,12 @@ export function MessageComposer() {
                     aria-label="Message formatting"
                     className="overflow-x-auto border-b border-border"
                   >
-                    <div className="flex min-w-max items-center gap-1 px-2 py-1.5">
+                    <div className="flex min-w-max items-center gap-0 px-2 py-1">
                       <select
                         aria-label="Text style"
                         defaultValue="p"
                         onChange={(event) => applyFormat('formatBlock', event.target.value)}
-                        className="h-9 rounded-control border-r border-border bg-surface px-2 text-sm text-text"
+                        className="h-8 w-24 rounded-control border border-border bg-surface px-2 text-sm text-text"
                       >
                         <option value="p">Paragraph</option>
                         <option value="h3">Heading</option>
@@ -578,22 +586,25 @@ export function MessageComposer() {
                         label="Insert smile"
                         onClick={() => insertText(' 🙂')}
                       />
-                      <Button
-                        variant="secondary"
+                      <button
+                        type="button"
                         onClick={() => insertText('{{first_name}}')}
-                        className="min-h-9 border-transparent bg-info-soft px-2.5 py-1 text-xs text-action hover:bg-folder-hover"
+                        className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-control bg-info-soft px-2 text-xs font-medium text-action hover:bg-folder-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
                       >
-                        {'{ }'} Merge Field
-                      </Button>
-                      <span className="ml-1 border-l border-border pl-1">
+                        <BracketsCurly aria-hidden weight="bold" className="size-4" />
+                        <span>Merge Field</span>
+                      </button>
+                      <span className="ml-1 flex items-center border-l border-border pl-1">
                         <ToolbarButton
-                          icon={ArrowCounterClockwise}
+                          icon={ArrowUUpLeft}
                           label="Undo"
+                          iconWeight="regular"
                           onClick={() => applyFormat('undo')}
                         />
                         <ToolbarButton
-                          icon={ArrowClockwise}
+                          icon={ArrowUUpRight}
                           label="Redo"
+                          iconWeight="regular"
                           onClick={() => applyFormat('redo')}
                         />
                       </span>
@@ -668,10 +679,7 @@ export function MessageComposer() {
               <Button variant="secondary" className="w-full sm:w-auto">
                 <FloppyDisk aria-hidden weight="fill" className="size-4" /> Save as Draft
               </Button>
-              <Button
-                className="w-full sm:w-auto"
-                onClick={() => router.push('/communications/broadcasts/new/review')}
-              >
+              <Button className="w-full sm:w-auto" onClick={() => setSendNotice(true)}>
                 <PaperPlaneTilt aria-hidden weight="fill" className="size-4" /> Send Now
               </Button>
               <div className="relative flex">
