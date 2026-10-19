@@ -25,6 +25,12 @@ test('direct New Message route renders the composer design', async ({ page }) =>
   );
   await expect(page).toHaveURL(url);
 
+  for (const recipient of ['Karen Wilson', 'Blue Ridge Consulting (Firm)', 'Team: Onboarding']) {
+    await page.getByRole('button', { name: `Remove ${recipient}` }).click();
+  }
+  await expect(page.getByText('Select a recipient to see their details.')).toBeVisible();
+  await expect(page.getByText('No recent activity available.')).toBeVisible();
+
   for (const width of [1024, 768, 375]) {
     await page.setViewportSize({ width, height: 900 });
     expect(
