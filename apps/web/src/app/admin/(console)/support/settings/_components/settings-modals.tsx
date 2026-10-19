@@ -4,7 +4,6 @@ import { Button, Checkbox, IconButton, Modal, Radio, Toggle } from '@firmivra/ui
 import { Trash } from '@phosphor-icons/react';
 import { useId, useState, type ReactNode } from 'react';
 import {
-  adminSupport,
   NOTIFICATION_CHANNELS,
   PRIORITY_COLORS,
   TIME_ZONES,
@@ -20,6 +19,7 @@ import {
   type SupportSettings,
   type TargetUnit,
 } from '../../../../../../mocks/admin-support';
+import { adminSupport } from '../../_components/support-api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
 import { AreaField, SelectField, TextField } from '../../_components/fields';

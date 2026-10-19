@@ -26,13 +26,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useId, useState } from 'react';
 import {
-  adminSupport,
   isActive,
   type SupportSummary,
   type SupportTicket,
   type TicketQuery,
   type TicketTab,
 } from '../../../../../mocks/admin-support';
+import { adminSupport } from './support-api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { NewTicketModal } from './new-ticket-modal';
