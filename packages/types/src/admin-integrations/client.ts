@@ -15,6 +15,7 @@ import {
   AdminPlatformIntegrationDetail,
   AdminPlatformRun,
   AdminProviderTemplate,
+  AdminUsageRangeQuery,
   CreateAdminCatalogRequest,
   CreateAdminPlatformRequest,
   DisableAdminPlatformRequest,
@@ -31,15 +32,47 @@ import {
   UpdateAdminCatalogRequest,
   UpdateAdminPlatformRequest,
 } from './schemas.js';
+import {
+  AdminApiKey,
+  AdminApiKeyId,
+  AdminExportJob,
+  AdminIntegrationLogId,
+  AdminIssuedApiKey,
+  AdminLogFacets,
+  AdminLogRecord,
+  AdminUsageQuery,
+  AdminUsageReport,
+  AdminWebhookDelivery,
+  AdminWebhookDeliveryId,
+  AdminWebhookEndpoint,
+  AdminWebhookId,
+  AdminWebhookWithSecret,
+  CreateAdminApiKeyRequest,
+  CreateAdminWebhookRequest,
+  ExportAdminLogsRequest,
+  ListAdminApiKeysQuery,
+  ListAdminIntegrationAuditQuery,
+  ListAdminIntegrationAuditResponse,
+  ListAdminIntegrationLogsQuery,
+  ListAdminIntegrationLogsResponse,
+  ListAdminWebhookDeliveriesQuery,
+  ListAdminWebhookDeliveriesResponse,
+  ListAdminWebhooksQuery,
+  RevokeAdminApiKeyRequest,
+  UpdateAdminWebhookRequest,
+} from './operations.js';
 
 const BASE = '/admin/integrations';
 const platform = (id: string) => `${BASE}/platform/${parseInput(AdminIntegrationId, id)}`;
 const catalog = (id: string) => `${BASE}/catalog/${parseInput(AdminCatalogItemId, id)}`;
+const apiKey = (id: string) => `${BASE}/api-keys/${parseInput(AdminApiKeyId, id)}`;
+const webhook = (id: string) => `${BASE}/webhooks/${parseInput(AdminWebhookId, id)}`;
 const Uuid = z.uuid();
 
 /**
- * `api.adminIntegrations` (apps/web/src/lib/api.ts), part 1: the Integrations dashboard, platform
- * integrations and the customer catalog. The method names are the screens' (Tumit's mock). 401
+ * `api.adminIntegrations` (apps/web/src/lib/api.ts). Part 1: the Integrations dashboard, platform
+ * integrations and the customer catalog. Part 2: API keys, webhooks and deliveries, the
+ * integration log and its export, usage, and the module's audit trail. The method names are the screens' (Tumit's mock). 401
  * without the Super Admin site's session, 403 for anyone else; credentials, activation, disable,
  * enable and remove are a SUPER_ADMIN's (403 FORBIDDEN otherwise). Errors:
  * `errorMessage(error, ADMIN_INTEGRATION_ERRORS)`.
@@ -205,6 +238,98 @@ export function createAdminIntegrationsClient(request: ApiRequest) {
       }),
     previewCatalog: async (id: string): Promise<AdminCatalogPreview> =>
       request(AdminCatalogPreview, `${catalog(id)}/preview`),
+
+    // ----- API keys (issuing, rotating and revoking are a SUPER_ADMIN's) -----
+    /** Metadata only (prefix and last four), newest first. */
+    listApiKeys: async (query: ListAdminApiKeysQuery = {}): Promise<AdminApiKey[]> =>
+      request(
+        z.array(AdminApiKey),
+        `${BASE}/api-keys${toQuery(parseInput(ListAdminApiKeysQuery, query))}`,
+      ),
+    /** The full key comes back once, here; only its hash is kept. */
+    createApiKey: async (body: CreateAdminApiKeyRequest): Promise<AdminIssuedApiKey> =>
+      post(AdminIssuedApiKey, `${BASE}/api-keys`, parseInput(CreateAdminApiKeyRequest, body)),
+    /** A new key naming the old one, which is revoked. 409 INVALID_STATE unless active. */
+    rotateApiKey: async (id: string): Promise<AdminIssuedApiKey> =>
+      post(AdminIssuedApiKey, `${apiKey(id)}/rotate`),
+    /** Once. 409 INVALID_STATE when already revoked. */
+    revokeApiKey: async (id: string, body: RevokeAdminApiKeyRequest = {}): Promise<AdminApiKey> =>
+      post(AdminApiKey, `${apiKey(id)}/revoke`, parseInput(RevokeAdminApiKeyRequest, body)),
+
+    // ----- Webhooks -----
+    listWebhooks: async (query: ListAdminWebhooksQuery = {}): Promise<AdminWebhookEndpoint[]> =>
+      request(
+        z.array(AdminWebhookEndpoint),
+        `${BASE}/webhooks${toQuery(parseInput(ListAdminWebhooksQuery, query))}`,
+      ),
+    /** Super Admin. The signing secret comes back once, here. */
+    createWebhook: async (body: CreateAdminWebhookRequest): Promise<AdminWebhookWithSecret> =>
+      post(AdminWebhookWithSecret, `${BASE}/webhooks`, parseInput(CreateAdminWebhookRequest, body)),
+    /** `rotateSecret` (Super Admin) returns the new signing secret once. */
+    updateWebhook: async (
+      id: string,
+      body: UpdateAdminWebhookRequest,
+    ): Promise<AdminWebhookWithSecret> =>
+      request(AdminWebhookWithSecret, webhook(id), {
+        method: 'PATCH',
+        body: parseInput(UpdateAdminWebhookRequest, body),
+      }),
+    webhookDeliveries: async (
+      id: string,
+      query: ListAdminWebhookDeliveriesQuery = {},
+    ): Promise<ListAdminWebhookDeliveriesResponse> =>
+      request(
+        ListAdminWebhookDeliveriesResponse,
+        `${webhook(id)}/deliveries${toQuery(parseInput(ListAdminWebhookDeliveriesQuery, query))}`,
+      ),
+    /** After the team's confirmation: a later attempt of the same event (PENDING until sent). */
+    redeliver: async (deliveryId: string): Promise<AdminWebhookDelivery> =>
+      post(
+        AdminWebhookDelivery,
+        `${BASE}/deliveries/${parseInput(AdminWebhookDeliveryId, deliveryId)}/redeliver`,
+      ),
+
+    // ----- The integration log -----
+    listLogs: async (
+      query: ListAdminIntegrationLogsQuery = {},
+    ): Promise<ListAdminIntegrationLogsResponse> =>
+      request(
+        ListAdminIntegrationLogsResponse,
+        `${BASE}/logs${toQuery(parseInput(ListAdminIntegrationLogsQuery, query))}`,
+      ),
+    /** The filter choices, from the log itself. */
+    logFacets: async (): Promise<AdminLogFacets> => request(AdminLogFacets, `${BASE}/logs/facets`),
+    getLog: async (id: string): Promise<AdminLogRecord> =>
+      request(AdminLogRecord, `${BASE}/logs/${parseInput(AdminIntegrationLogId, id)}`),
+    /** 202: a queued B1 export job; the export worker makes the file. */
+    exportLogs: async (body: ExportAdminLogsRequest = {}): Promise<AdminExportJob> =>
+      post(AdminExportJob, `${BASE}/logs/export`, parseInput(ExportAdminLogsRequest, body)),
+    /** My recent integration log exports, newest first. */
+    logExports: async (): Promise<AdminExportJob[]> =>
+      request(z.array(AdminExportJob), `${BASE}/logs/exports`),
+
+    // ----- Usage (the daily rollup) -----
+    usage: async (query: AdminUsageQuery = {}): Promise<AdminUsageReport> =>
+      request(AdminUsageReport, `${BASE}/usage${toQuery(parseInput(AdminUsageQuery, query))}`),
+    /** One platform integration's usage in its own units. */
+    platformUsage: async (
+      id: string,
+      query: AdminUsageRangeQuery = {},
+    ): Promise<AdminUsageReport> =>
+      request(
+        AdminUsageReport,
+        `${platform(id)}/usage${toQuery(parseInput(AdminUsageRangeQuery, query))}`,
+      ),
+
+    // ----- The module's audit trail -----
+    /** Newest first; `targetId` narrows it to one record. */
+    auditTrail: async (
+      query: ListAdminIntegrationAuditQuery = {},
+    ): Promise<ListAdminIntegrationAuditResponse> =>
+      request(
+        ListAdminIntegrationAuditResponse,
+        `${BASE}/audit${toQuery(parseInput(ListAdminIntegrationAuditQuery, query))}`,
+      ),
   };
 }
 

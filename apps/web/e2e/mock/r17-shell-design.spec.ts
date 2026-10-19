@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 // The landing page and the signed-in shell against Octavia's mockups (Client portal landing
-// page.png, My docs tab.png): the header buttons and the footer order. The firm's motto shows once
-// PortalInfo serves branding.tagline (its own contract PR); until then the mock firm has none.
+// page.png, My docs tab.png): the header buttons and the footer order. The sidebar shows the firm's
+// motto (branding.sidebarMotto; the mock firm's is "PEOPLE | PLANS | PROSPERITY"), R61.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const portal = (path: string) => `http://portal.localhost:${port}${path}`;
 
@@ -49,7 +49,10 @@ test('the signed-in shell greets the client and shows the footer links', async (
   await page.goto(portal('/lvp/documents'));
   await expect(page.getByText('Welcome Back, John!')).toBeVisible();
   await expect(page.getByText('Your documents. Your services. All in one place.')).toBeVisible();
-  await expect(page.getByTestId('sidebar-motto')).toHaveCount(0);
+  const motto = page.getByTestId('sidebar-motto').first();
+  await expect(motto).toContainText('PEOPLE');
+  await expect(motto).toContainText('PLANS');
+  await expect(motto).toContainText('PROSPERITY');
   const footer = page.locator('footer');
   await expect(footer).toContainText(/Privacy Policy\s*\|\s*Terms of Service\s*\|\s*Contact Us/);
   await page.screenshot({ path: testInfo.outputPath('shell-1440.png'), fullPage: true });

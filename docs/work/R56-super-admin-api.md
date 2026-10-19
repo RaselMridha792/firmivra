@@ -103,11 +103,32 @@ The contract keeps Tumit's method names and field names, so his screens switch w
 | `platformUsage`, API keys, webhooks, logs, usage, thresholds, `auditTrail` | part 2 contract (usage thresholds and an integrations audit trail have no B8 table: see "Needs from others") |
 | `CATEGORIES`, `INTEGRATION_STATUSES`, run statuses, environments | the database enums (`PlatformIntegrationCategory`, `PlatformIntegrationStatus`, `IntegrationSyncRunStatus`, `IntegrationEnvironment`): same values |
 
+### Integrations, part 2 (Tumit, same mock → `api.adminIntegrations`)
+
+| Mock | Contract |
+| --- | --- |
+| `ApiKey.createdBy` (always set) | nullable (a key from a seed) |
+| `usage24h.requests` | the rollup's latest day for the key; null without a row |
+| `usage24h.peakPerMinute`, `rateLimited` | null: not tracked |
+| `CreateWebhookBody.integrationId`, `WebhookEndpoint.integration` | B8 links no endpoint to an integration: no body field, `integration` always null |
+| `signingSecretHint` (`whsec_••••91c2`) | `whsec_••••••••` when set (no last four is kept) |
+| `WebhookDelivery.payload` | null (B8 keeps none); `retries` is the earlier attempts of the event |
+| `redeliver` result | a `PENDING` attempt: R1's webhook worker sends it |
+| `IntegrationLog.action` | a label made from the stored action code |
+| `LogQuery.platformOnly`, `descending` | `'true'` / `'false'` in the query (`descending` defaults to true) |
+| `exportLogs({ query, format })` → file `content` | 202 with a queued `AdminExportJob` (B1); CSV only (B1's `ReportFormat` has no JSON); R1's export worker makes the file; `logExports()` lists mine |
+| `usage().planDistribution`, `alerts` | always empty: the rollup has no per-plan counts and thresholds have no table |
+| `thresholds`, `saveThresholds` | not in the contract (no table; "Needs from others") |
+| `auditTrail` | from `audit_logs` (`integrations.*` actions); `changes` lists the changed fields, never values |
+
 ## Needs from others
 
 - **R1: the communications dispatcher job** (platform scope): moves `SCHEDULED` messages to `SENDING` at their time and sends them (the API's `CommInboxService.dispatch` does the sending for one message), and wires SES and SNS delivery events to the recipients by `provider_message_id`, plus inbound mail and SMS as `RECEIVED` messages (B6 "Needs from R1"). Until then a scheduled message stays scheduled and delivery stops at `SENT`.
 - **Cc on one email**: NotifyService sends one address per message, so a Cc or Bcc recipient gets their own copy (no shared Cc header). R6 could add `cc` to `NotifyMessage` later.
 - **R0: broadcast fields the screens show but B6 does not store** (schema request, not edited here): a broadcast's `description` and `category`, and an uploaded recipient list (a list of addresses as an audience). Open and click rates need email open and click events (SES event wiring, R1). Until then the screens leave them out.
+
+- **R0: Integrations part 2 gaps** (schema request, not edited here): a usage alert thresholds table (error rate, latency, quota, cost, sync failures, versioned); per-plan adoption in `platform_integration_usage_daily` (the Usage page's plan distribution); a redacted payload on `platform_webhook_deliveries` (the deliveries drawer shows one).
+- **R1: Integrations part 2 workers**: the webhook delivery worker (sends `PENDING` deliveries, redeliveries included, and writes each result), the export worker for `INTEGRATION_LOGS` jobs (the file under `platform/exports/<id>/`), and B1's download route (`GET /api/v1/admin/exports/:id` with a signed URL).
 
 ## Progress log
 
@@ -118,6 +139,7 @@ The contract keeps Tumit's method names and field names, so his screens switch w
 - 2026-10-19: Communications inbox API (`apps/api/src/admin-communications`), stacked on #873: 25 routes; send now through NotifyService (two new Firmivra templates, `platform.message-email` and `platform.message-sms`); scheduled messages wait for the dispatcher job (R1); unit (11) and e2e (16) tests; the admin isolation test's `WRITES` has the 19 writes, each on a seeded record.
 - 2026-10-19: Broadcasts API (`admin-broadcasts.controller.ts`, `comm-broadcasts.service.ts`), stacked on #878 and #886: 19 routes; audiences resolved per channel (firm owners, leads, team; in-app to the team's bells), send and retry through NotifyService with per-recipient results, schedules wait for the dispatcher (R1); unit (5) and e2e (9) tests; 14 more writes in `WRITES`.
 - 2026-10-19: Broadcasts contract #886 and API #891 merged. Integrations contract, part 1 (`packages/types/src/admin-integrations`: summary, access, providers, plans, firm options, platform integrations, catalog), committed on `rasel/R56-admin-integrations-contract`; 6 contract tests; `api.adminIntegrations` points at Tumit's mock (cast).
+- 2026-10-19: Integrations contract, part 2 (`packages/types/src/admin-integrations/operations.ts` and the client): API keys, webhooks and deliveries, logs (filters, facets, record, B1 export job), usage report, the audit trail; 5 contract tests; committed on `rasel/R56-admin-integrations-contract-2` (stacked on #896), opened after #896 merges.
 
 ## Handoff for a fresh session (written Oct 19, 15:20 UTC)
 

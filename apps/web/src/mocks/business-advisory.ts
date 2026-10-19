@@ -10,6 +10,7 @@ import {
   AdvisoryPlansQuery,
   AdvisoryRecommendationsQuery,
   AdvisoryResourceKey,
+  AdvisoryReportsQuery,
   AdvisoryResourcesQuery,
   ApiRequestError,
   CreateAdvisoryActionItemRequest,
@@ -53,6 +54,7 @@ import {
   type AdvisoryPlanRow,
   type AdvisoryPlanStrategy,
   type AdvisoryRecommendationRow,
+  type AdvisoryReports,
   type AdvisoryResource,
   type AdvisoryServiceOption,
   type AdvisoryVersionDetail,
@@ -72,9 +74,11 @@ import { teamFixtures } from './team';
  * PLAN_ARCHIVED, INCONSISTENT_FIGURES, OVERRIDE_NOT_ALLOWED, FINANCIALS_RESTRICTED, NOT_A_MEMBER,
  * RESOURCE_NOT_CLIENT_FACING, NOT_THIS_CLIENT, plus 403 FORBIDDEN and 404 NOT_FOUND.
  *
- * Roles: Owner and Admin reach every advisory client; Staff (Sam Staff) only the clients assigned
- * to them (any other is 404), without "View financial analysis" (figures null, the financials list
- * 403 FINANCIALS_RESTRICTED), without sending plans or resources, and without Advisory Admin.
+ * Roles, as the API's permsOf (apps/api/src/advisory/advisory.common.ts): Owner and Admin reach
+ * every advisory client; Staff (Sam Staff) only the clients assigned to them (any other is 404),
+ * and may view figures and send, but not Advisory Admin (settings 403). The figures-restricted
+ * state (FINANCIALS_RESTRICTED, money null) is for roles the grid limits; the mock role list has
+ * none, so `canViewFinancials` is true here.
  * The Business Health Score follows the API's default formula (apps/api/src/advisory/health.ts).
  * `empty: true` (NEXT_PUBLIC_API_MOCK_EMPTY=advisory) starts with no advisory clients; the services,
  * the resource library and the settings stay, as the API's do.
@@ -87,6 +91,16 @@ interface Options {
 
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
+/** 409 PLAN_NOT_READY with one `{ path, message }` line per missing part, as the API sends it. */
+const notReady = (missing: string[]) =>
+  new ApiRequestError(
+    409,
+    'PLAN_NOT_READY',
+    'The plan is not ready yet',
+    undefined,
+    undefined,
+    missing.map((message) => ({ path: 'plan', message })),
+  );
 const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
 const forbidden = () => fail(403, 'FORBIDDEN', 'This action is not permitted');
 const copy = <T>(v: T): T => structuredClone(v);
@@ -99,10 +113,10 @@ const nowIso = () => new Date().toISOString();
 const DAY = 86_400_000;
 /** A calendar date `offset` days from today. */
 const day = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10);
-/** A time `offset` days from today at `hour` UTC. */
+/** A time `offset` days from today at `hour` local time (meetings show in business hours). */
 const at = (offset: number, hour = 15) => {
   const d = new Date(Date.now() + offset * DAY);
-  d.setUTCHours(hour, 0, 0, 0);
+  d.setHours(hour, 0, 0, 0);
   return d.toISOString();
 };
 const uid = (block: string, n: number) =>
@@ -454,8 +468,8 @@ export function createAdvisoryMock({
     return copy(work());
   };
   const signedIn = role === 'STAFF' ? mockStaff : mockMe;
-  const canViewFinancials = role !== 'STAFF';
-  const canSend = role !== 'STAFF';
+  const canViewFinancials = true;
+  const canSend = true;
   const admin = () => {
     if (role === 'STAFF') throw forbidden();
   };
@@ -958,14 +972,14 @@ export function createAdvisoryMock({
         advisoryClientId: cl.id,
       });
     };
-    meet(1, 1, 3, 15, 'Strategy Review');
-    meet(2, 2, 5, 18, 'Business Plan Review');
-    meet(3, 3, 7, 15, 'Financial Analysis');
-    meet(4, 4, 10, 17, 'Growth Planning', false);
-    meet(5, 5, 12, 19, 'Funding Options');
-    meet(6, 1, -42, 15, 'Quarterly Review');
-    meet(7, 1, -70, 15, 'Initial Consultation');
-    meet(8, 3, -20, 16, 'Kickoff');
+    meet(1, 1, 3, 10, 'Strategy Review');
+    meet(2, 2, 5, 14, 'Business Plan Review');
+    meet(3, 3, 7, 11, 'Financial Analysis');
+    meet(4, 4, 10, 13, 'Growth Planning', false);
+    meet(5, 5, 12, 15, 'Funding Options');
+    meet(6, 1, -42, 10, 'Quarterly Review');
+    meet(7, 1, -70, 11, 'Initial Consultation');
+    meet(8, 3, -20, 9, 'Kickoff');
 
     // History of each client (newest first).
     clients.forEach((cl, i) => {
@@ -992,13 +1006,13 @@ export function createAdvisoryMock({
     // The sent plan's first version.
     const snap = snapshot(sent, 1, mockStaff, at(-21));
     snap.deliveredAt = at(-20);
-    snap.deliveredChannel = 'PORTAL';
+    snap.deliveredChannel = 'portal';
     snap.deliveredBy = mockMe;
     sent.versions.push(snap);
     const prior = plans.find((p) => p.status === 'COMPLETED')!;
     const priorSnap = snapshot(prior, 1, mockMe, at(-300));
     priorSnap.deliveredAt = at(-298);
-    priorSnap.deliveredChannel = 'EMAIL';
+    priorSnap.deliveredChannel = 'email';
     priorSnap.deliveredBy = mockMe;
     prior.versions.push(priorSnap);
     plans
@@ -1745,15 +1759,18 @@ export function createAdvisoryMock({
         if (p.status === 'ARCHIVED') throw fail(409, 'PLAN_ARCHIVED', 'This plan is archived');
         checkEtag(req.etag, p.version);
         const f = liveFinancials(p.advisoryClientId);
+        // The API's wording (apps/api/src/advisory/advisory-plans.service.ts).
         const missing = [
-          !p.profile.businessName && 'the business name',
-          !p.strategy.summary && !p.strategy.areas?.length && 'a strategy summary or area',
-          !goals.some((g) => g.planId === p.id && !g.archived) && 'at least one goal',
-          !f.length && 'financial figures',
-          f[0]?.stale && 'current financial figures (the latest are stale)',
-        ].filter(Boolean);
-        if (missing.length)
-          throw fail(409, 'PLAN_NOT_READY', `Before finalizing, add ${missing.join(', ')}.`);
+          !p.profile.businessName && 'Add the business name (stage 1)',
+          !p.strategy.summary &&
+            !p.strategy.areas?.length &&
+            'Add the strategy summary or an area (stage 3)',
+          !goals.some((g) => g.planId === p.id && !g.archived) &&
+            'Add at least one goal to the plan',
+          !f.length && 'Add the financial figures',
+          f[0]?.stale && 'The financial figures are out of date; add current ones',
+        ].filter((m): m is string => typeof m === 'string');
+        if (missing.length) throw notReady(missing);
         const versionNo = p.versions.length + 1;
         p.versions.push(snapshot(p, versionNo, signedIn, nowIso()));
         p.status = 'FINALIZED';
@@ -1773,9 +1790,10 @@ export function createAdvisoryMock({
         const v = req.version
           ? p.versions.find((x) => x.versionNo === req.version)
           : p.versions.at(-1);
-        if (!v) throw fail(409, 'PLAN_NOT_READY', 'Finalize the plan before sending it.');
+        if (!v) throw notReady(['Finalize the plan first']);
         v.deliveredAt = nowIso();
-        v.deliveredChannel = req.channel;
+        // Stored lower-case, as the API stores it.
+        v.deliveredChannel = req.channel.toLowerCase();
         v.deliveredBy = signedIn;
         if (p.status === 'FINALIZED') p.status = 'SENT';
         p.sentAt = nowIso();
@@ -2259,6 +2277,191 @@ export function createAdvisoryMock({
           )
           .map(({ advisoryClientId: _a, ...m }) => m);
         return page(rows, query.page, query.pageSize);
+      }),
+    reports: (q = {}) =>
+      run((): AdvisoryReports => {
+        const query = parseInput(AdvisoryReportsQuery, q);
+        const scope = visibleClients().filter(
+          (c) => !c.archived && (!query.advisorUserId || c.advisor?.userId === query.advisorUserId),
+        );
+        const ids = new Set(scope.map((c) => c.id));
+        const now = Date.now();
+        const nowText = nowIso();
+        const tally = <T extends string>(order: readonly T[], values: string[]) =>
+          order
+            .map((status) => ({ status, count: values.filter((v) => v === status).length }))
+            .filter((x) => x.count > 0);
+        const myPlans = plans.filter((p) => ids.has(p.advisoryClientId));
+        const myGoals = goals.filter((g) => ids.has(g.advisoryClientId) && !g.archived);
+        const open = myGoals.filter(openGoal);
+        const myRecs = recommendations.filter((r) => ids.has(r.advisoryClientId));
+        const myActions = actions.filter((a) => ids.has(a.advisoryClientId)).map(actionRow);
+        const isOpen = (a: { status: string }) =>
+          a.status === 'NOT_STARTED' || a.status === 'IN_PROGRESS';
+        const myMeetings = meetings.filter((m) => ids.has(m.advisoryClientId));
+        const upcoming = (m: { startsAt: string }) =>
+          m.startsAt >= nowText && Date.parse(m.startsAt) <= now + 30 * DAY;
+        const implemented = myRecs.filter(
+          (r) => r.status === 'IMPLEMENTED' && r.impactCents !== null,
+        );
+        const services = new Map<string, AdvisoryReports['services'][number]>();
+        for (const w of scope.flatMap((c) => c.workstreams)) {
+          const row = services.get(w.serviceId) ?? {
+            serviceId: w.serviceId,
+            name: w.serviceName,
+            primary: 0,
+            additional: 0,
+            inProgress: 0,
+            completed: 0,
+          };
+          row[w.role === 'PRIMARY' ? 'primary' : 'additional']++;
+          if (w.status === 'IN_PROGRESS') row.inProgress++;
+          if (w.status === 'COMPLETED') row.completed++;
+          services.set(w.serviceId, row);
+        }
+        const year = new Date().getFullYear();
+        const current = financials.filter((f) => ids.has(f.advisoryClientId) && !f.superseded);
+        const total = (
+          rows: typeof current,
+          k: 'revenueCents' | 'expensesCents' | 'netProfitCents',
+        ) => {
+          const v = rows.map((r) => r[k]).filter((x): x is number => x !== null);
+          return v.length ? v.reduce((n, x) => n + x, 0) : null;
+        };
+        const workload = new Map<string, AdvisoryReports['advisorWorkload'][number]>();
+        for (const c of scope) {
+          const key = c.advisor?.userId ?? 'none';
+          const row = workload.get(key) ?? {
+            advisor: c.advisor,
+            clients: 0,
+            activePlans: 0,
+            openGoals: 0,
+            openActionItems: 0,
+            upcomingMeetings: 0,
+          };
+          row.clients++;
+          row.activePlans += myPlans.filter(
+            (p) =>
+              p.advisoryClientId === c.id && p.status !== 'COMPLETED' && p.status !== 'ARCHIVED',
+          ).length;
+          row.openGoals += open.filter((g) => g.advisoryClientId === c.id).length;
+          row.openActionItems += myActions.filter(
+            (a) => a.advisoryClientId === c.id && isOpen(a),
+          ).length;
+          row.upcomingMeetings += myMeetings.filter(
+            (m) => m.advisoryClientId === c.id && upcoming(m),
+          ).length;
+          workload.set(key, row);
+        }
+        return {
+          generatedAt: nowText,
+          clients: {
+            total: scope.length,
+            byStatus: tally(
+              [
+                'IN_PROGRESS',
+                'SCHEDULED',
+                'NEEDS_REVIEW',
+                'ON_HOLD',
+                'COMPLETED',
+                'ARCHIVED',
+              ] as const,
+              scope.map((c) => c.status),
+            ),
+          },
+          plans: {
+            total: myPlans.length,
+            byStatus: tally(
+              [
+                'DRAFT',
+                'IN_REVIEW',
+                'FINALIZED',
+                'SENT',
+                'IN_PROGRESS',
+                'COMPLETED',
+                'ARCHIVED',
+              ] as const,
+              myPlans.map((p) => p.status),
+            ),
+            sentThisYear: myPlans
+              .flatMap((p) => p.versions)
+              .filter((v) => v.deliveredAt !== null && v.deliveredAt >= `${year}-01-01`).length,
+          },
+          services: [...services.values()].sort(
+            (a, b) => b.primary + b.additional - (a.primary + a.additional),
+          ),
+          goals: {
+            total: myGoals.length,
+            byStatus: tally(
+              [
+                'NOT_STARTED',
+                'PLANNING',
+                'IN_PROGRESS',
+                'ON_TRACK',
+                'AT_RISK',
+                'OVERDUE',
+                'COMPLETED',
+                'CANCELLED',
+              ] as const,
+              myGoals.map(goalStatus),
+            ),
+            averageProgress: open.length
+              ? Math.round(open.reduce((n, g) => n + g.progressPercent, 0) / open.length)
+              : null,
+          },
+          recommendations: {
+            total: myRecs.length,
+            byStatus: tally(
+              [
+                'PROPOSED',
+                'ACCEPTED',
+                'IN_PROGRESS',
+                'IMPLEMENTED',
+                'NOT_APPLICABLE',
+                'DECLINED',
+              ] as const,
+              myRecs.map((r) => r.status),
+            ),
+            implementedImpactCents: implemented.length
+              ? implemented.reduce((n, r) => n + (r.impactCents ?? 0), 0)
+              : null,
+          },
+          actionItems: {
+            open: myActions.filter(isOpen).length,
+            overdue: myActions.filter((a) => a.overdue).length,
+            doneLast30Days: myActions.filter(
+              (a) =>
+                a.status === 'DONE' &&
+                a.completedAt !== null &&
+                Date.parse(a.completedAt) >= now - 30 * DAY,
+            ).length,
+            byAssignee: (['STAFF', 'CLIENT', 'TEAM'] as const).map((kind) => ({
+              kind,
+              open: myActions.filter((a) => a.assigneeKind === kind && isOpen(a)).length,
+            })),
+          },
+          meetings: {
+            upcoming30Days: myMeetings.filter(upcoming).length,
+            past90Days: myMeetings.filter(
+              (m) => m.startsAt < nowText && Date.parse(m.startsAt) >= now - 90 * DAY,
+            ).length,
+          },
+          financialTrend: canViewFinancials
+            ? [year - 3, year - 2, year - 1].map((y) => {
+                const rows = current.filter((f) => f.periodEnd.startsWith(String(y)));
+                return {
+                  year: y,
+                  clients: new Set(rows.map((r) => r.advisoryClientId)).size,
+                  revenueCents: total(rows, 'revenueCents'),
+                  expensesCents: total(rows, 'expensesCents'),
+                  netProfitCents: total(rows, 'netProfitCents'),
+                };
+              })
+            : null,
+          advisorWorkload: [...workload.values()].sort((a, b) => b.clients - a.clients),
+          canViewFinancials,
+          disclaimer: ADVISORY_DISCLAIMER,
+        };
       }),
     resources: (q = {}) =>
       run(() => {
