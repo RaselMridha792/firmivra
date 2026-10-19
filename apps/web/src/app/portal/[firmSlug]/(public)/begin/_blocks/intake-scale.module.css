@@ -43,6 +43,13 @@
   padding-inline: 0;
 }
 
+/* Align the shared public header with Begin's larger fluid form frame. */
+:global(header):has(~ :global(main) .scale) > :global(div) {
+  width: calc(100% - var(--space-8));
+  max-width: none;
+  padding-inline: 0;
+}
+
 .scale
   :is(
     input:not([type='radio'], [type='checkbox'], [type='file'], [type='hidden']),
@@ -169,7 +176,8 @@
 
 @media (width >= 64rem) {
   .scale > div,
-  .scale .frame {
+  .scale .frame,
+  :global(header):has(~ :global(main) .scale) > :global(div) {
     width: min(calc(100% - var(--space-8)), clamp(0px, calc(87.5vw - var(--space-5)), 85rem));
   }
 }

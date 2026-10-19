@@ -16,7 +16,17 @@ import {
 } from '@firmivra/types';
 import { Button, Input, PageContainer } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, LockKeyhole, Save } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  CalendarDays,
+  Clock3,
+  LockKeyhole,
+  Save,
+  ShieldCheck,
+  UsersRound,
+} from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { PageState } from '../../../../../../components/page-state';
@@ -217,7 +227,7 @@ export function IntakePage({
       data-testid="intake-page"
       className={`bg-subtle py-4 text-sm text-firm-primary ${className}`}
     >
-      <PageContainer>
+      <PageContainer className="frame">
         <PageState query={draft} isEmpty={() => false}>
           {(found) =>
             found && typeof found === 'object' ? (
@@ -228,7 +238,59 @@ export function IntakePage({
           }
         </PageState>
       </PageContainer>
+      <BeginCta firmSlug={firmSlug} />
     </div>
+  );
+}
+
+/** The form-specific bottom CTA in the Begin Online designs; this replaces the public site footer. */
+function BeginCta({ firmSlug }: { firmSlug: string }) {
+  return (
+    <section
+      aria-labelledby="begin-cta-heading"
+      data-begin-cta
+      className="mt-8 border-y border-on-action/20 bg-navigation py-5 text-on-action"
+    >
+      <PageContainer className="frame grid items-center gap-5 text-center lg:grid-cols-4 lg:gap-6">
+        <p className="font-display text-2xl leading-relaxed italic lg:border-r lg:border-on-action/40 lg:pr-5">
+          Same Goals
+          <br />
+          <span className="underline decoration-accent decoration-2 underline-offset-8">
+            Bigger Possibilities!
+          </span>
+        </p>
+        <div className="lg:col-span-2">
+          <h2 id="begin-cta-heading" className="font-display text-2xl font-bold">
+            Need Help Getting Started?
+          </h2>
+          <p className="mt-1 mb-3 text-sm">
+            Schedule an appointment and we&apos;ll help you complete your intake form.
+          </p>
+          <Link
+            href={`/${firmSlug}/appointments`}
+            className="inline-flex min-h-11 items-center justify-center gap-3 rounded-control bg-action px-5 py-2 text-sm font-semibold text-on-action shadow-sm transition-colors hover:bg-action-hover"
+          >
+            <CalendarDays aria-hidden="true" className="size-5 shrink-0" />
+            Schedule an Appointment
+            <ArrowRight aria-hidden="true" className="size-5 shrink-0" />
+          </Link>
+        </div>
+        <ul className="flex justify-center gap-5 text-sm lg:border-l lg:border-on-action/40 lg:pl-5">
+          <li className="flex flex-1 flex-col items-center gap-1">
+            <ShieldCheck aria-hidden="true" className="size-7 text-accent" />
+            <span>Secure &amp; Encrypted</span>
+          </li>
+          <li className="flex flex-1 flex-col items-center gap-1">
+            <Clock3 aria-hidden="true" className="size-7 text-accent" />
+            <span>Quick &amp; Easy</span>
+          </li>
+          <li className="flex flex-1 flex-col items-center gap-1">
+            <UsersRound aria-hidden="true" className="size-7 text-accent" />
+            <span>Trusted Professionals</span>
+          </li>
+        </ul>
+      </PageContainer>
+    </section>
   );
 }
 
