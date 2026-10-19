@@ -90,25 +90,25 @@ export function IntegrationsScreen() {
   const healthRows = [
     {
       label: 'All systems operational',
-      value: data?.health.operational ?? 0,
+      value: data ? data.health.operational : '—',
       icon: CheckCircle,
       tone: 'text-success',
     },
     {
       label: 'Authorization issues',
-      value: data?.health.authorizationIssues ?? 0,
+      value: data ? data.health.authorizationIssues : '—',
       icon: WarningCircle,
       tone: 'text-warning',
     },
     {
       label: 'Failed syncs',
-      value: data?.health.failedSyncs ?? 0,
+      value: data ? data.health.failedSyncs : '—',
       icon: Warning,
       tone: 'text-danger',
     },
     {
       label: 'Records pending',
-      value: data?.health.recordsPending ?? 0,
+      value: data ? data.health.recordsPending : '—',
       icon: Clock,
       tone: 'text-orange',
     },
@@ -167,8 +167,8 @@ export function IntegrationsScreen() {
           tone="amber"
         />
       </section>
-      <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <div className="min-w-0 max-w-full overflow-x-auto">
+      <div className="grid min-w-0 items-center gap-3 xl:grid-cols-[minmax(0,1fr)_15rem_11rem_auto]">
+        <div className="min-w-0 overflow-x-auto">
           <Tabs
             variant="segmented"
             label="Integration status"
@@ -185,6 +185,7 @@ export function IntegrationsScreen() {
         <SearchField
           label="Search integrations"
           placeholder="Search integrations..."
+          minWidth="0"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
@@ -262,7 +263,16 @@ export function IntegrationsScreen() {
                 <Plus weight="fill" />
                 Add Integration
               </Link>
-            ) : null}
+            ) : (
+              <Button
+                className="w-full"
+                disabled
+                aria-label="Add Integration is unavailable while connection status is unknown"
+              >
+                <Plus weight="fill" />
+                Add Integration
+              </Button>
+            )}
             <Link
               className="text-center text-xs font-semibold text-link underline"
               href="/integrations/marketplace"
@@ -318,7 +328,11 @@ export function IntegrationsScreen() {
             ))}
           </ul>
           {!data?.mapping.length ? (
-            <p className="mb-4 text-xs text-muted">No fields mapped yet.</p>
+            <p className="mb-4 text-xs text-muted">
+              {overview.isError
+                ? 'Mapping status is unavailable until the connection is restored.'
+                : 'No fields mapped yet.'}
+            </p>
           ) : null}
           <Button
             variant="outline"
@@ -362,7 +376,11 @@ export function IntegrationsScreen() {
             ))}
           </ul>
           {!data?.recent.length ? (
-            <p className="mb-4 text-xs text-muted">No integration activity yet.</p>
+            <p className="mb-4 text-xs text-muted">
+              {overview.isError
+                ? 'Activity is unavailable until the connection is restored.'
+                : 'No integration activity yet.'}
+            </p>
           ) : null}
           <Link className={`${linkClass} mt-auto`} href="/audit-log">
             View Audit Log
