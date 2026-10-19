@@ -9,6 +9,14 @@ import {
 
 // ---------- Errors ----------
 /** Every API error has this shape. Codes are stable; messages are for people. */
+/**
+ * One line of an error's details: which field or part (`path`) and what is wrong. Validation
+ * failures send one per issue; a refusal such as PLAN_NOT_READY sends one per missing part.
+ */
+export const ApiErrorDetail = z.object({ path: z.string(), message: z.string() });
+export type ApiErrorDetail = z.infer<typeof ApiErrorDetail>;
+export const ApiErrorDetails = z.array(ApiErrorDetail).max(100);
+
 export const ApiError = z.object({
   error: z.object({
     code: z.string(),

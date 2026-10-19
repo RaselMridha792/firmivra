@@ -54,7 +54,8 @@ export interface SupportWrite {
   query?: string;
 }
 
-const records: Record<string, string> = {};
+/** Record ids by key, shared with the other admin write helpers (admin-billing-writes.ts). */
+export const records: Record<string, string> = {};
 const refs: { categoryId: string; priorityId: string; highId: string; criticalId: string } = {
   categoryId: '',
   priorityId: '',
