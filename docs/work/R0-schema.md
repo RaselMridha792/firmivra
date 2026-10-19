@@ -261,6 +261,15 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
   - It carries a migration, so Rasel merges it himself.
 - **#871: demo seed Communications group** (16 tables). Merges cleanly with main.
 
+**Gap migrations, built and pushed, waiting their turn** (one migration PR at a time; open each after the previous one merges):
+- `rasel/R0-stage-d4-platform-legal` (`20c39b70`): D4, platform legal documents and acceptances. Contract note `docs/work/R0-stage-d4-platform-legal.md`; 6 tests. Open it after #868 merges.
+- `rasel/R0-mrr-history` (`2fef0bbe`): `platform_subscription_changes.mrr_cents` plus the `platform_mrr_daily` rollup; 4 tests. Open it after D4 merges, and merge main in first.
+
+**Business Advisory (item 2), started Oct 19:**
+- The API and contract already exist on main (R55, `de509806`: `apps/api/src/advisory/`, `packages/types/src/advisory/`).
+- The 25 pages under `firm/(workspace)/business-advisory` are placeholders.
+- Next: map each page to its mockup and route, fill API gaps (contract PR first), then build the screens.
+
 **Shelved, pushed, no PR:** `rasel/R0-demo-stage5-automations` (6 tables, stacked on #868). Don't open it unless Rasel asks.
 
 **Merged today:**
