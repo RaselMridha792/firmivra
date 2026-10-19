@@ -13,7 +13,7 @@ import {
   NAME_MAX,
   SHORT_DESCRIPTION_MAX,
   type IntegrationCategory,
-} from '../../../../../../mocks/admin-integrations';
+} from '../../_components/integrations-contract';
 import { catalogErrorMessage, urlProblem } from './catalog-parts';
 
 /**
