@@ -213,7 +213,33 @@ or seat count than the record has (422 NO_CHANGE otherwise) and the firm's own n
   off, cancellation reversed).
 - **R8 (support access):** an admin-side end of an open grant, if the banner's End button stays.
 - **The Subscriptions API (next PR):** report status changes to the linked Sales opportunities in
-  platform scope (Sales notes, B5's mapping), and write an audit row on every action.
+  platform scope (Sales notes, B5's mapping), and write an audit row on every action. The audit
+  rows are done (note 39); the Sales report is not (below, R1 / platform jobs).
+- **R0 (found by the Subscriptions API):**
+  - `platform_subscription_changes.amount_cents` (a change's charge or credit), so the history
+    holds its money instead of the audit row (note 39);
+  - a `reason` with the change kinds already asked for above (TRIAL_EXTENDED, PRICE_CHANGED with an
+    `approved_by`, BILLING_DATE_CHANGED) and CANCEL_REVERSED, so those reasons leave B4's
+    investigation notes (note 40);
+  - `platform_invoices.subscription_id` and `platform_recurring_invoices.subscription_id`
+    reference the subscription by id alone, unlike B3's other links (`(business_id, …)` keys): a
+    composite key would keep an invoice or schedule on its own firm's subscription (the API always
+    sets both from the same row);
+  - the lifecycle job (R1, above) should also advance a subscription's period when Billing's
+    runner bills its schedule: `current_period_start` and `_end`, `next_billing_date`,
+    `paid_through_date`, and a RENEWED row (note 45).
+- **R1 / platform jobs:** the Sales report (B5's mapping: Active, Past Due, Non-Renewing
+  UNDER_CONTRACT; Expired CLOSED; Canceled TERMINATED) on every status change, in platform scope:
+  the Subscriptions API runs in admin scope only and never writes `sales_opportunities`.
+- **API (AuditService):** `logIn` could return the row it wrote; Subscriptions finds its own row by
+  a one-off `ref` in the metadata to put the reason's note on it (note 40).
+- **Billing (B3, R60):** one "today" for both modules: Billing counts days in America/New_York,
+  Subscriptions in UTC (note 35).
+- **Subscriptions screen owner (with the API):** a Non-Renewing subscription's changes are not
+  prorated (the preview agrees); converting a trial with Auto-Renew off makes it Non-Renewing;
+  reactivating a suspended trial gives a Trial; an event's amount is on its first history row only;
+  the reason of TRIAL_EXTENDED, PRICE_CHANGED, BILLING_DATE_CHANGED and CANCEL_REVERSED is the
+  event's `reason`.
 - **Subscriptions screen owner:** switch from `mocks/admin-subscriptions.ts` to
   `api.adminSubscriptions`. Changes: plans from `meta()`; filters, sort and paging sent to the
   server; no Effective choice and no scheduled list; Manage Add-ons shows Additional Location only;
@@ -241,3 +267,156 @@ or seat count than the record has (422 NO_CHANGE otherwise) and the firm's own n
    locations still add. Confirm, rather than it replacing the whole price.
 7. Which `subscriptions.*` permission keys guard the high-risk actions (close, price, billing date,
    suspend)? Today only Super Admins sign in, so every caller may do all of them.
+8. (API) Converting a trial whose Auto-Renew was turned off makes it Non-Renewing for one paid
+   period (§6.9: Auto-Renew never comes back on by itself), not Active. And a restart of a
+   canceled or expired subscription turns Auto-Renew on (it is a new term the admin chose). Both
+   right?
+
+## Subscriptions API
+
+The API PR (`apps/api/src/admin-subscriptions/`). Numbers continue the contract notes.
+
+34. **The module.** A controller (20 routes, fixed paths before `/:id`, `@Roles('SUPER_ADMIN')`,
+    every param, query and body through the contract's schemas), a reads service, a changes
+    service and pure helpers (`subscriptions-math.ts`, `subscriptions-events.ts`). It is
+    registered after `AdminBillingModule` and imports it for `BillingService`. Admin scope only
+    (`AdminPrisma`): no firm scope, no platform scope. Prices, previews and proration are the
+    contract's own functions, so the dialogs and the API answer the same numbers.
+35. **Days are UTC days** (`meta.today`, trials, periods, proration, the billing date). Billing's
+    pages and its recurring runner count days in America/New_York (`billing-common.ts` `today()`),
+    so around midnight an invoice's Overdue or a schedule's run can be a day off the subscription.
+36. **The table and the cards** load every subscription (at most 5,000) and work in memory: the
+    firm from Billing's `loadFirms` (billing contact, else the first active owner; `canBill`), the
+    domain from its application's `business.website` (`websiteHost`), seats in use from the latest
+    `platform_firm_metrics_daily` row, credit from its Available and Partially Applied credit notes,
+    an open support grant (approved, not revoked, not expired). Search, plan, cycle, status or group
+    and the period (in force: started by its end, not ended before its start; Canceled ends on its
+    close day, Expired on its trial's end) filter; sort keys put unknown values last either way,
+    then the firm name; 25 a page. The next billing shows only while it renews (Active or Past Due
+    with Auto-Renew on). The cards count now; `previous` is the MRR rollup's row for today − 30;
+    renewals' previous counts distinct subscriptions with RENEWED rows in the 30 days before today;
+    churn reads, per subscription, its last history row with a status before the period.
+37. **The detail panel** runs Billing's due schedules first (`runDue`), then reads the firm's
+    issued invoices and payments (50 each), the failed payments on its open invoices (Past Due),
+    `pastDue.since` from the latest history row into Past Due, the account owner from the Sales
+    record linked to the subscription (`transaction_kind` `platform_subscription`), else to the
+    firm, that has an owner, the events (500) and the notes. The suspension's kind is the latest
+    `subscription.suspended` audit row's `kind`.
+38. **One transaction per change, under the row's lock** (`SELECT … FOR UPDATE` first): the
+    contract's checks in order, then the subscription, its history row, Billing's documents, the
+    schedule and the audit row. Two dialogs confirmed at once apply one after the other; a refusal
+    anywhere (Billing's included) rolls all of it back. Database refusals the checks missed answer
+    a code (`asSubscriptionError`: the unique `business_id` as 409 ALREADY_SUBSCRIBED, a missing
+    row 404, any other check 400), never a 500.
+39. **History and audit.** Each change writes its `platform_subscription_changes` row (from and to
+    plan, status on every row, unchanged too, seats, reason, `mrr_cents` after it: the monthly price
+    while paying, else 0, and the admin), and one platform audit row `subscription.<verb>`
+    (`created`, `plan_changed`, `seats_changed`, `locations_changed`, `trial_extended`, `converted`,
+    `auto_renew_off`, `cancellation_reversed`, `suspended`, `reactivated`, `price_changed`,
+    `billing_date_changed`, `closed`, `note_added`, `exported`) with ids and codes only: `firmId`,
+    `changeIds`, `amountCents`, `invoiceId`, `creditNoteId`, days, cents, codes. The history has
+    no money column, so a history event's `amountCents` is read from the audit row naming it in
+    `changeIds` (the first one only, when a plan change also changed the cycle and wrote two
+    rows). The audit-only events carry `event` (TRIAL_EXTENDED, …) in their metadata.
+40. **Text never goes in the audit metadata.** The reason of an audit-only event (TRIAL_EXTENDED,
+    PRICE_CHANGED with its approver after a "\n\nApproved by: " line, BILLING_DATE_CHANGED,
+    CANCEL_REVERSED) and an internal note are B4's investigation note on the event's audit row,
+    written as the admin (the notes' RLS needs the author to be the caller). `logIn` returns no id,
+    so the row is found by a one-off `ref` uuid in its metadata. A note edited in Audit & Security
+    reads as its latest version; a retracted one reads as no reason.
+41. **Money moves through Billing** in the change's transaction: a charge is Billing's
+    `createInvoiceIn` (one line, "Team Pro (Monthly): plan change, prorated", the firm's tax rate,
+    due by its terms (`firmTerms`), issued at once with `subscription_id`; its email is recorded as
+    not set up, as Billing's), a credit `createCreditNoteIn` (one line, PRICE_ADJUSTMENT, issued
+    Available; credit notes have no subscription column). Any change that would move money first
+    checks the firm: 409 FIRM_NOT_BILLABLE unless it is Active with a billing contact (Billing's own
+    check answers 400 for a missing contact).
+42. **The recurring schedule** (`platform_recurring_invoices.subscription_id`, the latest Active or
+    Paused one) is kept in step after every change: its line and amount at the price, its frequency
+    the cycle, its next invoice the next billing day, its end the day before the paid-through day
+    while Auto-Renew is off, Paused while suspended (or priced at nothing), Canceled once the
+    subscription is Canceled. Only changed fields are written. A paid start, Convert to Paid, a
+    restart, and a reactivation whose period ended meanwhile make the schedule if there is none and
+    run today's occurrence through Billing (`runRecurringIn`): the period's first invoice is the
+    schedule's, dated, due and sent as Billing's runner does. Only those make a schedule: a
+    subscription paying without one (a seed, a status set by hand) gets one in Billing's drawer.
+43. **What each change does, after its checks:**
+    - `POST /`: the firm is Active or Pending Setup (422 FIRM_NOT_AVAILABLE, an unknown one too) and
+      has none (409 ALREADY_SUBSCRIBED); the plan is active (422 PLAN_INACTIVE, an unknown one too);
+      seats in the plan's range (422 SEATS_OUT_OF_RANGE) and not fewer than in use when the rollup
+      knows (422 SEATS_IN_USE); locations only where sold; PAID needs a billable firm. Included
+      seats and locations are the plan's, the rest purchased. Trial: from now to today + 14. Paid:
+      Active, started now, a period of one cycle from today (paid through and next billing its
+      end), the schedule and its first invoice. CREATED.
+    - `/plan`: Trial, Active, Past Due or Non-Renewing (409 STATUS_NOT_ALLOWED); the plan (its own
+      may be inactive); 422 NO_CHANGE; the preview's block; billable when money moves. Plan, cycle,
+      seats and locations as the preview sets them, the new plan's included seats and locations,
+      the negotiated price cleared on a new plan; a new cycle starts a new period today. UPGRADED or
+      DOWNGRADED by display order (then the monthly price), and CYCLE_CHANGED when the cycle moves.
+    - `/seats` and `/locations`: the same checks and proration; SEATS_CHANGED, or the audit event
+      LOCATIONS_CHANGED.
+    - `/extend-trial`: Trial only; the days go on the trial's end (today's, if it has none).
+    - `/convert`: Trial only; the plan, the preview and a billable firm; Active (Non-Renewing if
+      Auto-Renew was turned off in the trial, question 8), started now, a new period; STATUS_CHANGED;
+      the schedule and its first invoice.
+    - `/auto-renew/off`: 409 RENEWAL_ALREADY_OFF first, then Active or Trial only (Past Due and
+      Suspended are 409 STATUS_NOT_ALLOWED); `cancel_*` set (the source as its code); Active becomes
+      Non-Renewing, paid through the period's end; CANCEL_REQUESTED with the notes as its reason;
+      the schedule ends with the period.
+    - `/auto-renew/on`: 409 RENEWAL_ALREADY_ON first; Non-Renewing becomes Active (STATUS_CHANGED),
+      a Trial stays one (the audit event CANCEL_REVERSED); `cancel_*` cleared; the schedule renews.
+    - `/suspend`: a changeable status; NONPAYMENT only from Past Due; `suspended_*`; STATUS_CHANGED;
+      the kind on the audit row; the schedule paused.
+    - `/reactivate`: Suspended: 409 BALANCE_DUE while the firm's open invoices owe anything, then
+      422 PAYMENT_CONFIRMATION_REQUIRED for a nonpayment suspension; back to Trial if it was one
+      (never paid), else Active or Non-Renewing by Auto-Renew; a period that ended while suspended
+      starts again today and is invoiced. Canceled or Expired: 422 PLAN_REQUIRED, an active plan,
+      the preview, a billable firm; Active today on it with Auto-Renew on (question 8), the
+      cancellation, closure and suspension cleared, a new schedule and its first invoice. Any other
+      status: 409 STATUS_NOT_ALLOWED.
+    - `/price`: not Canceled; 422 NO_CHANGE; `price_cents_override`; the schedule's amount from its
+      next invoice, nothing prorated; the audit event PRICE_CHANGED.
+    - `/billing-date`: 409 NO_BILLING_DATE without a next billing in the row, 422
+      BILLING_DATE_OUT_OF_RANGE (after today, at most one cycle from today), 422 NO_CHANGE; the days
+      added invoiced (the line's period from the old day to the new one), removed credited; the
+      period moves whole (note 44), with the paid-through day and the schedule's next invoice.
+    - `/close`: not Canceled; the typed name is the firm's, ignoring case and outer spaces (422
+      CONFIRM_NAME_MISMATCH); Canceled, Auto-Renew off, `closed_*`, no next billing, no suspension;
+      CANCELED; the schedule canceled. The firm's own status is untouched (question 3).
+    - `/notes`: 404 for an unknown subscription; the audit event NOTE_ADDED and its note (201).
+    - `/export`: the ids (filters then ignored) or the table's filters, by firm name, at most 1,000;
+      formula-safe cells; one `subscription.exported` row (EXPORTED) per subscription.
+44. **Traps found.**
+    - A billing-date move that kept the period's start would leave a period shorter or longer than
+      a cycle, and the contract's per-day price (`periodDays(start, next)`) for the next move or
+      proration would follow it: a 10-day move after a first one could charge a full month. The
+      whole period moves (its start one cycle before the new day).
+    - The previews read `nextBillingOn`, which is null while Non-Renewing: a change on a
+      Non-Renewing subscription is not prorated, and a cycle change does not move its period (the
+      dialog and the API agree).
+    - A suspended trial "back to Active" would be Active and never billed: it goes back to Trial
+      (the history row into Suspended says what it was; else whether it ever started).
+    - A paused schedule whose next invoice passed would make Billing's runner catch up (up to 12
+      invoices) for the months suspended: a reactivation whose period ended bills today only.
+    - A schedule bills at least a cent (Billing's `amountCents` ≥ 1): priced at nothing, it pauses.
+    - A canceled schedule never changes (Billing's 409 SCHEDULE_CANCELED, not a contract code): only
+      live schedules are touched, and a restart makes a new one.
+    - The test database has no plans (seeded, not migrated, so truncated) and only an admin writes
+      them: the tests make their own in admin scope.
+45. **Not kept in step yet.** Billing's runner bills a subscription's next period from its schedule,
+    but nothing moves the subscription's own period: once its next billing day passes, the row's
+    period, next billing and proration read the old period until the lifecycle job advances it
+    (Needs, R0 and R1). Linked Sales records do not follow status changes (Needs, R1).
+46. **Billing change** (R60's own module, kept to new entry points). `BillingService` gained
+    `createInvoiceIn(tx, body, subscriptionId?)`, `createCreditNoteIn(tx, body)`,
+    `createRecurringIn(tx, body, subscriptionId?)`, `updateRecurringIn`, `setRecurringStatusIn`
+    and `runRecurringIn`, each the body of the existing route method, which now calls it inside
+    its own transaction (behaviour unchanged), and `firmTerms(tx, firmId)` (the firm's payment
+    terms and tax rate, else Billing Settings'), which the schedule template now uses too.
+    `AdminBillingModule` exports `BillingService`.
+47. **Tests.** `test/unit/admin-subscriptions.test.ts` (prices, proration and previews, the row's
+    dates, statuses, filters, sorting, churn, events and notes, errors, CSV),
+    `test/e2e/admin-subscriptions.e2e.test.ts` (every route, the refusals, a firm Owner's 401, the
+    audit rows and notes, the schedules), and `test/isolation/admin-subscriptions-writes.ts` (one
+    admin-scope case per write, each on its own firm in the state it needs), wired into
+    `admin-scope.test.ts` after Billing's lines (the Sales lines are on the Sales API branch).
