@@ -24,6 +24,7 @@ import {
   type Icon,
   X,
 } from '@phosphor-icons/react';
+import { ApiRequestError } from '@firmivra/types';
 import { Badge, Button, Card, Input, Select } from '@firmivra/ui';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -38,11 +39,17 @@ import {
   type CreateTemplateMock,
   type TemplateLibraryImageMock,
 } from '../../../../../../../mocks/admin-communications-create-template';
+import {
+  listCommunicationTemplates,
+  type CommunicationTemplate,
+} from '../../../../../../../mocks/admin-communications-templates';
 
 type Channel = 'EMAIL' | 'SMS';
 type ActivePopup = 'status' | 'subject-merge' | 'body-merge' | 'image' | 'save' | null;
 type Notice = { tone: 'info' | 'success' | 'error'; text: string };
 type FieldError = Partial<Record<'name' | 'category' | 'subject' | 'body', string>>;
+type TemplateEditorMode = 'create' | 'edit';
+type EditLoadState = 'loading' | 'ready' | 'not-found' | 'unavailable' | 'forbidden';
 
 const blankTemplate = (): CreateTemplateMock => ({
   ...createTemplateMock(),
@@ -50,6 +57,14 @@ const blankTemplate = (): CreateTemplateMock => ({
   category: '',
   subject: '',
   body: '',
+});
+
+const templateToForm = (template: CommunicationTemplate): CreateTemplateMock => ({
+  ...createTemplateMock(),
+  name: template.name,
+  category: template.category,
+  subject: template.subject,
+  body: template.body.replaceAll('\n', '<br />'),
 });
 
 const textFromHtml = (html: string) =>
@@ -294,17 +309,31 @@ function LibraryGrid({
   );
 }
 
-export function CreateTemplateScreen() {
+export function CreateTemplateScreen({
+  mode = 'create',
+  templateId,
+}: {
+  mode?: TemplateEditorMode;
+  templateId?: string;
+}) {
   const searchParams = useSearchParams();
   const mockState = searchParams.get('mockState');
-  const isEmpty = mockState === 'empty';
-  const apiUnavailable = mockState === 'api-unavailable';
-  const noPermission = mockState === 'no-permission';
+  const isEdit = mode === 'edit';
+  const [editLoadState, setEditLoadState] = useState<EditLoadState>(() =>
+    isEdit ? (templateId ? 'loading' : 'not-found') : 'ready',
+  );
+  const isEmpty = mockState === 'empty' || (isEdit && editLoadState === 'not-found');
+  const apiUnavailable =
+    mockState === 'api-unavailable' || (isEdit && editLoadState === 'unavailable');
+  const noPermission =
+    mockState === 'no-permission' ||
+    mockState === 'forbidden' ||
+    (isEdit && editLoadState === 'forbidden');
   const [form, setForm] = useState<CreateTemplateMock>(() =>
-    isEmpty || noPermission ? blankTemplate() : createTemplateMock(),
+    isEdit || isEmpty || noPermission ? blankTemplate() : createTemplateMock(),
   );
   const [channel, setChannel] = useState<Channel>('EMAIL');
-  const [status, setStatus] = useState('ACTIVE');
+  const [status, setStatus] = useState<'ACTIVE' | 'INACTIVE' | 'ARCHIVED'>('ACTIVE');
   const [errors, setErrors] = useState<FieldError>({});
   const [notice, setNotice] = useState<Notice>();
   const [previewTab, setPreviewTab] = useState<'preview' | 'fields'>('preview');
@@ -315,6 +344,38 @@ export function CreateTemplateScreen() {
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const initialSubjectCursorRef = useRef(0);
+
+  useEffect(() => {
+    if (!isEdit || !templateId) return;
+
+    let isCurrent = true;
+    void listCommunicationTemplates()
+      .then((templates) => {
+        if (!isCurrent) return;
+        const template = templates.find((item) => item.id === templateId);
+        if (!template) {
+          setForm(blankTemplate());
+          setEditLoadState('not-found');
+          return;
+        }
+
+        setForm(templateToForm(template));
+        setChannel(template.channel);
+        setStatus(template.status === 'Archived' ? 'ARCHIVED' : 'ACTIVE');
+        setEditLoadState('ready');
+      })
+      .catch((error: unknown) => {
+        if (!isCurrent) return;
+        setForm(blankTemplate());
+        setEditLoadState(
+          error instanceof ApiRequestError && error.status === 403 ? 'forbidden' : 'unavailable',
+        );
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [isEdit, templateId]);
 
   useEffect(() => {
     const editor = bodyRef.current;
@@ -398,7 +459,9 @@ export function CreateTemplateScreen() {
       tone: 'error',
       text: apiUnavailable
         ? 'The Super Admin template service is unavailable. Your work is still on this page.'
-        : 'Template saving is not connected for the Super Admin console yet. Your work is still on this page.',
+        : isEdit
+          ? 'Template updates are not connected for the Super Admin console yet. Your work is still on this page.'
+          : 'Template saving is not connected for the Super Admin console yet. Your work is still on this page.',
     });
   };
 
@@ -417,7 +480,10 @@ export function CreateTemplateScreen() {
     .replaceAll('{{firm_name}}', 'Firmivra');
 
   return (
-    <main data-testid="create-template-screen" className="flex min-w-0 flex-col gap-4">
+    <main
+      data-testid={isEdit ? 'edit-template-screen' : 'create-template-screen'}
+      className="flex min-w-0 flex-col gap-4"
+    >
       <header className="flex flex-col gap-1.5">
         <Link
           href="/communications/templates"
@@ -427,9 +493,13 @@ export function CreateTemplateScreen() {
           Back to Templates
         </Link>
         <div>
-          <h1 className="font-display text-3xl font-bold text-heading">Create Template</h1>
+          <h1 className="font-display text-3xl font-bold text-heading">
+            {isEdit ? 'Edit Template' : 'Create Template'}
+          </h1>
           <p className="text-base text-muted">
-            Create a reusable message template for email or SMS communications.
+            {isEdit
+              ? 'Update this reusable message template for email or SMS communications.'
+              : 'Create a reusable message template for email or SMS communications.'}
           </p>
         </div>
       </header>
@@ -449,13 +519,23 @@ export function CreateTemplateScreen() {
           data-testid="template-no-permission"
           className="rounded-control border border-warning bg-warning-soft px-4 py-3 text-sm text-warning"
         >
-          You don&apos;t have permission to create templates. The form layout remains available for
-          review.
+          You don&apos;t have permission to {isEdit ? 'edit' : 'create'} templates. The form layout
+          remains available for review.
         </div>
       ) : null}
       {isEmpty ? (
-        <p data-testid="template-empty-state" className="text-xs text-muted">
-          Start with a blank template. Required fields are marked with an asterisk.
+        <p
+          data-testid={isEdit ? 'edit-template-empty-state' : 'template-empty-state'}
+          className="text-xs text-muted"
+        >
+          {isEdit
+            ? 'This template could not be found. The editor remains available with a blank form.'
+            : 'Start with a blank template. Required fields are marked with an asterisk.'}
+        </p>
+      ) : null}
+      {isEdit && editLoadState === 'loading' ? (
+        <p role="status" className="text-xs text-muted">
+          Loading template details…
         </p>
       ) : null}
       {notice ? (
@@ -468,7 +548,9 @@ export function CreateTemplateScreen() {
       ) : null}
 
       <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.33fr)_minmax(0,1fr)]">
-        <Card className="relative z-20 flex min-w-0 flex-col gap-4 overflow-visible p-5">
+        <Card
+          className={`relative z-20 flex min-w-0 flex-col gap-4 overflow-visible p-5 ${isEdit ? 'self-start' : ''}`}
+        >
           <div className="grid min-w-0 gap-x-4 gap-y-4 sm:grid-cols-2">
             <div className="min-w-0">
               <FieldLabel htmlFor="template-name">Template Name</FieldLabel>
@@ -544,7 +626,11 @@ export function CreateTemplateScreen() {
                   className="h-10 w-full !justify-between px-3 py-1.5 text-sm"
                 >
                   <Badge tone={status === 'ACTIVE' ? 'success' : 'neutral'}>
-                    {status === 'ACTIVE' ? 'Active' : 'Inactive'}
+                    {status === 'ACTIVE'
+                      ? 'Active'
+                      : status === 'ARCHIVED'
+                        ? 'Archived'
+                        : 'Inactive'}
                   </Badge>
                   <CaretDown aria-hidden weight="bold" className="size-4 text-muted" />
                 </Button>
@@ -554,7 +640,10 @@ export function CreateTemplateScreen() {
                     aria-label="Status options"
                     className="absolute top-full left-0 z-30 mt-1 w-full rounded-card border border-border bg-surface p-1 shadow-lg"
                   >
-                    {(['ACTIVE', 'INACTIVE'] as const).map((option) => (
+                    {(isEdit
+                      ? (['ACTIVE', 'ARCHIVED'] as const)
+                      : (['ACTIVE', 'INACTIVE'] as const)
+                    ).map((option) => (
                       <button
                         key={option}
                         type="button"
@@ -566,7 +655,11 @@ export function CreateTemplateScreen() {
                         }}
                         className="flex min-h-9 w-full items-center rounded-control px-3 text-left text-sm text-text hover:bg-info-soft hover:text-action focus-visible:outline-2 focus-visible:outline-focus"
                       >
-                        {option === 'ACTIVE' ? 'Active' : 'Inactive'}
+                        {option === 'ACTIVE'
+                          ? 'Active'
+                          : option === 'ARCHIVED'
+                            ? 'Archived'
+                            : 'Inactive'}
                       </button>
                     ))}
                   </div>
@@ -822,7 +915,8 @@ export function CreateTemplateScreen() {
                 className="w-full rounded-r-none sm:w-auto"
                 disabled={noPermission}
               >
-                <FloppyDisk aria-hidden weight="fill" className="size-4" /> Save Template
+                <FloppyDisk aria-hidden weight="fill" className="size-4" />
+                {isEdit ? 'Save Changes' : 'Save Template'}
               </Button>
               <Button
                 variant="secondary"
@@ -836,7 +930,10 @@ export function CreateTemplateScreen() {
               </Button>
               {activePopup === 'save' ? (
                 <div className="absolute right-0 bottom-full z-20 mb-1 w-48 rounded-card border border-border bg-surface p-1 shadow-lg">
-                  {['Save as Draft', 'Save and Activate'].map((option) => (
+                  {(isEdit
+                    ? ['Save Changes', 'Save and Archive']
+                    : ['Save as Draft', 'Save and Activate']
+                  ).map((option) => (
                     <button
                       key={option}
                       type="button"
