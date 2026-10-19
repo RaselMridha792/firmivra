@@ -19,6 +19,33 @@ On Oct 15-16 you and Arfan test everything on dev.
 - Pre-review pair: Fahad (you review each other's PRs)
 - Final review and merge: Rasel
 
+## Form visual-polish inventory · Oct 19
+
+This is the current list of form surfaces owned by Tumit. Work one reviewable form or shared
+form family at a time. Each PR must include the empty, filled and validation-error views at
+1440 px beside its relevant design, plus the `docs/design-match.md` checklist.
+
+1. **Begin Online public intake family** — `portal/[firmSlug]/(public)/begin/`: service
+   picker; annual tax, quarterly tax, bookkeeping, payroll, tax planning and business
+   development intakes; resume; and completion. These routes share the `_blocks/` form frame,
+   section panels, fields, rows, groups, stepper, upload and review components.
+2. **Public firm application** — `firm/apply/`: application details and its review/submit
+   stage. The welcome and done routes are supporting states rather than editable forms.
+3. **First-time setup and settings forms** — `firm/setup/` and the owned settings routes:
+   branding, business details, team/access, client portal, legal text, profile and availability.
+4. **Appointment forms** — `firm/(workspace)/calendar/` new and edit appointment flows,
+   availability and blocked-time controls, plus `portal/[firmSlug]/(client)/appointments/`
+   booking/reschedule/cancel flows.
+5. **Staff and owned Super Admin forms** — the staff-management create/edit flows and the
+   forms within Tumit's Audit & Security, Billing, Sales, Team, Support and Integrations
+   modules. Each route remains its own PR.
+6. **Shared-with-Arfan Intake Forms** — only `intake-forms/builder/`,
+   `intake-forms/templates/` and `intake-forms/send/`; coordinate before changing a shared
+   file. Lead screens and the other Intake Forms paths are Arfan-owned and are excluded.
+
+`packages/ui/` remains Fahad-owned in PAGE-MAP. Before a shared Input, Select, FormField or
+FormSection change is started, Rasel must explicitly move or approve that path for Tumit's PR.
+
 ## Tickets
 
 | Ticket | Day | Title | API (built by Rasel's sessions) |

@@ -22,10 +22,10 @@ export function Select({
   const generatedId = useId();
   const fieldId = id ?? generatedId;
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1.5">
       <label
         htmlFor={fieldId}
-        className={`text-sm font-medium text-text ${hideLabel ? 'sr-only' : ''}`}
+        className={`text-sm font-semibold text-heading ${hideLabel ? 'sr-only' : ''}`}
       >
         {label}
       </label>
@@ -34,7 +34,7 @@ export function Select({
           id={fieldId}
           aria-invalid={!!error}
           aria-describedby={error ? `${fieldId}-error` : undefined}
-          className={`min-w-0 w-full max-w-full appearance-none rounded-control border bg-surface py-2 pl-3 pr-10 text-base text-text focus:outline-2 focus:outline-accent-500 disabled:bg-disabled ${error ? 'border-danger' : 'border-border'} ${className}`}
+          className={`min-h-11 min-w-0 w-full max-w-full appearance-none rounded-control border bg-surface py-2 pl-3 pr-10 text-base text-text shadow-sm transition-colors focus:outline-none focus:ring-2 disabled:bg-disabled ${error ? 'border-danger focus:border-danger focus:ring-danger/20' : 'border-border focus:border-action focus:ring-action/20'} ${className}`}
           {...props}
         >
           {options.map((o) => (
@@ -58,7 +58,7 @@ export function Select({
         </svg>
       </div>
       {error ? (
-        <p id={`${fieldId}-error`} className="text-xs text-danger">
+        <p id={`${fieldId}-error`} className="text-sm font-medium text-danger">
           {error}
         </p>
       ) : null}
@@ -76,7 +76,12 @@ export function Checkbox({ label, id, className = '', ...props }: CheckboxProps)
       htmlFor={fieldId}
       className={`flex min-h-11 items-center gap-3 text-base text-text ${className}`}
     >
-      <input {...props} id={fieldId} type="checkbox" className="size-5 shrink-0" />
+      <input
+        {...props}
+        id={fieldId}
+        type="checkbox"
+        className="size-5 shrink-0 rounded border-border accent-action focus:outline-none focus:ring-2 focus:ring-action/20"
+      />
       <span>{label}</span>
     </label>
   );

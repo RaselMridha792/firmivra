@@ -19,23 +19,25 @@ export function FormSection({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-divider bg-surface">
-      <header className="flex items-center gap-3 rounded-t-xl bg-table-head px-5 py-3">
+    <section className="rounded-xl border border-divider bg-surface shadow-sm">
+      <header className="flex items-center gap-4 rounded-t-xl border-b border-divider bg-table-head px-5 py-4 sm:px-6">
         <span
           aria-hidden
-          className={`flex size-9 shrink-0 items-center justify-center text-sm font-bold ${Glyph ? 'rounded-lg bg-info-soft text-info' : 'rounded-full bg-action text-on-action'}`}
+          className={`flex size-10 shrink-0 items-center justify-center text-sm font-bold shadow-sm ${Glyph ? 'rounded-lg bg-info-soft text-info' : 'rounded-full bg-action text-on-action'}`}
         >
           {Glyph ? <Glyph weight="fill" className="size-5" /> : step}
         </span>
         <div>
-          <h2 className="text-lg font-bold text-heading">
+          <h2 className="text-xl font-bold text-heading">
             {step && Glyph ? `${step}. ` : ''}
             {title}
           </h2>
           {subtitle ? <p className="text-sm text-muted">{subtitle}</p> : null}
         </div>
       </header>
-      <div className={`grid gap-4 p-5 ${columns === 2 ? 'sm:grid-cols-2' : ''}`}>{children}</div>
+      <div className={`grid gap-5 p-5 sm:p-6 ${columns === 2 ? 'sm:grid-cols-2' : ''}`}>
+        {children}
+      </div>
     </section>
   );
 }
@@ -60,14 +62,14 @@ export function FormField({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={htmlFor} className="text-sm font-medium text-text">
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <label htmlFor={htmlFor} className="text-sm font-semibold text-heading">
         {label}
         {required ? <span className="text-danger"> *</span> : null}
       </label>
       {children}
-      <div className="flex justify-between gap-2 text-xs">
-        <p className={error ? 'text-danger' : 'text-muted'}>{error ?? hint}</p>
+      <div className="flex justify-between gap-2 text-sm">
+        <p className={error ? 'font-medium text-danger' : 'text-muted'}>{error ?? hint}</p>
         {counter ? <p className="text-muted">{counter}</p> : null}
       </div>
     </div>
