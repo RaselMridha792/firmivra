@@ -19,6 +19,7 @@ import {
   createEngagementsClient,
   createEsignClient,
   createFirmApplicationsClient,
+  createAdminNotificationsClient,
   createIntakeFormsClient,
   createInvoicesClient,
   createLeadPipelineClient,
@@ -86,6 +87,7 @@ import {
   publicAgreementsMock,
 } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { createAdminNotificationsMock } from '../mocks/admin-notifications-api';
 import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
@@ -450,6 +452,11 @@ export const api = {
     dev && mocked('firmApplications')
       ? createFirmApplicationsMock()
       : createFirmApplicationsClient(request),
+  /** Super Admin notifications (R56 on R0's B1): the member's notification center and bell. */
+  adminNotifications:
+    dev && mocked('adminNotifications')
+      ? createAdminNotificationsMock()
+      : createAdminNotificationsClient(request),
   /** Invoices (R7): the firm's invoices with lines; create, send, cancel (docs/api/invoices.yaml). */
   invoices:
     dev && mocked('invoices')
