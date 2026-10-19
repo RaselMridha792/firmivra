@@ -99,10 +99,10 @@ const nowIso = () => new Date().toISOString();
 const DAY = 86_400_000;
 /** A calendar date `offset` days from today. */
 const day = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10);
-/** A time `offset` days from today at `hour` UTC. */
+/** A time `offset` days from today at `hour` local time (meetings show in business hours). */
 const at = (offset: number, hour = 15) => {
   const d = new Date(Date.now() + offset * DAY);
-  d.setUTCHours(hour, 0, 0, 0);
+  d.setHours(hour, 0, 0, 0);
   return d.toISOString();
 };
 const uid = (block: string, n: number) =>
@@ -958,14 +958,14 @@ export function createAdvisoryMock({
         advisoryClientId: cl.id,
       });
     };
-    meet(1, 1, 3, 15, 'Strategy Review');
-    meet(2, 2, 5, 18, 'Business Plan Review');
-    meet(3, 3, 7, 15, 'Financial Analysis');
-    meet(4, 4, 10, 17, 'Growth Planning', false);
-    meet(5, 5, 12, 19, 'Funding Options');
-    meet(6, 1, -42, 15, 'Quarterly Review');
-    meet(7, 1, -70, 15, 'Initial Consultation');
-    meet(8, 3, -20, 16, 'Kickoff');
+    meet(1, 1, 3, 10, 'Strategy Review');
+    meet(2, 2, 5, 14, 'Business Plan Review');
+    meet(3, 3, 7, 11, 'Financial Analysis');
+    meet(4, 4, 10, 13, 'Growth Planning', false);
+    meet(5, 5, 12, 15, 'Funding Options');
+    meet(6, 1, -42, 10, 'Quarterly Review');
+    meet(7, 1, -70, 11, 'Initial Consultation');
+    meet(8, 3, -20, 9, 'Kickoff');
 
     // History of each client (newest first).
     clients.forEach((cl, i) => {
