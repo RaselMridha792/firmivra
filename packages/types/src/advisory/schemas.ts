@@ -20,8 +20,8 @@ import {
 // actions), the Advisory Clients tab, Create / Edit Business Plan (business profile, financial and
 // business assessment, goals and strategy, action plan, review and save), Client Advisory Detail /
 // Growth Plan (KPIs, business health, plan, financials, goals, recommendations, tasks, meetings,
-// documents, portal, activity), goals and milestones, financial analysis, action plans and the
-// resource library. Designs: docs/mockups/firm-workspace/business-advisory/source/ and its guide.
+// documents, portal, activity), goals and milestones, financial analysis, action plans, the
+// resource library and the advisory reports. Designs: docs/mockups/firm-workspace/business-advisory/source/ and its guide.
 //
 // The services an advisory client takes come from the firm's own Services & Pricing catalog (a firm
 // enables, renames, prices and adds services without code); regulated specialist needs (legal,
@@ -1079,6 +1079,93 @@ export const SaveAdvisorySettingsRequest = z
   })
   .refine((o) => Object.keys(o).length > 0, 'Change at least one field');
 export type SaveAdvisorySettingsRequest = z.input<typeof SaveAdvisorySettingsRequest>;
+
+// ---------- Reports ----------
+
+/**
+ * GET .../reports (the Reports tab, guide §8): live counts over the advisory clients the caller
+ * reaches (Staff: their own), optionally for one advisor. Clients, plans, goals and
+ * recommendations by status; the services in use; action items and meetings; each advisor's
+ * workload; and, with "View financial analysis", the yearly trend of the current (not superseded)
+ * figures for the last three full calendar years, by period end (null without it). Archived clients and their records are left
+ * out. A read: not audited. Saved and scheduled reports stay in the Reports module.
+ */
+export const AdvisoryReportsQuery = z.strictObject({ advisorUserId: z.uuid().optional() });
+export type AdvisoryReportsQuery = z.input<typeof AdvisoryReportsQuery>;
+const Tally = z.number().int().min(0);
+const byStatus = <S extends z.ZodType>(status: S) =>
+  z.array(z.object({ status, count: Tally })).max(20);
+export const AdvisoryReports = z.object({
+  generatedAt: DateTime,
+  clients: z.object({ total: Tally, byStatus: byStatus(AdvisoryClientStatus) }),
+  plans: z.object({
+    total: Tally,
+    byStatus: byStatus(AdvisoryPlanStatus),
+    /** Versions delivered to clients since January 1 (the firm's calendar year). */
+    sentThisYear: Tally,
+  }),
+  /** Each service an advisory client takes, from Services & Pricing. */
+  services: z
+    .array(
+      z.object({
+        serviceId: z.uuid(),
+        name: z.string(),
+        primary: Tally,
+        additional: Tally,
+        inProgress: Tally,
+        completed: Tally,
+      }),
+    )
+    .max(200),
+  goals: z.object({
+    total: Tally,
+    byStatus: byStatus(AdvisoryGoalStatus),
+    /** The average progress of open goals; null with none. */
+    averageProgress: z.number().int().min(0).max(100).nullable(),
+  }),
+  recommendations: z.object({
+    total: Tally,
+    byStatus: byStatus(AdvisoryRecommendationStatus),
+    /** The estimated impact of implemented ones, where given; null with none. */
+    implementedImpactCents: z.number().int().nullable(),
+  }),
+  actionItems: z.object({
+    open: Tally,
+    overdue: Tally,
+    doneLast30Days: Tally,
+    byAssignee: z.array(z.object({ kind: AdvisoryAssigneeKind, open: Tally })).max(5),
+  }),
+  meetings: z.object({ upcoming30Days: Tally, past90Days: Tally }),
+  /** Null without "View financial analysis"; oldest year first; a year without figures has nulls. */
+  financialTrend: z
+    .array(
+      z.object({
+        year: z.number().int(),
+        clients: Tally,
+        revenueCents: z.number().int().nullable(),
+        expensesCents: z.number().int().nullable(),
+        netProfitCents: z.number().int().nullable(),
+      }),
+    )
+    .max(3)
+    .nullable(),
+  /** One row per advisor (null: clients with no advisor), most clients first. */
+  advisorWorkload: z
+    .array(
+      z.object({
+        advisor: MemberRef.nullable(),
+        clients: Tally,
+        activePlans: Tally,
+        openGoals: Tally,
+        openActionItems: Tally,
+        upcomingMeetings: Tally,
+      }),
+    )
+    .max(200),
+  canViewFinancials: z.boolean(),
+  disclaimer: z.string(),
+});
+export type AdvisoryReports = z.infer<typeof AdvisoryReports>;
 
 // ---------- Errors ----------
 

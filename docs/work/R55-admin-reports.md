@@ -6,7 +6,7 @@ Contract: `packages/types/src/admin-reports/` (`api.adminReports`). API: `apps/a
 
 - [x] 1. Contract: overview, revenue, users, feature usage, support, firms list and Firm Report Detail, the builder (fields, run, CSV export), saved reports.
 - [x] 2. API, with unit, e2e and admin-scope WRITES cases.
-- [ ] 3. Screens: `apps/web/src/app/admin/(console)/reports/*`.
+- [ ] 3. Wire Arfan's Reports pages (`apps/web/src/app/admin/(console)/reports/*`) to this API once his PR merges, in a PR of its own (Scrum thread, Oct 19 16:55 UTC).
 
 ## Decisions (contract)
 
