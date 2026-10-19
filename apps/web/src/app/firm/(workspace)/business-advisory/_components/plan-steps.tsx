@@ -529,7 +529,7 @@ export function StrategyStep({ plan }: { plan: Plan }) {
           title="Focus Areas"
           subtitle="Choose the areas the plan works on, each with its objective."
         />
-        <ul className="grid gap-3 md:grid-cols-2">
+        <ul className="grid items-start gap-3 md:grid-cols-2">
           {Object.entries(AREA_LABEL).map(([area, label]) => {
             const on = area in form.areas;
             return (
@@ -876,19 +876,32 @@ export function readiness(plan: Plan) {
   return [
     {
       id: 'name',
-      label: 'Add the business name (stage 1)',
+      label: 'Business name (stage 1)',
+      todo: 'Add the business name (stage 1)',
       done: Boolean(plan.profile.businessName),
     },
     {
       id: 'strategy',
-      label: 'Add the strategy summary or an area (stage 3)',
+      label: 'Strategy summary or a focus area (stage 3)',
+      todo: 'Add the strategy summary or an area (stage 3)',
       done: Boolean(plan.strategy.summary) || Boolean(plan.strategy.areas?.length),
     },
-    { id: 'goal', label: 'Add at least one goal to the plan', done: plan.goals.length > 0 },
-    { id: 'figures', label: 'Add the financial figures', done: plan.sourceDataAsOf !== null },
+    {
+      id: 'goal',
+      label: 'At least one goal in the plan',
+      todo: 'Add at least one goal to the plan',
+      done: plan.goals.length > 0,
+    },
+    {
+      id: 'figures',
+      label: 'Financial figures',
+      todo: 'Add the financial figures',
+      done: plan.sourceDataAsOf !== null,
+    },
     {
       id: 'current',
-      label: 'The financial figures are current',
+      label: 'Current financial figures',
+      todo: 'The financial figures are out of date; add current ones',
       done: plan.sourceDataAsOf !== null && !plan.staleFinancials,
     },
   ];
@@ -927,7 +940,7 @@ export function ReviewStep({ plan }: { plan: Plan }) {
         {rows.map(([k, v]) => (
           <div key={k} className="contents">
             <dt className="text-muted">{k}</dt>
-            <dd className="text-heading">{v || '—'}</dd>
+            <dd className="min-w-0 break-all text-heading">{v || '—'}</dd>
           </div>
         ))}
       </dl>
@@ -961,7 +974,7 @@ export function ReviewStep({ plan }: { plan: Plan }) {
         />
         {missing.length ? (
           <p className="mt-2 text-sm text-danger" data-testid="still-needed">
-            Still needed: {missing.map((m) => m.label).join('; ')}.
+            Still needed: {missing.map((m) => m.todo).join('; ')}.
           </p>
         ) : null}
       </section>

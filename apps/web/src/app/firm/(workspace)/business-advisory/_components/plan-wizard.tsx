@@ -2,15 +2,7 @@
 
 import { type AdvisoryPlanDetail, US_STATES } from '@firmivra/types';
 import { Avatar, Input, Select, Textarea } from '@firmivra/ui';
-import {
-  ArrowLeft,
-  Buildings,
-  FileText,
-  Info,
-  MapPin,
-  Phone,
-  UsersThree,
-} from '@phosphor-icons/react';
+import { Buildings, FileText, Info, MapPin, Phone, UsersThree } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -72,24 +64,70 @@ export function PlanWizard({ planId, step }: { planId?: string; step: WizardStep
   return <EditPlan planId={planId} step={step} />;
 }
 
+/** The sections of each step, drawn as empty frames while the plan loads or cannot be loaded. */
+const SECTIONS: Record<WizardStep, string[]> = {
+  1: [
+    'Client Selection',
+    'Plan Details',
+    'Business Information',
+    'Business Address',
+    'Contact Information',
+    'Business Structure & Team',
+    'Additional Information',
+  ],
+  2: ['Financial Snapshot', 'Funding', 'Sales / Market', 'Operations', 'Strengths & Challenges'],
+  3: ['Strategy', 'Focus Areas', 'Goals', 'Recommendations'],
+  4: ['Milestones', 'Tasks', 'Service Workstreams', 'Resources & Documents'],
+  5: [
+    'Before you finalize',
+    'Business Profile',
+    'Financial & Business Assessment',
+    'Goals & Strategy',
+    'Action Plan',
+    'Versions & Delivery',
+  ],
+};
+
+function UnavailableStep({
+  planId,
+  step,
+  failed,
+}: {
+  planId: string;
+  step: WizardStep;
+  failed: boolean;
+}) {
+  return (
+    <WizardFrame
+      step={step}
+      planId={planId}
+      // Nothing to save until the plan loads.
+      saving
+      dirty={false}
+      error={
+        failed
+          ? 'This business plan is not available right now. We could not load it. Try again in a moment.'
+          : undefined
+      }
+      onSaveDraft={() => Promise.resolve(false)}
+      onNext={() => undefined}
+      nextDisabled
+    >
+      <div className="grid gap-4 lg:grid-cols-2" data-testid={failed ? 'ba-error' : 'plan-loading'}>
+        {SECTIONS[step].map((title) => (
+          <section key={title} className={card} aria-label={title}>
+            <SectionHead icon={FileText} title={title} />
+            <p className={quiet}>{failed ? 'Not available right now.' : 'Loading…'}</p>
+          </section>
+        ))}
+      </div>
+    </WizardFrame>
+  );
+}
+
 function EditPlan({ planId, step }: { planId: string; step: WizardStep }) {
   const q = useApiQuery([...BA_KEY, 'plan', planId], () => api.advisory.plan(planId));
-  if (q.isError)
-    return (
-      <div className="flex flex-col gap-4" data-testid="plan-wizard">
-        <Link
-          href={`${BASE}/plans`}
-          className="flex items-center gap-2 text-sm font-medium text-link"
-        >
-          <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back to Business Plans
-        </Link>
-        <p role="alert" className={quiet} data-testid="ba-error">
-          This business plan is not available right now. We could not load it. Try again in a
-          moment.
-        </p>
-      </div>
-    );
-  if (!q.data) return <p className={quiet}>Loading the plan…</p>;
+  if (!q.data) return <UnavailableStep planId={planId} step={step} failed={q.isError} />;
   const plan = q.data;
   // Each step remounts on a newer etag, so a reload after a save conflict starts from the saved plan.
   if (step === 1) return <ProfileStep key={plan.etag} plan={plan} />;
@@ -327,7 +365,7 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
                     label: clients.isError
                       ? 'Advisory clients could not be loaded'
                       : clients.data && !clients.data.items.length
-                        ? 'Add an advisory client first'
+                        ? 'No advisory clients'
                         : 'Choose a client…',
                   },
                   ...(clients.data?.items ?? []).map((c) => ({
@@ -351,7 +389,15 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
                 </span>
               </div>
             ) : (
-              <p className={`${quiet} text-left`}>The client&apos;s details show here.</p>
+              <p className={`${quiet} text-left`}>
+                {!plan && clients.data && !clients.data.items.length ? (
+                  <Link href={`${BASE}/clients`} className="font-medium text-link hover:underline">
+                    Add an advisory client first
+                  </Link>
+                ) : (
+                  <>The client&apos;s details show here.</>
+                )}
+              </p>
             )}
           </div>
         </section>

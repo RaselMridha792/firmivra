@@ -82,7 +82,7 @@ export function WizardFrame({
         <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back to Business Advisory &amp;
         Development
       </button>
-      <header className="flex flex-wrap items-center justify-between gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-4 xl:flex-nowrap">
         <div className="flex min-w-0 items-center gap-4">
           <span
             aria-hidden
@@ -100,7 +100,7 @@ export function WizardFrame({
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <button
             type="button"
             className={`${outlined} min-w-36`}
