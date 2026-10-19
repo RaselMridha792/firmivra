@@ -14,7 +14,7 @@ import {
 } from '@phosphor-icons/react';
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
-import { adminBilling, type BillingInvoice } from '../../../../../mocks/admin-billing';
+import { type BillingInvoice } from '../../../../../mocks/admin-billing';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
 import {
@@ -27,6 +27,7 @@ import {
 import { formatMoney, saveFile } from './billing-format';
 import { BILLING_ERRORS } from './billing-labels';
 import type { Notice } from './billing-parts';
+import { adminBilling } from './billing-api';
 
 /**
  * Everything an invoice can do (docx §6.4, §8.2), shared by the invoice list's row menu and

@@ -55,7 +55,6 @@ import {
   SaveSalesNoteRequest,
   SaveSalesPipelineRequest,
   SaveSalesTagRequest,
-  StartSalesTrialRequest,
   UpdateSalesFollowUpRequest,
   UpdateSalesOpportunityRequest,
   UpdateSalesTargetRequest,
@@ -67,8 +66,7 @@ const followUp = (id: string) => `${BASE}/follow-ups/${parseInput(SalesFollowUpI
 const pipeline = (id: string) => `${BASE}/pipelines/${parseInput(SalesPipelineId, id)}`;
 const target = (id: string) => `${BASE}/targets/${parseInput(SalesTargetId, id)}`;
 const tag = (id: string) => `${BASE}/tags/${parseInput(SalesTagId, id)}`;
-const note = (id: string, noteId: string) =>
-  `${opportunity(id)}/notes/${parseInput(SalesNoteId, noteId)}`;
+const note = (noteId: string) => `${BASE}/notes/${parseInput(SalesNoteId, noteId)}`;
 const send = (method: string, body: unknown) => ({ method, body });
 
 /** The list and KPI filters as a query string: several values in one parameter, comma separated. */
@@ -219,13 +217,6 @@ export function createAdminSalesClient(request: ApiRequest) {
           `${BASE}/subscriptions${toQuery(parseInput(SalesSubscriptionsQuery, query))}`,
         )
       ).items,
-    /** 422 NOT_SUPPORTED_YET: a trial is a firm's platform subscription (see the notes). */
-    startTrial: async (id: string, body: StartSalesTrialRequest): Promise<SalesOpportunity> =>
-      request(
-        SalesOpportunity,
-        `${opportunity(id)}/trial`,
-        send('POST', parseInput(StartSalesTrialRequest, body)),
-      ),
     /** Log Outreach (a call, email, text or meeting); answers the record with its new counts. */
     logOutreach: async (id: string, body: LogSalesActivityRequest): Promise<SalesOpportunity> =>
       request(
@@ -240,15 +231,11 @@ export function createAdminSalesClient(request: ApiRequest) {
         send('POST', parseInput(SaveSalesNoteRequest, body)),
       ),
     /** The author only (403 NOT_AUTHOR). */
-    updateNote: async (
-      id: string,
-      noteId: string,
-      body: SaveSalesNoteRequest,
-    ): Promise<SalesNote> =>
-      request(SalesNote, note(id, noteId), send('PATCH', parseInput(SaveSalesNoteRequest, body))),
+    updateNote: async (noteId: string, body: SaveSalesNoteRequest): Promise<SalesNote> =>
+      request(SalesNote, note(noteId), send('PATCH', parseInput(SaveSalesNoteRequest, body))),
     /** The author only (403 NOT_AUTHOR). */
-    deleteNote: async (id: string, noteId: string): Promise<SalesOk> =>
-      request(SalesOk, note(id, noteId), { method: 'DELETE' }),
+    deleteNote: async (noteId: string): Promise<SalesOk> =>
+      request(SalesOk, note(noteId), { method: 'DELETE' }),
     /** A follow-up or an appointment on the record. */
     addFollowUp: async (id: string, body: CreateSalesFollowUpRequest): Promise<SalesFollowUp> =>
       request(

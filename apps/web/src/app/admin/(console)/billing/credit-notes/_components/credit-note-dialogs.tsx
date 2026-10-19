@@ -3,7 +3,6 @@
 import { Button, Checkbox, FormField, Modal, Textarea } from '@firmivra/ui';
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  adminBilling,
   REFUND_METHODS,
   type BillingCreditNote,
   type RefundMethod,
@@ -13,6 +12,7 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { inputClass, SelectControl } from '../../_components/billing-fields';
 import { formatMoney, moneyInput, parseMoney } from '../../_components/billing-format';
 import { BILLING_ERRORS, optionsOf, REFUND_METHOD_LABELS } from '../../_components/billing-labels';
+import { adminBilling } from '../../_components/billing-api';
 
 /**
  * The credit note dialogs the shared Billing ones don't cover (docx §13.2, §16): Refund
