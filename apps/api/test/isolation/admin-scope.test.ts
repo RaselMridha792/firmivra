@@ -29,6 +29,7 @@ import {
   supportWrites,
   type WriteHelpers,
 } from './admin-support-writes.js';
+import { prepareSettings, settingsParams, settingsWrites } from './admin-settings-writes.js';
 import { apiRoutes, fillPath } from './routes.js';
 
 const fx = inject('fixtures');
@@ -93,6 +94,8 @@ const WRITES: Record<
     app?: string;
     item?: string;
     auditRecord?: AuditRecord;
+    settingsId?: string;
+    params?: Record<string, string>;
   }
 > = {
   'POST /api/v1/admin/firm-applications/:id/approve': { body: {}, app: 'approve' },
@@ -141,6 +144,7 @@ const WRITES: Record<
   'POST /api/v1/admin/notifications/:id/resolve': { body: {}, item: 'resolve' },
   'POST /api/v1/admin/notifications/:id/dismiss': { body: {}, item: 'dismiss' },
   ...supportWrites(fx),
+  ...settingsWrites(fx),
 };
 
 /** The firm an approved application created, or null. */
@@ -228,6 +232,7 @@ beforeAll(async () => {
   });
   await owner.$disconnect();
   await prepareSupport(fx);
+  await prepareSettings(fx);
   const env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',
@@ -336,7 +341,9 @@ describe('the admin site never opens a business scope', () => {
             : c.app
               ? applications[c.app]!
               : randomUUID();
-      const path = fillPath(route.path, { businessId: fx.firmA.id, id }) + (c.query ?? '');
+      const path =
+        fillPath(route.path, { businessId: fx.firmA.id, id, ...settingsParams(c) }) +
+        (c.query ?? '');
       const method = route.method.toLowerCase() as 'post' | 'put' | 'patch' | 'delete';
       const helpers: WriteHelpers = {
         post: (p, b) => call('post', p, fx.users.admin.email, undefined, b),
