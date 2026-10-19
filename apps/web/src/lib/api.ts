@@ -141,6 +141,7 @@ import { createPayrollMock } from '../mocks/payroll';
 import { createReportsMock } from '../mocks/reports';
 import { createTaskWorkMock } from '../mocks/tasks-work';
 import { createTaxPlanningMock } from '../mocks/tax-planning';
+import { createAdvisoryMock } from '../mocks/business-advisory';
 import { createCommunicationsMock } from '../mocks/communications';
 import { createTemplatesMock } from '../mocks/templates';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
@@ -379,9 +380,12 @@ export const api = {
       : createReportsClient(request),
   /**
    * Business Advisory & Development (R55): overview, advisory clients, business plans, goals,
-   * financial analysis, action plans and resources. Real API only until its mock is written.
+   * financial analysis, action plans and resources. Mocked with NEXT_PUBLIC_API_MOCK=advisory.
    */
-  advisory: createAdvisoryClient(request),
+  advisory:
+    dev && mocked('advisory')
+      ? createAdvisoryMock({ role: MOCK_ROLE, empty: mockedEmpty('advisory') })
+      : createAdvisoryClient(request),
   /**
    * Integrations (R55): the main page, marketplace, connect and configure, manage a connection,
    * requests and Custom API. Real API only until its mock is written.
