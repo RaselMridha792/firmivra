@@ -92,7 +92,7 @@ export function createAdminSettingsClient(request: ApiRequest) {
     email: async (): Promise<AdminEmailSection> => request(AdminEmailSection, `${BASE}/email`),
     saveEmail: async (body: SaveAdminEmailRequest): Promise<AdminEmailSection> =>
       request(AdminEmailSection, `${BASE}/email`, put(parseInput(SaveAdminEmailRequest, body))),
-    /** Send Test Email: 503 EMAIL_UNAVAILABLE when no sender is configured. */
+    /** Send Test Email: the provider's answer (`accepted: false` with the reason when no sender is configured). */
     testEmail: async (body: AdminTestEmailRequest): Promise<AdminTestEmailResult> =>
       request(
         AdminTestEmailResult,
