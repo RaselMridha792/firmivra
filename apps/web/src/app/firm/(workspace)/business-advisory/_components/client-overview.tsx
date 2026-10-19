@@ -85,17 +85,17 @@ function Kpi({
   testId: string;
 }) {
   return (
-    <div className={`${card} flex items-start gap-3`} data-testid={testId}>
+    <div className={`${card} flex h-full items-start gap-3 px-3`} data-testid={testId}>
       <span
         aria-hidden
-        className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${TONES[tone]}`}
+        className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${TONES[tone]}`}
       >
-        <Glyph weight="fill" className="size-7" />
+        <Glyph weight="fill" className="size-6" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="text-sm text-heading">{label}</span>
         <span className="flex flex-wrap items-center gap-2">
-          <span className="text-2xl leading-tight font-bold text-heading">{value}</span>
+          <span className="text-xl leading-tight font-bold text-heading">{value}</span>
           {delta != null ? (
             <span
               className={`inline-flex items-center gap-0.5 rounded-md px-1.5 text-sm font-semibold ${delta >= 0 ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}
@@ -294,7 +294,7 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
   return (
     <ClientShell advisoryClientId={advisoryClientId}>
       <ul
-        className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"
         data-testid="client-kpis"
       >
         <li>
@@ -387,7 +387,7 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
                   onClick={() => setDialog('health')}
                   className="mt-1 inline-flex items-center gap-1 self-start text-xs font-medium text-link hover:underline"
                 >
-                  <Info aria-hidden weight="fill" className="size-3.5" /> How it is worked out
+                  <Info aria-hidden weight="fill" className="size-3.5" /> How it works
                 </button>
               </>
             ) : null}
@@ -395,7 +395,7 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
         </li>
       </ul>
 
-      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,0.85fr)]">
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.55fr)_minmax(0,0.85fr)]">
         <section
           className={card}
           aria-label="Client business information"
@@ -608,7 +608,7 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
             </dl>
           ) : (
             <p className={quiet}>
-              {figures.isError
+              {failed || figures.isError
                 ? 'Figures are not available right now.'
                 : figures.isPending && c
                   ? 'Loading…'
@@ -657,7 +657,7 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
             </ul>
           ) : (
             <p className={quiet}>
-              {notes.isError
+              {failed || notes.isError
                 ? 'Notes are not available right now.'
                 : notes.isPending && c
                   ? 'Loading…'
@@ -665,7 +665,8 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
             </p>
           )}
         </section>
-
+      </div>
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1.1fr)_minmax(0,0.85fr)]">
         <section className={card} aria-label="Action items" data-testid="card-tasks">
           <SectionHead icon={CheckSquare} title="Action Items / Tasks" href={`${base}/tasks`} />
           <Table
@@ -698,7 +699,7 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
             </ul>
           ) : (
             <p className={quiet}>
-              {docs.isError
+              {failed || docs.isError
                 ? 'Documents are not available right now.'
                 : docs.isPending && c
                   ? 'Loading…'

@@ -292,3 +292,58 @@ test('Plan wizard: leaving with unsaved changes asks first', async ({ page }) =>
   await page.getByRole('dialog').getByRole('button', { name: 'Save Draft' }).click();
   await expect(page).toHaveURL(/\/business-advisory$/, { timeout: 60_000 });
 });
+
+const marcus = `${base}/clients/0199c0f1-a200-7000-8000-000000000001`;
+
+test('Client detail: header, plan status, KPIs, the nine cards and eleven tabs', async ({
+  page,
+}) => {
+  await page.goto(marcus);
+  await expect(
+    page.getByRole('heading', { name: 'Client Advisory Detail', level: 1 }),
+  ).toBeVisible();
+  await expect(page.getByTestId('client-card')).toContainText('Taylor Construction LLC');
+  await expect(page.getByTestId('client-card')).toContainText('Active Advisory Client');
+  await expect(page.getByTestId('plan-status')).toContainText('2026 Business Growth Plan');
+  await expect(
+    page.getByRole('tablist', { name: 'Client advisory views' }).getByRole('tab'),
+  ).toHaveCount(11);
+  await expect(page.getByTestId('client-kpis').getByRole('listitem')).toHaveCount(6);
+  await expect(page.getByTestId('kpi-revenue')).toContainText('$1,250,000');
+  await expect(page.getByTestId('kpi-goals')).toContainText('on track');
+  for (const id of [
+    'business',
+    'goals',
+    'meeting',
+    'financials',
+    'recommendations',
+    'notes',
+    'tasks',
+    'documents',
+  ])
+    await expect(page.getByTestId(`card-${id}`)).toBeVisible();
+  await expect(
+    page.getByTestId('card-meeting').getByRole('link', { name: 'Join Meeting' }),
+  ).toBeVisible();
+  await expect(page.getByTestId('snapshot')).toContainText('16.8%');
+});
+
+test('Client detail: the health score explains itself; Edit Client saves the record and services', async ({
+  page,
+}) => {
+  await page.goto(marcus);
+  await page.getByTestId('kpi-health').getByRole('button', { name: 'How it works' }).click();
+  const health = page.getByTestId('health-dialog');
+  await expect(health).toContainText('Revenue trend');
+  await expect(health).toContainText('Goal progress');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).last().click();
+  await page.getByRole('button', { name: 'Edit Client' }).click();
+  const dialog = page.getByTestId('edit-client');
+  await dialog.getByLabel('Add a service').selectOption({ label: 'Business Planning' });
+  await dialog.getByRole('button', { name: 'Add' }).click();
+  await expect(dialog.getByTestId('client-services').getByRole('listitem')).toHaveCount(4);
+  await dialog.getByLabel('Status', { exact: true }).selectOption('NEEDS_REVIEW');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Client' }).click();
+  await expect(page.getByTestId('client-card')).toContainText('Active Advisory Client');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
