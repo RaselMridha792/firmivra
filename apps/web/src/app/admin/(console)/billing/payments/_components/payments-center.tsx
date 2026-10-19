@@ -19,7 +19,6 @@ import {
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useRef, useState, type SelectHTMLAttributes } from 'react';
 import {
-  adminBilling,
   PAYMENT_METHODS,
   PAYMENT_STATUSES,
   type BillingPayment,
@@ -56,6 +55,7 @@ import {
 import { hasReceipt, PaymentPanel, type PanelState } from './payment-panel';
 import { PaymentBadge, PaymentTable } from './payment-table';
 import { ReceiptViewer } from './receipt-viewer';
+import { adminBilling } from '../../_components/billing-api';
 
 /**
  * Payments (firmivra-payments-dashboard.jpg, docx §12): the payment transaction center. Totals,

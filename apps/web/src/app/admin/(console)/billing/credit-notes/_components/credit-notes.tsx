@@ -18,7 +18,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import {
-  adminBilling,
   CREDIT_NOTE_STATUSES,
   type BillingCreditNote,
   type CreditNoteQuery,
@@ -45,6 +44,7 @@ import {
 } from '../../_components/billing-table';
 import { useCreditNoteActions } from './credit-note-actions';
 import { CreditNoteDrawer } from './credit-note-drawer';
+import { adminBilling } from '../../_components/billing-api';
 
 /**
  * Credit Notes (firmivra-credit-notes-dashboard.jpg, docx §13): the history of every credit

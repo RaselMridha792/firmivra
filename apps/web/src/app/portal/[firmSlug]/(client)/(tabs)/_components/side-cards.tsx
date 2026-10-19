@@ -21,6 +21,7 @@ import { useApiQuery } from '../../../../../../lib/query';
 import { ButtonLink } from '../../../(public)/_components/button-link';
 import { NotesCard } from '../messages/_components/notes-card';
 import { HelpfulResources } from '../business/_components/business-cards';
+import { TaxPaymentCard } from '../taxes/_components/tax-cards';
 
 const dateTime = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
@@ -76,6 +77,7 @@ export function RightColumn({
   businessPage = false,
   showIntakeTip = false,
   documentsPage = false,
+  taxesPage = false,
 }: {
   slug: string;
   isMessagesPage?: boolean;
@@ -85,6 +87,8 @@ export function RightColumn({
   showIntakeTip?: boolean;
   /** The My Uploaded Documents tab: its two document cards (My docs tab.png). */
   documentsPage?: boolean;
+  /** The Tax Returns tab: its Tax Return Payment card (Taxes tab.png). */
+  taxesPage?: boolean;
 }) {
   return isMessagesPage ? (
     <MessagesRightColumn slug={slug} />
@@ -96,6 +100,7 @@ export function RightColumn({
       showIntakeTip={showIntakeTip}
       showInvoiceInfo={showInvoiceInfo}
       documentsPage={documentsPage}
+      taxesPage={taxesPage}
     />
   );
 }
@@ -145,6 +150,7 @@ function DefaultRightColumn({
   showIntakeTip,
   showInvoiceInfo,
   documentsPage,
+  taxesPage,
 }: {
   slug: string;
   blueAccents: boolean;
@@ -152,6 +158,7 @@ function DefaultRightColumn({
   showIntakeTip: boolean;
   showInvoiceInfo: boolean;
   documentsPage: boolean;
+  taxesPage: boolean;
 }) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
@@ -197,6 +204,8 @@ function DefaultRightColumn({
             </div>
           </div>
         </Card>
+      ) : taxesPage ? (
+        <TaxPaymentCard slug={slug} />
       ) : documentsPage ? (
         <>
           <LinkCard

@@ -26,7 +26,6 @@ import {
 } from '@phosphor-icons/react';
 import { useState, type ReactNode } from 'react';
 import {
-  adminSupport,
   AGENT_ROLES,
   CLIENT_EVENTS,
   NOTIFICATION_CHANNELS,
@@ -50,6 +49,7 @@ import {
   type SupportPriority,
   type SupportSettings,
 } from '../../../../../../mocks/admin-support';
+import { adminSupport } from '../../_components/support-api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import {

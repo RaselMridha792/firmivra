@@ -105,6 +105,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
         showIntakeTip={intakeActive}
         showInvoiceInfo={invoicesPage}
         documentsPage={documentsPage}
+        taxesPage={taxReturns}
       />
     </div>
   );
