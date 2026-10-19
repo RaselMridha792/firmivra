@@ -6,7 +6,7 @@ import {
   type UpdateNotificationPreferencesRequest,
 } from '@firmivra/types';
 import { Card, Checkbox } from '@firmivra/ui';
-import { Bell, ChevronRight, Settings2 } from 'lucide-react';
+import { Bell, ChevronRight, Settings } from 'lucide-react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
@@ -34,7 +34,7 @@ export function NotificationPreferencesCard({ slug }: { slug: string }) {
     <Card className="grid min-w-0 content-start gap-3">
       <div className="flex items-center gap-3">
         <span className="grid size-12 shrink-0 place-items-center rounded-full bg-folder-surface text-firm-text">
-          <Settings2 aria-hidden className="size-7" />
+          <Settings aria-hidden className="size-7" />
         </span>
         <div>
           <h2 className="font-display text-xl font-bold text-heading">Profile Settings</h2>
