@@ -29,6 +29,7 @@ import {
   type WriteHelpers,
 } from './admin-support-writes.js';
 import { billingWrites, prepareBilling } from './admin-billing-writes.js';
+import { integrationsWrites, prepareIntegrations } from './admin-integrations-writes.js';
 import { apiRoutes, fillPath } from './routes.js';
 
 const fx = inject('fixtures');
@@ -67,7 +68,8 @@ const ADMIN_EMAIL = 'admin@firmivra.test';
 /**
  * Every admin write, with a body that passes validation, run in this order; `app` names the
  * application it acts on (the owner invite resends for the one just approved), `item` a
- * notification and `comm` a communications record (R56). Support's writes
+ * notification and `comm` a communications record (R56); `params` fills a route's other ids
+ * (the Integrations catalog's `:planId`). Support's writes
  * (admin-support-writes.ts) name their own `record`, may build the body, and may add a query. A
  * body may be a function, read when it runs.
  */
@@ -78,6 +80,7 @@ const WRITES: Record<
     app?: string;
     item?: string;
     comm?: string;
+    params?: () => Record<string, string>;
   }
 > = {
   'POST /api/v1/admin/firm-applications/:id/approve': { body: {}, app: 'approve' },
@@ -200,6 +203,7 @@ const WRITES: Record<
   },
   ...supportWrites(fx),
   ...billingWrites(fx),
+  ...integrationsWrites(fx),
 };
 
 /** The thread, messages, template and category the communications writes act on (R56). */
@@ -385,6 +389,7 @@ beforeAll(async () => {
   await owner.$disconnect();
   await prepareSupport(fx);
   await prepareBilling(fx);
+  await prepareIntegrations(fx);
   const env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',
@@ -488,7 +493,8 @@ describe('the admin site never opens a business scope', () => {
             : c.app
               ? applications[c.app]!
               : randomUUID();
-      const path = fillPath(route.path, { businessId: fx.firmA.id, id }) + (c.query ?? '');
+      const path =
+        fillPath(route.path, { businessId: fx.firmA.id, id, ...c.params?.() }) + (c.query ?? '');
       const method = route.method.toLowerCase() as 'post' | 'put' | 'patch' | 'delete';
       const helpers: WriteHelpers = {
         post: (p, b) => call('post', p, fx.users.admin.email, undefined, b),
