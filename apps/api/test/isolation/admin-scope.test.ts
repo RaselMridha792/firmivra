@@ -13,6 +13,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type Database, type Scope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
+import { ADMIN_SECURITY_DEFAULTS } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { requestContext } from '../../src/common/request-context.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -52,7 +53,31 @@ const applications: Record<string, string> = {};
  * Every admin write, with a body that passes validation, run in this order; `app` names the
  * application it acts on (the owner invite resends for the one just approved).
  */
-const WRITES: Record<string, { body: object; app?: string }> = {
+/** Audit & Security records (R55) a write case acts on: seeded once, one per case that changes it. */
+type AuditRecord =
+  | 'event'
+  | 'alertAck'
+  | 'alertResolve'
+  | 'alertDismiss'
+  | 'alertAssign'
+  | 'noteEdit'
+  | 'noteRetract';
+const auditRecords = {} as Record<AuditRecord, string>;
+
+/** The security policy's version now (a save names the version it started from). */
+async function policyVersion(): Promise<number> {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+  const row = await runInScope(owner, { kind: 'platform' }, (tx) =>
+    tx.platformSecurityPolicy.findUniqueOrThrow({ where: { id: 1 }, select: { version: true } }),
+  );
+  await owner.$disconnect();
+  return row.version;
+}
+
+const WRITES: Record<
+  string,
+  { body: object | (() => Promise<object>); app?: string; record?: AuditRecord }
+> = {
   'POST /api/v1/admin/firm-applications/:id/approve': { body: {}, app: 'approve' },
   'POST /api/v1/admin/firm-applications/:id/request-info': {
     body: { message: 'Fake: please send your licence' },
@@ -65,6 +90,27 @@ const WRITES: Record<string, { body: object; app?: string }> = {
   'POST /api/v1/admin/firm-applications/:id/owner-invite': { body: {}, app: 'approve' },
   'PUT /api/v1/admin/firm-applications/:id/notes': { body: { notes: 'Fake note' }, app: 'notes' },
   'POST /api/v1/admin/firms/:businessId/support-access': { body: { reason: 'Fake reason' } },
+  'POST /api/v1/admin/audit/exports': { body: { format: 'CSV', query: { view: 'login' } } },
+  'PUT /api/v1/admin/audit/policy': {
+    body: async () => ({ version: await policyVersion(), settings: ADMIN_SECURITY_DEFAULTS }),
+  },
+  'POST /api/v1/admin/audit/alerts/:id/acknowledge': { body: {}, record: 'alertAck' },
+  'POST /api/v1/admin/audit/alerts/:id/resolve': {
+    body: { note: 'Fake resolution' },
+    record: 'alertResolve',
+  },
+  'POST /api/v1/admin/audit/alerts/:id/dismiss': { body: {}, record: 'alertDismiss' },
+  'POST /api/v1/admin/audit/alerts/:id/assign': { body: { userId: null }, record: 'alertAssign' },
+  'POST /api/v1/admin/audit/notes/:id/edit': {
+    body: { text: 'Fake correction' },
+    record: 'noteEdit',
+  },
+  'POST /api/v1/admin/audit/notes/:id/retract': { body: {}, record: 'noteRetract' },
+  'POST /api/v1/admin/audit/events/:id/respond': {
+    body: { action: 'MARK_REVIEWED' },
+    record: 'event',
+  },
+  'POST /api/v1/admin/audit/events/:id/notes': { body: { text: 'Fake note' }, record: 'event' },
 };
 
 /** The firm an approved application created, or null. */
@@ -92,6 +138,46 @@ beforeAll(async () => {
         },
       });
       applications[c.app] = row.id;
+    }
+    // A platform event, its alerts (one per move) and notes by the Super Admin who calls.
+    auditRecords.event = (
+      await tx.auditLog.create({
+        data: {
+          action: 'auth.sign_in_failed',
+          entityType: 'login',
+          targetLabel: 'Fake scope event',
+        },
+        select: { id: true },
+      })
+    ).id;
+    for (const key of ['alertAck', 'alertResolve', 'alertDismiss', 'alertAssign'] as const) {
+      auditRecords[key] = (
+        await tx.securityAlert.create({
+          data: {
+            auditLogId: auditRecords.event,
+            ruleId: 'fake.scope',
+            severity: 'MEDIUM',
+            title: 'Fake scope alert',
+            eventKey: `scope:${key}:${randomUUID()}`,
+          },
+          select: { id: true },
+        })
+      ).id;
+    }
+  });
+  // Notes are written as their author (the admin scope's own admin).
+  await runInScope(owner, { kind: 'admin', adminUserId: fx.users.admin.id }, async (tx) => {
+    for (const key of ['noteEdit', 'noteRetract'] as const) {
+      auditRecords[key] = (
+        await tx.auditInvestigationNote.create({
+          data: {
+            auditLogId: auditRecords.event,
+            authorUserId: fx.users.admin.id,
+            body: 'Fake note',
+          },
+          select: { id: true },
+        })
+      ).id;
     }
   });
   await owner.$disconnect();
@@ -178,11 +264,13 @@ describe('the admin site never opens a business scope', () => {
     for (const route of writes) {
       const key = `${route.method} ${route.path}`;
       const c = WRITES[key]!;
-      const values = { businessId: fx.firmA.id, id: c.app ? applications[c.app]! : randomUUID() };
+      const id = c.app ? applications[c.app]! : c.record ? auditRecords[c.record] : randomUUID();
+      const values = { businessId: fx.firmA.id, id };
       const path = fillPath(route.path, values);
       const method = route.method.toLowerCase() as 'post' | 'put' | 'patch' | 'delete';
       const from = opens.length;
-      const res = await call(method, path, fx.users.admin.email, undefined, c.body);
+      const body = typeof c.body === 'function' ? await c.body() : c.body;
+      const res = await call(method, path, fx.users.admin.email, undefined, body);
       expect(res.status, `${route.name} ${path} ${JSON.stringify(res.body)}`).toBeLessThan(400);
       const created = c.app ? await firmOf(applications[c.app]!) : null;
       for (const o of opens.slice(from)) {
