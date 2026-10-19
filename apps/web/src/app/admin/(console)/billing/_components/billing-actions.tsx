@@ -3,7 +3,6 @@
 import { Button, Checkbox, FormField, Modal, Radio, Textarea, Toggle } from '@firmivra/ui';
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  adminBilling,
   REFUND_METHODS,
   type BillingCreditNote,
   type BillingInvoice,
@@ -23,6 +22,7 @@ import {
   REFUND_METHOD_LABELS,
 } from './billing-labels';
 import { quietErrorText } from './billing-parts';
+import { adminBilling } from './billing-api';
 
 /**
  * The supporting Billing dialogs (docx §16–17), reused wherever their action appears:

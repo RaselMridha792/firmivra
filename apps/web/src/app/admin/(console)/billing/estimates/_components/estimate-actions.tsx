@@ -17,7 +17,6 @@ import {
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import {
-  adminBilling,
   type BillingEstimate,
   type EstimateSetStatus,
 } from '../../../../../../mocks/admin-billing';
@@ -28,6 +27,7 @@ import { BILLING_ERRORS, ESTIMATE_STATUS_LABELS } from '../../_components/billin
 import type { Notice } from '../../_components/billing-parts';
 import { EstimateViewer } from './estimate-document';
 import { estimateAbilities } from './estimate-parts';
+import { adminBilling } from '../../_components/billing-api';
 
 /**
  * Everything an estimate can do (docx §10.2), shared by the row menu and the Estimate Details

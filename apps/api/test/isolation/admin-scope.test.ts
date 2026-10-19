@@ -30,6 +30,7 @@ import {
   type WriteHelpers,
 } from './admin-support-writes.js';
 import { prepareSettings, settingsParams, settingsWrites } from './admin-settings-writes.js';
+import { prepareReports, reportsWrites } from './admin-reports-writes.js';
 import { billingWrites, prepareBilling } from './admin-billing-writes.js';
 import { integrationsWrites, prepareIntegrations } from './admin-integrations-writes.js';
 import { apiRoutes, fillPath } from './routes.js';
@@ -256,6 +257,7 @@ const WRITES: Record<
   },
   ...supportWrites(fx),
   ...settingsWrites(fx),
+  ...reportsWrites(),
   ...billingWrites(fx),
   ...integrationsWrites(fx),
 };
@@ -523,6 +525,7 @@ beforeAll(async () => {
   await owner.$disconnect();
   await prepareSupport(fx);
   await prepareSettings(fx);
+  await prepareReports(fx);
   await prepareBilling(fx);
   await prepareIntegrations(fx);
   const env = loadEnv({

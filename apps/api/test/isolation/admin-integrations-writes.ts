@@ -1,8 +1,9 @@
 // R56: the Super Admin Integrations writes for admin-scope.test.ts, each against a record of its
-// own (platform integrations in each status, catalog entries, a plan), made with the owner client
+// own (platform integrations in each status, catalog entries, a plan, API keys, a webhook endpoint
+// and a finished delivery), made with the owner client
 // so every write meets something it can change. Providers and environments differ from
 // admin-integrations.e2e.test.ts, which may run at the same time (one live connection each).
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createPrismaClient, type Prisma, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { Fixtures } from '../global-setup.js';
@@ -73,6 +74,25 @@ export function integrationsWrites(fx: Fixtures): Record<string, IntegrationWrit
       body: {},
       record: 'cat-firms',
     },
+    // Part 2: API keys, webhooks, deliveries, the log export.
+    [`${BASE}/api-keys`]: {
+      body: { name: `Fake Scope ${tag}`, environment: 'TEST', scopes: ['usage:read'] },
+    },
+    [`${BASE}/api-keys/:id/rotate`]: { body: {}, record: 'key-rotate' },
+    [`${BASE}/api-keys/:id/revoke`]: { body: { reason: 'Fake scope' }, record: 'key-revoke' },
+    [`${BASE}/webhooks`]: {
+      body: {
+        direction: 'OUTBOUND',
+        url: `https://scope.example.test/${tag}`,
+        events: ['invoice.paid'],
+      },
+    },
+    'PATCH /api/v1/admin/integrations/webhooks/:id': {
+      body: { maxRetries: 2 },
+      record: 'hook-patch',
+    },
+    [`${BASE}/deliveries/:id/redeliver`]: { body: {}, record: 'delivery' },
+    [`${BASE}/logs/export`]: { body: { query: { platformOnly: true } } },
   };
 }
 
@@ -136,6 +156,37 @@ export async function prepareIntegrations(fx: Fixtures): Promise<void> {
         },
       });
       refs.planId = plan.id;
+      for (const key of ['key-rotate', 'key-revoke']) {
+        const body = randomUUID().replace(/-/g, '').slice(0, 32);
+        const row = await tx.platformApiKey.create({
+          data: {
+            name: `Fake Scope ${key}`,
+            prefix: `fv_test_${body.slice(0, 8)}`,
+            lastFour: body.slice(-4),
+            keyHash: createHash('sha256').update(`fv_test_${body}`).digest('hex'),
+            scopes: ['usage:read'],
+            environment: 'TEST',
+          },
+        });
+        records[key] = row.id;
+      }
+      const endpoint = await tx.platformWebhookEndpoint.create({
+        data: {
+          direction: 'OUTBOUND',
+          url: `https://scope-in.example.test/${tag}`,
+          events: ['invoice.paid'],
+        },
+      });
+      records['hook-patch'] = endpoint.id;
+      const delivery = await tx.platformWebhookDelivery.create({
+        data: { endpointId: endpoint.id, eventType: 'invoice.paid', eventId: `evt_scope_${tag}` },
+      });
+      // Only the platform writes a delivery's result: this one finished, so it can be redelivered.
+      await tx.platformWebhookDelivery.update({
+        where: { id: delivery.id },
+        data: { status: 'SUCCEEDED', responseStatusCode: 200, durationMs: 120 },
+      });
+      records['delivery'] = delivery.id;
     });
     // Only a SUPER_ADMIN disables (the database checks it): the one to re-enable.
     await runInScope(owner, { kind: 'admin', adminUserId: fx.users.admin.id }, (tx) =>

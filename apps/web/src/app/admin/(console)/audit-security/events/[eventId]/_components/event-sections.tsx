@@ -22,13 +22,14 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../lib/query';
 import {
-  adminAuditSecurity,
   type AuditActor,
   type AuditEventDetail,
   type AuditTone,
 } from '../../../../../../../mocks/admin-audit-security';
+import { adminAuditSecurity } from '../../../_components/audit-api';
 import {
   AccountBadge,
+  ACTOR_TYPE_LABELS,
   CATEGORY_LABELS,
   FactTable,
   formatClock,
@@ -328,13 +329,10 @@ export function AffectedDataTab({ query }: { query: DetailQuery }) {
               <FactTable
                 rows={[
                   { label: 'Name', value: event.actor.name },
-                  {
-                    label: event.actor.type === 'USER' ? 'Email' : 'Type',
-                    value:
-                      event.actor.email ??
-                      (event.actor.type === 'SERVICE' ? 'Service account' : 'Firmivra system'),
-                  },
-                  { label: 'Role', value: event.actor.role },
+                  event.actor.email
+                    ? { label: 'Email', value: event.actor.email }
+                    : { label: 'Type', value: ACTOR_TYPE_LABELS[event.actor.type] },
+                  { label: 'Role', value: event.actor.role ?? 'Not recorded' },
                   { label: 'Firm', value: event.firm.name },
                   ...(own
                     ? [

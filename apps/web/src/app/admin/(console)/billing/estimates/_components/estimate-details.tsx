@@ -4,7 +4,7 @@ import { Skeleton } from '@firmivra/ui';
 import { Copy, FileText, PencilSimple, Trash } from '@phosphor-icons/react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { adminBilling, type BillingEstimate } from '../../../../../../mocks/admin-billing';
+import { type BillingEstimate } from '../../../../../../mocks/admin-billing';
 import { useApiQuery } from '../../../../../../lib/query';
 import { formatDate, formatMoney } from '../../_components/billing-format';
 import { ESTIMATE_STATUS_LABELS } from '../../_components/billing-labels';
@@ -21,6 +21,7 @@ import {
   formatStamp,
   PanelButton,
 } from './estimate-parts';
+import { adminBilling } from '../../_components/billing-api';
 
 /**
  * The Estimate Details panel's body (docx §10.2): status, amount, client and number, the facts,

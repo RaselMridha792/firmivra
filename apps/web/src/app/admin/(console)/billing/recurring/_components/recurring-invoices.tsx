@@ -15,7 +15,6 @@ import {
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import {
-  adminBilling,
   type BillingRecurring,
   type RecurringQuery,
   type RecurringSort,
@@ -40,6 +39,7 @@ import {
 } from '../../_components/billing-table';
 import { RecurringDrawer, type RecurringDefaults } from '../../_components/recurring-drawer';
 import { NO_FILTERS, RecurringFilter, type RecurringFilters } from './recurring-filter';
+import { adminBilling } from '../../_components/billing-api';
 
 /**
  * Recurring Invoices (firmivra-recurring-invoices-dashboard.jpg, docx §9): the schedules by
