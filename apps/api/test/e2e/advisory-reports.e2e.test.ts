@@ -448,7 +448,8 @@ describe('advisory reports', () => {
   it('refuses a bad advisor id and a signed-out caller, and writes no audit row', async () => {
     expect((await call('get', '/reports?advisorUserId=me', ownerA)).status).toBe(400);
     expect((await call('get', '/reports', undefined)).status).toBe(401);
-    const audits = () => inFirm('a', (tx) => tx.auditLog.count());
+    // Firm A's rows only: other suites write audit rows of their own firms at the same time.
+    const audits = () => inFirm('a', (tx) => tx.auditLog.count({ where: { businessId: firms.a } }));
     const before = await audits();
     await reports(ownerA);
     expect(await audits()).toBe(before);
