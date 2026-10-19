@@ -18,7 +18,7 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 ## Steps
 
 - [x] 1. Notifications contract (`packages/types/src/admin-notifications`, contract mock, `api.adminNotifications`)
-- [ ] 2. Notifications API (`/api/v1/admin/notifications`)
+- [x] 2. Notifications API (`/api/v1/admin/notifications`)
 - [ ] 3. Communications inbox contract, then API
 - [ ] 4. Broadcasts contract, then API
 - [ ] 5. Integrations catalog and platform contract, then API
@@ -50,3 +50,4 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 ## Progress log
 
 - 2026-10-19: Plan agreed with the Scrum thread; this file added.
+- 2026-10-19: Notifications contract #858. Notifications API (`apps/api/src/admin-notifications`): 12 routes, `AdminPrisma` only, audit rows for resolving or dismissing security and billing items; unit (9) and e2e (12) tests; the admin isolation test's `WRITES` has the six writes and now keeps one dev token per person (a token per call hit the token rate limit).
