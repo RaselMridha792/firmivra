@@ -194,7 +194,7 @@ export function AdvisoryReportsView() {
         </p>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2">
         <StatusRing
           icon={UsersThree}
           title="Advisory Clients"
@@ -284,6 +284,7 @@ export function AdvisoryReportsView() {
             rowKey={(s) => s.serviceId}
             caption="Services in use"
             dense
+            showPagination={false}
             noun="services"
             pageSize={10}
             loading={q.isPending}
@@ -305,6 +306,7 @@ export function AdvisoryReportsView() {
             rowKey={(w) => w.advisor?.userId ?? 'none'}
             caption="Advisor workload"
             dense
+            showPagination={false}
             noun="advisors"
             pageSize={10}
             loading={q.isPending}
@@ -333,6 +335,7 @@ export function AdvisoryReportsView() {
             rowKey={(y) => String(y.year)}
             caption="Financial trend"
             dense
+            showPagination={false}
             noun="years"
             pageSize={3}
             loading={q.isPending}
