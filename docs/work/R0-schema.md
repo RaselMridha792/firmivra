@@ -259,20 +259,22 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
    - Then the screens: every widget built, empty states rather than fake data, three-state screenshots at 1440 px, and `docs/design-match.md`.
 3. **No more demo seed groups.** The demo data gets replaced later, and nobody reseeds dev now (R1 has been told).
 
-**Open PRs:**
-- **#868: fix `r0_demo_unseed_automations`** (`app_delete_business_data` breaks the automation rule/version cycle).
-  - Main is merged in; head `493eb20a`; the local tests pass.
-  - It carries a migration, so Rasel merges it himself.
-- **#871: demo seed Communications group** (16 tables). Merges cleanly with main.
+**Open PRs (Oct 19, ~14:30Z):**
+- **#885: D4, platform legal documents** (`rasel/R0-stage-d4-platform-legal`, main merged in at `8b9d51d8`).
+  - On a fresh DB the drift check is empty; `platform-legal`, `automation-firm-delete` and `seed` pass (9 tests).
+  - It needs Rasel's yes (packages/db).
+- **#888: Business Advisory overview and module shell** (`rasel/R0-advisory-overview`, `baad10b8`).
+- **#875:** this handoff.
+- **Merged:** #868, #871 and #883 (the advisory mock).
 
-**Gap migrations, built and pushed, waiting their turn** (one migration PR at a time; open each after the previous one merges):
-- `rasel/R0-stage-d4-platform-legal` (`20c39b70`): D4, platform legal documents and acceptances. Contract note `docs/work/R0-stage-d4-platform-legal.md`; 6 tests. Open it after #868 merges.
-- `rasel/R0-mrr-history` (`2fef0bbe`): `platform_subscription_changes.mrr_cents` plus the `platform_mrr_daily` rollup; 4 tests. Open it after D4 merges, and merge main in first.
+**Gap migration still waiting:** `rasel/R0-mrr-history` (`2fef0bbe`): `platform_subscription_changes.mrr_cents` plus the `platform_mrr_daily` rollup; 4 tests.
+- Open it after #885 merges, and merge main in first. The migration order is 030000, 040000, then 050000.
+- The scratch DB `firmivra_r0_gen` still holds MRR's objects, so for a drift check of anything else, use a fresh database.
 
 **Business Advisory (item 2), started Oct 19:**
 - The API and contract already exist on main (R55, `de509806`: `apps/api/src/advisory/`, `packages/types/src/advisory/`).
 - The 25 pages under `firm/(workspace)/business-advisory` are placeholders.
-- **#883: the advisory mock** (contract side, no screens). Branch `rasel/R0-advisory-mock`, `f9556631`.
+- **#883: the advisory mock** (merged). Its last tweak, meetings at local business hours, rides in #888. Branch `rasel/R0-advisory-mock`, `f9556631`.
   - `apps/web/src/mocks/business-advisory.ts` answers all 44 `api.advisory` calls; `lib/api.ts` switches it on with `NEXT_PUBLIC_API_MOCK=advisory`.
   - Staff (Sam Staff) sees 2 of the 7 live clients, with no figures and no settings. `empty` keeps the services, resources and settings.
   - Checked with tsc, eslint and a node smoke script (`pnpm exec tsx` from `packages/db`, importing the mock by a `file:///F:/...` URL).
@@ -281,12 +283,21 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
   - Notes: `api.clientNotes`
   - Reports: `api.reports`, category ADVISORY
 - **Next, the screens, about four PRs (at most 2 open):**
-  1. The shell (tabs) and the Overview
+  1. The shell (tabs) and the Overview: **#888**
   2. The list tabs: clients, plans, goals, financial-analysis, action-plans, resources, reports
   3. The plan wizard: `plans/new` and `plans/[planId]/edit/{,assessment,goals,action-plan,review}`
   4. Client detail (11 tabs)
   - Each PR: mock-mode Playwright specs and three-state screenshots at 1440 px.
 - **Mockups:** `docs/mockups/firm-workspace/business-advisory/source/` (overview, create-edit plan, client detail) plus the developer guide docx.
+- **How the screens were checked (#888):**
+  - **Dev server:** `WEB_PORT=3580 NEXT_DIST_DIR=.next/r0 NEXT_PUBLIC_API_MOCK=all NEXT_PUBLIC_API_MOCK_ROLE=OWNER node scripts/next.mjs dev`, run from `apps/web`.
+    - Empty: add `NEXT_PUBLIC_API_MOCK_EMPTY=advisory`.
+    - API unreachable: `NEXT_PUBLIC_API_MOCK=me`.
+    - Restart it when a new arbitrary Tailwind class doesn't show; Turbopack's CSS goes stale.
+  - **Spec:** run through an uncommitted copy of `playwright.mock.config.ts` with `reuseExistingServer: true` and `testMatch`, with `WEB_PORT=3579` so the spec's port is 3580.
+  - **Screenshots:** quantized to 128 colours into `apps/web/e2e/mock/r0-screenshots/`.
+  - **Git Bash:** set `MSYS_NO_PATHCONV=1` for `/path` arguments.
+  - **Clean-up:** delete `.next/r0`, `test-results` and the config copy.
 
 **Shelved, pushed, no PR:** `rasel/R0-demo-stage5-automations` (6 tables, stacked on #868). Don't open it unless Rasel asks.
 
