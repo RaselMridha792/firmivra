@@ -110,7 +110,10 @@ function AppointmentLink({ firmSlug }: { firmSlug: string }) {
 
 export function BeginOnlineScreen({ firmSlug, taxYear }: { firmSlug: string; taxYear: number }) {
   return (
-    <div data-theme="begin-online" className={`bg-surface text-firm-primary ${scaleStyles.scale}`}>
+    <div
+      data-theme="begin-online"
+      className={`bg-surface text-firm-primary ${scaleStyles.scale} ${styles.beginOnline}`}
+    >
       <section
         aria-labelledby="begin-heading"
         className="relative isolate flex flex-col overflow-hidden bg-subtle"

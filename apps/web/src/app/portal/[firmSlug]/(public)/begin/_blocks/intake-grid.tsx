@@ -169,7 +169,7 @@ export function GridInput({
                               }
                               value={value[row.key]?.[col.key] ?? ''}
                               onChange={(event) => set(row.key, col.key, event.target.value)}
-                              className={`min-h-11 w-full rounded-control border bg-surface px-2 py-1 text-sm sm:min-h-7 ${col.type === 'currency' ? 'pl-5' : ''} ${error ? 'border-danger' : 'border-border'}`}
+                              className={`min-h-11 w-full rounded-control border bg-surface px-3 py-2 text-base shadow-sm transition-colors focus:border-action focus:outline-none focus:ring-2 focus:ring-action/20 ${col.type === 'currency' ? 'pl-5' : ''} ${error ? 'border-danger focus:border-danger focus:ring-danger/20' : 'border-border'}`}
                             />
                           </span>
                           {error && (

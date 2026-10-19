@@ -65,6 +65,12 @@
   border-color: var(--color-danger);
 }
 
+.scale :is(input, select, textarea):focus-visible {
+  border-color: var(--color-action);
+  outline: var(--container-focus) solid var(--color-focus);
+  outline-offset: var(--space-1);
+}
+
 .scale button {
   min-height: var(--intake-control) !important;
   font-size: var(--intake-font) !important;
@@ -154,6 +160,11 @@
 
 .scale [aria-label='Intake progress'] [aria-hidden='true'] {
   top: calc(var(--intake-control) / 2);
+}
+
+/* Begin pages end with their CTA; the public layout's full site footer is not part of them. */
+:global(main):has(.scale) ~ :global(footer) {
+  display: none;
 }
 
 @media (width >= 64rem) {

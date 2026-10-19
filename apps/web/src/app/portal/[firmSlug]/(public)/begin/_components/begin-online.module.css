@@ -51,3 +51,7 @@ a.action:hover::before,
 .photoFade {
   background: linear-gradient(to right, var(--color-subtle), var(--color-transparent) 25%);
 }
+
+:global(main):has(.beginOnline) ~ :global(footer) {
+  display: none;
+}

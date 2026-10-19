@@ -4,7 +4,7 @@ import { Button, Card, Checkbox, Input, Radio } from '@firmivra/ui';
 import { ArrowRight, ChevronDown, Eye, EyeOff, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 
-export const compactInput = 'min-h-11 w-full px-2! py-1! text-sm! sm:min-h-7';
+export const compactInput = 'min-h-11 w-full px-3! py-2!';
 
 export function SectionPanel({
   number,
@@ -61,7 +61,7 @@ export function SectionPanel({
     <Card
       data-intake-panel
       aria-labelledby={titleId}
-      className={`min-w-0 border-folder-border! p-3! shadow-none! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${bar ? 'bg-accent-soft! sm:flex sm:items-center sm:gap-4' : ''} ${tint ? 'bg-accent-soft!' : ''} ${plain ? 'border-0! bg-transparent! px-0!' : ''} ${tone === 'danger' ? 'border-danger! bg-danger-soft!' : tone === 'warm' ? 'border-accent! bg-accent-soft!' : ''} ${className}`}
+      className={`min-w-0 border-folder-border! p-3! shadow-sm! ${aside ? 'grid items-start gap-x-3 lg:grid-cols-2' : ''} ${bar ? 'bg-accent-soft! sm:flex sm:items-center sm:gap-4' : ''} ${tint ? 'bg-accent-soft!' : ''} ${plain ? 'border-0! bg-transparent! px-0! shadow-none!' : ''} ${tone === 'danger' ? 'border-danger! bg-danger-soft!' : tone === 'warm' ? 'border-accent! bg-accent-soft!' : ''} ${className}`}
     >
       <header
         className={`flex items-center gap-3 ${size === 'none' ? 'sr-only' : bar ? 'mb-2 sm:mb-0 sm:w-5/12' : 'mb-2'}`}
@@ -172,7 +172,7 @@ export function ChoiceGroup({
               key={option}
               name={id}
               label={option}
-              className="gap-2! text-sm! sm:min-h-6"
+              className="gap-2!"
               checked={selected.includes(option)}
               onChange={(event) =>
                 onChange(
@@ -187,7 +187,7 @@ export function ChoiceGroup({
               key={option}
               name={id}
               label={option}
-              className="gap-2! text-sm! sm:min-h-6"
+              className="gap-2!"
               checked={value === option}
               onChange={() => onChange(option)}
             />
@@ -308,7 +308,7 @@ export function Repeater({
         variant="outline"
         disabled={disabled}
         onClick={onAdd}
-        className="w-full border-dashed text-sm! sm:min-h-7"
+        className="w-full border-dashed"
       >
         <Plus aria-hidden="true" className="size-4" />
         Add Another {title}
