@@ -44,8 +44,31 @@ method names and most shapes; B3 sets what is stored. Where they differ:
     templates (no route until then).
 15. **No mock** in `api.ts`: the screens keep `mocks/admin-billing.ts` until they switch.
 
+## Billing API (step 5)
+
+16. **Admin scope only** (`AdminPrisma`); every change writes a platform audit row (the firm in the
+    metadata), which is also the record's history. Lists and summaries work over the 5,000 most
+    recent documents, filtered in memory where the status is worked out (Overdue, Expired).
+17. **Totals come from the database**, line by line, so a discount is saved after the lines (a
+    discount saved first would take the total below zero); a discount above the subtotal is 400.
+18. **Payments** are recorded COMPLETED (idempotent by `requestId`), never past the balance, only on
+    a sent invoice; Partial payments off in Settings means only the full balance. **Refunds** are
+    recorded by hand (no processor refunds Firmivra's billing yet): created PENDING, then COMPLETED,
+    and the database updates the payment and the invoice. A refund type (full or partial) is kept in
+    the refund's internal note.
+19. **Estimates**: Expired is worked out on read (sent or pending, past the expiration date).
+    Convert makes a draft invoice from the lines and marks the estimate CONVERTED.
+20. **Recurring schedules** make their invoices when invoices or schedules are read (at most every
+    minute per task, one runner at a time, up to 12 per schedule), and Run makes the next one now:
+    one invoice per occurrence (B3's unique key), dated on the occurrence, due by the firm's terms,
+    for the period up to the next date, sent when the schedule auto-sends.
+
 ## Needs from others
 
+- **R0 (Billing, B3), a bug:** `platform_invoice_recompute` sets PARTIALLY_REFUNDED or REFUNDED
+  on any refund, but `platform_invoices_values` allows those statuses only when the invoice is fully
+  paid, so refunding a payment on a part-paid invoice fails the check. The API refuses that refund
+  (422 NOT_SUPPORTED_YET, "once its invoice is fully paid") until the rule is settled.
 - **R0 (Billing, B3):** a `preferences` JSON column on `platform_billing_settings` (the settings
   page's other options), `platform_refunds.method`, and later invoice attachments and named tax
   rates if the design keeps them.

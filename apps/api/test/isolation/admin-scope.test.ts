@@ -28,6 +28,7 @@ import {
   supportWrites,
   type WriteHelpers,
 } from './admin-support-writes.js';
+import { billingWrites, prepareBilling } from './admin-billing-writes.js';
 import { apiRoutes, fillPath } from './routes.js';
 
 const fx = inject('fixtures');
@@ -87,6 +88,7 @@ const WRITES: Record<
   'POST /api/v1/admin/notifications/:id/resolve': { body: {}, item: 'resolve' },
   'POST /api/v1/admin/notifications/:id/dismiss': { body: {}, item: 'dismiss' },
   ...supportWrites(fx),
+  ...billingWrites(fx),
 };
 
 /** The firm an approved application created, or null. */
@@ -134,6 +136,7 @@ beforeAll(async () => {
   });
   await owner.$disconnect();
   await prepareSupport(fx);
+  await prepareBilling(fx);
   const env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',
