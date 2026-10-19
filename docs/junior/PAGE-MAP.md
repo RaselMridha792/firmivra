@@ -30,7 +30,7 @@ Paths below are inside `apps/web/src/app/`. Mockups are in `docs/mockups/`. A fo
 
 Sidebar: Dashboard, Firm Applications (pending count), Firms. Then Sales, Leads / CRM, Team, Subscriptions, Billing, Support, Reports & Analytics, Notifications, Audit & Security and System Settings with a "Soon" badge: they open nothing.
 
-### Super Admin console modules: Audit & Security, Billing, Subscriptions, Sales, Team and Support (Tumit); Communications, Integrations, Notifications, Reports & Analytics and System Settings (Arfan)
+### Super Admin console modules: Audit & Security, Billing, Subscriptions, Sales, Team, Support and Integrations (Tumit); Communications, Notifications, Reports & Analytics and System Settings (Arfan)
 
 Rasel's decision, Oct 18. Octavia's designs and docx are in `docs/mockups/super-admin/<module>/source/` (`SOURCE-INDEX.md` maps the original names). Every route below exists on main as a title-only placeholder in `apps/web/src/app/admin/(console)/`. The same three route rules as the firm workspace apply: a page gets a route, a tab with its own content gets a route, each wizard step gets a route; modals, drawers, side panels and form panels get none (the docx says which ones). The sidebar items are Tumit's, in the console layout. Pace: 10 pages a day on Oct 18 and Oct 19.
 
@@ -72,18 +72,18 @@ Rasel's decision, Oct 18. Octavia's designs and docx are in `docs/mockups/super-
 | `/communications/broadcasts/new/audience` | `(console)/communications/broadcasts/new/audience/` | Arfan | `communications/source/firmivra-broadcast-audience-dashboard.jpg` (step 2) | `communications/source/firmivra-communications-developer-handoff.docx` §3.2 |
 | `/communications/broadcasts/new/message` | `(console)/communications/broadcasts/new/message/` | Arfan | none (step 3) | `communications/source/firmivra-communications-developer-handoff.docx` §3.2 |
 | `/communications/broadcasts/new/review` | `(console)/communications/broadcasts/new/review/` | Arfan | `communications/source/create-broadcast-review-dashboard.jpg` (step 4) | `communications/source/firmivra-communications-developer-handoff.docx` §3.2, §3.3 |
-| `/integrations` | `(console)/integrations/` | Arfan | `integrations/source/firmivra-integrations-admin-dashboard.jpg` | `integrations/source/firmivra-integrations-developer-guide.docx` §2, §13 (the docx names these routes) |
-| `/integrations/platform` | `(console)/integrations/platform/` | Arfan | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §3 |
-| `/integrations/platform/new` | `(console)/integrations/platform/new/` | Arfan | `integrations/source/firmivra-integration-setup-dashboard.jpg` (step 1) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
-| `/integrations/platform/new/connection` | `(console)/integrations/platform/new/connection/` | Arfan | none (step 2) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
-| `/integrations/platform/new/settings` | `(console)/integrations/platform/new/settings/` | Arfan | none (step 3) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
-| `/integrations/platform/new/review` | `(console)/integrations/platform/new/review/` | Arfan | none (step 4) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
-| `/integrations/platform/[integrationId]` | `(console)/integrations/platform/[integrationId]/` | Arfan | `integrations/source/stripe-integration-admin-dashboard.jpg`, `integrations/source/stripe-integration-admin-dashboard-1.jpg` (Stripe as the example) | `integrations/source/firmivra-integrations-developer-guide.docx` §5 |
-| `/integrations/catalog` | `(console)/integrations/catalog/` | Arfan | `integrations/source/customer-integration-catalog-dashboard.jpg` | `integrations/source/firmivra-integrations-developer-guide.docx` §6 |
-| `/integrations/catalog/[catalogId]` | `(console)/integrations/catalog/[catalogId]/` | Arfan | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §7 |
-| `/integrations/api-webhooks` | `(console)/integrations/api-webhooks/` | Arfan | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §8 |
-| `/integrations/logs` | `(console)/integrations/logs/` | Arfan | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §9 |
-| `/integrations/usage` | `(console)/integrations/usage/` | Arfan | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §10 |
+| `/integrations` | `(console)/integrations/` | Tumit | `integrations/source/firmivra-integrations-admin-dashboard.jpg` | `integrations/source/firmivra-integrations-developer-guide.docx` §2, §13 (the docx names these routes) |
+| `/integrations/platform` | `(console)/integrations/platform/` | Tumit | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §3 |
+| `/integrations/platform/new` | `(console)/integrations/platform/new/` | Tumit | `integrations/source/firmivra-integration-setup-dashboard.jpg` (step 1) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
+| `/integrations/platform/new/connection` | `(console)/integrations/platform/new/connection/` | Tumit | none (step 2) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
+| `/integrations/platform/new/settings` | `(console)/integrations/platform/new/settings/` | Tumit | none (step 3) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
+| `/integrations/platform/new/review` | `(console)/integrations/platform/new/review/` | Tumit | none (step 4) | `integrations/source/firmivra-integrations-developer-guide.docx` §4 |
+| `/integrations/platform/[integrationId]` | `(console)/integrations/platform/[integrationId]/` | Tumit | `integrations/source/stripe-integration-admin-dashboard.jpg`, `integrations/source/stripe-integration-admin-dashboard-1.jpg` (Stripe as the example) | `integrations/source/firmivra-integrations-developer-guide.docx` §5 |
+| `/integrations/catalog` | `(console)/integrations/catalog/` | Tumit | `integrations/source/customer-integration-catalog-dashboard.jpg` | `integrations/source/firmivra-integrations-developer-guide.docx` §6 |
+| `/integrations/catalog/[catalogId]` | `(console)/integrations/catalog/[catalogId]/` | Tumit | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §7 |
+| `/integrations/api-webhooks` | `(console)/integrations/api-webhooks/` | Tumit | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §8 |
+| `/integrations/logs` | `(console)/integrations/logs/` | Tumit | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §9 |
+| `/integrations/usage` | `(console)/integrations/usage/` | Tumit | none (no frame) | `integrations/source/firmivra-integrations-developer-guide.docx` §10 |
 | `/notifications` | `(console)/notifications/` | Arfan | `notifications/source/firmivra-notifications-dashboard.jpg` | `notifications/source/firmivra-notifications-page-developer-instructions.docx` §1 to §14 (the category tabs filter one list) |
 | `/reports` | `(console)/reports/` | Arfan | `reports/source/reports-and-analytics-dashboard.jpg` (Overview tab) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §1 |
 | `/reports/firms` | `(console)/reports/firms/` | Arfan | `reports/source/reports-and-analytics-dashboard.jpg` (Firms tab, named only) | `reports/source/firmivira-reports-analytics-developer-instructions.docx` §2 |
@@ -416,8 +416,9 @@ These are the only files a PR from your branch may change. A folder means everyt
 
 **Tumit** (Staff Management, Settings and Appointments, from Oct 14)
 - `apps/web/src/components/app-shell/`
-- `apps/web/src/app/admin/(console)/` (all of it except Arfan's five Super Admin modules: `communications/`, `integrations/`, `notifications/`, `reports/`, `system-settings/`); from Oct 18 that includes `audit-security/`, `billing/`, `subscriptions/`, `sales/`, `team/` and `support/` (26 routes), and new `apps/web/src/mocks/admin-*.ts` for them
+- `apps/web/src/app/admin/(console)/` (all of it except Arfan's four Super Admin modules: `communications/`, `notifications/`, `reports/`, `system-settings/`); from Oct 18 that includes `audit-security/`, `billing/`, `subscriptions/`, `sales/`, `team/` and `support/` (26 routes), and from Oct 19 `integrations/` (12 routes, from Arfan), and new `apps/web/src/mocks/admin-*.ts` for them
 - `apps/web/src/app/firm/welcome/`, `firm/apply/`, `firm/setup/`
+- `apps/web/src/app/portal/[firmSlug]/(public)/begin/` (Begin Online, shared with Arfan, from Oct 19)
 - `apps/web/src/app/firm/(workspace)/team/` (Staff Management, 20 routes), `audit-log/`, `calendar/` (Appointments, 8 routes), `settings/` (all of it except `settings/layout.tsx`, `settings/route.ts`, `settings/payments/` and `settings/tax-statuses/`)
 - `apps/web/src/app/portal/[firmSlug]/(client)/appointments/`
 - `apps/web/src/mocks/team.ts`, `mocks/settings.ts`, `mocks/appointments.ts` and new `mocks/staff-*.ts`, `mocks/settings-*.ts`, `mocks/appointments-*.ts` (synthetic data only; registering a module in `lib/api.ts` is the contract session's)
@@ -430,10 +431,10 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/e2e/nahid-*.spec.ts`, `apps/web/e2e/mock/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
 
 **Arfan** (Leads, Intake Forms and Services & Pricing, from Oct 14)
-- `apps/web/src/app/portal/[firmSlug]/(public)/begin/`
+- `apps/web/src/app/portal/[firmSlug]/(public)/begin/` (shared with Tumit from Oct 19)
 - `apps/web/src/app/firm/(workspace)/leads/` (the list, the lead profile `leads/[id]/` and its tabs and convert steps; 14 routes), `intake-forms/` (13 routes), `services-pricing/` (6 routes: the list, categories, packages list, `packages/[id]`, `packages/[id]/edit` and promotions; `new`, `[id]`, `[id]/edit`, `inactive` and `packages/new` moved to Fahad on Oct 15)
 - `apps/web/src/mocks/leads.ts`, `mocks/intake-forms.ts`, `mocks/services-pricing.ts` and new `mocks/leads-*.ts`, `mocks/intake-forms-*.ts`, `mocks/services-pricing-*.ts` (synthetic data only; registering a module in `lib/api.ts` is the contract session's)
-- From Oct 18, the Super Admin console in `apps/web/src/app/admin/(console)/`: `communications/`, `integrations/`, `notifications/`, `reports/` and `system-settings/` (48 routes), and new `apps/web/src/mocks/admin-communications*.ts`, `mocks/admin-integrations*.ts`, `mocks/admin-notifications*.ts`, `mocks/admin-reports*.ts`, `mocks/admin-system-settings*.ts`
+- From Oct 18, the Super Admin console in `apps/web/src/app/admin/(console)/`: `communications/`, `notifications/`, `reports/` and `system-settings/` (36 routes; `integrations/` moved to Tumit on Oct 19), and new `apps/web/src/mocks/admin-communications*.ts`, `mocks/admin-notifications*.ts`, `mocks/admin-reports*.ts`, `mocks/admin-system-settings*.ts`
 - `apps/web/e2e/` (all tests, mock-mode ones too: you lead testing), `docs/tasks/ARFAN.md`
 
 **Ibrahim** (Integrations, Reports, Tax Planning & Strategy and Business Advisory & Development, from Oct 17)
