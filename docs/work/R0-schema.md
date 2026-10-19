@@ -243,6 +243,8 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
 
 - Oct 19, decisions (Rasel through the Scrum thread): R0 finishes demo seed stage 5 before anything else; a new session R60 takes the Super Admin Support, Billing and Sales APIs (not R0). R55's Super Admin schema gaps are triaged under "Schema gaps from the Super Admin API sessions" in the migration queue: platform legal documents (stage D4) and an MRR daily rollup (in D2) need migrations; backups, environment variables, role templates, custom CSS, uptime and the unfilled daily metrics do not.
 
+- Oct 19, Super Admin schema stage D4 (platform legal documents), branch `rasel/R0-stage-d4-platform-legal` from main (Rasel's order: schema gaps first): migration `r0_platform_legal`. `platform_legal_documents`: Terms, Privacy, DPA, Acceptable Use, numbered per kind, a draft that publishes (stamped; retires the previous version; one in force per kind), published text fixed, retired final, only drafts deleted; every scope reads the published text, the team writes. `platform_legal_acceptances`: insert-only evidence of a published version (person or applicant, firm link, IP, browser), stamped by the database; the platform or a firm for itself records it. Contract note `docs/work/R0-stage-d4-platform-legal.md`. Tests: `test/platform-legal.test.ts` (6).
+
 ## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
 
 **Where things stand.**
