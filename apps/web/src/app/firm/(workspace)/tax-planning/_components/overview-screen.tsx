@@ -118,24 +118,28 @@ export function PlanningOverview() {
     ? [
         {
           icon: UsersThree,
+          tone: 'blue' as const,
           label: 'Active Planning Clients',
           k: o.activePlanningClients,
           text: String(o.activePlanningClients.value),
         },
         {
           icon: CalendarBlank,
+          tone: 'amber' as const,
           label: 'Upcoming Planning Appointments',
           k: o.upcomingAppointments,
           text: String(o.upcomingAppointments.value),
         },
         {
           icon: FileText,
+          tone: 'purple' as const,
           label: 'Strategies In Progress',
           k: o.strategiesInProgress,
           text: String(o.strategiesInProgress.value),
         },
         {
           icon: CurrencyDollar,
+          tone: 'green' as const,
           label: 'Projected Tax Savings',
           k: o.projectedSavings,
           text: money(o.projectedSavings.value),
@@ -153,12 +157,19 @@ export function PlanningOverview() {
       <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" data-testid="tp-kpis">
         {(kpis.length
           ? kpis
-          : [0, 1, 2, 3].map((i) => ({ icon: ChartBar, label: 'Loading', k: null, text: '—', i }))
+          : [0, 1, 2, 3].map((i) => ({
+              icon: ChartBar,
+              tone: 'blue' as const,
+              label: 'Loading',
+              k: null,
+              text: '—',
+              i,
+            }))
         ).map((x, i) => (
           <li key={x.label + i}>
             <KpiCard
               icon={x.icon}
-              tone="blue"
+              tone={x.tone}
               value={x.text}
               label={x.label}
               loading={q.isPending}
