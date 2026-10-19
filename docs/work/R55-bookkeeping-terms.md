@@ -5,11 +5,12 @@ Contract: `packages/types/src/bookkeeping/terms.ts`, `terms-client.ts` (`api.boo
 ## Steps
 
 - [x] 1. Contract: the page (version in force, open draft, versions), New Terms, edit, send, back to draft, activate, terminate, notices, agreement links, history, payment schedule.
-- [ ] 2. API, with unit, e2e and isolation cases.
+- [x] 2. API, with unit, e2e and isolation cases.
 
 ## Progress
 
-- 2026-10-19: step 1 (contract PR, `rasel/R55-bookkeeping-terms-contract`).
+- 2026-10-19: step 1 (contract, #848, merged).
+- 2026-10-19: step 2 (API, `rasel/R55-bookkeeping-terms-api`): `BookkeepingTermsController` (registered ahead of `BookkeepingController`) and `BookkeepingTermsService`.
 
 ## Notes
 
@@ -19,7 +20,10 @@ Contract: `packages/types/src/bookkeeping/terms.ts`, `terms-client.ts` (`api.boo
 4. New Terms copies the version in force (a change is a new version of it); with none, it starts from the client's package and the defaults.
 5. Activate wants a signed copy or an e-signature by default (409 AGREEMENT_NOT_SIGNED); `requireSigned: false` lets an Owner or Admin bring unsigned terms into force.
 6. The Payment Schedule reads the engagement's invoices from Invoices & Payments (never drafts); nothing is copied.
-7. Agreement files are Documents' (uploaded with the client's `engagementId`) and the e-signature is Firm Sign's; this module only links them.
+7. Agreement files are Documents' (uploaded with the client's `engagementId`) and the e-signature is Firm Sign's; this module only links them. A document must be on the bookkeeping engagement; a Firm Sign request must be for the same client (any of its services).
+8. History events: one per category of change (package, pricing, scope, renewal) with the changed fields' old and new values (lists and rules as "changed"), plus CREATED, SENT, SIGNED, ACTIVATED, SUPERSEDED (on the version replaced), TERMINATED and the notices. Back to draft and agreement changes are NOTE events.
+9. The database's refusals map to 409 TERMS_STATE (its "bookkeeping: … terms …" rules), 409 NOT_THIS_CLIENTS (a foreign key) and 400 (another check); never a 500.
+10. Payment Schedule: the engagement's invoices newest first, never drafts; `period` is the month of the issue date (or the scheduled date).
 
 ## Gaps against the design (not in this contract)
 

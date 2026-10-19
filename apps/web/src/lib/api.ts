@@ -4,6 +4,7 @@ import {
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
+  createAdminAuditClient,
   createAuditLogClient,
   createAvailabilityClient,
   createBrandingClient,
@@ -18,6 +19,7 @@ import {
   createEngagementsClient,
   createEsignClient,
   createFirmApplicationsClient,
+  createAdminNotificationsClient,
   createIntakeFormsClient,
   createInvoicesClient,
   createLeadPipelineClient,
@@ -85,6 +87,7 @@ import {
   publicAgreementsMock,
 } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { createAdminNotificationsMock } from '../mocks/admin-notifications-api';
 import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
@@ -424,6 +427,8 @@ export const api = {
     dev && mocked('auditLog')
       ? createAuditLogMock({ role: MOCK_ROLE })
       : createAuditLogClient(request),
+  /** Super Admin Audit & Security (R55): the cross-firm event log, alerts, notes and the security policy. Mock: mocks/admin-audit-security.ts until the screens switch. */
+  adminAudit: createAdminAuditClient(request),
   /** Support access (R8): Firmivra Support's requests to the firm; Owner and Admin read, an Owner decides. */
   supportAccess:
     dev && mocked('supportAccess')
@@ -447,6 +452,11 @@ export const api = {
     dev && mocked('firmApplications')
       ? createFirmApplicationsMock()
       : createFirmApplicationsClient(request),
+  /** Super Admin notifications (R56 on R0's B1): the member's notification center and bell. */
+  adminNotifications:
+    dev && mocked('adminNotifications')
+      ? createAdminNotificationsMock()
+      : createAdminNotificationsClient(request),
   /** Invoices (R7): the firm's invoices with lines; create, send, cancel (docs/api/invoices.yaml). */
   invoices:
     dev && mocked('invoices')

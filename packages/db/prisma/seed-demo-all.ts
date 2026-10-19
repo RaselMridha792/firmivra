@@ -2,6 +2,7 @@
 // round-trip test both run exactly this. A later stage adds its module call here.
 import type { createPrismaClient } from '../src/client.js';
 import { seedDemoBilling } from './seed-demo-billing.js';
+import { seedDemoBookkeeping } from './seed-demo-bookkeeping.js';
 import { seedDemoCalendar } from './seed-demo-calendar.js';
 import { seedDemoCommunications } from './seed-demo-communications.js';
 import { seedDemoCompliance } from './seed-demo-compliance.js';
@@ -18,6 +19,7 @@ import { seedDemoPlatform } from './seed-demo-platform.js';
 import { seedDemoPortal } from './seed-demo-portal.js';
 import { seedDemoSignups } from './seed-demo-signups.js';
 import { seedDemoTasks } from './seed-demo-tasks.js';
+import { seedDemoTemplates } from './seed-demo-templates.js';
 
 type Prisma = ReturnType<typeof createPrismaClient>;
 
@@ -25,10 +27,14 @@ export async function seedDemo(prisma: Prisma): Promise<DemoOrgResult> {
   const org = await seedDemoOrg(prisma);
   await seedDemoEngagements(prisma, org);
   await seedDemoBilling(prisma, org);
+  // Stage 5, work modules: Bookkeeping (profiles, connections, periods, ledger, reports, terms).
+  await seedDemoBookkeeping(prisma, org);
   await seedDemoCalendar(prisma, org);
   await seedDemoDocuments(prisma, org);
   // After documents: a message attaches one of them.
   await seedDemoMessages(prisma, org);
+  // Stage 5, work modules: Templates (message, document request and invoice templates).
+  await seedDemoTemplates(prisma, org);
   // Stage 3
   const form = await seedDemoIntake(prisma, org);
   await seedDemoLeads(prisma, org, form);
