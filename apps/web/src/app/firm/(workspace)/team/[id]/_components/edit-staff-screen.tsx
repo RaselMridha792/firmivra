@@ -21,6 +21,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
@@ -162,28 +163,30 @@ export function EditStaffScreen({ id }: { id: string }) {
   const [result, setResult] = useState<{ text: string; error?: boolean } | null>(null);
   // Kept here: a save refetches the member, and its new version refills the form below.
   const [saved, setSaved] = useState('');
+  // Deactivate Account, Cancel and Save Changes run along the bottom of both columns, as drawn.
+  const [footer, setFooter] = useState<HTMLDivElement | null>(null);
   const m = member.data;
   const failed = member.isError ? errorMessage(member.error, MEMBER_ERRORS) : undefined;
   // Owner and Admin change other members; nobody changes their own access here.
   const manages = canManage(role) && m !== undefined && !m.isYou;
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
-      <WizardHeader step="account" mode="edit" />
-      {failed ? (
-        <Callout icon={Info} tone="navy" surface="plain" size="compact">
-          {errorCode(member.error) === 'NOT_FOUND' ? failed : NOT_LOADED}
-        </Callout>
-      ) : m?.isYou ? (
-        <Callout icon={Info} tone="navy" surface="plain" size="compact">
-          This is your own account. Another Owner or Admin changes your role and access.
-        </Callout>
-      ) : m && !canManage(role) ? (
-        <Callout icon={Info} tone="navy" surface="plain" size="compact">
-          Only an Owner or an Admin can change staff accounts. You can read this one.
-        </Callout>
-      ) : null}
-      <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
+    <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
+      <div className="flex min-w-0 flex-col gap-4 min-[1440px]:col-span-2">
+        <WizardHeader step="account" mode="edit" />
+        {failed ? (
+          <Callout icon={Info} tone="navy" surface="plain" size="compact">
+            {errorCode(member.error) === 'NOT_FOUND' ? failed : NOT_LOADED}
+          </Callout>
+        ) : m?.isYou ? (
+          <Callout icon={Info} tone="navy" surface="plain" size="compact">
+            This is your own account. Another Owner or Admin changes your role and access.
+          </Callout>
+        ) : m && !canManage(role) ? (
+          <Callout icon={Info} tone="navy" surface="plain" size="compact">
+            Only an Owner or an Admin can change staff accounts. You can read this one.
+          </Callout>
+        ) : null}
         <EditForm
           // A new version (after Save Changes or a reload) refills the form from the server.
           key={m?.version ?? 'none'}
@@ -194,23 +197,25 @@ export function EditStaffScreen({ id }: { id: string }) {
           onSaved={setSaved}
           onAction={setAction}
           onReload={() => void member.refetch()}
+          footer={footer}
         />
-        <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">
-          <ProfileCard member={m} loading={member.isPending} failed={failed} />
-          <QuickActions
-            member={m}
-            enabled={manages}
-            message={result}
-            onAction={(a) => {
-              setResult(null);
-              setAction(a);
-            }}
-          />
-          <AccessSummary id={id} />
-          <RecentActivity id={id} />
-          {canManage(role) ? <NotesCard id={id} enabled={manages} /> : null}
-        </aside>
       </div>
+      <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">
+        <ProfileCard member={m} loading={member.isPending} failed={failed} />
+        <QuickActions
+          member={m}
+          enabled={manages}
+          message={result}
+          onAction={(a) => {
+            setResult(null);
+            setAction(a);
+          }}
+        />
+        <AccessSummary id={id} />
+        <RecentActivity id={id} />
+        {canManage(role) ? <NotesCard id={id} enabled={manages} /> : null}
+      </aside>
+      <div ref={setFooter} className="min-[1440px]:col-span-3" />
       {action && m ? (
         <ActionModal
           action={action}
@@ -235,6 +240,7 @@ function EditForm({
   onSaved: setSaved,
   onAction,
   onReload,
+  footer,
 }: {
   id: string;
   member: StaffDetail | undefined;
@@ -243,6 +249,8 @@ function EditForm({
   onSaved: (text: string) => void;
   onAction: (action: StaffAction) => void;
   onReload: () => void;
+  /** Where the buttons go: under both columns (they submit this form by its id). */
+  footer: HTMLDivElement | null;
 }) {
   const options = useApiQuery(['staff', 'options'], () => api.staff.options());
   const security = useApiQuery(['staff', 'security', id], () => api.staff.security(id));
@@ -329,13 +337,14 @@ function EditForm({
 
   return (
     <form
+      id="edit-staff-form"
       noValidate
       aria-label="Edit staff account"
       onSubmit={(event) => {
         event.preventDefault();
         onSave();
       }}
-      className="flex min-w-0 flex-col gap-4 min-[1440px]:col-span-2"
+      className="flex min-w-0 flex-col gap-4"
     >
       {options.isError ? (
         <Callout icon={Info} tone="navy" surface="plain" size="compact">
@@ -475,6 +484,7 @@ function EditForm({
             />
           ) : (
             <MultiPick
+              chips="tags"
               label="Service Area(s)"
               placeholder="Select service areas"
               options={(o?.serviceAreas ?? []).map((s) => ({ value: s.code, label: s.label }))}
@@ -631,34 +641,44 @@ function EditForm({
           ) : null}
         </div>
       ) : null}
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          disabled={locked || m?.status === 'DEACTIVATED'}
-          onClick={() => onAction('deactivate')}
-          className="inline-flex min-h-11 items-center gap-2 rounded-control border border-danger bg-surface px-6 text-sm font-semibold text-danger hover:bg-danger-soft disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:hover:bg-surface"
-        >
-          <Trash aria-hidden weight="fill" className="size-4" />
-          Deactivate Account
-        </button>
-        {saved ? (
-          <span role="status" data-testid="edit-saved" className="text-sm text-success">
-            {saved}
-          </span>
-        ) : null}
-        <div className="ml-auto flex flex-wrap gap-3">
-          <Link
-            href="/team"
-            className="inline-flex min-h-11 items-center rounded-control border border-action px-8 text-sm font-semibold text-action hover:bg-folder-surface"
-          >
-            Cancel
-          </Link>
-          <Button type="submit" disabled={locked} className="px-8">
-            <LockSimple aria-hidden weight="fill" className="size-4" />
-            Save Changes
-          </Button>
-        </div>
-      </div>
+      {footer
+        ? createPortal(
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={locked || m?.status === 'DEACTIVATED'}
+                onClick={() => onAction('deactivate')}
+                className="inline-flex min-h-11 items-center gap-2 rounded-control border border-danger bg-surface px-6 text-sm font-semibold text-danger hover:bg-danger-soft disabled:cursor-not-allowed disabled:border-border disabled:text-muted disabled:hover:bg-surface"
+              >
+                <Trash aria-hidden weight="fill" className="size-4" />
+                Deactivate Account
+              </button>
+              {saved ? (
+                <span role="status" data-testid="edit-saved" className="text-sm text-success">
+                  {saved}
+                </span>
+              ) : null}
+              <div className="ml-auto flex flex-wrap gap-3">
+                <Link
+                  href="/team"
+                  className="inline-flex min-h-11 items-center rounded-control border border-action px-12 text-sm font-semibold text-action hover:bg-folder-surface"
+                >
+                  Cancel
+                </Link>
+                <Button
+                  type="submit"
+                  form="edit-staff-form"
+                  disabled={locked}
+                  className="min-w-60 px-8"
+                >
+                  <LockSimple aria-hidden weight="fill" className="size-4" />
+                  Save Changes
+                </Button>
+              </div>
+            </div>,
+            footer,
+          )
+        : null}
     </form>
   );
 }

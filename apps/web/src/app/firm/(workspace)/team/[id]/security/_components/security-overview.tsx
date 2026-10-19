@@ -45,13 +45,18 @@ export function SecurityOverview({ id }: { id: string }) {
       </div>
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-[5fr_4fr_3fr]">
         {admin ? <AccountNotesCard id={id} enabled={manages} /> : null}
-        <ChecklistCard
-          title="Security Best Practices"
-          icon={Lightbulb}
-          iconTone="blue"
-          items={PRACTICES.map((label) => ({ id: label, label, done: true }))}
-        />
-        <NeedHelpCard />
+        {/* The design's serif card titles; the kit's cards take no title font. */}
+        <div className="min-w-0 [&_h3]:font-display">
+          <ChecklistCard
+            title="Security Best Practices"
+            icon={Lightbulb}
+            iconTone="blue"
+            items={PRACTICES.map((label) => ({ id: label, label, done: true }))}
+          />
+        </div>
+        <div className="min-w-0 [&_p.text-lg]:font-display">
+          <NeedHelpCard />
+        </div>
       </div>
     </SecurityShell>
   );

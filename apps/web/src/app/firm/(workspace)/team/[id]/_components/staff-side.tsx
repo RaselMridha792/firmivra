@@ -33,6 +33,18 @@ import { CAPABILITY_ORDER } from '../../roles/_components/role-parts';
 import type { StaffAction } from './staff-actions';
 import { MEMBER_ERRORS, STATUS_LOOKS, dateTime, longDate } from './staff-parts';
 
+/**
+ * The designs' large profile picture (about 96 px): the kit's Avatar, which stops at 56 px, drawn
+ * at the size-24 token.
+ */
+export function BigAvatar({ name, src }: { name: string; src?: string | null }) {
+  return (
+    <span className="flex shrink-0 [&>*]:size-24! [&>span]:text-3xl!">
+      <Avatar name={name} src={src ?? undefined} size="xl" />
+    </span>
+  );
+}
+
 const card =
   'flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm';
 const quiet = 'rounded-lg bg-subtle p-4 text-sm text-muted';
@@ -99,7 +111,7 @@ export function ProfileCard({
   return (
     <section aria-label="Staff profile" data-testid="staff-profile" className={card}>
       <div className="flex items-start gap-4">
-        <Avatar name={member.name} src={member.avatarUrl ?? undefined} size="xl" />
+        <BigAvatar name={member.name} src={member.avatarUrl} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="text-lg font-bold break-words text-heading">{member.name}</p>
           <span className="w-fit">
