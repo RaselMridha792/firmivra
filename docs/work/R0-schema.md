@@ -284,10 +284,18 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
   - Reports: `api.reports`, category ADVISORY
 - **Next, the screens, about four PRs (at most 2 open):**
   1. The shell (tabs) and the Overview: **#888**
-  2. The list tabs: clients, plans, goals, financial-analysis, action-plans, resources, reports
+  2. The list tabs, in two PRs:
+     - **2a: clients, plans, goals.** Built and pushed, with no PR yet: `rasel/R0-advisory-lists` (`6bb48805`), stacked on #888, spec now 6 tests, screenshots in three states. Open it when a slot frees, merging main first.
+     - **2b: financial-analysis, action-plans, resources, reports.** Not started.
   3. The plan wizard: `plans/new` and `plans/[planId]/edit/{,assessment,goals,action-plan,review}`
   4. Client detail (11 tabs)
   - Each PR: mock-mode Playwright specs and three-state screenshots at 1440 px.
+- **Gaps found while building:**
+  - **Reports:** `apps/api/src/reports/sources.ts` has no ADVISORY data source (only CLIENT, FINANCIAL, LEADS, TAX and TEAM_PRODUCTIVITY), but the guide wants advisory reports in the canonical Reports module.
+    - The Reports tab will read the ADVISORY catalog and show its empty state.
+    - Advisory sources need an API PR in the reports module, which is R55's, so it goes under "Needs from others" or to Rasel.
+  - **PLAN_NOT_READY:** the API sends the missing parts as error `details`, but the web `ApiRequestError` has no details field.
+    - The lists say "not ready"; the wizard's Review step must check the same rules itself.
 - **Mockups:** `docs/mockups/firm-workspace/business-advisory/source/` (overview, create-edit plan, client detail) plus the developer guide docx.
 - **How the screens were checked (#888):**
   - **Dev server:** `WEB_PORT=3580 NEXT_DIST_DIR=.next/r0 NEXT_PUBLIC_API_MOCK=all NEXT_PUBLIC_API_MOCK_ROLE=OWNER node scripts/next.mjs dev`, run from `apps/web`.
