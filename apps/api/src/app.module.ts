@@ -46,6 +46,7 @@ import { SupportAccessModule } from './support-access/support-access.controller.
 import { AdminAuditModule } from './admin-audit/admin-audit.controller.js';
 import { AdminSettingsModule } from './admin-settings/admin-settings.controller.js';
 import { AdminSupportModule } from './admin-support/admin-support.module.js';
+import { AdminBillingModule } from './admin-billing/admin-billing.module.js';
 import { TeamModule } from './team/team.controller.js';
 import { TasksModule } from './tasks/tasks.module.js';
 import { AutomationsModule } from './automations/automations.module.js';
@@ -141,6 +142,7 @@ export class AppModule {
         AdminAuditModule,
         AdminSettingsModule,
         AdminSupportModule,
+        AdminBillingModule,
         WorkspacesModule,
         TasksModule,
         DashboardModule,

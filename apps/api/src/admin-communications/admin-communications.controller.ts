@@ -49,6 +49,14 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { AdminPrisma } from '../firm-applications/admin-prisma.js';
 import { CommInboxService } from './comm-inbox.service.js';
 import { CommTemplatesService } from './comm-templates.service.js';
+import { AdminBroadcastsController } from './admin-broadcasts.controller.js';
+import { CommBroadcastsService } from './comm-broadcasts.service.js';
+import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
+import {
+  createS3Client,
+  DOCUMENT_STORAGE,
+  S3DocumentStorage,
+} from '../storage/document-storage.js';
 
 const pipe = <T extends z.ZodType>(schema: T) => new ZodValidationPipe(schema);
 const ConversationId = pipe(AdminCommConversationId);
@@ -255,7 +263,20 @@ export class AdminCommunicationsController {
 }
 
 @Module({
-  controllers: [AdminCommunicationsController],
-  providers: [AdminPrisma, CommInboxService, CommTemplatesService],
+  controllers: [AdminCommunicationsController, AdminBroadcastsController],
+  providers: [
+    AdminPrisma,
+    CommInboxService,
+    CommTemplatesService,
+    CommBroadcastsService,
+    // The documents bucket (platform/communications/ prefix), as DocumentsModule builds it.
+    { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
+    {
+      provide: DOCUMENT_STORAGE,
+      inject: [DOCUMENTS_CONFIG],
+      useFactory: (config: DocumentsConfig) =>
+        new S3DocumentStorage(createS3Client(config), config.bucket),
+    },
+  ],
 })
 export class AdminCommunicationsModule {}
