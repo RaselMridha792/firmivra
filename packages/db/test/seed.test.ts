@@ -58,6 +58,8 @@ describe('seed', () => {
       // Staff import previews live for an hour between an upload and its confirm; a seeded one
       // would be gone (no longer read) within the hour.
       'staff_import_previews',
+      // The daily MRR rollup is the platform job's to write; the regular seed has no subscriptions.
+      'platform_mrr_daily',
     ];
     const empty: string[] = [];
     for (const t of tables) {

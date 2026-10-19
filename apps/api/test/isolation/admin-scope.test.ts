@@ -29,6 +29,8 @@ import {
   supportWrites,
   type WriteHelpers,
 } from './admin-support-writes.js';
+import { prepareSettings, settingsParams, settingsWrites } from './admin-settings-writes.js';
+import { prepareReports, reportsWrites } from './admin-reports-writes.js';
 import { billingWrites, prepareBilling } from './admin-billing-writes.js';
 import { integrationsWrites, prepareIntegrations } from './admin-integrations-writes.js';
 import { apiRoutes, fillPath } from './routes.js';
@@ -102,8 +104,10 @@ const WRITES: Record<
     app?: string;
     item?: string;
     comm?: string;
-    params?: () => Record<string, string>;
+    paramsFn?: () => Record<string, string>;
     auditRecord?: AuditRecord;
+    settingsId?: string;
+    params?: Record<string, string>;
   }
 > = {
   'POST /api/v1/admin/firm-applications/:id/approve': { body: {}, app: 'approve' },
@@ -252,6 +256,8 @@ const WRITES: Record<
     comm: 'cat',
   },
   ...supportWrites(fx),
+  ...settingsWrites(fx),
+  ...reportsWrites(),
   ...billingWrites(fx),
   ...integrationsWrites(fx),
 };
@@ -460,6 +466,46 @@ beforeAll(async () => {
       ).id;
     }
     await seedComms(tx);
+    // A platform event, its alerts (one per move) and notes by the Super Admin who calls.
+    auditRecords.event = (
+      await tx.auditLog.create({
+        data: {
+          action: 'auth.sign_in_failed',
+          entityType: 'login',
+          targetLabel: 'Fake scope event',
+        },
+        select: { id: true },
+      })
+    ).id;
+    for (const key of ['alertAck', 'alertResolve', 'alertDismiss', 'alertAssign'] as const) {
+      auditRecords[key] = (
+        await tx.securityAlert.create({
+          data: {
+            auditLogId: auditRecords.event,
+            ruleId: 'fake.scope',
+            severity: 'MEDIUM',
+            title: 'Fake scope alert',
+            eventKey: `scope:${key}:${randomUUID()}`,
+          },
+          select: { id: true },
+        })
+      ).id;
+    }
+  });
+  // Notes are written as their author (the admin scope's own admin).
+  await runInScope(owner, { kind: 'admin', adminUserId: fx.users.admin.id }, async (tx) => {
+    for (const key of ['noteEdit', 'noteRetract'] as const) {
+      auditRecords[key] = (
+        await tx.auditInvestigationNote.create({
+          data: {
+            auditLogId: auditRecords.event,
+            authorUserId: fx.users.admin.id,
+            body: 'Fake note',
+          },
+          select: { id: true },
+        })
+      ).id;
+    }
   });
   // Notes are written as their author (the admin scope's own admin).
   await runInScope(owner, { kind: 'admin', adminUserId: fx.users.admin.id }, async (tx) => {
@@ -478,6 +524,8 @@ beforeAll(async () => {
   });
   await owner.$disconnect();
   await prepareSupport(fx);
+  await prepareSettings(fx);
+  await prepareReports(fx);
   await prepareBilling(fx);
   await prepareIntegrations(fx);
   const env = loadEnv({
@@ -591,7 +639,12 @@ describe('the admin site never opens a business scope', () => {
                 ? applications[c.app]!
                 : randomUUID();
       const path =
-        fillPath(route.path, { businessId: fx.firmA.id, id, ...c.params?.() }) + (c.query ?? '');
+        fillPath(route.path, {
+          businessId: fx.firmA.id,
+          id,
+          ...settingsParams(c),
+          ...c.paramsFn?.(),
+        }) + (c.query ?? '');
       const method = route.method.toLowerCase() as 'post' | 'put' | 'patch' | 'delete';
       const helpers: WriteHelpers = {
         post: (p, b) => call('post', p, fx.users.admin.email, undefined, b),

@@ -14,7 +14,7 @@ const refs = { planId: '' };
 const BASE = 'POST /api/v1/admin/integrations';
 const at = new Date().toISOString();
 
-type IntegrationWrite = SupportWrite & { params?: () => Record<string, string> };
+type IntegrationWrite = SupportWrite & { paramsFn?: () => Record<string, string> };
 
 export function integrationsWrites(fx: Fixtures): Record<string, IntegrationWrite> {
   void fx;
@@ -59,12 +59,12 @@ export function integrationsWrites(fx: Fixtures): Record<string, IntegrationWrit
     'PUT /api/v1/admin/integrations/catalog/:id/plans/:planId': {
       body: {},
       record: 'cat-plans',
-      params: () => refs,
+      paramsFn: () => refs,
     },
     'DELETE /api/v1/admin/integrations/catalog/:id/plans/:planId': {
       body: {},
       record: 'cat-plans',
-      params: () => refs,
+      paramsFn: () => refs,
     },
     'PUT /api/v1/admin/integrations/catalog/:id/firms/:businessId': {
       body: { access: 'ALLOW' },
