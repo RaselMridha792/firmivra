@@ -67,7 +67,15 @@ jobs:
           key: turbo-checks-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
           restore-keys: turbo-checks-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
-      - run: pnpm format:check
+      # Prettier's own cache: files whose content and settings are unchanged are not checked again.
+      # By content, because a fresh checkout gives every file a new modified time.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.cache/prettier
+          key: prettier-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.prettierrc*', '.prettierignore') }}-${{ github.sha }}
+          restore-keys: prettier-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.prettierrc*', '.prettierignore') }}-
+
+      - run: pnpm format:check --cache --cache-strategy content
       - run: pnpm lint ${FILTER:+"--filter=$FILTER"}
       - run: pnpm typecheck ${FILTER:+"--filter=$FILTER"}
 
