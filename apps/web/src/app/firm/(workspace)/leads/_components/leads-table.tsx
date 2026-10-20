@@ -49,7 +49,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'name',
     label: 'Name',
-    className: 'w-37',
+    className: 'w-24',
     cell: (lead) => {
       const name = fullName(lead.firstName, lead.lastName, lead.email);
       return (
@@ -58,7 +58,7 @@ const columns: Column<LeadRow>[] = [
           className="flex min-w-0 items-center gap-1 text-navigation hover:underline"
         >
           <Avatar name={name} src={lead.avatarUrl ?? undefined} size="md" />
-          <span className="min-w-0 truncate text-sm font-semibold">{name}</span>
+          <span className="min-w-0 truncate text-xs font-semibold">{name}</span>
         </Link>
       );
     },
@@ -66,11 +66,11 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'contact',
     label: 'Contact Info',
-    className: 'w-37',
+    className: 'w-31',
     cell: (lead) => (
       <span className="block min-w-0">
         {lead.phone ? (
-          <span className="block truncate text-sm font-semibold text-navigation">{lead.phone}</span>
+          <span className="block truncate text-xs font-semibold text-navigation">{lead.phone}</span>
         ) : null}
         <span className="block truncate text-muted" title={lead.email}>
           {lead.email}
@@ -81,10 +81,10 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'source',
     label: 'Lead Source / Campaign',
-    className: 'w-33',
+    className: 'w-27',
     cell: (lead) => (
       <span className="block min-w-0">
-        <span className="block truncate text-sm font-semibold text-navigation">
+        <span className="block truncate text-xs font-semibold text-navigation">
           {SOURCE_LABELS[lead.source]}
         </span>
         {lead.campaign?.name || lead.sourceDetail ? (
@@ -101,7 +101,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'services',
     label: 'Services Interested In',
-    className: 'w-39',
+    className: 'w-32',
     cell: (lead) => (
       <span className="flex min-w-0 flex-wrap gap-1">
         {lead.services.length ? (
@@ -119,7 +119,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'priority',
     label: 'Priority',
-    className: 'w-21',
+    className: 'w-15',
     cell: (lead) => (
       <Badge tone={priorityTone(lead.priority)}>{PRIORITY_LABELS[lead.priority]}</Badge>
     ),
@@ -127,13 +127,13 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'stage',
     label: 'Status',
-    className: 'w-29',
+    className: 'w-19',
     cell: (lead) => <Badge tone={stageTone(lead.stage)}>{STAGE_LABELS[lead.stage]}</Badge>,
   },
   {
     id: 'lastContact',
     label: 'Last Contact',
-    className: 'w-23',
+    className: 'w-18',
     cell: (lead) => (
       <span className="block min-w-0">
         {lead.lastContact ? (
@@ -154,7 +154,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'nextAction',
     label: 'Next Action',
-    className: 'w-37',
+    className: 'w-25',
     cell: (lead) => {
       const action = lead.nextAction;
       if (!action) return <span className="min-w-28 text-muted">No further action</span>;
@@ -167,7 +167,7 @@ const columns: Column<LeadRow>[] = [
           className={`block min-w-0 ${action.overdue ? 'rounded-md bg-danger-soft px-1 py-1 text-danger' : ''}`}
         >
           <span
-            className={`${action.overdue ? 'block font-medium' : 'block text-sm font-semibold text-navigation'}`}
+            className={`${action.overdue ? 'block font-medium' : 'block text-xs font-semibold text-navigation'}`}
           >
             {action.overdue ? `Overdue: ${label}` : label}
           </span>
@@ -183,12 +183,12 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'assigned',
     label: 'Assigned To',
-    className: 'w-33',
+    className: 'w-18',
     cell: (lead) =>
       lead.assignedTo ? (
         <span className="flex min-w-0 items-center gap-1">
           <Avatar name={lead.assignedTo.name} size="sm" />
-          <span className="min-w-0 truncate text-sm font-semibold">{lead.assignedTo.name}</span>
+          <span className="min-w-0 truncate text-xs font-semibold">{lead.assignedTo.name}</span>
         </span>
       ) : (
         <span className="text-muted">Unassigned</span>
@@ -197,7 +197,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'createdAt',
     label: 'Date Added',
-    className: 'w-25',
+    className: 'w-17',
     cell: (lead) => (
       <time dateTime={lead.createdAt} className="block truncate" title={dateLabel(lead.createdAt)}>
         {dateLabel(lead.createdAt)}
@@ -230,7 +230,9 @@ export function LeadsTable({
         rowKey={(lead) => lead.id}
         dense
         noun="leads"
-        tableClassName="table-fixed [&_thead]:!text-navigation [&_th]:!whitespace-normal [&_th]:!px-1 [&_th]:!text-sm [&_th]:!font-semibold [&_th]:!text-navigation [&_th:first-child]:!w-10 [&_th:first-child]:!pl-3 [&_td:first-child]:!pl-3 [&_th:last-child]:!w-64 [&_th:last-child]:!text-left [&_td]:!px-1 [&_td]:!py-2 [&_td:last-child]:!w-64 [&_td:last-child>div]:!justify-start"
+        // Column widths and 12 px text from leads/source/leads.jpg, so every column fits at 1440 px
+        // (R1 firm audit, Oct 20).
+        tableClassName="table-fixed [&_thead]:!text-navigation [&_th]:!whitespace-normal [&_th]:!px-1 [&_th]:!text-xs [&_th]:!font-semibold [&_th]:!text-navigation [&_th:first-child]:!w-10 [&_th:first-child]:!pl-3 [&_td:first-child]:!pl-3 [&_th:last-child]:!w-50 [&_th:last-child]:!text-left [&_td]:!px-1 [&_td]:!py-2 [&_td:last-child]:!w-50 [&_td:last-child>div]:!justify-start"
         pageSize={pageSize}
         pageSizes={[8, 16, 24]}
         onPageSize={onPageSize}
@@ -253,14 +255,14 @@ export function LeadsTable({
               icon={Phone}
               label={`Call ${fullName(lead.firstName, lead.lastName, lead.email)}`}
               disabled={!lead.phone}
-              className="!size-7"
+              className="!size-6"
               onClick={() => onCall(lead)}
             />
             <IconButton
               icon={EnvelopeSimple}
               tone="danger"
               label={`Send email to ${lead.email}`}
-              className="!size-7"
+              className="!size-6"
               onClick={() => onMessage(lead, 'EMAIL')}
             />
             <IconButton
@@ -268,33 +270,33 @@ export function LeadsTable({
               tone="action"
               label={`Send SMS to ${fullName(lead.firstName, lead.lastName, lead.email)}`}
               disabled={!lead.phone}
-              className="!size-7"
+              className="!size-6"
               onClick={() => onMessage(lead, 'SMS')}
             />
             <IconButton
               icon={CalendarBlank}
               tone="action"
               label={`Schedule an appointment with ${fullName(lead.firstName, lead.lastName, lead.email)}`}
-              className="!size-7"
+              className="!size-6"
               onClick={() => onRowAction(lead, 'APPOINTMENT')}
             />
             <IconButton
               icon={NotePencil}
               tone="accent"
               label={`View notes for ${fullName(lead.firstName, lead.lastName, lead.email)}`}
-              className="!size-7"
+              className="!size-6"
               onClick={() => router.push(`/leads/${lead.id}/notes`)}
             />
             <IconButton
               icon={ChartLine}
               tone="action"
               label={`View activity for ${fullName(lead.firstName, lead.lastName, lead.email)}`}
-              className="!size-7"
+              className="!size-6"
               onClick={() => router.push(`/leads/${lead.id}/activity`)}
             />
             <ActionMenu
               label={`More actions for ${fullName(lead.firstName, lead.lastName, lead.email)}`}
-              className="[&>button>svg:last-child]:hidden [&>button]:!size-7 [&>button]:!min-h-0 [&>button]:!gap-0 [&>button]:!justify-center [&>button]:!px-0"
+              className="[&>button>svg:last-child]:hidden [&>button]:!size-6 [&>button]:!min-h-0 [&>button]:!gap-0 [&>button]:!justify-center [&>button]:!px-0"
               trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-4" />}
               sections={[
                 {

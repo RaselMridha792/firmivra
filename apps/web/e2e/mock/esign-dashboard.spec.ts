@@ -4,6 +4,8 @@ const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 
 test('the dashboard: counters, recent documents and their filters', async ({ page }) => {
+  // The mock requests are dated early October 2026 (expiry and the 30-day window follow them).
+  await page.clock.setFixedTime(new Date('2026-10-08T18:00:00Z'));
   await page.goto(app('/firm-sign'));
   await expect(page.getByTestId('page-title')).toHaveText('Firm Sign');
   // The mock's counters are the mockup's.

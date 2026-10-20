@@ -7,7 +7,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../lib/api';
 import { moduleHref } from '../../../../lib/firm-modules';
-import { useApiQuery } from '../../../../lib/query';
+import { errorMessage } from '../../../../lib/errors';
+import { useApiMutation, useApiQuery } from '../../../../lib/query';
 import { LOCATION_LABELS } from '../calendar/_components/shared';
 import { addDays, toInstant } from '../calendar/_components/time';
 import { Widget } from './widget';
@@ -76,6 +77,10 @@ export function RecentMessages({ timeZone, today }: { timeZone: string; today: s
 }
 
 export function TasksDue({ summary }: { summary: UseQueryResult<DashboardSummary> }) {
+  // A checkbox before each task marks it done, as the design draws the list (R1, Oct 20).
+  const done = useApiMutation((id: string) => api.tasks.update(id, { status: 'DONE' }), {
+    invalidate: ['dashboard'],
+  });
   const label = (dueOn: string, today: string) =>
     dueOn < today
       ? 'Overdue'
@@ -94,11 +99,24 @@ export function TasksDue({ summary }: { summary: UseQueryResult<DashboardSummary
     >
       {({ tasksDue, today }) => (
         <ul className="flex flex-col divide-y divide-border">
+          {done.isError ? (
+            <li role="alert" className="py-2 text-sm text-danger">
+              {errorMessage(done.error)}
+            </li>
+          ) : null}
           {tasksDue.map((t) => (
-            <li key={t.id}>
+            <li key={t.id} className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                aria-label={`Mark ${t.title} done`}
+                checked={done.isPending && done.variables === t.id}
+                disabled={done.isPending}
+                onChange={() => done.mutate(t.id)}
+                className="size-4 shrink-0 cursor-pointer accent-action"
+              />
               <Link
                 href={`/clients/${encodeURIComponent(t.client.id)}`}
-                className="flex items-center gap-3 rounded-control py-3 hover:bg-canvas"
+                className="flex min-w-0 flex-1 items-center gap-3 rounded-control py-3 hover:bg-canvas"
               >
                 <span className="min-w-0 flex-1 truncate text-sm text-text">
                   {t.title} – {t.client.displayName}

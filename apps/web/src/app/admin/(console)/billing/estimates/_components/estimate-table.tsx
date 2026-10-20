@@ -60,8 +60,27 @@ export function EstimateTable({
         </button>
       ),
     },
-    { id: 'client', label: 'Client / Event', sort: 'client', cell: (row) => row.clientName },
-    { id: 'firm', label: 'Firm', sort: 'firm', cell: (row) => row.firmName },
+    // At most two lines each beside the details panel; the full name on hover.
+    {
+      id: 'client',
+      label: 'Client / Event',
+      sort: 'client',
+      cell: (row) => (
+        <span title={row.clientName} className="line-clamp-2 break-words">
+          {row.clientName}
+        </span>
+      ),
+    },
+    {
+      id: 'firm',
+      label: 'Firm',
+      sort: 'firm',
+      cell: (row) => (
+        <span title={row.firmName} className="line-clamp-2 break-words">
+          {row.firmName}
+        </span>
+      ),
+    },
     {
       id: 'issueDate',
       label: 'Issue Date',

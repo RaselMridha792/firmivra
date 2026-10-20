@@ -5,6 +5,8 @@ import { expect, test } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 
 test('checks the form, shows the staff day and schedules an appointment', async ({ page }) => {
+  // The mock's bookings are at a fixed -04:00 offset: "tomorrow" stays in daylight time.
+  await page.clock.setFixedTime(new Date('2026-10-14T12:00:00-04:00'));
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto(`http://app.localhost:${port}/calendar/new`);
   await expect(page).toHaveTitle('Schedule appointment');
@@ -26,7 +28,7 @@ test('checks the form, shows the staff day and schedules an appointment', async 
   await expect(page.getByTestId('appointment-summary')).toContainText('30 min');
 
   // Tomorrow at 8 AM is free.
-  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  const tomorrow = '2026-10-15';
   await page.getByLabel('Date *').fill(tomorrow);
   await page.getByLabel('Start Time *').selectOption('08:00');
   await page.getByLabel('End Time *').selectOption('08:30');

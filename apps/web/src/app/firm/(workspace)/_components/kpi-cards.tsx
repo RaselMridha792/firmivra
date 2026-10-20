@@ -14,7 +14,6 @@ import {
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ArrowDown, ArrowRight, ArrowUp } from 'lucide-react';
 import Link from 'next/link';
-import { moduleHref } from '../../../../lib/firm-modules';
 import { IconTile, type Tone } from './icon-tile';
 
 export const money = (cents: number) =>
@@ -31,8 +30,9 @@ function Trend({ kpi, period }: { kpi: DashboardKpi; period: string }) {
   const Arrow = change > 0 ? ArrowUp : change < 0 ? ArrowDown : null;
   return (
     <span className="flex flex-col text-sm text-muted">
+      {/* A small pill, green or red, as the design draws each trend (R1, Oct 20). */}
       <span
-        className={`flex items-center gap-1 font-semibold ${change > 0 ? 'text-success' : change < 0 ? 'text-danger' : ''}`}
+        className={`flex w-fit items-center gap-1 rounded-pill px-1.5 py-0.5 font-semibold ${change > 0 ? 'bg-success-soft text-success' : change < 0 ? 'bg-danger-soft text-danger' : 'bg-canvas'}`}
       >
         {Arrow ? <Arrow aria-hidden className="size-4" /> : null}
         <span>
@@ -74,7 +74,7 @@ const CARDS: {
     label: 'Returns In Progress',
     icon: FileText,
     tone: 'purple',
-    href: moduleHref('tax-returns'),
+    href: '/tax-returns',
     period: 'last week',
   },
   {
@@ -82,7 +82,7 @@ const CARDS: {
     label: 'Completed Returns',
     icon: CheckCircle,
     tone: 'green',
-    href: moduleHref('tax-returns'),
+    href: '/tax-returns',
     period: 'last month',
   },
   {
@@ -115,7 +115,7 @@ export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary
           : '—';
         const body = (
           <>
-            <IconTile icon={icon} tone={tone} small />
+            <IconTile icon={icon} tone={tone} />
             <span className="flex min-w-0 flex-col gap-1">
               {summary.isPending ? (
                 <Skeleton className="h-8 w-16" />
