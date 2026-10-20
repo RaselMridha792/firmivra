@@ -407,7 +407,7 @@ export class ClientsService {
             AND c.created_at >= p.last_month_start AND c.created_at < p.month_start
             AND ${mine}) AS new_before,
           (SELECT count(*)::int FROM clients c WHERE ${live}
-            AND c.status IN ('ACTIVE', 'IN_PROGRESS')) AS active,
+            AND c.status = 'ACTIVE') AS active,
           (SELECT count(*)::int FROM clients c WHERE ${live} AND c.status = 'NEW') AS stage_new,
           (SELECT count(*)::int FROM clients c WHERE ${live} AND EXISTS (
             SELECT 1 FROM document_requests d WHERE d.business_id = c.business_id
