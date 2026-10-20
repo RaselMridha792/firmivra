@@ -397,3 +397,149 @@ Answered by the Scrum thread on Oct 19 with its defaults (Rasel can overrule):
 4. Outside the default pipeline, NO_CONTACT applies to the pipeline's first stage: confirmed.
 5. A converted record later lost as DUPLICATE or INVALID_LEAD leaves the numerator too, so the
    conversion rate never passes 100%: done in the API (note 49).
+
+## Sales screens (step 7b)
+
+The Super Admin Sales screens (`apps/web/src/app/admin/(console)/sales/`) on `api.adminSales`
+through one adapter, `sales/_components/sales-api.ts`. Layout and components are unchanged; a
+widget the API has no data for keeps its frame and shows its quiet empty line, or the adapter
+answers 422 with a plain message the screen shows as its error.
+
+59. **The adapter.** `sales-api.ts` exports the mock's names, methods and shapes, and every screen
+    imports from it (none from `mocks/admin-sales.ts`). With `mocked('adminSales')` it is the mock
+    unchanged, plus the two calls the mock never had: `subscriptions()` (empty: the mock has no
+    firm subscriptions) and `linkTransaction()` (422). Where the API's data does not fit the mock's
+    type, the adapter's type is wider, so the mock's values still fit: a trend may be left out, a
+    transaction has no link time, `StageRequirement` takes the database's five, `AppointmentType`
+    takes CALL and MEETING, the revenue slices take OTHER and NO_PLAN, a plan's highlights are a
+    list, and `SalesCommunication.channel` is the activity kind.
+60. **Plans by code.** A plan's id on the screens is its code (SOLO_CORE …, the same in every
+    environment), so the plan colours and test ids stay. A request that names a plan looks up its
+    UUID in `plans()` (read once, again on every `plans()`; `meta()` waits for it). `meta().plans`
+    is the active plans with one of the six codes; the plan pickers (Add Lead, the record, the
+    filters, Trial, Proposal) read it instead of `PLAN_IDS`. A plan with another code reads as no
+    plan on a record and as "Other plans" in Revenue by Plan until it gets a colour.
+61. **Plan cards.** `plans()` gives the stored numbers: the price a month (an annual price ÷ 12,
+    as the API's MRR), the capacity, expansion and locations lines built from the seat and location
+    numbers, the highlights from those lines, and every feature. Tagline, outcome, why upgrade,
+    best fit, upgrade trigger and "From" are not stored and stay empty; the details modal leaves
+    their lines out. `trial` is false for every plan (no trial flag, trials not available), so
+    each card's button is Contact Sales, which opens Create Offer / Proposal.
+62. **Prices and extra users.** `planName` and `monthlyCents` (`salesPlanPriceCents`) read the
+    plans read last. `maxExtraUsers` is 0 on the API (no column, note 2), so the forms' extra users
+    field stays hidden and nothing is asked that would not be saved.
+63. **Errors.** The adapter's `errorMessage` is lib/errors' with `SALES_ERRORS`; a field error, an
+    adapter 422 or a contract check with no field reads as its own text. The screens import it from
+    the adapter. Each request is first checked against its contract schema, and each issue goes to
+    the form's field (`SalesFieldError`, as the mock did). The API's per-field codes go to their
+    field as well: LOST_REASON_REQUIRED, LOST_NOTE_REQUIRED and STAGE_INACTIVE on moves; also
+    VALUE_REQUIRED, OWNER_REQUIRED and PLAN_REQUIRED on Add Lead; INACTIVE_CHOICE on an owner and
+    on the appointment's "With"; DUPLICATE_NAME on a pipeline name.
+64. **Duplicates.** On 409 POSSIBLE_DUPLICATE the adapter calls `duplicates()` and throws the mock's
+    `SalesDuplicateError` with the matches, so the warning and "create a new record anyway" work as
+    before. Add Lead sends one `requestId` per opening.
+65. **Filters on the server.** The pipeline page sends its filters to `opportunities()` instead of
+    running `matchesQuery`; the adapter reads every page (500 a page, ten pages: the API's 5,000).
+    Mock mode filters the same records (its `opportunities(query)` runs `matchesQuery`). The search
+    is deferred, and the rows shown stay until the new ones arrive, so typing never blanks the
+    board. "This pipeline has no records yet" reads the pipeline's record counts. The KPI cards'
+    scopes map to sets: PIPELINE and OPEN to OPEN, CLIENTS to ACTIVE_CLIENTS. The KPI row stays the
+    whole pipeline's (`pipelineKpis({ pipelineId })`), as before.
+66. **KPIs.** A null trend is left out (no arrow, no "No change"); 0 is "No change". The
+    conversion rate is `rateBp ÷ 100`, rounded. Active Clients counts CONVERTED and
+    TRANSACTION_SYNCED (note 20), so its note reads "Converted clients". The Sales Center's six
+    numbers, stage counts and lead sources map one to one.
+67. **Revenue by Plan.** The estimated value of the deals won (note 22) in the mock's slices: the
+    three Solo plans together as "Solo Plans", then Team Pro, Business and Enterprise by their
+    stored names, then "Other plans" and "No plan" when there are any (two new slice colours,
+    chart red and chart grey). No Add-ons slice. The donut's label says "Revenue of deals won".
+68. **Feed.** Each line is `salesFeedText` and `salesFeedDetail`. The kind maps to the mock's for the
+    marker and the badge: COMMUNICATION is CONTACTED when two-way (inbound, CONNECTED, REPLIED),
+    else OUTREACH_ATTEMPT; FOLLOW_UP_SCHEDULED is FOLLOW_UP_ADDED for a task and
+    APPOINTMENT_SCHEDULED for an appointment; UNASSIGNED is REASSIGNED (as the mock logged it);
+    FOLLOW_UP_CANCELLED is UPDATED. An entry's id is its kind and row id (a follow-up gives two
+    entries). An automation's stage change has the actor AUTOMATION. The Sales Center asks for
+    `SALES_CENTER_FEED_KINDS`.
+69. **Follow-ups and appointments.** `appointments()` asks for `SALES_APPOINTMENT_KINDS` only (the
+    mock's upcoming lists held appointments, not tasks). The record's one `followUps` list splits
+    into tasks (FOLLOW_UP; a cancelled one leaves the list) and appointments (newest first, as the
+    mock). The appointment types are stored as note 15 suggests, with the type's name as the
+    title: Demo DEMO, Initial Consultation CONSULTATION, Proposal Review MEETING, Follow-up, Trial
+    Check-in and Check-in CALL. Reading back matches the title, else the kind (a call or meeting
+    with another title reads "Call" or "Meeting"). A task is due at 9:00 on its day, an appointment
+    at its date and time, both in the browser's time and today or later (the mock's check). "With:
+    the record owner" leaves `assigneeId` out.
+70. **Outreach.** The channel is the activity kind, OUTBOUND. Reached: a call CONNECTED, an email or
+    text REPLIED. Not reached: a call NO_ANSWER, an email or text no outcome. A communication with
+    no summary reads from its labels ("Call: no answer").
+71. **Moves.** A move sends the lost reason and note only. No one enters a transaction-synced stage
+    by hand and a transaction is linked on the record (note 12), so on the API
+    (`TRANSACTION_BY_REFERENCE` is true in mock mode only) a TRANSACTION requirement opens no
+    dialog and asks for no reference; the move goes ahead and TRANSACTION_LOCKED or
+    TRANSACTION_REQUIRED shows as the toast or the form's error. A value, owner or plan requirement
+    is not asked in the move dialog either: VALUE_REQUIRED, OWNER_REQUIRED or PLAN_REQUIRED shows
+    as the error. Bulk moves and tags go through `bulk()` with the confirmed count; assigning one
+    record uses `assign()` (its "updated" is 1), several `bulk()`.
+72. **Linked Transaction.** Without one: "Find the firm", a subscription picker (`subscriptions()`,
+    at most 20; one linked to another record is left out) and Link Transaction
+    (`linkTransaction`). Linked: the firm and plan, the status, "Status since" (`syncedAt`), and
+    Closed; no link date or estimated close. The Under Contract, Close and Terminate buttons are
+    gone (Billing reports those). No Unlink button: the contract has it, the design does not.
+73. **Empty or 422 on the API.**
+    - Start 14-Day Trial (the tile, Quick Actions, the dialog): 422 "Trials are not available
+      yet." (note 31).
+    - Create Offer / Proposal saves the plan and the value with `updateOpportunity`; a missing
+      value stays missing (the mock made one up). No proposal document is kept, so the dialog's
+      subtitle and done message no longer promise one (note 30).
+    - Documents: always "No documents yet." (note 30).
+    - Next step: the field shows empty; saving with text is 422 "The next step cannot be saved
+      yet. Clear it to save your other changes."; the follow-up card's note stays empty (note 32).
+    - Stage colour: the picker stays; saving a changed colour is 422 "Stage colours cannot be
+      saved yet. Change the colour back to save." A new stage takes its type's colour (note 5).
+    - On entry offers No automation and Create a follow-up task only (note 6). Requires shows the
+      database's five; a lost note on a stage that is not lost is refused under its row.
+    - Card or List: kept in memory while the console is open (note 33).
+    - The plan copy (note 61), the card's "Est. Close" (it reads "Since", note 11) and the
+      Appointment Set card's appointment date (no stage requires an appointment, note 4).
+74. **Export Sales Report.** The adapter reads `GET /report` (`adminSalesReportPath`) with
+    `sessionFetch` and hands the CSV to the screen, which saves it as before; an error body becomes
+    an `ApiRequestError` with its code.
+75. **Save Pipeline** sends `expectedUpdatedAt` (the version the editor opened), each stage with
+    TRANSACTION as TRANSACTION_SYNCED, the database's requirements only (LOST_REASON and
+    APPOINTMENT dropped), `onEnter` from the one automation, and `removed`. Field messages use the
+    mock's keys (`name`, `description`, `stage-<n>-name`, `stage-<n>-type`, `stage-<n>-active` for
+    the rest of a row, `stages`, `removed`); CONFLICT, SHIPPED_STAGE, STAGE_HAS_RECORDS,
+    RETURN_STAGE_INVALID and SYNC_STAGE_REQUIRED show as the form's message.
+76. **The record page.** A malformed record id is 404 NOT_FOUND before sending (the "couldn't find"
+    card). The owner pickers list active reps only (`meta().reps`). The record's plan picker adds
+    the record's own plan when it is no longer offered.
+77. **Screen edits** beyond the imports:
+    - `sales-action-dialog.tsx`: plans from `meta()`; the proposal's subtitle and done message.
+    - `add-lead-panel.tsx`: plans from `meta()`; `requestId` per opening.
+    - `stage-entry-fields.tsx`: `TRANSACTION_BY_REFERENCE` in `entryInput`, `needsEntryData` and
+      the fields.
+    - `plans-pricing.tsx`: empty tagline, subtitle, best fit and "When to move up" left out.
+    - `center-widgets.tsx`: OTHER and NO_PLAN slice colours; the donut's label.
+    - `pipeline-screen.tsx`: filters to the API, deferred search, rows kept while loading, empty
+      pipeline from the record counts, Active Clients note.
+    - `pipeline-filters.tsx`: plans from `meta()`.
+    - `pipeline-builder.tsx`: `expectedUpdatedAt` with the save.
+    - `opportunity-panels.tsx`: plans from `meta()` (and the record's own); the Linked Transaction
+      panel (subscription picker, no event buttons, Status since).
+78. **Contract notes for Rasel** (no change made):
+    - An appointment's type beyond the five kinds lives in its title (note 69); a type field
+      would not depend on the title.
+    - 409 POSSIBLE_DUPLICATE could carry the matches in `details`, saving the second call.
+    - `meta().plans` has no prices, so the adapter also reads `plans()`.
+    - The linked transaction has no link time (the panel's "Linked" row).
+    - `assign()` answers the record, not whether the owner changed.
+    - The mock e2e covers mock mode only; the screens on the API have no browser test yet.
+79. **Checked on the local API** (Oct 20, at 1440 px with data, empty and the API unreachable,
+    and at 375 px with data; screenshots in `apps/web/e2e/screenshots/r60-sales-screens/`):
+    no API response of 400 or more and no console error on any page. Writes made from the
+    screens: Add Lead (201), a note, outreach and a follow-up (201 each), a stage move (200)
+    and Save Pipeline (200). One fix from it: the Sales Center's Recent Sales Activity asked for
+    FOLLOW_UP_SCHEDULED, which also brings plain follow-up tasks; the adapter now drops those (the
+    mock's sales events are appointments) and asks for four times the rows so five still show.
+    At 1440 px that table scrolls sideways to its Status column (its card is narrower than in the
+    1536 px design; the scroll was already built in).

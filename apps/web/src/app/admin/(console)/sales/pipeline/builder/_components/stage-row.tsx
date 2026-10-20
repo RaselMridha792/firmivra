@@ -8,7 +8,7 @@ import {
   STAGE_TONES,
   STAGE_TYPES,
   type StageDraft,
-} from '../../../../../../../mocks/admin-sales';
+} from '../../../_components/sales-api';
 import { STAGE_STYLE } from '../../../_components/sales-ui';
 
 /** A stage being edited; `key` is the stage id, or a temporary key for a new stage. */

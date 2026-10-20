@@ -39,7 +39,7 @@ export function ResourcePage({
           <ArrowLeft aria-hidden className="size-4" /> Back to Resources
         </Link>
         <h1 className="mt-2 font-display text-4xl font-bold text-heading">
-          {heading} <span className="text-firm-accent">{highlight}</span>
+          {heading} <span className="text-action">{highlight}</span>
         </h1>
         <p className="mt-2 text-text">{intro}</p>
       </header>

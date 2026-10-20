@@ -19,17 +19,17 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
+import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { MoveStageDialog } from '../../../_components/move-stage-dialog';
+import { SalesActionDialog } from '../../../_components/sales-action-dialog';
 import {
   adminSales,
+  errorMessage,
   planName,
   sourceLabel,
   type OpportunityRecord,
   type PipelineStage,
-} from '../../../../../../../mocks/admin-sales';
-import { errorMessage } from '../../../../../../../lib/errors';
-import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
-import { MoveStageDialog } from '../../../_components/move-stage-dialog';
-import { SalesActionDialog } from '../../../_components/sales-action-dialog';
+} from '../../../_components/sales-api';
 import {
   ATTENTION_TONE,
   attentionLabel,
