@@ -156,6 +156,16 @@ beforeAll(async () => {
     ids.w3 = await client('w3', { archivedAt: new Date() });
     ids.w4 = await client('w4', { status: 'PENDING_DOCUMENTS', lastActivityAt: ago(40) });
     ids.w5 = await client('w5', { status: 'INACTIVE' });
+    // w1's own portal login: a client of this firm, refused on the firm's routes (403).
+    await tx.clientAccount.create({
+      data: {
+        businessId,
+        userId: people.clientA.id,
+        email: people.clientA.email,
+        clientId: ids.w1,
+        status: 'ACTIVE',
+      },
+    });
     ids.personal = (
       await tx.service.create({ data: { businessId, kind: 'ANNUAL_TAX', name: 'Personal Tax' } })
     ).id;
