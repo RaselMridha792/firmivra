@@ -203,3 +203,17 @@ Bookkeeping, Payroll and Compliance were reassigned.
 **Decided (Scrum thread, 16:55 UTC):** Arfan builds System Settings (#903, FIR-894) and Reports. This session does not build them. Open the Audit & Security screens PR within the two non-contract PRs. After each of Arfan's PRs merges, wire his pages to #892 and #900 in a separate PR per module. Meanwhile finish #900 and take the next item in the R file. Every widget, empty states, no seeding.
 
 **Screens how-to:** apply pending migrations to this worktree's own database with `prisma migrate deploy` (never `migrate dev`). Then `pnpm dev`, and take screenshots with a small Playwright script (sign in with the local quick sign-in, `superadmin@firmivra.test`). The down state aborts only the module's `/api/v1/admin/<module>/*`: aborting all of `/api/v1/admin/*` also drops the console's own account call. Stop both servers afterwards (on Windows, kill the processes listening on WEB_PORT and API_PORT), then delete `.next` and `dist`.
+
+## Handoff, 2026-10-20 (evening)
+
+**Merged today:** #900 (Reports API), #909 (Audit & Security screens), #913, #923, #933 (portal request packets), #926 (Reports screens), #935, #941 (System Settings screens and fixes), #944, #946 (status and health).
+
+**Open:** #959, the firm Tax Returns overview (`rasel/R55-tax-returns-list`). #961, mock specs that would expire with the calendar (`rasel/R55-test-dates`).
+
+**Pushed without a PR (both slots full):**
+- `rasel/R55-tax-return-workspace`, stacked on #959: the return workspace (Frame 2) and Review, E-File & Filing Status (Frame 3), with mock specs (5 pass). Open its PR when #959 merges, and merge `origin/main` into it first.
+- `rasel/R55-design-audit`: the Audit, Reports and Settings design pass at 1440 px.
+
+**Live checks still to do:** the workspace's writes against the local API stopped partway. Docker Desktop went down during the run (Postgres unreachable, 503s). Adding and ticking a preparation item worked live. Rerun the remaining writes (approval step, authorizations, notes, amounts, Add Task, Ready for Review), and take the API-unreachable screenshots for the workspace and review pages.
+
+Notes for the module are in `docs/work/R55-tax-returns.md`.
