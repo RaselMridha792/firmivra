@@ -17,14 +17,14 @@ import {
 import { ActionMenu, Button, Card, Select, type ActionMenuItem } from '@firmivra/ui';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
+import { SearchBox } from '../../_components/list-parts';
 import {
   ACCESS_LEVELS,
   MEMBER_STATUSES,
   type TeamCapabilities,
   type TeamFilterOptions,
   type TeamView,
-} from '../../../../../mocks/admin-team';
-import { SearchBox } from '../../_components/list-parts';
+} from './team-api';
 
 export interface TeamFilters {
   departmentId: string;
@@ -236,7 +236,13 @@ export function SelectionBar({
         </span>
       </label>
       {button('message', PaperPlaneTilt, 'Send Message')}
-      {button('department', Users, 'Change Department', Boolean(can?.changeRoles))}
+      {/* The API has its own right for departments; the mock gives it with roles. */}
+      {button(
+        'department',
+        Users,
+        'Change Department',
+        Boolean(can?.changeDepartment ?? can?.changeRoles),
+      )}
       {button('role', ShieldCheck, 'Change Role', Boolean(can?.changeRoles))}
       {button('status', ToggleRight, 'Change Status', Boolean(can?.changeStatus))}
       <ActionMenu

@@ -14,12 +14,13 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import type { UseQueryResult } from '@tanstack/react-query';
-import type {
-  Figure,
-  StatusFilter,
-  SubscriptionStats,
-} from '../../../../../mocks/admin-subscriptions';
 import { money } from './format';
+import {
+  CHURN_FILTER,
+  type Figure,
+  type StatusFilter,
+  type SubscriptionStats,
+} from './subscriptions-api';
 
 interface Trend {
   text: string;
@@ -130,7 +131,7 @@ function kpis(stats: SubscriptionStats | undefined): Kpi[] {
     },
     {
       key: 'churn',
-      filter: 'ENDED',
+      filter: CHURN_FILTER,
       icon: ChartPieSlice,
       tone: 'blue',
       label: 'Churn Rate',

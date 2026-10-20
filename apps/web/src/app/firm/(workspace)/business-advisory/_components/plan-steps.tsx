@@ -995,6 +995,8 @@ export function ReviewStep({ plan }: { plan: Plan }) {
             'Contact',
             [p.primaryContact?.name, p.primaryContact?.email].filter(Boolean).join(' · '),
           ],
+          ['Found us through', p.referralSource ?? ''],
+          ['Notes', p.notes ?? ''],
         ])}
         {summary('Financial & Business Assessment', 2, [
           ['Figures as of', plan.sourceDataAsOf ? dayText(plan.sourceDataAsOf) : ''],

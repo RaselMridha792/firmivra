@@ -13,12 +13,13 @@ import {
 } from '@phosphor-icons/react';
 import { Button, checkFiles, FilterChip, Input, Modal, RichTextEditor, Select } from '@firmivra/ui';
 import { useId, useRef, useState, type ReactNode } from 'react';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { RecipientPicker } from './recipient-picker';
 import {
   adminTeam,
   ATTACHMENT_RULES,
   checkMessage,
+  errorMessage,
   MESSAGE_CHANNELS,
   MESSAGE_LIMIT,
   MESSAGE_PRIORITIES,
@@ -30,8 +31,7 @@ import {
   type SendMessageResult,
   type SendTeamMessage,
   TEAM_ERROR_MESSAGES,
-} from '../../../../../mocks/admin-team';
-import { RecipientPicker } from './recipient-picker';
+} from './team-api';
 import { members as countText, TEAM_KEY } from './team-parts';
 
 /**

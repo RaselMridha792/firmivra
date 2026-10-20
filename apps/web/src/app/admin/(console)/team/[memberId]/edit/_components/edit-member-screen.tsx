@@ -2,10 +2,8 @@
 
 import { PageHeader, Skeleton, Timeline, Toast } from '@firmivra/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { errorCode, errorMessage } from '../../../../../../../lib/errors';
+import { errorCode } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
-import { adminTeam, TEAM_ERROR_MESSAGES } from '../../../../../../../mocks/admin-team';
-import { activityItems } from '../../../_components/member-profile';
 import {
   FormLayout,
   FormSkeleton,
@@ -14,6 +12,8 @@ import {
   SideCard,
   TeamBreadcrumb,
 } from '../../../_components/member-form';
+import { activityItems } from '../../../_components/member-profile';
+import { adminTeam, errorMessage, TEAM_ERROR_MESSAGES } from '../../../_components/team-api';
 import { QuietLine, TEAM_KEY, UNREACHABLE } from '../../../_components/team-parts';
 
 function SideSkeleton() {

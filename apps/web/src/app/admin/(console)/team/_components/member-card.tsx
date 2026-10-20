@@ -10,8 +10,8 @@ import {
 } from '@phosphor-icons/react';
 import { Avatar, Button, Skeleton } from '@firmivra/ui';
 import type { ReactNode } from 'react';
-import type { AdminTeamMember } from '../../../../../mocks/admin-team';
 import { MemberMenu, type MemberCommand } from './member-menu';
+import type { AdminTeamMember } from './team-api';
 import { Presence, TitleBadge } from './team-parts';
 
 function Line({ icon: Glyph, children }: { icon: Icon; children: ReactNode }) {
@@ -67,7 +67,9 @@ export function MemberCard({
             {member.name}
             {member.isYou ? <span className="font-normal text-muted"> (you)</span> : null}
           </button>
-          <TitleBadge departmentId={member.departmentId}>{member.jobTitle}</TitleBadge>
+          <TitleBadge department={member.departmentCode ?? member.departmentId}>
+            {member.jobTitle}
+          </TitleBadge>
         </div>
       </div>
       <ul className="mt-4 flex flex-col gap-2 text-sm text-text">

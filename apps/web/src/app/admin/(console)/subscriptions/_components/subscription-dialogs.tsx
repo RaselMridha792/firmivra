@@ -23,6 +23,7 @@ import {
   SuspendDialog,
 } from './lifecycle-dialogs';
 import { AddonsDialog, ChangePlanDialog, ConvertDialog, SeatsDialog } from './plan-dialogs';
+import type { SubscriptionQuery } from './subscriptions-api';
 
 /** Every action the docx names, each a dialog on this page (no routes). */
 export type DialogKind =
@@ -50,7 +51,8 @@ export type DialogKind =
 export type DialogState =
   | { kind: DialogKind; id: string; firm: string; invoiceId?: string }
   | { kind: 'add'; trial: boolean }
-  | { kind: 'export'; ids: string[]; scope: string }
+  /** `query`: export the table's filters (the API's export takes them; ids are at most 100). */
+  | { kind: 'export'; ids: string[]; query?: SubscriptionQuery; scope: string }
   | null;
 
 export function SubscriptionDialog({
@@ -66,7 +68,15 @@ export function SubscriptionDialog({
   if (dialog.kind === 'add')
     return <AddSubscriptionDialog trial={dialog.trial} onClose={onClose} onDone={onDone} />;
   if (dialog.kind === 'export')
-    return <ExportDialog ids={dialog.ids} scope={dialog.scope} onClose={onClose} onDone={onDone} />;
+    return (
+      <ExportDialog
+        ids={dialog.ids}
+        query={dialog.query}
+        scope={dialog.scope}
+        onClose={onClose}
+        onDone={onDone}
+      />
+    );
   const props = { id: dialog.id, firm: dialog.firm, onClose, onDone };
   switch (dialog.kind) {
     case 'changePlan':

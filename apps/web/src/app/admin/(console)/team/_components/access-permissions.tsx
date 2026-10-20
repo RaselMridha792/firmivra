@@ -8,20 +8,18 @@ import {
   MODULE_ORDER,
   type ModuleKey,
   PERMISSION_ACTIONS,
-  TEAM_MODULES,
   type TeamPermissions,
-} from '../../../../../mocks/admin-team';
-
-const MODULES = new Map(TEAM_MODULES.map((area) => [area.id, area]));
+  teamModules,
+} from './team-api';
 
 /** The kit grid's value (granted action ids per row) and back, keeping only real actions. */
 const toMatrix = (value: TeamPermissions): PermissionValue =>
   Object.fromEntries(
-    TEAM_MODULES.map((area): [string, string[]] => [area.id, value[area.id] ?? []]),
+    teamModules().map((area): [string, string[]] => [area.id, value[area.id] ?? []]),
   );
 function fromMatrix(next: PermissionValue): TeamPermissions {
   const result: TeamPermissions = {};
-  for (const area of TEAM_MODULES) {
+  for (const area of teamModules()) {
     const actions = area.actions.filter((action) => next[area.id]?.includes(action));
     if (actions.length) result[area.id] = actions;
   }
@@ -54,9 +52,10 @@ export function AccessPermissions({
 }) {
   const id = useId();
   const [advanced, setAdvanced] = useState(false);
-  const allGranted = TEAM_MODULES.every(
-    (area) => (value[area.id]?.length ?? 0) === area.actions.length,
-  );
+  // The rows and their columns: the API's catalog once loaded (team-api.ts), else the mock's.
+  const modules = teamModules();
+  const byModule = new Map(modules.map((area) => [area.id, area]));
+  const allGranted = modules.every((area) => (value[area.id]?.length ?? 0) === area.actions.length);
   const toggleModule = (area: ModuleKey, on: boolean) => {
     const next = { ...value };
     if (on) {
@@ -70,15 +69,13 @@ export function AccessPermissions({
     onChange(
       on
         ? fromMatrix(
-            Object.fromEntries(
-              TEAM_MODULES.map((area): [string, string[]] => [area.id, area.actions]),
-            ),
+            Object.fromEntries(modules.map((area): [string, string[]] => [area.id, area.actions])),
           )
         : { ...template },
     );
 
   const box = (area: ModuleKey) => {
-    const entry = MODULES.get(area);
+    const entry = byModule.get(area);
     if (!entry) return null;
     const grantable = Boolean(ceiling[area]?.length);
     const checked = Boolean(value[area]?.length);
@@ -164,7 +161,7 @@ export function AccessPermissions({
           <PermissionMatrix
             caption="Permissions by module and action"
             rowHeader="Module"
-            rows={TEAM_MODULES.map((area) => ({ id: area.id, label: area.label }))}
+            rows={modules.map((area) => ({ id: area.id, label: area.label }))}
             columns={PERMISSION_ACTIONS}
             value={toMatrix(value)}
             onChange={(next) => onChange(fromMatrix(next))}
@@ -173,7 +170,7 @@ export function AccessPermissions({
             readOnly={readOnly}
             isAvailable={(row, column) =>
               Boolean(
-                MODULES.get(row as ModuleKey)?.actions.some((action) => action === column) &&
+                byModule.get(row as ModuleKey)?.actions.some((action) => action === column) &&
                 (ceiling[row as ModuleKey]?.some((action) => action === column) ||
                   value[row as ModuleKey]?.some((action) => action === column)),
               )

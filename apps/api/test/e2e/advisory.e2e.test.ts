@@ -842,6 +842,30 @@ describe('business plans', () => {
     shared.plan = id;
   });
 
+  it('keeps the profile’s Additional Information: where the client came from, and notes', async () => {
+    const created = await createPlan(shared.a1, {
+      profile: { businessName: 'Jamie Sample Co (fake)', referralSource: 'Existing Client' },
+    });
+    expect(created.profile).toMatchObject({ referralSource: 'Existing Client' });
+    const saved = AdvisoryPlanDetail.parse(
+      ok(await patchPlan(created.id, { profile: { notes: 'Wants a second shop (fake)' } })),
+    );
+    // Merged at the top-level key: the earlier answer stays.
+    expect(saved.profile).toMatchObject({
+      referralSource: 'Existing Client',
+      notes: 'Wants a second shop (fake)',
+    });
+    const cleared = AdvisoryPlanDetail.parse(
+      ok(await patchPlan(created.id, { profile: { referralSource: null } })),
+    );
+    expect(cleared.profile.referralSource ?? null).toBeNull();
+    expectError(
+      await patchPlan(created.id, { profile: { notes: 'x'.repeat(2_001) } }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+
   it('moves a plan along only in ways that fit, and archives and restores it', async () => {
     const id = shared.plan;
     const status = async (to: string, who: Who = ownerA) =>

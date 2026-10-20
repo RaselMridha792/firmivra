@@ -3,26 +3,6 @@
 import { Badge, Button, Callout, Input, Select } from '@firmivra/ui';
 import { Info, Minus, Plus, WarningCircle } from '@phosphor-icons/react';
 import { useState } from 'react';
-import {
-  ADDON_ORDER,
-  ADDONS,
-  addMonths,
-  adminSubscriptions,
-  CHANGEABLE,
-  CYCLE_LABELS,
-  cycleCents,
-  cycleMonths,
-  PLAN_ORDER,
-  PLANS,
-  previewChange,
-  type AddonId,
-  type BillingCycle,
-  type ChangePreview,
-  type Effective,
-  type Plan,
-  type PlanId,
-  type SubscriptionDetail,
-} from '../../../../../mocks/admin-subscriptions';
 import { dayText, fieldErrors, money, planText, priceText, seatText } from './format';
 import {
   ActionForm,
@@ -37,13 +17,38 @@ import {
   type DialogProps,
   type FormProps,
 } from './parts';
+import {
+  ADDON_ORDER,
+  ADDONS,
+  addMonths,
+  addonOptions,
+  adminSubscriptions,
+  CHANGEABLE,
+  CHARGES_CARD,
+  CYCLE_LABELS,
+  cycleMonths,
+  planChoices,
+  planName,
+  planOf,
+  previewChange,
+  type AddonId,
+  type BillingCycle,
+  type ChangePreview,
+  type Effective,
+  type Plan,
+  type PlanId,
+  type SubscriptionDetail,
+} from './subscriptions-api';
 
+/** A plan with no seat ceiling (null) reads "20+ seats". */
 const seatRange = (plan: Plan) =>
-  plan.locations > 1
-    ? `${seatText(plan.maxSeats)} · ${plan.locations} locations`
-    : plan.includedSeats === plan.maxSeats
-      ? seatText(plan.maxSeats)
-      : `${plan.includedSeats}–${plan.maxSeats} seats`;
+  plan.maxSeats === null
+    ? `${plan.includedSeats}+ seats${plan.locations > 1 ? ` · ${plan.locations} locations` : ''}`
+    : plan.locations > 1
+      ? `${seatText(plan.maxSeats)} · ${plan.locations} locations`
+      : plan.includedSeats === plan.maxSeats
+        ? seatText(plan.maxSeats)
+        : `${plan.includedSeats}–${plan.maxSeats} seats`;
 
 /** "Immediately (prorated)" or "At next billing": not asked during a trial (nothing is billed). */
 function EffectiveChoice({
@@ -86,7 +91,7 @@ function EffectiveChoice({
 function impactText(sub: SubscriptionDetail, preview: ChangePreview, effective: Effective): string {
   const price = priceText(preview.netMonthlyCents, preview.cycle);
   const dropped = preview.dropped.length
-    ? ` ${preview.dropped.map((id) => ADDONS[id].name).join(' and ')} isn’t offered on ${PLANS[preview.plan].name} and will be removed.`
+    ? ` ${preview.dropped.map((id) => ADDONS[id].name).join(' and ')} isn’t offered on ${planName(preview.plan)} and will be removed.`
     : '';
   if (sub.status === 'TRIAL')
     return `Nothing is charged during the trial. After it converts: ${price}.${dropped}`;
@@ -111,7 +116,7 @@ function CurrentPlan({ sub }: { sub: SubscriptionDetail }) {
           <p className="text-base font-semibold text-heading">{planText(sub.plan, sub.cycle)}</p>
           <p>{priceText(sub.monthlyCents, sub.cycle)}</p>
           <p className="text-muted">
-            {sub.seatsUsed} / {seatText(sub.seats)}
+            {sub.seatsUsed ?? '—'} / {seatText(sub.seats)}
           </p>
         </div>
         <Badge tone="info">Current</Badge>
@@ -177,8 +182,8 @@ function ChangePlanForm({ sub, onClose, onDone }: FormProps) {
       <fieldset className="flex min-w-0 flex-col">
         <legend className="mb-2 text-sm font-semibold text-heading">Select New Plan</legend>
         <ul className="divide-y divide-divider rounded-lg border border-divider">
-          {PLAN_ORDER.map((id) => {
-            const info = PLANS[id];
+          {planChoices(sub.plan).map((info) => {
+            const id = info.id;
             return (
               <li key={id}>
                 <label
@@ -256,7 +261,7 @@ export function ChangePlanDialog({ id, firm, onClose, onDone }: DialogProps) {
 }
 
 function SeatsForm({ sub, onClose, onDone }: FormProps) {
-  const info = PLANS[sub.plan];
+  const info = planOf(sub.plan);
   const [seats, setSeats] = useState(sub.seats);
   const [effective, setEffective] = useState<Effective>('NOW');
   const update = useAct((body: { id: string; seats: number; effective: Effective }) =>
@@ -264,8 +269,11 @@ function SeatsForm({ sub, onClose, onDone }: FormProps) {
   );
   const fields = fieldErrors(update.error);
   const preview = previewChange(sub, { seats }, effective, sub.today);
-  const fixed = info.includedSeats === info.maxSeats;
-  const lowest = Math.max(info.includedSeats, sub.seatsUsed);
+  const included = info?.includedSeats ?? sub.seats;
+  // No ceiling (null): the + button never stops.
+  const ceiling = info?.maxSeats ?? Number.POSITIVE_INFINITY;
+  const fixed = included === ceiling;
+  const lowest = Math.max(included, sub.seatsUsed ?? 0);
   return (
     <ActionForm
       submitLabel="Update Seats"
@@ -273,9 +281,11 @@ function SeatsForm({ sub, onClose, onDone }: FormProps) {
       error={update.error}
       blocked={
         notIn(sub, CHANGEABLE, 'A seat change') ??
-        (fixed
-          ? `${info.name} includes ${seatText(info.maxSeats)}. Change the plan to add seats.`
-          : null)
+        (!info
+          ? 'Refresh to see this plan’s seats.'
+          : fixed
+            ? `${info.name} includes ${seatText(included)}. Change the plan to add seats.`
+            : null)
       }
       disabled={seats === sub.seats || !!preview.blocked}
       onCancel={onClose}
@@ -287,18 +297,24 @@ function SeatsForm({ sub, onClose, onDone }: FormProps) {
       }
     >
       <InfoBox title="Current Usage">
-        <p>
-          {sub.seatsUsed} of {seatText(sub.seats)} used
-        </p>
-        <div className="mt-2 flex items-center gap-3">
-          <UsageBar
-            percent={sub.usagePercent}
-            tone={usageTone(sub.status, sub.usagePercent)}
-            label="Seats used"
-            className="w-full"
-          />
-          <span className="shrink-0 font-medium text-heading">{sub.usagePercent}%</span>
-        </div>
+        {sub.seatsUsed === null || sub.usagePercent === null ? (
+          <p>{seatText(sub.seats)} allowed. Seats in use aren’t counted yet.</p>
+        ) : (
+          <>
+            <p>
+              {sub.seatsUsed} of {seatText(sub.seats)} used
+            </p>
+            <div className="mt-2 flex items-center gap-3">
+              <UsageBar
+                percent={sub.usagePercent}
+                tone={usageTone(sub.status, sub.usagePercent)}
+                label="Seats used"
+                className="w-full"
+              />
+              <span className="shrink-0 font-medium text-heading">{sub.usagePercent}%</span>
+            </div>
+          </>
+        )}
       </InfoBox>
       <fieldset className="flex min-w-0 flex-col items-center gap-2">
         <legend className="mb-2 self-start text-sm font-semibold text-heading">Update Seats</legend>
@@ -318,7 +334,7 @@ function SeatsForm({ sub, onClose, onDone }: FormProps) {
               type="number"
               inputMode="numeric"
               min={lowest}
-              max={info.maxSeats}
+              max={info?.maxSeats ?? undefined}
               value={String(seats)}
               onChange={(event) => setSeats(Math.trunc(Number(event.target.value)))}
             />
@@ -326,16 +342,19 @@ function SeatsForm({ sub, onClose, onDone }: FormProps) {
           <Button
             variant="secondary"
             aria-label="Add a seat"
-            disabled={seats >= info.maxSeats}
-            onClick={() => setSeats(Math.min(info.maxSeats, seats + 1))}
+            disabled={seats >= ceiling}
+            onClick={() => setSeats(Math.min(ceiling, seats + 1))}
           >
             <Plus aria-hidden weight="bold" className="size-5 text-action" />
           </Button>
         </div>
-        <p className="text-center text-xs text-muted">
-          {info.name}: {info.includedSeats} included, up to {info.maxSeats} on this plan
-          {info.extraSeatCents ? `; each extra seat ${money(info.extraSeatCents)}/mo` : ''}.
-        </p>
+        {info ? (
+          <p className="text-center text-xs text-muted">
+            {info.name}: {info.includedSeats} included,{' '}
+            {info.maxSeats === null ? 'no ceiling' : `up to ${info.maxSeats}`} on this plan
+            {info.extraSeatCents ? `; each extra seat ${money(info.extraSeatCents)}/mo` : ''}.
+          </p>
+        ) : null}
         {fields['seats'] ? <p className="text-xs text-danger">{fields['seats']}</p> : null}
       </fieldset>
       <EffectiveChoice
@@ -358,9 +377,7 @@ function SeatsForm({ sub, onClose, onDone }: FormProps) {
         <Callout icon={Info} surface="info" size="compact" title="Updated Pricing">
           <span>
             {money(preview.netMonthlyCents)}/mo for {seatText(seats)}
-            {sub.cycle === 'ANNUAL'
-              ? ` (${money(cycleCents(preview.netMonthlyCents, 'ANNUAL'))}/yr)`
-              : ''}
+            {sub.cycle === 'ANNUAL' ? ` (${money(preview.priceCents)}/yr)` : ''}
           </span>
           {seats === sub.seats ? null : (
             <span className="text-muted">{impactText(sub, preview, effective)}</span>
@@ -407,9 +424,9 @@ function AddonsForm({ sub, onClose, onDone }: FormProps) {
     >
       <fieldset className="flex min-w-0 flex-col gap-2">
         <legend className="mb-2 text-sm font-semibold text-heading">Add-ons</legend>
-        {ADDON_ORDER.map((id) => {
-          const addon = ADDONS[id];
-          const offered = addon.plans.includes(sub.plan);
+        {/* The rows (offered, description, price) are the adapter's: on the API only the
+            Additional Location add-on is stored, the others read "Not available yet". */}
+        {addonOptions(sub).map(({ id, name, description, monthlyCents, offered }) => {
           const on = addons.includes(id);
           return (
             <label
@@ -428,14 +445,12 @@ function AddonsForm({ sub, onClose, onDone }: FormProps) {
                 className="mt-0.5 size-4 shrink-0"
               />
               <span className="min-w-0 flex-1">
-                <span className={`block font-medium ${offered ? 'text-heading' : ''}`}>
-                  {addon.name}
-                </span>
-                <span className="block text-xs text-muted">
-                  {offered ? addon.description : `Not offered on ${PLANS[sub.plan].name}`}
-                </span>
+                <span className={`block font-medium ${offered ? 'text-heading' : ''}`}>{name}</span>
+                <span className="block text-xs text-muted">{description}</span>
               </span>
-              <span className="shrink-0">{money(addon.monthlyCents)}/mo</span>
+              <span className="shrink-0">
+                {monthlyCents === null ? '—' : `${money(monthlyCents)}/mo`}
+              </span>
             </label>
           );
         })}
@@ -477,7 +492,8 @@ function ConvertForm({ sub, onClose, onDone }: FormProps) {
   );
   const fields = fieldErrors(convert.error);
   const preview = previewChange(sub, { plan, cycle }, 'NOW', sub.today);
-  const first = cycleCents(preview.netMonthlyCents, cycle);
+  const first = preview.priceCents;
+  const choices = planChoices(sub.plan);
   return (
     <ActionForm
       submitLabel="Convert to Paid"
@@ -505,27 +521,38 @@ function ConvertForm({ sub, onClose, onDone }: FormProps) {
       </InfoBox>
       <Select
         label="Paid plan"
-        options={PLAN_ORDER.map((id) => ({
-          value: id,
-          label: `${PLANS[id].name} · ${money(PLANS[id].monthlyCents)}/mo`,
+        options={choices.map((info) => ({
+          value: info.id,
+          label: `${info.name} · ${money(info.monthlyCents)}/mo`,
         }))}
         value={plan}
         error={fields['plan'] ?? preview.blocked ?? undefined}
         onChange={(event) =>
-          setPlan(PLAN_ORDER.find((id) => id === event.target.value) ?? sub.plan)
+          setPlan(choices.find((info) => info.id === event.target.value)?.id ?? sub.plan)
         }
       />
       <CyclePills value={cycle} onChange={setCycle} error={fields['cycle']} />
+      {/* The mock charges the card on file; the API makes the firm Active and invoices it. */}
       <Callout icon={Info} surface="info" size="compact" title="First charge">
         <span data-testid="convert-impact">
-          {money(first)} today to{' '}
-          {sub.card ? `${sub.card.brand} •••• ${sub.card.last4}` : 'the payment method'}, then{' '}
-          {priceText(preview.netMonthlyCents, cycle)} from{' '}
+          {CHARGES_CARD ? (
+            <>
+              {money(first)} today to{' '}
+              {sub.card ? `${sub.card.brand} •••• ${sub.card.last4}` : 'the payment method'}
+            </>
+          ) : (
+            `${money(first)} is invoiced today`
+          )}
+          , then {priceText(preview.netMonthlyCents, cycle)} from{' '}
           {dayText(addMonths(sub.today, cycleMonths(cycle)))}.
         </span>
-        <span className="text-muted">The firm becomes Active only when this charge succeeds.</span>
+        <span className="text-muted">
+          {CHARGES_CARD
+            ? 'The firm becomes Active only when this charge succeeds.'
+            : 'The firm becomes Active today; the invoice stays open until it is paid in Billing.'}
+        </span>
       </Callout>
-      {sub.card ? null : (
+      {sub.card || !CHARGES_CARD ? null : (
         <Callout icon={WarningCircle} surface="warning" tone="amber" size="compact">
           There is no payment method on file, so the conversion will fail. Send a payment link
           first.

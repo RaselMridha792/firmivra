@@ -3,19 +3,6 @@
 import { Callout, Input, Select, Textarea } from '@firmivra/ui';
 import { Info, WarningCircle } from '@phosphor-icons/react';
 import { useState } from 'react';
-import {
-  addDays,
-  adminSubscriptions,
-  cycleMonths,
-  daysBetween,
-  monthlyListCents,
-  netMonthlyCents,
-  previewBillingDate,
-  PROMOS,
-  addMonths,
-  type DiscountBody,
-  type PromoCode,
-} from '../../../../../mocks/admin-subscriptions';
 import { centsFrom, dayText, fieldErrors, money } from './format';
 import {
   ActionForm,
@@ -28,6 +15,21 @@ import {
   type DialogProps,
   type FormProps,
 } from './parts';
+import {
+  addDays,
+  addMonths,
+  adminSubscriptions,
+  CHARGES_CARD,
+  cycleMonths,
+  daysBetween,
+  netMonthlyOn,
+  percentOffMonthlyCents,
+  previewBillingDate,
+  PROMOS,
+  TIMED_DISCOUNTS,
+  type DiscountBody,
+  type PromoCode,
+} from './subscriptions-api';
 
 type DiscountKind = 'PERCENT' | 'PROMO' | 'CREDIT' | 'REMOVE';
 const DURATIONS = [
@@ -37,14 +39,16 @@ const DURATIONS = [
   { value: '12', label: '12 months' },
   { value: '0', label: 'No end date' },
 ];
-const PROMO_CODES = Object.keys(PROMOS) as PromoCode[];
+/** The mock's promotion codes; the API has none (its list is empty). */
+const PROMO_CODES: PromoCode[] = Object.keys(PROMOS);
 
 /** Credit or discount: amount, duration, reason and approver, with the price impact first. */
 function DiscountForm({ sub, onClose, onDone }: FormProps) {
   const [kind, setKind] = useState<DiscountKind>('PERCENT');
   const [percent, setPercent] = useState('10');
-  const [months, setMonths] = useState('3');
-  const [code, setCode] = useState<PromoCode>('LAUNCH50');
+  // A negotiated price has no end date (note 6): "No end date" first on the API.
+  const [months, setMonths] = useState(TIMED_DISCOUNTS ? '3' : '0');
+  const [code, setCode] = useState<PromoCode>(PROMO_CODES[0] ?? '');
   const [amount, setAmount] = useState('');
   const [startsOn, setStartsOn] = useState(sub.today);
   const [reason, setReason] = useState('');
@@ -55,10 +59,14 @@ function DiscountForm({ sub, onClose, onDone }: FormProps) {
   );
   const current = kind === 'REMOVE' ? remove : apply;
   const fields = fieldErrors(current.error);
-  const list = monthlyListCents(sub.plan, sub.seats, sub.addons);
-  const share = kind === 'PROMO' ? PROMOS[code].percent : kind === 'PERCENT' ? Number(percent) : 0;
-  const runs = kind === 'PROMO' ? PROMOS[code].months : Number(months) || null;
-  const discounted = Math.round((list * (100 - share)) / 100);
+  // The list price a month (before any discount); the percent's price is the adapter's (the API
+  // takes it off the plan's base price only).
+  const list = sub.monthlyCents;
+  const promo = PROMOS[code];
+  const share = kind === 'PROMO' ? (promo?.percent ?? 0) : kind === 'PERCENT' ? Number(percent) : 0;
+  const runs = kind === 'PROMO' ? (promo?.months ?? null) : Number(months) || null;
+  const valid = Number.isInteger(share) && share >= 1 && share <= 100;
+  const discounted = valid ? percentOffMonthlyCents(sub, share) : list;
   const credit = centsFrom(amount);
   const impact =
     kind === 'REMOVE'
@@ -67,9 +75,11 @@ function DiscountForm({ sub, onClose, onDone }: FormProps) {
         ? Number.isNaN(credit)
           ? 'Enter the credit amount.'
           : `A credit of ${money(credit)} applies to the next invoice. The recurring price stays ${money(sub.netMonthlyCents)}/mo.`
-        : Number.isInteger(share) && share >= 1 && share <= 100
-          ? `From ${dayText(startsOn)}: ${money(discounted)}/mo instead of ${money(netMonthlyCents(list, sub.discount, startsOn))}/mo${runs ? `, until ${dayText(addMonths(startsOn, runs))}` : ', with no end date'}.${sub.discount ? ` Replaces ${sub.discount.label}.` : ''}`
-          : 'Enter a whole percentage from 1 to 100.';
+        : kind === 'PROMO' && !promo
+          ? 'No promotion codes are available yet.'
+          : valid
+            ? `From ${dayText(startsOn)}: ${money(discounted)}/mo instead of ${money(netMonthlyOn(sub, startsOn))}/mo${runs ? `, until ${dayText(addMonths(startsOn, runs))}` : ', with no end date'}.${sub.discount ? ` Replaces ${sub.discount.label}.` : ''}`
+            : 'Enter a whole percentage from 1 to 100.';
   const ended = sub.status === 'CLOSED' || sub.status === 'CANCELLED';
   return (
     <ActionForm
@@ -112,8 +122,8 @@ function DiscountForm({ sub, onClose, onDone }: FormProps) {
       {sub.discount ? (
         <InfoBox tone="info" title="Current discount">
           {sub.discount.label}
-          {sub.discount.endsOn ? ` until ${dayText(sub.discount.endsOn)}` : ', no end date'} ·{' '}
-          {sub.discount.reason}
+          {sub.discount.endsOn ? ` until ${dayText(sub.discount.endsOn)}` : ', no end date'}
+          {sub.discount.reason ? ` · ${sub.discount.reason}` : null}
         </InfoBox>
       ) : null}
       <ChoiceGroup legend="Type" error={fields['kind']}>
@@ -176,14 +186,18 @@ function DiscountForm({ sub, onClose, onDone }: FormProps) {
       {kind === 'PROMO' ? (
         <Select
           label="Promotion code"
-          options={PROMO_CODES.map((value) => ({
-            value,
-            label: `${value}: ${PROMOS[value].percent}% off for ${PROMOS[value].months} months`,
-          }))}
+          options={
+            PROMO_CODES.length
+              ? Object.values(PROMOS).map((item) => ({
+                  value: item.code,
+                  label: `${item.code}: ${item.percent}% off for ${item.months} months`,
+                }))
+              : [{ value: '', label: 'No promotion codes yet' }]
+          }
           value={code}
           error={fields['code']}
           onChange={(event) =>
-            setCode(PROMO_CODES.find((value) => value === event.target.value) ?? 'LAUNCH50')
+            setCode(PROMO_CODES.find((value) => value === event.target.value) ?? code)
           }
         />
       ) : null}
@@ -480,7 +494,7 @@ function BillingDateForm({ sub, onClose, onDone }: FormProps) {
           {!date
             ? 'Choose the new date to see the impact.'
             : amount > 0
-              ? `${days} more ${days === 1 ? 'day' : 'days'}: ${money(amount)} is added to the invoice on ${dayText(date)}.`
+              ? `${days} more ${days === 1 ? 'day' : 'days'}: ${money(amount)} ${CHARGES_CARD ? `is added to the invoice on ${dayText(date)}` : 'is invoiced today'}.`
               : amount < 0
                 ? `${-days} fewer ${days === -1 ? 'day' : 'days'}: a credit of ${money(-amount)} applies.`
                 : 'No proration is due.'}
@@ -523,7 +537,8 @@ function RetryForm({ sub, onClose, onDone }: FormProps) {
       <InfoBox tone="warning" title="Charge now">
         {money(sub.amountDueCents)} to{' '}
         {sub.card ? `${sub.card.brand} •••• ${sub.card.last4}` : 'no card on file'}.
-        {sub.pastDue
+        {/* The attempt and the grace period only when they are kept (the API keeps neither). */}
+        {sub.pastDue?.graceEndsOn
           ? ` Attempt ${sub.pastDue.attempts + 1}; the grace period ${sub.pastDue.graceEndsOn >= sub.today ? 'ends' : 'ended'} ${dayText(sub.pastDue.graceEndsOn)}.`
           : ''}
       </InfoBox>
