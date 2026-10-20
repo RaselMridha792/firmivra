@@ -1,8 +1,13 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { ClientTasksTab } from '../../../_components/client-tabs';
 
 export const metadata: Metadata = { title: 'Advisory client: Tasks' };
 
-export default function BusinessAdvisoryClientsClientIdTasksPage() {
-  return <PageHeader title="Advisory Client" />;
+export default async function BusinessAdvisoryClientsClientIdTasksPage({
+  params,
+}: {
+  params: Promise<{ clientId: string }>;
+}) {
+  const { clientId } = await params;
+  return <ClientTasksTab advisoryClientId={clientId} />;
 }
