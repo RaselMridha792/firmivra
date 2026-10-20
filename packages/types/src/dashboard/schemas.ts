@@ -59,8 +59,8 @@ export const DashboardPipeline = z.object({
   inProgress: Count.nullable(),
   /** Tax returns first filed in `period` (this month: the same as kpis.completedReturns.value). */
   completed: Count.nullable(),
-  /** The period `completed` counts; optional until R1's dashboard API PR. */
-  period: DashboardPipelinePeriod.optional(),
+  /** The period `completed` counts. */
+  period: DashboardPipelinePeriod,
 });
 export type DashboardPipeline = z.infer<typeof DashboardPipeline>;
 
@@ -72,7 +72,7 @@ export const DashboardRevenue = z.object({
    * The year before over the same span (to the same day of the year for this year, the whole year
    * for a past year), for "vs last year"; null when the firm has no payments that early.
    */
-  previousYearCents: z.number().int().nullable().optional(),
+  previousYearCents: z.number().int().nullable(),
   /** Twelve months, January first. */
   byMonthCents: z.array(z.number().int()).length(12),
   /** Through the invoice's engagement; serviceId null: invoices with no engagement. Largest first. */
@@ -91,8 +91,7 @@ export const DashboardTask = z.object({
   id: z.uuid(),
   title: z.string(),
   dueOn: Day,
-  /** Optional until R1's dashboard API PR. */
-  priority: TaskPriority.optional(),
+  priority: TaskPriority,
   client: z.object({ id: z.uuid(), displayName: z.string() }),
 });
 export type DashboardTask = z.infer<typeof DashboardTask>;
@@ -106,8 +105,8 @@ export const DashboardSummary = z.object({
   tasksDue: z.array(DashboardTask).max(5),
   /**
    * The firm's tax season (the date card: "Tax Season: Jan 15 – May 15, 2027", In Season or
-   * Off-Season); null until the firm's settings hold one (optional until R1's dashboard API PR).
+   * Off-Season);  null until the firm's settings hold one.
    */
-  taxSeason: z.object({ start: Day, end: Day, inSeason: z.boolean() }).nullable().optional(),
+  taxSeason: z.object({ start: Day, end: Day, inSeason: z.boolean() }).nullable(),
 });
 export type DashboardSummary = z.infer<typeof DashboardSummary>;

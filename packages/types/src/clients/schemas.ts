@@ -93,21 +93,20 @@ export type ClientServiceRef = z.infer<typeof ClientServiceRef>;
 /**
  * One row of the clients list (clients.jpg, R1): the record's list fields plus the work around it.
  * Only values the data holds: a client with no open request has 0 missing documents, no invoice
- * a 0 balance, no visit `lastActivityAt` null. The work fields are optional until the API fills
- * them (R1's clients API PR, which makes them required); a screen shows "—" while one is missing.
+ * a 0 balance, no visit `lastActivityAt` null.
  */
 export const ClientListRow = ClientListItem.extend({
   /** The firm's own stage for the client (NEW, PENDING_DOCUMENTS, IN_PROGRESS, ACTIVE, ON_HOLD, INACTIVE). */
-  status: ClientStatus.optional(),
+  status: ClientStatus,
   /** Services with open engagements, by name. */
-  services: z.array(ClientServiceRef).max(50).optional(),
+  services: z.array(ClientServiceRef).max(50),
   /** Document requests the client still owes (REQUESTED, or REJECTED and asked again). */
-  missingDocuments: z.number().int().nonnegative().optional(),
+  missingDocuments: z.number().int().nonnegative(),
   /** What the client owes on OPEN invoices, in cents. */
-  balanceDueCents: z.number().int().nonnegative().optional(),
-  lastActivityAt: DateTime.nullable().optional(),
+  balanceDueCents: z.number().int().nonnegative(),
+  lastActivityAt: DateTime.nullable(),
   /** The next SCHEDULED appointment; null when none is booked. */
-  nextAppointmentAt: DateTime.nullable().optional(),
+  nextAppointmentAt: DateTime.nullable(),
 });
 export type ClientListRow = z.infer<typeof ClientListRow>;
 
@@ -145,8 +144,8 @@ export const ListClientsResponse = z.object({
   items: z.array(ClientListRow).max(100),
   /** Null on the last page (and with `page`). */
   nextCursor: z.string().nullable(),
-  /** Every client that matches the filters (optional until R1's clients API PR). */
-  total: z.number().int().nonnegative().optional(),
+  /** Every client that matches the filters. */
+  total: z.number().int().nonnegative(),
 });
 export type ListClientsResponse = z.infer<typeof ListClientsResponse>;
 
@@ -173,7 +172,10 @@ export const ClientsSummary = z.object({
     pendingDocuments: ClientsKpi,
     /** Not archived, owing on an OPEN invoice; previous is null. */
     balancesDue: ClientsKpi,
-    /** Archived; previous: archived at the start of this month and still archived. */
+    /**
+     * Not archived, stage INACTIVE (the Inactive tab; archiving is separate and hides the client);
+     * previous is null.
+     */
     inactiveClients: ClientsKpi,
   }),
   /** The tabs' counts. */
@@ -191,8 +193,10 @@ export type ClientsSummary = z.infer<typeof ClientsSummary>;
 /**
  * POST /business/clients/bulk (the list's Bulk Actions), Owner and Admin: the same change to up
  * to 100 clients. ASSIGN sets (or with null clears) the assignee; ARCHIVE and RESTORE as for one
- * client. Each client is changed and audited on its own; one that cannot be changed is skipped
- * with its code (NOT_FOUND, CLIENT_ARCHIVED for ASSIGN) and the rest still change.
+ * client. An id that is not one of the firm's clients, or an assignee who is not an active
+ * member, refuses the whole request (404 NOT_FOUND) before anything changes. Then each client is
+ * changed and audited on its own; one whose state refuses it (CLIENT_ARCHIVED for ASSIGN) is
+ * skipped with its code and the rest still change.
  */
 export const BulkClientsRequest = z.discriminatedUnion('action', [
   z.strictObject({

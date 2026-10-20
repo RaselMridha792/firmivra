@@ -346,13 +346,13 @@ export function createClientsMock(options: { role?: MockFirmRole } = {}): Client
           activeClients: { value: active, previous: null },
           pendingDocuments: { value: count((w) => w.missingDocuments > 0), previous: null },
           balancesDue: { value: count((w) => w.balanceDueCents > 0), previous: null },
-          inactiveClients: { value: mine.length - live.length, previous: null },
+          inactiveClients: { value: count((w) => w.status === 'INACTIVE'), previous: null },
         },
         counts: {
           all: live.length,
           active,
           new: count((w) => w.status === 'NEW'),
-          inactive: mine.length - live.length,
+          inactive: count((w) => w.status === 'INACTIVE'),
           byService: mockClientServices().map((x) => ({
             ...x,
             count: count((w) => w.services.some((y) => y.id === x.id)),
@@ -364,14 +364,14 @@ export function createClientsMock(options: { role?: MockFirmRole } = {}): Client
       await pause();
       const req = parseInput(BulkClientsRequest, body);
       if (staffOnly) throw forbidden();
+      const ids = [...new Set(req.clientIds)];
+      if (!ids.every((id) => rows.some((r) => r.id === id && visible(r)))) {
+        throw fail(404, 'NOT_FOUND', 'Not found');
+      }
       const skipped: { clientId: string; code: string }[] = [];
       let updated = 0;
-      for (const id of req.clientIds) {
-        const row = rows.find((r) => r.id === id && visible(r));
-        if (!row) {
-          skipped.push({ clientId: id, code: 'NOT_FOUND' });
-          continue;
-        }
+      for (const id of ids) {
+        const row = rows.find((r) => r.id === id && visible(r))!;
         if (req.action === 'ASSIGN') {
           if (row.archivedAt) {
             skipped.push({ clientId: id, code: 'CLIENT_ARCHIVED' });

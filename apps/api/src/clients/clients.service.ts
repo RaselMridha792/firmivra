@@ -6,11 +6,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Database, Prisma, TxClient } from '@firmivra/db';
+import { type Database, Prisma, type TxClient } from '@firmivra/db';
 import type {
+  BulkClientsRequest,
+  BulkClientsResponse,
   ClientListItem,
+  ClientListRow,
   ClientProfile,
   ClientRecord,
+  ClientServiceRef,
+  ClientsSummary,
   CreateClientRequest,
   ListClientsQuery,
   ListClientsResponse,
@@ -35,6 +40,25 @@ type ListQuery = z.output<typeof ListClientsQuery>;
 type CreateBody = z.output<typeof CreateClientRequest>;
 type UpdateBody = z.output<typeof UpdateClientRequest>;
 type ProfileBody = z.output<typeof UpdateClientProfileRequest>;
+type BulkBody = z.output<typeof BulkClientsRequest>;
+
+/** The firm's time zone (business settings), so days and months are the firm's. */
+const zone = (businessId: string) => Prisma.sql`
+  SELECT COALESCE(
+    (SELECT timezone FROM business_settings WHERE business_id = ${businessId}::uuid),
+    'America/New_York') AS tz`;
+
+interface SummaryCounts {
+  total_now: number;
+  total_before: number;
+  new_now: number;
+  new_before: number;
+  active: number;
+  stage_new: number;
+  pending_docs: number;
+  balances: number;
+  inactive: number;
+}
 
 /** Who acts: the signed-in member and their role in this firm (from TenantGuard). */
 export interface ClientsActor {
@@ -213,22 +237,36 @@ export class ClientsService {
     if (actor.role === 'STAFF' && q.assignedUserId) throw forbidden();
     const after = q.cursor ? decodeCursor(q.cursor) : undefined;
     const term = q.search ? likeEscape(q.search) : undefined;
+    const days = await this.dayBounds(businessId, q.lastActivityFrom, q.lastActivityTo);
+    const filters: Prisma.ClientWhereInput[] = [
+      { businessId },
+      this.reach(actor),
+      q.status === 'active' ? { archivedAt: null } : {},
+      q.status === 'archived' ? { archivedAt: { not: null } } : {},
+      q.assignedUserId ? { assignedUserId: q.assignedUserId } : {},
+      q.clientStatus ? { status: q.clientStatus } : {},
+      q.serviceId
+        ? {
+            engagements: {
+              some: { serviceId: q.serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
+            },
+          }
+        : {},
+      days ? { lastActivityAt: { gte: days.start, lt: days.end } } : {},
+      term
+        ? {
+            OR: [
+              { displayName: { contains: term, mode: 'insensitive' } },
+              { email: { contains: term, mode: 'insensitive' } },
+              { phone: { contains: term, mode: 'insensitive' } },
+            ],
+          }
+        : {},
+    ];
+    const db = this.database.forBusiness(businessId);
     const where: Prisma.ClientWhereInput = {
       AND: [
-        { businessId },
-        this.reach(actor),
-        q.status === 'active' ? { archivedAt: null } : {},
-        q.status === 'archived' ? { archivedAt: { not: null } } : {},
-        q.assignedUserId ? { assignedUserId: q.assignedUserId } : {},
-        term
-          ? {
-              OR: [
-                { displayName: { contains: term, mode: 'insensitive' } },
-                { email: { contains: term, mode: 'insensitive' } },
-                { phone: { contains: term, mode: 'insensitive' } },
-              ],
-            }
-          : {},
+        ...filters,
         after
           ? {
               OR: [
@@ -239,19 +277,228 @@ export class ClientsService {
           : {},
       ],
     };
-    const rows = await this.database.forBusiness(businessId).client.findMany({
-      where,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: q.limit + 1,
-      select: listSelect,
-    });
+    const [rows, total] = await Promise.all([
+      db.client.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...(q.page ? { skip: (q.page - 1) * q.limit, take: q.limit } : { take: q.limit + 1 }),
+        select: { ...listSelect, status: true, lastActivityAt: true },
+      }),
+      db.client.count({ where: { AND: filters } }),
+    ]);
     const page = rows.slice(0, q.limit);
     const last = page.at(-1);
+    const work = await this.workOf(
+      businessId,
+      page.map((r) => r.id),
+    );
     await this.audit.log('clients.listed', { type: 'client' }, { count: page.length });
     return {
-      items: page.map(toListItem),
-      nextCursor: rows.length > q.limit && last ? encodeCursor(last) : null,
+      items: page.map((row): ClientListRow => ({
+        ...toListItem(row),
+        status: row.status,
+        lastActivityAt: iso(row.lastActivityAt),
+        services: work.services.get(row.id) ?? [],
+        missingDocuments: work.missing.get(row.id) ?? 0,
+        balanceDueCents: work.balance.get(row.id) ?? 0,
+        nextAppointmentAt: iso(work.next.get(row.id) ?? null),
+      })),
+      nextCursor: !q.page && rows.length > q.limit && last ? encodeCursor(last) : null,
+      total,
     };
+  }
+
+  /** The firm's calendar days `from` to `to` (both included) as instants; null without either. */
+  private async dayBounds(
+    businessId: string,
+    from: string | undefined,
+    to: string | undefined,
+  ): Promise<{ start: Date | undefined; end: Date | undefined } | null> {
+    if (!from && !to) return null;
+    const [row] = await this.inFirm(
+      businessId,
+      (tx) => tx.$queryRaw<{ start: Date | null; end: Date | null }[]>`
+        WITH s AS (${zone(businessId)})
+        SELECT (${from ?? null}::date::timestamp AT TIME ZONE s.tz) AS start,
+          ((${to ?? null}::date + 1)::timestamp AT TIME ZONE s.tz) AS "end"
+        FROM s`,
+    );
+    return { start: row?.start ?? undefined, end: row?.end ?? undefined };
+  }
+
+  /**
+   * The work around a page of clients, in the firm's scope: open engagements' services, document
+   * requests still owed (REQUESTED or REJECTED), the balance on OPEN invoices and the next
+   * SCHEDULED appointment.
+   */
+  private async workOf(businessId: string, ids: string[]) {
+    const services = new Map<string, ClientServiceRef[]>();
+    const missing = new Map<string, number>();
+    const balance = new Map<string, number>();
+    const next = new Map<string, Date>();
+    if (ids.length === 0) return { services, missing, balance, next };
+    const db = this.database.forBusiness(businessId);
+    const [engagements, requests, appointments, owed] = await Promise.all([
+      db.engagement.findMany({
+        where: { businessId, clientId: { in: ids }, status: { in: ['PENDING', 'ACTIVE'] } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { clientId: true, service: { select: { id: true, name: true, kind: true } } },
+      }),
+      db.documentRequest.groupBy({
+        by: ['clientId'],
+        where: { businessId, clientId: { in: ids }, status: { in: ['REQUESTED', 'REJECTED'] } },
+        _count: { _all: true },
+      }),
+      db.appointment.groupBy({
+        by: ['clientId'],
+        where: {
+          businessId,
+          clientId: { in: ids },
+          status: 'SCHEDULED',
+          startsAt: { gt: new Date() },
+        },
+        _min: { startsAt: true },
+      }),
+      this.inFirm(
+        businessId,
+        (tx) => tx.$queryRaw<{ clientId: string; cents: number }[]>`
+          SELECT i.client_id::text AS "clientId",
+            COALESCE(sum(GREATEST(0, i.total_cents - app_invoice_paid_cents(i.id))), 0)::float8 AS cents
+          FROM invoices i
+          WHERE i.business_id = ${businessId}::uuid AND i.client_id = ANY(${ids}::uuid[])
+            AND i.status = 'OPEN'
+          GROUP BY i.client_id`,
+      ),
+    ]);
+    for (const e of engagements) {
+      const list = services.get(e.clientId) ?? [];
+      if (!list.some((s) => s.id === e.service.id)) list.push(e.service);
+      services.set(e.clientId, list);
+    }
+    for (const r of requests) missing.set(r.clientId, r._count._all);
+    for (const a of appointments) if (a._min.startsAt) next.set(a.clientId, a._min.startsAt);
+    for (const o of owed) balance.set(o.clientId, Math.round(o.cents));
+    return { services, missing, balance, next };
+  }
+
+  /**
+   * The list's KPI cards and tab counts (GET /business/clients/summary), in the firm's scope and
+   * time zone. Staff count only the clients assigned to them, as their list shows.
+   */
+  async summary(businessId: string, actor: ClientsActor): Promise<ClientsSummary> {
+    const staff = actor.role === 'STAFF' ? actor.userId : null;
+    const mine = Prisma.sql`(${staff}::uuid IS NULL OR c.assigned_user_id = ${staff}::uuid)`;
+    const live = Prisma.sql`c.business_id = ${businessId}::uuid AND c.archived_at IS NULL AND ${mine}`;
+    const { counts, byService } = await this.inFirm(businessId, async (tx) => {
+      const [counts] = await tx.$queryRaw<SummaryCounts[]>`
+        WITH s AS (${zone(businessId)}),
+        p AS (
+          SELECT date_trunc('month', now() AT TIME ZONE tz) AT TIME ZONE tz AS month_start,
+            (date_trunc('month', now() AT TIME ZONE tz) - interval '1 month') AT TIME ZONE tz AS last_month_start
+          FROM s)
+        SELECT
+          (SELECT count(*)::int FROM clients c WHERE ${live}) AS total_now,
+          (SELECT count(*)::int FROM clients c WHERE c.business_id = ${businessId}::uuid
+            AND c.created_at < p.month_start
+            AND (c.archived_at IS NULL OR c.archived_at >= p.month_start) AND ${mine}) AS total_before,
+          (SELECT count(*)::int FROM clients c WHERE c.business_id = ${businessId}::uuid
+            AND c.created_at >= p.month_start AND ${mine}) AS new_now,
+          (SELECT count(*)::int FROM clients c WHERE c.business_id = ${businessId}::uuid
+            AND c.created_at >= p.last_month_start AND c.created_at < p.month_start
+            AND ${mine}) AS new_before,
+          (SELECT count(*)::int FROM clients c WHERE ${live}
+            AND c.status IN ('ACTIVE', 'IN_PROGRESS')) AS active,
+          (SELECT count(*)::int FROM clients c WHERE ${live} AND c.status = 'NEW') AS stage_new,
+          (SELECT count(*)::int FROM clients c WHERE ${live} AND EXISTS (
+            SELECT 1 FROM document_requests d WHERE d.business_id = c.business_id
+              AND d.client_id = c.id AND d.status IN ('REQUESTED', 'REJECTED'))) AS pending_docs,
+          (SELECT count(*)::int FROM clients c WHERE ${live} AND EXISTS (
+            SELECT 1 FROM invoices i WHERE i.business_id = c.business_id AND i.client_id = c.id
+              AND i.status = 'OPEN' AND i.total_cents > app_invoice_paid_cents(i.id))) AS balances,
+          (SELECT count(*)::int FROM clients c WHERE ${live} AND c.status = 'INACTIVE') AS inactive
+        FROM p`;
+      const byService = await tx.$queryRaw<(ClientServiceRef & { count: number })[]>`
+        SELECT sv.id::text AS id, sv.name, sv.kind::text AS kind,
+          count(DISTINCT c.id)::int AS count
+        FROM services sv
+        LEFT JOIN engagements e ON e.business_id = sv.business_id AND e.service_id = sv.id
+          AND e.status IN ('PENDING', 'ACTIVE')
+        LEFT JOIN clients c ON c.business_id = e.business_id AND c.id = e.client_id
+          AND c.archived_at IS NULL AND ${mine}
+        WHERE sv.business_id = ${businessId}::uuid AND sv.archived_at IS NULL
+        GROUP BY sv.id, sv.name, sv.kind
+        ORDER BY sv.name, sv.id
+        LIMIT 100`;
+      if (!counts) throw new Error('clients summary returned no row');
+      return { counts, byService };
+    });
+    await this.audit.log('clients.summary_viewed', { type: 'client' });
+    const c = counts;
+    const kpi = (value: number, previous: number | null) => ({ value, previous });
+    return {
+      kpis: {
+        totalClients: kpi(c.total_now, c.total_before),
+        newClients: kpi(c.new_now, c.new_before),
+        activeClients: kpi(c.active, null),
+        pendingDocuments: kpi(c.pending_docs, null),
+        balancesDue: kpi(c.balances, null),
+        inactiveClients: kpi(c.inactive, null),
+      },
+      counts: {
+        all: c.total_now,
+        active: c.active,
+        new: c.stage_new,
+        inactive: c.inactive,
+        byService,
+      },
+    };
+  }
+
+  /**
+   * Owner and Admin (the route says so): assign, archive or restore up to 100 clients. Each one
+   * goes through the same path as a single change (its lock, checks and audit entry); one whose
+   * state refuses the change (CLIENT_ARCHIVED for ASSIGN) is skipped with its code and the rest
+   * still change. An id that is not one of the firm's clients, or a new assignee who is not an
+   * active member of the firm, refuses the whole request (404) before anything changes, and the
+   * answer never says which id.
+   */
+  async bulk(
+    businessId: string,
+    actor: ClientsActor,
+    body: BulkBody,
+  ): Promise<BulkClientsResponse> {
+    if (actor.role === 'STAFF') throw forbidden();
+    const ids = [...new Set(body.clientIds)];
+    const reachable = await this.database.forBusiness(businessId).client.count({
+      where: { AND: [{ businessId, id: { in: ids } }, this.reach(actor)] },
+    });
+    if (reachable !== ids.length) throw notFound();
+    if (body.action === 'ASSIGN' && body.assignedUserId) {
+      const userId = body.assignedUserId;
+      await this.inFirm(businessId, (tx) => this.activeMember(tx, businessId, userId));
+    }
+    let updated = 0;
+    const skipped: BulkClientsResponse['skipped'] = [];
+    for (const id of ids) {
+      try {
+        if (body.action === 'ASSIGN') {
+          await this.update(businessId, actor, id, { assignedUserId: body.assignedUserId });
+        } else {
+          await this.setArchived(businessId, actor, id, body.action === 'ARCHIVE');
+        }
+        updated += 1;
+      } catch (e) {
+        if (!(e instanceof NotFoundException) && !(e instanceof ConflictException)) throw e;
+        const code = (e.getResponse() as { code?: string }).code ?? 'CONFLICT';
+        skipped.push({ clientId: id, code });
+      }
+    }
+    await this.audit.log(
+      'clients.bulk_changed',
+      { type: 'client' },
+      { action: body.action, updated, skipped: skipped.length },
+    );
+    return { updated, skipped };
   }
 
   async get(businessId: string, actor: ClientsActor, id: string): Promise<ClientRecord> {
