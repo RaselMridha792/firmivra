@@ -698,7 +698,7 @@ export function NotificationsScreen() {
                       <Button
                         variant="outline"
                         onClick={() => openItem(item)}
-                        className={`min-h-9 whitespace-nowrap px-3 text-sm font-medium ${
+                        className={`min-h-9! whitespace-nowrap px-3! py-1! text-sm font-medium ${
                           isRead(item) ? 'border-divider text-heading' : 'border-action text-action'
                         }`}
                       >
@@ -977,8 +977,8 @@ function SummaryCard({
       onClick={onClick}
       className={`flex min-w-0 items-center gap-2 rounded-card border border-divider px-3 py-3 text-left transition-colors hover:opacity-90 sm:gap-4 sm:px-4 ${toneClass}`}
     >
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface/60 sm:size-12 xl:size-14">
-        <Glyph aria-hidden weight="fill" className="size-6 sm:size-7" />
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-surface/40 sm:size-12">
+        <Glyph aria-hidden weight="fill" className="size-7 sm:size-8" />
       </span>
       <span className="min-w-0">
         <span className="block text-xl font-bold leading-none text-heading sm:text-2xl xl:text-3xl">

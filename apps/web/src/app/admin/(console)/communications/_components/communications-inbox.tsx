@@ -167,7 +167,7 @@ function NameAvatar({ name, size = 'lg' }: { name: string; size?: 'md' | 'lg' | 
 function SectionTitle({ children, action }: { children: string; action?: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-divider px-4 py-3 xl:px-3 xl:py-1">
-      <h2 className="text-sm font-semibold text-heading">{children}</h2>
+      <h2 className="font-display text-base font-bold text-heading">{children}</h2>
       {action}
     </div>
   );
@@ -184,6 +184,9 @@ function messageNote(message: AdminCommMessage): string | null {
   if (message.status === 'CANCELLED') return 'Cancelled';
   return null;
 }
+
+/** The design's light-blue Filters and Sort buttons. */
+const SOFT_BUTTON = 'border-transparent! bg-info-soft! text-action! hover:bg-info-soft/70!';
 
 /** The composer toolbar's plain glyphs (the design draws them without a box). */
 const PLAIN = { weight: 'bold', className: 'border-transparent bg-transparent' } as const;
@@ -409,7 +412,7 @@ export function CommunicationsInbox() {
 
       <section
         aria-label="Communication summary"
-        className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5 xl:[&>div]:gap-3 xl:[&>div]:p-3 xl:[&>div>span]:size-12 xl:[&>div>span>svg]:size-6 xl:[&>div>div]:gap-0 xl:[&>div>div>span:first-child]:text-xl xl:[&>div>div>span:nth-child(2)]:whitespace-nowrap xl:[&>div>div>span:nth-child(2)]:text-xs"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5 xl:[&>div]:gap-3 xl:[&>div]:p-3 [&>div>span]:rounded-xl xl:[&>div>span]:size-12 xl:[&>div>span>svg]:size-6 xl:[&>div>div]:gap-0.5 xl:[&>div>div>span:first-child]:text-xl xl:[&>div>div>span:nth-child(2)]:text-sm xl:[&>div>div>span:nth-child(2)]:leading-tight xl:[&>div>div>span:nth-child(2)]:text-heading"
       >
         <KpiCard
           icon={EnvelopeSimple}
@@ -466,6 +469,7 @@ export function CommunicationsInbox() {
           />
           <Button
             variant={filtersOpen ? 'primary' : 'secondary'}
+            className={filtersOpen ? '' : SOFT_BUTTON}
             onClick={() => setFiltersOpen(!filtersOpen)}
           >
             <Funnel aria-hidden weight="fill" className="size-4" />
@@ -473,6 +477,7 @@ export function CommunicationsInbox() {
           </Button>
           <Button
             variant="secondary"
+            className={SOFT_BUTTON}
             onClick={() => {
               setSort(sort === 'NEWEST' ? 'OLDEST' : 'NEWEST');
               setPage(1);
@@ -682,14 +687,14 @@ export function CommunicationsInbox() {
                 <NameAvatar name={displayName(selected)} size="xl" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate text-base font-semibold text-heading">
+                    <h2 className="truncate font-display text-lg font-bold text-heading">
                       {displayName(selected)}
                     </h2>
                     <Badge tone={contactTones[selected.contact.type]}>
                       {contactLabels[selected.contact.type]}
                     </Badge>
                   </div>
-                  <p className="mt-1 break-all text-xs text-muted sm:text-sm xl:truncate xl:whitespace-nowrap xl:text-xs">
+                  <p className="mt-1 break-all text-xs text-heading sm:text-sm xl:truncate xl:whitespace-nowrap">
                     {selected.contact.email ?? '—'} <span className="px-1">|</span>{' '}
                     {selected.contact.phone ?? '—'}
                   </p>
@@ -698,6 +703,7 @@ export function CommunicationsInbox() {
                   icon={DotsThreeVertical}
                   label={selected.status === 'OPEN' ? 'Close conversation' : 'Reopen conversation'}
                   weight="bold"
+                  className="border-transparent bg-transparent"
                   onClick={() =>
                     void change(
                       () =>
@@ -726,7 +732,7 @@ export function CommunicationsInbox() {
                   {assignedToMe ? 'Assigned' : 'Assign'}
                 </Button>
               </header>
-              <div className="flex min-h-72 flex-1 flex-col gap-4 overflow-y-auto bg-canvas p-3 sm:min-h-96 sm:p-5 xl:gap-3 xl:p-4">
+              <div className="flex min-h-72 flex-1 flex-col gap-4 overflow-y-auto bg-surface p-3 sm:min-h-96 sm:p-5 xl:gap-3 xl:p-4">
                 {messages.length ? (
                   messages.map((message) => {
                     const inbound = message.direction === 'INBOUND';
@@ -740,12 +746,12 @@ export function CommunicationsInbox() {
                         }
                       >
                         {inbound ? <NameAvatar name={displayName(selected)} size="md" /> : null}
-                        <div className="max-w-md">
+                        <div className="max-w-sm">
                           <div
                             className={
                               'rounded-card px-3 py-3 sm:px-4 xl:px-3 xl:py-2 ' +
                               (inbound
-                                ? 'bg-surface text-text shadow-card'
+                                ? 'bg-canvas text-text'
                                 : message.direction === 'INTERNAL'
                                   ? 'border border-warning bg-warning-soft text-heading'
                                   : 'bg-info-soft text-heading')
@@ -756,9 +762,7 @@ export function CommunicationsInbox() {
                                 Internal note
                               </p>
                             ) : null}
-                            <p className="whitespace-pre-line text-sm leading-5 xl:text-xs xl:leading-4">
-                              {message.body}
-                            </p>
+                            <p className="whitespace-pre-line text-sm leading-5">{message.body}</p>
                             {note ? (
                               <p
                                 className={`mt-2 text-xs ${message.status === 'FAILED' ? 'text-danger' : 'text-muted'}`}
@@ -918,7 +922,7 @@ export function CommunicationsInbox() {
                 businessId ? (
                   <Link
                     href={`/firms/${businessId}`}
-                    className="inline-flex min-h-8 items-center gap-1.5 rounded-control border border-divider bg-surface px-2.5 py-1 text-xs font-medium text-heading hover:bg-canvas"
+                    className="inline-flex min-h-8 items-center gap-1.5 rounded-control bg-info-soft px-2.5 py-1 text-xs font-medium text-action hover:bg-info-soft/70"
                   >
                     <PencilSimple aria-hidden weight="fill" className="size-3.5" />
                     Edit
@@ -985,7 +989,7 @@ export function CommunicationsInbox() {
               action={
                 <Button
                   variant="secondary"
-                  className="min-h-8 px-2.5 py-1 text-xs"
+                  className={`min-h-8! px-2.5! py-1! text-xs ${SOFT_BUTTON}`}
                   disabled={!selected}
                   onClick={() => setTagDraft(tagDraft === null ? '' : null)}
                 >
@@ -1086,10 +1090,10 @@ function Detail({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="grid grid-cols-[1rem_5.75rem_minmax(0,1fr)] items-center gap-x-2">
       <Glyph aria-hidden className="size-4 text-action" />
       <dt className="text-muted">{label}</dt>
-      <dd className="ml-auto text-right font-medium text-text">{children}</dd>
+      <dd className="min-w-0 font-medium text-heading">{children}</dd>
     </div>
   );
 }
