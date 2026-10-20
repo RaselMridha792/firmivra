@@ -397,3 +397,30 @@ test('Client tabs: the notes composer and list, and the activity log', async ({ 
   await expect(log).toContainText('Plan finalized');
   await expect(log).toContainText('Added to the advisory program');
 });
+
+test('Client tabs: documents (upload and request on advisory services) and the client portal view', async ({
+  page,
+}) => {
+  await page.goto(`${marcus}/documents`);
+  const docs = page.getByTestId('tab-documents');
+  // Files live in the Documents module (api.documents), whose mock holds none of this client's.
+  await expect(docs).toContainText('No advisory documents');
+  await docs.getByRole('button', { name: 'Upload Document' }).click();
+  await expect(page.getByTestId('upload-document').getByLabel('Service')).toHaveValue(/.+/);
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  await docs.getByRole('button', { name: 'Request Document' }).click();
+  await expect(page.getByTestId('request-document').getByLabel('Document needed')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByTestId('tab-doc-requests')).toBeVisible();
+
+  await page.goto(`${marcus}/portal`);
+  await expect(page.getByTestId('portal-plans')).toContainText('2026 Business Growth Plan');
+  const recs = page.getByTestId('portal-recommendations');
+  await expect(recs.getByRole('listitem')).toHaveCount(4);
+  await recs
+    .getByRole('button', { name: 'Hide SBA 7(a) Loan Opportunity from the client' })
+    .click();
+  await expect(page.getByText('SBA 7(a) Loan Opportunity hidden from the client.')).toBeVisible();
+  await expect(recs.getByRole('listitem')).toHaveCount(3);
+  await expect(page.getByTestId('portal-tasks').getByRole('listitem')).toHaveCount(5);
+});
