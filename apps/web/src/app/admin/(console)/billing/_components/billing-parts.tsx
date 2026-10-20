@@ -172,7 +172,7 @@ export function StatusBadge({
   return (
     <span
       data-testid="status-badge"
-      className={`inline-flex items-center justify-center rounded-lg font-medium whitespace-nowrap ${size === 'lg' ? 'min-h-10 px-4 text-base' : 'min-w-18 px-3 py-1 text-sm'} ${BADGE_TONES[tone]}`}
+      className={`inline-flex items-center justify-center rounded-lg font-medium whitespace-nowrap ${size === 'lg' ? 'min-h-10 px-4 text-base' : 'min-w-16 px-2.5 py-0.5 text-xs'} ${BADGE_TONES[tone]}`}
     >
       {children}
     </span>

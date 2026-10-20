@@ -16,6 +16,8 @@ test('All requests filtered by a status, a page at a time', async ({ page }) => 
 });
 
 test('quick filters on All requests', async ({ page }) => {
+  // The mock requests are dated early October 2026 (expiry and the 30-day window follow them).
+  await page.clock.setFixedTime(new Date('2026-10-08T18:00:00Z'));
   await page.goto(app('/firm-sign/requests'));
   const expiring = page.getByRole('button', { name: 'Expiring soon (2)' });
   await expiring.click();
