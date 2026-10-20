@@ -6,10 +6,11 @@ import {
   type IntegrationProviderDetail,
   type IntegrationSettings,
 } from '@firmivra/types';
-import { Badge, Button, Callout, Card, Checkbox, Input, PageHeader, Select } from '@firmivra/ui';
+import { Badge, Button, Callout, Card, Checkbox, Input, Select } from '@firmivra/ui';
 import {
   ArrowRight,
   ArrowSquareOut,
+  CaretRight,
   CheckCircle,
   EnvelopeSimple,
   CalendarBlank,
@@ -28,6 +29,7 @@ import { useMe } from '../../../../../../../components/signed-in';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { providerDisc } from '../../_components/manage-integration-shared';
 import { SetupOption } from './setup-option';
 import {
   defaultSettings,
@@ -181,30 +183,36 @@ function SetupForm({
   };
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <nav aria-label="Breadcrumb" className="flex flex-wrap gap-2 text-sm text-muted">
+      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm text-muted">
         <Link href="/integrations" className="text-link">
           Integrations
         </Link>
-        <span>/</span>
+        <CaretRight aria-hidden weight="bold" className="size-3.5" />
         <Link href="/integrations/marketplace" className="text-link">
           Add Integration
         </Link>
-        <span>/</span>
-        <span>{provider?.name ?? 'Integration setup'}</span>
+        <CaretRight aria-hidden weight="bold" className="size-3.5" />
+        <span className="text-heading">{provider?.name ?? 'Integration setup'}</span>
       </nav>
       <Card className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-4">
-          <span className="flex size-14 shrink-0 items-center justify-center rounded-control bg-accent-soft text-action">
-            <Plugs weight="fill" className="size-8" />
+        <div className="flex min-w-0 items-center gap-5">
+          <span
+            className={`flex size-16 shrink-0 items-center justify-center rounded-full text-3xl font-bold ${provider ? providerDisc(provider.category) : 'bg-disabled text-muted'}`}
+          >
+            {provider?.name.charAt(0) ?? <Plugs aria-hidden weight="fill" className="size-8" />}
           </span>
-          <div className="min-w-0 [&_h1]:font-sans">
-            <PageHeader
-              title={provider?.name ?? 'Connect Integration'}
-              subtitle={provider?.description ?? 'Provider details are unavailable.'}
-            />
-            <Badge tone={connection ? 'success' : 'neutral'}>
-              {connection ? 'Connected' : 'Not Connected'}
-            </Badge>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-3xl font-bold text-heading">
+                {provider?.name ?? 'Connect Integration'}
+              </h1>
+              <Badge tone={connection ? 'success' : 'neutral'} dot>
+                {connection ? 'Connected' : 'Not Connected'}
+              </Badge>
+            </div>
+            <p className="mt-1 text-base text-text">
+              {provider?.description ?? 'Provider details are unavailable.'}
+            </p>
           </div>
         </div>
         {provider?.learnMoreUrl && /^https:\/\//i.test(provider.learnMoreUrl) ? (
@@ -212,7 +220,7 @@ function SetupForm({
             href={provider.learnMoreUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-control border border-border px-4 py-2 text-sm text-link"
+            className="inline-flex min-h-11 items-center gap-2 rounded-control border border-border px-4 py-2 text-sm font-medium text-link hover:bg-accent-soft"
           >
             Learn More <ArrowSquareOut weight="fill" className="size-4" />
           </a>
@@ -253,16 +261,22 @@ function SetupForm({
       ) : null}
       <div className="grid min-w-0 gap-4 lg:grid-cols-5">
         <nav aria-label="Connection setup steps" className="lg:col-span-1">
-          <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+          <ol className="grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
             {steps.map((item, index) => (
-              <li key={item.id}>
+              <li key={item.id} className="relative">
+                {index < steps.length - 1 ? (
+                  <span
+                    aria-hidden
+                    className="absolute top-12 -bottom-1 left-7.5 hidden w-px bg-border lg:block"
+                  />
+                ) : null}
                 <Link
                   href={`${base}${item.suffix}`}
                   aria-current={step === item.id ? 'step' : undefined}
-                  className={`flex gap-3 rounded-control p-3 ${step === item.id ? 'bg-accent-soft' : 'bg-surface'}`}
+                  className={`relative flex gap-3 rounded-control p-3 hover:bg-accent-soft ${step === item.id ? 'bg-accent-soft' : ''}`}
                 >
                   <span
-                    className={`flex size-9 shrink-0 items-center justify-center rounded-full font-semibold ${step === item.id ? 'bg-action text-on-action' : 'bg-canvas text-heading'}`}
+                    className={`flex size-9 shrink-0 items-center justify-center rounded-full border font-semibold ${step === item.id ? 'border-action bg-action text-on-action' : 'border-border bg-surface text-heading'}`}
                   >
                     {index + 1}
                   </span>
@@ -309,10 +323,20 @@ function SetupForm({
                         ? 'Authorize with provider'
                         : 'Connect integration'}
                 </Button>
-                <Callout title="Secure Authorization" icon={LockKey} surface="info">
-                  Authorization is handled securely by your provider. Your provider password is
-                  never collected here.
-                </Callout>
+                <div className="flex gap-3 rounded-control bg-folder-surface p-4">
+                  <LockKey
+                    aria-hidden
+                    weight="fill"
+                    className="mt-0.5 size-6 shrink-0 text-heading"
+                  />
+                  <div>
+                    <h3 className="font-semibold text-heading">Secure Authorization</h3>
+                    <p className="text-sm text-text">
+                      Authorization is handled securely by your provider. Your provider password is
+                      never collected here.
+                    </p>
+                  </div>
+                </div>
               </div>
               <div className="rounded-control bg-folder-surface p-4 xl:col-span-2">
                 <h3 className="mb-3 font-semibold text-heading">What this integration includes:</h3>
@@ -344,34 +368,39 @@ function SetupForm({
               title="Configure Sync Preferences"
               subtitle="Choose what you want to sync and how it should work."
             />
-            <div className="grid gap-4 xl:grid-cols-3">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,0.9fr)] [&_select]:text-sm">
               <div className="rounded-control border border-border p-3">
                 <h3 className="mb-2 text-sm font-semibold text-heading">Data to Sync</h3>
                 {provider?.entities.map((item) => (
-                  <div key={item.key} className="mb-3">
-                    <div className="flex items-center gap-2">
-                      <EntityIcon entity={item.key} />
-                      <Checkbox
-                        label={item.label}
-                        checked={selected.includes(item.key)}
-                        disabled={!editable}
-                        onChange={(e) =>
-                          patch({
-                            entities: e.target.checked
-                              ? [...selected, item.key]
-                              : selected.filter((key) => key !== item.key),
-                          })
-                        }
-                      />
-                    </div>
-                    <p className="ml-8 text-xs text-muted">{item.description}</p>
+                  <div
+                    key={item.key}
+                    className="grid grid-cols-[1.25rem_1.5rem_minmax(0,1fr)] items-start gap-2 py-1.5"
+                  >
+                    <Checkbox
+                      label={item.label}
+                      checked={selected.includes(item.key)}
+                      disabled={!editable}
+                      className="mt-0.5 min-h-0! [&>span]:sr-only"
+                      onChange={(e) =>
+                        patch({
+                          entities: e.target.checked
+                            ? [...selected, item.key]
+                            : selected.filter((key) => key !== item.key),
+                        })
+                      }
+                    />
+                    <EntityIcon entity={item.key} />
+                    <span aria-hidden className="min-w-0">
+                      <span className="block text-sm font-medium text-heading">{item.label}</span>
+                      <span className="block text-xs text-text">{item.description}</span>
+                    </span>
                   </div>
                 ))}
                 {!provider?.entities.length ? (
                   <p className="text-sm text-muted">No sync objects available.</p>
                 ) : null}
               </div>
-              <div className="flex flex-col gap-4 rounded-control border border-border p-3">
+              <div className="flex flex-col gap-3 rounded-control border border-border p-3 [&_div:has(>div>select)]:grid [&_div:has(>div>select)]:grid-cols-[6.5rem_minmax(0,1fr)] [&_div:has(>div>select)]:items-center [&_div:has(>div>select)]:gap-x-3 [&_div:has(>div>select)>label]:font-normal [&_div:has(>div>select)>p]:col-start-2">
                 <h3 className="text-sm font-semibold text-heading">Sync Settings</h3>
                 <Select
                   label="Sync Frequency"
@@ -438,7 +467,7 @@ function SetupForm({
                     />
                   ))}
               </div>
-              <div className="flex flex-col gap-4 rounded-control border border-border p-3">
+              <div className="flex flex-col gap-3 rounded-control border border-border p-3 [&_label:has(>input[type=checkbox])]:min-h-8 [&_label:has(>input[type=checkbox])]:text-sm">
                 <h3 className="text-sm font-semibold text-heading">Account & Folder Options</h3>
                 {provider?.options
                   .filter((option) => option.type !== 'TOGGLE' && option.key !== 'defaultCalendar')
@@ -468,10 +497,13 @@ function SetupForm({
                 subtitle="Review the permissions requested for your enabled features."
               />
               <div className="rounded-control bg-folder-surface p-4">
-                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-heading">
-                  <ShieldCheck weight="fill" className="size-5" />
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-heading">
+                  <ShieldCheck aria-hidden weight="fill" className="size-5" />
                   Required Permissions
                 </h3>
+                <p className="mb-3 pl-7 text-sm text-text">
+                  {firm.name} will request the following permissions:
+                </p>
                 <ul className="flex flex-col gap-2">
                   {permissions.map((item) => (
                     <li key={item.key} className="flex gap-2 text-sm text-text">
@@ -544,10 +576,10 @@ function SetupForm({
                     })}
                 </p>
               ) : null}
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Link
                   href="/integrations/marketplace"
-                  className="rounded-control border border-border px-4 py-3 text-sm text-link"
+                  className="inline-flex min-h-11 items-center justify-center rounded-control border border-action px-4 py-2 text-sm font-semibold text-action hover:bg-accent-soft"
                 >
                   Cancel
                 </Link>
@@ -578,8 +610,8 @@ function SectionTitle({
         {number}
       </span>
       <div>
-        <h2 className="font-semibold text-heading">{title}</h2>
-        <p className="mt-1 text-sm text-muted">{subtitle}</p>
+        <h2 className="text-lg font-bold text-heading">{title}</h2>
+        <p className="text-sm text-text">{subtitle}</p>
       </div>
     </div>
   );
