@@ -1,6 +1,11 @@
 'use client';
 
-import { IntegrationCategory, IntegrationSort, type IntegrationCard } from '@firmivra/types';
+import {
+  ApiRequestError,
+  IntegrationCategory,
+  IntegrationSort,
+  type IntegrationCard,
+} from '@firmivra/types';
 import {
   Button,
   Card,
@@ -187,8 +192,11 @@ export function MarketplaceScreen() {
               role="status"
               className="rounded-control border border-border bg-subtle px-4 py-3 text-sm text-muted"
             >
-              The marketplace is temporarily unavailable. Existing page sections remain visible;
-              permission-sensitive actions are disabled.{' '}
+              {[catalog.error, permission.error].some(
+                (error) => error instanceof ApiRequestError && error.code === 'FORBIDDEN',
+              )
+                ? "You do not have access to the marketplace. Ask your firm's owner if you need it."
+                : 'The marketplace is temporarily unavailable. Existing page sections remain visible; permission-sensitive actions are disabled.'}{' '}
               <Button
                 variant="ghost"
                 className="!min-h-0 !p-0 align-baseline text-sm underline"
