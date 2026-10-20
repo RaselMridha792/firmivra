@@ -6,7 +6,7 @@ import {
   SearchField,
   Table,
   Tabs,
-  tileTones,
+  textTones,
   type TileTone,
 } from '@firmivra/ui';
 import {
@@ -138,41 +138,43 @@ function SummaryCard({
       aria-pressed={active}
       data-testid={`kpi-${card.key}`}
       onClick={onSelect}
-      className="flex min-w-0 items-start gap-3 rounded-xl border border-divider bg-surface p-4 text-left shadow-sm hover:border-action aria-pressed:border-action aria-pressed:ring-1 aria-pressed:ring-action"
+      // The ring marks a chosen card; Total (the whole list, the default) has none.
+      className={`flex min-w-0 items-center gap-3 rounded-xl border bg-surface px-4 py-3.5 text-left shadow-sm hover:border-action ${active && card.key !== 'total' ? 'border-action ring-1 ring-action' : 'border-divider'}`}
     >
-      <span
-        className={`flex size-11 shrink-0 items-center justify-center rounded-lg ${tileTones[card.tone]}`}
-      >
-        <card.icon aria-hidden weight="fill" className="size-6" />
-      </span>
+      <card.icon aria-hidden weight="fill" className={`size-8 shrink-0 ${textTones[card.tone]}`} />
       <span className="flex min-w-0 flex-col gap-1">
-        <span className="text-sm text-text">{card.label}</span>
-        {loading ? (
-          <span aria-hidden className="h-9 w-12 animate-pulse rounded-control bg-disabled" />
-        ) : (
-          <span data-testid={`kpi-${card.key}-value`} className="text-3xl font-bold text-heading">
-            {failed || value === undefined ? '—' : value.toLocaleString('en-US')}
-          </span>
-        )}
-        {/* Always under the number, so every card keeps one layout and height in every state. */}
-        <span data-testid={`kpi-${card.key}-trend`} className="flex flex-col text-xs leading-tight">
-          {trend === null ? (
-            <span className="inline-flex items-center font-semibold text-muted">
-              <span aria-hidden>—</span>
-              <span className="sr-only">No trend</span>
-            </span>
+        <span className="text-sm whitespace-nowrap text-heading">{card.label}</span>
+        {/* The number with its trend beside it (the design), one layout in every state. */}
+        <span className="flex items-center gap-2">
+          {loading ? (
+            <span aria-hidden className="h-9 w-12 animate-pulse rounded-control bg-disabled" />
           ) : (
-            <span
-              className={`inline-flex items-center gap-0.5 font-semibold ${good === null ? 'text-muted' : good ? 'text-success' : 'text-danger'}`}
-            >
-              {trend === 0 ? null : <Arrow aria-hidden weight="bold" className="size-3" />}
-              <span className="sr-only">
-                {trend > 0 ? 'Up' : trend < 0 ? 'Down' : 'No change,'}
-              </span>
-              {Math.abs(trend)}%
+            <span data-testid={`kpi-${card.key}-value`} className="text-3xl font-bold text-heading">
+              {failed || value === undefined ? '—' : value.toLocaleString('en-US')}
             </span>
           )}
-          <span className="text-muted">vs. last 30 days</span>
+          <span
+            data-testid={`kpi-${card.key}-trend`}
+            className="flex flex-col text-xs leading-tight whitespace-nowrap"
+          >
+            {trend === null ? (
+              <span className="inline-flex items-center font-semibold text-muted">
+                <span aria-hidden>—</span>
+                <span className="sr-only">No trend</span>
+              </span>
+            ) : (
+              <span
+                className={`inline-flex items-center gap-0.5 font-semibold ${good === null ? 'text-muted' : good ? 'text-success' : 'text-danger'}`}
+              >
+                {trend === 0 ? null : <Arrow aria-hidden weight="bold" className="size-3" />}
+                <span className="sr-only">
+                  {trend > 0 ? 'Up' : trend < 0 ? 'Down' : 'No change,'}
+                </span>
+                {Math.abs(trend)}%
+              </span>
+            )}
+            <span className="text-muted">vs. last 30 days</span>
+          </span>
         </span>
       </span>
     </button>
@@ -279,8 +281,8 @@ export function SupportDashboard() {
     <div className="flex min-w-0 flex-col gap-5">
       <header className="flex flex-col gap-2">
         <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: 'Support' }]} />
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1">
             <h1 data-testid="page-title" className="text-4xl font-bold text-heading">
               Support
             </h1>
@@ -289,7 +291,7 @@ export function SupportDashboard() {
               tickets to keep your clients happy.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex shrink-0 flex-wrap items-center gap-3">
             {can('EDIT_SETTINGS') ? (
               <Link
                 href="/support/settings"

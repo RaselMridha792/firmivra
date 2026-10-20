@@ -6,6 +6,8 @@ test('Super Admin Notifications renders the API states and responsive layouts', 
   page,
 }) => {
   // The Notifications screen is mock-first and has no platform API contract yet.
+  // The mock notifications are dated Oct 1-14, 2026; the screen opens on the last 30 days.
+  await page.clock.setFixedTime(new Date('2026-10-15T12:00:00Z'));
   await page.route('**/api/v1/**', (route) => route.abort());
   await page.setViewportSize({ width: 1440, height: 1024 });
   await page.goto(`http://admin.localhost:${port}/notifications`);

@@ -4,6 +4,8 @@ const port = Number(process.env['WEB_PORT'] ?? '3000') + 1;
 for (const width of [375, 768, 1024, 1440]) {
   test(`Firm Sign dashboard design fits ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 1024 });
+    // The mock requests are dated early October 2026 (expiry and the 30-day window follow them).
+    await page.clock.setFixedTime(new Date('2026-10-08T18:00:00Z'));
     // Clients are not included in the repo's API mock mode; isolate this visual spec.
     await page.route('**/api/v1/business/clients?*', (route) =>
       route.fulfill({ json: { items: [], nextCursor: null } }),

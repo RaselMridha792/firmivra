@@ -83,12 +83,12 @@ function QuickActionCard({ action }: { action: QuickAction }) {
     <li className="min-w-0">
       <Link
         href={action.href}
-        className="flex h-full items-center gap-4 rounded-xl bg-surface p-4 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-focus"
+        className="flex h-full items-center gap-3 rounded-xl bg-surface px-4 py-3 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-focus"
       >
         <BillingTile icon={action.icon} tone={action.tone} size="sm" />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-base font-bold text-heading">{action.title}</span>
-          <span className="text-sm text-muted">{action.text}</span>
+          <span className="text-sm font-bold text-heading">{action.title}</span>
+          <span className="text-xs text-muted">{action.text}</span>
         </span>
         <CaretRight aria-hidden weight="bold" className="size-5 shrink-0 text-heading" />
       </Link>

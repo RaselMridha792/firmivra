@@ -76,8 +76,9 @@ export function BillingHeader({
   return (
     <header className="flex flex-col gap-3">
       {breadcrumbs ? <BillingBreadcrumbs items={breadcrumbs} /> : null}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 flex-col gap-1">
+      {/* The page's buttons sit on the title row, as in every Billing design. */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-3">
             <h1
               data-testid="page-title"
@@ -87,10 +88,12 @@ export function BillingHeader({
             </h1>
             {badge}
           </div>
-          {subtitle ? <p className="text-base text-muted md:text-lg">{subtitle}</p> : null}
+          {subtitle ? <p className="text-base text-muted">{subtitle}</p> : null}
           {meta ? <p className="text-sm text-muted">{meta}</p> : null}
         </div>
-        {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
+        {actions ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-3">{actions}</div>
+        ) : null}
       </div>
     </header>
   );

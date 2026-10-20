@@ -1,7 +1,6 @@
 'use client';
 
 import type {
-  AdminDashboard,
   AdminSystemStatus,
   FirmApplicationListItem,
   ListFirmApplicationsResponse,
@@ -26,6 +25,7 @@ import { PageState } from '../../../../components/page-state';
 import { useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
 import { mocked } from '../../../../lib/mock';
+import { errorMessage } from '../../../../lib/errors';
 import { useApiQuery } from '../../../../lib/query';
 import { attentionItems, dashboardStats, platformModules, systemStatuses } from './dashboard-data';
 import { EmailText } from './list-parts';
@@ -130,12 +130,12 @@ function localSubmissionLabel(value: string) {
 /** The recent applications' columns from xl: spans of a 20-column grid, near the mockup's widths. */
 // Spans of 20. Below 2xl the email sits under the contact's name, so the pill and button fit.
 const COLUMNS = [
-  'xl:col-span-5 2xl:col-span-4',
-  'xl:col-span-5 2xl:col-span-3',
-  'xl:hidden 2xl:block 2xl:col-span-5',
+  'xl:col-span-4',
   'xl:col-span-3',
-  'xl:col-span-4 2xl:col-span-3',
-  'xl:col-span-3 2xl:col-span-2',
+  'xl:col-span-4',
+  'xl:col-span-3',
+  'xl:col-span-3',
+  'xl:col-span-3',
 ] as const;
 
 function statusPresentation(status: FirmApplicationListItem['status']) {
@@ -165,7 +165,7 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
   return (
     <li
       data-testid="recent-application"
-      className="grid min-w-0 gap-2 rounded-control border border-border p-3 text-sm [&>span]:min-w-0 [&>span]:wrap-anywhere xl:grid-cols-20 xl:items-center xl:gap-2 xl:rounded-none xl:border-0 xl:border-b xl:px-4 xl:py-4 xl:last:border-b-0"
+      className="grid min-w-0 gap-2 rounded-control border border-border p-3 text-sm [&>span]:min-w-0 [&>span]:wrap-anywhere xl:grid-cols-20 xl:items-center xl:gap-2 xl:rounded-none xl:border-0 xl:border-b xl:px-4 xl:py-3 xl:last:border-b-0"
     >
       <span className={`font-semibold text-text ${COLUMNS[0]}`}>
         <span className="text-xs text-muted xl:hidden">Business: </span>
@@ -174,13 +174,17 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
       <span className={COLUMNS[1]}>
         <span className="text-xs text-muted xl:hidden">Contact: </span>
         {application.contactName}
-        <span className="hidden text-muted wrap-anywhere xl:block 2xl:hidden">
+      </span>
+      <span
+        className={`wrap-anywhere xl:block xl:truncate xl:whitespace-nowrap ${COLUMNS[2]}`}
+        title={application.contactEmail}
+      >
+        <span className="text-xs text-muted xl:hidden">Email: </span>
+        {/* One line in the table (the full address on hover); it may break at the @ below xl. */}
+        <span className="xl:hidden">
           <EmailText value={application.contactEmail} />
         </span>
-      </span>
-      <span className={`wrap-anywhere ${COLUMNS[2]}`}>
-        <span className="text-xs text-muted xl:hidden">Email: </span>
-        <EmailText value={application.contactEmail} />
+        <span className="hidden xl:inline">{application.contactEmail}</span>
       </span>
       <time dateTime={application.submittedAt} className={COLUMNS[3]}>
         <span className="text-xs text-muted xl:hidden">Submitted: </span>
@@ -197,7 +201,7 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
       <span className={COLUMNS[5]}>
         <Link
           href={`/applications/${application.id}`}
-          className="inline-flex items-center justify-center rounded-control bg-brand-900 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+          className="inline-flex items-center justify-center rounded-control bg-brand-900 px-4 py-2 text-sm font-medium whitespace-nowrap text-white hover:bg-brand-700"
         >
           Review
         </Link>
@@ -280,15 +284,25 @@ export function DashboardOverview() {
         </p>
       </div>
 
-      <PageState<AdminDashboard> query={dashboard}>
-        {(data) => (
-          <div className="grid min-h-30 min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {dashboardStats.map((stat) => (
-              <StatCard key={stat.key} stat={stat} value={data[stat.key]} />
-            ))}
-          </div>
-        )}
-      </PageState>
+      {/* The four cards keep their frames in every state: a dash until the figures load or when
+          they cannot (design-match rule 2); a quiet line says why and retries. */}
+      <div className="grid min-h-30 min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {dashboardStats.map((stat) => (
+          <StatCard key={stat.key} stat={stat} value={dashboard.data?.[stat.key] ?? null} />
+        ))}
+      </div>
+      {dashboard.isError && !dashboard.data ? (
+        <p role="alert" className="-mt-2 flex flex-wrap items-center gap-3 text-sm text-danger">
+          {errorMessage(dashboard.error)}
+          <button
+            type="button"
+            onClick={() => void dashboard.refetch()}
+            className="font-medium text-link hover:underline"
+          >
+            Try again
+          </button>
+        </p>
+      ) : null}
 
       <div className="mt-1 grid min-w-0 gap-4 xl:grid-cols-12 xl:items-start">
         <div className="grid min-w-0 content-start gap-4 xl:col-span-9">
@@ -348,8 +362,9 @@ export function DashboardOverview() {
               <ul className="divide-y divide-border">
                 {attentionItems.map(({ label, key, icon: Icon, href }, index) => {
                   // Payments, support and renewals have nothing to count yet, and an unknown count shows 0.
-                  const count = key && dashboard.data ? (dashboard.data[key] ?? 0) : 0;
-                  const canOpen = href && count > 0;
+                  // Unknown when the figures could not be read: a dash, never a zero.
+                  const count = dashboard.data ? (key ? (dashboard.data[key] ?? 0) : 0) : null;
+                  const canOpen = href && count !== null && count > 0;
                   return (
                     <li
                       key={label}
@@ -369,7 +384,7 @@ export function DashboardOverview() {
                       >
                         <Icon aria-hidden className="size-5" />
                       </span>
-                      <span className="font-semibold text-text">{count}</span>
+                      <span className="font-semibold text-text">{count ?? '—'}</span>
                       {canOpen ? (
                         <Link
                           href={href}
@@ -454,33 +469,35 @@ export function DashboardOverview() {
           Platform Modules
         </SectionTitle>
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {platformModules.map(([label, Icon], index) => (
-            <li
-              key={label}
-              className="flex items-center gap-4 overflow-hidden rounded-control bg-canvas pr-3"
-            >
-              <span
-                className={
-                  'flex size-15 shrink-0 items-center justify-center rounded-control ' +
-                  [
-                    'bg-info-soft text-info',
-                    'bg-info-soft text-info',
-                    'bg-purple-soft text-purple',
-                    'bg-danger-soft text-danger',
-                    'bg-danger-soft text-danger',
-                    'bg-success-soft text-success',
-                    'bg-info-soft text-info',
-                    'bg-info-soft text-info',
-                  ][index]
-                }
+          {platformModules.map(([label, Icon, href, hint], index) => (
+            <li key={label}>
+              <Link
+                href={href}
+                className="flex items-center gap-4 overflow-hidden rounded-control bg-canvas pr-3 transition-colors hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-focus"
               >
-                <Icon aria-hidden className="size-6" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-text">{label}</span>
-                <span className="text-sm text-muted">Coming Soon</span>
-              </span>
-              <ChevronRight aria-hidden className="size-4 text-muted" />
+                <span
+                  className={
+                    'flex size-15 shrink-0 items-center justify-center rounded-control ' +
+                    [
+                      'bg-info-soft text-info',
+                      'bg-info-soft text-info',
+                      'bg-purple-soft text-purple',
+                      'bg-danger-soft text-danger',
+                      'bg-danger-soft text-danger',
+                      'bg-success-soft text-success',
+                      'bg-info-soft text-info',
+                      'bg-info-soft text-info',
+                    ][index]
+                  }
+                >
+                  <Icon aria-hidden className="size-6" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-text">{label}</span>
+                  <span className="block truncate text-sm text-muted">{hint}</span>
+                </span>
+                <ChevronRight aria-hidden className="size-4 text-muted" />
+              </Link>
             </li>
           ))}
         </ul>

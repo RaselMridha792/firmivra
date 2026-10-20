@@ -80,13 +80,18 @@ export const systemStatuses = [
   'Client Portals',
 ];
 
+/**
+ * The Platform Modules tiles (the dashboard design's last row). The design is Phase 1's, where
+ * every module said "Coming Soon"; the modules are built now, so each tile opens its module with
+ * one line about it. Leads / CRM has no page of its own yet: its leads live in the pipeline.
+ */
 export const platformModules = [
-  ['Sales', ChartColumn],
-  ['Leads / CRM', UserRound],
-  ['Team Management', Users],
-  ['Subscriptions', CreditCard],
-  ['Billing', FileText],
-  ['Support', Headset],
-  ['Reports & Analytics', ChartColumn],
-  ['Audit & Security', ShieldCheck],
+  ['Sales', ChartColumn, '/sales', 'Sales and revenue'],
+  ['Leads / CRM', UserRound, '/sales/pipeline', 'Leads in the pipeline'],
+  ['Team Management', Users, '/team', 'Staff and roles'],
+  ['Subscriptions', CreditCard, '/subscriptions', 'Plans and billing'],
+  ['Billing', FileText, '/billing', 'Invoices and payments'],
+  ['Support', Headset, '/support', 'Tickets and settings'],
+  ['Reports & Analytics', ChartColumn, '/reports', 'Platform reports'],
+  ['Audit & Security', ShieldCheck, '/audit-security', 'Events and settings'],
 ] as const;

@@ -259,28 +259,31 @@ export function NewTicketModal({
         </div>
         <div className="flex flex-col gap-2 sm:col-span-2">
           <span className="text-sm font-medium text-text">Attachments</span>
-          <FileDropzone
-            label="Attachments"
-            icon={Paperclip}
-            title="Drag and drop files here, or click to browse"
-            accept={ATTACHMENT_TYPES}
-            maxBytes={MAX_ATTACHMENT_BYTES}
-            onFiles={(files) => {
-              setRejected('');
-              set('attachments', [...draft.attachments, ...files]);
-            }}
-            onReject={(rejections) =>
-              setRejected(
-                rejections
-                  .map(({ file, reason }) =>
-                    reason === 'size'
-                      ? `${file.name} is larger than 10 MB.`
-                      : `${file.name} is not an image, PDF or document.`,
-                  )
-                  .join(' '),
-              )
-            }
-          />
+          {/* The design's slim drop row: the clip beside one line of text. */}
+          <div className="[&>label]:flex-row [&>label]:gap-3 [&>label]:py-4 [&>label>svg]:size-6 [&>label>span]:font-normal">
+            <FileDropzone
+              label="Attachments"
+              icon={Paperclip}
+              title="Drag and drop files here, or click to browse"
+              accept={ATTACHMENT_TYPES}
+              maxBytes={MAX_ATTACHMENT_BYTES}
+              onFiles={(files) => {
+                setRejected('');
+                set('attachments', [...draft.attachments, ...files]);
+              }}
+              onReject={(rejections) =>
+                setRejected(
+                  rejections
+                    .map(({ file, reason }) =>
+                      reason === 'size'
+                        ? `${file.name} is larger than 10 MB.`
+                        : `${file.name} is not an image, PDF or document.`,
+                    )
+                    .join(' '),
+                )
+              }
+            />
+          </div>
           <p className="text-xs text-muted">Supports images, PDFs, and documents (max 10MB each)</p>
           {rejected || errors.attachments ? (
             <p role="alert" className="text-xs text-danger">

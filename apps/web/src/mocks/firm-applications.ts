@@ -20,7 +20,7 @@ import {
   SubmitFirmApplicationRequest,
   websiteHost,
 } from '@firmivra/types';
-import { mockDelay } from '../lib/mock';
+import { mockDelay, mockedEmpty } from '../lib/mock';
 import { mockBusiness } from './me';
 
 /**
@@ -329,33 +329,37 @@ const emailDomainCheck = (email: string, website: string | null): FirmApplicatio
 
 /** An in-memory `api.firmApplications`. The Super Admin acting is Morgan Admin. */
 export function createFirmApplicationsMock(): FirmApplicationsClient {
-  let rows: Row[] = structuredClone([...firmApplicationFixtures()]);
-  const firms: MockFirm[] = [
-    {
-      firm: mockBusiness,
-      createdAt: hoursAgo(30 * DAY),
-      applicationId: null,
-      owner: { name: 'Mock User', email: 'owner@lvp.test', phone: null },
-    },
-    ...rows.flatMap((r) =>
-      r.firm
-        ? [
-            {
-              firm: r.firm,
-              createdAt: r.decision?.at ?? r.submittedAt,
-              applicationId: r.id,
-              owner: null,
-            },
-          ]
-        : [],
-    ),
-    {
-      firm: firm(7, 'Old Example Firm', 'old-example', 'SUSPENDED'),
-      createdAt: hoursAgo(60 * DAY),
-      applicationId: null,
-      owner: { name: 'Sam Former', email: 'sam@old-example.example.test', phone: null },
-    },
-  ];
+  // NEXT_PUBLIC_API_MOCK_EMPTY=firmApplications: no applications and no firms (the empty states).
+  const empty = mockedEmpty('firmApplications');
+  let rows: Row[] = empty ? [] : structuredClone([...firmApplicationFixtures()]);
+  const firms: MockFirm[] = empty
+    ? []
+    : [
+        {
+          firm: mockBusiness,
+          createdAt: hoursAgo(30 * DAY),
+          applicationId: null,
+          owner: { name: 'Mock User', email: 'owner@lvp.test', phone: null },
+        },
+        ...rows.flatMap((r) =>
+          r.firm
+            ? [
+                {
+                  firm: r.firm,
+                  createdAt: r.decision?.at ?? r.submittedAt,
+                  applicationId: r.id,
+                  owner: null,
+                },
+              ]
+            : [],
+        ),
+        {
+          firm: firm(7, 'Old Example Firm', 'old-example', 'SUSPENDED'),
+          createdAt: hoursAgo(60 * DAY),
+          applicationId: null,
+          owner: { name: 'Sam Former', email: 'sam@old-example.example.test', phone: null },
+        },
+      ];
   /** Stands in for the API's keyed EIN hash: fixtures by their last 4, new applications by the EIN. */
   const einKeys = new Map(
     rows.map((r) => [r.id, r.business?.einLast4 ? `fixture-${r.business.einLast4}` : null]),
