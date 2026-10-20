@@ -183,13 +183,15 @@ export function Sidebar({
                     ) : null}
                   </>
                 );
-                const row = `flex items-start ${brand ? 'gap-2 px-3.5 py-2.5 text-[15px] leading-[20px] font-bold' : 'gap-2.5 px-6 py-2 text-base'}`;
+                // The firm menu as the firm-workspace designs draw it (dashboard, Integrations):
+                // 34 px rows of 14 px regular text, the open page semibold (R1, Oct 20).
+                const row = `flex items-start ${brand ? 'gap-3 px-3.5 py-1.5 text-sm leading-5 font-normal' : 'gap-2.5 px-6 py-2 text-base'}`;
                 if (!item.href) {
                   return (
                     <li
                       key={item.label}
                       aria-disabled="true"
-                      className={`${row} text-brand-100 ${brand ? 'my-0.5' : ''}`}
+                      className={`${row} text-brand-100 ${brand ? 'my-px' : ''}`}
                     >
                       {body}
                     </li>
@@ -197,7 +199,7 @@ export function Sidebar({
                 }
                 const active = item.href === current;
                 return (
-                  <li key={item.label} className={brand ? 'my-0.5' : undefined}>
+                  <li key={item.label} className={brand ? 'my-px' : undefined}>
                     <Link
                       href={item.href}
                       onClick={onNavigate}
