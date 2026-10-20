@@ -1,6 +1,6 @@
 'use client';
 
-import type { AdminJob, AdminMaintenanceWindow } from '@firmivra/types';
+import type { AdminJob, AdminMaintenanceWindow, AdminSystemHealth } from '@firmivra/types';
 import { Badge, Button, Card, Input, Modal, Textarea, Toggle } from '@firmivra/ui';
 import {
   ArrowRight,
@@ -33,13 +33,20 @@ import {
   stamp,
 } from '../../_components/settings-kit';
 
-const SERVICES = [
-  'File Storage',
-  'Email Service',
-  'SMS Service',
-  'Payment Processing',
-  'Third-Party Integrations',
-];
+const SERVICES: Record<AdminSystemHealth['services'][number]['key'], string> = {
+  api: 'Application Server',
+  database: 'Database',
+  storage: 'File Storage',
+  email: 'Email Service',
+  sms: 'SMS Service',
+  payments: 'Payment Processing',
+};
+const SERVICE_STATUS = {
+  ONLINE: ['Online', 'success'],
+  DOWN: ['Not responding', 'danger'],
+  CONFIGURED: ['Configured', 'info'],
+  NOT_CONFIGURED: ['Not configured', 'neutral'],
+} as const;
 const ERRORS = {
   ...SETTINGS_ERRORS,
   STATE: 'This changed meanwhile (it may have started or finished). Reload and try again.',
@@ -54,13 +61,19 @@ const statusTone = (s: string | null) =>
         : 'neutral';
 const title = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
 
-/** Health: the API answers for itself and its database; a 503 or no answer is degraded. */
-async function health() {
+/**
+ * Health as the API checks it (database and storage reached now; email, SMS and payments as
+ * configured). No answer at all is the API itself down.
+ */
+async function health(): Promise<{ at: string; services: AdminSystemHealth['services'] }> {
   try {
-    const h = await api.health();
-    return { api: true, db: h.db === 'ok', at: new Date().toISOString() };
+    const h = await api.adminSettings.health();
+    return { at: h.checkedAt, services: h.services };
   } catch {
-    return { api: false, db: false, at: new Date().toISOString() };
+    return {
+      at: new Date().toISOString(),
+      services: [{ key: 'api', status: 'DOWN', detail: 'The API did not answer' }],
+    };
   }
 }
 
@@ -94,7 +107,9 @@ export function SystemConfiguration({ appUrl, apiUrl }: { appUrl: string; apiUrl
     { invalidate: [...SS] },
   );
   const active = windows.data?.items.find((w) => w.status === 'ACTIVE');
-  const ok = h.data?.api && h.data.db;
+  const state = (key: string) => h.data?.services.find((x) => x.key === key)?.status;
+  const ok =
+    state('api') === 'ONLINE' && state('database') === 'ONLINE' && state('storage') !== 'DOWN';
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -142,8 +157,8 @@ export function SystemConfiguration({ appUrl, apiUrl }: { appUrl: string; apiUrl
             {!h.data
               ? 'Checking the platform…'
               : ok
-                ? 'API and Database Operational'
-                : 'The API or database is not responding'}
+                ? 'All Checked Systems Operational'
+                : 'A checked service is not responding'}
           </p>
           <p className="text-sm text-text">Last checked: {h.data ? stamp(h.data.at) : '—'}</p>
         </div>
@@ -202,27 +217,25 @@ export function SystemConfiguration({ appUrl, apiUrl }: { appUrl: string; apiUrl
             className="divide-y divide-divider rounded-lg border border-divider text-sm"
             data-testid="system-health"
           >
-            {(
-              [
-                ['Application Server', h.data ? h.data.api : null],
-                ['Database', h.data ? h.data.db : null],
-              ] as const
-            ).map(([name, up]) => (
-              <li key={name} className="flex items-center justify-between px-3 py-2">
-                <span className="text-heading">{name}</span>
-                {up === null ? (
-                  <span className="text-muted">Checking…</span>
-                ) : (
-                  <Badge tone={up ? 'success' : 'danger'}>{up ? 'Online' : 'Not responding'}</Badge>
-                )}
-              </li>
-            ))}
-            {SERVICES.map((name) => (
-              <li key={name} className="flex items-center justify-between px-3 py-2">
-                <span className="text-heading">{name}</span>
-                <Badge tone="neutral">Not monitored</Badge>
-              </li>
-            ))}
+            {h.data ? (
+              h.data.services.map((x) => (
+                <li key={x.key} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <span className="min-w-0">
+                    <span className="block text-heading">{SERVICES[x.key]}</span>
+                    {x.detail ? <span className="block text-xs text-muted">{x.detail}</span> : null}
+                  </span>
+                  <Badge tone={SERVICE_STATUS[x.status][1]}>{SERVICE_STATUS[x.status][0]}</Badge>
+                </li>
+              ))
+            ) : (
+              <li className="px-3 py-2 text-muted">Checking…</li>
+            )}
+            <li className="flex items-center justify-between px-3 py-2">
+              <span className="text-heading">Third-Party Integrations</span>
+              <Link href="/integrations" className="text-sm text-action">
+                See Integrations
+              </Link>
+            </li>
           </ul>
         </SectionCard>
 

@@ -13,6 +13,7 @@ import {
   AdminBrandAsset,
   AdminBrandingSection,
   AdminEmailSection,
+  AdminEmailStatus,
   AdminFeature,
   AdminFeatureList,
   AdminFeatureOverride,
@@ -24,6 +25,7 @@ import {
   AdminRetentionRun,
   AdminSecretRef,
   AdminSettingsOverview,
+  AdminSystemHealth,
   AdminTestEmailResult,
   type UploadTicket,
 } from '@firmivra/types';
@@ -197,6 +199,26 @@ describe('sections', () => {
       }),
     );
     expect(sent).toBe(1);
+  });
+
+  it('reports the email status (the last test from its audit row) and the system health', async () => {
+    const status = AdminEmailStatus.parse(ok(await call('get', '/email/status')));
+    expect(['SES', 'SMTP', 'LOG']).toContain(status.sender);
+    expect(status).toMatchObject({ customSmtp: false, deliveryRate24h: null, bounced24h: null });
+    // The test above wrote its audit row unless no sender is configured (log mode answers first).
+    if (status.sender !== 'LOG') {
+      expect(status.lastTest).not.toBeNull();
+      expect(Date.now() - Date.parse(status.lastTest!.at)).toBeLessThan(5 * 60_000);
+    }
+    const health = AdminSystemHealth.parse(ok(await call('get', '/health')));
+    const by = Object.fromEntries(health.services.map((x) => [x.key, x.status]));
+    expect(by).toMatchObject({ api: 'ONLINE', database: 'ONLINE', storage: 'ONLINE' });
+    for (const key of ['email', 'sms', 'payments'])
+      expect(['CONFIGURED', 'NOT_CONFIGURED']).toContain(by[key]);
+    const firm = await request(app.getHttpServer())
+      .get('/api/v1/admin/system-settings/health')
+      .set('authorization', `Bearer ${await tokenFor(people.ownerA.email)}`);
+    expect([401, 403]).toContain(firm.status);
   });
 
   it('is for Super Admins only', async () => {

@@ -36,6 +36,7 @@ import {
   SettingsHeader,
   SETTINGS_ERRORS,
   SS,
+  stamp,
 } from '../../_components/settings-kit';
 
 const NAV = [
@@ -155,6 +156,7 @@ function Switch({
  */
 export function EmailSettings() {
   const q = useApiQuery([...SS, 'email'], () => api.adminSettings.email());
+  const delivery = useApiQuery([...SS, 'email-status'], () => api.adminSettings.emailStatus());
   const [draft, setDraft] = useState<AdminEmailSettings>();
   const [status, setStatus] = useState<Status>(null);
   const [testing, setTesting] = useState(false);
@@ -293,21 +295,53 @@ export function EmailSettings() {
             </h2>
             <dl className="text-sm">
               <div className="flex justify-between py-1.5">
-                <dt className="text-text">SMTP Connection</dt>
+                <dt className="text-text">Sender</dt>
                 <dd>
-                  {q.data ? (
-                    <Badge tone={q.data.smtpConfigured ? 'success' : 'neutral'}>
-                      {q.data.smtpConfigured ? 'Custom server' : 'Platform sender'}
+                  {delivery.data ? (
+                    <Badge tone={delivery.data.sender === 'LOG' ? 'neutral' : 'success'}>
+                      {delivery.data.sender === 'LOG'
+                        ? 'Log only (no sender)'
+                        : delivery.data.customSmtp
+                          ? 'Custom SMTP server'
+                          : delivery.data.sender === 'SES'
+                            ? 'Amazon SES'
+                            : 'SMTP server'}
                     </Badge>
                   ) : (
-                    '—'
+                    <span className="text-muted">{delivery.isError ? 'Could not load' : '—'}</span>
                   )}
                 </dd>
               </div>
-              {['Last Test Email', 'Delivery Rate (24h)', 'Bounced Emails (24h)'].map((l) => (
+              <div className="flex justify-between gap-3 py-1.5">
+                <dt className="text-text">Last Test Email</dt>
+                <dd className="text-right text-heading">
+                  {delivery.data?.lastTest ? (
+                    <>
+                      {stamp(delivery.data.lastTest.at)}{' '}
+                      <Badge tone={delivery.data.lastTest.accepted ? 'success' : 'danger'}>
+                        {delivery.data.lastTest.accepted ? 'Accepted' : 'Not sent'}
+                      </Badge>
+                    </>
+                  ) : (
+                    <span className="text-muted">{delivery.data ? 'None yet' : '—'}</span>
+                  )}
+                </dd>
+              </div>
+              {(
+                [
+                  ['Delivery Rate (24h)', delivery.data?.deliveryRate24h],
+                  ['Bounced Emails (24h)', delivery.data?.bounced24h],
+                ] as const
+              ).map(([l, v]) => (
                 <div key={l} className="flex justify-between py-1.5">
                   <dt className="text-text">{l}</dt>
-                  <dd className="text-muted">Not available</dd>
+                  <dd className={v === null || v === undefined ? 'text-muted' : 'text-heading'}>
+                    {v === null || v === undefined
+                      ? 'Not available'
+                      : l.startsWith('Delivery')
+                        ? `${v}%`
+                        : v}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -472,7 +506,7 @@ export function EmailSettings() {
 
 function TestEmail({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [to, setTo] = useState('');
-  const send = useApiMutation(() => api.adminSettings.testEmail({ to }));
+  const send = useApiMutation(() => api.adminSettings.testEmail({ to }), { invalidate: [...SS] });
   return (
     <Modal
       open={open}
