@@ -265,13 +265,15 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
             onSort: () => undefined,
           }}
         />
-        <Link
-          href={`/clients/${firmClientId ?? ''}/documents`}
-          className="inline-flex items-center gap-1 self-start text-sm font-medium text-link hover:underline"
-        >
-          Reclassify or archive files in the client&apos;s Documents{' '}
-          <ArrowRight aria-hidden weight="bold" className="size-4" />
-        </Link>
+        {firmClientId ? (
+          <Link
+            href={`/clients/${firmClientId}/documents`}
+            className="inline-flex items-center gap-1 self-start text-sm font-medium text-link hover:underline"
+          >
+            Reclassify or archive files in the client&apos;s Documents{' '}
+            <ArrowRight aria-hidden weight="bold" className="size-4" />
+          </Link>
+        ) : null}
       </section>
       <section className={card} aria-label="Document requests" data-testid="tab-doc-requests">
         <SectionHead
@@ -622,7 +624,7 @@ export function ClientPortalTab({ advisoryClientId }: { advisoryClientId: string
                 <>
                   No portal login yet.{' '}
                   <Link
-                    href={`/clients/${firmClientId ?? ''}`}
+                    href={`/clients/${firmClientId}`}
                     className="font-medium text-link hover:underline"
                   >
                     Invite from the client&apos;s record
