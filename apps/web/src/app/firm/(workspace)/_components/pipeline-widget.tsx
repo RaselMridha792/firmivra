@@ -6,11 +6,12 @@ import { Widget } from './widget';
 
 /** The design's five stages and bar colours. */
 const STAGES = [
-  { key: 'leads', label: 'Leads', bar: 'bg-info' },
-  { key: 'consultation', label: 'Consultation', bar: 'bg-sky' },
-  { key: 'intake', label: 'Intake', bar: 'bg-gold' },
-  { key: 'inProgress', label: 'In Progress', bar: 'bg-orange' },
-  { key: 'completed', label: 'Completed', bar: 'bg-success' },
+  // Each bar fades lighter toward its top, as the design draws them (R1, Oct 20).
+  { key: 'leads', label: 'Leads', bar: 'bg-linear-to-t from-info to-info/60' },
+  { key: 'consultation', label: 'Consultation', bar: 'bg-linear-to-t from-sky to-sky/60' },
+  { key: 'intake', label: 'Intake', bar: 'bg-linear-to-t from-gold to-gold/60' },
+  { key: 'inProgress', label: 'In Progress', bar: 'bg-linear-to-t from-orange to-orange/60' },
+  { key: 'completed', label: 'Completed', bar: 'bg-linear-to-t from-success to-success/60' },
 ] as const;
 
 /** Where the firm's work is; a stage no record holds yet shows a dash and an empty track. */
