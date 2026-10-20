@@ -28,10 +28,9 @@ Contract: `packages/types/src/admin-settings/` (`api.adminSettings`). API: `apps
 - `GET /admin/system-settings/email/status`: the sender, the custom SMTP reference, the last Send Test Email (its audit row). The 24-hour delivery rate and bounces are null.
 - `GET /admin/system-settings/health`: api, database and storage reached now (ONLINE or DOWN; storage gives up after 3 s); email, SMS and payments CONFIGURED or NOT_CONFIGURED from their settings, never called.
 
-## Needs from others
+## Needs from others (API)
 
-- **R0:** a platform-readable daily count of email deliveries and bounces (a table or a view over `notification_deliveries`, which only a firm scope reads), for Email Delivery Status. (API)
-
+- **R0:** a platform-readable daily count of email deliveries and bounces (a table or a view over `notification_deliveries`, which only a firm scope reads), for Email Delivery Status.
 - **R1 (infra):** S3 write, read and delete on `platform/branding/*` of the documents bucket for the API role, and GuardDuty results for that prefix routed to the API. The scan router only knows `tenant/<firm>/...` keys today, so in AWS a brand image stays PENDING (and cannot be put in use) until a platform route exists.
 - **R1:** `APP_VERSION` and `APP_ENV` in the API task's environment for System Information (it falls back to the package version and NODE_ENV).
 
