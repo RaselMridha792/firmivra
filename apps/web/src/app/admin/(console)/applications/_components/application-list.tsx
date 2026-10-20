@@ -109,34 +109,36 @@ export function ApplicationList() {
         </div>
       </header>
 
-      <ApplicationPageState query={counts}>
-        {(data) => (
-          <section
-            aria-label="Application totals"
-            className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4 [&>div]:shadow-none [&_.size-13]:size-16 [&_svg]:size-8"
-          >
-            <StatCard
-              label="Pending Review"
-              value={data.pendingReview}
-              icon={FileText}
-              tone="info"
-            />
-            <StatCard
-              label="Approved This Month"
-              value={data.approvedThisMonth}
-              icon={CircleCheck}
-              tone="success"
-            />
-            <StatCard
-              label="Declined This Month"
-              value={data.declinedThisMonth}
-              icon={X}
-              tone="danger"
-            />
-            <StatCard label="Total Applications" value={data.all} icon={UsersRound} tone="purple" />
-          </section>
-        )}
-      </ApplicationPageState>
+      {/* The totals keep their frames in every state: a dash until they load or when they cannot. */}
+      <section
+        aria-label="Application totals"
+        className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4 [&>div]:shadow-none [&_.size-13]:size-16 [&_svg]:size-8"
+      >
+        <StatCard
+          label="Pending Review"
+          value={count?.pendingReview ?? null}
+          icon={FileText}
+          tone="info"
+        />
+        <StatCard
+          label="Approved This Month"
+          value={count?.approvedThisMonth ?? null}
+          icon={CircleCheck}
+          tone="success"
+        />
+        <StatCard
+          label="Declined This Month"
+          value={count?.declinedThisMonth ?? null}
+          icon={X}
+          tone="danger"
+        />
+        <StatCard
+          label="Total Applications"
+          value={count?.all ?? null}
+          icon={UsersRound}
+          tone="purple"
+        />
+      </section>
 
       <div
         role="tablist"
