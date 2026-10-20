@@ -1,10 +1,12 @@
-﻿import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { ConnectIntegrationRequest } from '@firmivra/types';
 import {
   setupConnection,
   setupFixture,
   setupTestResult,
 } from '../../src/mocks/integrations-connect';
+
+test.use({ viewport: { width: 1440, height: 1100 } });
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/integrations/microsoft365/connect`;

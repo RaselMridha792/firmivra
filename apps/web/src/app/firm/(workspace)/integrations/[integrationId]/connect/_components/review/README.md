@@ -56,3 +56,9 @@ Screenshots are synthetic fixtures, not production fallback data.
 Desktop: 1440 px. Mobile: 375 px, with no horizontal overflow.
 See the adjacent PNGs for data, empty, offline and denied/read-only examples.
 Validation results and the current backend limitation are recorded in the PR.
+
+## Oct 20 review update
+
+Connect: all desktop state screenshots now explicitly use a 1440 x 1100 viewport, including empty, offline, forbidden and read-only. Twelve focused browser tests, web TypeScript and focused ESLint passed. The backend OAuth callback still targets /setup; its owner must align it with the existing /connect routes.
+
+Latest origin/main was merged before this verification. Synthetic data, empty and API-unreachable screenshots are 1440px; mobile evidence is 375px. The source mockup was cropped into three regions and compared with the rendered page. Existing asset/token/shell differences remain documented; exact visual sign-off and Tumit pre-review are pending. Evidence is published on the existing ibrahim/FIR-I01-integrations-screenshots branch.
