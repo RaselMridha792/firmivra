@@ -260,22 +260,19 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
 3. **No more demo seed groups.** The demo data gets replaced later, and nobody reseeds dev now (R1 has been told).
 
 **Open PRs (Oct 20):**
-- **#934: Business Advisory client detail, shell and Overview** (design 3).
-  - The spec has 15 tests.
-  - The Business Health Score explains its factors.
-  - Edit Client covers the advisory record and its services.
+- **#943: client detail tabs Business Plan, Goals & Milestones, Tasks, Notes, Activity Log.**
+  - The spec has 18 tests.
+  - `GoalsList`, `RecommendationsSection` and `ActionItemsSection` are shared by the module tabs and the client tabs.
 - **#875:** this handoff.
-- **Merged since Oct 19:** #868, #871, #883, #885, #888, #897, #899, #908, #910, #915 and #929 (wizard).
+- **Merged since Oct 19:** #868, #871, #883, #885, #888, #897, #899, #908, #910, #915, #929 and #934.
 
-**Next: the client detail's other ten tabs**, the last placeholders. They go on a branch stacked on #934 (`rasel/R0-advisory-client-detail`), inside `ClientShell`:
-- `/plan`: current plan, the client's plans and versions.
-- `/financials`: the figures, Add Figures, and the health factors.
-- `/goals`, `/recommendations`, `/tasks`: this client's lists, reusing the module's dialogs.
-- `/meetings`: upcoming and past.
-- `/documents`: `api.documents`, the advisory services' files.
-- `/notes`: `api.clientNotes`, list and add.
-- `/portal`: what the client sees (sent plans, client-visible recommendations and tasks).
-- `/activity`: `api.advisory.activity`, in a kit `Timeline`.
+**Split with R1 (Scrum, Oct 20):** R1 builds the client tabs Meetings, Financials, Recommendations, Documents and Client Portal.
+- For R1 to reuse: `RecommendationsSection`, `HealthFactors`, `BudgetCell`, `AddFiguresDialog`, `noneWhenMissing`.
+- My earlier full Financials and Recommendations tabs are at `2199adde` (`client-tabs.tsx`).
+
+**After #943 R0's Business Advisory part is done.** Left open:
+- the plan profile's missing "How did you hear about us?" and notes (contract gap from #929)
+- whatever review asks
 
 **Business Advisory (item 2), started Oct 19:**
 - The API and contract already exist on main (R55, `de509806`: `apps/api/src/advisory/`, `packages/types/src/advisory/`).
