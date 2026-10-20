@@ -8,6 +8,7 @@
     "start": "node scripts/next.mjs start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "test:e2e": "playwright test && playwright test -c playwright.mock.config.ts",
     "test:e2e:mock": "playwright test -c playwright.mock.config.ts"
   },
@@ -23,7 +24,8 @@
     "eslint": "catalog:",
     "globals": "^17.13.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "^5.0.3"
   },
   "dependencies": {
     "@firmivra/types": "workspace:*",
