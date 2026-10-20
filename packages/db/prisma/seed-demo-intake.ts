@@ -112,6 +112,7 @@ export async function seedDemoIntake(prisma: Prisma, org: DemoOrgResult): Promis
       businessId,
       org.serviceIds,
       SEED_SERVICES.lvp.map((s) => s.name),
+      { realForms: true },
     );
     await seedFirmAgreement(tx, businessId, owner, DEMO_AGREEMENT_IDS);
 

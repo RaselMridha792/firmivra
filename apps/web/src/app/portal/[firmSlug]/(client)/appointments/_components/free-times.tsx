@@ -81,7 +81,7 @@ export function FreeTimes({
                     className={
                       picked?.startsAt === slot.startsAt
                         ? ''
-                        : 'border-firm-primary text-firm-primary hover:bg-folder-surface'
+                        : 'border-firm-primary text-firm-text hover:bg-folder-surface'
                     }
                     aria-pressed={picked?.startsAt === slot.startsAt}
                     disabled={isCurrent(slot)}

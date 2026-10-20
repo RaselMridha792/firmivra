@@ -96,13 +96,22 @@ export async function lockReachableClient(
 /** The request row, locked FOR UPDATE until the transaction ends (Prisma has no FOR UPDATE). */
 export async function lockRequest(tx: TxClient, businessId: string, id: string) {
   const [row] = await tx.$queryRaw<
-    { client_id: string; engagement_id: string; status: DocumentRequestStatus }[]
+    {
+      client_id: string;
+      engagement_id: string;
+      status: DocumentRequestStatus;
+      packet_id: string | null;
+    }[]
   >`
     SELECT client_id::text AS client_id, engagement_id::text AS engagement_id,
-           status::text AS status
-    FROM document_requests
-    WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
-    FOR UPDATE`;
+           status::text AS status, packet_id::text AS packet_id
+    FROM document_requests r
+    WHERE r.business_id = ${businessId}::uuid AND r.id = ${id}::uuid
+      -- An item of a request (packet) not sent yet is nobody's to act on (R55).
+      AND (r.packet_id IS NULL OR EXISTS (
+        SELECT 1 FROM document_request_packets k
+        WHERE k.business_id = r.business_id AND k.id = r.packet_id AND k.status <> 'DRAFT'))
+    FOR UPDATE OF r`;
   return row ?? null;
 }
 
@@ -148,9 +157,8 @@ export async function findTarget(
   const theirs = !ids.requestId || request?.client_id === clientId.toLowerCase();
   if (!engagement || (ids.categoryId && !category) || !theirs) throw notFound();
   if (engagement.status !== 'ACTIVE' || ids.clientArchived) throw refusal('NO_OPEN_SERVICE');
-  if (request && (request.engagement_id !== engagement.id || !isOpen(request.status))) {
-    throw refusal('REQUEST_CLOSED');
-  }
+  if (request && request.engagement_id !== engagement.id) throw refusal('REQUEST_CLOSED');
+  if (request && !(await takesUpload(tx, businessId, request))) throw refusal('REQUEST_CLOSED');
   if (category?.archived_at) throw refusal('CATEGORY_ARCHIVED');
   return {
     engagement: { id: engagement.id, taxYear: engagement.taxYear },
@@ -160,6 +168,36 @@ export async function findTarget(
 }
 
 export const isOpen = (status: DocumentRequestStatus) => OPEN_REQUEST.includes(status);
+
+/** An item of an open packet takes a file in these: a SUBMITTED one gets another or a replacement. */
+const PACKET_UPLOADABLE: readonly DocumentRequestStatus[] = ['REQUESTED', 'REJECTED', 'SUBMITTED'];
+
+/**
+ * Whether a request takes an upload now. A request on its own: while open (REQUESTED or
+ * REJECTED). An item of a request packet (R55, Frame 7): while the packet is OPEN and not past
+ * its expiry, and the item is not accepted or answered "I don't have this"; a submitted,
+ * completed or expired packet takes none. The packet is read FOR SHARE after the item (lock
+ * order: the item, then the packet; Submit for Review locks the packet first and reads items
+ * without locking them).
+ */
+async function takesUpload(
+  tx: TxClient,
+  businessId: string,
+  request: { status: DocumentRequestStatus; packet_id: string | null },
+): Promise<boolean> {
+  if (!request.packet_id) return isOpen(request.status);
+  const [packet] = await tx.$queryRaw<{ status: string; expired: boolean }[]>`
+    SELECT status::text AS status, (expires_at IS NOT NULL AND expires_at <= now()) AS expired
+    FROM document_request_packets
+    WHERE business_id = ${businessId}::uuid AND id = ${request.packet_id}::uuid
+    FOR SHARE`;
+  return packet?.status === 'OPEN' && !packet.expired && PACKET_UPLOADABLE.includes(request.status);
+}
+
+/** Items the client may see: standalone requests and items of a sent request (packet). */
+export const SENT_ITEMS: Prisma.DocumentRequestWhereInput = {
+  OR: [{ packetId: null }, { packet: { status: { not: 'DRAFT' } } }],
+};
 
 export const documentSelect = {
   id: true,
@@ -268,6 +306,7 @@ export const myRequestSelect = {
   resolvedAt: true,
   engagement: { select: { id: true, title: true } },
   category: { select: { id: true, name: true } },
+  packet: { select: { id: true, number: true, title: true } },
 } satisfies Prisma.DocumentRequestSelect;
 
 /**
@@ -320,6 +359,13 @@ export function toMyRequest(row: Omit<RequestRow, 'documents'>): MyDocumentReque
     dueOn: day(row.dueOn),
     status: row.status,
     statusNote: row.statusNote,
+    packet: row.packet
+      ? {
+          id: row.packet.id,
+          reference: `DR-${String(row.packet.number).padStart(4, '0')}`,
+          title: row.packet.title,
+        }
+      : null,
   };
 }
 

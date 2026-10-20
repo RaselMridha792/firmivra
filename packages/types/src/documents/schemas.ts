@@ -146,7 +146,7 @@ export const FileName = z
   );
 
 /** What `uploadFile()` learns from the file itself and adds to every `createUpload`. */
-const FileFacts = {
+export const UPLOAD_FILE_FACTS = {
   /** FileName; it must end in an ending of its content type (checked with the type). */
   fileName: FileName,
   contentType: UploadContentType,
@@ -158,10 +158,11 @@ const FileFacts = {
   /** SHA-256 of the file, hex; storage refuses the upload if the bytes differ. */
   sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Not a SHA-256'),
 };
+const FileFacts = UPLOAD_FILE_FACTS;
 export type UploadFileFacts = { [K in keyof typeof FileFacts]: z.input<(typeof FileFacts)[K]> };
 
 /** The name's ending must fit the declared type (".pdf" for a PDF), with a name before it. */
-const nameFitsType = (
+export const uploadNameFitsType = (
   body: { fileName: string; contentType: UploadContentType },
   ctx: z.RefinementCtx,
 ) => {
@@ -268,7 +269,7 @@ export const CreateFirmUploadRequest = z
     shareWithClient: z.boolean().optional().default(false),
     ...FileFacts,
   })
-  .superRefine(nameFitsType);
+  .superRefine(uploadNameFitsType);
 export type CreateFirmUploadRequest = z.input<typeof CreateFirmUploadRequest>;
 
 /** GET /business/document-categories: the firm's categories, in order. */
@@ -428,7 +429,9 @@ export type UploadTargets = z.infer<typeof UploadTargets>;
  * POST /portal/{firmSlug}/me/documents/uploads. 404 for a service, request or category that
  * isn't the client's or their firm's; then 409 NO_OPEN_SERVICE (service not ACTIVE),
  * REQUEST_CLOSED (request of another service, or not open: a SUBMITTED request takes no second
- * file until the firm marks it missing or its newest file comes back INFECTED or FAILED) or
+ * file until the firm marks it missing or its newest file comes back INFECTED or FAILED; an item
+ * of an OPEN, unexpired request packet also takes a file while SUBMITTED, another or a
+ * replacement; an item of a submitted, completed or expired packet takes none) or
  * CATEGORY_ARCHIVED. An upload with a `requestId` answers it (SUBMITTED). A replacement is a new
  * upload for the same request; the old file stays.
  */
@@ -440,7 +443,7 @@ export const CreateMyUploadRequest = z
     taxYear: TaxYear.nullable().optional(),
     ...FileFacts,
   })
-  .superRefine(nameFitsType);
+  .superRefine(uploadNameFitsType);
 export type CreateMyUploadRequest = z.input<typeof CreateMyUploadRequest>;
 
 /** GET /portal/{firmSlug}/me/document-categories: the firm's active categories, in order. */
@@ -457,6 +460,14 @@ export const MyDocumentRequest = z.object({
   dueOn: CalendarDate.nullable(),
   status: RequestStatus,
   statusNote: z.string().nullable(),
+  /**
+   * The request packet this item is part of ("DR-0024"); null for a request made on its own.
+   * The API always sends it; optional for older readers.
+   */
+  packet: z
+    .object({ id: z.uuid(), reference: z.string(), title: z.string() })
+    .nullable()
+    .optional(),
 });
 export type MyDocumentRequest = z.infer<typeof MyDocumentRequest>;
 /** At most 200: open ones first, then the newest. */
@@ -486,6 +497,10 @@ export const DocumentErrorCode = z.enum([
   'NOTHING_SUBMITTED',
   /** 409: the category is archived. */
   'CATEGORY_ARCHIVED',
+  /** 409 (Submit for Review): a required item of the packet is not answered yet. */
+  'PACKET_INCOMPLETE',
+  /** 409 (Submit for Review): the packet is not open: submitted already, completed or expired. */
+  'PACKET_CLOSED',
   /** 410: the upload ticket is too old or was used; start the upload again. */
   'UPLOAD_EXPIRED',
   /**
@@ -542,6 +557,9 @@ export const DOCUMENT_ERRORS = {
   REQUEST_CLOSED: 'This request is no longer open. Reload and try again.',
   NOTHING_SUBMITTED: 'Nothing new has been uploaded for this request.',
   CATEGORY_ARCHIVED: 'This category is archived. Choose another one.',
+  PACKET_INCOMPLETE:
+    "Upload every required item, or tell your firm you don't have it, then submit.",
+  PACKET_CLOSED: 'This request is no longer open. Reload to see where it stands.',
   UPLOAD_EXPIRED: 'This upload has expired. Please try again.',
   UPLOAD_MISMATCH: "This file doesn't match its type. Check the file and upload it again.",
   FILE_PASSWORD_PROTECTED: 'Remove the password and upload the file again.',

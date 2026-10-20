@@ -44,7 +44,7 @@ const features: Tile[] = [
   ],
 ];
 const panel =
-  'text-center [&_h2]:font-display [&_h2]:text-3xl [&_h2]:font-bold [&_h2]:text-firm-primary';
+  'text-center [&_h2]:font-display [&_h2]:text-3xl [&_h2]:font-bold [&_h2]:text-firm-text';
 
 /** The landing page (/{firm}) from docs/mockups/client-portal/Client portal landing page.png. */
 export function LandingScreen() {
@@ -74,7 +74,7 @@ export function LandingScreen() {
   ];
   const motto = taglineWords(branding);
   return (
-    <div data-testid="portal-landing" className="text-firm-primary">
+    <div data-testid="portal-landing" className="text-firm-text">
       <section className="relative overflow-hidden bg-canvas">
         <HeroArt />
         <PageContainer className="relative py-12 md:py-16">
@@ -169,7 +169,7 @@ function Tiles({ items, secure = false }: { items: Tile[]; secure?: boolean }) {
     <section
       className={`my-6 grid gap-6 ${secure ? 'rounded-card bg-folder-surface p-6 md:grid-cols-3 md:divide-x md:divide-firm-accent [&_h3]:font-sans [&_h3]:text-sm' : 'sm:grid-cols-2 md:grid-cols-5'}`}
     >
-      {items.map(([Icon, title, description, icon = secure ? '' : 'text-firm-primary']) => (
+      {items.map(([Icon, title, description, icon = secure ? '' : 'text-firm-text']) => (
         <article key={title} className={secure ? 'flex gap-3 md:pr-6' : 'text-center'}>
           <Icon aria-hidden className={`${iconClass} ${icon}`} />
           <div>

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import hero from './begin-hero.png';
 import styles from './begin-online.module.css';
+import scaleStyles from '../_blocks/intake-scale.module.css';
 
 // The cards' order, descriptions and icons; the path, title, tagline and button come from the
 // contract (BEGIN_ONLINE_SERVICES), so the screen and the API name each service the same way.
@@ -86,7 +87,7 @@ const trust = [
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return (
-    <p className="flex items-center justify-center gap-2 text-xs font-semibold tracking-eyebrow text-accent uppercase">
+    <p className="flex items-center justify-center gap-2 text-sm font-semibold tracking-eyebrow text-accent uppercase">
       <span aria-hidden="true" className="h-px w-7 bg-accent" />
       {children}
       <span aria-hidden="true" className="h-px w-7 bg-accent" />
@@ -109,25 +110,25 @@ function AppointmentLink({ firmSlug }: { firmSlug: string }) {
 
 export function BeginOnlineScreen({ firmSlug, taxYear }: { firmSlug: string; taxYear: number }) {
   return (
-    <div data-theme="begin-online" className="bg-surface text-firm-primary">
+    <div data-theme="begin-online" className={`bg-surface text-firm-primary ${scaleStyles.scale}`}>
       <section
         aria-labelledby="begin-heading"
         className="relative isolate flex flex-col overflow-hidden bg-subtle"
       >
-        <div className="relative order-last aspect-3/2 w-full md:absolute md:inset-y-0 md:right-0 md:order-0 md:aspect-auto md:w-1/2">
+        <div className="relative order-last aspect-3/2 w-full lg:absolute lg:inset-y-0 lg:right-0 lg:order-0 lg:aspect-auto lg:w-1/2">
           <Image
             src={hero}
             alt="A laptop with the steps: Fill Out Intake Form, Upload Documents, Submit Securely."
             fill
-            sizes="(min-width: 768px) 512px, 100vw"
+            sizes="(min-width: 1024px) 50vw, 100vw"
             preload
             className="object-cover object-right"
           />
-          <div className={`absolute inset-0 hidden md:block ${styles.photoFade}`} />
+          <div className={`absolute inset-0 hidden lg:block ${styles.photoFade}`} />
         </div>
-        <PageContainer className="relative">
+        <PageContainer className={`${scaleStyles.frame} relative`}>
           <div className="max-w-xl py-5">
-            <p className="flex items-center gap-2 text-xs font-semibold tracking-eyebrow text-accent uppercase">
+            <p className="flex items-center gap-2 text-sm font-semibold tracking-eyebrow text-accent uppercase">
               <span aria-hidden="true" className="h-px w-7 bg-accent" /> Secure. Simple. Convenient.
             </p>
             <h1
@@ -147,14 +148,14 @@ export function BeginOnlineScreen({ firmSlug, taxYear }: { firmSlug: string; tax
             </p>
             <div className="mt-3 inline-flex max-w-full flex-col items-center gap-1">
               <AppointmentLink firmSlug={firmSlug} />
-              <p className="text-xs">Let&apos;s find a time that works for you.</p>
+              <p className="text-sm">Let&apos;s find a time that works for you.</p>
             </div>
           </div>
         </PageContainer>
       </section>
 
       <section id="services" aria-labelledby="services-heading" className="pt-3 pb-2">
-        <PageContainer>
+        <PageContainer className={scaleStyles.frame}>
           <div className="mb-2 text-center">
             <Eyebrow>Get Started Online</Eyebrow>
             <h2
@@ -203,7 +204,7 @@ export function BeginOnlineScreen({ firmSlug, taxYear }: { firmSlug: string; tax
       </section>
 
       <section aria-labelledby="steps-heading" className="pt-1 pb-3">
-        <PageContainer>
+        <PageContainer className={scaleStyles.frame}>
           <div className="mb-3 text-center">
             <Eyebrow>It&apos;s Easy</Eyebrow>
             <h2
@@ -273,7 +274,9 @@ export function BeginOnlineScreen({ firmSlug, taxYear }: { firmSlug: string; tax
           aria-hidden="true"
           className="absolute -right-8 -bottom-6 -z-10 h-48 w-12 rotate-35 bg-accent/35"
         />
-        <PageContainer className="grid items-center gap-5 text-center lg:grid-cols-4 lg:gap-6">
+        <PageContainer
+          className={`${scaleStyles.frame} grid items-center gap-5 text-center lg:grid-cols-4 lg:gap-6`}
+        >
           <p className="font-display text-2xl leading-relaxed italic lg:border-r lg:border-on-action/40 lg:pr-5">
             Same Goals
             <br />
@@ -290,7 +293,7 @@ export function BeginOnlineScreen({ firmSlug, taxYear }: { firmSlug: string; tax
             </p>
             <AppointmentLink firmSlug={firmSlug} />
           </div>
-          <ul className="flex justify-center gap-5 text-xs lg:border-l lg:border-on-action/40 lg:pl-5">
+          <ul className="flex justify-center gap-5 text-sm lg:border-l lg:border-on-action/40 lg:pl-5">
             {trust.map(({ label, icon: Icon }) => (
               <li key={label} className="flex flex-1 flex-col items-center gap-1">
                 <Icon aria-hidden="true" className="size-7 text-accent" />

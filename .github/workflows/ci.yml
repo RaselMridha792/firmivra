@@ -67,16 +67,24 @@ jobs:
           key: turbo-checks-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
           restore-keys: turbo-checks-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
-      - run: pnpm format:check
+      # Prettier's own cache: files whose content and settings are unchanged are not checked again.
+      # By content, because a fresh checkout gives every file a new modified time.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.cache/prettier
+          key: prettier-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.prettierrc*', '.prettierignore') }}-${{ github.sha }}
+          restore-keys: prettier-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.prettierrc*', '.prettierignore') }}-
+
+      - run: pnpm format:check --cache --cache-strategy content
       - run: pnpm lint ${FILTER:+"--filter=$FILTER"}
       - run: pnpm typecheck ${FILTER:+"--filter=$FILTER"}
 
   test:
-    name: test (shard ${{ matrix.shard }}/2)
+    name: test (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     timeout-minutes: 20
     # id-token only here: the pull-only role for postgres from our ECR cache.
     permissions:
@@ -156,9 +164,10 @@ jobs:
           key: turbo-test-${{ matrix.shard }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
           restore-keys: turbo-test-${{ matrix.shard }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
-      # Each shard runs every package's test files that vitest assigns to it; the two shards
-      # together run the same tests as one full run.
-      - run: pnpm test ${FILTER:+"--filter=$FILTER"} -- --shard="$SHARD"/2
+      # Each shard runs every package's test files that vitest assigns to it; the four shards
+      # together run the same tests as one full run. A package with fewer test files than shards
+      # gets none in some shards, so it sets passWithNoTests in its own vitest setup (ui, infra).
+      - run: pnpm test ${FILTER:+"--filter=$FILTER"} -- --shard="$SHARD"/4
         env:
           SHARD: ${{ matrix.shard }}
 

@@ -365,7 +365,7 @@ describe('profile and Edit (GET :id/profile, PATCH :id)', () => {
           source: 'EVENT',
           sourceDetail: 'Spring expo',
           preferredContact: ['PHONE'],
-          serviceIds: [ids.books],
+          serviceIds: [ids.tax, ids.books],
           tags: [`Hot ${run}`],
           version: profile.version,
         }),
@@ -381,7 +381,7 @@ describe('profile and Edit (GET :id/profile, PATCH :id)', () => {
       source: 'EVENT',
       sourceDetail: 'Spring expo',
       preferredContact: ['PHONE'],
-      services: [{ id: ids.books }],
+      services: [{ id: ids.tax }, { id: ids.books }],
       tags: [`Hot ${run}`],
     });
     expect(edited.version).not.toBe(profile.version);
@@ -438,8 +438,11 @@ describe('profile and Edit (GET :id/profile, PATCH :id)', () => {
     expect(codeOf(await call('patch', `/${id}`, people.ownerA, { serviceIds: [] }))).toBe(
       'VALIDATION_FAILED',
     );
-    expect((await call('patch', `/${id}`, people.ownerA, { serviceIds: [ids.taxB] })).status).toBe(
-      404,
+    expect(
+      (await call('patch', `/${id}`, people.ownerA, { serviceIds: [ids.tax, ids.taxB] })).status,
+    ).toBe(404);
+    expect(codeOf(await call('patch', `/${id}`, people.ownerA, { serviceIds: [ids.books] }))).toBe(
+      'VALIDATION_FAILED',
     );
     expect(
       (await call('patch', `/${id}`, people.ownerA, { assignedUserId: people.ownerB.id })).status,

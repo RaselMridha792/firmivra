@@ -88,6 +88,11 @@ export class LocalIdentityProvider implements IdentityProvider {
     return Promise.resolve();
   }
 
+  resetMfa(_pool: IdentityPool, sub: string): Promise<void> {
+    this.mfaReady.delete(sub);
+    return Promise.resolve();
+  }
+
   resetPassword(
     _pool: IdentityPool,
     sub: string | undefined,

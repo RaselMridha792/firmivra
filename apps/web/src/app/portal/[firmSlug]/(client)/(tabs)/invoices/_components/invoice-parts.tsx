@@ -7,9 +7,10 @@ import {
   type MyInvoiceStatus,
 } from '@firmivra/types';
 import { Badge, Button } from '@firmivra/ui';
+import { ArrowRight } from 'lucide-react';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
-import { useApiMutation } from '../../../../../../../lib/query';
+import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 
 const TONE: Record<MyInvoiceStatus, 'info' | 'success' | 'warning' | 'danger' | 'neutral'> = {
   PENDING: 'warning',
@@ -61,9 +62,30 @@ export function PayButton({
       disabled={pay.isPending}
       onClick={() => pay.mutate(invoice.id)}
       aria-label={`Pay ${invoice.number} now`}
-      className="cursor-pointer bg-firm-primary! hover:bg-navigation-hover! focus-visible:outline-firm-primary! disabled:bg-disabled! disabled:text-disabled-text!"
+      className="cursor-pointer bg-firm-button! hover:bg-firm-button-hover! focus-visible:outline-firm-primary! disabled:bg-disabled! disabled:text-disabled-text!"
     >
       Pay Now
+    </Button>
+  );
+}
+
+/**
+ * "Make a Payment" at the top of Receipts & Invoices (invoices tab.png): pays the soonest invoice
+ * still due, as its row's Pay Now does; disabled when nothing is due (R61).
+ */
+export function MakePaymentButton({ slug, pay }: { slug: string; pay: ReturnType<typeof usePay> }) {
+  const due = useApiQuery(['my-invoices', slug, { view: 'DUE', section: 'CURRENT' }], () =>
+    api.myInvoices(slug).list({ view: 'DUE', section: 'CURRENT', limit: 1 }),
+  );
+  const next = due.data?.items[0];
+  return (
+    <Button
+      disabled={!next || pay.isPending}
+      onClick={() => next && pay.mutate(next.id)}
+      title={next ? `Pay ${next.number}` : 'Nothing to pay right now'}
+      className="cursor-pointer gap-2 bg-firm-button! hover:bg-firm-button-hover! disabled:bg-disabled! disabled:text-disabled-text!"
+    >
+      Make a Payment <ArrowRight aria-hidden className="size-5" />
     </Button>
   );
 }

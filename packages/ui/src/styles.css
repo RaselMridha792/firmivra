@@ -58,6 +58,19 @@
   --color-gold-light: #daac3c;
   /* R33: the open page's pill in the firm sidebar, measured from the dashboard design. */
   --color-nav-active: #0069fe;
+  /* R61: the client portal's icon circles and coloured icons, measured from docs/mockups/client-portal
+     at 1440 px (Intake form tab.png): a pastel circle per intake service, and the strong icon
+     colours of Recent Activity (upload, message, form, tax return). Fixed colours, not the firm's. */
+  --color-portal-tint-blue: #cee8fd;
+  --color-portal-tint-peach: #fceaca;
+  --color-portal-tint-mint: #d4efe6;
+  --color-portal-tint-lavender: #eae5fc;
+  --color-portal-tint-rose: #fcdcd7;
+  --color-portal-tint-slate: #d2e0f1;
+  --color-portal-icon-green: #1dd56d;
+  --color-portal-icon-blue: #20a3fa;
+  --color-portal-icon-magenta: #d31dfb;
+  --color-portal-icon-orange: #e38824;
   --color-orange: #f26a21;
   --color-sky: #4da3ff;
   /* R40: the firm workspace tables' header band, and their row lines and control borders. */
@@ -85,6 +98,16 @@
   --color-accent-600: #007f82;
   --color-firm-primary: var(--color-platform-navy);
   --color-firm-accent: var(--color-platform-blue);
+  /* R55: the firm's theme colours (Settings), set by the portal and firm workspace layouts from
+     the firm's settings. Each defaults to the look before they existed: from the primary colour. */
+  --color-on-navigation: var(--color-white);
+  --color-firm-sidebar: var(--color-firm-primary);
+  --color-on-firm-sidebar: var(--color-white);
+  --color-firm-text: var(--color-firm-primary);
+  --color-firm-text-muted: var(--color-muted);
+  --color-firm-button: var(--color-firm-primary);
+  --color-firm-button-hover: color-mix(in srgb, var(--color-firm-button), var(--color-white) 10%);
+  --color-on-firm-button: var(--color-white);
   --color-overlay: rgba(0, 27, 54, 0.55);
   --color-transparent: transparent;
   /* R25: mockup faces (Nunito Sans, Playfair Display) loaded by apps/web; old stacks stay as fallbacks. */
@@ -167,9 +190,16 @@
 }
 [data-theme='portal'],
 [data-theme='begin-online'] {
-  --color-navigation: var(--color-firm-primary);
-  --color-navigation-hover: color-mix(in srgb, var(--color-firm-primary), var(--color-white) 10%);
-  --color-heading: var(--color-firm-primary);
+  /* Declared here again so they follow the firm colours set on this element (a custom property
+     resolves where it is declared). */
+  --color-firm-sidebar: var(--color-firm-primary);
+  --color-firm-text: var(--color-firm-primary);
+  --color-firm-button: var(--color-firm-primary);
+  --color-firm-button-hover: color-mix(in srgb, var(--color-firm-button), var(--color-white) 10%);
+  --color-navigation: var(--color-firm-sidebar);
+  --color-navigation-hover: color-mix(in srgb, var(--color-firm-sidebar), var(--color-white) 10%);
+  --color-on-navigation: var(--color-on-firm-sidebar);
+  --color-heading: var(--color-firm-text);
   --color-action: var(--color-firm-accent);
   --color-action-hover: color-mix(in srgb, var(--color-action), var(--color-text) 12%);
   --color-action-pressed: color-mix(in srgb, var(--color-action), var(--color-text) 24%);

@@ -21,6 +21,7 @@ import { useApiQuery } from '../../../../../../lib/query';
 import { ButtonLink } from '../../../(public)/_components/button-link';
 import { NotesCard } from '../messages/_components/notes-card';
 import { HelpfulResources } from '../business/_components/business-cards';
+import { TaxPaymentCard } from '../taxes/_components/tax-cards';
 
 const dateTime = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
@@ -51,14 +52,14 @@ function LinkCard({
     <Card className="flex gap-3">
       <Icon
         aria-hidden
-        className={`${compactIcon ? 'size-8' : 'size-10'} shrink-0 ${blueAccent ? 'text-firm-primary' : 'text-firm-accent'}`}
+        className={`${compactIcon ? 'size-8' : 'size-10'} shrink-0 ${blueAccent ? 'text-firm-text' : 'text-firm-accent'}`}
       />
       <div className="min-w-0">
         <h2 className="font-display text-lg font-bold text-heading">{title}</h2>
         <div className="my-1 text-sm text-text">{children}</div>
         <Link
           href={href}
-          className={`inline-flex items-center gap-2 underline ${blueAccent ? 'text-firm-primary' : 'text-link'}`}
+          className={`inline-flex items-center gap-2 underline ${blueAccent ? 'text-firm-text' : 'text-link'}`}
         >
           {action} <ArrowRight aria-hidden className="size-4" />
         </Link>
@@ -75,6 +76,8 @@ export function RightColumn({
   showInvoiceInfo = false,
   businessPage = false,
   showIntakeTip = false,
+  documentsPage = false,
+  taxesPage = false,
 }: {
   slug: string;
   isMessagesPage?: boolean;
@@ -82,6 +85,10 @@ export function RightColumn({
   showInvoiceInfo?: boolean;
   businessPage?: boolean;
   showIntakeTip?: boolean;
+  /** The My Uploaded Documents tab: its two document cards (My docs tab.png). */
+  documentsPage?: boolean;
+  /** The Tax Returns tab: its Tax Return Payment card (Taxes tab.png). */
+  taxesPage?: boolean;
 }) {
   return isMessagesPage ? (
     <MessagesRightColumn slug={slug} />
@@ -92,6 +99,8 @@ export function RightColumn({
       businessPage={businessPage}
       showIntakeTip={showIntakeTip}
       showInvoiceInfo={showInvoiceInfo}
+      documentsPage={documentsPage}
+      taxesPage={taxesPage}
     />
   );
 }
@@ -140,12 +149,16 @@ function DefaultRightColumn({
   businessPage,
   showIntakeTip,
   showInvoiceInfo,
+  documentsPage,
+  taxesPage,
 }: {
   slug: string;
   blueAccents: boolean;
   businessPage: boolean;
   showIntakeTip: boolean;
   showInvoiceInfo: boolean;
+  documentsPage: boolean;
+  taxesPage: boolean;
 }) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
@@ -191,7 +204,9 @@ function DefaultRightColumn({
             </div>
           </div>
         </Card>
-      ) : (
+      ) : taxesPage ? (
+        <TaxPaymentCard slug={slug} />
+      ) : documentsPage ? (
         <>
           <LinkCard
             icon={FileUp}
@@ -212,7 +227,7 @@ function DefaultRightColumn({
             View documents shared with you by the firm.
           </LinkCard>
         </>
-      )}
+      ) : null}
     </aside>
   );
 }
@@ -240,13 +255,13 @@ function ImportantInfoCard() {
   return (
     <Card>
       <div className="flex items-center gap-3">
-        <Info aria-hidden className="size-5 shrink-0 text-firm-primary" />
+        <Info aria-hidden className="size-5 shrink-0 text-firm-text" />
         <h2 className="font-display text-lg font-bold text-heading">Important Info</h2>
       </div>
       <dl className="mt-3 ml-8 divide-y divide-border text-xs">
         {invoiceInfo.map(([question, answer]) => (
           <div key={question} className="py-2 first:pt-0 last:pb-0">
-            <dt className="text-sm font-bold text-firm-primary">{question}</dt>
+            <dt className="text-sm font-bold text-firm-text">{question}</dt>
             <dd className="mt-1 text-text">{answer}</dd>
           </div>
         ))}
@@ -262,7 +277,10 @@ const quickLinks = (slug: string): [LucideIcon, string, string, string][] => [
   [UserRound, 'Update My Profile', 'Keep your information current.', `/${slug}/profile`],
 ];
 
-/** "Quick Links" under the folder tabs. */
+/**
+ * "Quick Links" under the folder tabs: icons in the firm's accent (Intake form tab.png, orange) or,
+ * on the blue pages, its button colour (Messages and notes.png, R61).
+ */
 export function QuickLinks({
   slug,
   blueAccents = false,
@@ -277,7 +295,7 @@ export function QuickLinks({
       <h2 className="mb-2 font-display text-2xl font-bold text-heading">Quick Links</h2>
       <ul
         className={
-          businessLayout ? 'grid grid-cols-2 gap-2 2xl:grid-cols-4' : 'divide-y divide-border'
+          businessLayout ? 'grid grid-cols-2 gap-2 xl:grid-cols-4' : 'divide-y divide-border'
         }
       >
         {quickLinks(slug).map(([Icon, title, description, href]) => (
@@ -292,10 +310,14 @@ export function QuickLinks({
             >
               <Icon
                 aria-hidden
-                className={`size-8 shrink-0 ${blueAccents ? 'text-firm-primary' : 'text-firm-accent'}`}
+                className={`size-8 shrink-0 ${blueAccents ? 'text-action' : 'text-firm-accent'}`}
               />
               <span className={businessLayout ? 'min-w-0' : 'min-w-0 flex-1'}>
-                <span className="block font-semibold text-heading">{title}</span>
+                <span
+                  className={`block font-semibold text-heading ${businessLayout ? 'text-xs leading-tight' : ''}`}
+                >
+                  {title}
+                </span>
                 <span className={`block text-sm text-text ${businessLayout ? 'sr-only' : ''}`}>
                   {description}
                 </span>
@@ -303,7 +325,7 @@ export function QuickLinks({
               {!businessLayout ? (
                 <ChevronRight
                   aria-hidden
-                  className={`size-5 shrink-0 ${blueAccents ? 'text-firm-primary' : 'text-firm-accent'}`}
+                  className={`size-5 shrink-0 ${blueAccents ? 'text-action' : 'text-firm-accent'}`}
                 />
               ) : null}
             </Link>

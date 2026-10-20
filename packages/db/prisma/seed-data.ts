@@ -417,6 +417,16 @@ export const SEED_PLATFORM_IDS = {
   securityEvent: '00000000-0000-4005-8000-000000000051',
   securityAlert: '00000000-0000-4005-8000-000000000052',
   securityNote: '00000000-0000-4005-8000-000000000053',
+  // Stage D1: a company goal, a rep goal and a finished lead import (one new lead, one duplicate).
+  salesTargetCompany: '00000000-0000-4005-8000-0000000000b1',
+  salesTargetRep: '00000000-0000-4005-8000-0000000000b2',
+  salesImport: '00000000-0000-4005-8000-0000000000b3',
+  salesImportContact: '00000000-0000-4005-8000-0000000000b4',
+  salesImportDeal: '00000000-0000-4005-8000-0000000000b5',
+  // Stage D4: Firmivra's Terms and Privacy Policy v1, and LVP's owner's acceptance of the Terms.
+  legalTerms: '00000000-0000-4005-8000-0000000000c1',
+  legalPrivacy: '00000000-0000-4005-8000-0000000000c2',
+  legalAcceptance: '00000000-0000-4005-8000-0000000000c3',
 } as const;
 
 /**

@@ -307,6 +307,19 @@ describe('createAdvisoryClient', () => {
     expect(JSON.stringify(f.calls)).not.toMatch(/businessId|x-business-id/i);
   });
 
+  it('reads the reports, for the firm or one advisor', async () => {
+    const f = fakeFetch({});
+    const client = createAdvisoryClient(createRequest({ fetch: f.fn, baseUrl: '/api/v1' }));
+    await client.reports().catch(() => undefined);
+    await client.reports({ advisorUserId: id }).catch(() => undefined);
+    expect(f.calls.map((c) => c.url)).toEqual([
+      '/api/v1/business/advisory/reports',
+      `/api/v1/business/advisory/reports?advisorUserId=${id}`,
+    ]);
+    await expect(client.reports({ advisorUserId: 'me' })).rejects.toMatchObject({ status: 400 });
+    expect(f.calls).toHaveLength(2);
+  });
+
   it('refuses bad input before sending anything', async () => {
     const f = fakeFetch({});
     const client = createAdvisoryClient(createRequest({ fetch: f.fn, baseUrl: '/api/v1' }));

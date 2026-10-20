@@ -221,14 +221,16 @@ describe('SendingNotifyService', () => {
   it('keeps the template tables in step', () => {
     expect(Object.keys(TEMPLATE_SENDER).sort()).toEqual(Object.keys(TEMPLATE_CHANNEL).sort());
     for (const t of Object.keys(TEMPLATE_SENDER) as (keyof typeof TEMPLATE_SENDER)[]) {
-      expect(TEMPLATE_SENDER[t]).toBe(t.startsWith('firm-application.') ? 'platform' : 'firm');
+      expect(TEMPLATE_SENDER[t]).toBe(
+        t.startsWith('firm-application.') || t.startsWith('platform.') ? 'platform' : 'firm',
+      );
     }
     expect(
       Object.entries(TEMPLATE_CHANNEL)
         .filter(([, c]) => c === 'sms')
         .map(([t]) => t)
         .sort(),
-    ).toEqual(['client.signup-sms-code', 'lead.message-sms']);
+    ).toEqual(['client.signup-sms-code', 'lead.message-sms', 'platform.message-sms']);
     for (const t of ALWAYS_SENT) expect(TEMPLATE_CATEGORY[t]).toBe('ACCOUNT');
     expect(Object.keys(TEMPLATE_CATEGORY).sort()).toEqual(Object.keys(TEMPLATE_CHANNEL).sort());
   });

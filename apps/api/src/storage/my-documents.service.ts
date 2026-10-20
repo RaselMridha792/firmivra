@@ -27,6 +27,7 @@ import {
   lockClient,
   notFound,
   OPEN_REQUEST,
+  SENT_ITEMS,
   peopleOf,
   type PortalCaller,
   type PortalLogin,
@@ -49,7 +50,7 @@ const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
  * of the household (MINE) and the firm's shared files (FIRM); an AUTHORIZED login sees only its
  * own uploads, and FIRM is empty for it.
  */
-function visible(login: PortalLogin, source: Source): Prisma.DocumentWhereInput | null {
+export function visible(login: PortalLogin, source: Source): Prisma.DocumentWhereInput | null {
   if (!login.clientId) return null;
   const theirs = { businessId: login.businessId, clientId: login.clientId };
   if (source === 'FIRM') return login.household ? { ...theirs, direction: 'FIRM_TO_CLIENT' } : null;
@@ -225,6 +226,7 @@ export class MyDocumentsService {
           clientId: login.clientId,
           status: { in: [...OPEN_REQUEST] },
           engagementId: { in: engagements.map((e) => e.id) },
+          ...SENT_ITEMS,
         },
         orderBy: [{ dueOn: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
         select: { id: true, title: true, dueOn: true, engagementId: true },

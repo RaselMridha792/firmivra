@@ -241,7 +241,7 @@ export function ConsentStep({ signing, firmSlug, opening, state, onState, onLost
               <Button
                 type="submit"
                 disabled={accept.isPending || consent.isFetching}
-                className="bg-firm-primary! text-on-action! hover:bg-navigation-hover! focus-visible:outline-firm-primary"
+                className="bg-firm-button! text-on-firm-button! hover:bg-firm-button-hover! focus-visible:outline-firm-primary"
               >
                 Continue
               </Button>

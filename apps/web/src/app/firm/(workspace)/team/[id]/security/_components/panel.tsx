@@ -3,8 +3,8 @@ import type { Icon } from '@phosphor-icons/react';
 import { type ReactNode, createElement } from 'react';
 
 /**
- * One card of Staff Account Access & Security: the tinted tile, the title, an optional line under
- * it, and an optional button or link on the right.
+ * One card of Staff Account Access & Security: the tinted tile, the title (in the design's serif),
+ * an optional line under it, and an optional button or link on the right.
  */
 export function Panel({
   title,
@@ -39,7 +39,7 @@ export function Panel({
           {createElement(icon, { weight: 'fill', className: 'size-6' })}
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-bold text-heading">{title}</h2>
+          <h2 className="font-display text-lg font-bold text-heading">{title}</h2>
           {subtitle ? <p className="text-sm text-muted">{subtitle}</p> : null}
         </div>
         {action}

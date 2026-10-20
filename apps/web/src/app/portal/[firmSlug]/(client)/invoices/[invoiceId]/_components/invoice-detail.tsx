@@ -31,7 +31,7 @@ export function InvoiceDetail() {
     <div className="mx-auto grid max-w-4xl gap-4">
       <Link
         href={`/${slug}/invoices`}
-        className="inline-flex items-center gap-2 text-firm-primary underline print:hidden"
+        className="inline-flex items-center gap-2 text-firm-text underline print:hidden"
       >
         <ArrowLeft aria-hidden className="size-4" /> Back to Receipts &amp; Invoices
       </Link>

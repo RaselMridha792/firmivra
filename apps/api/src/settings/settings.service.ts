@@ -104,6 +104,7 @@ export class SettingsService {
   }
 
   async update(businessId: string, patch: SettingsPatch): Promise<FirmSettings> {
+    // The theme colours (sidebarColor, textPrimaryColor, ...) are columns of the same name.
     const { name, primaryColor, ein, ...rest } = patch;
     const fields = Object.keys(patch).sort();
     // The EIN is sealed before the transaction, so a KMS call never holds a pooled connection or
@@ -355,6 +356,10 @@ export class SettingsService {
       sidebarMotto: s?.sidebarMotto ?? null,
       primaryColor: s?.brandColor ?? null,
       accentColor: s?.accentColor ?? null,
+      sidebarColor: s?.sidebarColor ?? null,
+      textPrimaryColor: s?.textPrimaryColor ?? null,
+      textSecondaryColor: s?.textSecondaryColor ?? null,
+      buttonColor: s?.buttonColor ?? null,
       portalName: s?.portalName ?? null,
       portalHeader: s?.portalHeader ?? null,
       welcomeMessage: s?.welcomeMessage ?? null,

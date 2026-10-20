@@ -154,7 +154,9 @@ describe('row-level security coverage', () => {
                    ('bookkeeping_transactions', 'DELETE'), ('bookkeeping_refunds', 'DELETE'),
                    ('bookkeeping_settlements', 'DELETE'), ('bookkeeping_report_versions', 'DELETE'),
                    ('bookkeeping_terms', 'DELETE'), ('bookkeeping_terms_events', 'UPDATE'),
-                   ('bookkeeping_terms_events', 'DELETE')) AS p(tbl, privilege)`);
+                   ('bookkeeping_terms_events', 'DELETE'),
+                   ('client_compliance_facts', 'DELETE'),
+                   ('client_sales_tax_registrations', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 

@@ -46,6 +46,16 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const { me, signOut } = useMe();
+  // When one item's path holds another's (/sales and /sales/pipeline), only the longest match is
+  // the current page.
+  const current = sections
+    .flat()
+    .map((item) => item.href)
+    .filter((href): href is string => Boolean(href) && isActive(pathname, href ?? ''))
+    .reduce<string | undefined>(
+      (best, href) => (best && best.length >= href.length ? best : href),
+      undefined,
+    );
   // The menu's scrollbar is hidden (it looked wrong next to the navy menu), so a soft fade at its
   // bottom edge shows while more items are below.
   const menuRef = useRef<HTMLDivElement>(null);
@@ -67,7 +77,7 @@ export function Sidebar({
   return (
     <nav
       aria-label="Main"
-      className={`flex h-full flex-col bg-brand-900 text-white ${brand ? 'w-61.5' : 'w-72'}`}
+      className={`flex h-full flex-col bg-navigation text-on-navigation ${brand ? 'w-61.5' : 'w-72'}`}
     >
       {brand ? (
         <div className="shrink-0 px-5 pb-5 pt-4">
@@ -113,7 +123,7 @@ export function Sidebar({
           {sections.map((items, i) => (
             <ul
               key={items[0]?.label ?? 'group'}
-              className={`flex flex-col ${brand ? '' : 'gap-0.5'} ${i > 0 ? 'relative mt-2 pt-4 before:absolute before:inset-x-6 before:top-0 before:border-t before:border-platform-navy-raised' : ''}`}
+              className={`flex flex-col ${i > 0 ? 'relative mt-2 pt-4 before:absolute before:inset-x-6 before:top-0 before:border-t before:border-platform-navy-raised' : ''}`}
             >
               {items.map((item) => {
                 const Icon = item.icon;
@@ -140,7 +150,7 @@ export function Sidebar({
                     ) : null}
                   </>
                 );
-                const row = `flex items-start ${brand ? 'gap-2 px-3.5 py-2.5 text-[15px] leading-[20px] font-bold' : 'gap-2.5 px-6 py-3 text-base'}`;
+                const row = `flex items-start ${brand ? 'gap-2 px-3.5 py-2.5 text-[15px] leading-[20px] font-bold' : 'gap-2.5 px-6 py-2 text-base'}`;
                 if (!item.href) {
                   return (
                     <li
@@ -152,7 +162,7 @@ export function Sidebar({
                     </li>
                   );
                 }
-                const active = isActive(pathname, item.href);
+                const active = item.href === current;
                 return (
                   <li key={item.label} className={brand ? 'my-0.5' : undefined}>
                     <Link
@@ -182,14 +192,14 @@ export function Sidebar({
           <div
             aria-hidden
             data-testid="sidebar-menu-fade"
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-brand-900 to-transparent"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-navigation to-transparent"
           />
         ) : null}
       </div>
 
       {brand ? (
         brand.slogan || brand.motto ? (
-          <div className="mx-4 flex shrink-0 flex-col items-center gap-2 border-t border-brand-100/75 pb-4 pt-3">
+          <div className="mx-4 flex shrink-0 flex-col items-center gap-2 border-t border-on-navigation/40 pb-4 pt-3">
             {brand.slogan ? (
               <p
                 data-testid="firm-slogan"
@@ -205,7 +215,7 @@ export function Sidebar({
             {brand.motto ? (
               <p
                 data-testid="firm-motto"
-                className="text-center text-[11px] font-semibold uppercase tracking-wide text-brand-100"
+                className="text-center text-[11px] font-semibold uppercase tracking-wide text-on-navigation/80"
               >
                 {words(brand.motto).flatMap((word, i) => [
                   i > 0 ? (
