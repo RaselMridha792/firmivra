@@ -57,3 +57,9 @@ Reference: `docs/mockups/firm-workspace/integrations/source/add-integration-mark
   ESLint pass. The catalog and unavailable-provider tests were repeated after the final
   alignment adjustment. New synthetic desktop/mobile and unavailable-provider evidence is
   saved alongside this file.
+
+## Oct 20 review update
+
+Marketplace: offline and forbidden tests follow the existing marketplace status banner. Unknown catalog counts use a dash; outage copy addresses the user. Nine focused browser tests, web TypeScript and focused ESLint passed.
+
+Latest origin/main was merged before this verification. Synthetic data, empty and API-unreachable screenshots are 1440px; mobile evidence is 375px. The source mockup was cropped into three regions and compared with the rendered page. Existing asset/token/shell differences remain documented; exact visual sign-off and Tumit pre-review are pending. Evidence is published on the existing ibrahim/FIR-I01-integrations-screenshots branch.

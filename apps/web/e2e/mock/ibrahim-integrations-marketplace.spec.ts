@@ -199,9 +199,10 @@ for (const state of ['empty', 'offline', 'forbidden', 'readonly'] as const) {
       await expect(page.getByTestId('marketplace-integration')).toHaveCount(0);
     if (state === 'empty')
       await expect(page.getByText('No integrations available yet.')).toBeVisible();
-    if (state === 'offline') await expect(page.getByTestId('page-error').first()).toBeVisible();
+    if (state === 'offline')
+      await expect(page.getByTestId('marketplace-unavailable')).toBeVisible();
     if (state === 'forbidden')
-      await expect(page.getByTestId('page-forbidden').first()).toBeVisible();
+      await expect(page.getByTestId('marketplace-unavailable')).toBeVisible();
     if (state === 'readonly' || state === 'forbidden' || state === 'offline')
       await expect(
         page
