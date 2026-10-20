@@ -6,8 +6,8 @@ import {
   ArrowRight,
   ArrowsClockwise,
   CheckCircle,
-  FirstAid,
   Play,
+  ShieldCheck,
   WarningCircle,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
@@ -91,8 +91,13 @@ function Troubleshooting({
                   : 'No check has run yet.'}
               </p>
             </div>
-            <Button disabled={!detail || busy} onClick={() => test.mutate(undefined)}>
-              <FirstAid aria-hidden weight="fill" className="size-5" />
+            <Button
+              variant="secondary"
+              className="border-action! text-action!"
+              disabled={!detail || busy}
+              onClick={() => test.mutate(undefined)}
+            >
+              <ShieldCheck aria-hidden weight="fill" className="size-5" />
               {test.isPending ? 'Testing…' : 'Run Connection Test'}
             </Button>
           </div>
@@ -105,8 +110,17 @@ function Troubleshooting({
           ) : (
             <>
               <p
-                className={`rounded-control px-3 py-2 text-sm ${shown.ok ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}
+                className={`flex items-center gap-3 rounded-control p-3 text-sm text-heading ${shown.ok ? 'bg-success-soft' : 'bg-danger-soft'}`}
               >
+                {shown.ok ? (
+                  <CheckCircle aria-hidden weight="fill" className="size-8 shrink-0 text-success" />
+                ) : (
+                  <WarningCircle
+                    aria-hidden
+                    weight="fill"
+                    className="size-8 shrink-0 text-danger"
+                  />
+                )}
                 {shown.summary}
               </p>
               {shown.checks.length ? (
