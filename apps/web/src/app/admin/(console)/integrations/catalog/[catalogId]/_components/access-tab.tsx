@@ -26,7 +26,7 @@ import {
   type FirmOption,
   type PlanAccess,
   type PlanOption,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { formatDateTime } from '../../../_components/integration-format';
 import { loadError, QuietLine, SkeletonLines } from '../../../_components/integration-states';
 import type { Notice } from '../../../_components/platform-actions';
@@ -66,7 +66,7 @@ function explain(
   let why: string;
   if (rule?.access === 'ALLOW') why = 'This firm has an Allow override, whatever its plan.';
   else if (entry.planAccess === 'ALL_PLANS') why = 'The entry is on all plans.';
-  else if (entry.planIds.includes(firm.planId))
+  else if (firm.planId !== null && entry.planIds.includes(firm.planId))
     why = `The firm's plan, ${firm.planName}, is selected.`;
   else
     return {

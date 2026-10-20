@@ -34,7 +34,7 @@ import {
   type IntegrationStatus,
   type LogSeverity,
   type RunStatus,
-} from '../../../../../mocks/admin-integrations';
+} from './integrations-contract';
 
 /**
  * Shared badges and marks of the Integrations pages: the status pills (docx §11: green Active,

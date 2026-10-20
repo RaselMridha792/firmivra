@@ -46,7 +46,10 @@ import {
 import { Roles } from '../auth/decorators.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { AdminPrisma } from '../firm-applications/admin-prisma.js';
+import { AdminIntegrationsOpsController } from './admin-integrations-ops.controller.js';
+import { ApiAccessService } from './api-access.service.js';
 import { IntegrationCatalogService } from './catalog.service.js';
+import { IntegrationInsightsService } from './integration-insights.service.js';
 import { IntegrationRunWorker } from './integration-run-worker.js';
 import { createPlatformSecretStore, PLATFORM_SECRETS } from './platform-secrets.js';
 import { PlatformIntegrationsService } from './platform-integrations.service.js';
@@ -59,7 +62,8 @@ const body = <T extends z.ZodType>(schema: T) => new ZodValidationPipe(schema);
 /**
  * Super Admin Integrations, part 1 (contract: packages/types/src/admin-integrations; R0 stage B8):
  * the dashboard, Firmivra's platform integrations and the customer catalog. Static routes come
- * before `:id`. API keys, webhooks, logs and usage are part 2.
+ * before `:id`. API keys, webhooks, logs, usage and the audit trail are part 2
+ * (admin-integrations-ops.controller.ts).
  */
 @Controller('admin/integrations')
 @Roles('SUPER_ADMIN')
@@ -265,11 +269,13 @@ export class AdminIntegrationsController {
 }
 
 @Module({
-  controllers: [AdminIntegrationsController],
+  controllers: [AdminIntegrationsController, AdminIntegrationsOpsController],
   providers: [
     AdminPrisma,
     PlatformIntegrationsService,
     IntegrationCatalogService,
+    ApiAccessService,
+    IntegrationInsightsService,
     IntegrationRunWorker,
     { provide: PLATFORM_SECRETS, useFactory: () => createPlatformSecretStore() },
   ],

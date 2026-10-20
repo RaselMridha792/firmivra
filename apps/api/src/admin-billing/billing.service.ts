@@ -271,46 +271,59 @@ export class BillingService {
   }
 
   createInvoice(body: Out<typeof SaveBillingInvoiceRequest>): Promise<BillingInvoiceDetail> {
-    return this.admin.transaction(async (tx) => {
-      const firm = await billableFirm(tx, body.firmId);
-      if (body.estimateId) await this.convertible(tx, body.estimateId, firm.id);
-      const row = await tx.platformInvoice.create({
-        data: {
-          businessId: firm.id,
-          invoiceDate: asDate(body.issueDate),
-          dueDate: asDate(body.dueDate),
-          periodStart: body.periodStart ? asDate(body.periodStart) : null,
-          periodEnd: body.periodEnd ? asDate(body.periodEnd) : null,
-          billToName: firm.contactName,
-          billToEmail: firm.contactEmail,
-          reference: body.reference || null,
-          notes: body.notes || null,
-          internalNote: body.internalNote || null,
-          discountCents: 0,
-          allowOnlinePayment: body.allowOnlinePayment,
-          sourceEstimateId: body.estimateId,
-          createdByUserId: this.admin.adminUserId,
-          lines: {
-            create: lineData(body.lines, firm.taxExempt),
-          },
+    return this.admin.transaction(async (tx) =>
+      this.invoiceDetail(tx, await this.createInvoiceIn(tx, body)),
+    );
+  }
+
+  /**
+   * Create Invoice in the caller's transaction: the invoice id. Subscriptions bills a change
+   * through it, on the subscription (`subscriptionId`).
+   */
+  async createInvoiceIn(
+    tx: TxClient,
+    body: Out<typeof SaveBillingInvoiceRequest>,
+    subscriptionId: string | null = null,
+  ): Promise<string> {
+    const firm = await billableFirm(tx, body.firmId);
+    if (body.estimateId) await this.convertible(tx, body.estimateId, firm.id);
+    const row = await tx.platformInvoice.create({
+      data: {
+        businessId: firm.id,
+        subscriptionId,
+        invoiceDate: asDate(body.issueDate),
+        dueDate: asDate(body.dueDate),
+        periodStart: body.periodStart ? asDate(body.periodStart) : null,
+        periodEnd: body.periodEnd ? asDate(body.periodEnd) : null,
+        billToName: firm.contactName,
+        billToEmail: firm.contactEmail,
+        reference: body.reference || null,
+        notes: body.notes || null,
+        internalNote: body.internalNote || null,
+        discountCents: 0,
+        allowOnlinePayment: body.allowOnlinePayment,
+        sourceEstimateId: body.estimateId,
+        createdByUserId: this.admin.adminUserId,
+        lines: {
+          create: lineData(body.lines, firm.taxExempt),
         },
-        select: { id: true, number: true },
-      });
-      await this.discount(tx, 'invoice', row.id, body.discountCents);
-      await this.log(
-        tx,
-        'billing_invoice.created',
-        { type: 'billing_invoice', id: row.id },
-        firm.id,
-        {
-          detail: row.number,
-          lines: body.lines.length,
-        },
-      );
-      if (body.estimateId) await this.markConverted(tx, body.estimateId, row.id, firm.id);
-      if (body.send) await this.issue(tx, row.id, firm.id, body.emailFirm);
-      return this.invoiceDetail(tx, row.id);
+      },
+      select: { id: true, number: true },
     });
+    await this.discount(tx, 'invoice', row.id, body.discountCents);
+    await this.log(
+      tx,
+      'billing_invoice.created',
+      { type: 'billing_invoice', id: row.id },
+      firm.id,
+      {
+        detail: row.number,
+        lines: body.lines.length,
+      },
+    );
+    if (body.estimateId) await this.markConverted(tx, body.estimateId, row.id, firm.id);
+    if (body.send) await this.issue(tx, row.id, firm.id, body.emailFirm);
+    return row.id;
   }
 
   updateInvoice(
@@ -882,36 +895,44 @@ export class BillingService {
   }
 
   createCreditNote(body: Out<typeof SaveBillingCreditNoteRequest>): Promise<BillingCreditNote> {
-    return this.admin.transaction(async (tx) => {
-      const firm = await billableFirm(tx, body.firmId);
-      await this.relatedInvoice(tx, body.invoiceId, firm.id);
-      const row = await tx.platformCreditNote.create({
-        data: {
-          businessId: firm.id,
-          relatedInvoiceId: body.invoiceId,
-          issueDate: asDate(body.date),
-          reason: body.reason,
-          customerNote: body.customerNote || null,
-          internalNote: body.internalNote || null,
-          createdByUserId: this.admin.adminUserId,
-          lines: {
-            create: this.creditLines(body, firm.taxExempt),
-          },
+    return this.admin.transaction(async (tx) =>
+      this.creditDetail(tx, await this.createCreditNoteIn(tx, body)),
+    );
+  }
+
+  /** Create Credit Note in the caller's transaction (Subscriptions credits a change): its id. */
+  async createCreditNoteIn(
+    tx: TxClient,
+    body: Out<typeof SaveBillingCreditNoteRequest>,
+  ): Promise<string> {
+    const firm = await billableFirm(tx, body.firmId);
+    await this.relatedInvoice(tx, body.invoiceId, firm.id);
+    const row = await tx.platformCreditNote.create({
+      data: {
+        businessId: firm.id,
+        relatedInvoiceId: body.invoiceId,
+        issueDate: asDate(body.date),
+        reason: body.reason,
+        customerNote: body.customerNote || null,
+        internalNote: body.internalNote || null,
+        createdByUserId: this.admin.adminUserId,
+        lines: {
+          create: this.creditLines(body, firm.taxExempt),
         },
-        select: { id: true, number: true },
-      });
-      await this.log(
-        tx,
-        'billing_credit_note.created',
-        { type: 'billing_credit_note', id: row.id },
-        firm.id,
-        {
-          detail: row.number,
-        },
-      );
-      if (body.issue) await this.issueCredit(tx, row.id);
-      return this.creditDetail(tx, row.id);
+      },
+      select: { id: true, number: true },
     });
+    await this.log(
+      tx,
+      'billing_credit_note.created',
+      { type: 'billing_credit_note', id: row.id },
+      firm.id,
+      {
+        detail: row.number,
+      },
+    );
+    if (body.issue) await this.issueCredit(tx, row.id);
+    return row.id;
   }
 
   updateCreditNote(
@@ -1617,53 +1638,84 @@ export class BillingService {
     );
   }
 
+  /**
+   * The payment terms (days) and tax rate (percent) a firm's documents get: its own, else Billing
+   * Settings' (a tax-exempt firm's lines carry no tax whatever the rate).
+   */
+  async firmTerms(
+    tx: TxClient,
+    firmId: string,
+  ): Promise<{ termDays: number; taxPercent: number; taxExempt: boolean }> {
+    const firm = (await loadFirms(tx, firmId)).get(firmId);
+    if (!firm) throw notFound('Firm');
+    const settings = await this.settingsRow(tx);
+    return {
+      termDays:
+        firm.paymentTermDays ??
+        settings?.defaultPaymentTermDays ??
+        BILLING_PAYMENT_TERM_DAYS.NET_30,
+      taxPercent: firm.taxPercent ?? (settings?.defaultTaxRateBps ?? 0) / 100,
+      taxExempt: firm.taxExempt,
+    };
+  }
+
   private async templateFor(
     tx: TxClient,
     firmId: string,
     body: Out<typeof SaveBillingRecurringRequest>,
   ) {
-    const firm = (await loadFirms(tx, firmId)).get(firmId)!;
-    const settings = await this.settingsRow(tx);
-    const rate = firm.taxExempt
-      ? 0
-      : Math.round((firm.taxPercent ?? (settings?.defaultTaxRateBps ?? 0) / 100) * 100);
+    const terms = await this.firmTerms(tx, firmId);
+    const rate = terms.taxExempt ? 0 : Math.round(terms.taxPercent * 100);
     return [
       { description: body.template, quantity: 1, unitCents: body.amountCents, taxRateBps: rate },
     ];
   }
 
   createRecurring(body: Out<typeof SaveBillingRecurringRequest>): Promise<BillingRecurring> {
-    return this.admin.transaction(async (tx) => {
-      const firm = await billableFirm(tx, body.firmId);
-      const row = await tx.platformRecurringInvoice.create({
-        data: {
-          businessId: firm.id,
-          description: body.description,
-          frequency: body.frequency,
-          intervalDays: body.frequency === 'CUSTOM' ? body.customIntervalDays : null,
-          lineTemplate: (await this.templateFor(tx, firm.id, body)) as Prisma.InputJsonValue,
-          amountCents: body.amountCents,
-          startDate: asDate(body.startDate),
-          nextInvoiceDate: asDate(body.nextInvoiceDate),
-          endDate: body.endDate ? asDate(body.endDate) : null,
-          autoSend: body.autoSend,
-          autoPay: body.autoPay,
-          createdByUserId: this.admin.adminUserId,
-        },
-        select: { id: true },
-      });
-      await this.log(
-        tx,
-        'billing_recurring.created',
-        { type: 'billing_recurring', id: row.id },
-        firm.id,
-        {
-          detail: body.template,
-          amountCents: body.amountCents,
-        },
-      );
-      return this.recurringDetail(tx, row.id);
+    return this.admin.transaction(async (tx) =>
+      this.recurringDetail(tx, await this.createRecurringIn(tx, body)),
+    );
+  }
+
+  /**
+   * Create Schedule in the caller's transaction: its id. Subscriptions keeps a subscription's
+   * schedule through it (`subscriptionId`; the schedule's invoices carry it).
+   */
+  async createRecurringIn(
+    tx: TxClient,
+    body: Out<typeof SaveBillingRecurringRequest>,
+    subscriptionId: string | null = null,
+  ): Promise<string> {
+    const firm = await billableFirm(tx, body.firmId);
+    const row = await tx.platformRecurringInvoice.create({
+      data: {
+        businessId: firm.id,
+        subscriptionId,
+        description: body.description,
+        frequency: body.frequency,
+        intervalDays: body.frequency === 'CUSTOM' ? body.customIntervalDays : null,
+        lineTemplate: (await this.templateFor(tx, firm.id, body)) as Prisma.InputJsonValue,
+        amountCents: body.amountCents,
+        startDate: asDate(body.startDate),
+        nextInvoiceDate: asDate(body.nextInvoiceDate),
+        endDate: body.endDate ? asDate(body.endDate) : null,
+        autoSend: body.autoSend,
+        autoPay: body.autoPay,
+        createdByUserId: this.admin.adminUserId,
+      },
+      select: { id: true },
     });
+    await this.log(
+      tx,
+      'billing_recurring.created',
+      { type: 'billing_recurring', id: row.id },
+      firm.id,
+      {
+        detail: body.template,
+        amountCents: body.amountCents,
+      },
+    );
+    return row.id;
   }
 
   updateRecurring(
@@ -1671,40 +1723,49 @@ export class BillingService {
     body: Out<typeof SaveBillingRecurringRequest>,
   ): Promise<BillingRecurring> {
     return this.admin.transaction(async (tx) => {
-      const row = await tx.platformRecurringInvoice.findUnique({
-        where: { id },
-        select: { status: true, businessId: true },
-      });
-      if (!row) throw notFound('Schedule');
-      if (row.status === 'CANCELED')
-        throw billingError(409, 'SCHEDULE_CANCELED', 'This schedule was canceled');
-      if (body.firmId !== row.businessId) throw invalid('The firm of a schedule never changes');
-      await tx.platformRecurringInvoice.update({
-        where: { id },
-        data: {
-          description: body.description,
-          frequency: body.frequency,
-          intervalDays: body.frequency === 'CUSTOM' ? body.customIntervalDays : null,
-          lineTemplate: (await this.templateFor(tx, row.businessId, body)) as Prisma.InputJsonValue,
-          amountCents: body.amountCents,
-          startDate: asDate(body.startDate),
-          nextInvoiceDate: asDate(body.nextInvoiceDate),
-          endDate: body.endDate ? asDate(body.endDate) : null,
-          autoSend: body.autoSend,
-          autoPay: body.autoPay,
-        },
-      });
-      await this.log(
-        tx,
-        'billing_recurring.updated',
-        { type: 'billing_recurring', id },
-        row.businessId,
-        {
-          amountCents: body.amountCents,
-        },
-      );
+      await this.updateRecurringIn(tx, id, body);
       return this.recurringDetail(tx, id);
     });
+  }
+
+  /** Edit Schedule in the caller's transaction. */
+  async updateRecurringIn(
+    tx: TxClient,
+    id: string,
+    body: Out<typeof SaveBillingRecurringRequest>,
+  ): Promise<void> {
+    const row = await tx.platformRecurringInvoice.findUnique({
+      where: { id },
+      select: { status: true, businessId: true },
+    });
+    if (!row) throw notFound('Schedule');
+    if (row.status === 'CANCELED')
+      throw billingError(409, 'SCHEDULE_CANCELED', 'This schedule was canceled');
+    if (body.firmId !== row.businessId) throw invalid('The firm of a schedule never changes');
+    await tx.platformRecurringInvoice.update({
+      where: { id },
+      data: {
+        description: body.description,
+        frequency: body.frequency,
+        intervalDays: body.frequency === 'CUSTOM' ? body.customIntervalDays : null,
+        lineTemplate: (await this.templateFor(tx, row.businessId, body)) as Prisma.InputJsonValue,
+        amountCents: body.amountCents,
+        startDate: asDate(body.startDate),
+        nextInvoiceDate: asDate(body.nextInvoiceDate),
+        endDate: body.endDate ? asDate(body.endDate) : null,
+        autoSend: body.autoSend,
+        autoPay: body.autoPay,
+      },
+    });
+    await this.log(
+      tx,
+      'billing_recurring.updated',
+      { type: 'billing_recurring', id },
+      row.businessId,
+      {
+        amountCents: body.amountCents,
+      },
+    );
   }
 
   setRecurringStatus(
@@ -1712,38 +1773,51 @@ export class BillingService {
     body: Out<typeof SetBillingRecurringStatusRequest>,
   ): Promise<BillingRecurring> {
     return this.admin.transaction(async (tx) => {
-      const row = await tx.platformRecurringInvoice.findUnique({
-        where: { id },
-        select: { status: true, businessId: true },
-      });
-      if (!row) throw notFound('Schedule');
-      if (row.status === 'CANCELED')
-        throw billingError(409, 'SCHEDULE_CANCELED', 'This schedule was canceled');
-      if (row.status !== body.status) {
-        await tx.platformRecurringInvoice.update({ where: { id }, data: { status: body.status } });
-        const verb =
-          body.status === 'CANCELED' ? 'canceled' : body.status === 'PAUSED' ? 'paused' : 'resumed';
-        await this.log(
-          tx,
-          `billing_recurring.${verb}`,
-          { type: 'billing_recurring', id },
-          row.businessId,
-        );
-      }
+      await this.setRecurringStatusIn(tx, id, body.status);
       return this.recurringDetail(tx, id);
     });
   }
 
-  runRecurring(id: string): Promise<BillingInvoiceDetail> {
-    return this.admin.transaction(async (tx) => {
-      const row = await tx.platformRecurringInvoice.findUnique({ where: { id } });
-      if (!row) throw notFound('Schedule');
-      if (row.status !== 'ACTIVE')
-        throw billingError(409, 'SCHEDULE_CANCELED', 'Resume the schedule first');
-      const invoiceId = await this.generate(tx, row, this.admin.adminUserId);
-      if (!invoiceId) throw invalid('The schedule has no more invoices to make');
-      return this.invoiceDetail(tx, invoiceId);
+  /** Pause, resume or cancel a schedule in the caller's transaction (the same status: nothing). */
+  async setRecurringStatusIn(
+    tx: TxClient,
+    id: string,
+    status: Out<typeof SetBillingRecurringStatusRequest>['status'],
+  ): Promise<void> {
+    const row = await tx.platformRecurringInvoice.findUnique({
+      where: { id },
+      select: { status: true, businessId: true },
     });
+    if (!row) throw notFound('Schedule');
+    if (row.status === 'CANCELED')
+      throw billingError(409, 'SCHEDULE_CANCELED', 'This schedule was canceled');
+    if (row.status !== status) {
+      await tx.platformRecurringInvoice.update({ where: { id }, data: { status } });
+      const verb = status === 'CANCELED' ? 'canceled' : status === 'PAUSED' ? 'paused' : 'resumed';
+      await this.log(
+        tx,
+        `billing_recurring.${verb}`,
+        { type: 'billing_recurring', id },
+        row.businessId,
+      );
+    }
+  }
+
+  runRecurring(id: string): Promise<BillingInvoiceDetail> {
+    return this.admin.transaction(async (tx) =>
+      this.invoiceDetail(tx, await this.runRecurringIn(tx, id)),
+    );
+  }
+
+  /** Run Now in the caller's transaction: the invoice for the schedule's next occurrence. */
+  async runRecurringIn(tx: TxClient, id: string): Promise<string> {
+    const row = await tx.platformRecurringInvoice.findUnique({ where: { id } });
+    if (!row) throw notFound('Schedule');
+    if (row.status !== 'ACTIVE')
+      throw billingError(409, 'SCHEDULE_CANCELED', 'Resume the schedule first');
+    const invoiceId = await this.generate(tx, row, this.admin.adminUserId);
+    if (!invoiceId) throw invalid('The schedule has no more invoices to make');
+    return invoiceId;
   }
 
   /**

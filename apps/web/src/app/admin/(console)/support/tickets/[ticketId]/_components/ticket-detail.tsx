@@ -10,14 +10,12 @@ import {
   Paperclip,
   SealCheck,
   Trash,
-  UserSwitch,
   UsersThree,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import {
-  adminSupport,
   ATTACHMENT_TYPES,
   isActive,
   MAX_ATTACHMENT_BYTES,
@@ -26,6 +24,7 @@ import {
   type TicketChange,
   type TicketStatus,
 } from '../../../../../../../mocks/admin-support';
+import { adminSupport } from '../../../_components/support-api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import {
@@ -203,8 +202,8 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
   );
   const download = useApiMutation(
     async ({ file, view }: { file: TicketAttachment; view: boolean }) => {
-      const blob = await adminSupport.attachmentFile(ticketId, file.id);
-      const url = URL.createObjectURL(blob);
+      // A signed link that works for a few minutes (the file downloads as an attachment).
+      const url = await adminSupport.attachmentUrl(ticketId, file.id);
       if (view) window.open(url, '_blank', 'noopener');
       else {
         const link = document.createElement('a');
@@ -212,7 +211,7 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
         link.download = file.name;
         link.click();
       }
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 60_000);
       return file;
     },
   );
@@ -276,7 +275,6 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
                   },
                 ]
               : []),
-            { label: 'Change Firm / Contact', icon: UserSwitch, onSelect: () => open('contact') },
             ...(can('MERGE') && !ticket.mergedInto
               ? [{ label: 'Merge Ticket', icon: ArrowsMerge, onSelect: () => open('merge') }]
               : []),
@@ -518,15 +516,10 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
                   setMessage('Ticket link copied.');
                 },
               },
-              { label: 'Change firm / contact', onSelect: () => open('contact') },
               ...(can('ASSIGN') ? [{ label: 'Assign', onSelect: () => open('assign') }] : []),
             ]}
           />
-          <ClientFirmCard
-            ticket={ticket}
-            directory={directory.data}
-            onEdit={() => open('contact')}
-          />
+          <ClientFirmCard ticket={ticket} directory={directory.data} />
           <QuickActions
             actions={[
               {

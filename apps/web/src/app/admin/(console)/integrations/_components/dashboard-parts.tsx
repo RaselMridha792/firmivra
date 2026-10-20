@@ -1,7 +1,7 @@
 'use client';
 
 import { Card, Skeleton, discTones, tintTones } from '@firmivra/ui';
-import type { Icon } from '@phosphor-icons/react';
+import type { Icon, IconWeight } from '@phosphor-icons/react';
 import type { ReactNode } from 'react';
 
 /**
@@ -28,26 +28,40 @@ const ICON_LOOK: Record<DashboardTone, string> = {
   purple: tintTones.purple,
 };
 
-/** One summary card: a button that filters the platform list, pressed while its filter is on. */
+/** The catalog's small cards: soft tiles, and the solid green disc behind Enabled's check. */
+const MINI_LOOK: Record<DashboardTone, string> = {
+  ...ICON_LOOK,
+  grey: 'bg-muted/15 text-heading',
+};
+
+/**
+ * One summary card: a button that filters the platform list, pressed while its filter is on. The
+ * ring marks a chosen filter; the Total card (all integrations, the default) has none.
+ */
 export function SummaryCard({
   tone,
   icon: Glyph,
+  weight = 'fill',
   value,
   label,
   note,
   loading,
   pressed,
+  ring = true,
   disabled,
   onClick,
   testId,
 }: {
   tone: DashboardTone;
   icon: Icon;
+  /** `bold` for the plain check and dots the design draws on a solid disc. */
+  weight?: IconWeight;
   value: ReactNode;
   label: string;
   note: string;
   loading: boolean;
   pressed: boolean;
+  ring?: boolean;
   disabled: boolean;
   onClick: () => void;
   testId: string;
@@ -59,26 +73,26 @@ export function SummaryCard({
       aria-pressed={pressed}
       disabled={disabled}
       onClick={onClick}
-      className={`flex min-w-0 items-center gap-4 rounded-xl border p-5 text-left transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-default disabled:hover:shadow-none ${CARD_TONES[tone]} ${pressed ? 'ring-2 ring-action' : ''}`}
+      className={`flex min-w-0 items-center gap-4 rounded-xl border px-5 py-3 text-left transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-default disabled:hover:shadow-none ${CARD_TONES[tone]} ${pressed && ring ? 'ring-2 ring-action' : ''}`}
     >
       <span
-        className={`flex size-14 shrink-0 items-center justify-center rounded-full ${ICON_LOOK[tone]}`}
+        className={`flex size-12 shrink-0 items-center justify-center rounded-full ${ICON_LOOK[tone]}`}
       >
-        <Glyph aria-hidden weight="fill" className="size-7" />
+        <Glyph aria-hidden weight={weight} className="size-7" />
       </span>
-      <span className="flex min-w-0 flex-col gap-1">
+      <span className="flex min-w-0 flex-col">
         {loading ? (
-          <Skeleton className="h-8 w-14" />
+          <Skeleton className="h-7 w-12" />
         ) : (
           <span
             data-testid={`${testId}-value`}
-            className="text-3xl leading-none font-bold text-heading"
+            className="text-2xl leading-tight font-bold text-heading"
           >
             {value}
           </span>
         )}
-        <span className="text-base text-heading">{label}</span>
-        <span className="text-sm text-muted">{note}</span>
+        <span className="text-sm leading-snug text-heading">{label}</span>
+        <span className="text-xs leading-snug text-muted">{note}</span>
       </span>
     </button>
   );
@@ -114,13 +128,13 @@ export function DashboardPanel({
       className={`flex min-w-0 flex-col overflow-hidden p-0! ${className}`}
     >
       <div
-        className={`flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4 ${BAND_TONES[band]}`}
+        className={`flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between ${BAND_TONES[band]}`}
       >
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2 className="text-xl font-bold text-heading">{title}</h2>
           <p className="text-sm text-text">{subtitle}</p>
         </div>
-        {action}
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
       {children}
     </Card>
@@ -131,6 +145,7 @@ export function DashboardPanel({
 export function MiniStat({
   tone,
   icon: Glyph,
+  weight = 'fill',
   value,
   label,
   note,
@@ -139,6 +154,7 @@ export function MiniStat({
 }: {
   tone: DashboardTone;
   icon: Icon;
+  weight?: IconWeight;
   value: ReactNode;
   label: string;
   note?: string;
@@ -148,12 +164,12 @@ export function MiniStat({
   return (
     <div
       data-testid={testId}
-      className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-surface p-4"
+      className="flex min-w-0 items-center gap-2.5 rounded-lg border border-border bg-surface px-2.5 py-3"
     >
       <span
-        className={`flex size-11 shrink-0 items-center justify-center rounded-full ${ICON_LOOK[tone]}`}
+        className={`flex size-10 shrink-0 items-center justify-center rounded-full ${MINI_LOOK[tone]}`}
       >
-        <Glyph aria-hidden weight="fill" className="size-6" />
+        <Glyph aria-hidden weight={weight} className="size-6" />
       </span>
       <span className="flex min-w-0 flex-col">
         {loading ? (
@@ -161,13 +177,13 @@ export function MiniStat({
         ) : (
           <span
             data-testid={`${testId}-value`}
-            className="text-2xl leading-tight font-bold text-heading"
+            className="text-xl leading-tight font-bold text-heading"
           >
             {value}
           </span>
         )}
         <span className="text-sm leading-snug text-heading">{label}</span>
-        {note ? <span className="text-xs text-muted">{note}</span> : null}
+        {note ? <span className="text-xs leading-snug text-muted">{note}</span> : null}
       </span>
     </div>
   );

@@ -14,7 +14,7 @@ import Link from 'next/link';
 import type {
   ConnectionTestResult,
   PlatformIntegration,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { formatDateTime, formatDuration } from '../../../_components/integration-format';
 import { QuietLine } from '../../../_components/integration-states';
 import { logsHref } from '../../../_components/integrations-shell';

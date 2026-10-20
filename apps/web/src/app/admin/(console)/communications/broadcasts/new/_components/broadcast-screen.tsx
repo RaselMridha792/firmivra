@@ -30,14 +30,17 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { PageState } from '../../../../../../../components/page-state';
+import { ADMIN_COMM_BROADCAST_ERRORS } from '@firmivra/types';
+import { api } from '../../../../../../../lib/api';
+import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
-import { listBroadcastOptions } from '../../../../../../../mocks/admin-communications-broadcasts';
 import {
   broadcastChannels,
   channelLabels,
   initialBroadcastDraft,
   readBroadcastDraft,
   saveBroadcastDraft,
+  stepHref,
   type BroadcastChannel,
   type BroadcastDraft,
 } from './broadcast-draft';
@@ -49,10 +52,31 @@ const channelIcons: Record<BroadcastChannel, Icon> = {
   IN_APP: Bell,
 };
 
-export function BroadcastScreen() {
+/** Step 1. Without `broadcastId` Next makes the draft; with it, the draft's name is saved. */
+export function BroadcastScreen({ broadcastId }: { broadcastId?: string }) {
   const router = useRouter();
-  // S10 has no API contract. The isolated fixture loader makes no network requests.
-  const options = useApiQuery(['admin-communications', 'broadcast-options'], listBroadcastOptions);
+  // The template categories and the active templates (B6): a template seeds step 3's message.
+  const options = useApiQuery(['admin-communications', 'broadcast-options'], async () => {
+    const [categories, templates] = await Promise.all([
+      api.adminCommunications.categories.list(),
+      api.adminCommunications.templates.list({ status: 'ACTIVE', sort: 'NAME', pageSize: 100 }),
+    ]);
+    return {
+      categories: categories.items
+        .filter((c) => c.isActive)
+        .map((c) => ({ value: c.id, label: c.name })),
+      templates: templates.items.map((t) => ({
+        id: t.id,
+        name: t.name,
+        subject: t.subject ?? '',
+        message: t.body,
+      })),
+    };
+  });
+  const existing = useApiQuery(
+    ['admin-communications', 'broadcasts', 'one', broadcastId ?? 'new'],
+    () => (broadcastId ? api.adminBroadcasts.broadcasts.get(broadcastId) : Promise.resolve(null)),
+  );
   const {
     register,
     control,
@@ -70,20 +94,45 @@ export function BroadcastScreen() {
   const [dialog, setDialog] = useState<'preview' | 'browse' | null>(null);
   const [notice, setNotice] = useState('');
   const [storageError, setStorageError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const loaded = existing.data;
+  const segmentId = loaded?.segment?.id ?? '';
+  const count = useApiQuery(['admin-communications', 'segment-count', segmentId || 'none'], () =>
+    segmentId ? api.adminBroadcasts.segments.count(segmentId) : Promise.resolve(null),
+  );
 
+  // An opened draft: its name and channels are the API's; the rest is this tab's (B6 keeps none).
   useEffect(() => {
-    const saved = readBroadcastDraft();
-    if (saved) reset(saved);
-  }, [reset]);
+    const saved = readBroadcastDraft(broadcastId ?? null);
+    if (!saved && !loaded) return;
+    reset({
+      ...initialBroadcastDraft,
+      ...saved,
+      name: loaded?.name ?? saved?.name ?? '',
+      channels: loaded?.channels.length
+        ? loaded.channels.map((c) => c.channel)
+        : (saved?.channels ?? initialBroadcastDraft.channels),
+    });
+  }, [reset, broadcastId, loaded]);
 
-  function persist(values: BroadcastDraft): boolean {
+  /** Makes the draft (or saves its name) and keeps step 1's other choices; returns its id. */
+  async function persist(values: BroadcastDraft): Promise<string | null> {
+    const name = values.name.trim();
+    setBusy(true);
     try {
-      saveBroadcastDraft({ ...values, name: values.name.trim() });
+      let id = broadcastId ?? null;
+      if (id) {
+        if (loaded && loaded.name !== name)
+          await api.adminBroadcasts.broadcasts.update(id, { name });
+      } else id = (await api.adminBroadcasts.broadcasts.create({ name })).id;
+      saveBroadcastDraft({ ...values, name }, id);
       setStorageError('');
-      return true;
-    } catch {
-      setStorageError('Your draft could not be saved. Allow browser storage and try again.');
-      return false;
+      return id;
+    } catch (error) {
+      setStorageError(errorMessage(error, ADMIN_COMM_BROADCAST_ERRORS));
+      return null;
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -119,8 +168,9 @@ export function BroadcastScreen() {
         <Card className="min-w-0 p-0! shadow-none! xl:col-span-7">
           <form
             noValidate
-            onSubmit={handleSubmit((values) => {
-              if (persist(values)) router.push('/communications/broadcasts/new/audience');
+            onSubmit={handleSubmit(async (values) => {
+              const id = await persist(values);
+              if (id) router.push(stepHref('audience', id));
             })}
           >
             <div className="space-y-4 p-4 sm:p-6">
@@ -340,13 +390,18 @@ export function BroadcastScreen() {
               <Button
                 variant="ghost"
                 className="bg-info-soft px-8!"
-                onClick={() => {
-                  if (persist(getValues())) setNotice('Draft saved in this tab.');
-                }}
+                disabled={busy}
+                onClick={() =>
+                  void persist(getValues()).then((id) => {
+                    if (!id) return;
+                    setNotice('Draft saved.');
+                    if (!broadcastId) router.replace(stepHref('', id));
+                  })
+                }
               >
                 Save as Draft
               </Button>
-              <Button type="submit" className="min-w-36">
+              <Button type="submit" className="min-w-36" disabled={busy}>
                 Next <ArrowRight aria-hidden weight="fill" className="size-4" />
               </Button>
               {notice ? (
@@ -369,6 +424,12 @@ export function BroadcastScreen() {
             categoryLabel={
               categories.find((category) => category.value === draft.category)?.label ?? ''
             }
+            audience={
+              loaded?.segment
+                ? `${loaded.segment.name}${count.data ? ` · ${count.data.total.toLocaleString('en-US')} recipients` : ''}`
+                : undefined
+            }
+            message={loaded?.channels.find((channel) => channel.body)?.body.slice(0, 80)}
           />
         </div>
       </div>

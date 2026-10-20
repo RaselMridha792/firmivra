@@ -1,6 +1,6 @@
 'use client';
 
-import type { UsageDay } from '../../../../../../mocks/admin-integrations';
+import type { UsageDay } from '../../_components/integrations-contract';
 import { formatNumber } from '../../_components/integration-format';
 
 /**

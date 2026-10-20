@@ -29,7 +29,9 @@ test('the primary login edits contact details and asks for a name change', async
   await expect(dialog.getByRole('alert')).toContainText('already with our team');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 
-  await expect(page.getByRole('link', { name: 'Change my password' })).toHaveAttribute(
+  // Login & Security (My profile.png, #462): the password fields, then Update Password, which
+  // opens the reset flow.
+  await expect(page.getByRole('link', { name: 'Update Password' })).toHaveAttribute(
     'href',
     '/lvp/forgot-password',
   );

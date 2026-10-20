@@ -31,14 +31,15 @@ test('Super Admin Communications inbox renders its states and responsive layouts
   }
 
   if (communicationsEmpty) {
-    await expect(page.getByRole('heading', { name: 'No conversations found' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No conversations yet' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'No contact selected' })).toBeVisible();
     await expect(page.getByText(/0 of 0 conversations/)).toBeVisible();
     return;
   }
 
-  await expect(page.getByText('24', { exact: true })).toBeVisible();
-  await expect(page.getByText('56', { exact: true })).toBeVisible();
+  // The cards count the contract mock's conversations (R56: no trend chips, no history to compare).
+  for (const label of ['Unread Messages', 'Open Conversations', 'Failed / Undelivered'])
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
   await expect(page.getByText('Blue Ridge Consulting').first()).toBeVisible();
   await expect(page.getByText('Hi Octavia,')).toBeVisible();
 
@@ -56,7 +57,8 @@ test('Super Admin Communications inbox renders its states and responsive layouts
       const lastConversation = page.getByRole('button', { name: /Tom Edwards/ });
       await lastConversation.scrollIntoViewIfNeeded();
       await expect(lastConversation).toBeInViewport({ ratio: 0.99 });
-      const lastActivity = page.getByText('Lead created', { exact: false });
+      // Recent Activity has no source in the contract: its frame shows a quiet empty state.
+      const lastActivity = page.getByText('No recent activity', { exact: false });
       await lastActivity.scrollIntoViewIfNeeded();
       await expect(lastActivity).toBeInViewport({ ratio: 0.99 });
     }

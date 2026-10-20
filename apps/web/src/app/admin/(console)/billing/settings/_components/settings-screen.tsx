@@ -6,15 +6,8 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useMe } from '../../../../../../components/signed-in';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
-import {
-  adminBilling,
-  type AdminRole,
-  type BillingSettings,
-} from '../../../../../../mocks/admin-billing';
-import {
-  adminBillingSettings,
-  billingSettingsErrors,
-} from '../../../../../../mocks/admin-billing-settings';
+import { type AdminRole, type BillingSettings } from '../../../../../../mocks/admin-billing';
+import { billingSettingsErrors } from '../../../../../../mocks/admin-billing-settings';
 import { formatDateTime } from '../../_components/billing-format';
 import { BILLING_ERRORS } from '../../_components/billing-labels';
 import { BillingNotice, useNotice } from '../../_components/billing-parts';
@@ -38,6 +31,7 @@ import {
 import { SettingsStatusContext, type SettingsForm, type SettingsStatus } from './settings-parts';
 import { TaxesTab } from './taxes-tab';
 import { TemplatesTab } from './templates-tab';
+import { adminBilling, adminBillingSettings } from '../../_components/billing-api';
 
 /**
  * Billing Settings (firmivra-billing-settings-dashboard.jpg; docx §15): platform-wide billing

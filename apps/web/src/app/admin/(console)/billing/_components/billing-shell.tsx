@@ -16,8 +16,8 @@ import {
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSyncExternalStore, type ReactNode } from 'react';
-import { adminBilling } from '../../../../../mocks/admin-billing';
 import { useApiQuery } from '../../../../../lib/query';
+import { adminBilling } from './billing-api';
 
 /** The page title row every Billing page shares: breadcrumbs, title, subtitle and buttons. */
 

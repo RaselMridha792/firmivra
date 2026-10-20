@@ -19,15 +19,17 @@ test('direct New Message route renders the composer design', async ({ page }) =>
   await expect(page.getByText('Recipient Details', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Recent Activity' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send Now' })).toHaveCount(2);
+  // R56: the composer sends through the contract; with no recipient it says what is missing.
   await page.getByRole('button', { name: 'Send Now' }).first().click();
-  await expect(
-    page.getByText('Message sending is not connected in this preview.', { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText('Add at least one recipient.', { exact: true })).toBeVisible();
   await expect(page).toHaveURL(url);
 
-  for (const recipient of ['Karen Wilson', 'Blue Ridge Consulting (Firm)', 'Team: Onboarding']) {
-    await page.getByRole('button', { name: `Remove ${recipient}` }).click();
-  }
+  await page.getByRole('combobox', { name: 'Search and add recipients' }).fill('Blue');
+  await page.getByRole('option', { name: /Blue Ridge Consulting/ }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Blue Ridge Consulting', level: 3 }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Remove Blue Ridge Consulting' }).click();
   await expect(page.getByText('Select a recipient to see their details.')).toBeVisible();
   await expect(page.getByText('No recent activity available.')).toBeVisible();
 
@@ -42,6 +44,6 @@ test('direct New Message route renders the composer design', async ({ page }) =>
   await page.goto(
     `${url.replace('/communications/new', '/communications/broadcasts/new/message')}`,
   );
-  await expect(page.getByRole('heading', { name: 'Broadcast Message' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Create Broadcast' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Select Recipients' })).toHaveCount(0);
 });

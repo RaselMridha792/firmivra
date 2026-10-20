@@ -16,11 +16,11 @@ import {
 } from '@phosphor-icons/react';
 import { useRef, useState, type RefObject } from 'react';
 import {
-  adminSupport,
   attachmentProblem,
   type CannedResponse,
   type TicketDetail,
 } from '../../../../../../../mocks/admin-support';
+import { adminSupport } from '../../../_components/support-api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../lib/query';
 import { fileSize, SUPPORT, SUPPORT_ERRORS } from '../../../_components/support-data';

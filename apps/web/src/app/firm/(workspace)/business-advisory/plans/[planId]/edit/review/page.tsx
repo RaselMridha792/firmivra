@@ -1,8 +1,18 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
+import { PlanWizard } from '../../../../_components/plan-wizard';
 
 export const metadata: Metadata = { title: 'Edit business plan: Review & save' };
 
-export default function BusinessAdvisoryPlansPlanIdEditReviewPage() {
-  return <PageHeader title="Edit Business Plan" />;
+export default async function BusinessAdvisoryPlansPlanIdEditReviewPage({
+  params,
+}: {
+  params: Promise<{ planId: string }>;
+}) {
+  const { planId } = await params;
+  return (
+    <Suspense fallback={null}>
+      <PlanWizard planId={planId} step={5} />
+    </Suspense>
+  );
 }

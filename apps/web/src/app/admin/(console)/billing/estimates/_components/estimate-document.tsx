@@ -3,7 +3,6 @@
 import { Skeleton } from '@firmivra/ui';
 import type { ReactNode } from 'react';
 import {
-  adminBilling,
   type BillingClient,
   type BillingEstimate,
   type BillingFirm,
@@ -18,6 +17,7 @@ import {
 } from '../../_components/billing-format';
 import { QuietLine, quietErrorText } from '../../_components/billing-parts';
 import { DocumentViewer, FirmMark } from '../../_components/invoice-document';
+import { adminBilling, issuerOf } from '../../_components/billing-api';
 
 /**
  * The customer-facing estimate (docx §16 "Estimate Preview"): the selected firm's name, contact
@@ -274,7 +274,7 @@ function ViewerBody({ estimate }: { estimate: BillingEstimate }) {
   return (
     <EstimateDocument
       data={documentDataOf(estimate)}
-      firm={firm.data ?? null}
+      firm={issuerOf(firm.data ?? null)}
       client={client.data ?? null}
     />
   );

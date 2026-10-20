@@ -49,6 +49,8 @@ import { AdminSettingsModule } from './admin-settings/admin-settings.controller.
 import { AdminReportsModule } from './admin-reports/admin-reports.controller.js';
 import { AdminSupportModule } from './admin-support/admin-support.module.js';
 import { AdminBillingModule } from './admin-billing/admin-billing.module.js';
+import { AdminSubscriptionsModule } from './admin-subscriptions/admin-subscriptions.module.js';
+import { AdminSalesModule } from './admin-sales/admin-sales.module.js';
 import { TeamModule } from './team/team.controller.js';
 import { TasksModule } from './tasks/tasks.module.js';
 import { AutomationsModule } from './automations/automations.module.js';
@@ -147,6 +149,8 @@ export class AppModule {
         AdminReportsModule,
         AdminSupportModule,
         AdminBillingModule,
+        AdminSubscriptionsModule,
+        AdminSalesModule,
         WorkspacesModule,
         TasksModule,
         DashboardModule,

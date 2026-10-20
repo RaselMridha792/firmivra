@@ -4,7 +4,6 @@ import { Button, Callout, Checkbox, FileDropzone, IconButton, Modal } from '@fir
 import { Paperclip, Trash, Warning } from '@phosphor-icons/react';
 import { useId, useRef, useState, type FormEvent } from 'react';
 import {
-  adminSupport,
   ATTACHMENT_TYPES,
   MAX_ATTACHMENT_BYTES,
   NEW_TICKET_STATUSES,
@@ -18,6 +17,7 @@ import {
   type TicketSource,
   type TicketStatus,
 } from '../../../../../mocks/admin-support';
+import { adminSupport } from './support-api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { AreaField, SelectField, TextField } from './fields';

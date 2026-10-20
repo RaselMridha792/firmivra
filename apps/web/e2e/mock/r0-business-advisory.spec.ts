@@ -162,3 +162,133 @@ test('Goals & Milestones: filter, edit a goal and track its milestones', async (
   await expect(page.getByText('Goal saved: Increase annual revenue by 25%')).toBeVisible();
   await expect(list).toContainText('75%');
 });
+
+test('Financial Analysis: summary, filters, and adding a period of figures', async ({ page }) => {
+  await page.goto(`${base}/financial-analysis`);
+  const tab = page.getByTestId('ba-financials');
+  await expect(tab.getByTestId('financial-summary')).toContainText('Revenue');
+  await expect(tab).toContainText('Stale');
+  await tab.getByLabel('Client').selectOption({ label: 'Marcus Taylor' });
+  await expect(tab.getByRole('row')).toHaveCount(3);
+  await tab.getByRole('button', { name: 'Add Figures' }).click();
+  const dialog = page.getByTestId('add-figures');
+  await dialog.getByLabel('Advisory client').selectOption({ label: 'Sandra Lewis' });
+  await dialog.getByLabel('Revenue ($)', { exact: true }).fill('210000');
+  await dialog.getByLabel('Expenses ($)', { exact: true }).fill('180000');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add Figures' }).click();
+  await expect(page.getByText('Figures added for Sandra Lewis.')).toBeVisible();
+});
+
+test('Action Plans: move a recommendation, finish a task and add one', async ({ page }) => {
+  await page.goto(`${base}/action-plans`);
+  const recs = page.getByTestId('ba-recommendations');
+  await expect(recs.getByRole('button', { name: /^Actions for / })).toHaveCount(8);
+  await recs.getByRole('button', { name: 'Actions for Hire Operations Manager' }).click();
+  await page.getByRole('menuitem', { name: 'Accept' }).click();
+  await expect(page.getByText('Hire Operations Manager: accepted.')).toBeVisible();
+  const tasks = page.getByTestId('ba-action-items');
+  await tasks.getByRole('checkbox', { name: 'Overdue only' }).click();
+  await expect(tasks.getByRole('button', { name: /^Actions for / })).toHaveCount(2);
+  await tasks.getByRole('checkbox', { name: 'Overdue only' }).click();
+  await tasks.getByRole('button', { name: 'Actions for Register the business name' }).click();
+  await page.getByRole('menuitem', { name: 'Mark Done' }).click();
+  await expect(page.getByText('Register the business name: done.')).toBeVisible();
+  await tasks.getByRole('button', { name: 'Add Action Item' }).click();
+  const dialog = page.getByTestId('add-action-item');
+  await dialog.getByLabel('Advisory client').selectOption({ label: 'Kevin Martin' });
+  await dialog.getByLabel('Action item').fill('Call the lender');
+  await dialog.getByLabel('Priority').selectOption('HIGH');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add Action Item' }).click();
+  await expect(page.getByText('Action item added: Call the lender')).toBeVisible();
+  await expect(page.getByTestId('ba-milestones-note').getByRole('link')).toHaveAttribute(
+    'href',
+    '/business-advisory/goals',
+  );
+});
+
+test('Resources: the library by category; only client resources are sent', async ({ page }) => {
+  await page.goto(`${base}/resources`);
+  const lib = page.getByTestId('ba-resources');
+  await expect(lib.getByTestId('resource-group')).toHaveCount(10);
+  await expect(lib.getByRole('button', { name: /^Send .* to a client$/ })).toHaveCount(9);
+  await expect(lib).toContainText('Staff only');
+  await lib.getByLabel('Audience').selectOption('staff');
+  await expect(lib.getByTestId('resource-group')).toHaveCount(1);
+  await lib.getByLabel('Audience').selectOption('');
+  await lib.getByRole('button', { name: 'Send Brand Basics Guide to a client' }).click();
+  await page
+    .getByTestId('send-resource')
+    .getByLabel('Advisory client')
+    .selectOption({ label: 'Alicia Park' });
+  await page.getByRole('dialog').getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByText('Brand Basics Guide sent to Alicia Park.')).toBeVisible();
+});
+
+test('Reports: live counts by status, workload and trend, for one advisor too', async ({
+  page,
+}) => {
+  await page.goto(`${base}/reports`);
+  await expect(page.getByTestId('report-clients')).toContainText('In Progress');
+  await expect(page.getByTestId('report-plans')).toContainText('sent to clients this year');
+  await expect(page.getByTestId('report-workload')).toContainText('Sam Staff');
+  await expect(page.getByTestId('report-trend').getByRole('row')).toHaveCount(4);
+  await page.getByTestId('ba-reports').getByLabel('Advisor').selectOption({ label: 'Sam Staff' });
+  await expect(page.getByTestId('report-workload').getByRole('row')).toHaveCount(2);
+});
+
+const startupPlan = `${base}/plans/0199c0f1-a400-7000-8000-000000000002/edit`;
+
+test('Plan wizard: a new plan starts from the client record and moves to step 2', async ({
+  page,
+}) => {
+  await page.goto(`${base}/plans/new?advisoryClientId=0199c0f1-a200-7000-8000-000000000002`);
+  await expect(page.getByRole('heading', { name: 'Create Business Plan', level: 1 })).toBeVisible();
+  await expect(page.getByTestId('client-card')).toContainText('SL Beauty Studio');
+  await expect(page.getByLabel('Business Name')).toHaveValue('SL Beauty Studio');
+  await expect(page.getByTestId('quick-tips')).toBeVisible();
+  await expect(page.getByTestId('whats-next').getByRole('listitem')).toHaveCount(5);
+  // Next needs the plan name; a draft could save without the rest.
+  await page.getByTestId('wizard-next').click();
+  await expect(page.getByText('Fill in the required fields to continue')).toBeVisible();
+  await page.getByLabel('Plan Name').fill('Salon Growth Plan');
+  await page.getByTestId('wizard-next').click();
+  await expect(page).toHaveURL(/\/plans\/[0-9a-f-]{36}\/edit\/assessment$/, { timeout: 60_000 });
+  await expect(page.getByTestId('step-financials')).toContainText('Bookkeeping');
+});
+
+test('Plan wizard: the review says what is still needed, then the plan finalizes', async ({
+  page,
+}) => {
+  await page.goto(`${startupPlan}/review`);
+  await expect(page.getByTestId('still-needed')).toContainText(
+    'Add the strategy summary or an area (stage 3)',
+  );
+  await expect(page.getByTestId('wizard-next')).toBeDisabled();
+  // The Goals & Strategy summary's Edit link (profile, assessment, strategy, action plan).
+  await page.getByRole('link', { name: 'Edit', exact: true }).nth(2).click();
+  await expect(page.getByTestId('step-areas')).toBeVisible({ timeout: 60_000 });
+  await page.getByTestId('step-areas').getByRole('checkbox', { name: 'Marketing / Sales' }).click();
+  await page.getByLabel('Marketing / Sales objective').fill('Book 40 appointments a week');
+  await page.getByTestId('wizard-next').click();
+  await expect(page.getByTestId('step-milestones')).toBeVisible({ timeout: 60_000 });
+  await page.getByTestId('wizard-next').click();
+  await expect(page.getByTestId('step-readiness')).toContainText('Ready to finalize', {
+    timeout: 60_000,
+  });
+  await page.getByTestId('wizard-next').click();
+  await expect(page.getByText('2026 Startup Launch Plan finalized.')).toBeVisible();
+  await expect(page.getByTestId('step-delivery')).toContainText('Version 1');
+});
+
+test('Plan wizard: leaving with unsaved changes asks first', async ({ page }) => {
+  await page.goto(`${startupPlan}/assessment`);
+  await page.getByLabel('Timing').fill('Within a year');
+  await page.getByRole('button', { name: 'Back to Business Advisory & Development' }).click();
+  await expect(page.getByRole('dialog', { name: 'Unsaved changes' })).toBeVisible();
+  await page.getByRole('button', { name: 'Keep Editing' }).click();
+  await expect(page.getByLabel('Timing')).toHaveValue('Within a year');
+  // Save Draft in the prompt saves the step, then leaves.
+  await page.getByRole('button', { name: 'Back to Business Advisory & Development' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Draft' }).click();
+  await expect(page).toHaveURL(/\/business-advisory$/, { timeout: 60_000 });
+});
