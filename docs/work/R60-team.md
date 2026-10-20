@@ -243,6 +243,142 @@ checks every rule again (team docx §25, hierarchy doc §17).
 29. **Messages, groups and recipients** (`messageOptions`, `createGroup`, `sendMessage`) are left
     out: see R56 below. Each member's `allowed.message` stays as the button's hint.
 
+## Team API
+
+`apps/api/src/admin-team/` (`AdminTeamModule`, registered next to the other admin modules; 10 of
+the 12 routes): `AdminTeamController`, `TeamReadService` (meta, the KPIs, the directory, one
+member, the trail, the forms' choices), `TeamWriteService` (Edit Team Member, the bulk changes, the
+decision), `team-context.ts` (errors, the org chart's rows, the signed-in member), `team-views.ts`
+(the member, `allowed`, `can`, the filters) and the pure rules in `team-rules.ts` and
+`team-plan.ts` (what a change does, checked before the database). Tests:
+`test/unit/admin-team.test.ts` (39), `test/e2e/admin-team.e2e.test.ts` (23, every registered
+route, the two left out answer 404), and 3 write cases in `test/isolation/admin-team-writes.ts`
+for the admin-scope sweep. No contract change.
+
+30. **Two routes left out.** `POST /members` (`createMember`) and `POST /members/invitations`
+    (`resendInvitation`) are not registered, not even as a stub: they answer 404. Both create or
+    need an ADMIN-pool login, and the database lets `users` and `platform_admins` rows be created
+    only in platform scope (`users_insert` and `platform_admins_access`: WITH CHECK
+    `app_scope() = 'platform'`; admin scope reads them but cannot insert). This API stays in admin
+    scope, and staff invites already create logins inside the auth layer (`InvitesService`), so
+    creating an admin login belongs to an R2 admin-invite service the Team API calls later (Needs,
+    the alternative in Questions). Until then `meta().can.add` and every member's
+    `allowed.resendInvitation` are false, so the screens hide Add Team Member and Resend.
+31. **Admin scope only** (`AdminPrisma`). Every request reads the org chart in one admin
+    transaction: departments, roles with their ALLOW keys (`platform_role_permissions`), members
+    with their overrides, `platform_admins` and the ADMIN-pool logins of those admins. The signed-in
+    member is their own org-chart row, which must be ACTIVE (403 FORBIDDEN otherwise), or a Super
+    Admin with no row yet (the CEO). The CEO level is unrestricted. The rules run from that row,
+    so they hold once R2 lets team members in; today every caller is a Super Admin.
+32. **Reads.** `meta`: the viewer (no row: role and department null, scope COMPANY, every catalog
+    key), `can` from the keys (approve: the CEO and Chief Officers), the catalog and the filters
+    from the people the viewer sees (departments: theirs, or every active one for the CEO and HR).
+    `summary`: the same people, `byStatus` always with all seven statuses (zod v4's
+    `z.record(enum)` needs every key). `members`: filtered, sorted and paged in memory (the org
+    chart is small): search on name, email, phone and its digits, department, role title (and the
+    intended one), status label and code; ties sort by name then id; LAST_SIGNED_IN puts people
+    who never signed in last; a page past the end answers the last page. `lastSignedInAt` is the
+    newest `auth.signed_in` row of the person (entity `user`, platform rows). `invitation` is the
+    newest `platform_member.invited` row while Pending Invitation (its `metadata.expiresAt`, else
+    7 days after it). `activity`: the person's `platform_member.*` rows, newest first, display
+    values from today's catalog (role titles, department names, people's names, status and scope
+    labels), keys that are not keys dropped.
+33. **Edit Team Member** checks, in order, before the database: 404 outside the directory, 409
+    CONFLICT on `expectedUpdatedAt`, the name and phone (note 38), 422 ROLE_NOT_IN_DEPARTMENT (an
+    unknown role, one outside the chosen department, or a closed department), 422
+    CUSTOM_SCOPE_INVALID (unknown ids, or ids without a CUSTOM scope); then, if anything changes:
+    403 SELF_CHANGE, PEER_PROTECTED or DEPARTMENT_NOT_ALLOWED (reach), 409 PENDING_APPROVAL (role,
+    department or status of a hire waiting for the head), 403 FORBIDDEN for a missing key
+    (department: `team.assign_department`; role: `team.change_role`; supervisor: `team.edit`;
+    status: `team.deactivate`; scope or keys beyond what the role would give:
+    `team.change_permissions`), 403 DEPARTMENT_NOT_ALLOWED and ROLE_CEILING (a role that would
+    wait for the head is refused too: approval is for hires only), 403 SCOPE_CEILING, 422
+    UNKNOWN_PERMISSION, 403 PERMISSION_CEILING (a key the person does not have, the role does not
+    give and the caller does not hold), 422 SUPERVISOR_INVALID, 409 STATUS_NOT_ALLOWED and 403
+    ROLE_CEILING (back to ACTIVE by someone who may not give the role directly). The same values
+    are no change: nothing is written, `updatedAt` stays.
+34. **What a change writes.** `platform_members` through `updateMany` where `updated_at` is the
+    one read (409 CONFLICT when someone changed the row meanwhile), so a change never overwrites
+    another; the overrides deleted and rewritten relative to the (new) role's template (ALLOW for an
+    extra key, DENY for one taken away, `granted_by_user_id` the caller) when the keys or the role
+    change; one audit row per kind of change, entity `platform_member`, entity id the member's user
+    id, `business_id` null, ids and codes only: `.department_changed` and `.role_changed`
+    `{ from, to }`, `.reports_to_changed` `{ from, to, cause? }` (cause ROLE_CHANGED when a new
+    role dropped the supervisor), `.scope_changed` `{ from, to, scopeIds? }`,
+    `.permissions_changed` `{ granted, revoked }`, `.status_changed` `{ from, to, requested? }`
+    (requested ACTIVE when the person went back to Pending Invitation). Bulk rows add
+    `bulk: true`.
+35. **Bulk.** The request's own problems refuse it whole: 422 ROLE_NOT_IN_DEPARTMENT (an unknown
+    role, a role outside the chosen department, a closed department), 403 FORBIDDEN (the key of the
+    action), 403 DEPARTMENT_NOT_ALLOWED. Each person is then planned like an edit and skipped with a
+    reason: NOT_FOUND (outside the directory, no name), SELF, OUT_OF_REACH, PENDING_APPROVAL,
+    NOT_IN_DEPARTMENT (Change Role across departments), NEEDS_APPROVAL, ROLE_CEILING,
+    STATUS_NOT_ALLOWED; people already as asked count as `unchanged`. People go highest level
+    first and each one's checks see the changes before them (a supervisor moved down in the same
+    request is no longer valid for the people below). One transaction for all.
+36. **The decision** checks: 404 outside the directory, 409 NOT_PENDING_APPROVAL, 403 SELF_CHANGE,
+    403 FORBIDDEN (not the CEO nor the ACTIVE Chief Officer of the intended role's department),
+    422 ROLE_NOT_ALLOWED (APPROVE with a role that is not a VP / Director of that department),
+    422 PHONE_REQUIRED (a text invitation without a phone). APPROVE writes the role (and its
+    department), clears the intended role, sets Pending Invitation and `approved_by_user_id`; a
+    different role than the intended one loads its template and default scope and drops a
+    supervisor no longer valid. REJECT sets Inactive and clears the intended role. Audit:
+    `.approved` `{ intendedRoleId, roleId, from, to, invite, invitationSent: false }` or
+    `.rejected` `{ intendedRoleId, from, to, reasonGiven }`. No invitation is sent yet (R2's
+    service, Needs): the answer's `invitation` is null.
+37. **Status moves.** ACTIVE to Suspended, Inactive or Deactivated; from those back to ACTIVE or
+    between them (Remove from Team a suspended person, beyond the list in the rules above);
+    Pending Invitation and the database's own Pending Approval to Inactive or Deactivated only; a
+    hire waiting for the head never (409 PENDING_APPROVAL). Back to ACTIVE asks the identity
+    adapter (`hasPassword`, R2's SignInModule, before the transaction, 10 at a time) and becomes
+    Pending Invitation when the login has no password; a lookup that fails counts as no password,
+    which grants nothing.
+38. **Name and phone are read-only for now.** They live on `users`, and admin scope cannot update
+    `users` (`users_update`: platform scope or `app_current_user_id()`, which only user scope
+    sets). An edit whose name or phone differs answers 400 VALIDATION_FAILED on that field
+    (`firstName`, `lastName` or `phone`, as the staff module does for names); the same values
+    pass, and "Mary Ann" / "Smith" for "Mary Ann Smith" is the same name. Your own row is the same
+    (the contract lets everyone edit their own name and phone), so `allowed.edit` is false for
+    yourself. Needs R0.
+39. **Sessions are not ended** when someone is suspended, made inactive or deactivated.
+    `IdentityProvider.signOutEverywhere(pool, username)` takes the Cognito username, which is not
+    stored (logins are created with a random username; `users` keeps the `sub`), and the methods
+    that resolve a `sub` (`disableUser`, `resetMfa`) disable the login or reset its MFA. Nobody
+    these routes change can be signed in today (only SUPER_ADMIN rows pass the guards, and
+    CEO-level members are never changed here), so nothing is left open now. Needs R2.
+40. **The catalog** (`meta().modules`, `teamCatalog`): the Team row's 17 keys with `team.view`,
+    `team.create` and `team.edit` in View, Create and Edit, `team.deactivate` in Delete,
+    `team.change_role` in Assign, `team.change_permissions` in Manage and the rest under the grid;
+    `team.deactivate` and `team.change_permissions` require `team.edit`, the others `team.view`
+    (`team.view` and `org.view` nothing). Support's row has `SUPPORT_KEYS` with
+    `SUPPORT_PERMISSION_LABELS` (view_all, assign, delete and edit_settings in a column). The other
+    modules `<module>.<action>` with the mock's actions; create, edit, assign, approve and export
+    require view, delete and manage require edit (or view when the module has no edit). A key
+    outside the catalog that the role's template or the person already holds is accepted back
+    unchanged; any other is 422 UNKNOWN_PERMISSION.
+41. **Form options.** Add (and the bulk dialogs): the roles the caller gives directly and, for HR,
+    the hires that wait (`needsApproval`); the departments that have one of those roles (an
+    Executive holding only the CEO role is not offered); no key filter, since Add is off. Edit:
+    the person's current role and department always, other roles of their department with
+    `team.change_role`, of other departments with `team.assign_department`, never a role that
+    would wait. Supervisors: the people the caller sees who are Active or Pending Invitation,
+    highest level first; on edit never the person or anyone below them. `statuses` on edit: the
+    current one and the moves the caller may make now (none without reach or `team.deactivate`).
+42. **Traps found.**
+    - Admin scope cannot insert `users` or `platform_admins` (note 30) nor update `users`
+      (note 38); `forAdmin`'s own comment says it "never updates users".
+    - `AuditService.logIn` has no subject: the rows carry the member in `entity_id`, and
+      `subject_user_id` (R0's B4 field the notes above named) stays null (Needs).
+    - The trigger `platform_members_ceo_role_check` reads `platform_admins` in the caller's scope;
+      admin scope's `platform_admins_admin_read` lets it. Its two messages map to ROLE_CEILING and
+      PEER_PROTECTED as a backstop; other CHECKs answer 400, foreign keys and unique indexes 409
+      CONFLICT, a row-level refusal 403, so none surfaces as a 500.
+    - A role change re-checks only the changed person's own supervisor: people who report to
+      someone moved to their level or below keep that line until they are edited (the bulk change
+      re-checks the people in the same request).
+    - The test database's owner role is a superuser, so the fixtures' rows bypass row-level
+      security: the e2e test proves the API's own writes in admin scope, the fixtures do not.
+
 ## Needs from others
 
 - **R2 (auth):**
@@ -254,6 +390,42 @@ checks every rule again (team docx §25, hierarchy doc §17).
     `roles.guard.ts` accept only SUPER_ADMIN today (`sign-in.service.ts` already finds any
     `platform_admins` row), with the module's keys checked per route.
   - `IdentityProvider.enableUser`, if deactivating should also disable the Cognito login.
+  - **The admin-invite service** the Team API calls for Add Team Member, Resend Invitation and
+    the decision's link (notes 30 and 36), in `apps/api/src/auth/`, exported by `SignInModule`:
+    - `createTeamMember(input)` takes `{ email, name, phone, member, invitedByUserId, invite }`:
+      the email (lower case), the name ("First Last"), the phone (E.164 or null), the member row's
+      fields as the Team API checked them (`roleDefinitionId`, `departmentId`,
+      `reportsToUserId`, `scopeType`, `scopeIds`, `status` PENDING_INVITATION or
+      PENDING_DEPARTMENT_HEAD_APPROVAL, `intendedRoleDefinitionId`, and the overrides
+      `{ permissionKey, state }[]`), the signed-in admin, and the channels (`{ email, sms }`, or
+      null to send nothing: a hire waiting for the head, or both false).
+    - It does: 409 EMAIL_TAKEN when the email belongs to an ADMIN-pool user who is a SUPER_ADMIN
+      or has a `platform_members` row; otherwise the ADMIN-pool login through the identity adapter
+      (`identity.createUser('ADMIN', email, { phone })`, nothing sent by Cognito; a login left
+      half-made, with no admin row or only a TEAM_MEMBER row without a member row, is reused; a
+      parallel create that loses the `users_pool_email_staff_admin_key` race disables its extra
+      login), in platform scope the `users` row (pool ADMIN) and the `platform_admins` TEAM_MEMBER
+      row, then the `platform_members` row and its overrides (in admin scope as
+      `invitedByUserId`, which `platform_members_admin_all` allows, after the admin row has
+      committed: the trigger needs it) with the audit rows `platform_member.created`
+      `{ roleId, departmentId, status }` and, when sent, `platform_member.invited`
+      `{ channels, expiresAt }`; then the sealed invitation (the `Sealer` with the ADMIN pool key
+      and its own purpose label, holding the user id and the member row's `updated_at`, 7 days),
+      sent through NotifyService (`platform.team-invite`, `platform.team-invite-sms`; logged with
+      `AUTH_MODE=local`), within INVITE_LIMITS (429 RATE_LIMITED).
+    - It returns `{ userId, invitation: { email, sms, expiresAt } | null }`; the Team API answers
+      `{ member, invitation }` from it.
+    - `sendInvitation({ userId, channels, sentByUserId })`, for Resend and the decision's APPROVE:
+      a new link for a member still Pending Invitation (touching the row, so older links stop
+      working) and its `platform_member.invited` row, the same limits. Returns
+      `{ email, sms, expiresAt }`, or a refusal the contract's skip reasons name
+      (NOT_PENDING_INVITATION, NO_PHONE, RATE_LIMITED).
+    - Then this API registers `POST /members` and `POST /members/invitations`, turns `can.add`
+      and `allowed.resendInvitation` on, and the decision sends its link.
+  - **Ending a team member's sessions** (note 39): `signOutEverywhere` by `sub` (or a
+    `SessionService` method by user id) the Team API can call when it suspends, deactivates or
+    makes someone inactive; and, once ACTIVE team members are let in, the guards refusing a
+    TEAM_MEMBER whose `platform_members.status` is not ACTIVE on every request.
 - **R0:**
   - Row-level security for an ACTIVE TEAM_MEMBER caller. `app_is_admin()` stays CEO-only, and a
     member reads only their own `platform_members` row and no overrides, so the Team API cannot
@@ -270,6 +442,13 @@ checks every rule again (team docx §25, hierarchy doc §17).
   - A pending change record (who asked, what, the approver), if docx §17's approval of changes and
     Return for Changes are wanted.
   - A per-member Card / List preference, if it must follow the member across devices.
+  - **Name and phone of team members** (note 38): an admin-scope UPDATE policy on `users` for
+    ADMIN-pool rows of `platform_admins` (TEAM_MEMBER rows, and the caller's own row), limited to
+    `name` and `phone` (`users_identity_columns` already keeps id, sub, pool and email to platform
+    scope). Edit Team Member then saves them with a `platform_member.profile_updated` row
+    `{ fields }`.
+- **The AuditService owner (`apps/api/src/audit/`):** `AuditAt.subjectUserId` (and the other B4
+  fields), so the Team rows set `subject_user_id` to the member (note 42).
 - **R6:** two platform templates: `platform.team-invite` (email: name, link, expiry; Firmivra
   branding) and `platform.team-invite-sms` (the link), in `TEMPLATE_CHANNEL` and `TEMPLATE_SENDER`.
 - **R56 (Communications):** the message dialogs have no route here. Covered today: a message to one
@@ -289,7 +468,10 @@ checks every rule again (team docx §25, hierarchy doc §17).
   module map (the Team row's keys are R0's); no location, team, job title, availability or Status
   on Add; `lastSignedInAt`; approval as `decideApproval(id, { decision })`; bulk with
   `confirmedCount`; Card / List in the browser; the message dialogs on `api.adminCommunications`
-  and `api.adminBroadcasts` for what they cover.
+  and `api.adminBroadcasts` for what they cover. With the Team API: Add Team Member and Resend
+  Invitation stay hidden (`can.add` and `allowed.resendInvitation` are false) until R2's service;
+  name and phone are read-only on Edit (a change answers 400 on its field); the decision answers
+  `invitation: null` for now; the trail's REJECTED has no reason.
 
 ## Questions for Rasel
 
@@ -309,3 +491,12 @@ checks every rule again (team docx §25, hierarchy doc §17).
    Cognito login (R2 then needs `enableUser` for Reactivate)?
 8. HR's cross-department rights go to the CHRO and the Authorized HR / People Administrator role
    (by role code), with `team.create` granted to the administrator as an override. Confirm.
+9. Creating admin logins: R2's admin-invite service (Needs, the plan), or R0 adds admin-scope
+   INSERT policies on `users` limited to ADMIN-pool rows and on `platform_admins` limited to
+   TEAM_MEMBER rows (with the UPDATE policy for name and phone), so the Team API writes them
+   itself, the Cognito login still through the identity adapter?
+10. The rejection reason is free text: store it in the `.rejected` row's metadata (R0's change B
+    allows a reason there, an exception to "ids and codes only"), or keep REJECTED's `reason`
+    empty, as now?
+11. Status moves between Suspended, Inactive and Deactivated (Remove from Team a suspended person)
+    are allowed; the rules above list only ACTIVE to them. Confirm.
