@@ -1,6 +1,8 @@
 import {
   ApiRequestError,
+  BulkClientsRequest,
   ClientId,
+  type ClientListRow,
   ClientRecord,
   type ClientPortalRole,
   type ClientsClient,
@@ -150,6 +152,86 @@ const listItem = ({ profile: _p, portalLogins: _l, updatedAt: _u, ...item }: Cli
 
 export type MockFirmRole = 'OWNER' | 'ADMIN' | 'STAFF';
 
+// The work around each client (R1): stage, open services, missing documents, balance, last
+// activity and next appointment, as GET /business/clients sends them. Synthetic.
+type ServiceRef = NonNullable<ClientListRow['services']>[number];
+const service = (n: number, name: string, kind: ServiceRef['kind']): ServiceRef => ({
+  id: `0199b6a2-0000-7000-8000-${String(n).padStart(12, '0')}`,
+  name,
+  kind,
+});
+/** Every service the mock firm offers (the list's service tabs, in this order). */
+export const mockClientServices = (): ServiceRef[] => [
+  service(1, 'Personal Tax', 'ANNUAL_TAX'),
+  service(2, 'Business Tax', 'ANNUAL_TAX'),
+  service(3, 'Bookkeeping', 'BOOKKEEPING'),
+  service(4, 'Tax Planning', 'TAX_PLANNING'),
+];
+type Work = Required<
+  Pick<
+    ClientListRow,
+    | 'status'
+    | 'services'
+    | 'missingDocuments'
+    | 'balanceDueCents'
+    | 'lastActivityAt'
+    | 'nextAppointmentAt'
+  >
+>;
+const daysFromNow = (days: number, hour = 10) => {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCHours(hour, 0, 0, 0);
+  return d.toISOString();
+};
+const noWork = (): Work => ({
+  status: 'NEW',
+  services: [],
+  missingDocuments: 0,
+  balanceDueCents: 0,
+  lastActivityAt: null,
+  nextAppointmentAt: null,
+});
+let workTable: Record<number, Work> | undefined;
+/** Built on first use, around today. */
+const work = (): Record<number, Work> => {
+  const [personal, business, books, planning] = mockClientServices() as [
+    ServiceRef,
+    ServiceRef,
+    ServiceRef,
+    ServiceRef,
+  ];
+  workTable ??= {
+    1: {
+      status: 'ACTIVE',
+      services: [personal, planning],
+      missingDocuments: 2,
+      balanceDueCents: 0,
+      lastActivityAt: daysFromNow(0, 9),
+      nextAppointmentAt: daysFromNow(6, 14),
+    },
+    2: {
+      status: 'PENDING_DOCUMENTS',
+      services: [business, books],
+      missingDocuments: 4,
+      balanceDueCents: 29_000,
+      lastActivityAt: daysFromNow(-1, 15),
+      nextAppointmentAt: daysFromNow(3, 10),
+    },
+    3: {
+      status: 'NEW',
+      services: [personal],
+      missingDocuments: 0,
+      balanceDueCents: 15_000,
+      lastActivityAt: daysFromNow(-8, 11),
+      nextAppointmentAt: null,
+    },
+    4: { ...noWork(), status: 'INACTIVE' },
+  };
+  return workTable;
+};
+const workOf = (id: string): Work => structuredClone(work()[Number(id.slice(-12))] ?? noWork());
+
 /**
  * An in-memory `api.clients`. `role: 'STAFF'` is Sam Staff: only clients 1 and 2 (assigned to
  * them) exist for them, and archive, restore and the assignee get 403 FORBIDDEN.
@@ -223,11 +305,87 @@ export function createClientsMock(options: { role?: MockFirmRole } = {}): Client
           (r) =>
             !term || [r.displayName, r.email, r.phone].some((v) => v?.toLowerCase().includes(term)),
         )
+        .filter((r) => !q.clientStatus || workOf(r.id).status === q.clientStatus)
+        .filter((r) => !q.serviceId || workOf(r.id).services.some((x) => x.id === q.serviceId))
+        .filter((r) => {
+          if (!q.lastActivityFrom && !q.lastActivityTo) return true;
+          const last = workOf(r.id).lastActivityAt?.slice(0, 10);
+          return (
+            !!last &&
+            (!q.lastActivityFrom || last >= q.lastActivityFrom) &&
+            (!q.lastActivityTo || last <= q.lastActivityTo)
+          );
+        })
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
-      const start = q.cursor ? Number(q.cursor) : 0;
+      const start = q.page ? (q.page - 1) * q.limit : q.cursor ? Number(q.cursor) : 0;
       const page = matches.slice(start, start + q.limit);
-      const next = start + q.limit < matches.length ? String(start + q.limit) : null;
-      return { items: page.map(listItem), nextCursor: next };
+      const next = !q.page && start + q.limit < matches.length ? String(start + q.limit) : null;
+      return {
+        items: page.map((r): ClientListRow => ({ ...listItem(r), ...workOf(r.id) })),
+        nextCursor: next,
+        total: matches.length,
+      };
+    },
+    summary: async () => {
+      await pause();
+      const mine = rows.filter(visible);
+      const live = mine.filter((r) => !r.archivedAt);
+      const month = new Date().toISOString().slice(0, 7);
+      const count = (test: (w: Work) => boolean) => live.filter((r) => test(workOf(r.id))).length;
+      const active = count((w) => w.status === 'ACTIVE' || w.status === 'IN_PROGRESS');
+      return {
+        kpis: {
+          totalClients: {
+            value: live.length,
+            previous: live.filter((r) => r.createdAt.slice(0, 7) < month).length,
+          },
+          newClients: {
+            value: mine.filter((r) => r.createdAt.slice(0, 7) === month).length,
+            previous: null,
+          },
+          activeClients: { value: active, previous: null },
+          pendingDocuments: { value: count((w) => w.missingDocuments > 0), previous: null },
+          balancesDue: { value: count((w) => w.balanceDueCents > 0), previous: null },
+          inactiveClients: { value: mine.length - live.length, previous: null },
+        },
+        counts: {
+          all: live.length,
+          active,
+          new: count((w) => w.status === 'NEW'),
+          inactive: mine.length - live.length,
+          byService: mockClientServices().map((x) => ({
+            ...x,
+            count: count((w) => w.services.some((y) => y.id === x.id)),
+          })),
+        },
+      };
+    },
+    bulk: async (body) => {
+      await pause();
+      const req = parseInput(BulkClientsRequest, body);
+      if (staffOnly) throw forbidden();
+      const skipped: { clientId: string; code: string }[] = [];
+      let updated = 0;
+      for (const id of req.clientIds) {
+        const row = rows.find((r) => r.id === id && visible(r));
+        if (!row) {
+          skipped.push({ clientId: id, code: 'NOT_FOUND' });
+          continue;
+        }
+        if (req.action === 'ASSIGN') {
+          if (row.archivedAt) {
+            skipped.push({ clientId: id, code: 'CLIENT_ARCHIVED' });
+            continue;
+          }
+          save({ ...row, assignedTo: assignee(req.assignedUserId), updatedAt: now() });
+        } else if (req.action === 'ARCHIVE') {
+          if (!row.archivedAt) save({ ...row, archivedAt: now(), updatedAt: now() });
+        } else {
+          save({ ...row, archivedAt: null, updatedAt: now() });
+        }
+        updated += 1;
+      }
+      return { updated, skipped };
     },
     get: async (id) => {
       await pause();
