@@ -1,11 +1,11 @@
 'use client';
 
 import { ApiRequestError } from '@firmivra/types';
-import { Badge, Card, Skeleton } from '@firmivra/ui';
-import { CaretLeft, CaretRight, Warning, type Icon } from '@phosphor-icons/react';
+import { Badge, Button, Card, DateRangePicker, Skeleton } from '@firmivra/ui';
+import { CalendarBlank, CaretLeft, CaretRight, Warning, type Icon } from '@phosphor-icons/react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type {
   AccountStatus,
   AlertState,
@@ -267,5 +267,100 @@ export function Breadcrumbs({ items }: { items: { label: string; href?: string }
         ))}
       </ol>
     </nav>
+  );
+}
+
+/**
+ * The page head as the Super Admin designs draw it: a bold sans title (the kit's PageHeader uses
+ * the firm workspace's display face), the subtitle, an optional line above, actions on the right.
+ */
+export function AuditHeader({
+  title,
+  subtitle,
+  above,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  above?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="flex flex-col gap-2">
+      {above}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-3xl font-bold text-heading">{title}</h1>
+          {subtitle ? <p className="text-base text-text">{subtitle}</p> : null}
+        </div>
+        {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
+      </div>
+    </header>
+  );
+}
+
+/**
+ * A date range as one chip ("Oct 1, 2026 - Oct 14, 2026"), as the dashboard design draws it; it
+ * opens a small panel with the two dates. An empty side shows "Any".
+ */
+export function DateRangeChip({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: { from: string; to: string };
+  onChange: (next: { from: string; to: string }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const show = (d: string) =>
+    d
+      ? new Date(`${d}T00:00:00`).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        })
+      : 'Any';
+  return (
+    <div className="relative" onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`${label}: ${show(value.from)} to ${show(value.to)}`}
+        onClick={() => {
+          setDraft(value);
+          setOpen(!open);
+        }}
+        className="inline-flex h-10 items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-sm text-heading hover:bg-canvas"
+      >
+        <CalendarBlank aria-hidden weight="regular" className="size-4.5 text-muted" />
+        {show(value.from)} - {show(value.to)}
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-label={label}
+          className="absolute right-0 z-20 mt-2 flex w-80 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-lg"
+        >
+          <DateRangePicker label={label} value={draft} onChange={setDraft} />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={Boolean(draft.from && draft.to && draft.from > draft.to)}
+              onClick={() => {
+                onChange(draft);
+                setOpen(false);
+              }}
+            >
+              Apply
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

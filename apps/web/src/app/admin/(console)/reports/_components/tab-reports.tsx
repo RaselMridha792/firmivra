@@ -2,7 +2,7 @@
 
 import type { AdminReportKpi } from '@firmivra/types';
 import { ADMIN_REPORT_FEATURES, type AdminFeatureUsageQuery } from '@firmivra/types';
-import { DonutChart, KpiCard, Select } from '@firmivra/ui';
+import { DonutChart, Select } from '@firmivra/ui';
 import {
   ArrowCircleDown,
   ArrowCircleUp,
@@ -35,6 +35,7 @@ import {
   NOT_AVAILABLE,
   Panel,
   QuietLine,
+  ReportKpiCard,
   ReportsHeader,
   ReportsTabs,
   RP,
@@ -75,7 +76,7 @@ function Figure({
   loading: boolean;
 }) {
   return (
-    <KpiCard
+    <ReportKpiCard
       icon={icon}
       tone={tone}
       label={label}

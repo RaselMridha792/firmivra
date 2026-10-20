@@ -1,7 +1,7 @@
 'use client';
 
 import type { AdminReportActivity, AdminReportKpi, AdminReportsOverview } from '@firmivra/types';
-import { DonutChart, type ChartTone, KpiCard, type KpiTone } from '@firmivra/ui';
+import { DonutChart, type ChartTone } from '@firmivra/ui';
 import {
   ArrowCircleUp,
   Buildings,
@@ -31,6 +31,8 @@ import {
   NOT_AVAILABLE,
   Panel,
   QuietLine,
+  ReportKpiCard,
+  type ReportTone,
   ReportsHeader,
   ReportsTabs,
   RP,
@@ -43,7 +45,7 @@ const KPIS: {
   key: keyof Kpis;
   label: string;
   icon: Icon;
-  tone: KpiTone;
+  tone: ReportTone;
   show: (v: number) => string;
   upIsGood?: boolean;
 }[] = [
@@ -103,13 +105,13 @@ export function Kpi({
   kpi: AdminReportKpi | undefined;
   label: string;
   icon: Icon;
-  tone: KpiTone;
+  tone: ReportTone;
   show: (v: number) => string;
   upIsGood?: boolean;
   loading: boolean;
 }) {
   return (
-    <KpiCard
+    <ReportKpiCard
       icon={icon}
       tone={tone}
       label={label}
@@ -315,7 +317,7 @@ export function ReportsOverview() {
           <Loaded query={q}>
             {(d) => (
               <ActivityTable
-                rows={d.recentActivity}
+                rows={d.recentActivity.slice(0, 5)}
                 third={{ label: 'Details', value: (a) => a.detail ?? a.firm?.name ?? '—' }}
               />
             )}

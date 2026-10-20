@@ -14,11 +14,13 @@ export interface MonthValue {
 }
 
 /** A round top for the axis and five steps to it (0, 50 … 250 for 237). */
-export function niceTicks(max: number): number[] {
+export function niceTicks(max: number, whole = false): number[] {
   if (max <= 0) return [0, 1, 2, 3, 4, 5];
   const rough = max / 5;
-  const power = 10 ** Math.floor(Math.log10(rough));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((s) => s >= rough) ?? 10 * power;
+  const power = Math.max(whole ? 1 : 0, 10 ** Math.floor(Math.log10(rough)));
+  // Counts step in whole numbers (no "12.5 firms"); money may step by 2.5.
+  const steps = whole ? [1, 2, 3, 5, 10] : [1, 2, 2.5, 5, 10];
+  const step = steps.map((m) => m * power).find((s) => s >= rough) ?? 10 * power;
   return Array.from({ length: 6 }, (_, i) => Math.round(i * step * 100) / 100);
 }
 
@@ -90,7 +92,7 @@ export function MonthBars({
   /** The axis's top when every value is smaller (a money chart: cents). */
   minTop?: number;
 }) {
-  const ticks = niceTicks(Math.max(minTop, ...data.map((d) => d.value)));
+  const ticks = niceTicks(Math.max(minTop, ...data.map((d) => d.value)), minTop <= 5);
   const top = ticks.at(-1)!;
   const empty = data.every((d) => d.value === 0);
   const fill = tone === 'purple' ? 'bg-purple' : 'bg-action';
@@ -153,7 +155,7 @@ export function MonthLine({
   /** The axis's top when every value is smaller (a money chart: cents). */
   minTop?: number;
 }) {
-  const ticks = niceTicks(Math.max(minTop, ...data.map((d) => d.value)));
+  const ticks = niceTicks(Math.max(minTop, ...data.map((d) => d.value)), minTop <= 5);
   const top = ticks.at(-1)!;
   const empty = data.every((d) => d.value === 0);
   const n = Math.max(1, data.length - 1);

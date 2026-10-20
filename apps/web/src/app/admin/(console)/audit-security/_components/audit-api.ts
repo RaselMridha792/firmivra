@@ -54,6 +54,16 @@ const RESPONSES: Record<string, ResponseAction> = {
 };
 const OUTCOME_TEXT = { SUCCESS: 'Success', FAILURE: 'Failed', DENIED: 'Denied' } as const;
 
+/** A stored role code ("SUPER_ADMIN") as people read it ("Super Admin"); other text as it is. */
+const roleText = (role: string | null) =>
+  role && /^[A-Z_]+$/.test(role)
+    ? role
+        .toLowerCase()
+        .split('_')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ')
+    : role;
+
 /** A list row in the screens' shape. */
 function shown(e: AdminAuditEvent): AuditEvent {
   return {
@@ -70,7 +80,7 @@ function shown(e: AdminAuditEvent): AuditEvent {
     summary: e.summary,
     details: e.summary,
     description: e.summary,
-    actor: { ...e.actor, email: null },
+    actor: { ...e.actor, email: null, role: roleText(e.actor.role) },
     firm: e.firm,
     source: 'Not recorded',
     authMethod: e.authMethod,

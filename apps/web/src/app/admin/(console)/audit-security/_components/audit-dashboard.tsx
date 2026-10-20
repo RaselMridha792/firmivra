@@ -6,10 +6,8 @@ import {
   Button,
   Callout,
   Card,
-  DateRangePicker,
   FilterBar,
   FilterGroup,
-  PageHeader,
   Pagination,
   SearchField,
   Select,
@@ -64,6 +62,8 @@ import {
   QuietLine,
   SEVERITY_LABELS,
   SeverityBadge,
+  AuditHeader,
+  DateRangeChip,
 } from './audit-parts';
 
 /**
@@ -326,7 +326,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
     {
       id: 'user',
       label: 'User',
-      className: 'min-w-44',
+      className: 'min-w-36',
       cell: (event) => (
         <span className="flex items-center gap-3">
           <Avatar name={event.actor.name} size="lg" />
@@ -354,7 +354,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
         </Link>
       ),
     },
-    { id: 'details', label: 'Details', className: 'min-w-44', cell: (event) => event.details },
+    { id: 'details', label: 'Details', className: 'min-w-36', cell: (event) => event.details },
     {
       id: 'ip',
       label: 'IP Address',
@@ -386,7 +386,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <PageHeader
+      <AuditHeader
         title="Audit & Security"
         subtitle="Monitor activity, review security events, and maintain a secure platform."
         actions={
@@ -557,7 +557,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
               ]}
             />
           </div>
-          <DateRangePicker
+          <DateRangeChip
             label="Date range"
             value={{ from: filters.from, to: filters.to }}
             onChange={(next) => update({ from: next.from, to: next.to })}

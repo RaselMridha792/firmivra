@@ -7,7 +7,6 @@ import {
   Checkbox,
   FormField,
   Modal,
-  PageHeader,
   Select,
   Textarea,
   Toggle,
@@ -61,6 +60,7 @@ import {
   loadError,
   QuietLine,
   SkeletonLines,
+  AuditHeader,
 } from '../../_components/audit-parts';
 import { NumberSelect, RadioOption, SettingsCard, ToggleRow, YesNoSelect } from './settings-parts';
 
@@ -254,7 +254,7 @@ export function SecuritySettingsForm() {
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <PageHeader
+      <AuditHeader
         title="Security Settings"
         subtitle="Configure security policies and platform protection settings."
         above={

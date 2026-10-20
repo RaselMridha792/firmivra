@@ -1,16 +1,6 @@
 'use client';
 
-import {
-  Button,
-  Card,
-  IconTile,
-  Modal,
-  PageHeader,
-  Tabs,
-  Textarea,
-  Toast,
-  type KpiTone,
-} from '@firmivra/ui';
+import { Button, Card, IconTile, Modal, Tabs, Textarea, Toast, type KpiTone } from '@firmivra/ui';
 import {
   ArrowLeft,
   CaretLeft,
@@ -38,6 +28,7 @@ import {
   Loaded,
   OutcomeBadge,
   SeverityBadge,
+  AuditHeader,
 } from '../../../_components/audit-parts';
 import { QuickInfo, RecommendedActions, RiskIndicators } from './event-rail';
 import {
@@ -189,7 +180,7 @@ export function EventDetail({ eventId }: { eventId: string }) {
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <PageHeader
+      <AuditHeader
         title="Event Details"
         subtitle="View complete information about this security event."
         above={

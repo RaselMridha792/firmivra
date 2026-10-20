@@ -1,11 +1,18 @@
 'use client';
 
 import type { AdminReportKpi } from '@firmivra/types';
-import { Card, DateRangePicker, type KpiTrend, PageHeader, Skeleton } from '@firmivra/ui';
-import { ArrowLeft } from '@phosphor-icons/react';
+import { Button, Card, DateRangePicker, type KpiTrend, Skeleton } from '@firmivra/ui';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  CalendarBlank,
+  CaretDown,
+  type Icon,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ApiRequestError } from '@firmivra/types';
 
 /**
@@ -202,9 +209,82 @@ export function ReportsTabs() {
 /** The global period (upper right): every figure on the page follows it. */
 export function PeriodPicker() {
   const { from, to, set } = useRange();
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState({ from, to });
+  const apply = (r: { from: string; to: string }) => {
+    if (!r.from || !r.to || r.from > r.to) return;
+    set(r);
+    setOpen(false);
+  };
+  /** A preset's days, from the moment it is chosen (an event, so the clock is read then). */
+  const preset = (kind: '7' | '30' | 'month' | 'last-month') => {
+    const now = new Date();
+    const day = (d: Date) => d.toISOString().slice(0, 10);
+    const today = day(now);
+    if (kind === '7' || kind === '30')
+      return { from: day(new Date(now.getTime() - (Number(kind) - 1) * DAY)), to: today };
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth();
+    return kind === 'month'
+      ? { from: day(new Date(Date.UTC(y, m, 1))), to: today }
+      : { from: day(new Date(Date.UTC(y, m - 1, 1))), to: day(new Date(Date.UTC(y, m, 0))) };
+  };
   return (
-    <div className="w-full max-w-sm">
-      <DateRangePicker label="Reporting period" value={{ from, to }} onChange={set} />
+    <div className="relative" onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`Reporting period: ${dayText(from)} to ${dayText(to)}`}
+        onClick={() => {
+          setDraft({ from, to });
+          setOpen(!open);
+        }}
+        className="inline-flex h-11 items-center gap-3 rounded-lg border border-divider bg-surface px-4 text-sm font-medium text-heading shadow-sm hover:bg-canvas"
+      >
+        <CalendarBlank aria-hidden weight="regular" className="size-5 text-muted" />
+        {dayText(from)} - {dayText(to)}
+        <CaretDown aria-hidden weight="bold" className="size-4 text-muted" />
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-label="Choose the reporting period"
+          className="absolute right-0 z-20 mt-2 flex w-80 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-lg"
+        >
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ['7', 'Last 7 days'],
+                ['30', 'Last 30 days'],
+                ['month', 'This month'],
+                ['last-month', 'Last month'],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => apply(preset(k))}
+                className="rounded-full border border-divider px-3 py-1 text-xs font-medium text-text hover:border-action hover:text-action"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <DateRangePicker label="Custom range" value={draft} onChange={setDraft} />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!draft.from || !draft.to || draft.from > draft.to}
+              onClick={() => apply(draft)}
+            >
+              Apply
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -223,7 +303,7 @@ export function ReportsHeader({
 }) {
   const { keep } = useRange();
   return (
-    <PageHeader
+    <ConsoleHeader
       title={title}
       subtitle={subtitle}
       above={
@@ -255,4 +335,97 @@ export function saveFile(file: { fileName: string; mimeType: string; content: st
   a.download = file.fileName;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/**
+ * The page head as the Super Admin designs draw it: a bold sans title (the kit's PageHeader uses
+ * the firm workspace's display face), the subtitle, an optional line above, actions on the right.
+ */
+export function ConsoleHeader({
+  title,
+  subtitle,
+  above,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  above?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="flex flex-col gap-2">
+      {above}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-3xl font-bold text-heading">{title}</h1>
+          {subtitle ? <p className="text-base text-text">{subtitle}</p> : null}
+        </div>
+        {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
+      </div>
+    </header>
+  );
+}
+
+const TILE = {
+  blue: 'bg-info-soft text-action',
+  green: 'bg-success-soft text-success',
+  amber: 'bg-warning-soft text-gold',
+  red: 'bg-danger-soft text-danger',
+  purple: 'bg-purple-soft text-purple',
+  grey: 'bg-disabled text-muted',
+} as const;
+export type ReportTone = keyof typeof TILE;
+
+/**
+ * A metric card as the Reports designs draw it: the icon on a soft tile, then the label, the
+ * value, the change (an arrow, green or red) and what it compares with.
+ */
+export function ReportKpiCard({
+  icon: I,
+  tone = 'blue',
+  label,
+  value,
+  trend,
+  note,
+  loading,
+}: {
+  icon: Icon;
+  tone?: ReportTone;
+  label: string;
+  value: ReactNode;
+  trend?: KpiTrend;
+  note?: string;
+  loading?: boolean;
+}) {
+  const Arrow = trend?.direction === 'down' ? ArrowDown : ArrowUp;
+  const colour = trend?.good === false ? 'text-danger' : 'text-success';
+  return (
+    <Card className="flex items-start gap-4 p-5!">
+      <span
+        className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${TILE[tone]}`}
+      >
+        <I aria-hidden weight="fill" className="size-7" />
+      </span>
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="text-sm font-medium text-heading">{label}</span>
+        {loading ? (
+          <Skeleton className="h-8 w-16" />
+        ) : (
+          <span className="text-3xl leading-tight font-bold text-heading">{value}</span>
+        )}
+        {trend ? (
+          trend.direction === 'flat' ? (
+            <span className="text-sm text-muted">{trend.text}</span>
+          ) : (
+            <span className={`inline-flex items-center gap-1 text-sm font-medium ${colour}`}>
+              <Arrow aria-hidden weight="bold" className="size-3.5" />
+              <span className="sr-only">{trend.direction === 'up' ? 'Up' : 'Down'} </span>
+              {trend.text}
+            </span>
+          )
+        ) : null}
+        {note ? <span className="text-xs text-muted">{note}</span> : null}
+      </div>
+    </Card>
+  );
 }
