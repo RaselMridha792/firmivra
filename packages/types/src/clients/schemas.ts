@@ -173,7 +173,10 @@ export const ClientsSummary = z.object({
     pendingDocuments: ClientsKpi,
     /** Not archived, owing on an OPEN invoice; previous is null. */
     balancesDue: ClientsKpi,
-    /** Archived; previous: archived at the start of this month and still archived. */
+    /**
+     * Not archived, stage INACTIVE (the Inactive tab; archiving is separate and hides the client);
+     * previous is null.
+     */
     inactiveClients: ClientsKpi,
   }),
   /** The tabs' counts. */
@@ -191,8 +194,10 @@ export type ClientsSummary = z.infer<typeof ClientsSummary>;
 /**
  * POST /business/clients/bulk (the list's Bulk Actions), Owner and Admin: the same change to up
  * to 100 clients. ASSIGN sets (or with null clears) the assignee; ARCHIVE and RESTORE as for one
- * client. Each client is changed and audited on its own; one that cannot be changed is skipped
- * with its code (NOT_FOUND, CLIENT_ARCHIVED for ASSIGN) and the rest still change.
+ * client. An id that is not one of the firm's clients, or an assignee who is not an active
+ * member, refuses the whole request (404 NOT_FOUND) before anything changes. Then each client is
+ * changed and audited on its own; one whose state refuses it (CLIENT_ARCHIVED for ASSIGN) is
+ * skipped with its code and the rest still change.
  */
 export const BulkClientsRequest = z.discriminatedUnion('action', [
   z.strictObject({
