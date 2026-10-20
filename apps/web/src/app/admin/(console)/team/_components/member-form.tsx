@@ -4,8 +4,9 @@ import { Info, LockSimple, Warning } from '@phosphor-icons/react';
 import { Badge, Button, Callout, Card, Input, Modal, Select, Skeleton } from '@firmivra/ui';
 import Link from 'next/link';
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { errorCode, errorMessage } from '../../../../../lib/errors';
+import { errorCode } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
+import { AccessPermissions } from './access-permissions';
 import {
   ACCESS_LEVELS,
   ACCESS_SCOPES,
@@ -15,7 +16,8 @@ import {
   AUTHORITY_LEVELS,
   blankMember,
   checkMember,
-  defaultScope,
+  errorMessage,
+  fieldErrorsOf,
   type FormRole,
   grantable,
   MEMBER_STATUSES,
@@ -23,15 +25,15 @@ import {
   type MemberFormOptions,
   memberToSave,
   roleById,
+  roleDefaultScope,
   roleTemplate,
   samePermissions,
   type SaveTeamMember,
   supervisorsFor,
   TEAM_ERROR_MESSAGES,
-  TEAM_MODULES,
   type TeamPermissions,
-} from '../../../../../mocks/admin-team';
-import { AccessPermissions } from './access-permissions';
+  teamModules,
+} from './team-api';
 import { ButtonLink, TEAM_KEY } from './team-parts';
 
 /** "Team / Add Team Member" above the title. */
@@ -236,7 +238,8 @@ export function MemberForm({
       ? grantable('ceo', {}, true)
       : options.viewerPermissions;
   const custom = Boolean(values.roleId) && !samePermissions(values.permissions, template);
-  const moduleCount = TEAM_MODULES.filter((area) => values.permissions[area.id]?.length).length;
+  const modules = teamModules();
+  const moduleCount = modules.filter((area) => values.permissions[area.id]?.length).length;
 
   const change = (patch: Partial<SaveTeamMember>) => {
     setValues({ ...values, ...patch });
@@ -258,8 +261,9 @@ export function MemberForm({
 
   function applyRole(next: FormRole, loadTemplate: boolean) {
     const previous = roleById(values.roleId || lastRoleId);
-    const oldDefault = previous ? defaultScope(previous.level) : '';
-    const newDefault = defaultScope(next.level);
+    // The role's own default scope on the API; the mock's comes from the level.
+    const oldDefault = previous ? roleDefaultScope(previous.id) : undefined;
+    const newDefault = roleDefaultScope(next.id);
     const keepScope =
       values.scope && values.scope !== oldDefault && options.scopes.includes(values.scope);
     change({
@@ -269,7 +273,11 @@ export function MemberForm({
           ? next.title
           : values.jobTitle,
       permissions: loadTemplate ? roleTemplate(next.id) : values.permissions,
-      scope: keepScope ? values.scope : options.scopes.includes(newDefault) ? newDefault : '',
+      scope: keepScope
+        ? values.scope
+        : newDefault && options.scopes.includes(newDefault)
+          ? newDefault
+          : '',
       reportsToId: defaultSupervisor(next),
     });
     setLastRoleId(next.id);
@@ -281,7 +289,7 @@ export function MemberForm({
     const previous = values.roleId || lastRoleId;
     const customized =
       Boolean(previous) &&
-      TEAM_MODULES.some((area) => values.permissions[area.id]?.length) &&
+      modules.some((area) => values.permissions[area.id]?.length) &&
       !samePermissions(values.permissions, roleTemplate(previous));
     // Docx §21: warn before a new role's template replaces custom access.
     if (mode === 'edit' && customized) setPendingRole(next);
@@ -313,7 +321,10 @@ export function MemberForm({
     save.mutate(values, {
       onSuccess: onSaved,
       onError: (error) => {
-        if (errorCode(error) === 'EMAIL_TAKEN')
+        // The API's refusal of a field (a name or phone it cannot save yet) shows by that field.
+        const fields = fieldErrorsOf(error);
+        if (fields) setErrors({ ...found, ...fields });
+        else if (errorCode(error) === 'EMAIL_TAKEN')
           setErrors({ ...found, email: TEAM_ERROR_MESSAGES['EMAIL_TAKEN'] });
         setProblem(errorMessage(error, TEAM_ERROR_MESSAGES));
       },
@@ -622,7 +633,7 @@ export function MemberForm({
         </ReviewRow>
         <ReviewRow label="Access">
           <span className="flex flex-wrap items-center gap-2">
-            {moduleCount} of {TEAM_MODULES.length} modules
+            {moduleCount} of {modules.length} modules
             {custom ? <Badge tone="warning">Custom</Badge> : null}
           </span>
         </ReviewRow>

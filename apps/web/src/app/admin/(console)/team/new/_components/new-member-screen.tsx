@@ -5,11 +5,6 @@ import { Button, Callout, PageHeader, Skeleton } from '@firmivra/ui';
 import { useState, type ReactNode } from 'react';
 import { useApiQuery } from '../../../../../../lib/query';
 import {
-  adminTeam,
-  type AdminTeamMember,
-  MEMBER_STATUSES,
-} from '../../../../../../mocks/admin-team';
-import {
   FormLayout,
   FormSkeleton,
   MemberForm,
@@ -17,12 +12,19 @@ import {
   SideCard,
   TeamBreadcrumb,
 } from '../../_components/member-form';
+import {
+  ADD_MEMBER_AVAILABLE,
+  adminTeam,
+  type AdminTeamMember,
+  MEMBER_STATUSES,
+} from '../../_components/team-api';
 import { ButtonLink, QuietLine, TEAM_KEY, UNREACHABLE } from '../../_components/team-parts';
 
 /**
  * Add Team Member (creating-team-firmivra-add-team-member-portal.jpg, docx §4 and §24) as a page:
  * the CEO's master form, which shows fewer departments, roles, scopes and permissions to lower
- * levels and nothing to someone who may not add people.
+ * levels and nothing to someone who may not add people. Until the API can add people
+ * (ADD_MEMBER_AVAILABLE) the form stays, filled from the API, and its submit says so.
  */
 export function NewMemberScreen() {
   const viewer = useApiQuery([...TEAM_KEY, 'viewer'], () => adminTeam.viewer());
@@ -50,7 +52,7 @@ export function NewMemberScreen() {
   // The API is unreachable: the form's frame stays, empty and disabled, under the quiet line.
   else if (failed)
     body = <MemberFormFrame mode="create" message={UNREACHABLE} testId="new-member-quiet" />;
-  else if (!viewer.data?.can.add) {
+  else if (ADD_MEMBER_AVAILABLE && !viewer.data?.can.add) {
     const text =
       "You don't have permission to add team members. Ask your department head or the CEO.";
     body = (

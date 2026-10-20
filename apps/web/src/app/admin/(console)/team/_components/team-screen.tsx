@@ -3,25 +3,26 @@
 import { PaperPlaneTilt, Plus } from '@phosphor-icons/react';
 import { Button, Card, PageHeader, Pagination, type TableSort, Toast } from '@firmivra/ui';
 import { useDeferredValue, useState } from 'react';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import {
-  type AccessLevel,
-  adminTeam,
-  type AdminTeamMember,
-  type MemberStatus,
-  type MessageTarget,
-  TEAM_ERROR_MESSAGES,
-  type TeamQuery,
-  type TeamSort,
-  type TeamView,
-} from '../../../../../mocks/admin-team';
 import { BulkDialog, type BulkKind } from './bulk-dialog';
 import { MemberCard, MemberCardSkeleton } from './member-card';
 import type { MemberCommand } from './member-menu';
 import { MemberProfile } from './member-profile';
 import { MemberTable } from './member-table';
 import { MessageDialog, type MessagePreset, type MessageVariant } from './message-dialog';
+import {
+  type AccessLevel,
+  ADD_MEMBER_AVAILABLE,
+  adminTeam,
+  type AdminTeamMember,
+  errorMessage,
+  type MemberStatus,
+  type MessageTarget,
+  TEAM_ERROR_MESSAGES,
+  type TeamQuery,
+  type TeamSort,
+  type TeamView,
+} from './team-api';
 import { TeamKpis } from './team-kpis';
 import { ButtonLink, members as countText, QuietLine, TEAM_KEY, UNREACHABLE } from './team-parts';
 import {
@@ -39,7 +40,7 @@ const SKELETON_CARDS = ['a', 'b', 'c', 'd', 'e', 'f'];
 /**
  * Team (S05): Firmivra's own people in Card or List View, with search, filters, bulk actions, the
  * member profile panel and the two Send Message dialogs. Everything shown and every button comes
- * from what the signed-in admin may see and do (the mock decides, as the API will).
+ * from what the signed-in admin may see and do (the API decides; team-api.ts, or the mock).
  */
 export function TeamScreen() {
   const viewer = useApiQuery([...TEAM_KEY, 'viewer'], () => adminTeam.viewer());
@@ -150,11 +151,14 @@ export function TeamScreen() {
       decide.mutate(
         { id: member.id, decision: command === 'approve' ? 'APPROVE' : 'REJECT' },
         {
-          onSuccess: () =>
+          // The API sends no invitation on approval yet (`invitationSent` false).
+          onSuccess: (decided) =>
             report.onSuccess(
-              command === 'approve'
-                ? `${member.name}'s role is approved and the invitation is on its way.`
-                : `${member.name}'s role assignment was rejected.`,
+              command !== 'approve'
+                ? `${member.name}'s role assignment was rejected.`
+                : decided.invitationSent === false
+                  ? `${member.name}'s role is approved. No invitation was sent yet.`
+                  : `${member.name}'s role is approved and the invitation is on its way.`,
             ),
           onError: report.onError,
         },
@@ -209,7 +213,9 @@ export function TeamScreen() {
               <PaperPlaneTilt aria-hidden weight="fill" className="size-5" />
               Team Communication
             </Button>
-            {can?.add ? (
+            {/* On the API the button stays (the design's) until R2's invite route: the Add page's
+                submit says adding is not available yet. */}
+            {can?.add || (can && !ADD_MEMBER_AVAILABLE) ? (
               <ButtonLink href="/team/new">
                 <Plus aria-hidden weight="bold" className="size-5" />
                 Add Team Member

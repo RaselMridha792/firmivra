@@ -7,6 +7,7 @@ import {
   Envelope,
   PencilSimple,
   ShieldCheck,
+  TreeStructure,
   UserPlus,
   XCircle,
   type Icon,
@@ -14,20 +15,20 @@ import {
 import { Avatar, Badge, Button, Drawer, Skeleton, Timeline, type TimelineItem } from '@firmivra/ui';
 import { useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import type { MemberCommand } from './member-menu';
 import {
   ACCESS_SCOPES,
   adminTeam,
   AUTHORITY_LEVELS,
   type AdminTeamMember,
+  errorMessage,
   PERMISSION_ACTIONS,
   TEAM_ERROR_MESSAGES,
-  TEAM_MODULES,
   type TeamActivity,
   type TeamActivityKind,
-} from '../../../../../mocks/admin-team';
-import type { MemberCommand } from './member-menu';
+  teamModules,
+} from './team-api';
 import {
   AccessBadge,
   formatDate,
@@ -49,6 +50,10 @@ const ACTIVITY_ICONS: Record<TeamActivityKind, { icon: Icon; tone: TimelineItem[
   STATUS_CHANGED: { icon: ArrowsClockwise, tone: 'grey' },
   APPROVED: { icon: CheckCircle, tone: 'green' },
   REJECTED: { icon: XCircle, tone: 'red' },
+  // The API's own kinds: activation, a new supervisor and R0's bootstrap.
+  ACTIVATED: { icon: CheckCircle, tone: 'green' },
+  REPORTS_TO_CHANGED: { icon: TreeStructure, tone: 'purple' },
+  MAPPED_TO_CEO: { icon: ShieldCheck, tone: 'purple' },
 };
 
 const ACTION_LABELS: Record<string, string> = Object.fromEntries(
@@ -67,7 +72,12 @@ export function activityItems(entries: TeamActivity[]): TimelineItem[] {
         : entry.summary,
     time: formatDateTime(entry.at),
     dateTime: entry.at,
-    actor: entry.approver ? `${entry.actor.name} (approved)` : entry.actor.name,
+    // No actor: the platform itself (R0's bootstrap).
+    actor: entry.actor
+      ? entry.approver
+        ? `${entry.actor.name} (approved)`
+        : entry.actor.name
+      : 'System',
   }));
 }
 
@@ -103,6 +113,7 @@ export function MemberProfile({
   const activity = useApiQuery([...TEAM_KEY, 'activity', member?.id], () =>
     member ? adminTeam.activity(member.id) : Promise.resolve([]),
   );
+  const modules = teamModules();
   return (
     <Drawer
       open={member !== null}
@@ -184,18 +195,20 @@ export function MemberProfile({
           </Section>
           <Section title="Permissions">
             <ul className="flex flex-col gap-1.5 text-sm">
-              {TEAM_MODULES.filter((area) => member.permissions[area.id]?.length).map((area) => (
-                <li key={area.id} className="flex flex-wrap gap-x-2">
-                  <span className="font-semibold text-heading">{area.label}:</span>
-                  <span className="text-text">
-                    {(member.permissions[area.id] ?? [])
-                      .map((action) => ACTION_LABELS[action] ?? action)
-                      .join(', ')}
-                  </span>
-                </li>
-              ))}
+              {modules
+                .filter((area) => member.permissions[area.id]?.length)
+                .map((area) => (
+                  <li key={area.id} className="flex flex-wrap gap-x-2">
+                    <span className="font-semibold text-heading">{area.label}:</span>
+                    <span className="text-text">
+                      {(member.permissions[area.id] ?? [])
+                        .map((action) => ACTION_LABELS[action] ?? action)
+                        .join(', ')}
+                    </span>
+                  </li>
+                ))}
             </ul>
-            {TEAM_MODULES.every((area) => !member.permissions[area.id]?.length) ? (
+            {modules.every((area) => !member.permissions[area.id]?.length) ? (
               <p className="text-sm text-muted">No module access yet.</p>
             ) : null}
           </Section>

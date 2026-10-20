@@ -13,17 +13,17 @@ import {
 } from '@phosphor-icons/react';
 import { Button, FilterChip, IconButton, Input, Textarea } from '@firmivra/ui';
 import { useId, useState } from 'react';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
 import {
   adminTeam,
   type CreateTeamGroup,
+  errorMessage,
   type MessageAudience,
   type MessageOptions,
   type MessageTarget,
   TEAM_ERROR_MESSAGES,
   type TeamGroup,
-} from '../../../../../mocks/admin-team';
+} from './team-api';
 import { TEAM_KEY } from './team-parts';
 
 const AUDIENCES: { id: MessageAudience; label: string; icon: Icon }[] = [

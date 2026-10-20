@@ -16,7 +16,7 @@ import {
 } from '@phosphor-icons/react';
 import { ActionMenu, type ActionMenuItem } from '@firmivra/ui';
 import { useRouter } from 'next/navigation';
-import type { AdminTeamMember } from '../../../../../mocks/admin-team';
+import type { AdminTeamMember } from './team-api';
 
 /** What a member's menu can ask the page to do; navigation happens here. */
 export type MemberCommand =

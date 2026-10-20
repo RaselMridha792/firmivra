@@ -10,12 +10,12 @@ import {
   type Availability,
   MEMBER_STATUSES,
   type MemberStatus,
-} from '../../../../../mocks/admin-team';
+} from './team-api';
 
 /** Every Team query key starts here, so one invalidation refreshes the module. */
 export const TEAM_KEY = ['admin-team'] as const;
 
-/** The quiet line a frame shows when its call fails (the API is not built yet). */
+/** The quiet line a frame shows when its call fails (the API cannot be reached). */
 export const UNREACHABLE = 'Could not load this right now. Check your connection and try again.';
 
 /** A frame's quiet empty or error line. */
@@ -52,7 +52,10 @@ export function AccessBadge({ level }: { level: AccessLevel }) {
   return <Badge tone={ACCESS_TONES[level]}>{ACCESS_LEVELS[level]}</Badge>;
 }
 
-/** The job title pill on a member card, tinted by department as in the design. */
+/**
+ * The job title pill on a member card, tinted by department as in the design: by the
+ * department's code on the API (the same in every environment), by its id in the mock.
+ */
 const DEPARTMENT_TONES: Record<string, BadgeTone> = {
   executive: 'info',
   sales: 'info',
@@ -67,10 +70,23 @@ const DEPARTMENT_TONES: Record<string, BadgeTone> = {
   security: 'danger',
   it: 'info',
   legal: 'neutral',
+  EXECUTIVE: 'info',
+  REVENUE_SALES: 'info',
+  MARKETING: 'purple',
+  OPERATIONS: 'success',
+  CUSTOMER_SUCCESS_SUPPORT: 'warning',
+  PRODUCT: 'danger',
+  TECHNOLOGY_ENGINEERING: 'info',
+  HR_PEOPLE: 'purple',
+  FINANCE_ACCOUNTING: 'success',
+  COMPLIANCE_RISK: 'neutral',
+  INFORMATION_SECURITY: 'danger',
+  IT_BUSINESS_SYSTEMS: 'info',
+  LEGAL: 'neutral',
 };
 
-export function TitleBadge({ departmentId, children }: { departmentId: string; children: string }) {
-  return <Badge tone={DEPARTMENT_TONES[departmentId] ?? 'info'}>{children}</Badge>;
+export function TitleBadge({ department, children }: { department: string; children: string }) {
+  return <Badge tone={DEPARTMENT_TONES[department] ?? 'info'}>{children}</Badge>;
 }
 
 const PRESENCE_DOTS: Record<Availability, string> = {
@@ -80,8 +96,32 @@ const PRESENCE_DOTS: Record<Availability, string> = {
   OFFLINE: 'bg-chart-grey',
 };
 
-/** A coloured dot and the presence text; `pill` puts it on a soft chip (member cards). */
-export function Presence({ value, pill }: { value: Availability; pill?: boolean }) {
+/**
+ * A coloured dot and the presence text; `pill` puts it on a soft chip (member cards). The API
+ * stores no presence (null): a quiet line instead, or the last sign-in when `signedInAt` is given
+ * (the table's column, which sorts by it).
+ */
+export function Presence({
+  value,
+  pill,
+  signedInAt,
+}: {
+  value: Availability | null;
+  pill?: boolean;
+  signedInAt?: string | null;
+}) {
+  if (value === null)
+    return (
+      <span
+        className={`inline-flex items-center text-sm text-muted ${pill ? 'rounded-pill bg-canvas px-2.5 py-0.5 text-xs font-medium' : ''}`}
+      >
+        {signedInAt === undefined
+          ? 'Presence unknown'
+          : signedInAt
+            ? `Signed in ${formatDate(signedInAt)}`
+            : 'Never signed in'}
+      </span>
+    );
   return (
     <span
       className={`inline-flex items-center gap-2 text-sm text-text ${pill ? 'rounded-pill bg-canvas px-2.5 py-0.5 text-xs font-medium' : ''}`}

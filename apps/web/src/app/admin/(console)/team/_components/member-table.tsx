@@ -2,8 +2,8 @@
 
 import { ChatText } from '@phosphor-icons/react';
 import { Avatar, IconButton, Table, type Column, type TableSort } from '@firmivra/ui';
-import type { AdminTeamMember, TeamSort } from '../../../../../mocks/admin-team';
 import { MemberMenu, type MemberCommand } from './member-menu';
+import type { AdminTeamMember, TeamSort } from './team-api';
 import { AccessBadge, Presence, StatusBadge } from './team-parts';
 
 /** List View: the design's eight columns, sorted by the API, checkboxes shared with Card View. */
@@ -65,7 +65,7 @@ export function MemberTable({
       id: 'availability',
       label: 'Availability',
       sortable: true,
-      cell: (m) => <Presence value={m.availability} />,
+      cell: (m) => <Presence value={m.availability} signedInAt={m.lastActiveAt} />,
     },
   ];
   return (
