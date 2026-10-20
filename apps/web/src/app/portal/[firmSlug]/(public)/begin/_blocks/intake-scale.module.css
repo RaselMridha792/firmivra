@@ -61,6 +61,21 @@
   min-height: calc(var(--intake-control) * 2) !important;
 }
 
+.scale :is(input, select, textarea)::placeholder {
+  color: var(--color-muted);
+  opacity: 1;
+}
+
+/* The kit's field states, which the size rule above would otherwise out-rank: a darker border on
+   hover, the action colour while focused (with the kit's soft ring), red when invalid. */
+.scale :is(input, select, textarea):hover:not(:disabled, :focus) {
+  border-color: var(--color-heading);
+}
+
+.scale :is(input, select, textarea):focus {
+  border-color: var(--color-action);
+}
+
 .scale :is(input, select, textarea)[aria-invalid='true'] {
   border-color: var(--color-danger);
 }

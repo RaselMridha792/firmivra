@@ -841,7 +841,7 @@ export function CommunicationsInbox() {
                     className="mt-2 h-9 w-full rounded-control border border-divider bg-surface px-2 text-sm text-text"
                   />
                 ) : null}
-                <div className="[&_label]:sr-only [&>div]:gap-0 [&_textarea]:min-h-24 [&_textarea]:resize-none [&_textarea]:border-0 [&_textarea]:bg-transparent [&_textarea]:px-2 [&_textarea]:py-3 [&_textarea]:text-sm [&_textarea]:shadow-none [&_textarea]:focus:outline-none xl:[&_textarea]:min-h-20">
+                <div className="[&_label]:sr-only [&>div]:gap-0 [&_textarea]:min-h-24 [&_textarea]:resize-none [&_textarea]:border-0 [&_textarea]:bg-transparent [&_textarea]:px-2 [&_textarea]:py-3 [&_textarea]:text-sm [&_textarea]:shadow-none [&_textarea]:focus:outline-none [&_textarea]:focus:ring-0 xl:[&_textarea]:min-h-20">
                   <Textarea
                     label="Type your message"
                     rows={3}
