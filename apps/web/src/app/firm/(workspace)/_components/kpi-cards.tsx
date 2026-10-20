@@ -14,7 +14,6 @@ import {
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ArrowDown, ArrowRight, ArrowUp } from 'lucide-react';
 import Link from 'next/link';
-import { moduleHref } from '../../../../lib/firm-modules';
 import { IconTile, type Tone } from './icon-tile';
 
 export const money = (cents: number) =>
@@ -74,7 +73,7 @@ const CARDS: {
     label: 'Returns In Progress',
     icon: FileText,
     tone: 'purple',
-    href: moduleHref('tax-returns'),
+    href: '/tax-returns',
     period: 'last week',
   },
   {
@@ -82,7 +81,7 @@ const CARDS: {
     label: 'Completed Returns',
     icon: CheckCircle,
     tone: 'green',
-    href: moduleHref('tax-returns'),
+    href: '/tax-returns',
     period: 'last month',
   },
   {
