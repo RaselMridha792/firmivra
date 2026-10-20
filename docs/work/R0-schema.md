@@ -105,6 +105,9 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 Relayed by the Scrum thread from R55's notes on Audit & Security, System Settings and Reports. R60 (Support, Billing, Sales APIs) and R55 send further notes the same way. Rasel's order for R0 stays the same: demo seed stage 5 first, then these migrations, one migration PR at a time in a merge window, each with Rasel's yes.
 
 **Queued (need a migration):**
+
+Both merged: D4 in #885 (Oct 19) and MRR history in #899 (Oct 19). Nothing else is queued.
+
 1. **Platform legal documents (new stage D4).** Firmivra's own Terms of Service, Privacy Policy and Data Processing Agreement for firms, versioned and published (a published version never changes), plus who accepted which version: the firm, the user, the time, the IP and the browser. `firm_legal_documents` is each firm's own text for its clients, so it doesn't cover these. Accepting the current version belongs in firm sign-up and activation (R4's flow).
 2. **MRR history (folded into stage D2, Subscriptions extras).** A daily rollup row with the date, MRR in cents, active, trialing, new and churned subscriptions, and MRR by plan. It is written by the platform's daily job. Past MRR can't be rebuilt from `platform_subscription_changes`, because those rows record plans and seats, not the price paid at the time, and plan prices change.
 
@@ -248,8 +251,60 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
 - Oct 19, bug fix `r0_demo_unseed_automations`, branch `rasel/R0-unseed-automation-cycle`: `app_delete_business_data` stopped on a new foreign-key cycle (an automation rule names its current version, each version names its rule) once the demo seed published automation rules, so the demo unseed (and deleting any firm with a published rule) failed. The function now drafts the firm's rules and clears their current version first, as it already does for Firm Sign's final documents. Test: `test/automation-firm-delete.test.ts` (as the RDS migrate role). Found by the Automations demo group, which is stacked on it.
 - Oct 19, Super Admin schema stage D4 (platform legal documents), branch `rasel/R0-stage-d4-platform-legal` from main (Rasel's order: schema gaps first): migration `r0_platform_legal`. `platform_legal_documents`: Terms, Privacy, DPA, Acceptable Use, numbered per kind, a draft that publishes (stamped; retires the previous version; one in force per kind), published text fixed, retired final, only drafts deleted; every scope reads the published text, the team writes. `platform_legal_acceptances`: insert-only evidence of a published version (person or applicant, firm link, IP, browser), stamped by the database; the platform or a firm for itself records it. Contract note `docs/work/R0-stage-d4-platform-legal.md`. Tests: `test/platform-legal.test.ts` (6).
 - Oct 19, MRR history (Super Admin schema gaps; part of D2), branch `rasel/R0-mrr-history` from main: migration `r0_mrr_history`. `platform_subscription_changes.mrr_cents` (the subscription's MRR after each change, set by the billing service; null on older rows, never negative) and `platform_mrr_daily` (one row per UTC day: MRR, active, trial, past-due, new and churned counts, MRR by plan; the platform's job writes and may recompute a day, the team reads, no firm; stamped like B9's rollups). Tests: `test/platform-mrr.test.ts` (4). Migration order: #868, then D4, then this, one PR at a time.
+- Oct 20, plan profile Additional Information (#950), branch `rasel/R0-advisory-plan-notes`: `AdvisoryPlanProfile` gets `referralSource` and `notes`, and the wizard's step 1 has the card's two fields. No migration (the profile is JSONB).
+- Oct 20, admin-scope team profile (#954), branch `rasel/R0-admin-team-user-update`: migration `r0_admin_team_profile`, policy `users_admin_team_update`. The CEO updates the ADMIN login of anyone on the org chart; the triggers keep the change to name and phone. Asked for by R60's Edit Team Member. Tests: `test/admin-team-profile.test.ts` (6).
 
-## Handoff, Oct 19 (read this first; it supersedes the Oct 18 handoff below)
+## Handoff, Oct 20 (read this first; it supersedes the Oct 19 handoff below)
+
+The R0 window closed on Oct 20 at the Scrum thread's wrap-up order: Rasel's laptop is slow and this window's context was full. The big end-to-end check of Business Advisory was skipped, except for a quick pass for pages that error (below).
+
+**Open PRs:**
+- **#950: plan profile `referralSource` and `notes`** (`rasel/R0-advisory-plan-notes`, main merged in at `d58bfe27`). CI is green; the review thread merges it.
+  - No migration: the profile is JSONB, checked only for its shape, size and EIN keys.
+  - Shard 4's earlier failure was the appointments unit test's fixed date (now past). Main fixed it in #946.
+- **#954: migration `r0_admin_team_profile`** (`rasel/R0-admin-team-user-update`, `4a891e88`). Asked for by R60's Edit Team Member.
+  - It needs Rasel's yes (packages/db) and a merge window. It is the only open migration PR.
+  - It adds one policy, `users_admin_team_update`: the CEO may update the ADMIN login of anyone on the org chart. The triggers keep the change to name and phone.
+  - Drift check on a fresh database: empty. `admin-team-profile` and `platform-team-hierarchy` pass locally (17 tests).
+  - **After it merges, R60** replaces `NAME_LOCKED` in `checkProfile` (`apps/api/src/admin-team/team-plan.ts`) with the write.
+
+**Merged since the Oct 19 handoff:**
+- Schema: #885 (D4, platform legal documents) and #899 (MRR history).
+- Business Advisory: #883 (mock), #888 (shell and overview), #897 (reports contract and error `details`), #908 (clients, plans and goals tabs), #910 (reports endpoint), #915 (financial analysis, action plans, resources and reports tabs), #929 (plan wizard), #934 (client detail), #943 (client tabs) and #948 (Documents and Client Portal tabs).
+- R1's #947: the Meetings, Financials and Recommendations client tabs, in `_components/client-tabs-r1.tsx`.
+
+**Business Advisory, where it stands:**
+- Every page is built: the overview, seven list tabs, the five-step plan wizard and the client detail with 11 tabs (R0 built 8, R1 built 3).
+- The reports endpoint is `GET /api/v1/advisory/reports`, inside the advisory module. The reports module was not touched.
+- `ApiRequestError.details` carries PLAN_NOT_READY's missing parts. The wizard's Review step shows them as "Still needed".
+- Known mock gap: the notes and documents mocks don't know the advisory mock's clients. Those tabs treat the 404 as "none yet" (`noneWhenMissing`).
+- **Not done:** the full end-to-end check against the developer guide docx and the three designs at 1440 px (filled, empty, error). The known differences are listed in #929 (wizard), #934 and #943 (client detail).
+- **Quick pass, Oct 20 (mock data mode, OWNER, 1440 px):** all 24 pages load (the overview, 7 list tabs, `plans/new`, the 5 wizard steps and the 11 client tabs). There were no page errors, console errors, error alerts or "not found" pages. Method: a throwaway Playwright script visited each route, waited for the `h1` (only the module shell has the `ba-page` test id; the client shell and the wizard don't), and collected `pageerror`, console errors, `role=alert` text and "Page not found". Not re-checked: the empty and API-unreachable states (their screenshots are in the PRs).
+
+**Remaining schema gaps:**
+- None queued. D4 and MRR merged. The other Super Admin items need no migration (see "Schema gaps from the Super Admin API sessions").
+- #954 is waiting, as above.
+- Not schema: the daily rollups (MRR, feature use, firm activity) still have no writer. That is a scheduled job in platform scope (R1's scheduler or the API's jobs module).
+- Old follow-up: `set-module.mjs` should take the migrate task's `DB_*` variables (Oct 17 handoff).
+
+**How to restart R0:**
+1. Work in the `F:\firmivra-R0` worktree. Read `CLAUDE.md`, `docs/work/README.md` and this file.
+2. Check the free space on drive F first; it is small and shared.
+3. Before an api typecheck or test, build `packages/types` and `packages/db` (`pnpm --filter @firmivra/types build`). A stale `dist` gives false type errors.
+4. **DB tests:**
+   - Load `DATABASE_URL` and `DATABASE_URL_APP` from `.env` without printing them, and add `?connect_timeout=60`.
+   - The test setup truncates every table of `<db>_test`, which other local suites share. Point both URLs at your own database name (for example `firmivra_r0`, so the tests use `firmivra_r0_test`) and drop it afterwards.
+5. **Drift check:** on a fresh database (`firmivra_r0_chk`), run `prisma migrate deploy`, then `prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`. It must print "-- This is an empty migration."
+6. **Screens:** follow the dev server, spec and screenshot steps in the Oct 19 handoff below.
+   - Turbopack can answer 404 for nested routes (the wizard's `edit/*` steps) after long sessions or branch switches. Stop the server, delete `.next/r0` and restart.
+   - Delete `.next/r0` and `dist` when done.
+7. Rules unchanged:
+   - At most 2 open non-contract PRs, one migration PR at a time.
+   - Merge main, never rebase.
+   - No attribution lines in commits or PRs.
+   - The Scrum thread relays; R0 can't reply to it, so PR numbers go to Rasel.
+
+## Handoff, Oct 19 (superseded by the Oct 20 handoff above)
 
 **Rasel's order (Oct 19, ~12:00Z), in this order:**
 1. **Schema gaps first, so the Super Admin API sessions (R55, R56, R60) are never blocked.** Decisions are in "Schema gaps from the Super Admin API sessions" in the migration queue above.
