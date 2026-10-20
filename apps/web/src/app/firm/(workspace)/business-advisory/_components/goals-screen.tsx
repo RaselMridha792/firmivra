@@ -50,6 +50,18 @@ const SIZE = 10;
 
 /** /business-advisory/goals: every client goal with its progress and milestones. */
 export function GoalsAndMilestones() {
+  return (
+    <BaShell>
+      <GoalsList />
+    </BaShell>
+  );
+}
+
+/**
+ * The goals list: every client's (the module's Goals & Milestones tab) or one client's (that
+ * client's Goals & Milestones tab: no client filter or column, and new goals are theirs).
+ */
+export function GoalsList({ advisoryClientId: fixed }: { advisoryClientId?: string }) {
   const router = useRouter();
   const { act, toast, say } = useAct();
   const members = useMembers();
@@ -60,7 +72,7 @@ export function GoalsAndMilestones() {
   const [status, setStatus] = useState('');
   const [area, setArea] = useState('');
   const [owner, setOwner] = useState('');
-  const [clientId, setClientId] = useState('');
+  const [clientId, setClientId] = useState(fixed ?? '');
   const [dueBefore, setDueBefore] = useState('');
   const [archived, setArchived] = useState(false);
   const [sort, setSort] = useState('targetDate');
@@ -151,9 +163,10 @@ export function GoalsAndMilestones() {
     },
     { id: 'owner', label: 'Owner', cell: (r) => r.owner?.name ?? '—' },
   ];
+  const colsShown = fixed ? cols.filter((c) => c.id !== 'client') : cols;
 
   return (
-    <BaShell>
+    <>
       {toast}
       <section
         className={`${card} flex flex-col gap-3`}
@@ -162,16 +175,18 @@ export function GoalsAndMilestones() {
       >
         <div className="flex flex-wrap items-center gap-3">
           <SearchBox value={search} onChange={filter(setSearch)} label="Search goals" />
-          <FilterSelect
-            label="Client"
-            all="All Clients"
-            value={clientId}
-            onChange={filter(setClientId)}
-            options={(clients.data?.items ?? []).map((c) => ({
-              value: c.id,
-              label: c.client.name,
-            }))}
-          />
+          {fixed ? null : (
+            <FilterSelect
+              label="Client"
+              all="All Clients"
+              value={clientId}
+              onChange={filter(setClientId)}
+              options={(clients.data?.items ?? []).map((c) => ({
+                value: c.id,
+                label: c.client.name,
+              }))}
+            />
+          )}
           <FilterSelect
             label="Status"
             all="All Statuses"
@@ -238,7 +253,7 @@ export function GoalsAndMilestones() {
         </div>
         <Table
           rows={q.data?.items ?? []}
-          columns={cols}
+          columns={colsShown}
           rowKey={(r) => r.id}
           caption="Goals and milestones"
           dense
@@ -274,11 +289,16 @@ export function GoalsAndMilestones() {
                           },
                         ]
                       : []),
-                    {
-                      label: 'Open Client',
-                      icon: Eye,
-                      onSelect: () => router.push(`${BASE}/clients/${r.advisoryClientId}/goals`),
-                    },
+                    ...(fixed
+                      ? []
+                      : [
+                          {
+                            label: 'Open Client',
+                            icon: Eye,
+                            onSelect: () =>
+                              router.push(`${BASE}/clients/${r.advisoryClientId}/goals`),
+                          },
+                        ]),
                   ],
                 },
                 {
@@ -307,6 +327,7 @@ export function GoalsAndMilestones() {
       </section>
       {dialog?.kind === 'add' ? (
         <AddGoalDialog
+          {...(fixed ? { advisoryClientId: fixed } : {})}
           onClose={() => setDialog(undefined)}
           onAdded={(title) => {
             setDialog(undefined);
@@ -324,7 +345,7 @@ export function GoalsAndMilestones() {
           }}
         />
       ) : null}
-    </BaShell>
+    </>
   );
 }
 

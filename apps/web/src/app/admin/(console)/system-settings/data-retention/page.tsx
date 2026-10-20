@@ -1,8 +1,8 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { DataRetention } from './_components/data-retention';
 
 export const metadata: Metadata = { title: 'Data & retention' };
 
-export default function AdminSystemSettingsDataRetentionPage() {
-  return <PageHeader title="Data & Retention" />;
+export default function DataRetentionPage() {
+  return <DataRetention />;
 }

@@ -1,8 +1,9 @@
-import { PageHeader } from '@firmivra/ui';
-import type { Metadata } from 'next';
+﻿import type { Metadata } from 'next';
+import { ConnectScreen } from '../_components/connect-screen';
 
 export const metadata: Metadata = { title: 'Connect integration: Permissions' };
 
-export default function IntegrationsIntegrationIdConnectPermissionsPage() {
-  return <PageHeader title="Connect Integration" />;
+export default async function Page({ params }: { params: Promise<{ integrationId: string }> }) {
+  const { integrationId } = await params;
+  return <ConnectScreen providerKey={integrationId} step="permissions" />;
 }

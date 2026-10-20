@@ -12,25 +12,25 @@ import {
   type TimelineItem,
 } from '@firmivra/ui';
 import { ArrowsClockwise, FilePdf } from '@phosphor-icons/react';
-import { useState, type FormEvent } from 'react';
+import { useDeferredValue, useState, type FormEvent } from 'react';
+import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { activityMarker } from '../../../_components/feed-drawers';
 import {
   adminSales,
   appointmentTypeLabel,
+  errorMessage,
   fieldErrors,
   LEAD_SOURCES,
   maxExtraUsers,
-  PLAN_IDS,
   planName,
+  SUBSCRIPTION_STATUS_LABELS,
   type LeadSource,
   type OpportunityRecord,
   type PipelineStage,
   type PlanId,
   type SalesMeta,
   type SalesCommunication,
-} from '../../../../../../../mocks/admin-sales';
-import { errorMessage } from '../../../../../../../lib/errors';
-import { useApiMutation } from '../../../../../../../lib/query';
-import { activityMarker } from '../../../_components/feed-drawers';
+} from '../../../_components/sales-api';
 import {
   dateText,
   dateTimeText,
@@ -74,6 +74,12 @@ export function DetailsForm({
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
   const extraLimit = form.plan ? maxExtraUsers(form.plan) : 0;
+  // The plans on offer, and the record's own when it is no longer offered.
+  const offered = meta?.plans ?? [];
+  const plans =
+    form.plan && !offered.some((plan) => plan.id === form.plan)
+      ? [...offered, { id: form.plan, name: planName(form.plan) }]
+      : offered;
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -154,12 +160,12 @@ export function DetailsForm({
           value={form.plan}
           error={errors['plan']}
           onChange={(event) => {
-            set('plan', PLAN_IDS.find((id) => id === event.target.value) ?? '');
+            set('plan', plans.find((plan) => plan.id === event.target.value)?.id ?? '');
             set('extraUsers', '0');
           }}
           options={[
             { value: '', label: 'Not decided' },
-            ...PLAN_IDS.map((id) => ({ value: id, label: planName(id) })),
+            ...plans.map((plan) => ({ value: plan.id, label: plan.name })),
           ]}
         />
         {extraLimit > 0 ? (
@@ -541,45 +547,12 @@ const TRANSACTION_LABEL = {
 } as const;
 
 /**
- * The linked transaction (docx §14). Its status changes arrive from Transactions and move the
- * record by themselves; the buttons stand in for those events until that module exists.
+ * The linked transaction (docx §14): the firm's platform subscription. Its status changes come
+ * from Billing and move the record by themselves (Under Contract, Closed, Terminated).
  */
 export function TransactionPanelBody({ data }: { data: OpportunityRecord }) {
   const transaction = data.opportunity.transaction;
-  const [reference, setReference] = useState('');
-  const event = useApiMutation(
-    (body: Parameters<typeof adminSales.transactionEvent>[0]) => adminSales.transactionEvent(body),
-    { invalidate: SALES_KEY },
-  );
-  const errors = fieldErrors(event.error);
-  const id = data.opportunity.id;
-  if (!transaction)
-    return (
-      <form
-        noValidate
-        className="flex flex-col gap-3"
-        onSubmit={(submitEvent) => {
-          submitEvent.preventDefault();
-          event.mutate({ id, event: 'LINK', reference });
-        }}
-      >
-        <p className="text-sm text-muted">No transaction is linked yet.</p>
-        <Input
-          label="Transaction reference"
-          placeholder="TX-2026-0142"
-          maxLength={30}
-          value={reference}
-          error={errors['reference']}
-          onChange={(change) => setReference(change.target.value)}
-        />
-        <div className="flex justify-end">
-          <Button type="submit" variant="secondary" disabled={event.isPending}>
-            Link Transaction
-          </Button>
-        </div>
-      </form>
-    );
-  const open = transaction.status === 'OPEN' || transaction.status === 'UNDER_CONTRACT';
+  if (!transaction) return <LinkTransactionForm opportunityId={data.opportunity.id} />;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -593,8 +566,18 @@ export function TransactionPanelBody({ data }: { data: OpportunityRecord }) {
         Synced to Transactions
       </p>
       <dl className="grid grid-cols-2 gap-y-1 text-sm">
-        <dt className="text-muted">Linked</dt>
-        <dd className="text-text">{dateText(transaction.linkedAt)}</dd>
+        {transaction.linkedAt ? (
+          <>
+            <dt className="text-muted">Linked</dt>
+            <dd className="text-text">{dateText(transaction.linkedAt)}</dd>
+          </>
+        ) : null}
+        {transaction.syncedAt ? (
+          <>
+            <dt className="text-muted">Status since</dt>
+            <dd className="text-text">{dateText(transaction.syncedAt)}</dd>
+          </>
+        ) : null}
         {transaction.estimatedCloseAt ? (
           <>
             <dt className="text-muted">Est. close</dt>
@@ -608,42 +591,78 @@ export function TransactionPanelBody({ data }: { data: OpportunityRecord }) {
           </>
         ) : null}
       </dl>
-      {open ? (
-        <div className="flex flex-col gap-2 rounded-lg bg-subtle p-3">
-          <p className="text-xs text-muted">Events from Transactions (they move the stage):</p>
-          <div className="flex flex-wrap gap-2">
-            {transaction.status === 'OPEN' ? (
-              <Button
-                variant="secondary"
-                disabled={event.isPending}
-                onClick={() => event.mutate({ id, event: 'UNDER_CONTRACT' })}
-              >
-                Under Contract
-              </Button>
-            ) : null}
-            <Button
-              variant="secondary"
-              disabled={event.isPending}
-              onClick={() => event.mutate({ id, event: 'CLOSE' })}
-            >
-              Close
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={event.isPending}
-              onClick={() => event.mutate({ id, event: 'TERMINATE' })}
-            >
-              Terminate
-            </Button>
-          </div>
-        </div>
-      ) : null}
-      {event.error && !Object.keys(errors).length ? (
+    </div>
+  );
+}
+
+/** Link Transaction: find the firm, pick its platform subscription. */
+function LinkTransactionForm({ opportunityId }: { opportunityId: string }) {
+  const [search, setSearch] = useState('');
+  const [subscriptionId, setSubscriptionId] = useState('');
+  const term = useDeferredValue(search.trim());
+  const list = useApiQuery([...SALES_KEY, 'subscriptions', term], () =>
+    adminSales.subscriptions(term ? { search: term } : {}),
+  );
+  const link = useApiMutation((id: string) => adminSales.linkTransaction(opportunityId, id), {
+    invalidate: SALES_KEY,
+  });
+  // One linked to another record cannot be linked here as well (409 TRANSACTION_IN_USE).
+  const choices = (list.data ?? []).filter(
+    (item) => item.linkedOpportunityId === null || item.linkedOpportunityId === opportunityId,
+  );
+  const first = list.isPending
+    ? 'Loading…'
+    : list.isError && !list.data
+      ? 'Could not load the subscriptions'
+      : choices.length
+        ? 'Choose a subscription'
+        : 'No subscriptions found';
+  return (
+    <form
+      noValidate
+      className="flex flex-col gap-3"
+      onSubmit={(submitEvent) => {
+        submitEvent.preventDefault();
+        if (subscriptionId) link.mutate(subscriptionId);
+      }}
+    >
+      <p className="text-sm text-muted">
+        No transaction is linked yet. Link the firm&apos;s subscription: its status then moves this
+        record.
+      </p>
+      <Input
+        label="Find the firm"
+        maxLength={100}
+        value={search}
+        onChange={(change) => {
+          setSearch(change.target.value);
+          setSubscriptionId('');
+        }}
+      />
+      <Select
+        label="Subscription"
+        value={subscriptionId}
+        disabled={list.isPending}
+        onChange={(change) => setSubscriptionId(change.target.value)}
+        options={[
+          { value: '', label: first },
+          ...choices.map((item) => ({
+            value: item.id,
+            label: `${item.firm.name} · ${item.plan.name} (${SUBSCRIPTION_STATUS_LABELS[item.status]})`,
+          })),
+        ]}
+      />
+      <div className="flex justify-end">
+        <Button type="submit" variant="secondary" disabled={link.isPending || !subscriptionId}>
+          {link.isPending ? 'Linking…' : 'Link Transaction'}
+        </Button>
+      </div>
+      {link.error ? (
         <p role="alert" className={failed}>
-          {errorMessage(event.error)}
+          {errorMessage(link.error)}
         </p>
       ) : null}
-    </div>
+    </form>
   );
 }
 

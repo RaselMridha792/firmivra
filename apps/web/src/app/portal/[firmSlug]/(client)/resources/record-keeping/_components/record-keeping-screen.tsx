@@ -289,7 +289,7 @@ function RecordKeepingDashboard({ slug, items }: { slug: string; items: MyConten
           <ArrowLeft aria-hidden className="size-4" /> Back to Resources
         </Link>
         <h1 className="mt-1 font-display text-3xl leading-tight font-bold text-heading md:text-4xl">
-          Record Keeping <span className="text-firm-accent">Best Practices</span>
+          Record Keeping <span className="text-action">Best Practices</span>
         </h1>
         <h2 className="text-base font-semibold text-heading md:text-lg">
           Stay organized. Stay compliant. Build a stronger business.

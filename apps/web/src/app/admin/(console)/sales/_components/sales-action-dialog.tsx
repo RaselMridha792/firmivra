@@ -2,19 +2,18 @@
 
 import { Button, Input, Modal, Select } from '@firmivra/ui';
 import { useState, type FormEvent } from 'react';
+import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import {
   adminSales,
   APPOINTMENT_TYPES,
+  errorMessage,
   fieldErrors,
   maxExtraUsers,
   monthlyCents,
-  PLAN_IDS,
   planName,
   type AppointmentType,
   type PlanId,
-} from '../../../../../mocks/admin-sales';
-import { errorMessage } from '../../../../../lib/errors';
-import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+} from './sales-api';
 import { FrameError, money, moneyExact, parseMoney, SALES_KEY, useSalesMeta } from './sales-ui';
 
 /** A check the form makes before calling the API. */
@@ -44,7 +43,7 @@ const TITLES: Record<SalesAction, { title: string; subtitle: string; submit: str
   },
   PROPOSAL: {
     title: 'Create Offer / Proposal',
-    subtitle: 'Set the plan and value; the proposal is added to the record.',
+    subtitle: 'Set the plan and the estimated value on the record.',
     submit: 'Create Proposal',
   },
   ASSIGN: {
@@ -112,7 +111,7 @@ export function SalesActionDialog({
           extraUsers: Number(extraUsers) || 0,
           valueCents,
         });
-        return `The proposal was added to ${firm}.`;
+        return `The plan and value were saved for ${firm}.`;
       }
       await adminSales.assign({ ids: [opportunityId], ownerId: ownerId || null });
       return `${firm} was assigned.`;
@@ -126,7 +125,9 @@ export function SalesActionDialog({
   const general = run.error && !Object.keys(errors).length ? errorMessage(run.error) : null;
   const text = TITLES[action];
   const reps = meta.data?.reps ?? [];
-  const plans = PLAN_IDS.filter((id) => action !== 'TRIAL' || id !== 'ENTERPRISE');
+  const plans = (meta.data?.plans ?? []).filter(
+    (item) => action !== 'TRIAL' || item.id !== 'ENTERPRISE',
+  );
   const extraLimit = plan ? maxExtraUsers(plan) : 0;
   const failed = (open.isError && !open.data) || (meta.isError && !meta.data);
 
@@ -185,12 +186,12 @@ export function SalesActionDialog({
               value={plan}
               error={errors['plan']}
               onChange={(event) => {
-                setPlan(PLAN_IDS.find((id) => id === event.target.value) ?? '');
+                setPlan(plans.find((item) => item.id === event.target.value)?.id ?? '');
                 setExtraUsers('0');
               }}
               options={[
                 { value: '', label: 'Choose a plan' },
-                ...plans.map((id) => ({ value: id, label: planName(id) })),
+                ...plans.map((item) => ({ value: item.id, label: item.name })),
               ]}
             />
           ) : null}
