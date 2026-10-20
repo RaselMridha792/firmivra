@@ -332,7 +332,7 @@ export function createClientsMock(options: { role?: MockFirmRole } = {}): Client
       const live = mine.filter((r) => !r.archivedAt);
       const month = new Date().toISOString().slice(0, 7);
       const count = (test: (w: Work) => boolean) => live.filter((r) => test(workOf(r.id))).length;
-      const active = count((w) => w.status === 'ACTIVE' || w.status === 'IN_PROGRESS');
+      const active = count((w) => w.status === 'ACTIVE');
       return {
         kpis: {
           totalClients: {

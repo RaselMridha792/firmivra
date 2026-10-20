@@ -166,7 +166,10 @@ export const ClientsSummary = z.object({
     totalClients: ClientsKpi,
     /** Clients added this month; previous: last month. */
     newClients: ClientsKpi,
-    /** Not archived, stage ACTIVE or IN_PROGRESS; previous is null (stage changes keep no history). */
+    /**
+     * Not archived, stage ACTIVE (the Active tab lists the same clients with clientStatus=ACTIVE);
+     * previous is null (stage changes keep no history).
+     */
     activeClients: ClientsKpi,
     /** Not archived, with at least one missing document; previous is null. */
     pendingDocuments: ClientsKpi,
