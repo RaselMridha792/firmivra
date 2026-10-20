@@ -22,13 +22,15 @@ test('a resource page lists its sections and links back to resources', async ({
   await page.screenshot({ path: testInfo.outputPath('startup-guide-1440.png'), fullPage: true });
 
   for (const [path, title, section] of [
-    ['record-keeping', 'Record Keeping Best Practices', 'Income records'],
+    ['record-keeping', 'Record Keeping Best Practices', 'Income Records'],
     ['payroll', 'Payroll Resources', 'Payroll setup steps'],
     ['tax-deductions', 'Tax Deductions for Small Businesses', 'Home office'],
   ] as const) {
     await page.goto(portal(`/lvp/resources/${path}`));
     await expect(page).toHaveTitle(title);
-    await expect(page.getByRole('heading', { name: section })).toBeVisible();
+    // A section by name, as each page shows it (Record Keeping lists its record types as rows,
+    // not headings, since the FIR-445 redesign).
+    await expect(page.getByText(section, { exact: true }).first()).toBeVisible();
   }
 });
 
