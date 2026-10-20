@@ -6,7 +6,7 @@ import { ArrowsClockwise, CheckCircle, ShieldCheck, WarningCircle } from '@phosp
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
-import { EmptyLine } from '../../_components/manage-integration-shared';
+import { CardTitle, EmptyLine } from '../../_components/manage-integration-shared';
 import {
   followConnect,
   integrationError,
@@ -53,11 +53,8 @@ function Permissions({
 
   return (
     <div className="grid gap-4 xl:grid-cols-3">
-      <Card
-        title="Granted Permissions"
-        data-testid="permission-list"
-        className="p-5! xl:col-span-2"
-      >
+      <Card data-testid="permission-list" className="p-5! xl:col-span-2">
+        <CardTitle>Granted Permissions</CardTitle>
         {reconnect.isError ? (
           <Notice tone="error">{integrationError(reconnect.error)}</Notice>
         ) : null}
@@ -124,7 +121,8 @@ function Permissions({
         )}
       </Card>
 
-      <Card title="How Access Works" data-testid="permission-notes" className="p-5!">
+      <Card data-testid="permission-notes" className="p-5!">
+        <CardTitle>How Access Works</CardTitle>
         <ul className="flex flex-col gap-3 text-sm text-text">
           <li className="flex gap-3">
             <ShieldCheck aria-hidden weight="fill" className="size-5 shrink-0 text-action" />

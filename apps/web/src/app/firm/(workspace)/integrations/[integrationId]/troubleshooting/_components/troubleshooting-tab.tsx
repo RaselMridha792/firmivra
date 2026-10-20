@@ -14,7 +14,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
-import { EmptyLine, formatDate } from '../../_components/manage-integration-shared';
+import { CardTitle, EmptyLine, formatDate } from '../../_components/manage-integration-shared';
 import {
   followConnect,
   integrationError,
@@ -84,7 +84,7 @@ function Troubleshooting({
         <Card data-testid="health-checks" className="flex flex-col gap-3 p-5! xl:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-bold text-heading">Connection Health</h2>
+              <h2 className="text-xl font-bold text-heading">Connection Health</h2>
               <p className="text-sm text-muted">
                 {shown?.checkedAt
                   ? `Last checked ${formatDate(shown.checkedAt)}`
@@ -135,7 +135,8 @@ function Troubleshooting({
         </Card>
 
         <div className="flex flex-col gap-4">
-          <Card title="What To Do" data-testid="health-suggestions" className="p-5!">
+          <Card data-testid="health-suggestions" className="p-5!">
+            <CardTitle>What To Do</CardTitle>
             {shown?.suggestions.length ? (
               <ol className="list-decimal space-y-2 pl-5 text-sm text-text">
                 {shown.suggestions.map((step) => (
@@ -149,7 +150,8 @@ function Troubleshooting({
             )}
           </Card>
 
-          <Card title="Quick Fixes" data-testid="quick-fixes" className="flex flex-col gap-3 p-5!">
+          <Card data-testid="quick-fixes" className="flex flex-col gap-3 p-5!">
+            <CardTitle>Quick Fixes</CardTitle>
             {detail?.statusMessage ? (
               <p className="text-sm text-danger">{detail.statusMessage}</p>
             ) : null}

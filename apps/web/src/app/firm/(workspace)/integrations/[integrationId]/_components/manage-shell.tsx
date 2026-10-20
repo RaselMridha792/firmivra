@@ -10,6 +10,7 @@ import {
   ArrowRight,
   ArrowsClockwise,
   CheckCircle,
+  Clock,
   ClockCounterClockwise,
   DotsThreeVertical,
   FirstAid,
@@ -23,7 +24,12 @@ import type { ReactNode } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
-import { ConnectionBadge, manageTabs, relativeTime } from './manage-integration-shared';
+import {
+  ConnectionBadge,
+  manageTabs,
+  providerDisc,
+  relativeTime,
+} from './manage-integration-shared';
 
 /**
  * The frame every Manage Integration tab shares (the spec's Frame 2: header with the provider,
@@ -67,7 +73,16 @@ export function followConnect(result: ConnectIntegrationResult): string | null {
 const missing = (error: unknown) =>
   error instanceof ApiRequestError && ['FORBIDDEN', 'NOT_FOUND'].includes(error.code);
 
-/** The provider header: logo mark, name, status, purpose, last and next sync, Sync Now. */
+/** A green check beside a sync time that exists; a grey clock while there is none. */
+function SyncMark({ done }: { done: boolean }) {
+  return done ? (
+    <CheckCircle aria-hidden weight="fill" className="size-6 text-success" />
+  ) : (
+    <Clock aria-hidden weight="fill" className="size-6 text-muted" />
+  );
+}
+
+/** The provider header: mark, name, status, purpose, last and next sync, Sync Now and the menu. */
 export function ManageHeader({
   integrationId,
   detail,
@@ -82,10 +97,12 @@ export function ManageHeader({
   const router = useRouter();
   const go = (suffix: ManageTab) => () => router.push(`/integrations/${integrationId}${suffix}`);
   return (
-    <Card className="!p-4" data-testid="integration-header">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
-        <div className="flex min-w-0 gap-4">
-          <span className="flex size-20 shrink-0 items-center justify-center rounded-full bg-success-soft text-3xl font-bold text-success">
+    <Card className="p-5!" data-testid="integration-header">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="flex min-w-0 items-start gap-5">
+          <span
+            className={`flex size-20 shrink-0 items-center justify-center rounded-full text-4xl font-bold ${detail ? providerDisc(detail.provider.category) : 'bg-disabled text-muted'}`}
+          >
             {detail?.provider.name.charAt(0) ?? <Plugs aria-hidden weight="fill" />}
           </span>
           <div className="min-w-0">
@@ -94,77 +111,93 @@ export function ManageHeader({
                 {detail?.provider.name ?? 'Integration unavailable'}
               </h1>
               {detail ? (
-                <ConnectionBadge status={detail.status} />
+                <ConnectionBadge status={detail.status} large />
               ) : (
                 <Badge tone="neutral">Unavailable</Badge>
               )}
               {detail?.environment === 'TEST' ? <Badge tone="warning">Test mode</Badge> : null}
             </div>
-            <p className="mt-1 text-base text-info">
+            <p className="mt-1 text-lg text-heading">
               {detail?.provider.summary ?? 'Connection details could not be loaded.'}
             </p>
-            <p className="mt-2 max-w-3xl text-sm text-muted">
+            <p className="mt-2 max-w-3xl text-sm text-text">
               {detail?.statusMessage ??
                 detail?.provider.description ??
                 'Retry when the integration service is available.'}
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-stretch gap-3 lg:justify-end">
+        <div className="flex flex-wrap items-start gap-3 xl:justify-end">
           <div className="grid min-w-56 grid-cols-1 divide-y divide-divider rounded-control border border-border px-4 text-sm">
-            <div className="flex items-center gap-3 py-2">
-              <CheckCircle aria-hidden weight="fill" className="size-5 text-success" />
+            <div className="flex items-center gap-3 py-2.5">
+              <SyncMark done={!!detail?.lastSyncAt} />
               <span>
-                <strong className="block text-text">Last Sync</strong>
-                <span className="text-link">{relativeTime(detail?.lastSyncAt ?? null)}</span>
+                <strong className="block font-semibold text-heading">Last Sync</strong>
+                <span className="text-base text-action">
+                  {relativeTime(detail?.lastSyncAt ?? null)}
+                </span>
               </span>
             </div>
-            <div className="flex items-center gap-3 py-2">
-              <CheckCircle aria-hidden weight="fill" className="size-5 text-success" />
+            <div className="flex items-center gap-3 py-2.5">
+              <SyncMark done={!!detail?.nextSyncAt && !detail.paused} />
               <span>
-                <strong className="block text-text">Next Sync</strong>
-                <span className="text-link">
+                <strong className="block font-semibold text-heading">Next Sync</strong>
+                <span className="text-base text-action">
                   {detail?.paused ? 'Paused' : relativeTime(detail?.nextSyncAt ?? null)}
                   {detail?.syncMode === 'AUTO' && !detail.paused ? ' (Auto)' : ''}
                 </span>
               </span>
             </div>
           </div>
-          <div className="flex min-w-48 flex-col gap-2">
-            <Button disabled={!detail?.canManage || detail.syncing || busy} onClick={onSync}>
-              <ArrowsClockwise aria-hidden weight="bold" className="size-5" />
-              {detail?.syncing ? 'Syncing…' : 'Sync Now'}
-            </Button>
+          <div className="flex flex-col gap-2">
+            {/* The design's Sync Now and menu share one framed box. */}
+            <div className="flex items-stretch rounded-control border border-border">
+              <div className="p-2">
+                <Button
+                  className="min-w-44"
+                  disabled={!detail?.canManage || detail.syncing || busy}
+                  onClick={onSync}
+                >
+                  <ArrowsClockwise aria-hidden weight="bold" className="size-5" />
+                  {detail?.syncing ? 'Syncing…' : 'Sync Now'}
+                </Button>
+              </div>
+              <div className="flex items-center border-l border-divider px-1">
+                <ActionMenu
+                  label="More integration actions"
+                  className="[&>button]:border-0 [&>button]:bg-transparent [&>button]:px-2 [&>button>svg:last-child]:hidden"
+                  trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-6" />}
+                  sections={[
+                    {
+                      items: [
+                        { label: 'Sync Settings', icon: Gear, onSelect: go('/sync-settings') },
+                        {
+                          label: 'Data Mapping',
+                          icon: TreeStructure,
+                          onSelect: go('/data-mapping'),
+                        },
+                        {
+                          label: 'Sync History',
+                          icon: ClockCounterClockwise,
+                          onSelect: go('/sync-history'),
+                        },
+                        {
+                          label: 'Run Connection Test',
+                          icon: FirstAid,
+                          onSelect: go('/troubleshooting'),
+                        },
+                      ],
+                    },
+                  ]}
+                />
+              </div>
+            </div>
             <Link
               href={`/integrations/${integrationId}/sync-history`}
-              className="inline-flex items-center justify-center gap-2 text-sm font-medium text-link"
+              className="inline-flex items-center gap-2 font-semibold text-link underline underline-offset-2"
             >
-              View Sync History <ArrowRight aria-hidden className="size-4" />
+              View Sync History <ArrowRight aria-hidden weight="bold" className="size-4" />
             </Link>
-          </div>
-          <div className="self-start">
-            <ActionMenu
-              label="More integration actions"
-              trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-5" />}
-              sections={[
-                {
-                  items: [
-                    { label: 'Sync Settings', icon: Gear, onSelect: go('/sync-settings') },
-                    { label: 'Data Mapping', icon: TreeStructure, onSelect: go('/data-mapping') },
-                    {
-                      label: 'Sync History',
-                      icon: ClockCounterClockwise,
-                      onSelect: go('/sync-history'),
-                    },
-                    {
-                      label: 'Run Connection Test',
-                      icon: FirstAid,
-                      onSelect: go('/troubleshooting'),
-                    },
-                  ],
-                },
-              ]}
-            />
           </div>
         </div>
       </div>
@@ -172,7 +205,7 @@ export function ManageHeader({
   );
 }
 
-/** The six tabs; the current one is highlighted and marked as the page. */
+/** The six tabs, with the design's thin dividers; the current one is highlighted. */
 export function ManageTabsNav({
   integrationId,
   current,
@@ -185,14 +218,15 @@ export function ManageTabsNav({
       aria-label="Integration management"
       className="flex overflow-x-auto border-b border-divider"
     >
-      {manageTabs.map((tab) => {
+      {manageTabs.map((tab, index) => {
         const on = tab.suffix === current;
+        const before = manageTabs[index - 1]?.suffix === current;
         return (
           <Link
             key={tab.label}
             href={`/integrations/${integrationId}${tab.suffix}`}
             aria-current={on ? 'page' : undefined}
-            className={`shrink-0 border-b-2 px-6 py-3 text-sm font-medium ${on ? 'border-action bg-accent-soft text-action' : 'border-transparent text-muted hover:text-heading'}`}
+            className={`relative shrink-0 border-b-2 px-6 py-3 text-base ${index > 0 && !on && !before ? 'before:absolute before:top-1/2 before:left-0 before:h-6 before:-translate-y-1/2 before:border-l before:border-divider' : ''} ${on ? 'rounded-t-control border-action bg-accent-soft font-semibold text-action' : 'border-transparent text-heading hover:text-action'}`}
           >
             {tab.label}
           </Link>

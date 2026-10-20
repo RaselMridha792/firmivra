@@ -10,7 +10,7 @@ import { Copy, Key, PaperPlaneTilt } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
-import { EmptyLine, formatDate } from '../../_components/manage-integration-shared';
+import { CardTitle, EmptyLine, formatDate } from '../../_components/manage-integration-shared';
 import { integrationError, Notice } from '../../_components/manage-shell';
 
 /**
@@ -50,7 +50,8 @@ export function CustomSetup({
     api.integrations.customEvents(),
   );
   return (
-    <Card title="Custom API & Webhooks" data-testid="custom-setup" className="p-5!">
+    <Card data-testid="custom-setup" className="p-5!">
+      <CardTitle>Custom API & Webhooks</CardTitle>
       {config.data ? (
         <CustomForm
           key={config.data.connectionId}

@@ -6,11 +6,11 @@ import type {
   SaveIntegrationMappingsRequest,
 } from '@firmivra/types';
 import { Button, Card, Select } from '@firmivra/ui';
-import { ArrowsLeftRight, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
+import { ArrowsHorizontal, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
-import { EmptyLine, formatDirection } from '../../_components/manage-integration-shared';
+import { CardTitle, EmptyLine, formatDirection } from '../../_components/manage-integration-shared';
 import { integrationError, ManageShell, Notice } from '../../_components/manage-shell';
 
 /**
@@ -33,19 +33,34 @@ const DIRECTIONS: IntegrationSyncDirection[] = ['TWO_WAY', 'IMPORT', 'EXPORT'];
 export function DataMappingTab({ integrationId }: { integrationId: string }) {
   return (
     <ManageShell integrationId={integrationId} current="/data-mapping" testId="data-mapping-tab">
-      {(detail) => <Mappings integrationId={integrationId} canManage={!!detail?.canManage} />}
+      {(detail) => (
+        <Mappings
+          integrationId={integrationId}
+          canManage={!!detail?.canManage}
+          providerName={detail?.provider.name ?? 'Provider'}
+        />
+      )}
     </ManageShell>
   );
 }
 
-function Mappings({ integrationId, canManage }: { integrationId: string; canManage: boolean }) {
+function Mappings({
+  integrationId,
+  canManage,
+  providerName,
+}: {
+  integrationId: string;
+  canManage: boolean;
+  providerName: string;
+}) {
   const query = useApiQuery(['integrations', 'mappings', integrationId], () =>
     api.integrations.mappings(integrationId),
   );
   const scopes = query.data?.scopes ?? [];
   if (!query.data)
     return (
-      <Card title="Data Mapping" data-testid="mapping-scope" className="p-5!">
+      <Card data-testid="mapping-scope" className="p-5!">
+        <CardTitle>Data Mapping</CardTitle>
         {query.isError ? (
           <Notice tone="error" onRetry={() => void query.refetch()}>
             {integrationError(query.error)}
@@ -57,7 +72,8 @@ function Mappings({ integrationId, canManage }: { integrationId: string; canMana
     );
   if (!scopes.length)
     return (
-      <Card title="Data Mapping" data-testid="mapping-scope" className="p-5!">
+      <Card data-testid="mapping-scope" className="p-5!">
+        <CardTitle>Data Mapping</CardTitle>
         <EmptyLine>This provider has no fields to map.</EmptyLine>
       </Card>
     );
@@ -69,6 +85,7 @@ function Mappings({ integrationId, canManage }: { integrationId: string; canMana
           integrationId={integrationId}
           scope={scope}
           canManage={canManage}
+          providerName={providerName}
         />
       ))}
     </div>
@@ -79,7 +96,9 @@ function ScopeCard({
   integrationId,
   scope,
   canManage,
+  providerName,
 }: {
+  providerName: string;
   integrationId: string;
   scope: Scope;
   canManage: boolean;
@@ -123,7 +142,7 @@ function ScopeCard({
     <Card data-testid="mapping-scope" className="flex flex-col gap-3 p-5!">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-heading">{scope.label}</h2>
+          <h2 className="text-xl font-bold text-heading">{scope.label}</h2>
           <p className="text-sm text-muted">
             {saved.length} {saved.length === 1 ? 'field' : 'fields'} mapped
           </p>
@@ -131,6 +150,7 @@ function ScopeCard({
         {editing ? null : (
           <Button
             variant="secondary"
+            className="border-action! text-action!"
             disabled={!canManage}
             onClick={() => {
               setRows(saved);
@@ -229,40 +249,40 @@ function ScopeCard({
           </div>
         </div>
       ) : saved.length ? (
-        <table className="w-full text-sm">
-          <caption className="sr-only">{scope.label}</caption>
-          <thead>
-            <tr className="border-b border-divider text-left text-xs text-muted">
-              <th scope="col" className="py-2 font-medium">
-                LVP Pro field
-              </th>
-              <th scope="col" className="py-2 font-medium">
-                <span className="sr-only">Direction</span>
-              </th>
-              <th scope="col" className="py-2 font-medium">
-                Provider field
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-divider">
-            {saved.map((row) => (
-              <tr key={row.localField}>
-                <td className="py-2 text-heading">{label(scope.localFields, row.localField)}</td>
-                <td className="py-2 text-center" title={formatDirection(row.direction)}>
-                  <ArrowsLeftRight
-                    aria-hidden
-                    weight="bold"
-                    className="inline size-4 text-action"
-                  />
-                  <span className="sr-only">{formatDirection(row.direction)}</span>
-                </td>
-                <td className="py-2 text-heading">
-                  {label(scope.externalFields, row.externalField)}
-                </td>
+        <div className="overflow-hidden rounded-control border border-divider">
+          <table className="w-full text-left text-sm">
+            <caption className="sr-only">{scope.label}</caption>
+            <thead className="bg-table-head text-xs font-semibold text-heading">
+              <tr>
+                <th scope="col" className="px-3 py-2">
+                  LVP Pro Field
+                </th>
+                <th scope="col" className="w-12 px-3 py-2">
+                  <span className="sr-only">Direction</span>
+                </th>
+                <th scope="col" className="px-3 py-2">
+                  {providerName} Field
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-divider text-heading">
+              {saved.map((row) => (
+                <tr key={row.localField}>
+                  <td className="px-3 py-1.5">{label(scope.localFields, row.localField)}</td>
+                  <td className="px-3 py-1.5" title={formatDirection(row.direction)}>
+                    <ArrowsHorizontal
+                      aria-hidden
+                      weight="bold"
+                      className="mx-auto size-5 text-action"
+                    />
+                    <span className="sr-only">{formatDirection(row.direction)}</span>
+                  </td>
+                  <td className="px-3 py-1.5">{label(scope.externalFields, row.externalField)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <EmptyLine>No fields are mapped yet. Configure Mapping to match them.</EmptyLine>
       )}
