@@ -264,6 +264,7 @@ for the admin-scope sweep. No contract change.
     creating an admin login belongs to an R2 admin-invite service the Team API calls later (Needs,
     the alternative in Questions). Until then `meta().can.add` and every member's
     `allowed.resendInvitation` are false, so the screens hide Add Team Member and Resend.
+    **Superseded (Oct 20):** both routes are built in this module (notes 69 to 78).
 31. **Admin scope only** (`AdminPrisma`). Every request reads the org chart in one admin
     transaction: departments, roles with their ALLOW keys (`platform_role_permissions`), members
     with their overrides, `platform_admins` and the ADMIN-pool logins of those admins. The signed-in
@@ -325,7 +326,8 @@ for the admin-scope sweep. No contract change.
     supervisor no longer valid. REJECT sets Inactive and clears the intended role. Audit:
     `.approved` `{ intendedRoleId, roleId, from, to, invite, invitationSent: false }` or
     `.rejected` `{ intendedRoleId, from, to, reasonGiven }`. No invitation is sent yet (R2's
-    service, Needs): the answer's `invitation` is null.
+    service, Needs): the answer's `invitation` is null. **Superseded (Oct 20):** APPROVE sends
+    the invitation (note 69).
 37. **Status moves.** ACTIVE to Suspended, Inactive or Deactivated; from those back to ACTIVE or
     between them (Remove from Team a suspended person, beyond the list in the rules above);
     Pending Invitation and the database's own Pending Approval to Inactive or Deactivated only; a
@@ -339,7 +341,8 @@ for the admin-scope sweep. No contract change.
     (`firstName`, `lastName` or `phone`, as the staff module does for names); the same values
     pass, and "Mary Ann" / "Smith" for "Mary Ann Smith" is the same name. Your own row is the same
     (the contract lets everyone edit their own name and phone), so `allowed.edit` is false for
-    yourself. Needs R0.
+    yourself. Needs R0. **Superseded (Oct 20):** R0's #954 landed; name and phone are saved
+    (note 79).
 39. **Sessions are not ended** when someone is suspended, made inactive or deactivated.
     `IdentityProvider.signOutEverywhere(pool, username)` takes the Cognito username, which is not
     stored (logins are created with a random username; `users` keeps the `sub`), and the methods
@@ -381,52 +384,32 @@ for the admin-scope sweep. No contract change.
 
 ## Needs from others
 
-- **R2 (auth):**
-  - The admin site's activation: `POST /api/v1/admin/auth/activation/check` and
+- **R2 (auth):** the admin-invite service is built in the Team module (notes 69 to 78). R2 still
+  owns:
+  - **Activation** of a team member's invitation: `POST /api/v1/admin/auth/activation/check` and
     `POST /api/v1/admin/auth/activate` (the firm site's `ActivationCheckRequest` and
-    `ActivateRequest` shapes, answering `SignInResult` with MFA_SETUP_REQUIRED), the `/activate`
-    screen on the admin host, and the token (the sealed value above, or a stored one if preferred).
-  - Letting an ACTIVE TEAM_MEMBER sign in and use `/api/v1/admin/*`: `session.service.ts` and
-    `roles.guard.ts` accept only SUPER_ADMIN today (`sign-in.service.ts` already finds any
-    `platform_admins` row), with the module's keys checked per route.
+    `ActivateRequest` shapes, answering `SignInResult` with MFA_SETUP_REQUIRED), and the
+    `/activate` screen on the admin host, reading `#token=`. The token is
+    `TeamInvitationTokens` (`apps/api/src/admin-team/team-invitation.ts`, or `fromEnv`), with the
+    checks of note 74: the seal opens for ADMIN, `memberUpdatedAt` equals the member's
+    `updated_at`, the status is PENDING_INVITATION, and the login has no password. Then ACTIVE,
+    `platform_member.activated`, and MFA setup. A signed-out request has no scope that reads or
+    updates `platform_members` today: a definer function, or R0's policy (below).
+  - **Team-member sign-in past the admin guards:** letting an ACTIVE TEAM_MEMBER sign in and use
+    `/api/v1/admin/*`. `session.service.ts` and `roles.guard.ts` accept only SUPER_ADMIN today
+    (`sign-in.service.ts` already finds any `platform_admins` row). The module's keys are checked
+    per route, and a TEAM_MEMBER whose `platform_members.status` is not ACTIVE is refused on
+    every request.
+  - **Session sign-out by sub** (note 39): `signOutEverywhere` by `sub` (or a `SessionService`
+    method by user id), for the Team API to call when it suspends, deactivates or makes someone
+    inactive.
   - `IdentityProvider.enableUser`, if deactivating should also disable the Cognito login.
-  - **The admin-invite service** the Team API calls for Add Team Member, Resend Invitation and
-    the decision's link (notes 30 and 36), in `apps/api/src/auth/`, exported by `SignInModule`:
-    - `createTeamMember(input)` takes `{ email, name, phone, member, invitedByUserId, invite }`:
-      the email (lower case), the name ("First Last"), the phone (E.164 or null), the member row's
-      fields as the Team API checked them (`roleDefinitionId`, `departmentId`,
-      `reportsToUserId`, `scopeType`, `scopeIds`, `status` PENDING_INVITATION or
-      PENDING_DEPARTMENT_HEAD_APPROVAL, `intendedRoleDefinitionId`, and the overrides
-      `{ permissionKey, state }[]`), the signed-in admin, and the channels (`{ email, sms }`, or
-      null to send nothing: a hire waiting for the head, or both false).
-    - It does: 409 EMAIL_TAKEN when the email belongs to an ADMIN-pool user who is a SUPER_ADMIN
-      or has a `platform_members` row; otherwise the ADMIN-pool login through the identity adapter
-      (`identity.createUser('ADMIN', email, { phone })`, nothing sent by Cognito; a login left
-      half-made, with no admin row or only a TEAM_MEMBER row without a member row, is reused; a
-      parallel create that loses the `users_pool_email_staff_admin_key` race disables its extra
-      login), in platform scope the `users` row (pool ADMIN) and the `platform_admins` TEAM_MEMBER
-      row, then the `platform_members` row and its overrides (in admin scope as
-      `invitedByUserId`, which `platform_members_admin_all` allows, after the admin row has
-      committed: the trigger needs it) with the audit rows `platform_member.created`
-      `{ roleId, departmentId, status }` and, when sent, `platform_member.invited`
-      `{ channels, expiresAt }`; then the sealed invitation (the `Sealer` with the ADMIN pool key
-      and its own purpose label, holding the user id and the member row's `updated_at`, 7 days),
-      sent through NotifyService (`platform.team-invite`, `platform.team-invite-sms`; logged with
-      `AUTH_MODE=local`), within INVITE_LIMITS (429 RATE_LIMITED).
-    - It returns `{ userId, invitation: { email, sms, expiresAt } | null }`; the Team API answers
-      `{ member, invitation }` from it.
-    - `sendInvitation({ userId, channels, sentByUserId })`, for Resend and the decision's APPROVE:
-      a new link for a member still Pending Invitation (touching the row, so older links stop
-      working) and its `platform_member.invited` row, the same limits. Returns
-      `{ email, sms, expiresAt }`, or a refusal the contract's skip reasons name
-      (NOT_PENDING_INVITATION, NO_PHONE, RATE_LIMITED).
-    - Then this API registers `POST /members` and `POST /members/invitations`, turns `can.add`
-      and `allowed.resendInvitation` on, and the decision sends its link.
-  - **Ending a team member's sessions** (note 39): `signOutEverywhere` by `sub` (or a
-    `SessionService` method by user id) the Team API can call when it suspends, deactivates or
-    makes someone inactive; and, once ACTIVE team members are let in, the guards refusing a
-    TEAM_MEMBER whose `platform_members.status` is not ACTIVE on every request.
 - **R0:**
+  - **INSERT on `platform_admins` for TEAM_MEMBER rows** (blocks Add Team Member for a new email,
+    note 80): `GRANT INSERT ON platform_admins TO firmivra_app`, with the policy narrowed so the
+    app can add only TEAM_MEMBER rows in platform scope (for example `WITH CHECK (app_scope() =
+    'platform' AND role = 'TEAM_MEMBER')`), so Super Admins are still added only by ops or the
+    seed. No UPDATE or DELETE is needed.
   - Row-level security for an ACTIVE TEAM_MEMBER caller. `app_is_admin()` stays CEO-only, and a
     member reads only their own `platform_members` row and no overrides, so the Team API cannot
     serve a non-CEO caller under their own scope until the team gets read (and, through the API's
@@ -442,15 +425,16 @@ for the admin-scope sweep. No contract change.
   - A pending change record (who asked, what, the approver), if docx §17's approval of changes and
     Return for Changes are wanted.
   - A per-member Card / List preference, if it must follow the member across devices.
-  - **Name and phone of team members** (note 38): an admin-scope UPDATE policy on `users` for
-    ADMIN-pool rows of `platform_admins` (TEAM_MEMBER rows, and the caller's own row), limited to
-    `name` and `phone` (`users_identity_columns` already keeps id, sub, pool and email to platform
-    scope). Edit Team Member then saves them with a `platform_member.profile_updated` row
-    `{ fields }`.
+  - **Activation's scope** (note 74): a way for R2's signed-out activation to read a
+    `platform_members` row and set it ACTIVE (a definer function, as `app_enter_support_scope`
+    is), unless R2 builds it another way.
 - **The AuditService owner (`apps/api/src/audit/`):** `AuditAt.subjectUserId` (and the other B4
   fields), so the Team rows set `subject_user_id` to the member (note 42).
-- **R6:** two platform templates: `platform.team-invite` (email: name, link, expiry; Firmivra
-  branding) and `platform.team-invite-sms` (the link), in `TEMPLATE_CHANNEL` and `TEMPLATE_SENDER`.
+- **R6:** two platform templates: `platform.team-invite` (email: name, link as a button
+  checked against `linkOrigins`, expiry; Firmivra branding) and `platform.team-invite-sms` (the
+  link), in `TEMPLATE_CHANNEL`, `TEMPLATE_SENDER` and `ALWAYS_SENT`. Until then the invitation
+  goes out on `platform.message-email` and `platform.message-sms` (note 75); switching is a
+  change to `TeamInviteService.deliver` only.
 - **R56 (Communications):** the message dialogs have no route here. Covered today: a message to one
   member (`api.adminCommunications.messages.create` with `contact: { type: 'TEAM', userId }`, on
   EMAIL or SMS; INTERNAL is a note in the thread, not delivered to them) and a broadcast to the
@@ -468,10 +452,12 @@ for the admin-scope sweep. No contract change.
   module map (the Team row's keys are R0's); no location, team, job title, availability or Status
   on Add; `lastSignedInAt`; approval as `decideApproval(id, { decision })`; bulk with
   `confirmedCount`; Card / List in the browser; the message dialogs on `api.adminCommunications`
-  and `api.adminBroadcasts` for what they cover. With the Team API: Add Team Member and Resend
-  Invitation stay hidden (`can.add` and `allowed.resendInvitation` are false) until R2's service;
-  name and phone are read-only on Edit (a change answers 400 on its field); the decision answers
-  `invitation: null` for now; the trail's REJECTED has no reason.
+  and `api.adminBroadcasts` for what they cover. With the Team API: the trail's REJECTED has no
+  reason. **Since Oct 20** (notes 69 to 79) the adapter (`team-api.ts`) should call
+  `createMember` and `resendInvitation` instead of its "not available yet" answers (notes 54,
+  55), turn `ADD_MEMBER_AVAILABLE` on, read the decision's `invitation` (no longer null when a
+  channel is chosen), and drop the 400 for name and phone (note 50): they are saved, your own
+  included.
 
 ## Questions for Rasel
 
@@ -480,6 +466,7 @@ for the admin-scope sweep. No contract change.
 2. May HR propose a VP / Director role for an existing member (they would lose access while it
    waits)? The contract allows it for new hires only.
 3. The admin invitation token: sealed, with no table (above), or a stored token like `invites`?
+   **Answered (Oct 20):** sealed, no table (note 73).
 4. With no division or team tables, the directory reads DIVISION as the department and TEAM as the
    reporting line. Confirm, or wait for R0's teams.
 5. The Team form's module rows: each module's own keys (Support's `support.*`), and
@@ -494,7 +481,9 @@ for the admin-scope sweep. No contract change.
 9. Creating admin logins: R2's admin-invite service (Needs, the plan), or R0 adds admin-scope
    INSERT policies on `users` limited to ADMIN-pool rows and on `platform_admins` limited to
    TEAM_MEMBER rows (with the UPDATE policy for name and phone), so the Team API writes them
-   itself, the Cognito login still through the identity adapter?
+   itself, the Cognito login still through the identity adapter? **Answered (Oct 20):** R60
+   builds it in the Team module, with platform scope for the `users` and `platform_admins`
+   inserts only (note 71); the UPDATE policy for name and phone is R0's #954 (note 79).
 10. The rejection reason is free text: store it in the `.rejected` row's metadata (R0's change B
     allows a reason there, an exception to "ids and codes only"), or keep REJECTED's `reason`
     empty, as now?
@@ -617,3 +606,195 @@ messages shown as written); no screen imports the mocks. No contract change.
     "Adding team members is not available yet.", instead of being hidden by `can.add` (false for
     everyone until the route exists); mock mode still follows `can.add`. The mock spec
     (`e2e/mock/tumit-admin-team.spec.ts`) passes, 8 of 8.
+
+## Team invitations
+
+Rasel's decisions (Oct 20): R60 builds the admin invite in the Team module, the login goes in the
+ADMIN pool, and platform scope is used for the `users` and `platform_admins` inserts only.
+`TeamInviteService` (`team-invite.service.ts`: Add Team Member, Resend Invitation, the decision's
+link), `team-invitation.ts` (the token, the caps, the messages), and `planCreate`, `planResend`,
+`planProfile` and `withProfile` in `team-plan.ts`. All 12 routes are registered. Tests:
+`test/unit/admin-team.test.ts` (53), `test/e2e/admin-team.e2e.test.ts` (34), and 5 write cases in
+`test/isolation/admin-team-writes.ts`. No contract change.
+
+**Blocked on R0 for a brand-new login (note 80, first trap; Needs).** The app's role has no
+INSERT on `platform_admins`: R0's `r0_platform_tightening` (Oct 7) revoked it ("Super Admins are
+added by ops or the seed"), whatever `platform_admins_access` allows. Until R0 grants it for
+TEAM_MEMBER rows in platform scope, Add Team Member for an email with no ADMIN-pool login answers
+500. Nothing is left in the database (the `users` insert rolls back with it), and the Cognito login
+made for the request is disabled. Everything else works today: a login left half-made (with an
+admin row) is reused, and Resend, APPROVE's link and the edits are unaffected. Locally, 4 of the 34 e2e tests need the grant and fail until then, each
+with the message "R0: firmivra_app needs INSERT on platform_admins". The other 30 pass, and so do
+the 53 unit tests.
+
+69. **The routes.**
+    - `POST /members` answers 201 `{ member, invitation }`.
+    - `POST /members/invitations` answers 200 `{ sent, skipped }`.
+    - `POST /members/:id/decision` APPROVE now makes the link and sends it to the channels chosen
+      (`invite`, email by default). `.approved` has `invitationSent: true` when a link was made.
+      A 429 refuses the decision too: approve with neither channel and resend later.
+    - Both fixed paths come before `/members/:id`.
+    - `meta().can.add` is `team.create`. A member's `allowed.resendInvitation` is: Pending
+      Invitation, within reach, and the caller holds `team.create`.
+70. **Add Team Member, step by step.**
+    1. Admin scope, reading only: `planCreate`, and when a link will go out, the daily caps. All of
+       this runs before any Cognito login exists.
+    2. `adminUserFor` in platform scope (note 71).
+    3. One admin transaction:
+       - `planCreate` again, on the rows as they are now;
+       - the `platform_members` row (a unique violation is 409 EMAIL_TAKEN: a parallel create got
+         there first) and its overrides;
+       - a reused login's name and phone, saved again (`users_admin_team_update`, now that the
+         member row exists);
+       - `.created` with the role, department, supervisor, scope (and custom ids), status and the
+         keys granted or revoked against the template;
+       - the link (note 73).
+    4. After the commit: seal the token and send it (note 75).
+    5. Read the member back.
+
+    `planCreate`'s order:
+    - 403 FORBIDDEN without `team.create`;
+    - 422 ROLE_NOT_IN_DEPARTMENT;
+    - 422 CUSTOM_SCOPE_INVALID;
+    - 403 FORBIDDEN for a scope or keys beyond the role's without `team.change_permissions`;
+    - 403 DEPARTMENT_NOT_ALLOWED, ROLE_CEILING, SCOPE_CEILING;
+    - 422 UNKNOWN_PERMISSION;
+    - 403 PERMISSION_CEILING;
+    - 422 SUPERVISOR_INVALID (the supervisor must be someone the caller sees);
+    - last, 409 EMAIL_TAKEN.
+
+    HR's VP / Director hire is PENDING_DEPARTMENT_HEAD_APPROVAL, with the intended role equal to
+    the role, and its `invite` is ignored. Everyone else is PENDING_INVITATION. If step 3 fails,
+    the login and its admin row stay (half-made), and the next try reuses them.
+71. **The platform-scope method.** `TeamInviteService.adminUserFor(email, name, phone)` uses
+    `DATABASE.forPlatform()` / `withScope({ kind: 'platform' })`, as `staffUserFor` does. Its
+    comment cites Rasel's decision. The reason: `users_insert` and `platform_admins_access` allow
+    these inserts in platform scope only. The method does only these three things:
+    - looks up the ADMIN-pool login with this email, with its admin row;
+    - for a new login, inserts `users` (pool ADMIN, lower-case email, "First Last", phone) and
+      `platform_admins` (TEAM_MEMBER) in one platform transaction;
+    - for a reused login without an admin row, adds that row.
+
+    A unique violation (`users_pool_email_staff_admin_key`) reads the other request's row and
+    calls `identity.disableUser('ADMIN', sub)` on the orphan login. Any other failure of the
+    transaction disables that login too, then rethrows. A SUPER_ADMIN row found there is 409
+    EMAIL_TAKEN. Everything else stays in admin scope (`AdminPrisma`): the member row, the
+    overrides, the users name and phone, and the audit rows. The login comes from
+    `identity.createUser('ADMIN', email)`: no password, nothing sent by Cognito, and the phone is
+    not passed to Cognito.
+72. **No account-existence leak.**
+    - EMAIL_TAKEN is decided in admin scope from the org chart's own rows (admin scope reads only
+      ADMIN-pool logins that have an admin row). It means a Super Admin, or someone with a
+      `platform_members` row.
+    - A TEAM_MEMBER login with no member row is reused, and so is an ADMIN-pool login with no
+      admin row.
+    - STAFF and CLIENT logins are never queried. A staff login's email gets a new ADMIN login and
+      the same answer as a new email.
+    - The email check runs after every authority check.
+    - Errors and log lines hold member ids and error names only.
+73. **The token** (question 3: sealed, no table).
+    - The `Sealer` with label `fv-admin-team-invite-v1` and the ADMIN pool's key
+      (`COGNITO_ADMINS_CLIENT_SECRET`, or `LOCAL_AUTH_SECRET` locally).
+    - The value is `{ pool: 'ADMIN', userId, memberUpdatedAt }`. It expires 7 days later in whole
+      seconds, the same time as the `.invited` row's `expiresAt`.
+    - Each link touches `platform_members.updated_at`, strictly later than before, under the
+      invitations lock. The token holds the new value, so every older link stops matching. Any
+      other change to the row also voids the link: an edit, a status change, a name fix.
+    - The link is `${ADMIN_BASE_URL}/activate#token=…`, in the fragment as staff links are.
+      `ADMIN_BASE_URL` comes from config.
+    - The token is never stored, logged or audited.
+    - AdminTeamModule exports `TeamInvitationTokens`. R2 can also build its own with
+      `TeamInvitationTokens.fromEnv(env)`, so SignInModule never imports the Team module.
+74. **What R2's activation must check.** Nothing in `apps/api/src/auth/` was changed.
+    1. `tokens.open(token)` is defined: it opens only for the ADMIN pool with this label, when not
+       expired and not tampered with.
+    2. `TeamInvitationTokens.stillValid(opened, row)` for the `platform_members` row of
+       `opened.userId`: the same person, status PENDING_INVITATION, and `updated_at` equal to
+       `memberUpdatedAt` to the millisecond.
+    3. The login is ADMIN pool and `identity.hasPassword('ADMIN', sub)` is false. A reused login
+       may already have a password: refuse, as staff's ACCOUNT_EXISTS does, and never reset it.
+    4. Set the password, then make the member ACTIVE with an `updatedAt` condition (a resend or a
+       change made meanwhile wins), write `platform_member.activated`, and answer
+       MFA_SETUP_REQUIRED.
+
+    Every failure answers the same way: 404 INVITE_INVALID or 410 INVITE_EXPIRED, as staff. The
+    request is signed out, and no scope today may read or update `platform_members` for it:
+    admin scope is the CEO's, and platform scope has no policy on it (Needs, R2 and R0).
+75. **Email and text.**
+    - There is no team-invite template, so R6's generic Firmivra ones are used.
+      `platform.message-email` takes `{ name, subject, body }` and renders "Hi {name}," with
+      Firmivra's branding and From. `platform.message-sms` renders "Firmivra: {body}". The wording
+      fits: subject "You're invited to join the Firmivra team"; the body says they were added to
+      the Firmivra team, gives the link to set a password and sign in to the admin site, and says
+      when it expires and to ignore an unexpected email.
+    - The link is plain text in the body. The generic template has no button, and does not check
+      the link against `linkOrigins`.
+    - The text message is sent because the contract asks for it (`invite.sms`, resend's `sms`) and
+      the notifier supports it. A JWE in a text is long: about 300 characters, several segments.
+    - Locally, email goes to Mailpit (`EMAIL_MODE=smtp`) and texts to the API log without their
+      text (`SMS_MODE=log`). The link is logged nowhere, not even with `AUTH_MODE=local`: note 5's
+      "logged, as LogActivationMailer" no longer holds.
+    - `invitation` in the answer lists the channels that accepted the message. A failed send is
+      logged with the member id and the error's name. The link stands, since the `.invited` row
+      was written before sending, and Resend makes a new one.
+76. **The caps.** `TEAM_INVITE_LIMITS` allows 50 links a day for the platform and 5 a day per
+    person. It counts `.invited` rows (entity `platform_member`, `business_id` null, last 24 hours)
+    under a transaction advisory lock (`hashtextextended('admin-team-invite', 0)`), so two requests
+    never pass on the same count.
+    - Add Team Member: 429 RATE_LIMITED before the login is made (only when sending), and again in
+      the write transaction.
+    - APPROVE: a 429 refuses the decision.
+    - Resend: the person is skipped as RATE_LIMITED.
+    - Adding without an invitation is not capped.
+77. **Audit**, with ids and codes only, never email, name, phone, link or token:
+    - `.created`, as in note 70;
+    - `.invited` with `{ channels, expiresAt, via }`: channels `EMAIL` and `SMS`, via `CREATE`,
+      `RESEND` or `APPROVAL` (a resend is its own `.invited`);
+    - `.approved` with `invitationSent`;
+    - `.profile_updated` with `{ fields }` (note 79).
+78. **Resend.**
+    - The request needs `team.create` (403 for the whole request).
+    - Each person may be skipped: NOT_FOUND (no name), SELF, OUT_OF_REACH,
+      NOT_PENDING_INVITATION or RATE_LIMITED, in the order sent.
+    - The email always goes. The text goes when `sms` is set and the person has a phone. People
+      without a phone still get the email, so NO_PHONE is never used.
+    - All links are made in one transaction and sent one by one after it commits.
+    - `sent` counts the people whom at least one channel reached. A person whose every send failed
+      is in neither list; the log has their id.
+79. **Name and phone (R0's #954, `users_admin_team_update`).**
+    - Edit Team Member saves a changed name ("First Last" from the two fields, as it reads back)
+      and phone (E.164 or null) on the person's `users` row, in admin scope, in the same
+      transaction as the member update. The audit row is `platform_member.profile_updated` with
+      `{ fields: ['name', 'phone'] }`, never the values.
+    - It also moves `platform_members.updated_at`, so `expectedUpdatedAt` covers it. A Pending
+      Invitation link made earlier is then void: resend it.
+    - Yourself: your name and phone, with no key needed. Anything else on your own row is still
+      403 SELF_CHANGE. `allowed.edit` is true for yourself; your other flags are false.
+    - Others: reach and `team.edit` (403 PEER_PROTECTED, DEPARTMENT_NOT_ALLOWED, FORBIDDEN).
+    - This replaces note 38's 400. The policy needs `app_is_admin()`, which is CEO level today.
+80. **Traps found.**
+    - **No INSERT on `platform_admins` for the app**, in any scope. `r0_platform_tightening`
+      revoked INSERT, UPDATE and DELETE on it (Oct 7), so the `platform_admins_access` policy's
+      platform scope never gets the chance. Neither the policy nor Rasel's decision 2 shows it:
+      the first new login answered 500 (Prisma P2039, SQLSTATE 42501 "permission denied for table
+      platform_admins"). No definer function inserts there either. The fix is R0's (Needs).
+      Until then the `users` insert rolls back with it, and `adminUserFor` disables the Cognito
+      login it made on any failure, not only a lost race, so retries leave no stray logins.
+    - Platform scope cannot read `platform_members` (only admin scope and the member themself can).
+      So the "on the team" check belongs to admin scope; platform scope only finds the ADMIN login
+      and its admin row.
+    - The trigger `platform_members_ceo_role_check` needs the admin row committed first. That
+      takes two transactions (platform, then admin), so a failure in between leaves a half-made
+      login, which is reused (note 70).
+    - A reused login may already have a password, for example a former admin's: activation must
+      check it (note 74).
+    - Prisma 7's pg adapter reports a unique violation as P2002 or SQLSTATE 23505:
+      `isUniqueViolation` (appointments/errors) covers both.
+    - `.invited` rows are written before sending, so a failed send still counts toward the caps
+      and shows as the member's `invitation`.
+    - `/dev/token` finds users by email in every pool. An ADMIN login with a fixture's staff email
+      would make that fixture's token ambiguous (400) in every other test file, so the e2e's
+      staff and client logins use emails of its own run.
+    - The platform cap is the whole test database's. The e2e lowers
+      `TEAM_INVITE_LIMITS.perPlatform` to the current count, instead of writing 50 rows that would
+      make other files' sends answer 429.

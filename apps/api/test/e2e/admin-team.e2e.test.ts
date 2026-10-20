@@ -1,9 +1,11 @@
-// End-to-end: R60, Super Admin Team on R0's stage A org chart. Every registered route under
+// End-to-end: R60, Super Admin Team on R0's stage A org chart. Every route under
 // /api/v1/admin/team: meta, the KPIs, the directory (search, filters, sort, paging), one member,
-// their trail, the forms' choices, Edit Team Member (and its refusals), the bulk changes and the
-// department head's decision, with the audit rows they write. Add Team Member and Resend
-// Invitation are not registered (404): they wait for R2's admin-invite service. A firm's session
-// reaches none of it. Each run makes its own departments, roles and people (`run`).
+// their trail, the forms' choices, Add Team Member (the ADMIN-pool login, its rows, the
+// invitation), Edit Team Member (with the name and phone, and its refusals), the bulk changes,
+// Resend Invitation, the department head's decision (APPROVE sends the invitation) and the daily
+// caps, with the audit rows they write. Emails and texts go to a fake NotifyService that keeps
+// them, so the tests read the links. A firm's session reaches none of it. Each run makes its own
+// departments, roles, people and emails (`run`).
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -19,6 +21,7 @@ import {
   AdminTeamActivityList,
   AdminTeamBulkResult,
   AdminTeamFormOptions,
+  AdminTeamInvitationResult,
   type AdminTeamLevel,
   AdminTeamMember,
   AdminTeamMemberPage,
@@ -34,9 +37,10 @@ import {
   IDENTITY_PROVIDER,
   type IdentityProvider,
 } from '../../src/auth/identity/identity-provider.js';
+import { TEAM_INVITE_LIMITS, TeamInvitationTokens } from '../../src/admin-team/team-invitation.js';
 import { configureApp } from '../../src/configure-app.js';
-import { loadEnv } from '../../src/config/env.js';
-import { NOTIFY_SERVICE } from '../../src/notify/notify.types.js';
+import { type Env, loadEnv } from '../../src/config/env.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 
 const fx = inject('fixtures');
 const BASE = '/api/v1/admin/team';
@@ -113,6 +117,25 @@ const signedInAt = new Date(Date.now() - 3_600_000);
 const invitationExpires = new Date(Date.now() + 6 * 86_400_000);
 
 let app: INestApplication;
+let env: Env;
+let links: TeamInvitationTokens;
+let identity: IdentityProvider;
+/** What the fake NotifyService was handed (an address with "bounce" in it fails instead). */
+const messages: NotifyMessage[] = [];
+/** Cognito logins the API disabled (a login lost to a race). */
+const disabled: string[] = [];
+/** Two Add Team Members for this email both reach Cognito before either writes its row. */
+const RACE_EMAIL = `r60-team-race-${run}@example.test`;
+let raceArrived = 0;
+let releaseRace = () => {};
+const raceReady = new Promise<void>((resolve) => {
+  releaseRace = resolve;
+});
+async function raceGate(): Promise<void> {
+  raceArrived += 1;
+  if (raceArrived >= 2) releaseRace();
+  await Promise.race([raceReady, new Promise((resolve) => setTimeout(resolve, 5_000))]);
+}
 const tokens = new Map<string, string>();
 let viewers = 0;
 const viewer = () => `198.69.${100 + Math.floor(++viewers / 250)}.${viewers % 250}, 10.0.0.5`;
@@ -183,6 +206,27 @@ const auditRows = (id: string) =>
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     }),
   );
+
+/** The org-chart row as stored (status and version). */
+const memberRow = (userId: string) =>
+  owner((tx) =>
+    tx.platformMember.findUniqueOrThrow({
+      where: { userId },
+      select: { userId: true, status: true, updatedAt: true },
+    }),
+  );
+/** The newest message handed over for this address. */
+const lastTo = (to: string) => [...messages].reverse().find((m) => m.to === to);
+/** The token in a message's activation link (`{ADMIN_BASE_URL}/activate#token=...`). */
+function tokenIn(message: NotifyMessage | undefined): string {
+  const text = String((message?.data as { body?: unknown } | undefined)?.body ?? '');
+  const prefix = `${new URL('/activate', env.ADMIN_BASE_URL).toString()}#token=`;
+  const at = text.indexOf(prefix);
+  if (at === -1) throw new Error('No activation link in the message');
+  return /^[\w.-]+/.exec(text.slice(at + prefix.length))![0];
+}
+/** The newest invitation to this address, opened. */
+const openedLink = async (to: string) => (await links.open(tokenIn(lastTo(to))))!;
 
 beforeAll(async () => {
   await owner(async (tx) => {
@@ -290,7 +334,7 @@ beforeAll(async () => {
       },
     });
   });
-  const env = loadEnv({
+  env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',
     AUTH_MODE: 'local',
@@ -299,15 +343,32 @@ beforeAll(async () => {
   });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
     .overrideProvider(NOTIFY_SERVICE)
-    .useValue({ send: () => Promise.resolve() })
+    .useValue({
+      send: (message: NotifyMessage) => {
+        if (message.to.includes('bounce')) return Promise.reject(new Error('Bounced'));
+        messages.push(message);
+        return Promise.resolve();
+      },
+    })
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
+  links = nest.get(TeamInvitationTokens, { strict: false });
   // One login that never set a password: reactivating it sends it back to Pending Invitation.
-  const identity = nest.get<IdentityProvider>(IDENTITY_PROVIDER, { strict: false });
+  identity = nest.get<IdentityProvider>(IDENTITY_PROVIDER, { strict: false });
   const hasPassword = identity.hasPassword.bind(identity);
   identity.hasPassword = (pool, sub) =>
     sub === who.noPassword.id ? Promise.resolve(false) : hasPassword(pool, sub);
+  const createUser = identity.createUser.bind(identity);
+  identity.createUser = async (pool, email, contact) => {
+    if (email === RACE_EMAIL) await raceGate();
+    return createUser(pool, email, contact);
+  };
+  const disableUser = identity.disableUser.bind(identity);
+  identity.disableUser = (pool, sub) => {
+    disabled.push(sub);
+    return disableUser(pool, sub);
+  };
   await nest.listen(0, '127.0.0.1');
   app = nest;
 });
@@ -327,19 +388,33 @@ describe('the routes', () => {
       fx.users.ownerA.email,
     );
     expect(bulk.status).toBe(401);
+    const email = `r60-team-owner-try-${run}@example.test`;
+    const create = await call(
+      'post',
+      '/members',
+      { firstName: 'Fake', lastName: 'Try', email, departmentId: dept.ops, roleId: role.opsIc },
+      fx.users.ownerA.email,
+    );
+    expect(create.status).toBe(401);
+    const resend = await call(
+      'post',
+      '/members/invitations',
+      { ids: [who.invited.id] },
+      fx.users.ownerA.email,
+    );
+    expect(resend.status).toBe(401);
+    expect(await owner((tx) => tx.user.count({ where: { email } }))).toBe(0);
   });
 
-  it('Add Team Member and Resend Invitation are not registered (404)', async () => {
-    const create = await call('post', '/members', {
-      firstName: 'Fake',
-      lastName: 'Person',
-      email: `r60-team-new-${run}@example.test`,
-      departmentId: dept.ops,
-      roleId: role.opsIc,
-    });
-    expect(create.status).toBe(404);
-    const resend = await call('post', '/members/invitations', { ids: [who.invited.id] });
-    expect(resend.status).toBe(404);
+  it('Add Team Member and Resend Invitation are registered: a bad body is 400, not 404', async () => {
+    expect(refusal(await call('post', '/members', { firstName: 'Fake' }))).toEqual([
+      400,
+      'VALIDATION_FAILED',
+    ]);
+    expect(refusal(await call('post', '/members/invitations', { ids: [] }))).toEqual([
+      400,
+      'VALIDATION_FAILED',
+    ]);
   });
 
   it('an id that is not a UUID is 400; someone unknown is 404 NOT_FOUND', async () => {
@@ -357,7 +432,7 @@ describe('the routes', () => {
 });
 
 describe('the reads', () => {
-  it('GET /meta: a Super Admin without an org-chart row is the CEO; Add stays off', async () => {
+  it('GET /meta: a Super Admin without an org-chart row is the CEO, with every right', async () => {
     const res = await call('get', '/meta');
     expectStatus(res, 200);
     const meta = AdminTeamMeta.parse(res.body);
@@ -369,7 +444,7 @@ describe('the reads', () => {
       unrestricted: true,
     });
     expect(meta.can).toEqual({
-      add: false,
+      add: true,
       edit: true,
       changeRole: true,
       changeDepartment: true,
@@ -486,13 +561,18 @@ describe('the reads', () => {
     const invited = await get(who.invited.id);
     expect(invited.invitation?.expiresAt).toBe(invitationExpires.toISOString());
     expect(invited.lastSignedInAt).toBeNull();
+    expect(invited.allowed.resendInvitation).toBe(true);
     const hire = await get(who.hire.id);
     expect(hire.intendedRole?.id).toBe(role.opsVp);
     expect(hire.allowed).toMatchObject({ approve: true, changeRole: false, changeStatus: false });
     const ceo = await get(who.ceo.id);
     expect(ceo).toMatchObject({ accessLevel: 'SUPER_ADMIN', isYou: false });
     expect(ceo.allowed).toMatchObject({ edit: false, changeRole: false, changeStatus: false });
-    expect((await get(who.ceo.id, who.ceo.email)).isYou).toBe(true);
+    // Yourself: Edit Team Member for your own name and phone, nothing else.
+    expect(await get(who.ceo.id, who.ceo.email)).toMatchObject({
+      isYou: true,
+      allowed: { edit: true, changeRole: false, changeStatus: false, customizePermissions: false },
+    });
   });
 
   it('GET /form-options: what an unrestricted member may give; never the CEO role', async () => {
@@ -559,14 +639,70 @@ describe('Edit Team Member (PATCH /members/:id)', () => {
     expect((await auditRows(who.editor.id)).length).toBe(rows);
   });
 
-  it('a new name or phone is 400 on its field (admin scope cannot change logins yet)', async () => {
-    const name = await call('patch', `/members/${who.editor.id}`, { firstName: 'Fakest' });
-    expect(refusal(name)).toEqual([400, 'VALIDATION_FAILED']);
-    expect((name.body as { error: { details: { path: string }[] } }).error.details[0]!.path).toBe(
-      'firstName',
-    );
-    const phone = await call('patch', `/members/${who.editor.id}`, { phone: '+15555550199' });
-    expect(refusal(phone)).toEqual([400, 'VALIDATION_FAILED']);
+  it('a new name and phone are saved on the login; the audit row has the field names only', async () => {
+    const id = who.editor.id;
+    const before = await get(id);
+    const login = () =>
+      owner((tx) =>
+        tx.user.findUniqueOrThrow({ where: { id }, select: { name: true, phone: true } }),
+      );
+    const renamed = await patch(id, {
+      firstName: 'Fakest',
+      lastName: `Editor ${run}`,
+      phone: '+1 (555) 555-0199',
+      expectedUpdatedAt: before.updatedAt,
+    });
+    expect(renamed).toMatchObject({
+      name: `Fakest Editor ${run}`,
+      firstName: 'Fakest',
+      phone: '+15555550199',
+    });
+    expect(renamed.updatedAt).not.toBe(before.updatedAt);
+    expect(await login()).toEqual({ name: `Fakest Editor ${run}`, phone: '+15555550199' });
+    const row = (await auditRows(id)).filter((r) => r.action === A.PROFILE_UPDATED).at(-1)!;
+    expect(row).toMatchObject({
+      businessId: null,
+      actorUserId: fx.users.admin.id,
+      metadata: { fields: ['name', 'phone'] },
+    });
+    expect(JSON.stringify(row.metadata)).not.toMatch(/Fakest|5550199/);
+    expect((await trail(id))[0]!.kind).toBe('PROFILE_UPDATED');
+    // The version read before is stale now.
+    const stale = await call('patch', `/members/${id}`, {
+      phone: null,
+      expectedUpdatedAt: before.updatedAt,
+    });
+    expect(refusal(stale)).toEqual([409, 'CONFLICT']);
+    // Back as it was: the tests below read the old name and phone.
+    await patch(id, {
+      firstName: before.firstName,
+      lastName: before.lastName,
+      phone: EDITOR_PHONE,
+    });
+    expect(await login()).toEqual({ name: who.editor.name, phone: EDITOR_PHONE });
+    // Someone above you: refused, nothing written.
+    expect(refusal(await call('patch', `/members/${who.ceo.id}`, { firstName: 'Other' }))).toEqual([
+      403,
+      'PEER_PROTECTED',
+    ]);
+  });
+
+  it('your own name and phone: saved; anything else on your own row is still 403', async () => {
+    const mine = (body: object) => call('patch', `/members/${who.ceo.id}`, body, who.ceo.email);
+    const res = await mine({ firstName: 'Fakeceo', phone: '+15555550123' });
+    expectStatus(res, 200);
+    expect(AdminTeamMember.parse(res.body)).toMatchObject({
+      name: `Fakeceo Ceo ${run}`,
+      phone: '+15555550123',
+      isYou: true,
+    });
+    const row = (await auditRows(who.ceo.id)).filter((r) => r.action === A.PROFILE_UPDATED).at(-1)!;
+    expect(row).toMatchObject({ actorUserId: who.ceo.id, metadata: { fields: ['name', 'phone'] } });
+    const roleToo = await mine({ firstName: 'Fake', roleId: role.coo, departmentId: dept.ops });
+    expect(refusal(roleToo)).toEqual([403, 'SELF_CHANGE']);
+    // Back as it was.
+    expectStatus(await mine({ firstName: 'Fake', phone: null }), 200);
+    expect((await get(who.ceo.id)).name).toBe(who.ceo.name);
   });
 
   it('the refusals', async () => {
@@ -837,26 +973,43 @@ describe('the department head’s decision (POST /members/:id/decision)', () => 
     expect((await decide(who.hire2.id, { decision: 'MAYBE' })).status).toBe(400);
   });
 
-  it('APPROVE with another VP / Director role: Pending Invitation, nothing sent yet', async () => {
+  it('APPROVE with another VP / Director role: Pending Invitation, the invitation goes out', async () => {
     const res = await decide(who.hire.id, { decision: 'APPROVE', roleId: role.opsVp2 });
     expectStatus(res, 200);
     const { member, invitation } = AdminTeamMemberResult.parse(res.body);
-    expect(invitation).toBeNull();
+    expect(invitation).toMatchObject({ email: true, sms: false });
     expect(member).toMatchObject({
       status: 'PENDING_INVITATION',
       role: { id: role.opsVp2 },
       intendedRole: null,
       approvedBy: { id: fx.users.admin.id },
+      invitation: { expiresAt: invitation!.expiresAt },
+      allowed: { resendInvitation: true },
     });
+    expect(lastTo(who.hire.email)?.template).toBe('platform.message-email');
+    const opened = await openedLink(who.hire.email);
+    expect(opened).toMatchObject({ userId: who.hire.id });
+    expect(opened.expiresAt.toISOString()).toBe(invitation!.expiresAt);
+    expect(TeamInvitationTokens.stillValid(opened, await memberRow(who.hire.id))).toBe(true);
     expect(refusal(await decide(who.hire.id, { decision: 'APPROVE' }))).toEqual([
       409,
       'NOT_PENDING_APPROVAL',
     ]);
-    const approved = (await trail(who.hire.id)).find((i) => i.kind === 'APPROVED')!;
-    expect(approved).toMatchObject({
+    const items = await trail(who.hire.id);
+    expect(items.find((i) => i.kind === 'APPROVED')).toMatchObject({
       previousValue: `Fake Operations Director ${run}`,
       newValue: `Fake Programs Director ${run}`,
       approver: { id: fx.users.admin.id },
+    });
+    expect(items.map((i) => i.kind)).toContain('INVITED');
+    const rows = await auditRows(who.hire.id);
+    expect(rows.find((r) => r.action === A.APPROVED)?.metadata).toMatchObject({
+      invitationSent: true,
+    });
+    expect(rows.find((r) => r.action === A.INVITED)?.metadata).toEqual({
+      channels: ['EMAIL'],
+      expiresAt: invitation!.expiresAt,
+      via: 'APPROVAL',
     });
   });
 
@@ -873,5 +1026,375 @@ describe('the department head’s decision (POST /members/:id/decision)', () => 
     });
     const rows = await auditRows(who.hire2.id);
     expect(JSON.stringify(rows.map((r) => r.metadata))).not.toContain('Fake reason');
+  });
+});
+
+const join = (key: string, over: object = {}) => ({
+  firstName: 'Fake',
+  lastName: `${key} ${run}`,
+  email: `r60-team-${key.toLowerCase()}-${run}@example.test`,
+  departmentId: dept.ops,
+  roleId: role.opsIc,
+  ...over,
+});
+const create = (body: object) => call('post', '/members', body);
+const made = (res: Response) => {
+  expectStatus(res, 201);
+  return AdminTeamMemberResult.parse(res.body);
+};
+const loginsOf = (email: string) =>
+  owner((tx) =>
+    tx.user.findMany({
+      where: { email, pool: 'ADMIN' },
+      select: {
+        id: true,
+        cognitoSub: true,
+        name: true,
+        phone: true,
+        platformAdmin: { select: { role: true } },
+      },
+    }),
+  );
+
+/**
+ * A new team member's `platform_admins` row needs INSERT on that table for the app's role, which
+ * R0's `r0_platform_tightening` (Oct 7) revoked ("Super Admins are added by ops or the seed").
+ * Until R0 grants it back for TEAM_MEMBER rows, a new login's Add Team Member answers 500.
+ */
+async function needsAdminRowInsert(): Promise<void> {
+  const [row] = await owner(
+    (tx) =>
+      tx.$queryRaw<{ ok: boolean }[]>`
+        SELECT has_table_privilege('firmivra_app', 'platform_admins', 'INSERT') AS ok`,
+  );
+  expect(
+    row?.ok,
+    'R0: firmivra_app needs INSERT on platform_admins (TEAM_MEMBER rows, platform scope) for Add Team Member',
+  ).toBe(true);
+}
+
+/** An ADMIN-pool login with a TEAM_MEMBER admin row and no org-chart row: a half-made create. */
+async function halfMade(key: string, name = 'Fake Old'): Promise<{ id: string; email: string }> {
+  const login = { id: randomUUID(), email: `r60-team-${key}-${run}@example.test` };
+  await owner(async (tx) => {
+    await tx.user.create({
+      data: { id: login.id, cognitoSub: login.id, pool: 'ADMIN', email: login.email, name },
+    });
+    await tx.platformAdmin.create({ data: { userId: login.id, role: 'TEAM_MEMBER' } });
+  });
+  return login;
+}
+
+/** A member made with the owner client, in the status given. */
+async function seeded(
+  key: string,
+  status: 'PENDING_INVITATION' | 'PENDING_DEPARTMENT_HEAD_APPROVAL',
+  phone: string | null = null,
+): Promise<{ id: string; email: string; name: string }> {
+  const hire = status === 'PENDING_DEPARTMENT_HEAD_APPROVAL';
+  const person = {
+    id: randomUUID(),
+    email: `r60-team-${key}-${run}@example.test`,
+    name: `Fake ${key} ${run}`,
+  };
+  await owner(async (tx) => {
+    await tx.user.create({
+      data: {
+        id: person.id,
+        cognitoSub: person.id,
+        pool: 'ADMIN',
+        email: person.email,
+        name: person.name,
+        phone,
+      },
+    });
+    await tx.platformAdmin.create({ data: { userId: person.id, role: 'TEAM_MEMBER' } });
+    await tx.platformMember.create({
+      data: {
+        userId: person.id,
+        roleDefinitionId: hire ? role.opsVp : role.opsIc,
+        departmentId: dept.ops,
+        scopeType: hire ? 'DIVISION' : 'OWN_RECORDS',
+        status,
+        intendedRoleDefinitionId: hire ? role.opsVp : null,
+        invitedByUserId: fx.users.admin.id,
+      },
+    });
+  });
+  return person;
+}
+
+describe('Add Team Member (POST /members)', () => {
+  it('the ADMIN-pool login, its admin row, the org-chart row, the audit rows and the invitation', async () => {
+    await needsAdminRowInsert();
+    const added = {
+      email: `r60-team-added-${run}@example.test`,
+      phone: '+15555550177',
+      name: `Fake Added ${run}`,
+    };
+    const { member, invitation } = made(
+      await create(
+        join('Added', {
+          email: added.email.toUpperCase(),
+          phone: added.phone,
+          reportsToId: who.manager.id,
+          invite: { email: true, sms: true },
+        }),
+      ),
+    );
+    expect(invitation).toMatchObject({ email: true, sms: true });
+    expect(Date.parse(invitation!.expiresAt) - Date.now()).toBeGreaterThan(6.9 * 86_400_000);
+    expect(member).toMatchObject({
+      name: added.name,
+      email: added.email,
+      phone: added.phone,
+      status: 'PENDING_INVITATION',
+      role: { id: role.opsIc },
+      department: { id: dept.ops },
+      reportsTo: { id: who.manager.id },
+      scope: 'OWN_RECORDS',
+      customPermissions: false,
+      invitedBy: { id: fx.users.admin.id },
+      invitation: { expiresAt: invitation!.expiresAt },
+      allowed: { resendInvitation: true },
+    });
+    // The login: ADMIN pool, lower-case email, no password yet; a TEAM_MEMBER admin row.
+    const logins = await loginsOf(added.email);
+    expect(logins).toHaveLength(1);
+    expect(logins[0]).toMatchObject({
+      id: member.id,
+      name: added.name,
+      phone: added.phone,
+      platformAdmin: { role: 'TEAM_MEMBER' },
+    });
+    expect(await identity.hasPassword('ADMIN', logins[0]!.cognitoSub)).toBe(false);
+    const row = await memberRow(member.id);
+    expect(row.status).toBe('PENDING_INVITATION');
+
+    // Audit: platform rows on the person, ids and codes only.
+    const rows = await auditRows(member.id);
+    expect(rows.map((r) => r.action).sort()).toEqual([A.CREATED, A.INVITED].sort());
+    for (const r of rows)
+      expect(r).toMatchObject({
+        businessId: null,
+        actorUserId: fx.users.admin.id,
+        entityType: 'platform_member',
+        entityId: member.id,
+      });
+    expect(rows.find((r) => r.action === A.CREATED)?.metadata).toEqual({
+      roleId: role.opsIc,
+      departmentId: dept.ops,
+      reportsToId: who.manager.id,
+      scope: 'OWN_RECORDS',
+      status: 'PENDING_INVITATION',
+    });
+    expect(rows.find((r) => r.action === A.INVITED)?.metadata).toEqual({
+      channels: ['EMAIL', 'SMS'],
+      expiresAt: invitation!.expiresAt,
+      via: 'CREATE',
+    });
+
+    // The email and the text: Firmivra's own, with the same activation link.
+    const mail = lastTo(added.email);
+    expect(mail).toMatchObject({
+      template: 'platform.message-email',
+      businessId: null,
+      data: { name: added.name },
+    });
+    const text = lastTo(added.phone);
+    expect(text?.template).toBe('platform.message-sms');
+    const token = tokenIn(mail);
+    expect(tokenIn(text)).toBe(token);
+    const opened = (await links.open(token))!;
+    expect(opened.userId).toBe(member.id);
+    expect(TeamInvitationTokens.stillValid(opened, row)).toBe(true);
+    const audit = JSON.stringify(rows.map((r) => r.metadata));
+    for (const value of [added.email, added.phone, added.name, token, '/activate'])
+      expect(audit).not.toContain(value);
+    expect((await trail(member.id)).map((i) => i.kind).sort()).toEqual(['CREATED', 'INVITED']);
+  });
+
+  it('409 EMAIL_TAKEN for a member or a Super Admin, before any login is made', async () => {
+    for (const email of [who.editor.email, who.ceo.email.toUpperCase(), fx.users.admin.email])
+      expect(refusal(await create(join('Taken', { email })))).toEqual([409, 'EMAIL_TAKEN']);
+    expect(await loginsOf(`r60-team-taken-${run}@example.test`)).toEqual([]);
+  });
+
+  it('a staff or client login’s email is someone new: a login of its own in the ADMIN pool', async () => {
+    await needsAdminRowInsert();
+    const email = `r60-team-elsewhere-${run}@example.test`;
+    await owner(async (tx) => {
+      for (const pool of ['STAFF', 'CLIENT'] as const) {
+        const id = randomUUID();
+        await tx.user.create({ data: { id, cognitoSub: id, pool, email, name: 'Fake Elsewhere' } });
+      }
+    });
+    const { member, invitation } = made(await create(join('Elsewhere', { email })));
+    expect(member).toMatchObject({ email, status: 'PENDING_INVITATION' });
+    expect(invitation).toMatchObject({ email: true, sms: false });
+    const pools = await owner((tx) =>
+      tx.user.findMany({ where: { email }, select: { id: true, pool: true } }),
+    );
+    expect(pools.map((u) => u.pool).sort()).toEqual(['ADMIN', 'CLIENT', 'STAFF']);
+    expect(pools.find((u) => u.pool === 'ADMIN')!.id).toBe(member.id);
+  });
+
+  it('a login left half-made is reused, not refused, and the new name is saved', async () => {
+    const half = await halfMade('half');
+    const quiet = made(
+      await create(join('Half', { email: half.email, invite: { email: false, sms: false } })),
+    );
+    expect(quiet.invitation).toBeNull();
+    expect(quiet.member).toMatchObject({
+      id: half.id,
+      name: `Fake Half ${run}`,
+      status: 'PENDING_INVITATION',
+      invitation: null,
+    });
+    expect((await loginsOf(half.email))[0]?.name).toBe(`Fake Half ${run}`);
+    expect((await auditRows(half.id)).map((r) => r.action)).toEqual([A.CREATED]);
+    // Now on the team: the same email again is taken.
+    expect(refusal(await create(join('Half', { email: half.email })))).toEqual([
+      409,
+      'EMAIL_TAKEN',
+    ]);
+  });
+
+  it('an ADMIN-pool login with no admin row is reused too: its admin row is added', async () => {
+    await needsAdminRowInsert();
+    const bare = { id: randomUUID(), email: `r60-team-bare-${run}@example.test` };
+    await owner((tx) =>
+      tx.user.create({
+        data: { id: bare.id, cognitoSub: bare.id, pool: 'ADMIN', email: bare.email, name: 'Fake' },
+      }),
+    );
+    const reused = made(await create(join('Bare', { email: bare.email })));
+    expect(reused.member.id).toBe(bare.id);
+    expect((await loginsOf(bare.email))[0]).toMatchObject({
+      name: `Fake Bare ${run}`,
+      platformAdmin: { role: 'TEAM_MEMBER' },
+    });
+  });
+
+  it('a failed email: the member stands; the answer says it was not sent', async () => {
+    const login = await halfMade('bounce');
+    const { member, invitation } = made(await create(join('Bounce', { email: login.email })));
+    expect(invitation).toMatchObject({ email: false, sms: false });
+    expect(member).toMatchObject({ id: login.id, status: 'PENDING_INVITATION' });
+    expect((await auditRows(member.id)).map((r) => r.action).sort()).toEqual(
+      [A.CREATED, A.INVITED].sort(),
+    );
+  });
+
+  it('two at once for one new email: one member, the other 409; its extra login is disabled', async () => {
+    await needsAdminRowInsert();
+    const body = join('Race', { email: RACE_EMAIL });
+    const both = await Promise.all([create(body), create(body)]);
+    expect(both.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(code(both.find((r) => r.status === 409)!)).toBe('EMAIL_TAKEN');
+    const logins = await loginsOf(RACE_EMAIL);
+    expect(logins).toHaveLength(1);
+    expect(disabled).toHaveLength(1);
+    expect(disabled[0]).not.toBe(logins[0]!.cognitoSub);
+  });
+});
+
+describe('Resend Invitation (POST /members/invitations)', () => {
+  const resend = (body: object) => call('post', '/members/invitations', body);
+  const result = (res: Response) => {
+    expectStatus(res, 200);
+    return AdminTeamInvitationResult.parse(res.body);
+  };
+  const PHONE = '+15555550188';
+  let pending: { id: string; email: string; name: string };
+
+  beforeAll(async () => {
+    pending = await seeded('resendee', 'PENDING_INVITATION', PHONE);
+  });
+
+  it('a new link for each person still Pending Invitation; their older links stop matching', async () => {
+    const stranger = randomUUID();
+    const first = result(await resend({ ids: [pending.id, who.editor.id, stranger], sms: true }));
+    expect(first).toEqual({
+      sent: 1,
+      skipped: [
+        { id: who.editor.id, name: who.editor.name, reason: 'NOT_PENDING_INVITATION' },
+        { id: stranger, name: null, reason: 'NOT_FOUND' },
+      ],
+    });
+    const older = tokenIn(lastTo(pending.email));
+    expect(tokenIn(lastTo(PHONE))).toBe(older);
+    expect(lastTo(PHONE)?.template).toBe('platform.message-sms');
+    const before = await memberRow(pending.id);
+    expect(TeamInvitationTokens.stillValid((await links.open(older))!, before)).toBe(true);
+
+    expect(result(await resend({ ids: [pending.id] }))).toEqual({ sent: 1, skipped: [] });
+    const row = await memberRow(pending.id);
+    expect(row.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime());
+    const fresh = await openedLink(pending.email);
+    expect(TeamInvitationTokens.stillValid(fresh, row)).toBe(true);
+    expect(TeamInvitationTokens.stillValid((await links.open(older))!, row)).toBe(false);
+    const invited = (await auditRows(pending.id)).filter((r) => r.action === A.INVITED);
+    expect(invited.map((r) => r.metadata)).toEqual([
+      { channels: ['EMAIL', 'SMS'], expiresAt: expect.any(String), via: 'RESEND' },
+      { channels: ['EMAIL'], expiresAt: expect.any(String), via: 'RESEND' },
+    ]);
+    expect((await get(pending.id)).invitation?.expiresAt).toBe(
+      (invited[1]!.metadata as { expiresAt: string }).expiresAt,
+    );
+  });
+
+  it('at most 5 links a day to one person, then RATE_LIMITED', async () => {
+    // Two so far.
+    for (let i = 2; i < TEAM_INVITE_LIMITS.perPerson; i++)
+      expect(result(await resend({ ids: [pending.id] })).sent).toBe(1);
+    expect(result(await resend({ ids: [pending.id] }))).toEqual({
+      sent: 0,
+      skipped: [{ id: pending.id, name: pending.name, reason: 'RATE_LIMITED' }],
+    });
+  });
+
+  it('the platform’s daily cap: 429 for Add Team Member and APPROVE, a skip for a resend', async () => {
+    const hire = await seeded('capped-hire', 'PENDING_DEPARTMENT_HEAD_APPROVAL');
+    const quietLogin = await halfMade('capped-quiet');
+    const cap = TEAM_INVITE_LIMITS.perPlatform;
+    // Every link of the last day in this database (other test files' too) counts.
+    TEAM_INVITE_LIMITS.perPlatform = await owner((tx) =>
+      tx.auditLog.count({
+        where: {
+          action: A.INVITED,
+          entityType: 'platform_member',
+          businessId: null,
+          createdAt: { gt: new Date(Date.now() - 86_400_000) },
+        },
+      }),
+    );
+    try {
+      const email = `r60-team-capped-${run}@example.test`;
+      expect(refusal(await create(join('Capped', { email })))).toEqual([429, 'RATE_LIMITED']);
+      // Refused before any login is made.
+      expect(await owner((tx) => tx.user.count({ where: { email } }))).toBe(0);
+      // Without an invitation, Add Team Member still works; the link waits for tomorrow.
+      const { member } = made(
+        await create(
+          join('Capped', { email: quietLogin.email, invite: { email: false, sms: false } }),
+        ),
+      );
+      expect(result(await resend({ ids: [member.id] }))).toEqual({
+        sent: 0,
+        skipped: [{ id: member.id, name: `Fake Capped ${run}`, reason: 'RATE_LIMITED' }],
+      });
+      const decide = (body: object) => call('post', `/members/${hire.id}/decision`, body);
+      expect(refusal(await decide({ decision: 'APPROVE' }))).toEqual([429, 'RATE_LIMITED']);
+      expect((await memberRow(hire.id)).status).toBe('PENDING_DEPARTMENT_HEAD_APPROVAL');
+      const quiet = await decide({ decision: 'APPROVE', invite: { email: false, sms: false } });
+      expectStatus(quiet, 200);
+      expect(AdminTeamMemberResult.parse(quiet.body)).toMatchObject({
+        member: { status: 'PENDING_INVITATION' },
+        invitation: null,
+      });
+    } finally {
+      TEAM_INVITE_LIMITS.perPlatform = cap;
+    }
   });
 });
