@@ -3,16 +3,16 @@
 import { Badge, Button, Callout, Modal, Skeleton } from '@firmivra/ui';
 import { Info, WarningCircle } from '@phosphor-icons/react';
 import { useId, type ReactNode } from 'react';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import {
   adminSubscriptions,
+  errorMessage,
   STATUS_LABELS,
   SubscriptionInputError,
   type ActionResult,
   type SubscriptionDetail,
   type SubscriptionStatus,
-} from '../../../../../mocks/admin-subscriptions';
+} from './subscriptions-api';
 import { loadErrorText, statusTone } from './format';
 
 /** Every query of the page starts with this key, so one invalidation refreshes them all. */

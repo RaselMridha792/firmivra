@@ -420,3 +420,155 @@ The API PR (`apps/api/src/admin-subscriptions/`). Numbers continue the contract 
     audit rows and notes, the schedules), and `test/isolation/admin-subscriptions-writes.ts` (one
     admin-scope case per write, each on its own firm in the state it needs), wired into
     `admin-scope.test.ts` after Billing's lines (the Sales lines are on the Sales API branch).
+
+## Subscriptions screen
+
+The Super Admin Subscriptions screen (`apps/web/src/app/admin/(console)/subscriptions/`) on
+`api.adminSubscriptions` through one adapter, `subscriptions/_components/subscriptions-api.ts`.
+Layout and components are unchanged; a widget the API has no data for keeps its frame and shows
+its quiet empty line, or the adapter answers 422 with a plain message the dialog shows as its
+error. Numbers continue the API notes.
+
+48. **The adapter.** `subscriptions-api.ts` exports the mock's names, methods and shapes, and every
+    screen file imports from it (none from `mocks/admin-subscriptions.ts`). With
+    `mocked('adminSubscriptions')` it is the mock unchanged, plus `meta()` (the mock's six plans),
+    which the mock never had. Where the API's data does not fit the mock's type, the adapter's
+    type is wider, so the mock's values still fit: `PlanId` is a string, a plan's `maxSeats` may
+    be null, `seatsUsed` and `usagePercent` may be null, a discount may be NEGOTIATED (no percent,
+    dates or reason), the past-due retry, grace and response parts may be null, invoices take
+    Billing's eight statuses and payments its five, an event's status and MRR may be null, a
+    usage line's `used` may be null, and the trial's follow-up line and the support view's reason
+    may be null. `ChangePreview` adds `priceCents` (the new terms per billing cycle, as billed).
+    Four flags pick the copy that is true in each mode, as Sales' `TRANSACTION_BY_REFERENCE`:
+    `NOTIFIES_FIRM`, `CHARGES_CARD`, `TIMED_DISCOUNTS` (the mock's) and `SUPPORT_BY_REQUEST` (R8's).
+49. **Plans by code.** As Sales: a plan on the screen is its code (SOLO_CORE …); a request looks
+    up its UUID in `meta()`, which every read waits for and each `meta()` reads again (the
+    invalidation after a change refetches it). `planList()` (every plan in display order,
+    inactive ones too: the plan filter), `planChoices(current)` (the active plans and the
+    subscription's own: Change Plan, Convert, Restart, Add Subscription), `planOf`, `planName` and
+    `planRank` (the table's sort) replace `PLANS` and `PLAN_ORDER`. A plan's price and seat price
+    are a month (`subscriptionMonthlyCents`), its seats `subscriptionSeatRange`. "From $799/mo" is
+    not stored (note 1): `priceFrom` is false. A plan without a ceiling reads "20+ seats".
+50. **Rows.** A firm's null email or domain is an empty line. `monthlyCents` is the list price a
+    month (`listPriceCents`) and `netMonthlyCents` the price as billed (`monthlyCents`), so the
+    Price column and the panel's second price line read as before. `addons` is
+    `['EXTRA_LOCATION']` while the row has extra locations (the count shows in Usage as locations
+    allowed). `endsOn` is `accessEndsOn`, `supportViewUntil` is `supportAccessUntil`. Closed never
+    comes from the API (note 4): the Status filter lists the seven statuses and the two groups
+    (`STATUS_FILTERS`, no "Canceled or Closed"), the Churn card filters CANCELLED
+    (`CHURN_FILTER`), and a query's CLOSED or ENDED is sent as CANCELLED.
+51. **Detail.** `renewalOn` is the next billing while Active or Past Due with Auto-Renew on, else a
+    trial's end with Auto-Renew on; `endedOn` the access end of a Canceled or Expired one. Past
+    Due: the failure day is the last failure's (else since when), `attempts` the failed payments,
+    the maximum, next retry and grace end null (note 12), the processor line the last failure's
+    reason. The suspension's since is its day. `card` is null (note 10), `scheduled` empty (note
+    8), `accountOwner` the Sales owner's name, `supportView` the open grant (no reason). Usage is
+    seats and, with more than one, locations allowed (in use is not readable); storage and texts
+    are left out (note 29). Invoices are the firm's issued ones (total, issue day, the day sent,
+    Billing's status), payments carry Billing's method label, the invoice number with the
+    reference, and the failure reason. The records read are kept by id for the previews and for
+    the calls that need the firm's id or email.
+52. **Events.** The line is `subscriptionEventText`, the category `SUBSCRIPTION_EVENT_CATEGORY`
+    (History shows LIFECYCLE and BILLING, the Activity Log every event). From and to: the days for
+    TRIAL_EXTENDED and BILLING_DATE_CHANGED, the negotiated price or "Plan price" for
+    PRICE_CHANGED, extra locations, seats, the plans for UPGRADED and DOWNGRADED, the plan for
+    CREATED, else the statuses when they differ; CYCLE_CHANGED has none (note 19). An approver
+    reads "(approved by …)" after the reason, as the mock's did. The role is "Super Admin" for a
+    team member and "System" for the platform.
+53. **Cards.** The seven figures map one to one; a null `previous` (no rollup row, note 26) hides
+    the trend. Churn's `rateBp` is a percent with one decimal (÷ 100, to 0.1), so "3.2%" and its
+    point change read as before. An empty period sends neither day (the current UTC month).
+54. **Table.** The filters go to `subscriptions()`; the adapter reads every page (100 a page, the
+    rest in parallel; the API's 5,000 at most) and the table sorts and pages in the browser as
+    before, as Sales' board does. A plan filter naming no listed plan answers no rows (`all` still
+    read). Seats and Usage show a dash ("Not counted yet", sorted first) until the rollup counts.
+55. **Previews.** `previewChange` is `previewSubscriptionChange` on the record and its plan, so the
+    plan, cycle, seat and location previews are what the API bills (a Non-Renewing subscription
+    is not prorated, note 44); "At next billing" previews nothing moving. A refusal reads as the
+    mock's sentence with the plan's numbers. `previewBillingDate` is
+    `subscriptionBillingDateCents`. Convert's and Restart's first charge and the Seats dialog's
+    yearly price are `priceCents`; Add Subscription's first price is `subscriptionPriceCents`
+    (`startPriceCents`). The Discount dialog's percentage preview is `percentOffMonthlyCents` (the
+    API takes it off the plan's base price only), "instead of" the price as billed (`netMonthlyOn`).
+56. **Errors and results.** Each request is first checked against its contract schema, each issue
+    next to its form field (`SubscriptionInputError`, as the mock's), and the API's per-field codes
+    go to their field: ALREADY_SUBSCRIBED and FIRM_NOT_AVAILABLE (Firm), FIRM_NOT_BILLABLE (Start
+    as, on Add Subscription), PLAN_INACTIVE, SEATS_IN_USE, SEATS_OUT_OF_RANGE,
+    LOCATIONS_NOT_OFFERED and NO_CHANGE (plan, seats or add-ons), NONPAYMENT_NOT_PAST_DUE (Type),
+    PAYMENT_CONFIRMATION_REQUIRED and PLAN_REQUIRED (Reactivate), BILLING_DATE_OUT_OF_RANGE (the
+    date), CONFIRM_NAME_MISMATCH (the name). The rest read as `SUBSCRIPTION_ERRORS` through the
+    adapter's `errorMessage`, which the screen imports instead of lib/errors'. Every write answers
+    `{ ok: true, message }` with the screen's own line (note 31), naming the invoice or credit note
+    it issued ("INV-1003 for $88.50 is open in Billing."); no line says the firm was notified.
+57. **Writes mapped.** Add Subscription sends the plan's id, cycle and seats (the mock's range
+    message first) and no extra locations. Change Plan, Seats, Extend Trial, Convert, Auto-Renew off
+    (the source asked first, as the mock), Reverse, Suspend, Reactivate (a plan and cycle only for
+    a restart), Change Billing Date, Close and notes go to their routes. Manage Add-ons is
+    `updateLocations`: Additional Location on keeps the count (at least one), off is none. The
+    Discount dialog: Percentage is `setPrice` with the base `round(plan base × (100 − %) ÷ 100)`
+    (no end date, from today), Remove discount `setPrice` with null, Account credit Billing's
+    `createCreditNote` (ADJUSTMENT, reason OTHER, the reason and "Approved by" in its internal
+    note, issued, dated the effective day; Billing's errors read with `BILLING_ERRORS`). Resend
+    Invoice is Billing's `sendInvoice` to the bill-to address; one not emailed reads "was not
+    emailed: invoice emails are not set up yet". Impersonate as Firm Admin is R8's
+    `adminSupportAccess.request(firmId, { reason })` (SUPPORT_REQUEST_OPEN and FIRM_NOT_ACTIVE
+    have their lines). Export reads the CSV link through the session
+    (`adminSubscriptionsExportPath`): the header's export sends the table's filters (up to the
+    API's 1,000), a selection or the panel its ids; the count is the CSV's rows.
+58. **Not available yet: 422** (the dialog's error line): promotion codes; a percentage with an end
+    date or a later start; AI Tools, SMS Package and Extra Storage; a plan, seat or add-on change
+    "At next billing", a suspension on a later day and a closing on a later day (note 8); telling
+    the firm about a trial extension (note 17); Send Payment Link and the card update link (note
+    10); Retry Payment (record the payment in Billing); sending an invoice to another address (note
+    21); ending a support grant from here (note 23: the firm's Owner revokes it); an account owner
+    picked at Add Subscription (note 24); exporting more than 100 selected rows.
+59. **Shown empty.** Payment Method "None on file"; no trial follow-up line; no scheduled changes
+    box; the past-due callout without attempts of a maximum, next retry or grace period (the amount
+    due, the failed payments and the last reason only); seats not counted and locations in use
+    ("Usage isn't counted yet."); AI Tools, SMS Package and Extra Storage "Not available yet" with
+    a dash for the price; the promotion code list ("No promotion codes yet"); the Account owner
+    list ("Not assigned" only); the support view's reason; the KPI trends without a rollup.
+60. **Screen edits** (beyond the imports):
+    - `subscriptions-screen.tsx`: one `SubscriptionQuery` for the list, also sent with the header's
+      export; the support banner shows the end's day and time (a grant lasts up to 72 hours).
+    - `subscription-dialogs.tsx`: the export state carries `query`.
+    - `format.ts`: `planText` uses `planName`. `parts.tsx`: the adapter's `errorMessage`.
+    - `subscription-filters.tsx`: the plan options from `meta()` (a query), the status options
+      `STATUS_FILTERS`. `subscription-kpis.tsx`: the Churn card filters `CHURN_FILTER`.
+    - `subscription-table.tsx`: `planName` and `planRank`; Seats and Usage show a dash when not
+      counted.
+    - `panel-tabs.tsx`: the status line, the past-due callout and its title show only the parts
+      kept; the support notice shows the day with the time, its reason only when kept; the price
+      line reads "Negotiated:" for a negotiated price; Seats show a dash; a usage line without
+      `used` reads "N allowed" and "Usage isn't counted yet."; `planName`; the invoice and payment
+      badges from `INVOICE_BADGE` and `PAYMENT_BADGE`; the event icons also match "canceled",
+      "price", "cycle" and "locations".
+    - `plan-dialogs.tsx`: the plan lists from `planChoices`; "20+ seats" without a ceiling; the
+      Seats dialog takes no ceiling and seats not counted; Manage Add-ons rows from `addonOptions`
+      (a dash without a price); Convert's first charge is `priceCents` and its copy follows
+      `CHARGES_CARD` (invoiced, open until paid in Billing; no card warning).
+    - `lifecycle-dialogs.tsx`: Extend Trial's "Tell the firm" starts as `NOTIFIES_FIRM`; the
+      Auto-Renew and Suspend notes say the firm is told only when it is; Reactivate's plan list,
+      first charge (`priceCents`) and copy as Convert's.
+    - `billing-dialogs.tsx`: the Discount dialog's duration starts at "No end date" without
+      `TIMED_DISCOUNTS`, its promotion codes come from `PROMOS`, its preview from the adapter, the
+      current discount's reason only when kept; the billing-date impact says the added days are
+      invoiced today without `CHARGES_CARD`; Retry's attempt and grace line only when kept.
+    - `account-dialogs.tsx`: Add Subscription's plan (Team Pro, else the first active plan) and
+      seats follow the plans once loaded, "No plans are available yet." without any, the first
+      price `startPriceCents`, the owners `ACCOUNT_OWNERS`, the copy and the warning by
+      `CHARGES_CARD` (`hasCard` is the firm's `canBill`: "isn't active yet, so it can't be
+      billed"); Impersonate reads "Request Support Access" with R8's copy and the duration locked
+      (`SUPPORT_BY_REQUEST`); the export's columns are `EXPORT_COLUMNS` and it takes the filters.
+61. **Contract gaps found** (not changed here): `SubscriptionInvoice` has no bill-to email, so
+    Resend Invoice compares the typed address with the firm's email; the record has no reason for
+    the open support grant (R8's); Billing's `sendError` is a free string (`EMAIL_NOT_SET_UP`), so
+    the result line assumes the one failure there is today; the list pages at most 100, so the
+    table makes up to 50 requests for the API's 5,000; the export gives no row count (counted from
+    the CSV); an available firm has no domain.
+62. **Checked on the local API** (Oct 20, at 1440 px with data, empty and the API unreachable,
+    and at 375 px with data; sheets in `apps/web/e2e/screenshots/r60-subscriptions-screen/`): no
+    API response of 400 or more and no console error on the page or any panel tab. Writes made
+    through the API for the data: a paid Team Pro start (its first invoice issued through
+    Billing), a seat change (billed at once, prorated), a note, and a trial with an extension.
+    The mock spec (`e2e/mock/tumit-admin-subscriptions.spec.ts`) passes, 8 of 8.
