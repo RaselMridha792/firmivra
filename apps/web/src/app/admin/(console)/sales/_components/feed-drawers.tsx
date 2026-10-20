@@ -3,14 +3,14 @@
 import { Drawer } from '@firmivra/ui';
 import { CheckCircle, RadioButton, type Icon } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { useApiQuery } from '../../../../../lib/query';
 import {
   adminSales,
   appointmentTypeLabel,
   type ActivityKind,
   type SalesActivity,
   type SalesAppointment,
-} from '../../../../../mocks/admin-sales';
-import { useApiQuery } from '../../../../../lib/query';
+} from './sales-api';
 import { dateText, dateTimeText, FrameState, SALES_KEY, timeText } from './sales-ui';
 
 /** The coloured ring before an activity line: blue moves, green done, red lost, purple new. */

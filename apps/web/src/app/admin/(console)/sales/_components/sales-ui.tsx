@@ -13,6 +13,7 @@ import {
 import type { UseQueryResult } from '@tanstack/react-query';
 import Link from 'next/link';
 import type { ComponentProps, ReactNode } from 'react';
+import { useApiQuery } from '../../../../../lib/query';
 import {
   adminSales,
   ATTENTION_FLAGS,
@@ -20,8 +21,7 @@ import {
   type SalesMeta,
   type SalesTrend,
   type StageTone,
-} from '../../../../../mocks/admin-sales';
-import { useApiQuery } from '../../../../../lib/query';
+} from './sales-api';
 
 /** Every sales query key starts here, so one invalidation refreshes the whole module. */
 export const SALES_KEY = ['admin-sales'] as const;

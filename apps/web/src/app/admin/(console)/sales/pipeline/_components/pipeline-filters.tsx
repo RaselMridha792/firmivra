@@ -12,15 +12,13 @@ import {
 import { CalendarBlank, CalendarCheck, ListBullets, SquaresFour } from '@phosphor-icons/react';
 import {
   LEAD_SOURCES,
-  PLAN_IDS,
-  planName,
   type LeadSource,
   type OpportunityScope,
   type PipelineStage,
   type PlanId,
   type SalesMeta,
   type SalesView,
-} from '../../../../../../mocks/admin-sales';
+} from '../../_components/sales-api';
 
 export interface PipelineFilters {
   search: string;
@@ -219,10 +217,12 @@ export function PipelineFilterBar({
           label="Plan"
           hideLabel
           value={filters.plan}
-          onChange={(event) => set('plan', PLAN_IDS.find((id) => id === event.target.value) ?? '')}
+          onChange={(event) =>
+            set('plan', meta?.plans.find((plan) => plan.id === event.target.value)?.id ?? '')
+          }
           options={[
             { value: '', label: 'All Plans' },
-            ...PLAN_IDS.map((id) => ({ value: id, label: planName(id) })),
+            ...(meta?.plans ?? []).map((plan) => ({ value: plan.id, label: plan.name })),
           ]}
         />
       </div>

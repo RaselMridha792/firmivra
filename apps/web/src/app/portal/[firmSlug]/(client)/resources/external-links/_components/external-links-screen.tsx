@@ -48,7 +48,7 @@ export function ExternalLinksScreen() {
           <ArrowLeft aria-hidden className="size-4" /> Back to Resources
         </Link>
         <h1 className="mt-2 font-display text-4xl font-bold text-heading">
-          External Links & <span className="text-firm-accent">Business Resources</span>
+          External Links & <span className="text-action">Business Resources</span>
         </h1>
         <p className="mt-2 text-text">
           Trusted government and financial resources to help you manage, fund, and grow your

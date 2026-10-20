@@ -13,20 +13,19 @@ import {
   Users,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useState } from 'react';
-import {
-  adminSales,
-  matchesQuery,
-  type OpportunityQuery,
-  type PipelineStage,
-  type SalesOpportunity,
-  type SalesView,
-} from '../../../../../../mocks/admin-sales';
-import { errorMessage } from '../../../../../../lib/errors';
+import { useDeferredValue, useState } from 'react';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { AddLeadPanel, usePipelines } from '../../_components/add-lead-panel';
 import { ActivityDrawer, AppointmentsDrawer } from '../../_components/feed-drawers';
 import { MoveStageDialog } from '../../_components/move-stage-dialog';
+import {
+  adminSales,
+  errorMessage,
+  type OpportunityQuery,
+  type PipelineStage,
+  type SalesOpportunity,
+  type SalesView,
+} from '../../_components/sales-api';
 import {
   Crumbs,
   FrameError,
@@ -115,9 +114,9 @@ function AddMenu({
 }
 
 /** The query the filters stand for (empty values left out). */
-function queryOf(filters: PipelineFilters, range: DateRange): OpportunityQuery {
+function queryOf(filters: PipelineFilters, range: DateRange, search: string): OpportunityQuery {
   return {
-    search: filters.search.trim() || undefined,
+    search: search.trim() || undefined,
     stageId: filters.stageId || undefined,
     ownerId: filters.ownerId || undefined,
     plan: filters.plan || undefined,
@@ -161,12 +160,20 @@ export function PipelineScreen() {
   );
   const defaultRange = meta.data ? monthOf(meta.data.today) : { from: '', to: '' };
   const range = filters.range ?? defaultRange;
-  const query = queryOf(filters, range);
-  // Every record of the pipeline once; the filters run here, so each change applies at once.
-  const records = useApiQuery([...SALES_KEY, 'opportunities', { pipelineId }], () =>
-    adminSales.opportunities({ pipelineId }),
+  const search = useDeferredValue(filters.search);
+  const query = queryOf(filters, range, search);
+  // The API filters (one query for the cards and the list); while a new filter loads, the rows
+  // already shown stay, so typing never blanks the board.
+  const records = useApiQuery([...SALES_KEY, 'opportunities', { pipelineId, ...query }], () =>
+    adminSales.opportunities({ pipelineId, ...query }),
   );
-  const shown = records.data?.filter((record) => matchesQuery(record, query));
+  const [kept, setKept] = useState(records.data);
+  if (records.data && records.data !== kept) setKept(records.data);
+  const shown = records.data ?? kept;
+  // The pipeline holds no records at all (not only none that match).
+  const pipelineEmpty = pipeline
+    ? Object.values(pipeline.recordCounts).every((count) => count === 0)
+    : false;
   const kpis = useApiQuery([...SALES_KEY, 'pipeline-kpis', pipelineId ?? 'default'], () =>
     adminSales.pipelineKpis(pipelineId),
   );
@@ -293,7 +300,7 @@ export function PipelineScreen() {
           label="Active Clients"
           state={kpiState}
           value={String(data?.activeClients ?? 0)}
-          note="Converted, not yet under contract"
+          note="Converted clients"
           pressed={filters.scope === 'CLIENTS'}
           onClick={() => showScope({ scope: 'CLIENTS' })}
         />
@@ -324,6 +331,7 @@ export function PipelineScreen() {
           onPipeline={(id) => {
             setPipelineChoice(id);
             setFilters({ ...filters, stageId: '' });
+            setKept(undefined);
           }}
         />
         <PipelineToggles
@@ -344,9 +352,9 @@ export function PipelineScreen() {
         aria-label={view === 'CARD' ? 'Card view' : 'List view'}
         data-testid="pipeline-workspace"
       >
-        {pipelines.isPending || records.isPending ? (
+        {pipelines.isPending || (records.isPending && !shown) ? (
           <BoardSkeleton />
-        ) : (pipelines.isError && !pipelines.data) || (records.isError && !records.data) ? (
+        ) : (pipelines.isError && !pipelines.data) || (records.isError && !shown) ? (
           <div className="relative min-w-0 rounded-xl bg-surface p-4 shadow-md contain-paint">
             <FrameError
               onRetry={() => {
@@ -369,12 +377,12 @@ export function PipelineScreen() {
               records={shown ?? []}
               stages={stages.filter((stage) => stage.active)}
               meta={meta.data}
-              pipelineEmpty={!records.data?.length}
+              pipelineEmpty={pipelineEmpty}
               onDone={(message) => setToast({ message, tone: 'success' })}
             />
           </div>
         )}
-        {records.data && !records.data.length && view === 'CARD' ? (
+        {shown && pipelineEmpty && view === 'CARD' ? (
           <p data-testid="pipeline-empty" className="mt-2 text-sm text-muted">
             This pipeline has no records yet. Use Add Lead to start it.
           </p>
