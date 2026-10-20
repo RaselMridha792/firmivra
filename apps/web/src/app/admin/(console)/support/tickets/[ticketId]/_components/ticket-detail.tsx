@@ -319,7 +319,7 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
                   value={ticket.status}
                   disabled={update.isPending}
                   onChange={(event) => changeStatus(event.target.value as TicketStatus)}
-                  className={`appearance-none rounded-lg py-1.5 pr-10 pl-4 text-lg font-semibold focus:outline-2 focus:outline-focus ${PILL[STATUS_TONES[ticket.status]]}`}
+                  className={`appearance-none rounded-lg py-1.5 pr-10 pl-4 text-lg font-semibold field-sizing-content focus:outline-2 focus:outline-focus ${PILL[STATUS_TONES[ticket.status]]}`}
                 >
                   {statusChoices.map((o) => (
                     <option key={o.value} value={o.value}>

@@ -282,13 +282,23 @@ export function PaymentsCenter() {
           aria-pressed={row.id === activeId}
           title="Show the payment details"
           onClick={() => show(row.id)}
-          className="text-left text-text hover:text-action hover:underline"
+          className="line-clamp-2 break-words text-left text-text hover:text-action hover:underline"
         >
           {row.clientName}
         </button>
       ),
     },
-    { id: 'firm', label: 'Firm', sort: 'firm', cell: (row) => row.firmName },
+    {
+      id: 'firm',
+      label: 'Firm',
+      sort: 'firm',
+      // At most two lines beside the details panel; the full name on hover.
+      cell: (row) => (
+        <span title={row.firmName} className="line-clamp-2 break-words">
+          {row.firmName}
+        </span>
+      ),
+    },
     {
       id: 'invoice',
       label: 'Invoice #',
