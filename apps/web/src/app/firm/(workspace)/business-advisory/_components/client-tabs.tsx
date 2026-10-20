@@ -1,43 +1,59 @@
 'use client';
 
-import type { AdvisoryFinancialPage, AdvisoryPlanRow, AdvisoryVersionRow } from '@firmivra/types';
-import { Badge, Callout, Checkbox, ChecklistCard, Table, type Column } from '@firmivra/ui';
+import type { AdvisoryPlanRow, AdvisoryVersionRow, InternalNote } from '@firmivra/types';
 import {
-  ArrowRight,
-  ChartBar,
-  ChartLineUp,
+  Badge,
+  Button,
+  ChecklistCard,
+  Modal,
+  Pagination,
+  Select,
+  Table,
+  Textarea,
+  Timeline,
+  type Column,
+  type TimelineItem,
+} from '@firmivra/ui';
+import {
+  Briefcase,
+  CheckSquare,
   ClockCounterClockwise,
+  CurrencyDollar,
   FileText,
-  Lock,
+  Lightbulb,
+  ListChecks,
+  NotePencil,
   PaperPlaneTilt,
   PencilSimple,
   Plus,
   SealCheck,
-  Warning,
+  Target,
+  Trash,
+  UsersThree,
+  type Icon,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { ActionItemsSection, RecommendationsSection } from './action-plans-screen';
+import { ActionItemsSection } from './action-plans-screen';
+import { ErrorLine } from './ba-dialogs';
 import { useAct } from './ba-list-kit';
 import {
   AREA_LABEL,
   BASE,
   BA_KEY,
   PlanStatusPill,
-  SOURCE,
   SectionHead,
   card,
   dayText,
-  money,
+  errorText,
+  noneWhenMissing,
   outlined,
   primary,
   quiet,
 } from './ba-shared';
-import { HealthFactors } from './client-overview';
 import { ClientShell, useAdvisoryClient } from './client-shell';
-import { AddFiguresDialog, BudgetCell } from './financials-screen';
 import { GoalsList } from './goals-screen';
 import { STEPS, stepHref } from './plan-frame';
 import { readiness } from './plan-steps';
@@ -108,13 +124,18 @@ export function ClientPlanTab({ advisoryClientId }: { advisoryClientId: string }
     {
       id: 'n',
       label: 'Version',
+      className: 'whitespace-nowrap',
       cell: (v) => <span className="font-semibold text-heading">Version {v.versionNo}</span>,
     },
     {
       id: 'made',
       label: 'Finalized',
-      className: 'whitespace-nowrap',
-      cell: (v) => `${dayText(v.createdAt)}${v.createdBy ? ` by ${v.createdBy.name}` : ''}`,
+      cell: (v) => (
+        <span className="flex flex-col leading-snug">
+          <span>{dayText(v.createdAt)}</span>
+          {v.createdBy ? <span className="text-xs text-muted">by {v.createdBy.name}</span> : null}
+        </span>
+      ),
     },
     {
       id: 'asof',
@@ -125,12 +146,14 @@ export function ClientPlanTab({ advisoryClientId }: { advisoryClientId: string }
     {
       id: 'sent',
       label: 'Delivered',
-      className: 'whitespace-nowrap',
       cell: (v) =>
         v.deliveredAt ? (
-          <Badge tone="purple">
-            {dayText(v.deliveredAt)} · {CHANNEL[v.deliveredChannel ?? ''] ?? v.deliveredChannel}
-          </Badge>
+          <span className="flex flex-col leading-snug">
+            <span>{dayText(v.deliveredAt)}</span>
+            <span className="text-xs text-muted">
+              {CHANNEL[v.deliveredChannel ?? ''] ?? v.deliveredChannel}
+            </span>
+          </span>
         ) : (
           <Badge tone="neutral">Not sent</Badge>
         ),
@@ -292,261 +315,7 @@ export function ClientPlanTab({ advisoryClientId }: { advisoryClientId: string }
   );
 }
 
-// ---------- Financials ----------
-
-type Fin = AdvisoryFinancialPage['items'][number];
-
-/** Revenue and expenses by period, oldest first, as bars on one scale. */
-function TrendBars({ rows }: { rows: Fin[] }) {
-  const current = [...rows].sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
-  const max = Math.max(1, ...current.flatMap((r) => [r.revenueCents ?? 0, r.expensesCents ?? 0]));
-  const bar = (v: number | null, tone: string, label: string) => (
-    <span className="flex items-center gap-2">
-      <span
-        className="h-3 rounded-pill"
-        style={{ width: `${Math.max(1, ((v ?? 0) / max) * 100)}%` }}
-      >
-        <span className={`block h-full rounded-pill ${tone}`} aria-hidden />
-      </span>
-      <span className="text-xs whitespace-nowrap text-muted">
-        {label} {money(v)}
-      </span>
-    </span>
-  );
-  return (
-    <ul className="flex flex-col gap-3" data-testid="trend-bars">
-      {current.map((r) => (
-        <li key={r.id} className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-3 text-sm">
-          <span className="font-semibold text-heading">{r.periodEnd.slice(0, 4)}</span>
-          <span className="flex min-w-0 flex-col gap-1">
-            {bar(r.revenueCents, 'bg-chart-blue', 'Revenue')}
-            {bar(r.expensesCents, 'bg-chart-yellow', 'Expenses')}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** /business-advisory/clients/[clientId]/financials: the trend, every period's figures and the health score. */
-export function ClientFinancialsTab({ advisoryClientId }: { advisoryClientId: string }) {
-  const client = useAdvisoryClient(advisoryClientId);
-  const c = client.data;
-  const { toast, say } = useAct();
-  const [history, setHistory] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const q = useApiQuery(
-    [...BA_KEY, 'client-financials', advisoryClientId, history, c?.canViewFinancials],
-    () =>
-      c?.canViewFinancials
-        ? api.advisory.financials({
-            advisoryClientId,
-            pageSize: 50,
-            ...(history ? { includeSuperseded: true } : {}),
-          })
-        : Promise.resolve(null),
-  );
-  const rows = q.data?.items ?? [];
-  const stale = rows.some((r) => r.stale);
-  const restricted = c ? !c.canViewFinancials : false;
-  const failed = client.isError || q.isError;
-  const cols: Column<Fin>[] = [
-    {
-      id: 'period',
-      label: 'Period',
-      className: 'whitespace-nowrap',
-      cell: (r) => `${dayText(r.periodStart)} – ${dayText(r.periodEnd)}`,
-    },
-    {
-      id: 'rev',
-      label: 'Revenue',
-      className: 'whitespace-nowrap',
-      cell: (r) => money(r.revenueCents),
-    },
-    {
-      id: 'exp',
-      label: 'Expenses',
-      className: 'whitespace-nowrap',
-      cell: (r) => money(r.expensesCents),
-    },
-    {
-      id: 'net',
-      label: 'Net Profit',
-      className: 'whitespace-nowrap',
-      cell: (r) => money(r.netProfitCents),
-    },
-    {
-      id: 'margin',
-      label: 'Margin',
-      cell: (r) => (r.marginPercent === null ? '—' : `${r.marginPercent}%`),
-    },
-    {
-      id: 'cash',
-      label: 'Cash Flow',
-      className: 'whitespace-nowrap',
-      cell: (r) => money(r.cashFlowCents),
-    },
-    { id: 'debt', label: 'Debt', className: 'whitespace-nowrap', cell: (r) => money(r.debtCents) },
-    {
-      id: 'budget',
-      label: 'Budget vs Actual',
-      className: 'whitespace-nowrap',
-      cell: (r) => <BudgetCell r={r} />,
-    },
-    {
-      id: 'source',
-      label: 'Source',
-      className: 'whitespace-nowrap',
-      cell: (r) => (
-        <span className="flex flex-col items-start gap-1">
-          <Badge tone="info">{SOURCE[r.source] ?? r.source}</Badge>
-          {r.overridden ? <Badge tone="warning">Overridden</Badge> : null}
-        </span>
-      ),
-    },
-    {
-      id: 'asof',
-      label: 'As of',
-      className: 'whitespace-nowrap',
-      cell: (r) => (
-        <span className="flex flex-col items-start gap-1">
-          {dayText(r.asOf)}
-          {r.stale ? <Badge tone="danger">Stale</Badge> : null}
-        </span>
-      ),
-    },
-  ];
-  return (
-    <ClientShell advisoryClientId={advisoryClientId}>
-      {toast}
-      {restricted ? (
-        <Callout icon={Lock} title="Financial figures are restricted" surface="plain">
-          Your role does not include &quot;View financial analysis&quot;. The health score below
-          still shows its factors.
-        </Callout>
-      ) : null}
-      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <section className={card} aria-label="Financial trend" data-testid="tab-trend">
-          <SectionHead
-            icon={ChartLineUp}
-            title="Financial Trend"
-            subtitle="Revenue and expenses by period, from the current figures."
-          />
-          {rows.length && !history ? (
-            <TrendBars rows={rows} />
-          ) : (
-            <p className={quiet}>
-              {failed
-                ? 'The trend is not available right now.'
-                : restricted
-                  ? 'Restricted.'
-                  : history
-                    ? 'Hide corrections to see the trend.'
-                    : q.isPending && c
-                      ? 'Loading…'
-                      : 'No figures yet.'}
-            </p>
-          )}
-        </section>
-        <section className={card} aria-label="Business health score" data-testid="tab-health">
-          <SectionHead
-            icon={ChartBar}
-            title="Business Health Score"
-            subtitle="Worked out from the firm's formula; its factors and data age."
-          />
-          {c ? (
-            <HealthFactors client={c} />
-          ) : (
-            <p className={quiet}>{failed ? 'Not available right now.' : 'Loading…'}</p>
-          )}
-        </section>
-      </div>
-      <section
-        className={`${card} flex flex-col gap-3`}
-        aria-label="Financial figures"
-        data-testid="tab-figures"
-      >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <SectionHead
-            icon={FileText}
-            title="Financial Figures"
-            subtitle="Each period with its source and date; a correction keeps the earlier row."
-          />
-          <div className="flex flex-wrap items-center gap-3">
-            <Checkbox
-              label="Show corrections"
-              checked={history}
-              disabled={restricted}
-              onChange={(e) => setHistory(e.target.checked)}
-            />
-            <button
-              type="button"
-              className={primary}
-              disabled={restricted || failed}
-              onClick={() => setAdding(true)}
-            >
-              <Plus aria-hidden weight="bold" className="size-4" /> Add Figures
-            </button>
-          </div>
-        </div>
-        {stale ? (
-          <Callout
-            icon={Warning}
-            title="Some figures are out of date"
-            surface="warning"
-            size="compact"
-          >
-            Review them and add current figures before the plan is finalized.
-          </Callout>
-        ) : null}
-        <Table
-          rows={rows}
-          columns={cols}
-          rowKey={(r) => r.id}
-          caption="Financial figures"
-          dense
-          noun="periods"
-          pageSize={50}
-          showPagination={false}
-          loading={Boolean(c?.canViewFinancials) && q.isPending}
-          emptyTitle={
-            failed
-              ? 'Figures are not available'
-              : restricted
-                ? 'Figures are restricted'
-                : 'No figures yet'
-          }
-          emptyText={
-            failed
-              ? 'We could not load them.'
-              : restricted
-                ? 'Your role cannot view them.'
-                : 'Add figures, or connect bookkeeping, payroll or a bank.'
-          }
-        />
-        <Link
-          href={`${BASE}/financial-analysis`}
-          className="inline-flex items-center gap-1 self-start text-sm font-medium text-link hover:underline"
-        >
-          Compare with other clients in Financial Analysis{' '}
-          <ArrowRight aria-hidden weight="bold" className="size-4" />
-        </Link>
-      </section>
-      {adding ? (
-        <AddFiguresDialog
-          advisoryClientId={advisoryClientId}
-          onClose={() => setAdding(false)}
-          onAdded={() => {
-            setAdding(false);
-            say('Figures added.');
-          }}
-        />
-      ) : null}
-    </ClientShell>
-  );
-}
-
-// ---------- Goals, recommendations, tasks: the module's lists for this client ----------
+// ---------- Goals and tasks: the module's lists, for this client ----------
 
 export function ClientGoalsTab({ advisoryClientId }: { advisoryClientId: string }) {
   return (
@@ -556,18 +325,281 @@ export function ClientGoalsTab({ advisoryClientId }: { advisoryClientId: string 
   );
 }
 
-export function ClientRecommendationsTab({ advisoryClientId }: { advisoryClientId: string }) {
-  return (
-    <ClientShell advisoryClientId={advisoryClientId}>
-      <RecommendationsSection advisoryClientId={advisoryClientId} />
-    </ClientShell>
-  );
-}
-
 export function ClientTasksTab({ advisoryClientId }: { advisoryClientId: string }) {
   return (
     <ClientShell advisoryClientId={advisoryClientId}>
       <ActionItemsSection advisoryClientId={advisoryClientId} />
+    </ClientShell>
+  );
+}
+
+// ---------- Notes ----------
+
+/**
+ * /business-advisory/clients/[clientId]/notes: the staff's advisory and meeting notes (the client's
+ * internal notes, kept with the advisory engagement when there is one). Never shown to the client.
+ */
+export function ClientNotesTab({ advisoryClientId }: { advisoryClientId: string }) {
+  const client = useAdvisoryClient(advisoryClientId);
+  const c = client.data;
+  const { act, toast } = useAct();
+  const [scope, setScope] = useState<'advisory' | 'all'>('advisory');
+  const [body, setBody] = useState('');
+  const [editing, setEditing] = useState<{ id: string; body: string }>();
+  const [removing, setRemoving] = useState<InternalNote>();
+  const [error, setError] = useState<string>();
+  const engagement = scope === 'advisory' ? (c?.engagementId ?? null) : null;
+  const notes = useApiQuery([...BA_KEY, 'client-notes', c?.client.id, engagement], () =>
+    c
+      ? api.clientNotes
+          .list(c.client.id, engagement ? { engagementId: engagement } : {})
+          .catch(noneWhenMissing([] as InternalNote[]))
+      : Promise.resolve(null),
+  );
+  const failed = client.isError || notes.isError;
+  const add = async () => {
+    if (!c) return;
+    setError(undefined);
+    try {
+      await api.clientNotes.create(c.client.id, {
+        body: body.trim(),
+        ...(c.engagementId ? { engagementId: c.engagementId } : {}),
+      });
+      setBody('');
+      await act(() => Promise.resolve(), 'Note saved.');
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+  return (
+    <ClientShell advisoryClientId={advisoryClientId}>
+      {toast}
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
+        <section className={card} aria-label="New note" data-testid="tab-note-new">
+          <SectionHead
+            icon={NotePencil}
+            title="New Note"
+            subtitle="Meeting and advisory notes for the firm's staff; the client never sees them."
+          />
+          <div className="flex flex-col gap-3">
+            <ErrorLine text={error} />
+            <Textarea
+              label="Note"
+              rows={6}
+              maxLength={10000}
+              value={body}
+              disabled={!c}
+              onChange={(e) => setBody(e.target.value)}
+            />
+            <button
+              type="button"
+              className={`${primary} self-start`}
+              disabled={!c || !body.trim()}
+              onClick={() => void add()}
+            >
+              <Plus aria-hidden weight="bold" className="size-4" /> Save Note
+            </button>
+          </div>
+        </section>
+        <section className={card} aria-label="Notes" data-testid="tab-notes">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <SectionHead icon={NotePencil} title="Notes" subtitle="Newest first." />
+            {c?.engagementId ? (
+              <div className="w-56">
+                <Select
+                  label="Show"
+                  hideLabel
+                  value={scope}
+                  onChange={(e) => setScope(e.target.value as 'advisory' | 'all')}
+                  options={[
+                    { value: 'advisory', label: 'Advisory notes' },
+                    { value: 'all', label: "All of the client's notes" },
+                  ]}
+                />
+              </div>
+            ) : null}
+          </div>
+          {notes.data && notes.data.length ? (
+            <ul className="divide-y divide-divider" data-testid="note-list">
+              {notes.data.map((n) => (
+                <li key={n.id} className="flex flex-col gap-2 py-3">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-semibold text-heading">{n.author.name}</span>
+                    <span className="text-muted">
+                      {dayText(n.createdAt)}
+                      {n.updatedAt !== n.createdAt ? ' · edited' : ''}
+                    </span>
+                    {n.canEdit && editing?.id !== n.id ? (
+                      <span className="ml-auto flex gap-1">
+                        <Button
+                          variant="secondary"
+                          aria-label="Edit note"
+                          onClick={() => setEditing({ id: n.id, body: n.body })}
+                        >
+                          <PencilSimple aria-hidden weight="fill" className="size-4" />
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          aria-label="Delete note"
+                          onClick={() => setRemoving(n)}
+                        >
+                          <Trash aria-hidden weight="fill" className="size-4" />
+                        </Button>
+                      </span>
+                    ) : null}
+                  </div>
+                  {editing?.id === n.id ? (
+                    <div className="flex flex-col gap-2">
+                      <Textarea
+                        label="Edit note"
+                        rows={4}
+                        maxLength={10000}
+                        value={editing.body}
+                        onChange={(e) => setEditing({ id: n.id, body: e.target.value })}
+                      />
+                      <span className="flex gap-2">
+                        <Button
+                          disabled={!editing.body.trim()}
+                          onClick={() =>
+                            void act(
+                              () => api.clientNotes.update(n.id, { body: editing.body.trim() }),
+                              'Note updated.',
+                            ).then(() => setEditing(undefined))
+                          }
+                        >
+                          Save
+                        </Button>
+                        <Button variant="secondary" onClick={() => setEditing(undefined)}>
+                          Cancel
+                        </Button>
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap text-text">{n.body}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className={quiet}>
+              {failed
+                ? 'Notes are not available right now.'
+                : notes.isPending && c
+                  ? 'Loading…'
+                  : 'No notes yet.'}
+            </p>
+          )}
+        </section>
+      </div>
+      {removing ? (
+        <Modal
+          open
+          title="Delete note?"
+          subtitle="The note is removed for everyone. This cannot be undone."
+          onClose={() => setRemoving(undefined)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setRemoving(undefined)}>
+                Keep Note
+              </Button>
+              <Button
+                onClick={() =>
+                  void act(() => api.clientNotes.remove(removing.id), 'Note deleted.').then(() =>
+                    setRemoving(undefined),
+                  )
+                }
+              >
+                Delete
+              </Button>
+            </>
+          }
+        >
+          <p className="line-clamp-3 text-sm text-text">{removing.body}</p>
+        </Modal>
+      ) : null}
+    </ClientShell>
+  );
+}
+
+// ---------- Activity Log ----------
+
+const SIZE = 20;
+/** The icon of a history line, from the kind of record it is about. */
+const ACTIVITY: [string, Icon, TimelineItem['tone']][] = [
+  ['plan', FileText, 'blue'],
+  ['goal', Target, 'amber'],
+  ['milestone', Target, 'amber'],
+  ['recommendation', Lightbulb, 'purple'],
+  ['action', CheckSquare, 'green'],
+  ['financ', CurrencyDollar, 'green'],
+  ['workstream', Briefcase, 'navy'],
+  ['service', Briefcase, 'navy'],
+  ['resource', PaperPlaneTilt, 'blue'],
+  ['client', UsersThree, 'grey'],
+];
+const iconOf = (action: string): [Icon, TimelineItem['tone']] => {
+  const hit = ACTIVITY.find(([key]) => action.includes(key));
+  return hit ? [hit[1], hit[2]] : [ListChecks, 'grey'];
+};
+
+/** /business-advisory/clients/[clientId]/activity: the audited history of the client's advisory work. */
+export function ClientActivityTab({ advisoryClientId }: { advisoryClientId: string }) {
+  const [page, setPage] = useState(1);
+  const q = useApiQuery([...BA_KEY, 'client-activity', advisoryClientId, page], () =>
+    api.advisory.activity(advisoryClientId, { page, pageSize: SIZE }),
+  );
+  const items: TimelineItem[] = (q.data?.items ?? []).map((a) => {
+    const [icon, tone] = iconOf(a.action);
+    return {
+      id: a.id,
+      icon,
+      tone,
+      title: a.message,
+      time: new Date(a.at).toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      }),
+      dateTime: a.at,
+      actor: a.actor?.name ?? 'System',
+    };
+  });
+  const pages = Math.max(1, Math.ceil((q.data?.total ?? 0) / SIZE));
+  return (
+    <ClientShell advisoryClientId={advisoryClientId}>
+      <section className={card} aria-label="Activity log" data-testid="tab-activity">
+        <SectionHead
+          icon={ClockCounterClockwise}
+          title="Activity Log"
+          subtitle="What changed in this client's advisory work, by whom and when. Figures and notes are never shown here."
+        />
+        {q.isError ? (
+          <p className={quiet}>
+            The activity log is not available right now. Try again in a moment.
+          </p>
+        ) : q.isPending ? (
+          <p className={quiet}>Loading…</p>
+        ) : (
+          <Timeline
+            items={items}
+            variant="rail"
+            label="Advisory activity"
+            emptyText="No activity yet."
+          />
+        )}
+        {pages > 1 ? (
+          <div className="mt-3">
+            <Pagination
+              page={page}
+              onPage={setPage}
+              pageCount={pages}
+              summary={`${q.data?.total ?? 0} entries`}
+            />
+          </div>
+        ) : null}
+      </section>
     </ClientShell>
   );
 }

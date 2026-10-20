@@ -26,7 +26,6 @@ import {
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorCode } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { Disclaimer } from './ba-shell';
 import {
@@ -40,19 +39,12 @@ import {
   card,
   dayText,
   money,
+  noneWhenMissing,
   outlined,
   primary,
   quiet,
 } from './ba-shared';
 import { ClientShell, EditClientDialog, useAdvisoryClient } from './client-shell';
-
-/** A client record the other module does not know reads as "none yet", not as an outage. */
-const noneWhenMissing =
-  <T,>(none: T) =>
-  (e: unknown): T => {
-    if (errorCode(e) === 'NOT_FOUND') return none;
-    throw e;
-  };
 
 const TONES = {
   blue: 'bg-info-soft text-action',

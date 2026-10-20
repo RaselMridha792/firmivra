@@ -347,3 +347,51 @@ test('Client detail: the health score explains itself; Edit Client saves the rec
   await expect(page.getByTestId('client-card')).toContainText('Active Advisory Client');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
+
+test('Client tabs: the business plan, with its versions and every plan', async ({ page }) => {
+  await page.goto(`${marcus}/plan`);
+  await expect(page.getByTestId('tab-current-plan')).toContainText('2026 Business Growth Plan');
+  await expect(page.getByTestId('tab-current-plan')).toContainText('Ready to finalize');
+  await expect(page.getByTestId('tab-versions')).toContainText('Version 1');
+  await expect(page.getByTestId('tab-plans').getByRole('row')).toHaveCount(2);
+  await expect(
+    page.getByTestId('tab-current-plan').getByRole('link', { name: 'Continue Editing' }),
+  ).toHaveAttribute('href', /\/edit\/review$/);
+});
+
+test('Client tabs: goals and tasks are the client own', async ({ page }) => {
+  await page.goto(`${marcus}/goals`);
+  const goals = page.getByTestId('ba-goals');
+  await expect(goals.getByTestId('goal-link')).toHaveCount(5);
+  await expect(goals.getByLabel('Client', { exact: true })).toHaveCount(0);
+  await goals.getByRole('button', { name: 'Add Business Goal' }).click();
+  await expect(page.getByTestId('add-goal').getByLabel('Advisory client')).not.toHaveValue('');
+  await page
+    .getByTestId('add-goal')
+    .getByLabel('Goal', { exact: true })
+    .fill('Win a city contract');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add Goal' }).click();
+  await expect(goals.getByTestId('goal-link')).toHaveCount(6);
+  await page.goto(`${marcus}/tasks`);
+  const tasks = page.getByTestId('ba-action-items');
+  await expect(tasks.getByRole('button', { name: /^Actions for / })).toHaveCount(5);
+  await expect(tasks).not.toContainText('Kevin Martin');
+});
+
+test('Client tabs: the notes composer and list, and the activity log', async ({ page }) => {
+  await page.goto(`${marcus}/notes`);
+  // Notes belong to the client record (api.clientNotes); its mock holds none of the advisory
+  // mock's clients, so the list is empty here and a save is that module's own test.
+  await expect(page.getByTestId('tab-notes')).toContainText('No notes yet.');
+  const save = page.getByRole('button', { name: 'Save Note' });
+  await expect(save).toBeDisabled();
+  await page
+    .getByTestId('tab-note-new')
+    .getByLabel('Note')
+    .fill('Talked through the SBA timeline.');
+  await expect(save).toBeEnabled();
+  await page.goto(`${marcus}/activity`);
+  const log = page.getByTestId('tab-activity');
+  await expect(log).toContainText('Plan finalized');
+  await expect(log).toContainText('Added to the advisory program');
+});
