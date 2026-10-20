@@ -9,6 +9,7 @@ import {
   LivePreviewCard,
   LoginPageCard,
   LogoAssetsCard,
+  ThemeColorsCard,
   ThemeOptionsCard,
 } from '../../_components/brand-cards';
 import { type BrandDraftState, useBrandDraft } from '../../_components/brand-draft';
@@ -217,6 +218,7 @@ export function ProfileScreen() {
             frame('Logo & Brand Assets')
           )}
           {ready ? <BrandColorsCard state={state} /> : frame('Brand Colors')}
+          {ready ? <ThemeColorsCard state={state} /> : frame('Theme Colors')}
           {ready ? <ThemeOptionsCard state={state} /> : frame('Theme Options')}
           {ready ? (
             <LoginPageCard state={state} firm={firm} branding={branding} />

@@ -143,8 +143,8 @@ function FormHeader({
         {words.join(' ')}{' '}
         {tail && <span className={`text-accent ${titleBreak ? 'block' : ''}`}>{tail}</span>}
       </h1>
-      {subtitle && <p className="mx-auto mt-1 max-w-2xl text-xs">{subtitle}</p>}
-      <div className="mx-auto mt-2 flex max-w-2xl items-center justify-center gap-2 rounded-control bg-folder-surface px-3 py-1 text-xs">
+      {subtitle && <p className="mx-auto mt-1 max-w-2xl text-sm">{subtitle}</p>}
+      <div className="mx-auto mt-2 flex max-w-2xl items-center justify-center gap-2 rounded-control bg-folder-surface px-3 py-1 text-sm">
         <LockKeyhole aria-hidden="true" className="size-4 shrink-0" />
         <p>
           This is a <strong>secure and encrypted form.</strong> Your information is protected using
@@ -188,7 +188,15 @@ function StepBanner({
  * the steps, saved as the person moves between them, the review with Edit links, the agreement
  * and the submit, which opens the success page.
  */
-export function IntakePage({ firmSlug, form }: { firmSlug: string; form: IntakeFormKey }) {
+export function IntakePage({
+  firmSlug,
+  form,
+  className = '',
+}: {
+  firmSlug: string;
+  form: IntakeFormKey;
+  className?: string;
+}) {
   const client = api.beginOnline(firmSlug);
   const draft = useApiQuery(draftKey(firmSlug, form), async (): Promise<DraftState> => {
     try {
@@ -207,7 +215,7 @@ export function IntakePage({ firmSlug, form }: { firmSlug: string; form: IntakeF
     <div
       data-theme="begin-online"
       data-testid="intake-page"
-      className="bg-surface py-4 text-xs text-firm-primary"
+      className={`bg-surface py-4 text-sm text-firm-primary ${className}`}
     >
       <PageContainer>
         <PageState query={draft} isEmpty={() => false}>
@@ -414,7 +422,7 @@ function StartForm({
           title="Let's get started"
           subtitle="Your name and email start your secure form. We'll use them to send you a link to continue later and a confirmation when you submit."
         >
-          <div className="grid gap-2 sm:grid-cols-2 [&_label]:text-xs">
+          <div className="grid gap-2 sm:grid-cols-2 [&_label]:text-sm">
             <Input
               label="First Name *"
               autoComplete="given-name"
@@ -448,7 +456,7 @@ function StartForm({
             />
           </div>
           {start.error && (
-            <p role="alert" className="mt-2 text-xs text-danger">
+            <p role="alert" className="mt-2 text-sm text-danger">
               {errorMessage(start.error, BEGIN_ONLINE_ERRORS)}
             </p>
           )}
@@ -748,7 +756,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
                   {fill(step.title)}
                 </p>
               )}
-              <p className="text-xs">{fill(step.subtitle)}</p>
+              <p className="text-sm">{fill(step.subtitle)}</p>
             </div>
           )}
       </FormHeader>

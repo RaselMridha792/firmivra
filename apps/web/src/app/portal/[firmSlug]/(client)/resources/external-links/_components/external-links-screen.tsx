@@ -56,7 +56,7 @@ export function ExternalLinksScreen() {
         </p>
       </header>
       <p className="flex gap-2 rounded-card bg-folder-surface p-3 text-sm text-text">
-        <Info aria-hidden className="size-5 shrink-0 text-firm-primary" />
+        <Info aria-hidden className="size-5 shrink-0 text-firm-text" />
         These are external resources and will open third-party or government websites. They are
         provided for your convenience and do not constitute legal, tax, or financial advice.
       </p>
@@ -103,7 +103,7 @@ function LinkCard({ item }: { item: MyContentItem }) {
   const Icon = ICONS[item.iconKey ?? ''] ?? LinkIcon;
   return (
     <Card className="grid h-full gap-2">
-      <Icon aria-hidden className="size-10 text-firm-primary" />
+      <Icon aria-hidden className="size-10 text-firm-text" />
       <h3 className="font-display text-lg font-bold text-heading">{item.title}</h3>
       {item.description ? <p className="text-sm text-text">{item.description}</p> : null}
       {item.url ? (

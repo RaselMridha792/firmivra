@@ -58,7 +58,7 @@ export function UploadDialog({
   const customTitleVisible = !preset && kind === null;
   return (
     <div
-      className={`[&>dialog]:w-11/12 [&>dialog]:p-8 md:[&>dialog]:w-3/4 md:[&>dialog]:max-w-4xl ${customTitleVisible ? '[&>dialog>div:first-child]:mb-0 [&>dialog>div:first-child]:justify-end [&>dialog>div:first-child>h2]:sr-only [&>dialog>div:first-child>button]:text-firm-primary' : ''}`}
+      className={`[&>dialog]:w-11/12 [&>dialog]:p-8 md:[&>dialog]:w-3/4 md:[&>dialog]:max-w-4xl ${customTitleVisible ? '[&>dialog>div:first-child]:mb-0 [&>dialog>div:first-child]:justify-end [&>dialog>div:first-child>h2]:sr-only [&>dialog>div:first-child>button]:text-firm-text' : ''}`}
     >
       <Modal open={open} title="Upload Documents" onClose={close}>
         <div className="grid gap-4">
@@ -132,10 +132,10 @@ function Reasons({
             className="mb-2 h-12 w-auto object-contain object-left"
           />
         ) : (
-          <p className="mb-2 font-display text-2xl font-bold text-firm-primary">{business.name}</p>
+          <p className="mb-2 font-display text-2xl font-bold text-firm-text">{business.name}</p>
         )}
-        <h1 className="font-display text-4xl leading-tight font-bold text-firm-primary md:text-5xl">
-          Upload <span className="text-firm-primary">Documents</span>
+        <h1 className="font-display text-4xl leading-tight font-bold text-firm-text md:text-5xl">
+          Upload <span className="text-firm-text">Documents</span>
         </h1>
         <p className="text-lg text-text">Please select the reason for your document upload.</p>
       </header>
@@ -149,7 +149,7 @@ function Reasons({
         >
           <Icon
             aria-hidden
-            className="size-14 shrink-0 rounded-full bg-surface p-4 text-firm-primary md:size-16"
+            className="size-14 shrink-0 rounded-full bg-surface p-4 text-firm-text md:size-16"
           />
           <span className="flex-1">
             <span className="block font-display text-lg font-bold text-heading md:text-xl">
@@ -159,7 +159,7 @@ function Reasons({
               {targets[kind].length === 0 ? 'You have no open service of this kind.' : text}
             </span>
           </span>
-          <ChevronRight aria-hidden className="size-7 shrink-0 text-firm-primary" />
+          <ChevronRight aria-hidden className="size-7 shrink-0 text-firm-text" />
         </button>
       ))}
       <div role="note" className="flex gap-4 rounded-card border border-danger bg-danger-soft p-4">
@@ -172,7 +172,7 @@ function Reasons({
           </p>
           <p className="font-bold text-danger">STOP.</p>
           <p>
-            <span aria-hidden className="font-bold text-firm-primary">
+            <span aria-hidden className="font-bold text-firm-text">
               •{' '}
             </span>
             You cannot upload documents just for safekeeping to this portal.
@@ -291,7 +291,7 @@ function UploadForm({
           <Button
             type="submit"
             disabled={!file || !serviceId}
-            className="bg-firm-primary! hover:bg-navigation-hover!"
+            className="bg-firm-button! hover:bg-firm-button-hover!"
           >
             {upload.isPending ? 'Uploading…' : 'Upload'}
           </Button>

@@ -41,7 +41,18 @@ export {
   type PageContainerProps,
   type PageWidth,
 } from './page-container';
-export { tileTones, discTones, textTones, tintTones, type TileTone } from './tones';
+export {
+  tileTones,
+  discTones,
+  textTones,
+  tintTones,
+  portalTints,
+  portalIconTones,
+  type TileTone,
+  type PortalTint,
+  type PortalIconTone,
+} from './tones';
+export { IconCircle, type IconCircleProps } from './icon-circle';
 export { LinkCard, type LinkCardProps, type LinkCardSurface } from './link-card';
 export { Callout, type CalloutProps, type CalloutSurface } from './callout';
 export { ChecklistCard, type ChecklistCardProps, type ChecklistItem } from './checklist-card';

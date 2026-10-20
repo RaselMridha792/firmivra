@@ -1,8 +1,8 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { OpportunityQueue } from '../_components/tp-lists';
 
-export const metadata: Metadata = { title: 'Tax planning: Planning opportunities' };
+export const metadata: Metadata = { title: 'Planning Opportunities' };
 
-export default function TaxPlanningOpportunitiesPage() {
-  return <PageHeader title="Tax Planning & Strategy" />;
+export default function Page() {
+  return <OpportunityQueue />;
 }

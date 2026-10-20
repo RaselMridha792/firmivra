@@ -22,7 +22,7 @@ export function NotesCard({ slug }: { slug: string }) {
   return (
     <Card className="grid min-w-0 gap-3 p-4!">
       <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
-        <NotebookPen aria-hidden className="size-6 text-firm-primary" /> Notes
+        <NotebookPen aria-hidden className="size-6 text-firm-text" /> Notes
       </h2>
       <PageState query={note} isEmpty={() => false}>
         {(data) => <NoteForm key={data.note?.savedAt ?? 'new'} slug={slug} note={data.note} />}
@@ -68,7 +68,7 @@ function NoteForm({ slug, note }: { slug: string; note: MyNote | null }) {
         onChange={(e) => setBody(e.target.value)}
       />
       <Checkbox
-        label="Set a reminder"
+        label="Set as reminder"
         className="[&_input]:accent-firm-primary"
         checked={remind}
         onChange={(e) => setRemind(e.target.checked)}
@@ -99,7 +99,7 @@ function NoteForm({ slug, note }: { slug: string; note: MyNote | null }) {
       ) : null}
       <Button
         type="submit"
-        className="w-full bg-firm-primary! text-on-action! hover:bg-navigation-hover! focus-visible:outline-firm-primary enabled:cursor-pointer"
+        className="w-full bg-firm-button! text-on-firm-button! hover:bg-firm-button-hover! focus-visible:outline-firm-primary enabled:cursor-pointer"
         disabled={save.isPending}
       >
         Save Note

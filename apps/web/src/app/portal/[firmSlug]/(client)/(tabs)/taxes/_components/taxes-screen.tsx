@@ -5,6 +5,7 @@ import { Badge, Button, Card, type Column, Select, Table } from '@firmivra/ui';
 import {
   BriefcaseBusiness,
   ChartColumn,
+  ChevronRight,
   Download,
   FileText,
   type LucideIcon,
@@ -16,7 +17,7 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
-import { TaxPaymentCard, TaxYearStatus } from './tax-cards';
+import { TaxYearStatus } from './tax-cards';
 
 const STATUS: Record<MyTaxReturn['status'], [string, 'info' | 'success' | 'warning' | 'danger']> = {
   IN_PROGRESS: ['In Progress', 'warning'],
@@ -32,21 +33,21 @@ const KINDS: [Kind, LucideIcon, string, string, MyTaxReturnsQuery][] = [
     'quarterly',
     ChartColumn,
     'Quarterly Taxes',
-    'Your quarterly estimated tax returns.',
+    'View and manage your quarterly estimated tax returns.',
     { kind: 'quarterly' },
   ],
   [
     'personal',
     UserRound,
     'Annual Personal Taxes',
-    'Your individual tax returns.',
+    'View and manage your individual tax returns.',
     { kind: 'annual', filingType: 'INDIVIDUAL' },
   ],
   [
     'business',
     BriefcaseBusiness,
     'Annual Business Taxes',
-    'Your business tax returns.',
+    'View and manage your business tax returns.',
     { kind: 'annual', filingType: 'BUSINESS' },
   ],
 ];
@@ -110,7 +111,7 @@ export function TaxesScreen() {
         r.document ? (
           <Button
             variant="ghost"
-            className="text-firm-primary! underline"
+            className="text-firm-text! underline"
             disabled={download.isPending}
             onClick={() => r.document && download.mutate(r.document.id)}
             aria-label={`Download ${r.document.fileName}`}
@@ -128,7 +129,7 @@ export function TaxesScreen() {
         <header className="flex flex-col gap-4 md:flex-row md:items-start">
           <FileText
             aria-hidden
-            className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-primary"
+            className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-text"
           />
           <div className="flex-1">
             <h1 className="font-display text-3xl font-bold text-heading">Tax Returns</h1>
@@ -179,19 +180,18 @@ export function TaxesScreen() {
               onClick={() => setKind(kind === k ? null : k)}
               className={`flex items-center gap-3 rounded-card border p-4 text-left hover:bg-folder-hover ${kind === k ? 'border-firm-accent bg-folder-surface' : 'border-folder-border'}`}
             >
-              <Icon aria-hidden className="size-10 shrink-0 text-firm-primary" />
-              <span>
+              <Icon aria-hidden className="size-10 shrink-0 text-action" />
+              <span className="min-w-0 flex-1">
                 <span className="block font-display text-lg font-bold text-heading">{title}</span>
                 <span className="block text-sm text-text">{text}</span>
               </span>
+              <ChevronRight aria-hidden className="size-5 shrink-0 text-action" />
             </button>
           ))}
         </div>
       </Card>
-      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
-        <TaxYearStatus slug={slug} />
-        <TaxPaymentCard slug={slug} />
-      </div>
+      {/* The Tax Return Payment card is in the right column (Taxes tab.png). */}
+      <TaxYearStatus slug={slug} />
     </div>
   );
 }

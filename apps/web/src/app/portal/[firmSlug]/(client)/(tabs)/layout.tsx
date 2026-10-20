@@ -35,13 +35,13 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
     <div className="flex flex-col gap-6 lg:flex-row">
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <PortalPageHeader
+          plain
           titleAs="p"
           title={
             <>
               My Client{' '}
-              <span className={invoicesPage ? 'text-firm-primary' : 'text-firm-accent'}>
-                Portal
-              </span>
+              {/* "Portal" is the firm's accent on the Intake Form tab, its button blue on the others. */}
+              <span className={intakeActive ? 'text-firm-accent' : 'text-action'}>Portal</span>
             </>
           }
           subtitle="Access your forms, documents, and resources anytime, anywhere."
@@ -63,14 +63,14 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
                 ? 'border-firm-primary'
                 : 'border-firm-accent';
             const tabClassName = active
-              ? `border-t-4 ${activeBorder} bg-surface font-semibold text-firm-primary`
-              : 'bg-folder-surface text-firm-primary hover:bg-folder-hover';
+              ? `border-t-4 ${activeBorder} bg-surface font-semibold text-firm-text`
+              : 'bg-folder-surface text-firm-text hover:bg-folder-hover';
             return (
               <Link
                 key={path}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className={`min-w-0 cursor-pointer rounded-t-card px-3 py-4 text-center text-base ${tabClassName}`}
+                className={`min-w-0 cursor-pointer rounded-t-card px-3 py-3 text-center text-sm ${tabClassName}`}
               >
                 {label}
               </Link>
@@ -104,6 +104,8 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
         businessPage={isBusinessPage}
         showIntakeTip={intakeActive}
         showInvoiceInfo={invoicesPage}
+        documentsPage={documentsPage}
+        taxesPage={taxReturns}
       />
     </div>
   );

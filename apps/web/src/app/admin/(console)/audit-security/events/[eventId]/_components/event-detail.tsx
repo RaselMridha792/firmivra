@@ -23,12 +23,12 @@ import { useState } from 'react';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import {
-  adminAuditSecurity,
   type AuditEventDetail,
   type AvailableAction,
   type ResponseAction,
   type Severity,
 } from '../../../../../../../mocks/admin-audit-security';
+import { adminAuditSecurity } from '../../../_components/audit-api';
 import {
   AlertBadge,
   Breadcrumbs,

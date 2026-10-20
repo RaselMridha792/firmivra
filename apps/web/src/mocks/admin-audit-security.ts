@@ -1,4 +1,9 @@
-import { ApiRequestError } from '@firmivra/types';
+import {
+  ADMIN_SECURITY_DEFAULTS,
+  AdminSecuritySettings,
+  ApiRequestError,
+  type AdminAuditActorType,
+} from '@firmivra/types';
 import { mockDelay, mocked, mockedEmpty } from '../lib/mock';
 import {
   AUDIT_ADMIN,
@@ -31,9 +36,11 @@ export const CATEGORIES = [
   'DATA',
   'INTEGRATION',
   'SECURITY',
+  'SYSTEM',
 ] as const;
 export type EventCategory = (typeof CATEGORIES)[number];
-export const OUTCOMES = ['SUCCESS', 'FAILED', 'BLOCKED', 'DETECTED'] as const;
+/** The database's outcomes (a detection that stopped something is DENIED). */
+export const OUTCOMES = ['SUCCESS', 'FAILURE', 'DENIED'] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 export const ALERT_STATES = ['OPEN', 'ACKNOWLEDGED', 'RESOLVED', 'DISMISSED'] as const;
 export type AlertState = (typeof ALERT_STATES)[number];
@@ -59,15 +66,55 @@ export const RESPONSE_ACTIONS = [
   'DISABLE_INTEGRATION',
 ] as const;
 export type ResponseAction = (typeof RESPONSE_ACTIONS)[number];
+/** What each severity means (docx §6): the Risk Assessment line when no rule explained it. */
+export const SEVERITY_MEANINGS: Record<Severity, string> = {
+  INFO: 'Info: routine successful activity.',
+  LOW: 'Low: a minor policy or operational signal.',
+  MEDIUM: 'Medium: suspicious or privileged activity that needs awareness.',
+  HIGH: 'High: a probable security risk or a major admin privilege change.',
+  CRITICAL: 'Critical: a confirmed or immediate threat.',
+};
+/** Recommended steps by category (docx §3): guidance, not findings about one event. */
+export const CATEGORY_GUIDANCE: Record<EventCategory, string[]> = {
+  AUTHENTICATION: [
+    'Verify if this activity is from the legitimate user.',
+    'Contact the user if the activity is suspicious.',
+    "If unauthorized, reset the user's password.",
+    'Review recent account activity.',
+  ],
+  AUTHORIZATION: [
+    'Confirm the change was requested and approved.',
+    'Check that the new access follows least privilege.',
+    'Revert the change if it was not authorized.',
+  ],
+  DATA: [
+    'Confirm the user needed this data for their work.',
+    'Check the related records for other unexpected changes.',
+    'Restore the record if the change was not authorized.',
+  ],
+  INTEGRATION: [
+    "Check the integration's connection and credentials.",
+    'Rotate the credentials if they may be exposed.',
+    'Disable the integration if the activity is not expected.',
+  ],
+  SECURITY: [
+    'Review the change and who made it.',
+    "Confirm it matches the platform's security policy.",
+    'Send a security alert if it was not expected.',
+  ],
+  SYSTEM: ['Confirm the change was expected.', 'Review who made it and when.'],
+};
+
 export type AccountStatus = 'ACTIVE' | 'LOCKED' | 'SUSPENDED';
 
 export interface AuditActor {
-  type: 'USER' | 'SERVICE' | 'SYSTEM';
+  /** Who acted (the database's actor types): a person is STAFF, CLIENT or PLATFORM. */
+  type: AdminAuditActorType;
   id: string | null;
   name: string;
   email: string | null;
-  /** The role when the action happened (a snapshot). */
-  role: string;
+  /** The role when the action happened (a snapshot); null when not recorded. */
+  role: string | null;
 }
 /** `id: null` is Firmivra itself (platform scope), not a firm. */
 export interface AuditFirmRef {
@@ -201,7 +248,8 @@ export interface AuditEventQuery {
   /** ISO moments, inclusive. */
   from?: string;
   to?: string;
-  sort?: 'at' | 'user' | 'firm' | 'action' | 'severity';
+  /** The API sorts by these three. */
+  sort?: 'at' | 'action' | 'severity';
   descending?: boolean;
   page?: number;
   pageSize?: number;
@@ -227,7 +275,8 @@ export interface AuditMetric {
 export interface AuditSummary {
   securityAlerts: AuditMetric;
   failedLogins: AuditMetric;
-  activeSessions: AuditMetric;
+  /** Null when not available (the API: sessions are firm data). */
+  activeSessions: AuditMetric | null;
   highRiskEvents: AuditMetric;
 }
 export interface AccountState {
@@ -265,17 +314,15 @@ export interface AuditExport {
   expiresAt: string;
 }
 
-// Security Settings & Policies (docx §4).
-export type MfaScope = 'ALL' | 'ADMINS' | 'OPTIONAL';
-export type IpMode = 'ANY' | 'ALLOW_LIST' | 'BLOCK_LIST';
-export const RETENTION_PERIODS = [
-  'NINETY_DAYS',
-  'SIX_MONTHS',
-  'ONE_YEAR',
-  'TWO_YEARS',
-  'SEVEN_YEARS',
-] as const;
-export type RetentionPeriod = (typeof RETENTION_PERIODS)[number];
+// Security Settings & Policies (docx §4), in the contract's shape (packages/types/src/admin-audit):
+// MFA is always required for Super Admins (`ALL` adds every user) and audit records are kept at
+// least a year. The page's choices stay within those floors; a stored value outside a list is
+// shown as it is.
+export type SecuritySettings = AdminSecuritySettings;
+export type MfaScope = SecuritySettings['mfa']['scope'];
+export type IpMode = SecuritySettings['ip']['mode'];
+export type MinimumSeverity = SecuritySettings['notifications']['minimumSeverity'];
+/** Who may export: each level includes the ones before it. */
 export const EXPORT_ROLES = ['SUPER_ADMINS', 'SECURITY_ADMINS', 'AUDITORS'] as const;
 export type ExportRoles = (typeof EXPORT_ROLES)[number];
 export const PASSWORD_EXPIRATION_DAYS = [0, 30, 60, 90, 180, 365] as const;
@@ -285,106 +332,33 @@ export const REMEMBER_ME_DAYS = [0, 1, 7, 14, 30] as const;
 export const CONCURRENT_SESSIONS = [1, 3, 5, 10, 0] as const;
 export const MAX_FAILED_ATTEMPTS = [3, 5, 10] as const;
 export const LOCKOUT_MINUTES = [15, 30, 60, 1440] as const;
+/** One year at least (the database's floor), ten at most. */
+export const RETENTION_DAYS = [365, 730, 1095, 1825, 2555, 3650] as const;
 
-export interface SecuritySettings {
-  mfa: { enabled: boolean; scope: MfaScope };
-  methods: { authenticatorApp: boolean; sms: boolean; email: boolean; hardwareKey: boolean };
-  password: {
-    minLength: number;
-    uppercase: boolean;
-    lowercase: boolean;
-    numbers: boolean;
-    special: boolean;
-    /** 0 is never. */
-    expirationDays: number;
-  };
-  session: {
-    idleTimeoutMinutes: number;
-    rememberMeDays: number;
-    concurrentSessions: number;
-    selfManage: boolean;
-    reauthSensitive: boolean;
-    reauthDeviceSwitch: boolean;
-  };
-  protection: {
-    maxFailedAttempts: number;
-    lockoutMinutes: number;
-    notifySuspicious: boolean;
-    autoLock: boolean;
-    emailAdminOnLockout: boolean;
-    verifyNewDevices: boolean;
-  };
-  ip: { mode: IpMode; allowList: string[]; blockList: string[] };
-  notifications: {
-    failedLogins: boolean;
-    newDevice: boolean;
-    passwordChanges: boolean;
-    mfaDisabled: boolean;
-    accountLocked: boolean;
-    suspicious: boolean;
-    /** In-app alerts are always on; these add delivery channels. */
-    email: boolean;
-    sms: boolean;
-  };
-  retention: { period: RetentionPeriod; exportRoles: ExportRoles; exportReauth: boolean };
-}
 export interface SecuritySettingsRecord {
   /** Optimistic concurrency: a save names the version it started from. */
   version: number;
   updatedAt: string;
-  updatedBy: string;
+  updatedBy: string | null;
+  /** Whether audit retention may change here (fixed by policy otherwise). */
+  retentionEditable: boolean;
   settings: SecuritySettings;
 }
 
 /** Firmivra's recommended defaults ("Reset to Default"). No forced password rotation (docx §4). */
-export const DEFAULT_SECURITY_SETTINGS: SecuritySettings = {
-  mfa: { enabled: true, scope: 'ALL' },
-  methods: { authenticatorApp: true, sms: true, email: true, hardwareKey: false },
-  password: {
-    minLength: 12,
-    uppercase: true,
-    lowercase: true,
-    numbers: true,
-    special: true,
-    expirationDays: 0,
-  },
-  session: {
-    idleTimeoutMinutes: 30,
-    rememberMeDays: 7,
-    concurrentSessions: 5,
-    selfManage: true,
-    reauthSensitive: true,
-    reauthDeviceSwitch: false,
-  },
-  protection: {
-    maxFailedAttempts: 5,
-    lockoutMinutes: 30,
-    notifySuspicious: true,
-    autoLock: true,
-    emailAdminOnLockout: true,
-    verifyNewDevices: false,
-  },
-  ip: { mode: 'ANY', allowList: [], blockList: [] },
-  notifications: {
-    failedLogins: true,
-    newDevice: true,
-    passwordChanges: true,
-    mfaDisabled: true,
-    accountLocked: true,
-    suspicious: true,
-    email: true,
-    sms: false,
-  },
-  retention: { period: 'ONE_YEAR', exportRoles: 'SUPER_ADMINS', exportReauth: true },
-};
+export const DEFAULT_SECURITY_SETTINGS: SecuritySettings = ADMIN_SECURITY_DEFAULTS;
 
-export const RETENTION_LABELS: Record<RetentionPeriod, string> = {
-  NINETY_DAYS: '90 days',
-  SIX_MONTHS: '6 months',
-  ONE_YEAR: '1 year',
-  TWO_YEARS: '2 years',
-  SEVEN_YEARS: '7 years',
-};
+/** The widest export level the roles reach. */
+export const exportLevel = (roles: readonly string[]): ExportRoles =>
+  roles.includes('AUDITORS')
+    ? 'AUDITORS'
+    : roles.includes('SECURITY_ADMINS')
+      ? 'SECURITY_ADMINS'
+      : 'SUPER_ADMINS';
+/** The roles a level allows: Super Admins always, then the rest up to it. */
+export const exportRolesFor = (level: ExportRoles): ExportRoles[] =>
+  EXPORT_ROLES.slice(0, EXPORT_ROLES.indexOf(level) + 1);
+
 export const EXPORT_ROLE_LABELS: Record<ExportRoles, string> = {
   SUPER_ADMINS: 'Super Admins only',
   SECURITY_ADMINS: 'Super Admins and Security Admins',
@@ -393,15 +367,24 @@ export const EXPORT_ROLE_LABELS: Record<ExportRoles, string> = {
 export const MFA_SCOPE_LABELS: Record<MfaScope, string> = {
   ALL: 'Required for all users',
   ADMINS: 'Required for admin users only',
-  OPTIONAL: 'Optional',
 };
 export const IP_MODE_LABELS: Record<IpMode, string> = {
   ANY: 'Allow access from any IP',
   ALLOW_LIST: 'Restrict to specific IP addresses',
   BLOCK_LIST: 'Block specific IP addresses',
 };
+/** "high and critical" for HIGH: the alerts sent by email or SMS. */
+export const SEVERITY_FLOOR_LABELS: Record<MinimumSeverity, string> = {
+  LOW: 'low, medium, high and critical',
+  MEDIUM: 'medium, high and critical',
+  HIGH: 'high and critical',
+  CRITICAL: 'critical',
+};
 export const daysLabel = (days: number) =>
   days === 0 ? 'Never' : `${days} ${days === 1 ? 'day' : 'days'}`;
+/** 365 → "1 year", 2555 → "7 years"; other counts in days. */
+export const retentionLabel = (days: number) =>
+  days % 365 === 0 ? `${days / 365} ${days === 365 ? 'year' : 'years'}` : daysLabel(days);
 export const minutesLabel = (minutes: number) =>
   minutes % 1440 === 0
     ? `${minutes / 1440} ${minutes === 1440 ? 'day' : 'days'}`
@@ -412,14 +395,13 @@ export const sessionsLabel = (count: number) => (count === 0 ? 'Unlimited' : `${
 const yesNo = (value: boolean) => (value ? 'Yes' : 'No');
 const onOff = (value: boolean) => (value ? 'On' : 'Off');
 const listText = (values: string[]) => (values.length ? values.join(', ') : 'None');
+const hoursLabel = (hours: number) => `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
 
-const MFA_RANK: Record<MfaScope, number> = { OPTIONAL: 0, ADMINS: 1, ALL: 2 };
-const RETENTION_RANK: Record<RetentionPeriod, number> = {
-  NINETY_DAYS: 0,
-  SIX_MONTHS: 1,
-  ONE_YEAR: 2,
-  TWO_YEARS: 3,
-  SEVEN_YEARS: 4,
+const MFA_RANK: Record<MfaScope, number> = { ADMINS: 1, ALL: 2 };
+const EXPORT_RANK: Record<ExportRoles, number> = {
+  SUPER_ADMINS: 0,
+  SECURITY_ADMINS: 1,
+  AUDITORS: 2,
 };
 
 interface SettingField {
@@ -429,11 +411,6 @@ interface SettingField {
   highImpact?: (before: SecuritySettings, after: SecuritySettings) => boolean;
 }
 const SETTING_FIELDS: SettingField[] = [
-  {
-    label: 'Multi-factor authentication',
-    show: (s) => (s.mfa.enabled ? 'Enabled' : 'Disabled'),
-    highImpact: (b, a) => b.mfa.enabled && !a.mfa.enabled,
-  },
   {
     label: 'MFA requirement',
     show: (s) => MFA_SCOPE_LABELS[s.mfa.scope],
@@ -454,9 +431,14 @@ const SETTING_FIELDS: SettingField[] = [
   { label: 'Require special characters', show: (s) => yesNo(s.password.special) },
   { label: 'Password expiration', show: (s) => daysLabel(s.password.expirationDays) },
   {
+    label: 'Earlier passwords that cannot be reused',
+    show: (s) => String(s.password.preventReuseCount),
+  },
+  {
     label: 'Session timeout (inactivity)',
     show: (s) => minutesLabel(s.session.idleTimeoutMinutes),
   },
+  { label: 'Longest session', show: (s) => hoursLabel(s.session.maxLifetimeHours) },
   { label: 'Remember me', show: (s) => daysLabel(s.session.rememberMeDays) },
   { label: 'Concurrent sessions', show: (s) => sessionsLabel(s.session.concurrentSessions) },
   { label: 'Users manage their active sessions', show: (s) => onOff(s.session.selfManage) },
@@ -464,6 +446,10 @@ const SETTING_FIELDS: SettingField[] = [
     label: 'Re-authentication for sensitive actions',
     show: (s) => onOff(s.session.reauthSensitive),
     highImpact: (b, a) => b.session.reauthSensitive && !a.session.reauthSensitive,
+  },
+  {
+    label: 'Re-authentication window',
+    show: (s) => minutesLabel(s.session.reauthWindowMinutes),
   },
   {
     label: 'Re-authentication when switching devices',
@@ -513,16 +499,27 @@ const SETTING_FIELDS: SettingField[] = [
   { label: 'Alerts by email', show: (s) => onOff(s.notifications.email) },
   { label: 'Alerts by SMS', show: (s) => onOff(s.notifications.sms) },
   {
-    label: 'Audit log retention',
-    show: (s) => RETENTION_LABELS[s.retention.period],
-    highImpact: (b, a) => RETENTION_RANK[a.retention.period] < RETENTION_RANK[b.retention.period],
+    label: 'Alerts sent by email or SMS',
+    show: (s) => SEVERITY_FLOOR_LABELS[s.notifications.minimumSeverity],
   },
-  { label: 'Who can export logs', show: (s) => EXPORT_ROLE_LABELS[s.retention.exportRoles] },
+  {
+    label: 'Audit log retention',
+    show: (s) => retentionLabel(s.retention.retentionDays),
+    highImpact: (b, a) => a.retention.retentionDays < b.retention.retentionDays,
+  },
+  { label: 'Archive audit logs after', show: (s) => retentionLabel(s.retention.archiveAfterDays) },
+  {
+    label: 'Who can export logs',
+    show: (s) => EXPORT_ROLE_LABELS[exportLevel(s.exports.roles)],
+    highImpact: (b, a) =>
+      EXPORT_RANK[exportLevel(a.exports.roles)] > EXPORT_RANK[exportLevel(b.exports.roles)],
+  },
   {
     label: 'Re-authentication to export logs',
-    show: (s) => onOff(s.retention.exportReauth),
-    highImpact: (b, a) => b.retention.exportReauth && !a.retention.exportReauth,
+    show: (s) => onOff(s.exports.requireReauth),
+    highImpact: (b, a) => b.exports.requireReauth && !a.exports.requireReauth,
   },
+  { label: 'Export links last', show: (s) => hoursLabel(s.exports.linkExpiryHours) },
 ];
 
 export interface SettingChange {
@@ -556,15 +553,18 @@ export type SettingsErrorKey =
   'minLength' | 'methods' | 'ipMode' | 'allowList' | 'blockList' | 'options';
 export type SettingsErrors = Partial<Record<SettingsErrorKey, string>>;
 
-/** The policy's rules, shared by the form (field errors) and the save (400 VALIDATION_FAILED). */
+/**
+ * The policy's rules for the form's field errors; anything else the contract refuses (its floors
+ * and ranges) is `options`. The API checks the same contract again.
+ */
 export function validateSecuritySettings(s: SecuritySettings): SettingsErrors {
   const errors: SettingsErrors = {};
   const { minLength } = s.password;
   if (!Number.isInteger(minLength) || minLength < 8 || minLength > 128)
     errors.minLength = 'Enter a whole number from 8 to 128.';
   const { authenticatorApp, sms, email, hardwareKey } = s.methods;
-  if (s.mfa.enabled && !authenticatorApp && !sms && !email && !hardwareKey)
-    errors.methods = 'Allow at least one method while MFA is on.';
+  if (!authenticatorApp && !sms && !email && !hardwareKey)
+    errors.methods = 'Allow at least one method: MFA is always on for Super Admins.';
   const badAllow = s.ip.allowList.filter((entry) => !isIpEntry(entry));
   const badBlock = s.ip.blockList.filter((entry) => !isIpEntry(entry));
   if (badAllow.length) errors.allowList = `Not an IP address or range: ${badAllow.join(', ')}`;
@@ -573,18 +573,11 @@ export function validateSecuritySettings(s: SecuritySettings): SettingsErrors {
     errors.ipMode = 'Add at least one approved IP address first (Manage IP List).';
   if (s.ip.mode === 'BLOCK_LIST' && !s.ip.blockList.length)
     errors.ipMode = 'Add at least one blocked IP address first (Manage IP List).';
-  const oneOf = (list: readonly number[], value: number) => list.includes(value);
-  if (
-    !oneOf(PASSWORD_EXPIRATION_DAYS, s.password.expirationDays) ||
-    !oneOf(IDLE_TIMEOUT_MINUTES, s.session.idleTimeoutMinutes) ||
-    !oneOf(REMEMBER_ME_DAYS, s.session.rememberMeDays) ||
-    !oneOf(CONCURRENT_SESSIONS, s.session.concurrentSessions) ||
-    !oneOf(MAX_FAILED_ATTEMPTS, s.protection.maxFailedAttempts) ||
-    !oneOf(LOCKOUT_MINUTES, s.protection.lockoutMinutes) ||
-    !RETENTION_PERIODS.includes(s.retention.period) ||
-    !EXPORT_ROLES.includes(s.retention.exportRoles)
-  )
-    errors.options = 'Choose one of the listed options.';
+  if (!Object.keys(errors).length) {
+    const checked = AdminSecuritySettings.safeParse(s);
+    if (!checked.success)
+      errors.options = checked.error.issues[0]?.message ?? 'Choose one of the listed options.';
+  }
   return errors;
 }
 
@@ -705,15 +698,11 @@ function sortEvents(events: AuditEvent[], query: AuditEventQuery): AuditEvent[] 
   const by = query.sort ?? 'at';
   const sign = (query.descending ?? true) ? -1 : 1;
   const key = (event: AuditEvent): string | number =>
-    by === 'user'
-      ? event.actor.name
-      : by === 'firm'
-        ? event.firm.name
-        : by === 'action'
-          ? event.action
-          : by === 'severity'
-            ? SEVERITY_RANK[event.severity]
-            : time(event.at);
+    by === 'action'
+      ? event.action
+      : by === 'severity'
+        ? SEVERITY_RANK[event.severity]
+        : time(event.at);
   return [...events].sort((a, b) => {
     const left = key(a);
     const right = key(b);
@@ -1224,7 +1213,7 @@ export const adminAuditSecurity = {
     if (errors[0]) throw invalid(errors[0]);
     const s = db();
     if (body.version !== s.settings.version)
-      throw new ApiRequestError(409, 'CONFLICT', 'The settings were changed by someone else.');
+      throw new ApiRequestError(409, 'SAVE_CONFLICT', 'The settings were changed by someone else.');
     const changes = describeSettingsChanges(s.settings.settings, body.settings);
     if (!changes.length) return copy(s.settings);
     const written = record(s, {
@@ -1248,6 +1237,7 @@ export const adminAuditSecurity = {
       })),
     });
     s.settings = {
+      ...s.settings,
       version: s.settings.version + 1,
       updatedAt: written.at,
       updatedBy: AUDIT_ADMIN.name,

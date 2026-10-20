@@ -6,6 +6,7 @@ import { createContext, use, type CSSProperties, type ReactNode } from 'react';
 import { PageState } from '../../../components/page-state';
 import { portalAuth } from '../../../lib/auth';
 import { useApiQuery } from '../../../lib/query';
+import { firmThemeVars } from '../../../lib/theme';
 
 export const PortalContext = createContext<PortalInfo | null>(null);
 export function usePortal() {
@@ -16,9 +17,10 @@ export function usePortal() {
 
 /**
  * Every page of one firm's portal (/{firm}/...). The firm's colours are the tokens
- * --color-firm-primary and --color-firm-accent, with defaults in packages/ui. R3's public
- * GET /api/v1/portal/{slug}/info lets this layout load the firm and set those two colours
- * from it and shows not-found for an unknown slug. Nahid polishes it (N01).
+ * --color-firm-primary and --color-firm-accent, and its theme colours (sidebar, text, secondary
+ * text, buttons: lib/theme.ts), with defaults in packages/ui. R3's public
+ * GET /api/v1/portal/{slug}/info lets this layout load the firm and set those colours from it
+ * and shows not-found for an unknown slug. Nahid polishes it (N01).
  */
 export default function FirmPortalLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
@@ -27,9 +29,10 @@ export default function FirmPortalLayout({ children }: { children: ReactNode }) 
   const colors = {
     '--color-firm-primary': query.data?.branding.primaryColor,
     '--color-firm-accent': query.data?.branding.accentColor,
+    ...firmThemeVars(query.data?.branding),
   } as CSSProperties;
   return (
-    <div data-theme="portal" className="min-h-screen bg-canvas text-firm-primary" style={colors}>
+    <div data-theme="portal" className="min-h-screen bg-canvas text-firm-text" style={colors}>
       <PageState query={query}>
         {(firm) => <PortalContext value={firm}>{children}</PortalContext>}
       </PageState>

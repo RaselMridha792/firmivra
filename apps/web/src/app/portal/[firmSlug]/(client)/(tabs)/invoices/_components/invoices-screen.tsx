@@ -17,7 +17,15 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { usePortal } from '../../../../layout';
-import { InvoiceStatus, PayButton, PayError, day, money, usePay } from './invoice-parts';
+import {
+  InvoiceStatus,
+  MakePaymentButton,
+  PayButton,
+  PayError,
+  day,
+  money,
+  usePay,
+} from './invoice-parts';
 
 const VIEWS: [MyInvoiceView, string][] = [
   ['ALL', 'All Invoices'],
@@ -59,7 +67,7 @@ export function InvoicesScreen() {
       <header className="flex flex-col gap-4 md:flex-row md:items-start">
         <Receipt
           aria-hidden
-          className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-primary"
+          className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-text"
         />
         <div className="flex-1">
           <h1 className="font-display text-3xl font-bold text-heading">Receipts &amp; Invoices</h1>
@@ -68,6 +76,7 @@ export function InvoicesScreen() {
             keep your records in one place.
           </p>
         </div>
+        <MakePaymentButton slug={slug} pay={pay} />
       </header>
       {back.checkout === 'success' ? (
         <p role="status" className="rounded-card bg-success-soft p-3 text-sm text-success">
@@ -145,7 +154,16 @@ function InvoiceTable({
 }) {
   const current = section === 'CURRENT';
   const columns: Column<MyInvoice>[] = [
-    { id: 'number', label: 'Invoice #', cell: (i) => i.number },
+    {
+      id: 'number',
+      label: 'Invoice #',
+      // The number opens the invoice, in the button blue (invoices tab.png).
+      cell: (i) => (
+        <Link href={`/${slug}/invoices/${i.id}`} className="text-action hover:underline">
+          {i.number}
+        </Link>
+      ),
+    },
     { id: 'service', label: 'Service', cell: (i) => i.title },
     { id: 'issued', label: 'Issue Date', cell: (i) => day(i.issuedOn) },
     {
@@ -174,7 +192,7 @@ function InvoiceTable({
           {i.canPay ? <PayButton invoice={i} pay={pay} /> : null}
           <Link
             href={`/${slug}/invoices/${i.id}`}
-            className="inline-flex items-center gap-1 text-firm-primary underline"
+            className="inline-flex items-center gap-1 text-firm-text underline"
             aria-label={`View ${i.number}`}
           >
             <Eye aria-hidden className="size-4" /> View
@@ -190,7 +208,7 @@ function InvoiceTable({
       columns={columns}
       rowKey={(i) => i.id}
       pageSize={10}
-      tableClassName="text-firm-primary"
+      tableClassName="text-firm-text"
       emptyTitle={current ? 'Nothing to pay' : 'No past invoices'}
       emptyText={
         current ? 'Open and upcoming invoices will appear here.' : 'Paid and canceled invoices.'

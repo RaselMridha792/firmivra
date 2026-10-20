@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   HttpException,
@@ -6,12 +7,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { databaseErrorCode } from '@firmivra/db';
-import type { AppointmentErrorCode } from '@firmivra/types';
+import type { AppointmentErrorCode, ConflictResult, SchedulingErrorCode } from '@firmivra/types';
 
 const conflict = (
-  code: AppointmentErrorCode | 'CLIENT_ARCHIVED' | 'CUTOFF_NOT_SUPPORTED',
+  code: AppointmentErrorCode | SchedulingErrorCode | 'CLIENT_ARCHIVED' | 'CUTOFF_NOT_SUPPORTED',
   message: string,
-) => new ConflictException({ code, message });
+  details?: unknown,
+) => new ConflictException({ code, message, ...(details === undefined ? {} : { details }) });
 
 /** The errors of the appointment routes (codes in packages/types/src/appointments). */
 export const errors = {
@@ -34,6 +36,26 @@ export const errors = {
     conflict('BLOCK_LIMIT', 'This calendar has too many blocks. Delete some first.'),
   duplicateName: () =>
     conflict('DUPLICATE_NAME', 'An appointment type with this name already exists'),
+  /** 409 with the conflict check's answer in `details`, so the form can show and offer a way out. */
+  schedulingConflict: (result: ConflictResult) =>
+    conflict(
+      'SCHEDULING_CONFLICT',
+      result.canOverride
+        ? 'This time conflicts. Choose another time, or override with a reason.'
+        : 'This time conflicts. Choose another time.',
+      result,
+    ),
+  saveConflict: () =>
+    conflict('SAVE_CONFLICT', 'Someone saved this appointment after you opened it. Reload it.'),
+  videoNotConnected: () =>
+    conflict('VIDEO_NOT_CONNECTED', 'Connect a video meeting integration to generate a link.'),
+  smsUnavailable: () =>
+    new BadRequestException({
+      code: 'SMS_UNAVAILABLE',
+      message: 'Text reminders need the firm to turn on SMS and the contact to have a phone number',
+    }),
+  /** 400 for something the form can send but the database cannot keep yet (see the PR's gaps). */
+  unsupported: (message: string) => new BadRequestException({ code: 'VALIDATION_FAILED', message }),
   /** R10's code: nothing new is booked for an archived client (restore the client first). */
   clientArchived: () => conflict('CLIENT_ARCHIVED', 'Restore the client first'),
   /** The same in the portal, worded for the client. */

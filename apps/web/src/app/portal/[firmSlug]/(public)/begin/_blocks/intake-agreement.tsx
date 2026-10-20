@@ -122,21 +122,17 @@ function AgreementCard({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-semibold text-heading">{agreement.title}</p>
         {agreement.pdf.available && (
-          <Button
-            variant="outline"
-            onClick={() => void download()}
-            className="text-xs! sm:min-h-7!"
-          >
+          <Button variant="outline" onClick={() => void download()} className="text-sm! sm:min-h-7">
             <Download aria-hidden="true" className="size-4" />
             Download original (PDF)
           </Button>
         )}
       </div>
       {agreement.effectiveDate && (
-        <p className="text-xs text-muted">Effective {usDate(agreement.effectiveDate)}</p>
+        <p className="text-sm text-muted">Effective {usDate(agreement.effectiveDate)}</p>
       )}
       {pdfError && (
-        <p role="alert" className="text-xs text-danger">
+        <p role="alert" className="text-sm text-danger">
           {pdfError}
         </p>
       )}
@@ -144,7 +140,7 @@ function AgreementCard({
         tabIndex={0}
         role="region"
         aria-label={agreement.title}
-        className="max-h-36 overflow-y-auto rounded-control border border-folder-border bg-surface p-3 text-xs"
+        className="max-h-36 overflow-y-auto rounded-control border border-folder-border bg-surface p-3 text-sm"
       >
         <AgreementText body={agreement.bodyMarkdown} />
       </div>
@@ -154,7 +150,7 @@ function AgreementCard({
           <div key={k.key}>
             <Checkbox
               label={`${k.label}${k.required ? ' *' : ''}`}
-              className="gap-2! text-xs! sm:min-h-6!"
+              className="gap-2! text-sm! sm:min-h-6"
               checked={value.ticked.includes(id)}
               onChange={(event) =>
                 onChange({
@@ -166,7 +162,7 @@ function AgreementCard({
               }
             />
             {k.text && k.text !== k.label && (
-              <p className="ml-6 whitespace-pre-line text-xs text-muted">{k.text}</p>
+              <p className="ml-6 whitespace-pre-line text-sm text-muted">{k.text}</p>
             )}
           </div>
         );
@@ -222,7 +218,7 @@ export function AgreementPanel({
   if (!block) {
     return (
       <SectionPanel title={title} className="mt-3">
-        <p className="text-xs text-muted" role="status">
+        <p className="text-sm text-muted" role="status">
           Loading the agreement…
         </p>
       </SectionPanel>
@@ -258,11 +254,11 @@ export function AgreementPanel({
           <div>
             <Checkbox
               label="I accept the Terms of Service and Privacy Policy. *"
-              className="gap-2! text-xs! sm:min-h-6!"
+              className="gap-2! text-sm! sm:min-h-6"
               checked={value.acceptLegal}
               onChange={(event) => onChange({ ...value, acceptLegal: event.target.checked })}
             />
-            <p className="ml-6 text-xs">
+            <p className="ml-6 text-sm">
               Read the{' '}
               <button type="button" className="underline" onClick={() => setLegalKind('terms')}>
                 Terms of Service
@@ -283,7 +279,7 @@ export function AgreementPanel({
           </div>
         )}
         <div
-          className={`grid gap-2 [&_label]:text-xs ${stacked ? '' : form === 'ANNUAL_TAX' ? 'sm:grid-cols-3' : 'sm:grid-cols-2 lg:grid-cols-4'}`}
+          className={`grid gap-2 [&_label]:text-sm ${stacked ? '' : form === 'ANNUAL_TAX' ? 'sm:grid-cols-3' : 'sm:grid-cols-2 lg:grid-cols-4'}`}
         >
           <Input
             label="Full Name *"
@@ -305,13 +301,13 @@ export function AgreementPanel({
               onChange={(event) => onChange({ ...value, title: event.target.value })}
             />
           )}
-          <div className="text-xs">
+          <div className="text-sm">
             <p className="font-medium text-firm-primary">Date</p>
             <p className="mt-1">{today}</p>
           </div>
         </div>
         {error && (
-          <p role="alert" className="text-xs text-danger">
+          <p role="alert" className="text-sm text-danger">
             {error}
           </p>
         )}
@@ -333,7 +329,7 @@ function LegalText({ firmSlug, kind }: { firmSlug: string; kind: LegalKind }) {
     >
       {(doc) => (
         <div className="text-sm">
-          <p className="text-xs text-muted">Version {doc.version}</p>
+          <p className="text-sm text-muted">Version {doc.version}</p>
           <AgreementText body={doc.body} />
         </div>
       )}

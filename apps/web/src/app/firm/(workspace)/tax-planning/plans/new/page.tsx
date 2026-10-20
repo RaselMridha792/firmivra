@@ -1,8 +1,13 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
+import { PlanEditor } from '../../_components/plan-editor';
 
-export const metadata: Metadata = { title: 'Create planning plan: Client & plan details' };
+export const metadata: Metadata = { title: 'Create Planning Plan' };
 
-export default function TaxPlanningPlansNewPage() {
-  return <PageHeader title="Create Planning Plan" />;
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <PlanEditor step={1} />
+    </Suspense>
+  );
 }

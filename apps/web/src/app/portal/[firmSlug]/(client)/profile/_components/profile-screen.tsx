@@ -54,12 +54,10 @@ export function ProfileScreen() {
   const profile = useApiQuery(['my-profile', slug], () => api.myProfile(slug).get());
   return (
     <div className="grid min-w-0 gap-4">
+      {/* A plain navy title on the page background (My profile.png, R61). */}
       <PortalPageHeader
-        title={
-          <>
-            My <span className="text-firm-accent">Profile</span>
-          </>
-        }
+        plain
+        title="My Profile"
         subtitle="Manage your information, preferences, and account settings."
       />
       <PageState query={profile} isEmpty={() => false}>
@@ -113,7 +111,7 @@ function ProfileContent({ slug, profile: p }: { slug: string; profile: MyProfile
               <span
                 role="img"
                 aria-label={`Profile initials: ${initials}`}
-                className="grid size-14 shrink-0 place-items-center rounded-full bg-folder-surface font-display text-xl font-bold text-firm-primary"
+                className="grid size-14 shrink-0 place-items-center rounded-full bg-folder-surface font-display text-xl font-bold text-firm-text"
               >
                 {initials}
               </span>
@@ -191,12 +189,15 @@ function ProfileContent({ slug, profile: p }: { slug: string; profile: MyProfile
                   )}
                   {primary ? (
                     <div className="flex flex-wrap gap-2">
-                      <Button type="submit" variant="dark">
+                      <Button
+                        type="submit"
+                        className="bg-firm-button! text-on-firm-button! hover:bg-firm-button-hover!"
+                      >
                         <Save aria-hidden className="size-5" /> Save Changes
                       </Button>
                       <Button
                         variant="secondary"
-                        className="border-firm-primary text-firm-primary hover:bg-folder-surface"
+                        className="border-action text-action hover:bg-folder-surface"
                         onClick={() => setNaming(true)}
                       >
                         <Pencil aria-hidden className="size-5" /> Request Name Change
@@ -254,7 +255,7 @@ function ProfileContent({ slug, profile: p }: { slug: string; profile: MyProfile
           <CancelAccountCard />
         </div>
       </form>
-      <div className="[&_.ui-dialog>div>button]:text-firm-primary">
+      <div className="[&_.ui-dialog>div>button]:text-firm-text">
         <NameChangeDialog slug={slug} open={naming} onClose={() => setNaming(false)} />
       </div>
     </>
@@ -273,7 +274,7 @@ function LoginSecurityCard({ slug }: { slug: string }) {
       <VisualPasswordField label="New Password" placeholder="Enter your new password" />
       <VisualPasswordField label="Confirm New Password" placeholder="Confirm your new password" />
       <Link
-        className="inline-flex min-h-11 items-center justify-center rounded-control bg-firm-primary px-4 py-2 text-sm font-medium text-on-action hover:bg-navigation-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-firm-primary"
+        className="inline-flex min-h-11 items-center justify-center rounded-control bg-firm-button px-4 py-2 text-sm font-medium text-on-firm-button hover:bg-firm-button-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-firm-primary"
         href={`/${slug}/forgot-password`}
       >
         Update Password
@@ -288,7 +289,7 @@ function VisualPasswordField({ label, placeholder }: { label: string; placeholde
       <span className="font-medium text-text">{label}</span>
       <span className="flex min-h-11 items-center justify-between gap-2 rounded-control border border-border bg-surface px-3 py-2 text-base text-muted">
         {placeholder}
-        <EyeOff aria-hidden className="size-4 shrink-0 text-firm-primary" />
+        <EyeOff aria-hidden className="size-4 shrink-0 text-firm-text" />
       </span>
     </div>
   );
@@ -308,7 +309,7 @@ function SectionHeading({
   return (
     <div className="flex items-center gap-3">
       <span
-        className={`grid size-12 shrink-0 place-items-center rounded-full ${danger ? 'bg-surface text-danger' : 'bg-folder-surface text-firm-primary'}`}
+        className={`grid size-12 shrink-0 place-items-center rounded-full ${danger ? 'bg-danger/15 text-danger' : 'bg-folder-surface text-firm-text'}`}
       >
         <Icon aria-hidden className="size-7" />
       </span>

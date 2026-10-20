@@ -20,6 +20,9 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { hexColor } from '../notify/branding.js';
+
+/** A theme colour as the page's CSS takes it: `#RRGGBB`, or null to derive it from the primary. */
+const themeColor = (value: string | null | undefined): string | null => hexColor(value, '') || null;
 import { logoUrl } from '../settings/logo-checks.js';
 
 /** Until the firm sets its own: the navy and gold of the portal mockups. */
@@ -93,6 +96,10 @@ export class PortalInfoService {
           sidebarMotto: true,
           brandColor: true,
           accentColor: true,
+          sidebarColor: true,
+          textPrimaryColor: true,
+          textSecondaryColor: true,
+          buttonColor: true,
           clientSignUpEnabled: true,
           portalName: true,
           portalHeader: true,
@@ -112,6 +119,11 @@ export class PortalInfoService {
         primaryColor: settings?.brandColor ?? DEFAULT_PRIMARY_COLOR,
         // As the emails do: only a `#rrggbb` value reaches the page's CSS.
         accentColor: hexColor(settings?.accentColor, DEFAULT_ACCENT_COLOR),
+        // Null: the portal derives the colour from the primary one (the look before these existed).
+        sidebarColor: themeColor(settings?.sidebarColor),
+        textPrimaryColor: themeColor(settings?.textPrimaryColor),
+        textSecondaryColor: themeColor(settings?.textSecondaryColor),
+        buttonColor: themeColor(settings?.buttonColor),
         portalName: settings?.portalName ?? `${firm.name} Client Portal`,
         header: settings?.portalHeader ?? null,
         welcomeMessage: settings?.welcomeMessage ?? null,

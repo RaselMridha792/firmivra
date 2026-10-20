@@ -165,7 +165,12 @@ export class IntakeUploadsService {
   /** 404 unless the intake is one of this client's (any status). */
   private async ownIntake(tx: TxClient, who: IntakeUploader, intakeId: string): Promise<void> {
     const row = await tx.intake.findFirst({
-      where: { businessId: who.businessId, id: intakeId, engagement: { clientId: who.clientId } },
+      where: {
+        businessId: who.businessId,
+        id: intakeId,
+        engagement: { clientId: who.clientId },
+        sentAt: { not: null },
+      },
       select: { id: true },
     });
     if (!row) throw notFound();
@@ -180,7 +185,7 @@ export class IntakeUploadsService {
       SELECT i.id FROM intakes i
       JOIN engagements e ON e.business_id = i.business_id AND e.id = i.engagement_id
       WHERE i.business_id = ${who.businessId}::uuid AND i.id = ${intakeId}::uuid
-        AND e.client_id = ${who.clientId}::uuid
+        AND e.client_id = ${who.clientId}::uuid AND i.sent_at IS NOT NULL
       FOR NO KEY UPDATE OF i`;
     if (!row) throw notFound();
     const intake = await tx.intake.findUniqueOrThrow({
