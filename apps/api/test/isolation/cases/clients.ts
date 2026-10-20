@@ -1,5 +1,9 @@
 // Clients, their profile and tax years, and sign-ups waiting for the firm.
+import { randomUUID } from 'node:crypto';
 import type { CaseModule } from '../world.js';
+
+/** Replaced by each case's real ids (bodyIds). */
+const PLACEHOLDER = randomUUID();
 
 export const records: CaseModule['records'] = {
   /** Client X: a client with a portal login. Each world has its own. */
@@ -60,6 +64,12 @@ export const cases: CaseModule['cases'] = {
     params: {},
     bodyIds: { assignedUserId: 'staffUser' },
     body: { displayName: 'Fake new client' },
+  },
+  // R1: the bulk change names clients and an assignee in its body (firm Q naming firm P's is 404).
+  'POST /api/v1/business/clients/bulk': {
+    params: {},
+    bodyIds: { clientIds: 'client', assignedUserId: 'staffUser' },
+    body: { action: 'ASSIGN', clientIds: [PLACEHOLDER], assignedUserId: PLACEHOLDER },
   },
   'GET /api/v1/business/clients/:id': { params: { id: 'client' } },
   'GET /api/v1/business/clients/:id/tax-years': { params: { id: 'client' } },

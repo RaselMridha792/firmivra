@@ -1,4 +1,10 @@
-import type { DashboardKpi, DashboardRevenue, DashboardTask, Task } from '@firmivra/types';
+import type {
+  DashboardKpi,
+  DashboardRevenue,
+  DashboardTask,
+  Task,
+  TaskPriority,
+} from '@firmivra/types';
 
 /** One row of the revenue query: net cents received in one month of the year for one service. */
 export interface RevenueRow {
@@ -15,7 +21,11 @@ export const kpi = (value: number, previous: number | null): DashboardKpi => ({ 
  * exceed the money received in it; services at or below zero are left out of the breakdown,
  * since a share of a donut cannot be negative. The total is always the sum of the months.
  */
-export function revenueOf(rows: RevenueRow[], year: number): DashboardRevenue {
+export function revenueOf(
+  rows: RevenueRow[],
+  year: number,
+  previousYearCents: number | null,
+): DashboardRevenue {
   const byMonthCents = Array.from({ length: 12 }, () => 0);
   const services = new Map<string, DashboardRevenue['byService'][number]>();
   for (const row of rows) {
@@ -29,6 +39,7 @@ export function revenueOf(rows: RevenueRow[], year: number): DashboardRevenue {
   return {
     year,
     totalCents: byMonthCents.reduce((sum, cents) => sum + cents, 0),
+    previousYearCents,
     byMonthCents,
     byService: [...services.values()]
       .filter((s) => s.cents > 0)
@@ -36,13 +47,36 @@ export function revenueOf(rows: RevenueRow[], year: number): DashboardRevenue {
   };
 }
 
-/** Open tasks with a due date, in the order given (the tasks list's: soonest first), at most 5. */
-export function dueTasks(tasks: Task[]): DashboardTask[] {
+/**
+ * Open tasks with a due date, in the order given (the tasks list's: soonest first), at most 5,
+ * each with its priority (MEDIUM, the column's default, when the lookup has none).
+ */
+export function dueTasks(tasks: Task[], priorities: Map<string, TaskPriority>): DashboardTask[] {
   return tasks
     .flatMap((t) =>
       t.status === 'OPEN' && t.dueOn
-        ? [{ id: t.id, title: t.title, dueOn: t.dueOn, client: t.client }]
+        ? [
+            {
+              id: t.id,
+              title: t.title,
+              dueOn: t.dueOn,
+              priority: priorities.get(t.id) ?? 'MEDIUM',
+              client: t.client,
+            },
+          ]
         : [],
     )
     .slice(0, 5);
+}
+
+/** The pipeline's Completed count for the chosen period (DashboardPipelinePeriod). */
+export function completedIn(
+  period: 'THIS_MONTH' | 'LAST_MONTH' | 'THIS_YEAR',
+  counts: { thisMonth: number; lastMonth: number; thisYear: number },
+): number {
+  return period === 'LAST_MONTH'
+    ? counts.lastMonth
+    : period === 'THIS_YEAR'
+      ? counts.thisYear
+      : counts.thisMonth;
 }
