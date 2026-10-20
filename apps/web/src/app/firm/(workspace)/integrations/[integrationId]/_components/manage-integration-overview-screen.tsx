@@ -1,19 +1,10 @@
 'use client';
 
 import { ApiRequestError, type IntegrationConnectionDetail } from '@firmivra/types';
-import { Badge, Button, Card, Modal } from '@firmivra/ui';
-import {
-  ArrowRight,
-  ArrowsClockwise,
-  CheckCircle,
-  DotsThreeVertical,
-  Plugs,
-} from '@phosphor-icons/react';
-import Link from 'next/link';
+import { Button, Card, Modal } from '@firmivra/ui';
 import { useState, type ReactNode } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
-import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import {
   ConnectionDetails,
@@ -23,7 +14,7 @@ import {
   SyncControls,
   SyncData,
 } from './manage-overview-panels';
-import { ConnectionBadge, manageTabs, relativeTime } from './manage-integration-shared';
+import { Breadcrumb, integrationError, ManageHeader, ManageTabsNav } from './manage-shell';
 
 const code = (error: unknown) => (error instanceof ApiRequestError ? error.code : undefined);
 
@@ -81,7 +72,7 @@ export function ManageIntegrationOverviewScreen({ integrationId }: { integration
             role="alert"
             className="flex items-center justify-between gap-4"
           >
-            <p className="text-sm text-danger">{errorMessage(query.error)}</p>
+            <p className="text-sm text-danger">{integrationError(query.error)}</p>
             <Button variant="secondary" onClick={() => void query.refetch()}>
               Try again
             </Button>
@@ -116,7 +107,7 @@ export function ManageIntegrationOverviewScreen({ integrationId }: { integration
             notice={
               mutationError ? (
                 <Card role="alert">
-                  <p className="text-sm text-danger">{errorMessage(mutationError)}</p>
+                  <p className="text-sm text-danger">{integrationError(mutationError)}</p>
                 </Card>
               ) : test.isSuccess ? (
                 <Card role="status">
@@ -182,95 +173,10 @@ function OverviewFrame({
 }) {
   return (
     <div data-testid="manage-integration-overview" className="flex min-w-0 flex-col gap-4">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
-        <Link href="/integrations" className="text-link">
-          Integrations
-        </Link>
-        <ArrowRight className="size-4 text-muted" />
-        <span className="text-text">{detail?.provider.name ?? 'Integration'}</span>
-      </nav>
+      <Breadcrumb name={detail?.provider.name} />
       {notice}
-      <Card className="!p-4" data-testid="integration-header">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
-          <div className="flex min-w-0 gap-4">
-            <span className="flex size-20 shrink-0 items-center justify-center rounded-full bg-success-soft text-3xl font-bold text-success">
-              {detail?.provider.name.charAt(0) ?? <Plugs weight="fill" />}
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-2xl font-bold text-heading">
-                  {detail?.provider.name ?? 'Integration unavailable'}
-                </h1>
-                {detail ? (
-                  <ConnectionBadge status={detail.status} />
-                ) : (
-                  <Badge tone="neutral">Unavailable</Badge>
-                )}
-              </div>
-              <p className="mt-1 text-base text-info">
-                {detail?.provider.summary ?? 'Connection details could not be loaded.'}
-              </p>
-              <p className="mt-2 max-w-3xl text-sm text-muted">
-                {detail?.provider.description ?? 'Retry when the integration service is available.'}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-stretch gap-3 lg:justify-end">
-            <div className="grid min-w-56 grid-cols-1 divide-y divide-divider rounded-control border border-border px-4 text-sm">
-              <div className="flex items-center gap-3 py-2">
-                <CheckCircle weight="fill" className="size-5 text-success" />
-                <span>
-                  <strong className="block text-text">Last Sync</strong>
-                  <span className="text-link">{relativeTime(detail?.lastSyncAt ?? null)}</span>
-                </span>
-              </div>
-              <div className="flex items-center gap-3 py-2">
-                <CheckCircle weight="fill" className="size-5 text-success" />
-                <span>
-                  <strong className="block text-text">Next Sync</strong>
-                  <span className="text-link">
-                    {relativeTime(detail?.nextSyncAt ?? null)}
-                    {detail?.syncMode === 'AUTO' ? ' (Auto)' : ''}
-                  </span>
-                </span>
-              </div>
-            </div>
-            <div className="flex min-w-48 flex-col gap-2">
-              <Button disabled={!detail?.canManage || detail.syncing || busy} onClick={onSync}>
-                <ArrowsClockwise weight="bold" className="size-5" /> Sync Now
-              </Button>
-              <Link
-                href={`/integrations/${integrationId}/sync-history`}
-                className="inline-flex items-center justify-center gap-2 text-sm font-medium text-link"
-              >
-                View Sync History <ArrowRight className="size-4" />
-              </Link>
-            </div>
-            <Button
-              variant="ghost"
-              aria-label="More integration actions"
-              className="self-start px-3"
-            >
-              <DotsThreeVertical weight="bold" className="size-6" />
-            </Button>
-          </div>
-        </div>
-      </Card>
-      <nav
-        aria-label="Integration management"
-        className="flex overflow-x-auto border-b border-divider"
-      >
-        {manageTabs.map((tab) => (
-          <Link
-            key={tab.label}
-            href={`/integrations/${integrationId}${tab.suffix}`}
-            aria-current={tab.suffix === '' ? 'page' : undefined}
-            className={`shrink-0 border-b-2 px-6 py-3 text-sm font-medium ${tab.suffix === '' ? 'border-action bg-accent-soft text-action' : 'border-transparent text-muted hover:text-heading'}`}
-          >
-            {tab.label}
-          </Link>
-        ))}
-      </nav>
+      <ManageHeader integrationId={integrationId} detail={detail} busy={busy} onSync={onSync} />
+      <ManageTabsNav integrationId={integrationId} current="" />
       <div className="grid gap-4 xl:grid-cols-12">
         <div className="xl:col-span-4">
           <ConnectionDetails detail={detail} onDisconnect={onDisconnect} />
