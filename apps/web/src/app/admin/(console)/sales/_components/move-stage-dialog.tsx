@@ -2,16 +2,16 @@
 
 import { Button, Modal } from '@firmivra/ui';
 import { useState, type FormEvent } from 'react';
+import { useApiMutation } from '../../../../../lib/query';
 import {
   adminSales,
+  errorMessage,
   fieldErrors,
   type PipelineStage,
   type SalesOpportunity,
   type SalesRep,
   type StageEntryInput,
-} from '../../../../../mocks/admin-sales';
-import { errorMessage } from '../../../../../lib/errors';
-import { useApiMutation } from '../../../../../lib/query';
+} from './sales-api';
 import { SALES_KEY } from './sales-ui';
 import { EMPTY_ENTRY, entryInput, StageEntryFields, type EntryState } from './stage-entry-fields';
 

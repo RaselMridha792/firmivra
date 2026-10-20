@@ -1,8 +1,14 @@
 'use client';
 
-import { DOCUMENT_ERRORS, type MyDocumentRequest, NotAvailableRequest } from '@firmivra/types';
+import {
+  DOCUMENT_ERRORS,
+  type MyDocumentRequest,
+  type MyRequestPacketRow,
+  NotAvailableRequest,
+} from '@firmivra/types';
 import { Badge, Button, Input } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
+import Link from 'next/link';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { api } from '../../../../../../../lib/api';
@@ -20,6 +26,28 @@ const STATUS: Record<
   NOT_AVAILABLE: ["You don't have it", 'neutral'],
   CANCELLED: ['Cancelled', 'neutral'],
 };
+const dueText = (d: string) =>
+  new Date(`${d}T00:00:00`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+const PACKET_LABELS: Record<MyRequestPacketRow['view'], string> = {
+  NOT_STARTED: 'Not started',
+  IN_PROGRESS: 'In progress',
+  READY: 'Ready to submit',
+  SUBMITTED: 'Submitted',
+  COMPLETED: 'Completed',
+  EXPIRED: 'Expired',
+};
+const PACKET_TONES = {
+  NOT_STARTED: 'info',
+  IN_PROGRESS: 'warning',
+  READY: 'success',
+  SUBMITTED: 'info',
+  COMPLETED: 'success',
+  EXPIRED: 'neutral',
+} as const;
 const open = (r: MyDocumentRequest) => r.status === 'REQUESTED' || r.status === 'REJECTED';
 
 /**
@@ -36,14 +64,40 @@ export function DocumentRequests({
   const requests = useApiQuery(['my-documents', slug, 'requests'], () =>
     api.myDocuments(slug).requests(),
   );
-  const items = requests.data ?? [];
-  if (items.length === 0) return null;
+  // Items of a request packet show as their packet (one row that opens it), not one by one.
+  const packets = useApiQuery(['my-documents', slug, 'packets'], () =>
+    api.myDocuments(slug).packets(),
+  );
+  const items = (requests.data ?? []).filter((r) => !r.packet);
+  const sent = packets.data ?? [];
+  if (items.length === 0 && sent.length === 0) return null;
   return (
     <section aria-labelledby="next-steps" className="grid gap-2">
       <h2 id="next-steps" className="font-display text-2xl font-bold text-heading">
         Your Next Steps
       </h2>
       <ul className="grid gap-2">
+        {sent.map((p) => (
+          <li key={p.id} className="rounded-card border border-border p-4" data-testid="packet-row">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-heading">{p.title}</p>
+                <p className="text-sm text-muted">
+                  Request #{p.reference} · {p.progress.requiredAnswered} of{' '}
+                  {p.progress.requiredTotal} required items uploaded
+                  {p.dueOn ? ` · due ${dueText(p.dueOn)}` : ''}
+                </p>
+              </div>
+              <Badge tone={PACKET_TONES[p.view]}>{PACKET_LABELS[p.view]}</Badge>
+              <Link
+                href={`/${slug}/requests/${p.id}`}
+                className="inline-flex h-9 items-center rounded-lg border border-action px-3 text-sm font-semibold text-action"
+              >
+                {p.status === 'OPEN' && p.view !== 'EXPIRED' ? 'Open request' : 'View'}
+              </Link>
+            </div>
+          </li>
+        ))}
         {items.map((r) => (
           <li key={r.id} className="rounded-card border border-border p-4">
             <RequestRow slug={slug} request={r} onUpload={() => onUpload(r)} />

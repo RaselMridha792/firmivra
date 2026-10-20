@@ -94,7 +94,7 @@ export function IntegrationsNav({ current }: { current?: IntegrationsSection }) 
   const active = current ?? sectionOf(pathname);
   return (
     <nav aria-label="Integrations sections" data-testid="integrations-nav">
-      <ul className="grid grid-cols-2 gap-3 lg:grid-cols-3 min-[1440px]:grid-cols-6">
+      <ul className="grid grid-cols-2 gap-3 lg:grid-cols-3 min-[1680px]:grid-cols-6">
         {INTEGRATIONS_SECTIONS.map((section) => {
           const on = section.id === active;
           const Glyph = section.icon;
@@ -199,13 +199,16 @@ export function IntegrationsHeader({
   back?: { href: string; label: string };
   actions?: ReactNode;
 }) {
+  // The Integrations designs set their titles in the sans face, not the kit's serif.
   return (
-    <PageHeader
-      title={title}
-      subtitle={subtitle}
-      actions={actions}
-      above={crumbs ? <Breadcrumbs items={crumbs} /> : back ? <BackLink {...back} /> : undefined}
-    />
+    <div className="[&_h1]:font-sans">
+      <PageHeader
+        title={title}
+        subtitle={subtitle}
+        actions={actions}
+        above={crumbs ? <Breadcrumbs items={crumbs} /> : back ? <BackLink {...back} /> : undefined}
+      />
+    </div>
   );
 }
 

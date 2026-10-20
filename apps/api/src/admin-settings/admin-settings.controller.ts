@@ -57,6 +57,7 @@ import { AdminBrandingService, BrandUploadTokens } from './admin-branding.servic
 import { AdminFeaturesService } from './admin-features.service.js';
 import { AdminOperationsService } from './admin-operations.service.js';
 import { AdminSettingsService } from './admin-settings.service.js';
+import { AdminHealthService } from './admin-health.service.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 const pipe = <S extends z.ZodType>(schema: S) => new ZodValidationPipe(schema);
@@ -75,6 +76,7 @@ type Kind = z.infer<typeof PlatformBrandAssetKind>;
 export class AdminSettingsController {
   constructor(
     private readonly settings: AdminSettingsService,
+    private readonly health: AdminHealthService,
     private readonly branding: AdminBrandingService,
     private readonly features: AdminFeaturesService,
     private readonly ops: AdminOperationsService,
@@ -138,6 +140,17 @@ export class AdminSettingsController {
   @Delete('branding/current/:kind')
   resetAsset(@Param('kind', kindPipe) kind: Kind) {
     return this.branding.reset(kind);
+  }
+
+  // Before email/:anything would ever match (static paths first).
+  @Get('email/status')
+  emailStatus() {
+    return this.health.emailStatus();
+  }
+
+  @Get('health')
+  systemHealth() {
+    return this.health.health();
   }
 
   @Get('email')
@@ -385,6 +398,7 @@ export class AdminSettingsController {
   providers: [
     AdminPrisma,
     AdminSettingsService,
+    AdminHealthService,
     AdminBrandingService,
     AdminFeaturesService,
     AdminOperationsService,

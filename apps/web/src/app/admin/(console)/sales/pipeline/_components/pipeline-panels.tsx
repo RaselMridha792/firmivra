@@ -4,15 +4,15 @@ import type { DateRange } from '@firmivra/ui';
 import { CalendarDots, ChartBar, Clock } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { useApiQuery } from '../../../../../../lib/query';
+import { ActivityLine } from '../../_components/feed-drawers';
 import {
   adminSales,
   appointmentTypeLabel,
   PERIOD_LABELS,
   type PeriodInput,
   type SalesPeriod,
-} from '../../../../../../mocks/admin-sales';
-import { useApiQuery } from '../../../../../../lib/query';
-import { ActivityLine } from '../../_components/feed-drawers';
+} from '../../_components/sales-api';
 import {
   BarRow,
   CompactSelect,

@@ -1,8 +1,13 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { DataMappingTab } from './_components/data-mapping-tab';
 
 export const metadata: Metadata = { title: 'Integration: Data mapping' };
 
-export default function IntegrationsIntegrationIdDataMappingPage() {
-  return <PageHeader title="Manage Integration" />;
+export default async function IntegrationsIntegrationIdDataMappingPage({
+  params,
+}: {
+  params: Promise<{ integrationId: string }>;
+}) {
+  const { integrationId } = await params;
+  return <DataMappingTab integrationId={integrationId} />;
 }

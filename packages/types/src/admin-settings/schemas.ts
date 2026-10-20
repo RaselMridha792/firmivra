@@ -239,6 +239,45 @@ export const AdminTestEmailResult = z.object({
 });
 export type AdminTestEmailResult = z.infer<typeof AdminTestEmailResult>;
 
+/** GET /admin/system-settings/email/status: Email & Notifications' Email Delivery Status. */
+export const AdminEmailStatus = z.object({
+  /** How email leaves the platform: SES, an SMTP server, or only the log (development). */
+  sender: z.enum(['SES', 'SMTP', 'LOG']),
+  /** Whether a custom SMTP server's secret reference is set. */
+  customSmtp: z.boolean(),
+  /** The newest Send Test Email, from its audit row; null before the first one. */
+  lastTest: z.object({ at: DateTime, accepted: z.boolean() }).nullable(),
+  /**
+   * The last 24 hours' delivery rate and bounces. They come from the firms' delivery records,
+   * which the console's scope does not read: null until a platform-readable source exists.
+   */
+  deliveryRate24h: z.number().nullable(),
+  bounced24h: z.number().int().nullable(),
+});
+export type AdminEmailStatus = z.infer<typeof AdminEmailStatus>;
+
+/**
+ * A service's state as the API can tell: ONLINE or DOWN when it was reached just now; CONFIGURED
+ * when it is set up but not called (sending a message or a payment to test it would be real);
+ * NOT_CONFIGURED when it is off (development) or missing.
+ */
+export const AdminServiceStatus = z.enum(['ONLINE', 'DOWN', 'CONFIGURED', 'NOT_CONFIGURED']);
+export type AdminServiceStatus = z.infer<typeof AdminServiceStatus>;
+
+/** GET /admin/system-settings/health: System Configuration's status and System Health. */
+export const AdminSystemHealth = z.object({
+  checkedAt: DateTime,
+  services: z.array(
+    z.object({
+      key: z.enum(['api', 'database', 'storage', 'email', 'sms', 'payments']),
+      status: AdminServiceStatus,
+      /** What was checked or why it is not ("SES", "EMAIL_MODE is log"); never a secret. */
+      detail: z.string().nullable(),
+    }),
+  ),
+});
+export type AdminSystemHealth = z.infer<typeof AdminSystemHealth>;
+
 // ---------- Brand assets ----------
 
 export const ADMIN_BRAND_ASSET_LIMITS = {
