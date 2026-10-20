@@ -251,6 +251,8 @@ test('Plan wizard: a new plan starts from the client record and moves to step 2'
   await page.getByTestId('wizard-next').click();
   await expect(page.getByText('Fill in the required fields to continue')).toBeVisible();
   await page.getByLabel('Plan Name').fill('Salon Growth Plan');
+  await page.getByLabel('How did you hear about us?').selectOption('Existing Client');
+  await page.getByLabel('Notes (optional)').fill('Wants online booking first.');
   await page.getByTestId('wizard-next').click();
   await expect(page).toHaveURL(/\/plans\/[0-9a-f-]{36}\/edit\/assessment$/, { timeout: 60_000 });
   await expect(page.getByTestId('step-financials')).toContainText('Bookkeeping');

@@ -160,6 +160,8 @@ interface ProfileForm {
   employees: string;
   hiring: string;
   team: string;
+  referral: string;
+  notes: string;
 }
 
 const formOf = (plan?: AdvisoryPlanDetail): ProfileForm => {
@@ -185,6 +187,8 @@ const formOf = (plan?: AdvisoryPlanDetail): ProfileForm => {
     employees: p.employeeCount == null ? '' : String(p.employeeCount),
     hiring: p.hiringPlans ?? '',
     team: (p.keyTeamMembers ?? []).map((m) => m.name).join(', '),
+    referral: p.referralSource ?? '',
+    notes: p.notes ?? '',
   };
 };
 
@@ -217,7 +221,21 @@ const profileOf = (f: ProfileForm) => ({
     .filter(Boolean)
     .slice(0, 30)
     .map((name) => ({ name })),
+  referralSource: orNull(f.referral),
+  notes: orNull(f.notes),
 });
+
+/** "How did you hear about us?": free text in the API (max 100); these are the answers offered. */
+const REFERRAL_SOURCES = [
+  'Existing Client',
+  'Referral',
+  'Website',
+  'Search Engine',
+  'Social Media',
+  'Event or Workshop',
+  'Advertising',
+  'Other',
+];
 
 function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
   const router = useRouter();
@@ -601,18 +619,21 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
             title="Additional Information"
             subtitle="Provide any other relevant information."
           />
-          <p className={`${quiet} text-left`}>
-            How the client found the firm, and notes about them, are kept on the client&apos;s
-            record.{' '}
-            {clientId ? (
-              <Link
-                href={`${BASE}/clients/${clientId}/notes`}
-                className="font-medium text-link hover:underline"
-              >
-                Open the client&apos;s notes
-              </Link>
-            ) : null}
-          </p>
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+            <Select
+              label="How did you hear about us?"
+              value={form.referral}
+              onChange={(e) => set('referral')(e.target.value)}
+              options={options(REFERRAL_SOURCES, form.referral, 'Not set')}
+            />
+            <Textarea
+              label="Notes (optional)"
+              rows={3}
+              maxLength={2000}
+              value={form.notes}
+              onChange={(e) => set('notes')(e.target.value)}
+            />
+          </div>
         </section>
       </div>
     </WizardFrame>
