@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TaskPriority } from '../db-enums.js';
 
 // The firm dashboard (R30): one read, GET /api/v1/business/dashboard/summary, for Owner, Admin and
 // Staff. Staff get the numbers of the clients assigned to them (as the clients, tax returns,
@@ -33,6 +34,20 @@ export const DashboardKpis = z.object({
 });
 export type DashboardKpis = z.infer<typeof DashboardKpis>;
 
+/** The Client Pipeline's period selector: "Completed" counts returns first filed in it. */
+export const DashboardPipelinePeriod = z.enum(['THIS_MONTH', 'LAST_MONTH', 'THIS_YEAR']);
+export type DashboardPipelinePeriod = z.infer<typeof DashboardPipelinePeriod>;
+
+/**
+ * GET /business/dashboard/summary's query: the Client Pipeline period (default this month) and
+ * the year of Revenue Overview and Service Breakdown (default this year; a future year is refused).
+ */
+export const DashboardSummaryQuery = z.strictObject({
+  pipelinePeriod: DashboardPipelinePeriod.optional().default('THIS_MONTH'),
+  revenueYear: z.coerce.number().int().min(2000).max(2100).optional(),
+});
+export type DashboardSummaryQuery = z.input<typeof DashboardSummaryQuery>;
+
 /** The design's five stages. Null: no record holds that stage (Consultation, for now). */
 export const DashboardPipeline = z.object({
   /** Leads waiting for the firm (SUBMITTED or IN_REVIEW). */
@@ -42,8 +57,10 @@ export const DashboardPipeline = z.object({
   intake: Count.nullable(),
   /** The same as kpis.returnsInProgress.value. */
   inProgress: Count.nullable(),
-  /** The same as kpis.completedReturns.value. */
+  /** Tax returns first filed in `period` (this month: the same as kpis.completedReturns.value). */
   completed: Count.nullable(),
+  /** The period `completed` counts; optional until R1's dashboard API PR. */
+  period: DashboardPipelinePeriod.optional(),
 });
 export type DashboardPipeline = z.infer<typeof DashboardPipeline>;
 
@@ -51,6 +68,11 @@ export type DashboardPipeline = z.infer<typeof DashboardPipeline>;
 export const DashboardRevenue = z.object({
   year: z.number().int(),
   totalCents: z.number().int(),
+  /**
+   * The year before over the same span (to the same day of the year for this year, the whole year
+   * for a past year), for "vs last year"; null when the firm has no payments that early.
+   */
+  previousYearCents: z.number().int().nullable().optional(),
   /** Twelve months, January first. */
   byMonthCents: z.array(z.number().int()).length(12),
   /** Through the invoice's engagement; serviceId null: invoices with no engagement. Largest first. */
@@ -69,6 +91,8 @@ export const DashboardTask = z.object({
   id: z.uuid(),
   title: z.string(),
   dueOn: Day,
+  /** Optional until R1's dashboard API PR. */
+  priority: TaskPriority.optional(),
   client: z.object({ id: z.uuid(), displayName: z.string() }),
 });
 export type DashboardTask = z.infer<typeof DashboardTask>;
@@ -80,5 +104,10 @@ export const DashboardSummary = z.object({
   pipeline: DashboardPipeline,
   revenue: DashboardRevenue,
   tasksDue: z.array(DashboardTask).max(5),
+  /**
+   * The firm's tax season (the date card: "Tax Season: Jan 15 – May 15, 2027", In Season or
+   * Off-Season); null until the firm's settings hold one (optional until R1's dashboard API PR).
+   */
+  taxSeason: z.object({ start: Day, end: Day, inSeason: z.boolean() }).nullable().optional(),
 });
 export type DashboardSummary = z.infer<typeof DashboardSummary>;

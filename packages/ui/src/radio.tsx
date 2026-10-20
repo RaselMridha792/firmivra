@@ -11,7 +11,12 @@ export function Radio({ label, id, className = '', ...props }: RadioProps) {
   const fieldId = id ?? generatedId;
   return (
     <label htmlFor={fieldId} className={`flex min-h-11 items-center gap-3 text-sm ${className}`}>
-      <input {...props} id={fieldId} type="radio" className="h-4 w-4 shrink-0" />
+      <input
+        {...props}
+        id={fieldId}
+        type="radio"
+        className="size-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+      />
       <span>{label}</span>
     </label>
   );
