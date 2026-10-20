@@ -28,22 +28,42 @@ interface Row {
   externalField: string;
   direction: IntegrationSyncDirection;
 }
-const DIRECTIONS: IntegrationSyncDirection[] = ['TWO_WAY', 'IMPORT', 'EXPORT'];
 
 export function DataMappingTab({ integrationId }: { integrationId: string }) {
+  const access = useApiQuery(['integrations', 'connection', integrationId], () =>
+    api.integrations.connection(integrationId),
+  );
   return (
     <ManageShell integrationId={integrationId} current="/data-mapping" testId="data-mapping-tab">
-      {(detail) => <Mappings integrationId={integrationId} canManage={!!detail?.canManage} />}
+      {(detail) => (
+        <Mappings
+          key={integrationId}
+          integrationId={integrationId}
+          canManage={!access.isError && !access.isPending && !!detail?.canManage}
+          directions={detail?.provider.directions ?? []}
+          defaultDirection={detail?.direction}
+        />
+      )}
     </ManageShell>
   );
 }
 
-function Mappings({ integrationId, canManage }: { integrationId: string; canManage: boolean }) {
+function Mappings({
+  integrationId,
+  canManage,
+  directions,
+  defaultDirection,
+}: {
+  integrationId: string;
+  canManage: boolean;
+  directions: IntegrationSyncDirection[];
+  defaultDirection?: IntegrationSyncDirection;
+}) {
   const query = useApiQuery(['integrations', 'mappings', integrationId], () =>
     api.integrations.mappings(integrationId),
   );
   const scopes = query.data?.scopes ?? [];
-  if (!query.data)
+  if (query.isError || !query.data)
     return (
       <Card title="Data Mapping" data-testid="mapping-scope" className="p-5!">
         {query.isError ? (
@@ -69,6 +89,8 @@ function Mappings({ integrationId, canManage }: { integrationId: string; canMana
           integrationId={integrationId}
           scope={scope}
           canManage={canManage}
+          directions={directions}
+          defaultDirection={defaultDirection}
         />
       ))}
     </div>
@@ -79,10 +101,14 @@ function ScopeCard({
   integrationId,
   scope,
   canManage,
+  directions,
+  defaultDirection,
 }: {
   integrationId: string;
   scope: Scope;
   canManage: boolean;
+  directions: IntegrationSyncDirection[];
+  defaultDirection?: IntegrationSyncDirection;
 }) {
   const saved: Row[] = scope.pairs.map(({ localField, externalField, direction }) => ({
     id: localField,
@@ -98,19 +124,38 @@ function ScopeCard({
     { invalidate: ['integrations'] },
   );
   const label = (list: { key: string; label: string }[], key: string) =>
-    list.find((field) => field.key === key)?.label ?? key;
+    list.find((field) => field.key === key)?.label ??
+    scope.pairs.find((pair) => pair.localField === key)?.localLabel ??
+    scope.pairs.find((pair) => pair.externalField === key)?.externalLabel ??
+    key;
   const free = (current: string) =>
     scope.localFields.filter(
       (field) => field.key === current || !rows.some((row) => row.localField === field.key),
     );
   const update = (index: number, patch: Partial<Row>) => {
     setProblem(null);
+    save.reset();
     setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   };
 
   function submit() {
+    if (!canManage || save.isPending) return;
+    setProblem(null);
     if (rows.some((row) => !row.localField || !row.externalField))
       return setProblem('Choose both fields on every row, or remove the row.');
+    if (rows.length > 200 || new Set(rows.map((row) => row.localField)).size !== rows.length)
+      return setProblem('Map each LVP Pro field once, with at most 200 mappings per scope.');
+    if (
+      rows.some(
+        (row) =>
+          !scope.localFields.some((field) => field.key === row.localField) ||
+          !scope.externalFields.some((field) => field.key === row.externalField) ||
+          !directions.includes(row.direction),
+      )
+    )
+      return setProblem(
+        'Some fields or directions are no longer supported. Update or remove those rows before saving.',
+      );
     const pairs = rows.map(({ localField, externalField, direction }) => ({
       localField,
       externalField,
@@ -155,36 +200,67 @@ function ScopeCard({
             >
               <Select
                 label="LVP Pro field"
+                disabled={!canManage || save.isPending}
                 value={row.localField}
                 onChange={(event) => update(index, { localField: event.target.value })}
                 options={[
                   { value: '', label: 'Choose a field' },
                   ...free(row.localField).map((f) => ({ value: f.key, label: f.label })),
+                  ...(row.localField &&
+                  !scope.localFields.some((field) => field.key === row.localField)
+                    ? [
+                        {
+                          value: row.localField,
+                          label: `${label(scope.localFields, row.localField)} (unavailable)`,
+                        },
+                      ]
+                    : []),
                 ]}
               />
               <Select
                 label="Provider field"
+                disabled={!canManage || save.isPending}
                 value={row.externalField}
                 onChange={(event) => update(index, { externalField: event.target.value })}
                 options={[
                   { value: '', label: 'Choose a field' },
                   ...scope.externalFields.map((f) => ({ value: f.key, label: f.label })),
+                  ...(row.externalField &&
+                  !scope.externalFields.some((field) => field.key === row.externalField)
+                    ? [
+                        {
+                          value: row.externalField,
+                          label: `${label(scope.externalFields, row.externalField)} (unavailable)`,
+                        },
+                      ]
+                    : []),
                 ]}
               />
               <Select
                 label="Direction"
+                disabled={!canManage || save.isPending || !directions.length}
                 value={row.direction}
                 onChange={(event) =>
                   update(index, {
-                    direction: DIRECTIONS.find((d) => d === event.target.value) ?? 'TWO_WAY',
+                    direction: directions.find((d) => d === event.target.value) ?? row.direction,
                   })
                 }
-                options={DIRECTIONS.map((d) => ({ value: d, label: formatDirection(d) }))}
+                options={[
+                  ...directions.map((d) => ({ value: d, label: formatDirection(d) })),
+                  ...(!directions.includes(row.direction)
+                    ? [{ value: row.direction, label: 'Unsupported direction' }]
+                    : []),
+                ]}
               />
               <Button
                 variant="ghost"
                 aria-label={`Remove row ${index + 1}`}
-                onClick={() => setRows((current) => current.filter((_, i) => i !== index))}
+                disabled={!canManage || save.isPending}
+                onClick={() => {
+                  setProblem(null);
+                  save.reset();
+                  setRows((current) => current.filter((_, i) => i !== index));
+                }}
               >
                 <Trash aria-hidden weight="fill" className="size-4" />
               </Button>
@@ -193,7 +269,12 @@ function ScopeCard({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button
               variant="ghost"
-              disabled={rows.length >= scope.localFields.length}
+              disabled={
+                !canManage ||
+                save.isPending ||
+                !directions.length ||
+                rows.length >= Math.min(scope.localFields.length, 200)
+              }
               onClick={() =>
                 setRows((current) => [
                   ...current,
@@ -201,12 +282,15 @@ function ScopeCard({
                     id: crypto.randomUUID(),
                     localField: '',
                     externalField: '',
-                    direction: 'TWO_WAY',
+                    direction:
+                      directions.find((value) => value === defaultDirection) ??
+                      directions[0] ??
+                      'TWO_WAY',
                   },
                 ])
               }
             >
-              <Plus aria-hidden weight="bold" className="size-4" />
+              <Plus aria-hidden weight="fill" className="size-4" />
               Add Field
             </Button>
             <div className="flex gap-3">
@@ -222,7 +306,7 @@ function ScopeCard({
               >
                 Cancel
               </Button>
-              <Button disabled={save.isPending} onClick={submit}>
+              <Button disabled={!canManage || save.isPending} onClick={submit}>
                 {save.isPending ? 'Saving…' : 'Save Mapping'}
               </Button>
             </div>
@@ -251,7 +335,7 @@ function ScopeCard({
                 <td className="py-2 text-center" title={formatDirection(row.direction)}>
                   <ArrowsLeftRight
                     aria-hidden
-                    weight="bold"
+                    weight="fill"
                     className="inline size-4 text-action"
                   />
                   <span className="sr-only">{formatDirection(row.direction)}</span>
