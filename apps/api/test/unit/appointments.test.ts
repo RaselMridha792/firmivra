@@ -368,11 +368,13 @@ describe('errors', () => {
 
 describe('the API input schemas', () => {
   const uuid = '01999999-0000-7000-8000-000000000001';
-  const at = '2026-10-20T10:00:00.000Z';
+  // A week ahead, so the schemas' "not in the past" rule never fails the test once its day has passed.
+  const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
+  const atPlusHour = new Date(Date.parse(at) + 3_600_000).toISOString();
   const cases = [
     [CreateTypeBody, { durationMinutes: 30 }, 'name'],
     [UpdateTypeBody, {}, 'name'],
-    [CreateBlockBody, { userId: null, startsAt: at, endsAt: '2026-10-20T11:00:00.000Z' }, 'reason'],
+    [CreateBlockBody, { userId: null, startsAt: at, endsAt: atPlusHour }, 'reason'],
     [
       BookBody,
       { clientId: uuid, staffUserId: uuid, typeId: uuid, startsAt: at },
@@ -429,7 +431,7 @@ describe('the API input schemas', () => {
       [RescheduleBody, { startsAt: at }],
       [BookMineBody, { typeId: uuid, startsAt: at }],
       [RescheduleMineBody, { startsAt: at }],
-      [CreateBlockBody, { userId: null, startsAt: at, endsAt: '2026-10-20T11:00:00Z' }],
+      [CreateBlockBody, { userId: null, startsAt: at, endsAt: atPlusHour }],
     ];
     for (const [schema, body] of ok) expect(schema.safeParse(body).success).toBe(true);
     const bad: [z.ZodType, object][] = [
