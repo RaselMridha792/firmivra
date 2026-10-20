@@ -23,6 +23,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
+import { useApiMutation } from '../../../../../lib/query';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -405,4 +406,59 @@ export async function uploadBrandImage(
   if (asset.scanStatus === 'CLEAN')
     await api.adminSettings.setBrandAsset(kind, { assetId: asset.id });
   return asset;
+}
+
+/**
+ * The newest image uploaded for a kind, when it is not the one in use: still being checked (the
+ * malware scan), ready ("Use new image" puts it in use), or refused by the scan.
+ */
+export function NewImage({
+  kind,
+  currentId,
+  onDone,
+}: {
+  kind: PlatformBrandAssetKind;
+  currentId: string | null;
+  onDone: (s: { tone: 'ok' | 'error' | 'info'; text: string }) => void;
+}) {
+  const list = useApiQuery([...SS, 'brand-assets', kind], () =>
+    api.adminSettings.brandAssets(kind),
+  );
+  const use = useApiMutation(
+    (assetId: string) => api.adminSettings.setBrandAsset(kind, { assetId }),
+    {
+      invalidate: [...SS],
+    },
+  );
+  const newest = list.data?.items[0];
+  if (!newest || newest.id === currentId) return null;
+  if (newest.scanStatus === 'PENDING')
+    return (
+      <p className="flex items-center gap-2 text-xs text-muted" data-testid={`new-image-${kind}`}>
+        {newest.fileName} is being checked.
+        <button type="button" className="text-action" onClick={() => void list.refetch()}>
+          Check again
+        </button>
+      </p>
+    );
+  if (newest.scanStatus !== 'CLEAN')
+    return (
+      <p className="text-xs text-danger">
+        {newest.fileName} could not be used. Upload another image.
+      </p>
+    );
+  return (
+    <Button
+      variant="secondary"
+      disabled={use.isPending}
+      onClick={() =>
+        use.mutate(newest.id, {
+          onSuccess: () => onDone({ tone: 'ok', text: `${newest.fileName} is in use.` }),
+          onError: (e) => onDone(failedStatus(e)),
+        })
+      }
+    >
+      <span className="text-xs text-action">Use new image ({newest.fileName})</span>
+    </Button>
+  );
 }
