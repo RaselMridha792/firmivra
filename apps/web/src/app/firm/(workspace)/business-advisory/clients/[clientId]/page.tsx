@@ -1,8 +1,13 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { ClientOverview } from '../../_components/client-overview';
 
 export const metadata: Metadata = { title: 'Advisory client' };
 
-export default function BusinessAdvisoryClientsClientIdPage() {
-  return <PageHeader title="Advisory Client" />;
+export default async function BusinessAdvisoryClientsClientIdPage({
+  params,
+}: {
+  params: Promise<{ clientId: string }>;
+}) {
+  const { clientId } = await params;
+  return <ClientOverview advisoryClientId={clientId} />;
 }
