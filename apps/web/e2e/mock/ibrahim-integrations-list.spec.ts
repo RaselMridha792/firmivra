@@ -1,4 +1,4 @@
-﻿import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { IntegrationCategory, IntegrationEnvironment, IntegrationTab } from '@firmivra/types';
 import { integrationOverviewFixture } from '../../src/mocks/integrations';
 
@@ -120,8 +120,19 @@ for (const state of ['empty', 'offline', 'forbidden'] as const) {
     await page.goto(url);
     await expectFrames(page);
     await expect(page.getByTestId('integration-card')).toHaveCount(0);
-    await expect(page.getByText('No fields mapped yet.')).toBeVisible();
-    if (state === 'offline') await expect(page.getByTestId('page-error')).toBeVisible();
+    await expect(
+      page.getByText(
+        state === 'empty'
+          ? 'No fields mapped yet.'
+          : 'Mapping status is unavailable until the connection is restored.',
+      ),
+    ).toBeVisible();
+    if (state === 'offline') {
+      await expect(page.getByTestId('page-error')).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Integration summary' }).getByText('—', { exact: true }),
+      ).toHaveCount(3);
+    }
     if (state === 'forbidden') await expect(page.getByTestId('page-forbidden')).toBeVisible();
     if (state === 'empty')
       await expect(page.getByText('No integrations available yet.')).toBeVisible();

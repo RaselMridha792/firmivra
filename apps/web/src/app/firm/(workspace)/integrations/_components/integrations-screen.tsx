@@ -135,21 +135,21 @@ export function IntegrationsScreen() {
         <SummaryCard
           icon={Plug}
           label="Connected"
-          value={summary?.connected ?? 0}
+          value={summary?.connected ?? '—'}
           note="Tools actively syncing"
           tone="green"
         />
         <SummaryCard
           icon={Warning}
           label="Needs Attention"
-          value={summary?.needsAttention ?? 0}
+          value={summary?.needsAttention ?? '—'}
           note="Requires your action"
           tone="red"
         />
         <SummaryCard
           icon={GridFour}
           label="Available"
-          value={summary?.available ?? 0}
+          value={summary?.available ?? '—'}
           note="Ready to connect"
           tone="amber"
         />
@@ -167,39 +167,48 @@ export function IntegrationsScreen() {
           tone="amber"
         />
       </section>
-      <div className="grid min-w-0 items-center gap-3 xl:grid-cols-[minmax(0,1fr)_15rem_11rem_auto]">
-        <div className="min-w-0 overflow-x-auto">
+      <div className="grid min-w-0 items-center gap-3 xl:grid-cols-12">
+        <div className="min-w-0 overflow-x-auto xl:col-span-5 [&_button]:px-2 [&_button]:text-xs">
           <Tabs
             variant="segmented"
             label="Integration status"
             value={tab}
             onChange={(id) => setTab(id as IntegrationTab)}
             items={[
-              { id: 'all', label: `All Integrations (${summary?.total ?? 0})` },
-              { id: 'connected', label: `Connected (${summary?.connected ?? 0})` },
-              { id: 'available', label: `Available (${summary?.available ?? 0})` },
-              { id: 'attention', label: `Needs Attention (${summary?.needsAttention ?? 0})` },
+              { id: 'all', label: `All Integrations (${summary?.total ?? '—'})` },
+              { id: 'connected', label: `Connected (${summary?.connected ?? '—'})` },
+              { id: 'available', label: `Available (${summary?.available ?? '—'})` },
+              { id: 'attention', label: `Needs Attention (${summary?.needsAttention ?? '—'})` },
             ]}
           />
         </div>
-        <SearchField
-          label="Search integrations"
-          placeholder="Search integrations..."
-          minWidth="0"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <Select
-          label="Integration category"
-          hideLabel
-          value={category}
-          onChange={(event) => setCategory(event.target.value)}
-          options={[
-            { value: '', label: 'All Categories' },
-            ...IntegrationCategory.options.map((value) => ({ value, label: categoryLabel(value) })),
-          ]}
-        />
-        <EnvironmentSwitch value={environment} onChange={setEnvironment} />
+        <div className="min-w-0 xl:col-span-2">
+          <SearchField
+            label="Search integrations"
+            placeholder="Search integrations..."
+            minWidth="0"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </div>
+        <div className="min-w-0 xl:col-span-2">
+          <Select
+            label="Integration category"
+            hideLabel
+            value={category}
+            onChange={(event) => setCategory(event.target.value)}
+            options={[
+              { value: '', label: 'All Categories' },
+              ...IntegrationCategory.options.map((value) => ({
+                value,
+                label: categoryLabel(value),
+              })),
+            ]}
+          />
+        </div>
+        <div className="xl:col-span-3">
+          <EnvironmentSwitch value={environment} onChange={setEnvironment} />
+        </div>
       </div>
       {overview.isPending || overview.isError ? (
         <PageState query={overview}>{() => null}</PageState>
@@ -323,7 +332,7 @@ export function IntegrationsScreen() {
                 <LinkIcon weight="fill" className="size-4" />
                 <span className="flex-1">{row.label}</span>
                 <span className="text-muted">{row.mappedFields} fields mapped</span>
-                <CaretRight />
+                <CaretRight weight="fill" />
               </li>
             ))}
           </ul>
@@ -357,7 +366,7 @@ export function IntegrationsScreen() {
               onClick={() => setPanel('activity')}
             >
               View All
-              <ArrowRight />
+              <ArrowRight weight="fill" />
             </Button>
           </div>
           <ul className="mb-3 divide-y divide-divider">
@@ -421,7 +430,7 @@ export function IntegrationsScreen() {
                   href={`/integrations/${connection.id}/data-mapping`}
                 >
                   {item.provider.name}
-                  <CaretRight />
+                  <CaretRight weight="fill" />
                 </Link>
               )),
             )}

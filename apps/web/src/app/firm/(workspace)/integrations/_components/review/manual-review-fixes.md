@@ -19,3 +19,9 @@ connection statuses or API fields were invented to simulate the reference.
 To finish the exact per-provider action matrix, the contract owner must supply the supported
 card actions or a documented capability rule. The request is also recorded in PR #761.
 Validation: 7 focused mock browser tests, web TypeScript and changed-file ESLint pass. The local list and marketplace real-API smoke tests pass. Desktop/mobile and empty/offline review screenshots were refreshed.
+
+## Oct 20 review update
+
+List: unknown summary and tab counts now use a dash; all four status tabs fit at 1440px using existing grid/spacing tokens. Offline assertions follow the existing mapping-unavailable state. Seven focused browser tests, web TypeScript and focused ESLint passed.
+
+Latest origin/main was merged before this verification. Synthetic data, empty and API-unreachable screenshots are 1440px; mobile evidence is 375px. The source mockup was cropped into three regions and compared with the rendered page. Existing asset/token/shell differences remain documented; exact visual sign-off and Tumit pre-review are pending. Evidence is published on the existing ibrahim/FIR-I01-integrations-screenshots branch.
