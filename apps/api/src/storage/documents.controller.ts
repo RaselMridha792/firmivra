@@ -44,6 +44,7 @@ import { DocumentTemplatesService } from '../documents/templates.service.js';
 import { DocumentLibraryService } from '../documents/library.service.js';
 import { MyDocumentsController } from './my-documents.controller.js';
 import { MyDocumentsService } from './my-documents.service.js';
+import { MyPacketsService } from './my-packets.service.js';
 import { ScanResultsService } from './scan-results.service.js';
 import { UploadTokens } from './upload-token.js';
 import { UploadsService } from './uploads.service.js';
@@ -216,6 +217,7 @@ export class DocumentsController {
     UploadsService,
     FirmDocumentsService,
     MyDocumentsService,
+    MyPacketsService,
     DocumentRequestsService,
     DocumentLibraryService,
     DocumentFoldersService,

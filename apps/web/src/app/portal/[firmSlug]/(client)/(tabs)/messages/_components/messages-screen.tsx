@@ -47,9 +47,9 @@ export function MessagesScreen() {
       cell: (t) => (
         <span className="flex items-center gap-2">
           {t.from === 'FIRM' ? (
-            <Mail aria-hidden className="size-5 shrink-0 text-firm-text" />
+            <Mail aria-hidden className="size-5 shrink-0 text-action" />
           ) : (
-            <Send aria-hidden className="size-5 shrink-0 text-firm-text" />
+            <Send aria-hidden className="size-5 shrink-0 text-action" />
           )}
           <span className={t.unreadCount > 0 ? 'font-bold text-heading' : 'text-heading'}>
             {t.subject}
@@ -75,7 +75,7 @@ export function MessagesScreen() {
           ) : null}
           <Button
             variant="ghost"
-            className="text-firm-text! underline hover:bg-folder-surface! enabled:cursor-pointer"
+            className="text-action! underline hover:bg-folder-surface! enabled:cursor-pointer"
             onClick={() => setOpenId(t.id)}
             aria-label={`View ${t.subject}`}
           >

@@ -32,10 +32,12 @@ import {
   type PlatformNotificationPriority,
 } from '@firmivra/types';
 import { useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { recordHref } from './notification-links';
 
 type CategoryFilter = 'ALL' | PlatformNotificationCategory;
 type PriorityFilter = 'ALL' | PlatformNotificationPriority;
@@ -156,6 +158,7 @@ function rangeOf(filter: DateFilter, customFrom: string, customTo: string) {
 
 export function NotificationsScreen() {
   const client = useQueryClient();
+  const router = useRouter();
   const [category, setCategory] = useState<CategoryFilter>('ALL');
   const [search, setSearch] = useState('');
   const [searchText, setSearchText] = useState('');
@@ -264,13 +267,16 @@ export function NotificationsScreen() {
     act(ids, attention === 'RESOLVED' ? 'RESOLVE' : 'DISMISS', [message, message]);
   }
 
-  function openDetails(item: AdminNotification) {
-    setDetail(item);
+  /** Opening marks it read, then goes to the record behind it, or shows the details panel. */
+  function openItem(item: AdminNotification) {
     if (!isRead(item))
       void api.adminNotifications
         .read(item.id)
         .then(() => client.invalidateQueries({ queryKey: NOTIFICATIONS }))
         .catch(() => undefined);
+    const href = recordHref(item);
+    if (href) router.push(href);
+    else setDetail(item);
   }
 
   function markAllFilteredRead() {
@@ -666,7 +672,7 @@ export function NotificationsScreen() {
                     />
                   </td>
                   <td className="px-3 py-1.5">
-                    <NotificationDescription item={item} onOpen={() => openDetails(item)} />
+                    <NotificationDescription item={item} onOpen={() => openItem(item)} />
                   </td>
                   <td className="px-3 py-1.5">
                     <p className="truncate font-medium text-heading">{relatedName(item)}</p>
@@ -691,7 +697,7 @@ export function NotificationsScreen() {
                     <div className="flex items-center justify-end gap-2">
                       <Button
                         variant="outline"
-                        onClick={() => openDetails(item)}
+                        onClick={() => openItem(item)}
                         className={`min-h-9 whitespace-nowrap px-3 text-sm font-medium ${
                           isRead(item) ? 'border-divider text-heading' : 'border-action text-action'
                         }`}
@@ -765,7 +771,7 @@ export function NotificationsScreen() {
                 <div className="min-w-0 flex-1">
                   <button
                     type="button"
-                    onClick={() => openDetails(item)}
+                    onClick={() => openItem(item)}
                     className="block text-left text-sm font-semibold text-heading hover:text-action"
                   >
                     {item.title}
@@ -807,7 +813,7 @@ export function NotificationsScreen() {
               </dl>
               <Button
                 variant="outline"
-                onClick={() => openDetails(item)}
+                onClick={() => openItem(item)}
                 className="mt-4 min-h-9 w-full border-divider text-action"
               >
                 {actionLabel(item)}

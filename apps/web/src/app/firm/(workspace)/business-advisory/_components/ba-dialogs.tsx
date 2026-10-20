@@ -182,10 +182,13 @@ export function AddClientDialog({
  */
 export function AddGoalDialog({
   advisoryClientId: preset,
+  planId: presetPlan,
   onClose,
   onAdded,
 }: {
   advisoryClientId?: string;
+  /** Add the goal to this plan (the wizard's Goals & Strategy step). */
+  planId?: string;
   onClose: () => void;
   onAdded: (title: string) => void;
 }) {
@@ -200,7 +203,7 @@ export function AddGoalDialog({
       ? api.advisory.plans({ advisoryClientId: clientId, pageSize: 100 })
       : Promise.resolve(null),
   );
-  const [planId, setPlanId] = useState('');
+  const [planId, setPlanId] = useState(presetPlan ?? '');
   const [title, setTitle] = useState('');
   const [area, setArea] = useState('');
   const [targetDate, setTargetDate] = useState('');

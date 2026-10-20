@@ -11,7 +11,7 @@ import {
   type PlanAccess,
   type RequiredRole,
   type UpdateCatalogBody,
-} from '../../../../../../../mocks/admin-integrations';
+} from '../../../_components/integrations-contract';
 import { urlProblem } from '../../_components/catalog-parts';
 
 /**

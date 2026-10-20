@@ -9,7 +9,6 @@ import {
   CalendarBlank,
   CaretDown,
   ChatCircleDots,
-  CheckCircle,
   EnvelopeSimple,
   FileText,
   FloppyDisk,
@@ -17,7 +16,6 @@ import {
   ListBullets,
   ListNumbers,
   MagnifyingGlass,
-  NotePencil,
   Paperclip,
   PaperPlaneTilt,
   Phone,
@@ -30,81 +28,51 @@ import {
   TextB,
   TextItalic,
   TextUnderline,
-  User,
   X,
   type Icon,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  ADMIN_COMM_ERRORS,
+  FIRM_PLANS,
+  type AdminCommContact,
+  type AdminCommContactRef,
+  type AdminCommSendMode,
+} from '@firmivra/types';
+import { api } from '../../../../../../lib/api';
+import { errorMessage } from '../../../../../../lib/errors';
+import { useApiQuery } from '../../../../../../lib/query';
 
 type Channel = 'EMAIL' | 'SMS';
-type RecipientKind = 'Client' | 'Firm' | 'Team' | 'Lead';
-
-interface Recipient {
-  id: string;
-  label: string;
-  kind: RecipientKind;
-  email?: string;
-  phone?: string;
-  organization?: string;
-  assignee?: string;
-  source?: string;
-  since?: string;
-  status?: string;
+const kindLabels: Record<AdminCommContact['type'], string> = {
+  FIRM: 'Firm',
+  LEAD: 'Lead',
+  TEAM: 'Team',
+};
+/** A contact's key and its reference (the record, never typed contact details). */
+const keyOf = (c: AdminCommContact) =>
+  `${c.type}:${c.business?.id ?? c.salesContactId ?? c.userId ?? c.name}`;
+function refOf(c: AdminCommContact): AdminCommContactRef | null {
+  if (c.type === 'FIRM' && c.business) return { type: 'FIRM', businessId: c.business.id };
+  if (c.type === 'LEAD' && c.salesContactId)
+    return { type: 'LEAD', salesContactId: c.salesContactId };
+  if (c.type === 'TEAM' && c.userId) return { type: 'TEAM', userId: c.userId };
+  return null;
 }
-
-const recipients: Recipient[] = [
-  {
-    id: 'karen-wilson',
-    label: 'Karen Wilson',
-    kind: 'Client',
-    email: 'karen.wilson@example.test',
-    phone: '(555) 010-0142',
-    organization: 'Blue Ridge Consulting',
-    assignee: 'Octavia Holder',
-    source: 'Website',
-    since: 'Oct 2, 2026',
-    status: 'Active Client',
-  },
-  { id: 'blue-ridge', label: 'Blue Ridge Consulting (Firm)', kind: 'Firm' },
-  { id: 'onboarding-team', label: 'Team: Onboarding', kind: 'Team' },
-  {
-    id: 'jordan-lee',
-    label: 'Jordan Lee',
-    kind: 'Lead',
-    email: 'jordan.lee@example.test',
-    phone: '(555) 010-0198',
-    organization: 'Northstar Tax Group',
-    assignee: 'Octavia Holder',
-    source: 'Referral',
-    since: 'Oct 10, 2026',
-    status: 'New Lead',
-  },
-  {
-    id: 'maya-chen',
-    label: 'Maya Chen',
-    kind: 'Client',
-    email: 'maya.chen@example.test',
-    phone: '(555) 010-0175',
-    organization: 'Chen Studio',
-    assignee: 'Octavia Holder',
-    source: 'Website',
-    since: 'Oct 8, 2026',
-    status: 'Active Client',
-  },
-];
-
-const activity = [
-  { icon: EnvelopeSimple, title: 'Email received', date: 'Oct 14, 2026 10:21 AM' },
-  { icon: EnvelopeSimple, title: 'Email sent', date: 'Oct 14, 2026 10:24 AM' },
-  { icon: FileText, title: 'Form submitted', date: 'Oct 13, 2026 2:15 PM' },
-  { icon: CheckCircle, title: 'Status changed to Client', date: 'Oct 12, 2026 11:03 AM' },
-  { icon: NotePencil, title: 'Note added', date: 'Oct 10, 2026 9:42 AM' },
-];
-
-const initialMessage =
-  "Hi {{first_name}},\n\nWelcome to Firmivra! We're excited to have you {{client_type}} on board.\n\nOur team is here to help you get started. If you have any questions, just reply to this message.\n\nBest regards,\nThe Firmivra Team";
+const labelOf = (c: AdminCommContact) =>
+  c.type === 'FIRM' && c.business && c.business.name !== c.name
+    ? `${c.name} (${c.business.name})`
+    : c.type === 'TEAM'
+      ? `Team: ${c.name}`
+      : c.name;
+const FIRST_NAME = '{{contact.first_name}}';
+const emails = (text: string) =>
+  text
+    .split(/[,;\s]+/)
+    .map((e) => e.trim())
+    .filter(Boolean);
 
 const textTools: { label: string; icon: Icon; command: string; value?: string }[] = [
   { label: 'Bold', icon: TextB, command: 'bold' },
@@ -176,9 +144,10 @@ export function MessageComposer() {
   const router = useRouter();
   const editorRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [selectedIds, setSelectedIds] = useState(['karen-wilson', 'blue-ridge', 'onboarding-team']);
-  const [activeId, setActiveId] = useState('karen-wilson');
+  const [selected, setSelected] = useState<AdminCommContact[]>([]);
+  const [activeKey, setActiveKey] = useState('');
   const [search, setSearch] = useState('');
+  const [searchText, setSearchText] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [channel, setChannel] = useState<Channel>('EMAIL');
   const [ccOpen, setCcOpen] = useState(false);
@@ -186,41 +155,54 @@ export function MessageComposer() {
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
   const [template, setTemplate] = useState('');
-  const [subject, setSubject] = useState('Welcome to Firmivra!');
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [loadedTemplate, setLoadedTemplate] = useState('');
+  const [subject, setSubject] = useState('');
   const [recipientDetailsOpen, setRecipientDetailsOpen] = useState(true);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState('');
   const [sendOptionsOpen, setSendOptionsOpen] = useState(false);
-  const [sendNotice, setSendNotice] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
 
-  const selectedRecipients = useMemo(
-    () =>
-      selectedIds
-        .map((id) => recipients.find((recipient) => recipient.id === id))
-        .filter((item) => item),
-    [selectedIds],
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setSearchText(search.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+  const contacts = useApiQuery(['admin-communications', 'contacts', searchText], () =>
+    searchText
+      ? api.adminCommunications.contacts({ search: searchText })
+      : Promise.resolve({ items: [] }),
   );
-  const activeRecipient = selectedRecipients.find((recipient) => recipient?.id === activeId);
-  const filteredRecipients = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return recipients.filter(
-      (recipient) =>
-        !selectedIds.includes(recipient.id) &&
-        (!term || `${recipient.label} ${recipient.kind}`.toLowerCase().includes(term)),
-    );
-  }, [search, selectedIds]);
+  const templates = useApiQuery(['admin-communications', 'templates', 'active', channel], () =>
+    api.adminCommunications.templates.list({
+      status: 'ACTIVE',
+      channel,
+      sort: 'NAME',
+      pageSize: 100,
+    }),
+  );
+  const person = selected.find((c) => keyOf(c) === activeKey) ?? selected[0];
+  const firmId = person?.type === 'FIRM' ? (person.business?.id ?? null) : null;
+  const firm = useApiQuery(['firms', 'detail', firmId ?? 'none'], () =>
+    firmId ? api.firmApplications.getFirm(firmId) : Promise.resolve(null),
+  );
 
-  const addRecipient = (recipient: Recipient) => {
-    setSelectedIds((current) => [...current, recipient.id]);
-    setActiveId(recipient.id);
+  const filteredRecipients = useMemo(() => {
+    const chosen = new Set(selected.map(keyOf));
+    return (contacts.data?.items ?? []).filter((c) => !chosen.has(keyOf(c)));
+  }, [contacts.data, selected]);
+
+  const addRecipient = (contact: AdminCommContact) => {
+    setSelected((current) => [...current, contact]);
+    setActiveKey(keyOf(contact));
     setSearch('');
     setSearchOpen(false);
   };
 
-  const removeRecipient = (id: string) => {
-    const remaining = selectedIds.filter((recipientId) => recipientId !== id);
-    setSelectedIds(remaining);
-    if (id === activeId) setActiveId(remaining[0] ?? '');
+  const removeRecipient = (key: string) => {
+    const remaining = selected.filter((c) => keyOf(c) !== key);
+    setSelected(remaining);
+    if (key === activeKey) setActiveKey(remaining[0] ? keyOf(remaining[0]) : '');
   };
 
   const applyFormat = (command: string, value?: string) => {
@@ -231,20 +213,56 @@ export function MessageComposer() {
   const insertText = (value: string) => applyFormat('insertText', value);
 
   const loadTemplate = () => {
-    if (!template) return;
-    setSubject(template === 'welcome' ? 'Welcome to Firmivra!' : 'Monthly Newsletter');
-    if (editorRef.current) editorRef.current.innerText = initialMessage;
+    const chosen = templates.data?.items.find((t) => t.id === template);
+    if (!chosen) return;
+    setLoadedTemplate(chosen.id);
+    if (chosen.subject) setSubject(chosen.subject);
+    if (editorRef.current) editorRef.current.innerText = chosen.body;
   };
 
-  const attachFiles = (files: FileList | null) => {
-    if (!files) return;
-    setAttachedFiles((current) => [
-      ...current,
-      ...Array.from(files).filter((file) => file.size <= 10 * 1024 * 1024),
-    ]);
-  };
-
-  const person = activeRecipient ?? undefined;
+  /** One message per recipient, each in its own thread; Cc and Bcc on email only. */
+  async function submit(mode: AdminCommSendMode) {
+    const body = editorRef.current?.innerText.trim() ?? '';
+    if (!selected.length) return setNotice('Add at least one recipient.');
+    if (!body) return setNotice('Write a message.');
+    if (channel === 'EMAIL' && mode !== 'DRAFT' && !subject.trim())
+      return setNotice('Add a subject.');
+    if (mode === 'SCHEDULE' && !scheduleAt) return setNotice('Choose when to send it.');
+    setBusy(true);
+    setNotice('');
+    let done = 0;
+    try {
+      for (const contact of selected) {
+        const ref = refOf(contact);
+        if (!ref) continue;
+        await api.adminCommunications.messages.create({
+          contact: ref,
+          channel,
+          ...(channel === 'EMAIL' && subject.trim() ? { subject: subject.trim() } : {}),
+          body,
+          ...(loadedTemplate ? { templateId: loadedTemplate } : {}),
+          ...(channel === 'EMAIL' && cc.trim() ? { cc: emails(cc) } : {}),
+          ...(channel === 'EMAIL' && bcc.trim() ? { bcc: emails(bcc) } : {}),
+          mode,
+          ...(mode === 'SCHEDULE'
+            ? {
+                scheduledAt: new Date(scheduleAt).toISOString(),
+                scheduledTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              }
+            : {}),
+          idempotencyKey: crypto.randomUUID(),
+        });
+        done += 1;
+      }
+      router.push('/communications');
+    } catch (error) {
+      setNotice(
+        `${done ? `${done} of ${selected.length} done. ` : ''}${errorMessage(error, ADMIN_COMM_ERRORS)}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -266,6 +284,8 @@ export function MessageComposer() {
           <>
             <Button
               variant="secondary"
+              disabled={busy}
+              onClick={() => void submit('DRAFT')}
               className="border-transparent bg-info-soft text-action hover:bg-folder-hover"
             >
               <CalendarBlank aria-hidden weight="fill" className="size-4" />
@@ -273,7 +293,11 @@ export function MessageComposer() {
             </Button>
             <div className="relative">
               <div className="flex overflow-hidden rounded-control">
-                <Button className="rounded-r-none" onClick={() => setSendNotice(true)}>
+                <Button
+                  className="rounded-r-none"
+                  disabled={busy}
+                  onClick={() => void submit('SEND')}
+                >
                   <PaperPlaneTilt aria-hidden weight="fill" className="size-4" />
                   Send Now
                 </Button>
@@ -307,7 +331,7 @@ export function MessageComposer() {
         role="status"
         className="rounded-control bg-info-soft px-3 py-2 text-sm text-text empty:hidden"
       >
-        {sendNotice ? 'Message sending is not connected in this preview.' : null}
+        {notice || null}
       </p>
 
       <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-7">
@@ -319,24 +343,28 @@ export function MessageComposer() {
           >
             <div className="relative rounded-control border border-border bg-surface">
               <div className="flex min-h-18 flex-wrap items-center gap-2 px-3 py-2">
-                {selectedRecipients.map((recipient) =>
-                  recipient ? (
-                    <span
-                      key={recipient.id}
-                      className="inline-flex max-w-full items-center gap-1.5 rounded-pill bg-info-soft px-2.5 py-1 text-sm text-action"
+                {selected.map((recipient) => (
+                  <span
+                    key={keyOf(recipient)}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-pill bg-info-soft px-2.5 py-1 text-sm text-action"
+                  >
+                    <button
+                      type="button"
+                      className="truncate"
+                      onClick={() => setActiveKey(keyOf(recipient))}
                     >
-                      <span className="truncate">{recipient.label}</span>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${recipient.label}`}
-                        onClick={() => removeRecipient(recipient.id)}
-                        className="shrink-0 rounded-full hover:bg-folder-hover"
-                      >
-                        <X aria-hidden weight="bold" className="size-3.5" />
-                      </button>
-                    </span>
-                  ) : null,
-                )}
+                      {labelOf(recipient)}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${labelOf(recipient)}`}
+                      onClick={() => removeRecipient(keyOf(recipient))}
+                      className="shrink-0 rounded-full hover:bg-folder-hover"
+                    >
+                      <X aria-hidden weight="bold" className="size-3.5" />
+                    </button>
+                  </span>
+                ))}
                 <div className="flex min-w-40 flex-1 items-center gap-2">
                   <Phone aria-hidden weight="fill" className="size-4 shrink-0 text-action" />
                   <MagnifyingGlass aria-hidden className="size-4 shrink-0 text-muted" />
@@ -364,10 +392,10 @@ export function MessageComposer() {
                 </div>
                 <button
                   type="button"
-                  aria-label={`${selectedIds.length} recipients selected`}
+                  aria-label={`${selected.length} recipients selected`}
                   className="inline-flex shrink-0 items-center gap-2 text-sm text-text"
                 >
-                  To ({selectedIds.length})
+                  To ({selected.length})
                   <CaretDown aria-hidden weight="bold" className="size-4 text-muted" />
                 </button>
               </div>
@@ -380,19 +408,25 @@ export function MessageComposer() {
                   {filteredRecipients.length ? (
                     filteredRecipients.map((recipient) => (
                       <button
-                        key={recipient.id}
+                        key={keyOf(recipient)}
                         type="button"
                         role="option"
                         aria-selected="false"
                         onClick={() => addRecipient(recipient)}
                         className="flex w-full items-center justify-between rounded-control px-3 py-2 text-left hover:bg-folder-surface"
                       >
-                        <span className="text-sm font-medium text-text">{recipient.label}</span>
-                        <span className="text-xs text-muted">{recipient.kind}</span>
+                        <span className="text-sm font-medium text-text">{labelOf(recipient)}</span>
+                        <span className="text-xs text-muted">{kindLabels[recipient.type]}</span>
                       </button>
                     ))
                   ) : (
-                    <p className="px-3 py-2 text-sm text-muted">No recipients found.</p>
+                    <p className="px-3 py-2 text-sm text-muted">
+                      {contacts.isError
+                        ? 'Contacts are unavailable. Try again in a moment.'
+                        : contacts.isFetching
+                          ? 'Searching…'
+                          : 'No recipients found.'}
+                    </p>
                   )}
                 </div>
               ) : null}
@@ -481,9 +515,13 @@ export function MessageComposer() {
                     value={template}
                     onChange={(event) => setTemplate(event.target.value)}
                     options={[
-                      { value: '', label: 'Select a template...' },
-                      { value: 'welcome', label: 'Welcome to Firmivra' },
-                      { value: 'monthly', label: 'Monthly Newsletter' },
+                      {
+                        value: '',
+                        label: templates.data?.items.length
+                          ? 'Select a template...'
+                          : 'No templates for this channel',
+                      },
+                      ...(templates.data?.items ?? []).map((t) => ({ value: t.id, label: t.name })),
                     ]}
                     className="text-sm"
                   />
@@ -505,7 +543,7 @@ export function MessageComposer() {
                     </label>
                     <button
                       type="button"
-                      onClick={() => insertText('{{first_name}}')}
+                      onClick={() => insertText(FIRST_NAME)}
                       className="inline-flex h-8 items-center justify-center gap-1.5 rounded-control bg-info-soft px-3 text-xs font-medium text-action hover:bg-folder-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
                     >
                       <BracketsCurly aria-hidden weight="bold" className="size-4" />
@@ -577,18 +615,13 @@ export function MessageComposer() {
                         />
                       ) : null}
                       <ToolbarButton
-                        icon={Paperclip}
-                        label="Attach files"
-                        onClick={() => fileRef.current?.click()}
-                      />
-                      <ToolbarButton
                         icon={Smiley}
                         label="Insert smile"
                         onClick={() => insertText(' 🙂')}
                       />
                       <button
                         type="button"
-                        onClick={() => insertText('{{first_name}}')}
+                        onClick={() => insertText(FIRST_NAME)}
                         className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-control bg-info-soft px-2 text-xs font-medium text-action hover:bg-folder-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
                       >
                         <BracketsCurly aria-hidden weight="bold" className="size-4" />
@@ -620,9 +653,7 @@ export function MessageComposer() {
                     contentEditable
                     suppressContentEditableWarning
                     className="min-h-48 whitespace-pre-wrap px-3 py-3 text-sm leading-6 text-text focus:outline-none sm:min-h-52 sm:px-4"
-                  >
-                    {initialMessage}
-                  </div>
+                  ></div>
                 </div>
               </div>
 
@@ -633,36 +664,22 @@ export function MessageComposer() {
                     type="file"
                     accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                     multiple
-                    onChange={(event) => attachFiles(event.currentTarget.files)}
+                    disabled
                     className="sr-only"
                     aria-label="Attach files"
                   />
                   <Button
                     variant="secondary"
-                    onClick={() => fileRef.current?.click()}
+                    disabled
                     className="border-transparent bg-info-soft text-action hover:bg-folder-hover"
                   >
                     <Paperclip aria-hidden weight="bold" className="size-4" /> Attach Files
                   </Button>
                   <span className="text-xs text-muted">
-                    Support for PDF, DOC, DOCX, JPG, PNG (Max 10 MB each)
+                    A direct message carries text; files go out with broadcasts.
                   </span>
                 </div>
-                <span className="text-xs text-muted">
-                  {attachedFiles.length} {attachedFiles.length === 1 ? 'attachment' : 'attachments'}
-                </span>
-                {attachedFiles.length ? (
-                  <ul className="flex w-full flex-wrap gap-2" aria-label="Attached files">
-                    {attachedFiles.map((file) => (
-                      <li
-                        key={`${file.name}-${file.size}-${file.lastModified}`}
-                        className="rounded-control bg-canvas px-2 py-1 text-xs text-text"
-                      >
-                        {file.name}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
+                <span className="text-xs text-muted">0 attachments</span>
               </div>
             </div>
           </NumberedSection>
@@ -676,10 +693,19 @@ export function MessageComposer() {
               Cancel
             </Button>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button variant="secondary" className="w-full sm:w-auto">
+              <Button
+                variant="secondary"
+                className="w-full sm:w-auto"
+                disabled={busy}
+                onClick={() => void submit('DRAFT')}
+              >
                 <FloppyDisk aria-hidden weight="fill" className="size-4" /> Save as Draft
               </Button>
-              <Button className="w-full sm:w-auto" onClick={() => setSendNotice(true)}>
+              <Button
+                className="w-full sm:w-auto"
+                disabled={busy}
+                onClick={() => void submit('SEND')}
+              >
                 <PaperPlaneTilt aria-hidden weight="fill" className="size-4" /> Send Now
               </Button>
               <div className="relative flex">
@@ -709,10 +735,19 @@ export function MessageComposer() {
                     <input
                       id="schedule-time"
                       type="datetime-local"
+                      value={scheduleAt}
+                      onChange={(event) => setScheduleAt(event.target.value)}
                       className="w-full rounded-control border border-border bg-surface px-3 py-2 text-sm text-text"
                     />
-                    <Button className="mt-3 w-full" onClick={() => setScheduleOpen(false)}>
-                      Done
+                    <Button
+                      className="mt-3 w-full"
+                      disabled={busy || !scheduleAt}
+                      onClick={() => {
+                        setScheduleOpen(false);
+                        void submit('SCHEDULE');
+                      }}
+                    >
+                      Schedule
                     </Button>
                   </div>
                 ) : null}
@@ -742,7 +777,7 @@ export function MessageComposer() {
                   <>
                     <div className="flex items-center gap-3 py-3">
                       <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-info-soft font-semibold text-action">
-                        {person.label
+                        {person.name
                           .split(' ')
                           .map((word) => word[0])
                           .slice(0, 2)
@@ -750,10 +785,10 @@ export function MessageComposer() {
                       </span>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold text-heading">{person.label}</h3>
-                          <Badge tone="success">{person.kind}</Badge>
+                          <h3 className="font-semibold text-heading">{person.name}</h3>
+                          <Badge tone="success">{kindLabels[person.type]}</Badge>
                         </div>
-                        <p className="text-sm text-muted">{person.organization ?? person.label}</p>
+                        <p className="text-sm text-muted">{person.business?.name ?? 'Firmivra'}</p>
                       </div>
                     </div>
                     <div className="flex flex-col gap-2.5 text-sm text-muted">
@@ -761,27 +796,21 @@ export function MessageComposer() {
                         <DetailRow icon={EnvelopeSimple} value={person.email} link />
                       ) : null}
                       {person.phone ? <DetailRow icon={Phone} value={person.phone} /> : null}
-                      {person.organization ? (
-                        <DetailRow icon={Buildings} value={person.organization} />
+                      {person.business ? (
+                        <DetailRow icon={Buildings} value={person.business.name} />
                       ) : null}
-                      {person.assignee ? (
-                        <DetailRow icon={User} label="Assigned To:" value={person.assignee} />
+                      {firm.data?.plan ? (
+                        <DetailRow icon={Tag} label="Plan:" value={FIRM_PLANS[firm.data.plan]} />
                       ) : null}
-                      {person.source ? (
-                        <DetailRow icon={Tag} label="Lead Source:" value={person.source} />
-                      ) : null}
-                      {person.since ? (
-                        <DetailRow
-                          icon={CalendarBlank}
-                          label="Client Since:"
-                          value={person.since}
-                        />
-                      ) : null}
-                      {person.status ? (
+                      {firm.data ? (
                         <DetailRow
                           icon={FileText}
                           label="Status:"
-                          value={<Badge tone="success">{person.status}</Badge>}
+                          value={
+                            <Badge tone="success">
+                              {firm.data.status.charAt(0) + firm.data.status.slice(1).toLowerCase()}
+                            </Badge>
+                          }
                         />
                       ) : null}
                     </div>
@@ -798,23 +827,18 @@ export function MessageComposer() {
           <Card className="!p-0">
             <div className="flex items-center justify-between px-4 py-3">
               <h2 className="font-display text-lg font-bold text-heading">Recent Activity</h2>
-              <button type="button" className="text-sm font-medium text-link hover:underline">
+              <Link
+                href="/audit-security"
+                className="text-sm font-medium text-link hover:underline"
+              >
                 View All
-              </button>
+              </Link>
             </div>
-            <ul className="flex flex-col gap-2 border-t border-border px-4 py-3">
-              {person ? (
-                activity.map(({ icon: Glyph, title, date }) => (
-                  <li key={title} className="flex min-w-0 items-center gap-2 text-xs sm:text-sm">
-                    <Glyph aria-hidden weight="fill" className="size-4 shrink-0 text-action" />
-                    <span className="min-w-0 flex-1 truncate text-text">{title}</span>
-                    <time className="shrink-0 text-muted">{date}</time>
-                  </li>
-                ))
-              ) : (
-                <li className="py-2 text-sm text-muted">No recent activity available.</li>
-              )}
-            </ul>
+            <p className="border-t border-border px-4 py-3 text-sm text-muted">
+              {person
+                ? 'Changes to this contact are kept in Audit & Security.'
+                : 'No recent activity available.'}
+            </p>
           </Card>
 
           <Card className="!p-0">
