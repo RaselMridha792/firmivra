@@ -56,11 +56,11 @@ test('an item without a page opens the module page and is marked in the sidebar'
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(app('/'));
-  await nav(page).getByRole('link', { name: 'Tax Returns', exact: true }).click();
-  await expect(page).toHaveURL(app('/modules/tax-returns'));
-  await expect(page.getByTestId('page-title')).toHaveText('Tax Returns');
+  await nav(page).getByRole('link', { name: 'Client Portal', exact: true }).click();
+  await expect(page).toHaveURL(app('/modules/client-portal'));
+  await expect(page.getByTestId('page-title')).toHaveText('Client Portal');
   await expect(page.getByTestId('module-card')).toContainText('This module is on its way.');
-  await expect(nav(page).getByRole('link', { name: 'Tax Returns', exact: true })).toHaveAttribute(
+  await expect(nav(page).getByRole('link', { name: 'Client Portal', exact: true })).toHaveAttribute(
     'aria-current',
     'page',
   );
@@ -78,7 +78,7 @@ test('an unknown module shows the not-found page', async ({ page }) => {
 test('the module page has no horizontal scroll at 1440 and 390 px', async ({ page }) => {
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(app('/modules/compliance'));
+    await page.goto(app('/modules/client-portal'));
     await expect(page.getByTestId('module-card')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,

@@ -75,7 +75,7 @@ export function BillingTable<T>({
   const picked = new Set(selection?.selected ?? []);
   const all = keys.length > 0 && keys.every((key) => picked.has(key));
   const inset = dense ? 'px-3' : 'px-4';
-  const cell = `${inset} py-3`;
+  const cell = `${inset} py-2`;
   return (
     <div
       data-testid={testId}
@@ -294,7 +294,7 @@ export function RowMenu({ label, sections }: { label: string; sections: ActionMe
       align="right"
       sections={sections}
       trigger={<DotsThree aria-hidden weight="bold" className="size-6 text-heading" />}
-      className="text-left [&>button]:border-transparent [&>button]:bg-transparent [&>button>svg:last-child]:hidden"
+      className="text-left [&>button]:min-h-8 [&>button]:border-transparent [&>button]:bg-transparent [&>button>svg:last-child]:hidden"
     />
   );
 }

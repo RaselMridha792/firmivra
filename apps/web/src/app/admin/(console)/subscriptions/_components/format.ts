@@ -1,13 +1,13 @@
 import { ApiRequestError } from '@firmivra/types';
 import {
   CYCLE_LABELS,
-  PLANS,
+  planName,
   SubscriptionInputError,
   type BillingCycle,
   type PlanId,
   type SubscriptionListItem,
   type SubscriptionStatus,
-} from '../../../../../mocks/admin-subscriptions';
+} from './subscriptions-api';
 
 /** Whole dollars without cents ("$199"), cents when there are some ("$88.50"). */
 export function money(cents: number): string {
@@ -49,7 +49,7 @@ export function clockText(iso: string): string {
 }
 
 export const planText = (plan: PlanId, cycle: BillingCycle) =>
-  `${PLANS[plan].name} (${CYCLE_LABELS[cycle]})`;
+  `${planName(plan)} (${CYCLE_LABELS[cycle]})`;
 
 /** "$199/mo" or, billed yearly, "$199/mo ($2,388/yr)". */
 export const priceText = (monthlyCents: number, cycle: BillingCycle) =>

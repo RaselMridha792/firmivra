@@ -101,6 +101,15 @@ describe('business plans', () => {
     expect(
       AdvisoryPlanProfile.safeParse({ primaryContact: { email: 'not-an-email' } }).success,
     ).toBe(false);
+    // Additional Information (design 2): where the client came from, and notes; both clearable.
+    expect(
+      AdvisoryPlanProfile.safeParse({
+        referralSource: 'Existing Client',
+        notes: 'Interested in a second location within 2 years.',
+      }).success,
+    ).toBe(true);
+    expect(AdvisoryPlanProfile.safeParse({ referralSource: null, notes: null }).success).toBe(true);
+    expect(AdvisoryPlanProfile.safeParse({ notes: 'x'.repeat(2_001) }).success).toBe(false);
   });
 
   it('the assessment and strategy are validated documents', () => {

@@ -26,7 +26,8 @@ export function StatCard({
   action,
 }: {
   label: string;
-  value: number;
+  /** Null while it loads or when it cannot be read: a dash, never a made-up zero. */
+  value: number | null;
   icon: LucideIcon;
   tone: StatTone;
   /** The card's "View … →" link. */
@@ -43,7 +44,7 @@ export function StatCard({
         <Icon aria-hidden className="size-7 2xl:size-8" />
       </span>
       <span className="min-w-0">
-        <span className="block text-2xl font-bold text-heading">{value}</span>
+        <span className="block text-2xl font-bold text-heading">{value ?? '—'}</span>
         <span className="block text-base text-muted">{label}</span>
         {action ? (
           <button

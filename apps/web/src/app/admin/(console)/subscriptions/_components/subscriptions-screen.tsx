@@ -4,21 +4,22 @@ import { BulkBar, Button, Callout, Card, PageHeader, Toast, type DateRange } fro
 import { CaretRight, DownloadSimple, UserSwitch, X } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
-import {
-  adminSubscriptions,
-  type StatusFilter,
-  type SubscriptionListItem,
-} from '../../../../../mocks/admin-subscriptions';
 import { AddMenu } from './add-menu';
-import { autoRenewEditable, clockText, loadErrorText } from './format';
+import { autoRenewEditable, loadErrorText, timeText } from './format';
 import { KEY, useAct } from './parts';
 import { SubscriptionDialog, type DialogKind, type DialogState } from './subscription-dialogs';
 import { NO_FILTERS, SubscriptionFilters, type Filters } from './subscription-filters';
 import { SubscriptionKpis } from './subscription-kpis';
 import { SubscriptionPanel, type PanelActions, type PanelTab } from './subscription-panel';
 import { SubscriptionTable } from './subscription-table';
+import {
+  adminSubscriptions,
+  errorMessage,
+  type StatusFilter,
+  type SubscriptionListItem,
+  type SubscriptionQuery,
+} from './subscriptions-api';
 
 /** The design's side-by-side panel needs the 1536 px layout; narrower, it slides in. */
 const WIDE = '(min-width: 1536px)';
@@ -64,20 +65,20 @@ export function SubscriptionsScreen() {
   const thisMonth = toRange(useSyncExternalStore(subscribeNothing, monthKey, () => ''));
   const wide = useSyncExternalStore(subscribeWide, wideNow, () => false);
 
-  // An empty period is this month for the mock (and the API to come).
+  // An empty period is this month for the mock and the API.
   const from = applied.period?.from ?? '';
   const to = applied.period?.to ?? '';
+  const query: SubscriptionQuery = {
+    search: applied.search,
+    plan: applied.plan,
+    status: applied.status,
+    cycle: applied.cycle,
+    from,
+    to,
+  };
   const list = useApiQuery(
     [KEY, 'list', applied.search, applied.plan, applied.status, applied.cycle, from, to],
-    () =>
-      adminSubscriptions.subscriptions({
-        search: applied.search,
-        plan: applied.plan,
-        status: applied.status,
-        cycle: applied.cycle,
-        from,
-        to,
-      }),
+    () => adminSubscriptions.subscriptions(query),
   );
   const stats = useApiQuery([KEY, 'stats', from, to], () => adminSubscriptions.stats({ from, to }));
   const endSupport = useAct((id: string) => adminSubscriptions.endSupportView({ id }));
@@ -173,6 +174,7 @@ export function SubscriptionsScreen() {
               setDialog({
                 kind: 'export',
                 ids: rows.map((row) => row.id),
+                query,
                 scope: 'Subscriptions matching the current filters',
               })
             }
@@ -190,7 +192,7 @@ export function SubscriptionsScreen() {
             title={`Support view of ${support.firm.name} is active`}
           >
             <span>
-              It ends at {clockText(support.supportViewUntil)}. Every step is logged.{' '}
+              It ends {timeText(support.supportViewUntil)}. Every step is logged.{' '}
               <button
                 type="button"
                 disabled={endSupport.isPending}

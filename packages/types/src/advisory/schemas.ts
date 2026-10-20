@@ -418,6 +418,10 @@ export const AdvisoryPlanProfile = z.strictObject({
     .array(z.strictObject({ name: text(200), role: clearable(text(100)) }))
     .max(30)
     .optional(),
+  /** Additional Information: how the client found the firm ("Existing Client", "Referral"). */
+  referralSource: clearable(text(100)),
+  /** Additional Information: anything else about the business the plan should keep. */
+  notes: clearable(text(2_000, 'many')),
 });
 export type AdvisoryPlanProfile = z.input<typeof AdvisoryPlanProfile>;
 

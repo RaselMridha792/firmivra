@@ -4,18 +4,6 @@ import { Button, Callout, Input, Modal, Select, Skeleton, Table, Textarea } from
 import { Info, ShieldCheck, WarningCircle } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import {
-  adminSubscriptions,
-  CYCLE_LABELS,
-  cycleCents,
-  monthlyListCents,
-  PLAN_ORDER,
-  PLANS,
-  type BillingCycle,
-  type CreateSubscriptionBody,
-  type PlanId,
-  type SubscriptionEvent,
-} from '../../../../../mocks/admin-subscriptions';
 import { fieldErrors, loadErrorText, money, seatText, timeText } from './format';
 import {
   ActionForm,
@@ -28,6 +16,22 @@ import {
   type FormProps,
 } from './parts';
 import { CyclePills } from './plan-dialogs';
+import {
+  ACCOUNT_OWNERS,
+  adminSubscriptions,
+  CHARGES_CARD,
+  CYCLE_LABELS,
+  EXPORT_COLUMNS,
+  planChoices,
+  planOf,
+  startPriceCents,
+  SUPPORT_BY_REQUEST,
+  type BillingCycle,
+  type CreateSubscriptionBody,
+  type PlanId,
+  type SubscriptionEvent,
+  type SubscriptionQuery,
+} from './subscriptions-api';
 
 export function NoteDialog({ id, firm, onClose, onDone }: DialogProps) {
   const [text, setText] = useState('');
@@ -162,7 +166,7 @@ function SupportViewForm({ sub, onClose, onDone }: FormProps) {
   const fields = fieldErrors(start.error);
   return (
     <ActionForm
-      submitLabel="Start Support View"
+      submitLabel={SUPPORT_BY_REQUEST ? 'Request Support Access' : 'Start Support View'}
       pending={start.isPending}
       error={start.error}
       blocked={sub.status === 'CLOSED' ? 'A closed account has no workspace to view.' : null}
@@ -181,17 +185,20 @@ function SupportViewForm({ sub, onClose, onDone }: FormProps) {
         size="compact"
         title="Controlled support access"
       >
-        You see {sub.firm.name}’s workspace as its firm admin for a limited time. A banner stays on
-        screen until it ends, and every step is logged. Client documents and confidential client
-        records stay hidden.
+        {SUPPORT_BY_REQUEST
+          ? `This asks ${sub.firm.name}’s Owner for support access. Once an Owner approves it, you get read-only support views for the hours they choose, and every step is logged.`
+          : `You see ${sub.firm.name}’s workspace as its firm admin for a limited time. A banner stays on screen until it ends, and every step is logged.`}{' '}
+        Client documents and confidential client records stay hidden.
       </Callout>
       {sub.supportView ? (
         <Callout icon={Info} surface="info" size="compact">
           A support view is already running. Starting again replaces it.
         </Callout>
       ) : null}
+      {/* On the API the firm's Owner sets the hours when approving: the choice stays, locked. */}
       <Select
         label="Duration"
+        disabled={SUPPORT_BY_REQUEST}
         options={[
           { value: '15', label: '15 minutes' },
           { value: '30', label: '30 minutes' },
@@ -223,23 +230,25 @@ export function SupportViewDialog({ id, firm, onClose, onDone }: DialogProps) {
   );
 }
 
-const EXPORT_COLUMNS =
-  'firm, email, domain, plan, billing cycle, status, list and discounted monthly price, seats used and allowed, next billing, end date, Auto-Renew, add-ons and discount';
-
-/** Subscription and billing metadata only, as a CSV file. */
+/**
+ * Subscription and billing metadata only, as a CSV file. With `query` (the header's export) the
+ * API exports the table's filters; else the ids (the selection, at most 100 on the API).
+ */
 export function ExportDialog({
   ids,
+  query,
   scope,
   onClose,
   onDone,
 }: {
   ids: string[];
+  query?: SubscriptionQuery;
   scope: string;
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
   const exportCsv = useApiMutation(
-    (list: string[]) => adminSubscriptions.exportCsv({ ids: list }),
+    (list: string[]) => adminSubscriptions.exportCsv({ ids: list, query }),
     {
       invalidate: [KEY],
     },
@@ -277,8 +286,6 @@ export function ExportDialog({
   );
 }
 
-const OWNERS = ['Jordan Sales', 'Casey Accounts'];
-
 /** Manual enrollment: a 14-day trial or a paid plan for an approved firm without one. */
 export function AddSubscriptionDialog({
   trial,
@@ -294,19 +301,21 @@ export function AddSubscriptionDialog({
   );
   const [firmId, setFirmId] = useState('');
   const [mode, setMode] = useState<'TRIAL' | 'PAID'>(trial ? 'TRIAL' : 'PAID');
-  const [plan, setPlan] = useState<PlanId>('TEAM_PRO');
+  // The plans may still be loading on the first render: Team Pro (or the first plan) once they are.
+  const choices = planChoices();
+  const [picked, setPicked] = useState<PlanId | null>(null);
+  const plan = picked ?? (choices.find((item) => item.id === 'TEAM_PRO') ?? choices[0])?.id ?? '';
   const [cycle, setCycle] = useState<BillingCycle>('MONTHLY');
-  const [seats, setSeats] = useState(String(PLANS.TEAM_PRO.includedSeats));
+  const info = planOf(plan);
+  const [typed, setTyped] = useState<string | null>(null);
+  const seats = typed ?? String(info?.includedSeats ?? 1);
   const [owner, setOwner] = useState('');
   const create = useAct((body: CreateSubscriptionBody) => adminSubscriptions.create(body));
   const fields = fieldErrors(create.error);
-  const info = PLANS[plan];
   const count = Number(seats);
   const firm = firms.data?.find((candidate) => candidate.id === firmId);
-  const first = cycleCents(
-    monthlyListCents(plan, Number.isInteger(count) ? count : info.includedSeats, []),
-    cycle,
-  );
+  const shownSeats = Number.isInteger(count) ? count : (info?.includedSeats ?? 1);
+  const first = startPriceCents(plan, shownSeats, cycle);
   return (
     <Modal open title={trial ? 'Start Trial for Firm' : 'Add Subscription'} onClose={onClose}>
       {firms.isPending ? (
@@ -322,9 +331,11 @@ export function AddSubscriptionDialog({
           blocked={
             firms.isError
               ? loadErrorText(firms.error)
-              : firms.data?.length
-                ? null
-                : 'Every approved firm already has a subscription.'
+              : !firms.data?.length
+                ? 'Every approved firm already has a subscription.'
+                : choices.length
+                  ? null
+                  : 'No plans are available yet.'
           }
           onCancel={onClose}
           onSubmit={() =>
@@ -369,35 +380,37 @@ export function AddSubscriptionDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             <Select
               label="Plan"
-              options={PLAN_ORDER.map((id) => ({
-                value: id,
-                label: `${PLANS[id].name} · ${money(PLANS[id].monthlyCents)}/mo`,
+              options={choices.map((item) => ({
+                value: item.id,
+                label: `${item.name} · ${money(item.monthlyCents)}/mo`,
               }))}
               value={plan}
               error={fields['plan']}
               onChange={(event) => {
-                const next = PLAN_ORDER.find((id) => id === event.target.value) ?? plan;
-                setPlan(next);
-                setSeats(String(PLANS[next].includedSeats));
+                const next = choices.find((item) => item.id === event.target.value);
+                if (!next) return;
+                setPicked(next.id);
+                setTyped(String(next.includedSeats));
               }}
             />
             <Input
               label="Seats"
               type="number"
               inputMode="numeric"
-              min={info.includedSeats}
-              max={info.maxSeats}
+              min={info?.includedSeats}
+              max={info?.maxSeats ?? undefined}
               value={seats}
               error={fields['seats']}
-              onChange={(event) => setSeats(event.target.value)}
+              onChange={(event) => setTyped(event.target.value)}
             />
           </div>
           <CyclePills value={cycle} onChange={setCycle} error={fields['cycle']} />
+          {/* The account owner is the linked Sales record's on the API (note 24): no names here. */}
           <Select
             label="Account owner"
             options={[
               { value: '', label: 'Not assigned' },
-              ...OWNERS.map((name) => ({ value: name, label: name })),
+              ...ACCOUNT_OWNERS.map((name) => ({ value: name, label: name })),
             ]}
             value={owner}
             onChange={(event) => setOwner(event.target.value)}
@@ -409,13 +422,15 @@ export function AddSubscriptionDialog({
             title={mode === 'TRIAL' ? 'Trial' : 'First charge'}
           >
             {mode === 'TRIAL'
-              ? `${info.name} for 14 days from today. Nothing is charged; staff follow up before it ends.`
-              : `${money(first)} today (${seatText(Number.isInteger(count) ? count : info.includedSeats)}, ${CYCLE_LABELS[cycle].toLowerCase()}). The subscription starts only if the charge succeeds.`}
+              ? `${info?.name ?? 'The plan'} for 14 days from today. Nothing is charged; staff follow up before it ends.`
+              : `${money(first)} ${CHARGES_CARD ? 'today' : 'is invoiced today'} (${seatText(shownSeats)}, ${CYCLE_LABELS[cycle].toLowerCase()}). ${CHARGES_CARD ? 'The subscription starts only if the charge succeeds.' : 'The invoice stays open until it is paid in Billing.'}`}
           </Callout>
+          {/* hasCard: a card on file (the mock), or an Active firm Billing can bill (the API). */}
           {mode === 'PAID' && firm && !firm.hasCard ? (
             <Callout icon={WarningCircle} surface="warning" tone="amber" size="compact">
-              {firm.name} has no payment method on file. Start a trial, or send a payment link
-              first.
+              {CHARGES_CARD
+                ? `${firm.name} has no payment method on file. Start a trial, or send a payment link first.`
+                : `${firm.name} isn’t active yet, so it can’t be billed. Start a trial instead.`}
             </Callout>
           ) : null}
         </ActionForm>

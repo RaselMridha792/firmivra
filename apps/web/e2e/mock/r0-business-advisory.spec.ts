@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 
 // R0: Business Advisory & Development in mock mode (every module on mock data, as an Owner): seven
 // live advisory clients, five upcoming meetings, ten goals and the resource library.
+// The mock names its plans after the current year (mocks/business-advisory.ts).
+const YEAR = new Date().getUTCFullYear();
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/business-advisory`;
 
@@ -123,7 +125,7 @@ test('Business Plans: review, finalize, send, and the version history', async ({
   const list = page.getByTestId('ba-plans');
   await expect(list.getByTestId('plan-link')).toHaveCount(6);
   // A draft without a strategy cannot be finalized.
-  await list.getByRole('button', { name: 'Actions for 2026 Startup Launch Plan' }).click();
+  await list.getByRole('button', { name: `Actions for ${YEAR} Startup Launch Plan` }).click();
   await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
   await expect(page.getByText('The plan is not ready yet.')).toBeVisible();
   await expect(page.getByText(/Still needed: Add the strategy summary or an area/)).toBeVisible();
@@ -251,6 +253,8 @@ test('Plan wizard: a new plan starts from the client record and moves to step 2'
   await page.getByTestId('wizard-next').click();
   await expect(page.getByText('Fill in the required fields to continue')).toBeVisible();
   await page.getByLabel('Plan Name').fill('Salon Growth Plan');
+  await page.getByLabel('How did you hear about us?').selectOption('Existing Client');
+  await page.getByLabel('Notes (optional)').fill('Wants online booking first.');
   await page.getByTestId('wizard-next').click();
   await expect(page).toHaveURL(/\/plans\/[0-9a-f-]{36}\/edit\/assessment$/, { timeout: 60_000 });
   await expect(page.getByTestId('step-financials')).toContainText('Bookkeeping');
@@ -276,7 +280,7 @@ test('Plan wizard: the review says what is still needed, then the plan finalizes
     timeout: 60_000,
   });
   await page.getByTestId('wizard-next').click();
-  await expect(page.getByText('2026 Startup Launch Plan finalized.')).toBeVisible();
+  await expect(page.getByText(`${YEAR} Startup Launch Plan finalized.`)).toBeVisible();
   await expect(page.getByTestId('step-delivery')).toContainText('Version 1');
 });
 
@@ -304,7 +308,7 @@ test('Client detail: header, plan status, KPIs, the nine cards and eleven tabs',
   ).toBeVisible();
   await expect(page.getByTestId('client-card')).toContainText('Taylor Construction LLC');
   await expect(page.getByTestId('client-card')).toContainText('Active Advisory Client');
-  await expect(page.getByTestId('plan-status')).toContainText('2026 Business Growth Plan');
+  await expect(page.getByTestId('plan-status')).toContainText(`${YEAR} Business Growth Plan`);
   await expect(
     page.getByRole('tablist', { name: 'Client advisory views' }).getByRole('tab'),
   ).toHaveCount(11);
@@ -350,7 +354,7 @@ test('Client detail: the health score explains itself; Edit Client saves the rec
 
 test('Client tabs: the business plan, with its versions and every plan', async ({ page }) => {
   await page.goto(`${marcus}/plan`);
-  await expect(page.getByTestId('tab-current-plan')).toContainText('2026 Business Growth Plan');
+  await expect(page.getByTestId('tab-current-plan')).toContainText(`${YEAR} Business Growth Plan`);
   await expect(page.getByTestId('tab-current-plan')).toContainText('Ready to finalize');
   await expect(page.getByTestId('tab-versions')).toContainText('Version 1');
   await expect(page.getByTestId('tab-plans').getByRole('row')).toHaveCount(2);
@@ -412,7 +416,7 @@ test('Client tabs: documents (upload and request on advisory services) and the c
   await expect(page.getByTestId('tab-doc-requests')).toBeVisible();
 
   await page.goto(`${marcus}/portal`);
-  await expect(page.getByTestId('portal-plans')).toContainText('2026 Business Growth Plan');
+  await expect(page.getByTestId('portal-plans')).toContainText(`${YEAR} Business Growth Plan`);
   const recs = page.getByTestId('portal-recommendations');
   await expect(recs.getByRole('listitem')).toHaveCount(4);
   await recs

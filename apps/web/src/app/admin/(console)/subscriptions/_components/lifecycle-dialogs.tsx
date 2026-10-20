@@ -3,24 +3,6 @@
 import { Callout, Checkbox, Input, Select, Textarea } from '@firmivra/ui';
 import { Info, Warning, WarningCircle } from '@phosphor-icons/react';
 import { useState } from 'react';
-import {
-  addDays,
-  adminSubscriptions,
-  cycleCents,
-  PLAN_ORDER,
-  PLANS,
-  previewChange,
-  REACTIVATABLE,
-  REQUEST_SOURCES,
-  STATUS_LABELS,
-  SUSPENDABLE,
-  SUSPENSION_LABELS,
-  type BillingCycle,
-  type Effective,
-  type PlanId,
-  type RequestSource,
-  type SuspensionKind,
-} from '../../../../../mocks/admin-subscriptions';
 import { dayText, fieldErrors, longDayText, money, priceText } from './format';
 import {
   ActionForm,
@@ -34,6 +16,24 @@ import {
   type FormProps,
 } from './parts';
 import { CyclePills } from './plan-dialogs';
+import {
+  addDays,
+  adminSubscriptions,
+  CHARGES_CARD,
+  NOTIFIES_FIRM,
+  planChoices,
+  previewChange,
+  REACTIVATABLE,
+  REQUEST_SOURCES,
+  STATUS_LABELS,
+  SUSPENDABLE,
+  SUSPENSION_LABELS,
+  type BillingCycle,
+  type Effective,
+  type PlanId,
+  type RequestSource,
+  type SuspensionKind,
+} from './subscriptions-api';
 
 const PRESETS = ['7', '14', '30'] as const;
 
@@ -41,7 +41,8 @@ function ExtendTrialForm({ sub, onClose, onDone }: FormProps) {
   const [choice, setChoice] = useState<string>('14');
   const [days, setDays] = useState('14');
   const [reason, setReason] = useState('');
-  const [notifyFirm, setNotifyFirm] = useState(true);
+  // The API sends no firm email yet (note 18): the box starts clear there, and ticked answers 422.
+  const [notifyFirm, setNotifyFirm] = useState(NOTIFIES_FIRM);
   const extend = useAct((body: { id: string; days: number; reason: string; notifyFirm: boolean }) =>
     adminSubscriptions.extendTrial(body),
   );
@@ -230,7 +231,8 @@ function AutoRenewOffForm({ sub, mode, onClose, onDone }: FormProps & { mode: 'c
         onChange={(event) => setNotes(event.target.value)}
       />
       <p className="text-xs text-muted">
-        The firm is told the exact end date, and this request is kept in the history for good.
+        {NOTIFIES_FIRM ? 'The firm is told the exact end date, and this' : 'This'} request is kept
+        in the history for good.
       </p>
     </ActionForm>
   );
@@ -404,8 +406,8 @@ function SuspendForm({ sub, onClose, onDone }: FormProps) {
         size="compact"
         title={SUSPENSION_LABELS[kind]}
       >
-        Firm access is restricted while suspended. All data is kept, billing stops and the firm is
-        notified. You can reactivate from this page.
+        Firm access is restricted while suspended. All data is kept, billing stops
+        {NOTIFIES_FIRM ? ' and the firm is notified' : ''}. You can reactivate from this page.
       </Callout>
     </ActionForm>
   );
@@ -442,6 +444,7 @@ function ReactivateForm({ sub, onClose, onDone }: FormProps) {
   const needsPayment =
     suspended && (sub.amountDueCents > 0 || sub.suspension?.kind === 'NONPAYMENT');
   const preview = previewChange(sub, { plan, cycle }, 'NOW', sub.today);
+  const choices = planChoices(sub.plan);
   const blocked =
     sub.status === 'CLOSED'
       ? 'A closed account can’t be reactivated here. Add a new subscription for the firm.'
@@ -476,30 +479,31 @@ function ReactivateForm({ sub, onClose, onDone }: FormProps) {
           tone="info"
           title={`${STATUS_LABELS[sub.status]} ${dayText(sub.endedOn ?? sub.endsOn)}`}
         >
-          Reactivating starts a new paid period today on the plan below, charged to the card on
-          file.
+          Reactivating starts a new paid period today on the plan below,{' '}
+          {CHARGES_CARD ? 'charged to the card on file' : 'with its first invoice'}.
         </InfoBox>
       )}
       {suspended ? null : (
         <>
           <Select
             label="Plan"
-            options={PLAN_ORDER.map((id) => ({
-              value: id,
-              label: `${PLANS[id].name} · ${money(PLANS[id].monthlyCents)}/mo`,
+            options={choices.map((info) => ({
+              value: info.id,
+              label: `${info.name} · ${money(info.monthlyCents)}/mo`,
             }))}
             value={plan}
             error={fields['plan'] ?? preview.blocked ?? undefined}
             onChange={(event) =>
-              setPlan(PLAN_ORDER.find((id) => id === event.target.value) ?? sub.plan)
+              setPlan(choices.find((info) => info.id === event.target.value)?.id ?? sub.plan)
             }
           />
           <CyclePills value={cycle} onChange={setCycle} error={fields['cycle']} />
           <Callout icon={Info} surface="info" size="compact" title="First charge">
-            {money(cycleCents(preview.netMonthlyCents, cycle))} today to{' '}
-            {sub.card ? `${sub.card.brand} •••• ${sub.card.last4}` : 'no card on file'}.
+            {CHARGES_CARD
+              ? `${money(preview.priceCents)} today to ${sub.card ? `${sub.card.brand} •••• ${sub.card.last4}` : 'no card on file'}.`
+              : `${money(preview.priceCents)} is invoiced today; it stays open until it is paid in Billing.`}
           </Callout>
-          {sub.card ? null : (
+          {sub.card || !CHARGES_CARD ? null : (
             <Callout icon={WarningCircle} surface="warning" tone="amber" size="compact">
               There is no payment method on file. Send a payment link first.
             </Callout>

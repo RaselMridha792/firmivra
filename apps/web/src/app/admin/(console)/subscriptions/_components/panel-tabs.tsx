@@ -33,24 +33,9 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import { useState, type ReactNode } from 'react';
-import { errorMessage } from '../../../../../lib/errors';
-import {
-  ADDONS,
-  adminSubscriptions,
-  CHANGEABLE,
-  discountRuns,
-  PLANS,
-  REACTIVATABLE,
-  SUSPENDABLE,
-  SUSPENSION_LABELS,
-  type SubscriptionDetail,
-  type SubscriptionEvent,
-  type UsageLimit,
-} from '../../../../../mocks/admin-subscriptions';
 import {
   autoRenewEditable,
   autoRenewLock,
-  clockText,
   dayText,
   fieldErrors,
   money,
@@ -60,6 +45,22 @@ import {
 } from './format';
 import { Fact, InfoBox, LinkButton, StatusBadge, UsageBar, useAct } from './parts';
 import type { PanelActions } from './subscription-panel';
+import {
+  ADDONS,
+  adminSubscriptions,
+  CHANGEABLE,
+  discountRuns,
+  errorMessage,
+  INVOICE_BADGE,
+  PAYMENT_BADGE,
+  planName,
+  REACTIVATABLE,
+  SUSPENDABLE,
+  SUSPENSION_LABELS,
+  type SubscriptionDetail,
+  type SubscriptionEvent,
+  type UsageLimit,
+} from './subscriptions-api';
 
 interface TabProps {
   sub: SubscriptionDetail;
@@ -67,6 +68,12 @@ interface TabProps {
 }
 
 const CARD_BADGE = 'rounded-sm border border-divider px-1.5 text-xs font-bold text-heading italic';
+
+/** The retry line, when a retry schedule is known (the API keeps none yet). */
+function retryText(pastDue: NonNullable<SubscriptionDetail['pastDue']>): string | null {
+  if (pastDue.nextRetryOn) return `next retry ${dayText(pastDue.nextRetryOn)}`;
+  return pastDue.maxAttempts === null ? null : 'no automatic retry left';
+}
 
 function CardText({ sub }: { sub: SubscriptionDetail }) {
   if (!sub.card) return <span className="text-muted">None on file</span>;
@@ -84,7 +91,7 @@ function CardText({ sub }: { sub: SubscriptionDetail }) {
 /** One line under the Status badge: what the status means for this firm right now. */
 function statusDetail(sub: SubscriptionDetail): string | null {
   if (sub.status === 'PAST_DUE' && sub.pastDue)
-    return `${money(sub.amountDueCents)} due · ${sub.pastDue.nextRetryOn ? `next retry ${dayText(sub.pastDue.nextRetryOn)}` : 'no automatic retry left'}`;
+    return [`${money(sub.amountDueCents)} due`, retryText(sub.pastDue)].filter(Boolean).join(' · ');
   if (sub.status === 'SUSPENDED' && sub.suspension)
     return `${SUSPENSION_LABELS[sub.suspension.kind]} since ${dayText(sub.suspension.since)}: ${sub.suspension.reason}`;
   if (sub.status === 'NON_RENEWING') return `Access continues until ${dayText(sub.endsOn)}`;
@@ -105,7 +112,8 @@ function SupportViewNotice({ sub, actions }: TabProps) {
       title="Support view active"
     >
       <span>
-        Until {clockText(sub.supportView.until)} · {sub.supportView.reason}
+        Until {timeText(sub.supportView.until)}
+        {sub.supportView.reason ? ` · ${sub.supportView.reason}` : null}
       </span>
       <span>
         <LinkButton
@@ -144,7 +152,8 @@ export function OverviewTab({ sub, actions, more }: TabProps & { more: ReactNode
           {priceText(sub.monthlyCents, sub.cycle)}
           {discountRuns(sub.discount, sub.today) ? (
             <span className="block text-xs text-success">
-              After discount: {money(sub.netMonthlyCents)}/mo
+              {sub.discount.kind === 'NEGOTIATED' ? 'Negotiated' : 'After discount'}:{' '}
+              {money(sub.netMonthlyCents)}/mo
               {sub.discount.endsOn ? ` until ${dayText(sub.discount.endsOn)}` : ''}
             </span>
           ) : null}
@@ -173,7 +182,7 @@ export function OverviewTab({ sub, actions, more }: TabProps & { more: ReactNode
           label="Seats"
           action={changeable ? <LinkButton onClick={act('seats')}>Manage Seats</LinkButton> : null}
         >
-          {sub.seatsUsed} / {sub.seats}
+          {sub.seatsUsed ?? '—'} / {sub.seats}
         </Fact>
         <Fact label="Auto-Renew">
           <Toggle
@@ -300,8 +309,20 @@ export function OverviewTab({ sub, actions, more }: TabProps & { more: ReactNode
 }
 
 function UsageRow({ usage, trial }: { usage: UsageLimit; trial: boolean }) {
-  const percent = usage.limit ? Math.round((usage.used / usage.limit) * 100) : 0;
   const amount = (value: number) => value.toLocaleString('en-US');
+  if (usage.used === null)
+    return (
+      <li className="flex flex-col gap-1.5">
+        <div className="flex items-baseline justify-between gap-3 text-sm">
+          <span className="font-medium text-heading">{usage.label}</span>
+          <span className="text-text">
+            {amount(usage.limit)} {usage.unit} allowed
+          </span>
+        </div>
+        <p className="text-xs text-muted">Usage isn’t counted yet.</p>
+      </li>
+    );
+  const percent = usage.limit ? Math.round((usage.used / usage.limit) * 100) : 0;
   return (
     <li className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3 text-sm">
@@ -348,7 +369,7 @@ export function UsageTab({ sub, actions }: TabProps) {
   return (
     <div className="flex flex-col gap-5">
       <p className="text-sm text-muted">
-        {PLANS[sub.plan].name} allowances, with add-ons. Client records are never counted here.
+        {planName(sub.plan)} allowances, with add-ons. Client records are never counted here.
       </p>
       <ul className="flex flex-col gap-4">
         {sub.usage.map((usage) => (
@@ -377,12 +398,27 @@ export function UsageTab({ sub, actions }: TabProps) {
   );
 }
 
-const invoiceTone = { PAID: 'success', OPEN: 'warning', FAILED: 'danger' } as const;
-const invoiceLabel = { PAID: 'Paid', OPEN: 'Open', FAILED: 'Failed' } as const;
-
 export function BillingTab({ sub, actions }: TabProps) {
   const act = (kind: Parameters<PanelActions['onAction']>[0]) => () => actions.onAction(kind, sub);
   const live = sub.status !== 'CLOSED';
+  // Attempts of the maximum, the retry and the grace period only when they are kept (the mock).
+  const pastDue = sub.pastDue;
+  const failure = pastDue
+    ? [
+        `${money(sub.amountDueCents)} due`,
+        pastDue.maxAttempts === null
+          ? pastDue.attempts
+            ? `${pastDue.attempts} failed ${pastDue.attempts === 1 ? 'payment' : 'payments'}`
+            : null
+          : `attempt ${pastDue.attempts} of ${pastDue.maxAttempts}`,
+        retryText(pastDue),
+        pastDue.graceEndsOn
+          ? `grace period ${pastDue.graceEndsOn >= sub.today ? 'ends' : 'ended'} ${dayText(pastDue.graceEndsOn)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
   return (
     <div className="flex flex-col gap-5">
       <dl className="flex flex-col">
@@ -406,24 +442,18 @@ export function BillingTab({ sub, actions }: TabProps) {
         </Fact>
         <Fact label="Discount">{sub.discount ? sub.discount.label : '—'}</Fact>
       </dl>
-      {sub.pastDue && sub.amountDueCents > 0 ? (
+      {pastDue && sub.amountDueCents > 0 ? (
         <Callout
           icon={WarningCircle}
           surface="warning"
           tone="amber"
           size="compact"
-          title={`Payment failed ${dayText(sub.pastDue.failedOn)}`}
+          title={pastDue.failedOn ? `Payment failed ${dayText(pastDue.failedOn)}` : 'Past due'}
         >
-          <span>
-            {money(sub.amountDueCents)} due · attempt {sub.pastDue.attempts} of{' '}
-            {sub.pastDue.maxAttempts} ·{' '}
-            {sub.pastDue.nextRetryOn
-              ? `next retry ${dayText(sub.pastDue.nextRetryOn)}`
-              : 'no automatic retry left'}{' '}
-            · grace period {sub.pastDue.graceEndsOn >= sub.today ? 'ends' : 'ended'}{' '}
-            {dayText(sub.pastDue.graceEndsOn)}
-          </span>
-          <span className="text-muted">Processor: {sub.pastDue.response}</span>
+          <span>{failure}</span>
+          {pastDue.response ? (
+            <span className="text-muted">Processor: {pastDue.response}</span>
+          ) : null}
           <span className="mt-1 flex flex-wrap gap-2">
             <Button onClick={act('retry')}>Retry Payment</Button>
             <Button variant="secondary" onClick={act('paymentLink')}>
@@ -464,7 +494,9 @@ export function BillingTab({ sub, actions }: TabProps) {
                 </span>
                 <span className="flex shrink-0 flex-col items-end gap-1">
                   {money(invoice.amountCents)}
-                  <Badge tone={invoiceTone[invoice.status]}>{invoiceLabel[invoice.status]}</Badge>
+                  <Badge tone={INVOICE_BADGE[invoice.status].tone}>
+                    {INVOICE_BADGE[invoice.status].label}
+                  </Badge>
                 </span>
                 <LinkButton onClick={() => actions.onAction('resendInvoice', sub, invoice.id)}>
                   Resend
@@ -493,8 +525,8 @@ export function BillingTab({ sub, actions }: TabProps) {
                 </span>
                 <span className="flex shrink-0 flex-col items-end gap-1">
                   {money(payment.amountCents)}
-                  <Badge tone={payment.result === 'SUCCEEDED' ? 'success' : 'danger'}>
-                    {payment.result === 'SUCCEEDED' ? 'Succeeded' : 'Failed'}
+                  <Badge tone={PAYMENT_BADGE[payment.result].tone}>
+                    {PAYMENT_BADGE[payment.result].label}
                   </Badge>
                 </span>
               </li>
@@ -513,13 +545,13 @@ function eventLook(event: SubscriptionEvent): { icon: Icon; tone: TimelineItem['
   const action = event.action.toLowerCase();
   if (action.includes('failed')) return { icon: WarningCircle, tone: 'red' };
   if (action.includes('trial')) return { icon: Flask, tone: 'purple' };
-  if (/closed|ended|expired|closure/.test(action)) return { icon: Prohibit, tone: 'red' };
+  if (/closed|ended|expired|closure|canceled/.test(action)) return { icon: Prohibit, tone: 'red' };
   if (/suspend|paused/.test(action)) return { icon: Pause, tone: 'amber' };
   if (/auto-renew|cancellation/.test(action)) return { icon: ArrowsClockwise, tone: 'navy' };
-  if (action.includes('plan')) return { icon: ArrowsDownUp, tone: 'blue' };
+  if (/discount|credit|price/.test(action)) return { icon: Tag, tone: 'green' };
+  if (/plan|cycle/.test(action)) return { icon: ArrowsDownUp, tone: 'blue' };
   if (action.includes('seats')) return { icon: UsersThree, tone: 'blue' };
-  if (action.includes('add-ons')) return { icon: PuzzlePiece, tone: 'blue' };
-  if (/discount|credit/.test(action)) return { icon: Tag, tone: 'green' };
+  if (/add-ons|locations/.test(action)) return { icon: PuzzlePiece, tone: 'blue' };
   if (action.includes('billing date')) return { icon: CalendarCheck, tone: 'blue' };
   if (/invoice|link/.test(action)) return { icon: PaperPlaneTilt, tone: 'grey' };
   if (/renewed|payment|started|converted|reactivated/.test(action))

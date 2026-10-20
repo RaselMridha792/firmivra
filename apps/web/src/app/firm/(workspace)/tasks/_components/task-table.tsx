@@ -153,7 +153,8 @@ export function TaskTable({
         <Link
           href={`/tasks/${t.id}`}
           data-testid="task-link"
-          className="font-medium text-heading hover:underline"
+          title={t.title}
+          className="block max-w-56 truncate font-medium text-heading hover:underline"
         >
           {t.title}
         </Link>
@@ -362,6 +363,8 @@ export function TaskTable({
           rowKey={(t) => t.id}
           caption={caption}
           dense
+          // One line per task in 12 px, as task/source/task.jpg draws the table (R1 firm audit).
+          tableClassName="[&_th]:!text-xs [&_td]:!text-xs [&_td]:whitespace-nowrap"
           noun="tasks"
           pageSize={size}
           loading={list.isPending}
