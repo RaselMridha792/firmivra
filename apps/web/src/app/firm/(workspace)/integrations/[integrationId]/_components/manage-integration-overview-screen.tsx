@@ -237,7 +237,7 @@ function OverviewFrame({
             </div>
             <div className="flex min-w-48 flex-col gap-2">
               <Button disabled={!detail?.canManage || detail.syncing || busy} onClick={onSync}>
-                <ArrowsClockwise weight="bold" className="size-5" /> Sync Now
+                <ArrowsClockwise weight="fill" className="size-5" /> Sync Now
               </Button>
               <Link
                 href={`/integrations/${integrationId}/sync-history`}
@@ -251,7 +251,7 @@ function OverviewFrame({
               aria-label="More integration actions"
               className="self-start px-3"
             >
-              <DotsThreeVertical weight="bold" className="size-6" />
+              <DotsThreeVertical weight="fill" className="size-6" />
             </Button>
           </div>
         </div>

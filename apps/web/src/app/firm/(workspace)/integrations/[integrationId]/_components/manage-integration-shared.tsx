@@ -105,5 +105,5 @@ export function HealthIcon({ ok }: { ok: boolean }) {
 }
 
 export function DirectionIcon() {
-  return <ArrowsLeftRight aria-hidden weight="bold" className="size-4 text-action" />;
+  return <ArrowsLeftRight aria-hidden weight="fill" className="size-4 text-action" />;
 }
