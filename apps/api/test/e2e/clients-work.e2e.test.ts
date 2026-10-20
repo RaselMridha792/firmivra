@@ -172,6 +172,7 @@ beforeAll(async () => {
         serviceId: ids.books,
         title: 'Fake bookkeeping',
         status: 'COMPLETED',
+        completedAt: new Date(),
       },
     });
     for (const status of ['REQUESTED', 'REJECTED', 'ACCEPTED'] as const) {
@@ -182,6 +183,7 @@ beforeAll(async () => {
           engagementId: open.id,
           title: `Fake ${status}`,
           status,
+          statusNote: status === 'REJECTED' ? 'Fake: the page is unreadable' : null,
         },
       });
     }
@@ -196,6 +198,7 @@ beforeAll(async () => {
           endsAt: new Date(startsAt.getTime() + 3_600_000),
           locationKind: 'PHONE',
           status,
+          cancelledAt: status === 'CANCELLED' ? new Date() : null,
         },
       });
     await visit(ago(5));
