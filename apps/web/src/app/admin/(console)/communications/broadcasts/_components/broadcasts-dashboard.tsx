@@ -695,7 +695,7 @@ export function BroadcastsDashboard() {
         <div className="flex min-w-0 flex-col gap-3">
           <section
             aria-label="Broadcast summary"
-            className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5 xl:[&>div]:gap-2.5 xl:[&>div]:p-3 xl:[&>div>span]:size-10 xl:[&>div>span>svg]:size-5"
+            className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5 [&>div>span]:rounded-xl xl:[&>div]:gap-2.5 xl:[&>div]:p-3 xl:[&>div>span]:size-10 xl:[&>div>span>svg]:size-5 xl:[&>div>div>span:nth-child(2)]:text-heading"
           >
             {summaryCards.map(({ icon, tone, key, label }) => (
               <KpiCard

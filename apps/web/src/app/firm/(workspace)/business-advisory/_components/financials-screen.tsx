@@ -54,7 +54,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: 'go
 }
 
 /** Revenue against its budget: the difference and the share of budget reached. */
-function BudgetCell({ r }: { r: Row }) {
+export function BudgetCell({ r }: { r: Row }) {
   if (r.revenueCents === null || !r.budgetRevenueCents)
     return <span className="text-muted">—</span>;
   const diff = r.revenueCents - r.budgetRevenueCents;

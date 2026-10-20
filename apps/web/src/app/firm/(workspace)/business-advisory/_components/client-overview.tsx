@@ -26,7 +26,6 @@ import {
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorCode } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { Disclaimer } from './ba-shell';
 import {
@@ -40,19 +39,12 @@ import {
   card,
   dayText,
   money,
+  noneWhenMissing,
   outlined,
   primary,
   quiet,
 } from './ba-shared';
 import { ClientShell, EditClientDialog, useAdvisoryClient } from './client-shell';
-
-/** A client record the other module does not know reads as "none yet", not as an outage. */
-const noneWhenMissing =
-  <T,>(none: T) =>
-  (e: unknown): T => {
-    if (errorCode(e) === 'NOT_FOUND') return none;
-    throw e;
-  };
 
 const TONES = {
   blue: 'bg-info-soft text-action',
@@ -122,7 +114,46 @@ function Kpi({
   );
 }
 
-/** How the Business Health Score was made: each factor, its weight and value, and the data's age (guide §7). */
+/** The score, each factor's weight, value and explanation, and the data's age (guide §7). */
+export function HealthFactors({ client }: { client: AdvisoryClientDetail }) {
+  const h = client.health;
+  return (
+    <div className="flex flex-col gap-3" data-testid="health-factors">
+      <p className="flex flex-wrap items-baseline gap-3">
+        <span className="text-3xl font-bold text-heading">
+          {h.score === null ? '—' : `${h.score} / 100`}
+        </span>
+        <span className="text-sm text-muted">
+          {h.computedAt ? `Worked out ${dayText(h.computedAt)}` : 'Not enough data yet'} · formula{' '}
+          {h.formulaVersion}
+        </span>
+        {h.stale ? <Badge tone="danger">Figures out of date</Badge> : null}
+      </p>
+      <ul className="divide-y divide-divider">
+        {h.factors.map((f) => (
+          <li
+            key={f.factor}
+            className="grid grid-cols-[1fr_auto_auto] items-start gap-3 py-2 text-sm"
+          >
+            <span className="flex flex-col">
+              <span className="font-semibold text-heading">{f.label}</span>
+              <span className="text-xs text-muted">{f.explanation}</span>
+            </span>
+            <span className="text-muted">{f.weight}%</span>
+            <span className="w-16 text-right font-semibold text-heading">
+              {f.value === null ? 'No data' : `${f.value}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-muted">
+        Factors without data are left out, and the rest are weighted up to 100.
+      </p>
+    </div>
+  );
+}
+
+/** How the Business Health Score was made, in a dialog from the KPI row. */
 export function HealthDialog({
   client,
   onClose,
@@ -130,7 +161,6 @@ export function HealthDialog({
   client: AdvisoryClientDetail;
   onClose: () => void;
 }) {
-  const h = client.health;
   return (
     <Modal
       open
@@ -143,37 +173,8 @@ export function HealthDialog({
         </Button>
       }
     >
-      <div className="flex flex-col gap-3" data-testid="health-dialog">
-        <p className="flex flex-wrap items-baseline gap-3">
-          <span className="text-3xl font-bold text-heading">
-            {h.score === null ? '—' : `${h.score} / 100`}
-          </span>
-          <span className="text-sm text-muted">
-            {h.computedAt ? `Worked out ${dayText(h.computedAt)}` : 'Not enough data yet'} · formula{' '}
-            {h.formulaVersion}
-          </span>
-          {h.stale ? <Badge tone="danger">Figures out of date</Badge> : null}
-        </p>
-        <ul className="divide-y divide-divider">
-          {h.factors.map((f) => (
-            <li
-              key={f.factor}
-              className="grid grid-cols-[1fr_auto_auto] items-start gap-3 py-2 text-sm"
-            >
-              <span className="flex flex-col">
-                <span className="font-semibold text-heading">{f.label}</span>
-                <span className="text-xs text-muted">{f.explanation}</span>
-              </span>
-              <span className="text-muted">{f.weight}%</span>
-              <span className="w-16 text-right font-semibold text-heading">
-                {f.value === null ? 'No data' : `${f.value}`}
-              </span>
-            </li>
-          ))}
-        </ul>
-        <p className="text-xs text-muted">
-          Factors without data are left out, and the rest are weighted up to 100.
-        </p>
+      <div data-testid="health-dialog">
+        <HealthFactors client={client} />
       </div>
     </Modal>
   );
