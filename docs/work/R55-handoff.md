@@ -208,10 +208,11 @@ Bookkeeping, Payroll and Compliance were reassigned.
 
 **Merged today:** #900 (Reports API), #909 (Audit & Security screens), #913, #923, #933 (portal request packets), #926 (Reports screens), #935, #941 (System Settings screens and fixes), #944, #946 (status and health).
 
-**Open:** #959, the firm Tax Returns overview (`rasel/R55-tax-returns-list`). #961, mock specs that would expire with the calendar (`rasel/R55-test-dates`).
+**Merged:** #959 (firm Tax Returns overview), #961 (mock specs that would expire).
 
-**Pushed without a PR (both slots full):**
-- `rasel/R55-tax-return-workspace`, stacked on #959: the return workspace (Frame 2) and Review, E-File & Filing Status (Frame 3), with mock specs (5 pass). Open its PR when #959 merges, and merge `origin/main` into it first.
+**Open:** the Tax Returns workspace PR (`rasel/R55-tax-return-workspace`): the return workspace (Frame 2) and Review, E-File & Filing Status (Frame 3).
+
+**Pushed without a PR:**
 - `rasel/R55-design-audit`: the Audit, Reports and Settings design pass at 1440 px.
 
 **Live checks still to do:** the workspace's writes against the local API stopped partway. Docker Desktop went down during the run (Postgres unreachable, 503s). Adding and ticking a preparation item worked live. Rerun the remaining writes (approval step, authorizations, notes, amounts, Add Task, Ready for Review), and take the API-unreachable screenshots for the workspace and review pages.
