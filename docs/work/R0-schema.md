@@ -260,20 +260,22 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
 3. **No more demo seed groups.** The demo data gets replaced later, and nobody reseeds dev now (R1 has been told).
 
 **Open PRs (Oct 20):**
-- **#929: Business Advisory plan wizard, five steps.**
-  - The spec has 13 tests.
-  - The Review step checks the finalize rules and lists "Still needed".
-  - When the plan cannot load, each step keeps its section frames.
+- **#934: Business Advisory client detail, shell and Overview** (design 3).
+  - The spec has 15 tests.
+  - The Business Health Score explains its factors.
+  - Edit Client covers the advisory record and its services.
 - **#875:** this handoff.
-- **Merged since Oct 19:**
-  - #868, #871, #883, #885 (D4) and #899 (MRR)
-  - #888, #897, #908, #910 (reports API) and #915 (batch-2 tabs)
+- **Merged since Oct 19:** #868, #871, #883, #885, #888, #897, #899, #908, #910, #915 and #929 (wizard).
 
-**Next:** the client detail (`clients/[clientId]` and its 10 tabs, design 3 `client-advisory-detail-growth-plan.jpg`; guide §6–7).
-- The header card, the 11 tabs and the KPI row, including the Business Health Score with its factors and data freshness.
-- The Overview cards: Business Information, Goals & Milestones, Upcoming Meeting, Financial Snapshot, Top Recommendations, Recent Meeting Notes, Action Items, Documents and the quote card.
-- Documents, Notes and the portal read other modules (`api.documents`, `api.clientNotes`).
-- **Contract gap from #929:** the plan profile has no "How did you hear about us?" or plan notes (design 2's Additional Information card).
+**Next: the client detail's other ten tabs**, the last placeholders. They go on a branch stacked on #934 (`rasel/R0-advisory-client-detail`), inside `ClientShell`:
+- `/plan`: current plan, the client's plans and versions.
+- `/financials`: the figures, Add Figures, and the health factors.
+- `/goals`, `/recommendations`, `/tasks`: this client's lists, reusing the module's dialogs.
+- `/meetings`: upcoming and past.
+- `/documents`: `api.documents`, the advisory services' files.
+- `/notes`: `api.clientNotes`, list and add.
+- `/portal`: what the client sees (sent plans, client-visible recommendations and tasks).
+- `/activity`: `api.advisory.activity`, in a kit `Timeline`.
 
 **Business Advisory (item 2), started Oct 19:**
 - The API and contract already exist on main (R55, `de509806`: `apps/api/src/advisory/`, `packages/types/src/advisory/`).
