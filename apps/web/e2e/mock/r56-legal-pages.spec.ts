@@ -52,13 +52,10 @@ test('the Privacy Policy is public, whole and free of drafting text', async ({ p
     .click();
   await expect(page).toHaveURL(/#cookies-and-similar-technologies$/);
 
-  await page
-    .getByRole('navigation', { name: 'Legal' })
-    .getByRole('link', {
-      name: 'Terms of Service',
-    })
-    .click();
-  await expect(page).toHaveURL(firm('/terms'));
+  // The other page's link (the next test opens it; a click here would time the dev compile).
+  await expect(
+    page.getByRole('navigation', { name: 'Legal' }).getByRole('link', { name: 'Terms of Service' }),
+  ).toHaveAttribute('href', '/terms');
 });
 
 test('the Terms of Service are public, whole and free of drafting text', async ({ page }) => {
