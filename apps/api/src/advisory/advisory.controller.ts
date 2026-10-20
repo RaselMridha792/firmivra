@@ -15,6 +15,7 @@ import {
   AdvisoryGoalId,
   type AdvisoryGoalPage,
   type AdvisoryMeetingPage,
+  type AdvisoryReports,
   type AdvisoryMilestone,
   AdvisoryMilestoneId,
   type AdvisoryOverview,
@@ -57,6 +58,7 @@ import {
   FinancialsQuery,
   GoalsQuery,
   MeetingsQuery,
+  ReportsQuery,
   PlansQuery,
   RecommendationsQuery,
   ReorderMilestonesBody,
@@ -75,6 +77,7 @@ import {
 } from './advisory-input.js';
 import { AdvisoryOverviewService } from './advisory-overview.service.js';
 import { AdvisoryPlansService } from './advisory-plans.service.js';
+import { AdvisoryReportsService } from './advisory-reports.service.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -110,6 +113,7 @@ export class AdvisoryController {
     private readonly financials: AdvisoryFinancialsService,
     private readonly goals: AdvisoryGoalsService,
     private readonly actions: AdvisoryActionsService,
+    private readonly reportsService: AdvisoryReportsService,
   ) {}
 
   // ----- Overview and services -----
@@ -550,6 +554,17 @@ export class AdvisoryController {
   ): Promise<AdvisoryMeetingPage> {
     const w = who(auth, tenant);
     return this.overview.meetings(w.businessId, w.tenant, w.userId, q);
+  }
+
+  /** The Reports tab: live counts for the clients the caller reaches; figures need the permission. */
+  @Get('reports')
+  reports(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(ReportsQuery)) q: Out<typeof ReportsQuery>,
+  ): Promise<AdvisoryReports> {
+    const w = who(auth, tenant);
+    return this.reportsService.reports(w.businessId, w.tenant, w.userId, q);
   }
 
   @Get('resources')

@@ -21,20 +21,27 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import { Button, Drawer, EmptyState, SearchField, Select } from '@firmivra/ui';
-import type {
-  PlatformNotificationAttention,
-  PlatformNotificationCategory,
-  PlatformNotificationPriority,
-} from '@firmivra/types';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  listAdminNotifications,
-  type AdminNotificationFixture,
-} from '../../../../../mocks/admin-notifications';
+  ADMIN_NOTIFICATION_ERRORS,
+  type AdminNotification,
+  type AdminNotificationAction,
+  type AdminNotificationStatus,
+  type ListAdminNotificationsQuery,
+  type PlatformNotificationAttention,
+  type PlatformNotificationCategory,
+  type PlatformNotificationPriority,
+} from '@firmivra/types';
+import { useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { api } from '../../../../../lib/api';
+import { errorMessage } from '../../../../../lib/errors';
+import { useApiQuery } from '../../../../../lib/query';
+import { recordHref } from './notification-links';
 
 type CategoryFilter = 'ALL' | PlatformNotificationCategory;
 type PriorityFilter = 'ALL' | PlatformNotificationPriority;
-type StatusFilter = 'ALL' | 'UNREAD' | 'READ' | PlatformNotificationAttention;
+type StatusFilter = 'ALL' | AdminNotificationStatus;
 type DateFilter = 'TODAY' | 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'CUSTOM';
 
 const categoryTabs: { id: CategoryFilter; label: string }[] = [
@@ -108,14 +115,53 @@ const iconStyle: Record<PlatformNotificationCategory, string> = {
 };
 
 const pageSize = 7;
+const DAY_MS = 86_400_000;
+const NOTIFICATIONS = ['admin-notifications'] as const;
+
+/** What a notification's source record is, as the Related To column names it. */
+const sourceTypeLabels: Record<string, string> = {
+  business: 'Firm Account',
+  firm: 'Firm Account',
+  firm_application: 'Firm Application',
+  user: 'User Account',
+  lead: 'Sales Lead',
+  support_ticket: 'Support Ticket',
+  invoice: 'Invoice',
+  subscription: 'Subscription',
+  platform_integration: 'Integration',
+  system: 'Platform Update',
+};
+const isRead = (item: AdminNotification) => item.readAt !== null;
+const relatedName = (item: AdminNotification) =>
+  item.source.label ?? item.business?.name ?? 'Firmivra';
+const relatedType = (item: AdminNotification) =>
+  sourceTypeLabels[item.source.type] ??
+  item.source.type.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+const actionLabel = (item: AdminNotification) =>
+  item.attention === 'ACTION_REQUIRED' ? 'Review' : 'View Details';
+
+/** The list's date range: from the start of a day (local time); a custom end is inclusive. */
+function rangeOf(filter: DateFilter, customFrom: string, customTo: string) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysAgo = (days: number) => new Date(today.getTime() - days * DAY_MS).toISOString();
+  if (filter === 'TODAY') return { from: today.toISOString() };
+  if (filter === 'LAST_7_DAYS') return { from: daysAgo(7) };
+  if (filter === 'LAST_30_DAYS') return { from: daysAgo(30) };
+  const from = customFrom ? new Date(`${customFrom}T00:00:00`) : null;
+  const to = customTo ? new Date(new Date(`${customTo}T00:00:00`).getTime() + DAY_MS) : null;
+  return {
+    ...(from ? { from: from.toISOString() } : {}),
+    ...(to && (!from || from < to) ? { to: to.toISOString() } : {}),
+  };
+}
 
 export function NotificationsScreen() {
-  const [notifications, setNotifications] = useState<AdminNotificationFixture[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [reloadCount, setReloadCount] = useState(0);
+  const client = useQueryClient();
+  const router = useRouter();
   const [category, setCategory] = useState<CategoryFilter>('ALL');
   const [search, setSearch] = useState('');
+  const [searchText, setSearchText] = useState('');
   const [dateFilter, setDateFilter] = useState<DateFilter>('LAST_30_DAYS');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('ALL');
@@ -123,136 +169,123 @@ export function NotificationsScreen() {
   const [customTo, setCustomTo] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(1);
-  const [detail, setDetail] = useState<AdminNotificationFixture | null>(null);
-  const [toast, setToast] = useState('');
+  const [detail, setDetail] = useState<AdminNotification | null>(null);
+  const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const filtered = useMemo(
-    () =>
-      notifications.filter((item) => {
-        const text =
-          `${item.title} ${item.description} ${item.relatedName} ${item.relatedType}`.toLowerCase();
-        if (category !== 'ALL' && item.category !== category) return false;
-        if (search.trim() && !text.includes(search.trim().toLowerCase())) return false;
-        if (priorityFilter !== 'ALL' && item.priority !== priorityFilter) return false;
-        if (statusFilter === 'UNREAD' && item.isRead) return false;
-        if (statusFilter === 'READ' && !item.isRead) return false;
-        if (
-          statusFilter !== 'ALL' &&
-          statusFilter !== 'UNREAD' &&
-          statusFilter !== 'READ' &&
-          item.attention !== statusFilter
-        ) {
-          return false;
-        }
-        const date = new Date(item.occurredAt);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const cutoff = new Date(today);
-        if (dateFilter === 'TODAY' && date < today) return false;
-        if (dateFilter === 'LAST_7_DAYS') {
-          cutoff.setDate(cutoff.getDate() - 7);
-          if (date < cutoff) return false;
-        }
-        if (dateFilter === 'LAST_30_DAYS') {
-          cutoff.setDate(cutoff.getDate() - 30);
-          if (date < cutoff) return false;
-        }
-        if (dateFilter === 'CUSTOM') {
-          if (customFrom && date < new Date(`${customFrom}T00:00:00`)) return false;
-          if (customTo && date > new Date(`${customTo}T23:59:59`)) return false;
-        }
-        return true;
-      }),
-    [
-      category,
-      customFrom,
-      customTo,
-      dateFilter,
-      notifications,
-      priorityFilter,
-      search,
-      statusFilter,
-    ],
+  // The search box asks the API once typing pauses.
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setSearchText(search.trim()), 300);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
+  const filters: ListAdminNotificationsQuery = useMemo(
+    () => ({
+      ...(category !== 'ALL' ? { category } : {}),
+      ...(statusFilter !== 'ALL' ? { status: statusFilter } : {}),
+      ...(priorityFilter !== 'ALL' ? { priority: priorityFilter } : {}),
+      ...(searchText ? { search: searchText } : {}),
+      ...rangeOf(dateFilter, customFrom, customTo),
+    }),
+    [category, statusFilter, priorityFilter, searchText, dateFilter, customFrom, customTo],
+  );
+  const list = useApiQuery([...NOTIFICATIONS, 'list', filters, page], () =>
+    api.adminNotifications.list({ ...filters, page, pageSize }),
+  );
+  const summary = useApiQuery([...NOTIFICATIONS, 'summary'], () =>
+    api.adminNotifications.summary(),
   );
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visible = list.data?.items ?? [];
+  const total = list.data?.total ?? 0;
+  const loading = list.isPending;
+  const loadError = list.isError;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const unreadCount = notifications.filter((item) => !item.isRead).length;
-  const actionCount = notifications.filter((item) => item.attention === 'ACTION_REQUIRED').length;
-  const criticalCount = notifications.filter(
-    (item) =>
-      item.priority === 'CRITICAL' &&
-      item.attention !== 'RESOLVED' &&
-      item.attention !== 'DISMISSED',
-  ).length;
-  const selectedItems = notifications.filter((item) => selected.includes(item.id));
-  const hasActionRequired = selectedItems.some((item) => item.attention === 'ACTION_REQUIRED');
-
-  useEffect(() => {
-    let active = true;
-    void listAdminNotifications()
-      .then((items) => {
-        if (!active) return;
-        setNotifications(items);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!active) return;
-        setNotifications([]);
-        setLoadError(true);
-        setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [reloadCount]);
+  const counts = summary.data;
+  const hasActionRequired = visible.some(
+    (item) => selected.includes(item.id) && item.attention === 'ACTION_REQUIRED',
+  );
+  const filtered =
+    dateFilter !== 'LAST_30_DAYS' ||
+    category !== 'ALL' ||
+    statusFilter !== 'ALL' ||
+    priorityFilter !== 'ALL' ||
+    searchText !== '';
 
   useEffect(() => {
     if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(''), 2600);
+    const timeout = window.setTimeout(() => setToast(null), 2600);
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  function applyTo(
-    ids: string[],
-    change: (item: AdminNotificationFixture) => AdminNotificationFixture,
-  ) {
-    const idSet = new Set(ids);
-    setNotifications((items) => items.map((item) => (idSet.has(item.id) ? change(item) : item)));
-    setSelected((items) => items.filter((id) => !idSet.has(id)));
-  }
-
-  function markRead(ids: string[]) {
-    applyTo(ids, (item) => ({ ...item, isRead: true }));
-    setToast(ids.length === 1 ? 'Notification marked as read.' : 'Notifications marked as read.');
-  }
-
-  function markUnread(ids: string[]) {
-    applyTo(ids, (item) => ({ ...item, isRead: false }));
-    setToast(
-      ids.length === 1 ? 'Notification marked as unread.' : 'Notifications marked as unread.',
-    );
-  }
-
-  function setAttention(ids: string[], attention: PlatformNotificationAttention, message: string) {
-    applyTo(ids, (item) => ({ ...item, attention }));
-    setToast(message);
-  }
-
-  function openDetails(item: AdminNotificationFixture) {
-    setDetail(item);
-    if (!item.isRead) {
-      setNotifications((items) =>
-        items.map((current) => (current.id === item.id ? { ...current, isRead: true } : current)),
-      );
+  /** Runs a change, then refetches the list, the cards and the bell. */
+  async function change(work: () => Promise<string>) {
+    setBusy(true);
+    try {
+      setToast({ message: await work() });
+      setSelected([]);
+    } catch (error) {
+      setToast({ message: errorMessage(error, ADMIN_NOTIFICATION_ERRORS), error: true });
+    } finally {
+      setBusy(false);
+      await client.invalidateQueries({ queryKey: NOTIFICATIONS });
     }
   }
 
+  /** One item through its own route; several through the bulk route, which skips the rest. */
+  function act(ids: string[], action: AdminNotificationAction, done: [string, string]) {
+    void change(async () => {
+      const [one, many] = done;
+      const [first] = ids;
+      if (ids.length === 1 && first) {
+        const call = {
+          READ: api.adminNotifications.read,
+          UNREAD: api.adminNotifications.unread,
+          RESOLVE: api.adminNotifications.resolve,
+          DISMISS: api.adminNotifications.dismiss,
+        }[action];
+        await call(first);
+        return one;
+      }
+      const result = await api.adminNotifications.bulk({ ids, action });
+      return result.skipped.length
+        ? `${result.updated} updated; ${result.skipped.length} did not apply.`
+        : many;
+    });
+  }
+
+  function markRead(ids: string[]) {
+    act(ids, 'READ', ['Notification marked as read.', 'Notifications marked as read.']);
+  }
+
+  function markUnread(ids: string[]) {
+    act(ids, 'UNREAD', ['Notification marked as unread.', 'Notifications marked as unread.']);
+  }
+
+  function setAttention(ids: string[], attention: PlatformNotificationAttention, message: string) {
+    act(ids, attention === 'RESOLVED' ? 'RESOLVE' : 'DISMISS', [message, message]);
+  }
+
+  /** Opening marks it read, then goes to the record behind it, or shows the details panel. */
+  function openItem(item: AdminNotification) {
+    if (!isRead(item))
+      void api.adminNotifications
+        .read(item.id)
+        .then(() => client.invalidateQueries({ queryKey: NOTIFICATIONS }))
+        .catch(() => undefined);
+    const href = recordHref(item);
+    if (href) router.push(href);
+    else setDetail(item);
+  }
+
   function markAllFilteredRead() {
-    const ids = filtered.filter((item) => !item.isRead).map((item) => item.id);
-    if (ids.length) markRead(ids);
-    else setToast('All notifications in this view are already read.');
+    void change(async () => {
+      const { updated } = await api.adminNotifications.markAllRead(filters);
+      return updated
+        ? `${updated} ${updated === 1 ? 'notification' : 'notifications'} marked as read.`
+        : 'All notifications in this view are already read.';
+    });
   }
 
   function setSummaryFilter(filter: 'ALL' | 'UNREAD' | 'ACTION_REQUIRED' | 'CRITICAL') {
@@ -273,6 +306,7 @@ export function NotificationsScreen() {
     setPage(1);
     setCategory('ALL');
     setSearch('');
+    setSearchText('');
     setDateFilter('LAST_30_DAYS');
     setStatusFilter('ALL');
     setPriorityFilter('ALL');
@@ -291,32 +325,30 @@ export function NotificationsScreen() {
     ? 'Notifications are unavailable'
     : loading
       ? 'Loading notifications'
-      : notifications.length
+      : filtered
         ? 'No notifications match your filters'
         : 'No notifications yet';
   const emptyDescription = loadError
     ? 'We could not reach notifications. Try again in a moment.'
     : loading
       ? 'Fetching the latest platform activity.'
-      : notifications.length
+      : filtered
         ? 'Try changing or clearing the filters above.'
         : 'New platform activity will appear here.';
   const emptyAction = loadError ? (
     <Button
       variant="secondary"
-      onClick={() => {
-        setLoading(true);
-        setLoadError(false);
-        setReloadCount((count) => count + 1);
-      }}
+      onClick={() => void client.invalidateQueries({ queryKey: NOTIFICATIONS })}
     >
       Try Again
     </Button>
-  ) : notifications.length && !loading ? (
+  ) : filtered && !loading ? (
     <Button variant="secondary" onClick={clearFilters}>
       Clear Filters
     </Button>
   ) : undefined;
+  const cardValue = (value: number | undefined) =>
+    summary.isPending || summary.isError || value === undefined ? '—' : value;
 
   return (
     <main className="flex min-w-0 flex-col gap-5 pb-2">
@@ -335,7 +367,7 @@ export function NotificationsScreen() {
         </div>
         <Button
           onClick={markAllFilteredRead}
-          disabled={loading || loadError || notifications.length === 0}
+          disabled={busy || loading || loadError || total === 0}
           className="min-h-10 shrink-0 self-start px-4"
         >
           <Check aria-hidden weight="bold" className="size-4" />
@@ -350,28 +382,28 @@ export function NotificationsScreen() {
         <SummaryCard
           icon={Bell}
           tone="blue"
-          value={loading || loadError ? '—' : notifications.length}
+          value={cardValue(counts?.total)}
           label="All Notifications"
           onClick={() => setSummaryFilter('ALL')}
         />
         <SummaryCard
           icon={EnvelopeSimple}
           tone="green"
-          value={loading || loadError ? '—' : unreadCount}
+          value={cardValue(counts?.unread)}
           label="Unread"
           onClick={() => setSummaryFilter('UNREAD')}
         />
         <SummaryCard
           icon={Warning}
           tone="amber"
-          value={loading || loadError ? '—' : actionCount}
+          value={cardValue(counts?.actionRequired)}
           label="Action Required"
           onClick={() => setSummaryFilter('ACTION_REQUIRED')}
         />
         <SummaryCard
           icon={Warning}
           tone="red"
-          value={loading || loadError ? '—' : criticalCount}
+          value={cardValue(counts?.critical)}
           label="Critical Alerts"
           onClick={() => setSummaryFilter('CRITICAL')}
         />
@@ -501,7 +533,7 @@ export function NotificationsScreen() {
           <DropdownMenu
             label="Bulk Actions"
             trigger={<span>Bulk Actions</span>}
-            disabled={selected.length === 0}
+            disabled={busy || selected.length === 0}
             items={[
               {
                 label: 'Mark as Read',
@@ -625,7 +657,7 @@ export function NotificationsScreen() {
                 <tr
                   key={item.id}
                   className={`border-b border-divider last:border-b-0 hover:bg-canvas ${
-                    !item.isRead && item.priority === 'CRITICAL' ? 'bg-danger-soft/50' : ''
+                    !isRead(item) && item.priority === 'CRITICAL' ? 'bg-danger-soft/50' : ''
                   }`}
                 >
                   <td className="px-4 py-1.5">
@@ -640,11 +672,11 @@ export function NotificationsScreen() {
                     />
                   </td>
                   <td className="px-3 py-1.5">
-                    <NotificationDescription item={item} onOpen={() => openDetails(item)} />
+                    <NotificationDescription item={item} onOpen={() => openItem(item)} />
                   </td>
                   <td className="px-3 py-1.5">
-                    <p className="truncate font-medium text-heading">{item.relatedName}</p>
-                    <p className="mt-0.5 truncate text-sm text-muted">{item.relatedType}</p>
+                    <p className="truncate font-medium text-heading">{relatedName(item)}</p>
+                    <p className="mt-0.5 truncate text-sm text-muted">{relatedType(item)}</p>
                   </td>
                   <td className="px-3 py-1.5">
                     <CategoryBadge category={item.category} />
@@ -665,10 +697,12 @@ export function NotificationsScreen() {
                     <div className="flex items-center justify-end gap-2">
                       <Button
                         variant="outline"
-                        onClick={() => openDetails(item)}
-                        className="min-h-9 whitespace-nowrap border-divider px-3 text-sm font-medium text-action"
+                        onClick={() => openItem(item)}
+                        className={`min-h-9 whitespace-nowrap px-3 text-sm font-medium ${
+                          isRead(item) ? 'border-divider text-heading' : 'border-action text-action'
+                        }`}
                       >
-                        {item.actionLabel}
+                        {actionLabel(item)}
                       </Button>
                       <NotificationRowMenu
                         item={item}
@@ -721,7 +755,7 @@ export function NotificationsScreen() {
           {visible.map((item) => (
             <article
               key={item.id}
-              className={`min-w-0 rounded-card border border-divider p-4 ${!item.isRead && item.priority === 'CRITICAL' ? 'bg-danger-soft/50' : 'bg-surface'}`}
+              className={`min-w-0 rounded-card border border-divider p-4 ${!isRead(item) && item.priority === 'CRITICAL' ? 'bg-danger-soft/50' : 'bg-surface'}`}
             >
               <div className="flex items-start gap-3">
                 <input
@@ -737,12 +771,12 @@ export function NotificationsScreen() {
                 <div className="min-w-0 flex-1">
                   <button
                     type="button"
-                    onClick={() => openDetails(item)}
+                    onClick={() => openItem(item)}
                     className="block text-left text-sm font-semibold text-heading hover:text-action"
                   >
                     {item.title}
                   </button>
-                  <p className="mt-1 text-sm leading-5 text-muted">{item.description}</p>
+                  <p className="mt-1 text-sm leading-5 text-muted">{item.body}</p>
                 </div>
                 <NotificationRowMenu
                   item={item}
@@ -755,8 +789,8 @@ export function NotificationsScreen() {
               <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-divider pt-3 text-sm">
                 <div className="min-w-0">
                   <dt className="text-xs text-muted">Related To</dt>
-                  <dd className="mt-0.5 truncate font-medium text-heading">{item.relatedName}</dd>
-                  <dd className="truncate text-xs text-muted">{item.relatedType}</dd>
+                  <dd className="mt-0.5 truncate font-medium text-heading">{relatedName(item)}</dd>
+                  <dd className="truncate text-xs text-muted">{relatedType(item)}</dd>
                 </div>
                 <div>
                   <dt className="text-xs text-muted">Date &amp; Time</dt>
@@ -779,10 +813,10 @@ export function NotificationsScreen() {
               </dl>
               <Button
                 variant="outline"
-                onClick={() => openDetails(item)}
+                onClick={() => openItem(item)}
                 className="mt-4 min-h-9 w-full border-divider text-action"
               >
-                {item.actionLabel}
+                {actionLabel(item)}
               </Button>
             </article>
           ))}
@@ -796,8 +830,8 @@ export function NotificationsScreen() {
 
       <footer className="flex flex-col gap-3 text-sm text-muted sm:flex-row sm:items-center">
         <p aria-live="polite">
-          Showing {filtered.length ? (currentPage - 1) * pageSize + 1 : 0}–
-          {Math.min(currentPage * pageSize, filtered.length)} of {filtered.length} notifications
+          Showing {total ? (currentPage - 1) * pageSize + 1 : 0}–
+          {Math.min(currentPage * pageSize, total)} of {total} notifications
         </p>
         <nav
           aria-label="Notification pages"
@@ -835,12 +869,16 @@ export function NotificationsScreen() {
           role="status"
           className="fixed right-4 bottom-4 z-40 flex max-w-sm items-center gap-3 rounded-card border border-divider bg-surface px-4 py-3 text-sm text-heading shadow-lg"
         >
-          <CheckCircle aria-hidden weight="fill" className="size-5 shrink-0 text-success" />
-          <span>{toast}</span>
+          {toast.error ? (
+            <WarningCircle aria-hidden weight="fill" className="size-5 shrink-0 text-danger" />
+          ) : (
+            <CheckCircle aria-hidden weight="fill" className="size-5 shrink-0 text-success" />
+          )}
+          <span>{toast.message}</span>
           <button
             type="button"
             aria-label="Dismiss message"
-            onClick={() => setToast('')}
+            onClick={() => setToast(null)}
             className="ml-auto text-muted hover:text-heading"
           >
             <X aria-hidden weight="bold" className="size-4" />
@@ -870,7 +908,7 @@ export function NotificationsScreen() {
             <div className="flex items-start gap-3">
               <NotificationIcon item={detail} />
               <div>
-                <p className="text-sm leading-6 text-text">{detail.description}</p>
+                <p className="text-sm leading-6 text-text">{detail.body}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <PriorityBadge priority={detail.priority} />
                   <StatusBadge item={detail} />
@@ -880,8 +918,8 @@ export function NotificationsScreen() {
             <dl className="grid gap-3 rounded-card border border-divider bg-canvas p-4 text-sm">
               <div>
                 <dt className="text-xs text-muted">Related to</dt>
-                <dd className="mt-1 font-medium text-heading">{detail.relatedName}</dd>
-                <dd className="text-muted">{detail.relatedType}</dd>
+                <dd className="mt-1 font-medium text-heading">{relatedName(detail)}</dd>
+                <dd className="text-muted">{relatedType(detail)}</dd>
               </div>
               <div>
                 <dt className="text-xs text-muted">Category</dt>
@@ -958,7 +996,7 @@ function NotificationDescription({
   item,
   onOpen,
 }: {
-  item: AdminNotificationFixture;
+  item: AdminNotification;
   onOpen: () => void;
 }) {
   return (
@@ -968,17 +1006,40 @@ function NotificationDescription({
         <button
           type="button"
           onClick={onOpen}
-          className={`block max-w-full truncate text-left text-sm text-heading hover:text-action ${item.isRead ? 'font-medium' : 'font-semibold'}`}
+          className={`block max-w-full truncate text-left text-sm text-heading hover:text-action ${isRead(item) ? 'font-medium' : 'font-semibold'}`}
         >
           {item.title}
         </button>
-        <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted">{item.description}</p>
+        <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted">{item.body}</p>
       </div>
     </div>
   );
 }
 
-function NotificationIcon({ item }: { item: AdminNotificationFixture }) {
+const SUCCESS_EVENT = /(renewed|paid|succeeded|activated|approved|completed|restored)/;
+const FAILURE_EVENT = /(failed|error|declined|overdue|expired)/;
+
+function NotificationIcon({ item }: { item: AdminNotification }) {
+  const success = SUCCESS_EVENT.test(item.type);
+  const failure = !success && FAILURE_EVENT.test(item.type) && item.category !== 'SECURITY';
+  // Status events are a solid circle glyph (the design); the rest a glyph on a soft circle.
+  const solid: { glyph: Icon; tone: string } | null = success
+    ? { glyph: CheckCircle, tone: 'text-success' }
+    : failure
+      ? { glyph: WarningCircle, tone: 'text-danger' }
+      : item.category === 'FIRM_APPLICATIONS'
+        ? { glyph: WarningCircle, tone: 'text-gold' }
+        : item.category === 'INTEGRATIONS' || item.category === 'SUPPORT'
+          ? { glyph: Info, tone: 'text-info' }
+          : null;
+  if (solid) {
+    const Solid = solid.glyph;
+    return (
+      <span className={`flex size-9 shrink-0 items-center justify-center ${solid.tone}`}>
+        <Solid aria-hidden weight="fill" className="size-9" />
+      </span>
+    );
+  }
   const Glyph = rowIcon[item.category];
   return (
     <span
@@ -1009,12 +1070,12 @@ function PriorityBadge({ priority }: { priority: PlatformNotificationPriority })
   );
 }
 
-function StatusBadge({ item }: { item: AdminNotificationFixture }) {
+function StatusBadge({ item }: { item: AdminNotification }) {
   const resolved = item.attention === 'RESOLVED';
   const dismissed = item.attention === 'DISMISSED';
-  const label = resolved ? 'Resolved' : dismissed ? 'Dismissed' : item.isRead ? 'Read' : 'Unread';
+  const label = resolved ? 'Resolved' : dismissed ? 'Dismissed' : isRead(item) ? 'Read' : 'Unread';
   const tone =
-    resolved || item.isRead
+    resolved || isRead(item)
       ? 'bg-success-soft text-success'
       : dismissed
         ? 'bg-disabled text-muted'
@@ -1108,7 +1169,7 @@ function NotificationRowMenu({
   onResolve,
   onDismiss,
 }: {
-  item: AdminNotificationFixture;
+  item: AdminNotification;
   onRead: () => void;
   onUnread: () => void;
   onResolve: () => void;
@@ -1116,8 +1177,8 @@ function NotificationRowMenu({
 }) {
   const items = [
     {
-      label: item.isRead ? 'Mark as Unread' : 'Mark as Read',
-      onSelect: item.isRead ? onUnread : onRead,
+      label: isRead(item) ? 'Mark as Unread' : 'Mark as Read',
+      onSelect: isRead(item) ? onUnread : onRead,
     },
     ...(item.attention === 'ACTION_REQUIRED' ? [{ label: 'Resolve', onSelect: onResolve }] : []),
     { label: 'Dismiss', onSelect: onDismiss, danger: true },
@@ -1169,7 +1230,7 @@ function toggleOneSelection(
 }
 
 function togglePageSelection(
-  rows: AdminNotificationFixture[],
+  rows: AdminNotification[],
   selected: string[],
   setSelected: (ids: string[]) => void,
   checked: boolean,

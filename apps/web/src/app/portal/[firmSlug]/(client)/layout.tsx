@@ -20,16 +20,19 @@ import { Button, Modal } from '@firmivra/ui';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Header } from '../../../../components/app-shell/header';
-import { isActive } from '../../../../components/app-shell/types';
 import lvpLogo from './_components/lvp-logo.png';
 import { usePortal } from '../layout';
 import { PortalFooter } from '../(public)/_components/portal-footer';
 import { taglineWords } from '../(public)/_components/tagline';
 import { PortalBell } from './_components/portal-bell';
+import { menuState } from './_components/portal-menu';
 import type { NavSections } from '../../../../components/app-shell/types';
 import { SignedIn, useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
 import { useApiQuery } from '../../../../lib/query';
+
+/** The sidebar's motto when the firm sets none, as every portal design shows it (R61). */
+const DEFAULT_MOTTO = ['Plan', 'Prepare', 'Prosper'];
 
 // Client menu (docs/junior/PAGE-MAP.md). Messages shows the unread firm messages. "Signatures" shows
 // when the firm uses Firm Sign, "Tax Calculators" when the firm shares at least one calculator.
@@ -59,6 +62,17 @@ const sections = (
     { label: 'My Profile', icon: UserRound, href: `/${slug}/profile` },
   ],
 ];
+
+/**
+ * A menu line by its state on the page (./_components/portal-menu.ts): the page's own line in the
+ * firm's button colour (the designs' royal blue; the accent when the firm sets none), a related
+ * line softly.
+ */
+const MENU_LINE = {
+  active: 'bg-action text-on-action',
+  related: 'bg-navigation-hover',
+  plain: 'hover:bg-navigation-hover',
+} as const;
 
 /**
  * Every signed-in portal page: the sign-in check, then the client's firm (GET /portal/{slug}/business;
@@ -126,7 +140,11 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
   const { business, branding } = usePortal();
   const { me, signOut } = useMe();
   const pathname = usePathname();
-  const documentsPage = pathname === `/${slug}/documents`;
+  // The first name in the greeting: the firm's button blue on the Business, My Uploaded Documents,
+  // Tax Returns and Receipts & Invoices tabs, its accent elsewhere (the tab designs, R61).
+  const blueName = ['business', 'documents', 'taxes', 'invoices'].some(
+    (page) => pathname === `/${slug}/${page}`,
+  );
   const [drawer, setDrawer] = useState(false);
   // A failed check only hides the menu line.
   const signatures = useApiQuery(['my-signatures-status', slug], () =>
@@ -136,50 +154,55 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
   const unread = useApiQuery(['my-messages', slug, 'unread'], () =>
     api.myMessages(slug).unreadCount(),
   );
-  const motto = taglineWords(branding);
+  const firmMotto = taglineWords(branding);
+  const motto = firmMotto.length > 0 ? firmMotto : DEFAULT_MOTTO;
   const nav = sections(slug, {
     signatures: signatures.data?.enabled === true,
     calculators: (calculators.data?.length ?? 0) > 0,
     unread: unread.data?.count ?? 0,
   });
-  const mottoBlock =
-    motto.length > 0 ? (
-      <div
-        data-testid="sidebar-motto"
-        className="mt-auto bg-firm-sidebar px-8 pt-8 pb-6 text-on-firm-sidebar"
-      >
-        <span aria-hidden className="block h-0.5 w-12 bg-firm-accent" />
-        {motto.map((word) => (
-          <span key={word} className="mt-2 block text-sm tracking-brand uppercase">
-            {word}
-          </span>
-        ))}
-      </div>
-    ) : null;
+  const mottoBlock = (
+    <div
+      data-testid="sidebar-motto"
+      className="mt-auto bg-firm-sidebar px-8 pt-8 pb-6 text-on-firm-sidebar"
+    >
+      <span aria-hidden className="block h-0.5 w-12 bg-firm-accent" />
+      {motto.map((word) => (
+        <span key={word} className="mt-2 block text-sm tracking-brand uppercase">
+          {word}
+        </span>
+      ))}
+    </div>
+  );
   const menu = (inDrawer: boolean) => (
     <nav
       aria-label="Main"
       className="flex h-full flex-col bg-firm-sidebar p-4 text-on-firm-sidebar"
     >
       {inDrawer ? <p className="text-xl font-bold">{business.name}</p> : null}
-      {nav.flat().map(({ label, icon: Icon, href, badge }) => (
-        <Link
-          key={label}
-          href={href ?? `/${business.slug}/home`}
-          onClick={() => setDrawer(false)}
-          aria-current={href && isActive(pathname, href) ? 'page' : undefined}
-          className={`flex items-center gap-4 rounded-control px-4 py-3 text-base ${href && isActive(pathname, href) ? 'bg-firm-accent' : 'hover:bg-navigation-hover'}`}
-        >
-          <Icon aria-hidden className="size-6 shrink-0" />
-          <span className="flex-1">{label}</span>
-          {badge ? (
-            <span className="flex size-6 items-center justify-center rounded-full bg-firm-accent text-xs font-bold text-on-action">
-              {badge}
-              <span className="sr-only"> unread</span>
-            </span>
-          ) : null}
-        </Link>
-      ))}
+      {nav.flat().map(({ label, icon: Icon, href, badge }) => {
+        const state = href ? menuState(pathname, slug, href) : undefined;
+        return (
+          <Link
+            key={label}
+            href={href ?? `/${business.slug}/home`}
+            onClick={() => setDrawer(false)}
+            aria-current={state === 'active' ? 'page' : undefined}
+            className={`flex items-center gap-4 rounded-control px-4 py-3 text-base ${MENU_LINE[state ?? 'plain']}`}
+          >
+            <Icon aria-hidden className="size-6 shrink-0" />
+            <span className="flex-1">{label}</span>
+            {badge ? (
+              <span
+                className={`flex size-6 items-center justify-center rounded-full text-xs font-bold ${state === 'active' ? 'bg-on-action text-action' : 'bg-action text-on-action'}`}
+              >
+                {badge}
+                <span className="sr-only"> unread</span>
+              </span>
+            ) : null}
+          </Link>
+        );
+      })}
       <hr className="my-4 border-navigation-hover" />
       <Button
         variant="ghost"
@@ -212,7 +235,8 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
             business.name
           )}
         </Link>
-        <div className="min-w-0 flex-1 [&_header]:border-b-0 [&_header>div:first-of-type]:flex-1 [&_header>div:first-of-type]:text-center">
+        {/* The user menu's avatar as the designs draw it: a pale circle with navy initials (R61). */}
+        <div className="min-w-0 flex-1 [&_header]:border-b-0 [&_header>div:first-of-type]:flex-1 [&_header>div:first-of-type]:text-center [&_button[aria-haspopup=menu]>span:first-child]:bg-folder-surface [&_button[aria-haspopup=menu]>span:first-child]:text-heading">
           <Header
             roleLabel="Client"
             hideRole
@@ -222,7 +246,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
               <>
                 <p className="font-display text-xl font-bold text-heading md:text-3xl">
                   Welcome Back,{' '}
-                  <span className={documentsPage ? 'text-firm-text' : 'text-link'}>
+                  <span className={blueName ? 'text-action' : 'text-link'}>
                     {me.user.name.split(' ')[0]}
                   </span>
                   !
@@ -239,7 +263,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
         {/* The menu stays at the top while the page scrolls, the motto at the bottom. */}
         <aside className="hidden w-sidebar shrink-0 flex-col bg-firm-sidebar md:flex print:hidden">
           <div className="sticky top-0">{menu(false)}</div>
-          {mottoBlock ? <div className="sticky bottom-0 mt-auto">{mottoBlock}</div> : null}
+          <div className="sticky bottom-0 mt-auto">{mottoBlock}</div>
         </aside>
         <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
       </div>

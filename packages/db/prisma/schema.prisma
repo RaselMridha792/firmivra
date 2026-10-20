@@ -897,6 +897,7 @@ model Business {
   /// R0 stage B9: Firmivra's daily rollups of this firm's feature use and activity.
   platformFeatureUsage      PlatformFeatureUsageDaily[]      @relation("PlatformFeatureUsageDaily")
   platformFirmMetrics       PlatformFirmMetricsDaily[]       @relation("PlatformFirmMetricsDaily")
+  platformLegalAcceptances  PlatformLegalAcceptance[]
 
   @@map("businesses")
 }
@@ -913,9 +914,10 @@ model User {
   createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  memberships   Membership[]
-  clientAccount ClientAccount?
-  platformAdmin PlatformAdmin?
+  memberships              Membership[]
+  clientAccount            ClientAccount?
+  platformAdmin            PlatformAdmin?
+  platformLegalAcceptances PlatformLegalAcceptance[]
 
   @@index([email])
   @@map("users")
@@ -2328,6 +2330,9 @@ model PlatformSubscriptionChange {
   toStatus        PlatformSubscriptionStatus?    @map("to_status")
   fromSeats       Int?                           @map("from_seats")
   toSeats         Int?                           @map("to_seats")
+  /// The subscription's MRR in cents after this change (monthly equivalent of its price), set by
+  /// the billing service with each change; null on rows written before r0_mrr_history.
+  mrrCents        Int?                           @map("mrr_cents")
   reason          String?
   effectiveAt     DateTime                       @default(now()) @map("effective_at") @db.Timestamptz(3)
   changedByUserId String?                        @map("changed_by_user_id") @db.Uuid
@@ -2579,10 +2584,11 @@ model FirmApplication {
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business           Business?                      @relation(fields: [businessId], references: [id])
-  statusHistory      FirmApplicationStatusHistory[]
+  business                 Business?                      @relation(fields: [businessId], references: [id])
+  statusHistory            FirmApplicationStatusHistory[]
   /// R0 stage B5
-  salesOpportunities SalesOpportunity[]
+  salesOpportunities       SalesOpportunity[]
+  platformLegalAcceptances PlatformLegalAcceptance[]
 
   @@index([status, createdAt])
   @@index([einHash])
@@ -13539,4 +13545,106 @@ model SalesLeadImportRow {
   @@index([contactId])
   @@index([opportunityId])
   @@map("sales_lead_import_rows")
+}
+
+// ---------- R0 stage D4: Firmivra's own legal documents ----------
+
+enum PlatformLegalDocumentKind {
+  TERMS_OF_SERVICE
+  PRIVACY_POLICY
+  DATA_PROCESSING_AGREEMENT
+  ACCEPTABLE_USE
+}
+
+enum PlatformLegalDocumentStatus {
+  /// Being written; editable and deletable.
+  DRAFT
+  /// The version in force for its kind (one at a time); its text never changes.
+  PUBLISHED
+  /// Replaced by a newer published version, or withdrawn. Kept for the acceptances.
+  RETIRED
+}
+
+/// Firmivra's own Terms of Service, Privacy Policy, Data Processing Agreement and Acceptable Use
+/// Policy for the firms on the platform (not a firm's text for its clients: that is
+/// firm_legal_documents). Numbered per kind; publishing one retires the previous published
+/// version. Platform data: the Super Admin team writes it; every scope reads the published text.
+model PlatformLegalDocument {
+  id                   String                      @id @default(uuid(7)) @db.Uuid
+  kind                 PlatformLegalDocumentKind
+  /// 1, 2, 3 per kind, in order.
+  version              Int
+  title                String
+  /// Markdown.
+  body                 String
+  /// What changed since the previous version, shown when firms are asked to accept again.
+  summaryOfChanges     String?                     @map("summary_of_changes")
+  status               PlatformLegalDocumentStatus @default(DRAFT)
+  /// When it takes effect; set to the publish time when left empty.
+  effectiveAt          DateTime?                   @map("effective_at") @db.Timestamptz(3)
+  /// Firms must accept this version before they continue (the API asks at sign-in).
+  requiresReacceptance Boolean                     @default(false) @map("requires_reacceptance")
+  publishedAt          DateTime?                   @map("published_at") @db.Timestamptz(3)
+  publishedByUserId    String?                     @map("published_by_user_id") @db.Uuid
+  retiredAt            DateTime?                   @map("retired_at") @db.Timestamptz(3)
+  createdByUserId      String?                     @map("created_by_user_id") @db.Uuid
+  updatedByUserId      String?                     @map("updated_by_user_id") @db.Uuid
+  createdAt            DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  acceptances PlatformLegalAcceptance[]
+
+  @@unique([kind, version])
+  @@index([status])
+  @@map("platform_legal_documents")
+}
+
+/// Who accepted which published version, and when: the evidence. Insert-only; the database
+/// stamps the time. A firm's acceptance names the firm and the person; an applicant's names
+/// the firm application (no firm or login yet). Deleting a firm or an application clears only
+/// the link; the record stays.
+model PlatformLegalAcceptance {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  documentId        String   @map("document_id") @db.Uuid
+  /// Named like sales_opportunities.linked_business_id: a platform record that outlives the firm.
+  linkedBusinessId  String?  @map("linked_business_id") @db.Uuid
+  userId            String?  @map("user_id") @db.Uuid
+  firmApplicationId String?  @map("firm_application_id") @db.Uuid
+  acceptedAt        DateTime @default(now()) @map("accepted_at") @db.Timestamptz(3)
+  ipAddress         String?  @map("ip_address") @db.Inet
+  userAgent         String?  @map("user_agent")
+
+  document        PlatformLegalDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  business        Business?             @relation(fields: [linkedBusinessId], references: [id], onDelete: SetNull)
+  user            User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  firmApplication FirmApplication?      @relation(fields: [firmApplicationId], references: [id], onDelete: SetNull)
+
+  @@index([documentId])
+  @@index([linkedBusinessId])
+  @@index([userId])
+  @@index([firmApplicationId])
+  @@map("platform_legal_acceptances")
+}
+
+// ---------- R0: MRR history (Super Admin schema gaps, Oct 19; part of stage D2) ----------
+
+/// Platform MRR for one UTC day, written by the platform's daily job (platform scope) and read by
+/// the Super Admin team: the Subscriptions and Dashboard trends and the "30 days ago" figures.
+/// One row per day; the job may recompute today's. Past MRR can't be rebuilt from
+/// platform_subscription_changes alone (plan prices change), so the job keeps this from the start.
+model PlatformMrrDaily {
+  day          DateTime @id @db.Date
+  /// Sum of the paying subscriptions' monthly equivalent, in cents (ARR is 12 times this).
+  mrrCents     Int      @map("mrr_cents")
+  activeCount  Int      @default(0) @map("active_count")
+  trialCount   Int      @default(0) @map("trial_count")
+  pastDueCount Int      @default(0) @map("past_due_count")
+  /// Subscriptions that started paying, and that ended, on this day.
+  newCount     Int      @default(0) @map("new_count")
+  churnedCount Int      @default(0) @map("churned_count")
+  /// MRR in cents by plan code, e.g. { "TEAM_PRO": 249000 }.
+  mrrByPlan    Json     @default("{}") @map("mrr_by_plan")
+  computedAt   DateTime @default(now()) @map("computed_at") @db.Timestamptz(3)
+
+  @@map("platform_mrr_daily")
 }

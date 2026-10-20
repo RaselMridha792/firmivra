@@ -100,6 +100,22 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 - R0's other steps: R11 contract B by Oct 9 21:00, then R11 passes to R15; R10 steps 6 and 7 (Oct 10 and 11 21:00); q20 (Oct 11); the #57 fixes (Oct 12); R8 steps 2 and 3, the isolation suite and rate limits (merged by Oct 14 21:00); the Oct 13 18:00 checkpoint in this log; Q03 fixes Oct 15-16. Not R0's: Firm Sign, agreements, calculators, payments, firm applications, notify, the meeting-link code in appointments, the R11 API and contracts C and D, every screen.
 - Rules: one ticket or one page per PR; contract PRs exempt, one at a time; at most 2 open non-contract PRs; merge main, never rebase or force-push; at most two agents and one heavy command at a time; the Scrum thread pre-reviews, Rasel merges in the windows.
 
+### Schema gaps from the Super Admin API sessions (Oct 19)
+
+Relayed by the Scrum thread from R55's notes on Audit & Security, System Settings and Reports. R60 (Support, Billing, Sales APIs) and R55 send further notes the same way. Rasel's order for R0 stays the same: demo seed stage 5 first, then these migrations, one migration PR at a time in a merge window, each with Rasel's yes.
+
+**Queued (need a migration):**
+1. **Platform legal documents (new stage D4).** Firmivra's own Terms of Service, Privacy Policy and Data Processing Agreement for firms, versioned and published (a published version never changes), plus who accepted which version: the firm, the user, the time, the IP and the browser. `firm_legal_documents` is each firm's own text for its clients, so it doesn't cover these. Accepting the current version belongs in firm sign-up and activation (R4's flow).
+2. **MRR history (folded into stage D2, Subscriptions extras).** A daily rollup row with the date, MRR in cents, active, trialing, new and churned subscriptions, and MRR by plan. It is written by the platform's daily job. Past MRR can't be rebuilt from `platform_subscription_changes`, because those rows record plans and seats, not the price paid at the time, and plan prices change.
+
+**Not a migration (an empty state, or data from elsewhere):**
+- **Backups:** AWS keeps them (RDS automated backups and snapshots). The screen lists them through R1's AWS adapter (snapshot ids, times, sizes) or shows an empty state. A table would only copy AWS's state and drift from it.
+- **Environment variables:** never stored in the database. The screen lists the names the running API reads, with values masked and "set or not set" only. Secret values stay referenced in B7's `platform_secret_refs`.
+- **Role templates:** already exist. The Super Admin team's roles are `platform_role_definitions` with `platform_role_permissions`, and firm defaults are B7's default sets (kind `FIRM`). Any extra fields fit in their JSON.
+- **Custom CSS:** not offered. Arbitrary CSS can restyle or hide parts of the console and pull in outside content, so the branding stays in B7's typed `branding` section (accents and appearance) and brand assets. The screen shows this option as unavailable. If Rasel wants it after all, it becomes a `custom_css` settings key with a size cap and a sanitizer, which is a small migration to `platform_setting_ok`.
+- **Uptime:** read from monitoring (CloudWatch alarms and health checks through R1), or an empty state. No table.
+- **Daily metrics tables nothing fills:** the tables exist (B9's feature-use and firm-activity rollups, and the MRR rollup above once it lands). What's missing is a writer, not schema: a scheduled job in platform scope (R1's scheduler, or the API's jobs module). Until a writer runs, the screens show empty states.
+
 ## Progress log
 
 (newest last: date, step, what changed, commit)
@@ -215,7 +231,96 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 - Oct 19, `staff_import_previews` for R55's Import Staff (Rasel's yes in this window), branch `rasel/R0-staff-import-previews` from main: migration `r0_staff_import_previews`. A firm table like `staff_drafts` (firm policy, composite membership key, no password, token, secret or SSN keys in `rows`, a JSON array of at most 1,000 rows and 1 MB). The database sets `expires_at` to an hour after creation; reads see only unexpired previews; the firm's next preview deletes its expired ones, and `app_purge_expired_staff_import_previews()` (granted to the app) deletes every firm's expired ones. Owner-run cleanup reaches expired rows only (role-targeted policies, since the RDS migrate role has no BYPASSRLS). Insert, read and delete; never edited. Tests: `test/staff-import-previews.test.ts` (7). Item 2 of Rasel's Oct 19 list (the four brand colour columns) was already done: #794, used by R55's #804.
 
-## Handoff, Oct 18 afternoon (read this first; it supersedes the Oct 17 handoff below)
+- Oct 19, demo seed stage 5, Templates group, branch `rasel/R0-demo-stage5-templates` from main: `seed-demo-templates.ts` fills the 12 template tables (message templates and their versions, shares, favorites, uses and attachments, categories, branding, merge fields, document request templates and items, invoice templates).
+
+- Oct 19, demo seed stage 5, Compliance group, branch `rasel/R0-demo-stage5-compliance` from main (independent of the Tasks and Payroll groups; its lines sit apart from theirs so the three merge cleanly): `seed-demo-compliance.ts` fills the 13 Compliance & Deadlines tables: a published IRS calendar and its log, recurring definitions, applicability rules and decisions, client facts and sales tax registrations, and 62 deadlines across every status with reminders, documents and links.
+
+- Oct 19, demo seed stage 5, Bookkeeping group, branch `rasel/R0-demo-stage5-bookkeeping` from main: `seed-demo-bookkeeping.ts` fills 18 bookkeeping tables and `engagement_reports`, patterned on LVP's ledger seed so the deferred split, transfer and settlement checks pass.
+
+- Oct 19, demo seed stage 5, Communications group, branch `rasel/R0-demo-stage5-communications`: `seed-demo-communications.ts` fills 16 tables: segments and consent, campaigns (sent, scheduled, draft) with audience, recipients and events, direct outbound messages with recipients and a file, message settings, signatures, thread tags and mutes, and notification preferences and deliveries. It runs last, after the bell items it delivers.
+
+- Oct 19, demo seed stage 5, Tasks group (Rasel's Oct 19 list, item 1), branch `rasel/R0-demo-stage5-tasks` from main: `seed-demo-tasks.ts` fills task types (on every demo task), templates, two recurring series with their due dates (made, upcoming, skipped), checklists, collaborators, reminders, attachments, and tags on clients and leads (11 tables). 214 firm tables had no `demo` rows before it (the handoff's 206 predates newer tables); 203 after. Next groups, in Scrum's order: Payroll, Compliance, Templates, Bookkeeping, Communications, Automations, Services and pricing, Tax returns, Audit and logins.
+
+- Oct 19, demo seed stage 5, Payroll group, branch `rasel/R0-demo-stage5-payroll-stacked` (stacked on the Tasks group's #834, so the shared lines merge cleanly): `seed-demo-payroll.ts` fills the 11 payroll tables for the four payroll clients: rosters, completed and current runs (lines, issues, every workflow step the screens show), filings, registers, year-ends, settings. 193 of 277 firm tables without `demo` rows after it (one is `staff_import_previews`, empty by design).
+
+- Oct 19, decisions (Rasel through the Scrum thread): R0 finishes demo seed stage 5 before anything else; a new session R60 takes the Super Admin Support, Billing and Sales APIs (not R0). R55's Super Admin schema gaps are triaged under "Schema gaps from the Super Admin API sessions" in the migration queue: platform legal documents (stage D4) and an MRR daily rollup (in D2) need migrations; backups, environment variables, role templates, custom CSS, uptime and the unfilled daily metrics do not.
+
+- Oct 19, bug fix `r0_demo_unseed_automations`, branch `rasel/R0-unseed-automation-cycle`: `app_delete_business_data` stopped on a new foreign-key cycle (an automation rule names its current version, each version names its rule) once the demo seed published automation rules, so the demo unseed (and deleting any firm with a published rule) failed. The function now drafts the firm's rules and clears their current version first, as it already does for Firm Sign's final documents. Test: `test/automation-firm-delete.test.ts` (as the RDS migrate role). Found by the Automations demo group, which is stacked on it.
+- Oct 19, Super Admin schema stage D4 (platform legal documents), branch `rasel/R0-stage-d4-platform-legal` from main (Rasel's order: schema gaps first): migration `r0_platform_legal`. `platform_legal_documents`: Terms, Privacy, DPA, Acceptable Use, numbered per kind, a draft that publishes (stamped; retires the previous version; one in force per kind), published text fixed, retired final, only drafts deleted; every scope reads the published text, the team writes. `platform_legal_acceptances`: insert-only evidence of a published version (person or applicant, firm link, IP, browser), stamped by the database; the platform or a firm for itself records it. Contract note `docs/work/R0-stage-d4-platform-legal.md`. Tests: `test/platform-legal.test.ts` (6).
+- Oct 19, MRR history (Super Admin schema gaps; part of D2), branch `rasel/R0-mrr-history` from main: migration `r0_mrr_history`. `platform_subscription_changes.mrr_cents` (the subscription's MRR after each change, set by the billing service; null on older rows, never negative) and `platform_mrr_daily` (one row per UTC day: MRR, active, trial, past-due, new and churned counts, MRR by plan; the platform's job writes and may recompute a day, the team reads, no firm; stamped like B9's rollups). Tests: `test/platform-mrr.test.ts` (4). Migration order: #868, then D4, then this, one PR at a time.
+
+## Handoff, Oct 19 (read this first; it supersedes the Oct 18 handoff below)
+
+**Rasel's order (Oct 19, ~12:00Z), in this order:**
+1. **Schema gaps first, so the Super Admin API sessions (R55, R56, R60) are never blocked.** Decisions are in "Schema gaps from the Super Admin API sessions" in the migration queue above.
+   - Two need migrations: platform legal documents (D4) and MRR history.
+   - Ship them one migration PR at a time; Rasel merges in the windows.
+   - New gaps arrive from R55, R56 and R60 through the Scrum thread.
+2. **Then the firm Business Advisory module:** 24 placeholder pages under `apps/web/src/app/firm/(workspace)/business-advisory`, with designs in `docs/mockups/firm-workspace`.
+   - Contract PR, then API PR, wherever the API is missing.
+   - Then the screens: every widget built, empty states rather than fake data, three-state screenshots at 1440 px, and `docs/design-match.md`.
+3. **No more demo seed groups.** The demo data gets replaced later, and nobody reseeds dev now (R1 has been told).
+
+**Open PRs (Oct 19, ~14:30Z):**
+- **#885: D4, platform legal documents** (`rasel/R0-stage-d4-platform-legal`, main merged in at `8b9d51d8`).
+  - On a fresh DB the drift check is empty; `platform-legal`, `automation-firm-delete` and `seed` pass (9 tests).
+  - It needs Rasel's yes (packages/db).
+- **#888: Business Advisory overview and module shell** (`rasel/R0-advisory-overview`, `baad10b8`).
+- **#875:** this handoff.
+- **Merged:** #868, #871 and #883 (the advisory mock).
+
+**Gap migration still waiting:** `rasel/R0-mrr-history` (`2fef0bbe`): `platform_subscription_changes.mrr_cents` plus the `platform_mrr_daily` rollup; 4 tests.
+- Open it after #885 merges, and merge main in first. The migration order is 030000, 040000, then 050000.
+- The scratch DB `firmivra_r0_gen` still holds MRR's objects, so for a drift check of anything else, use a fresh database.
+
+**Business Advisory (item 2), started Oct 19:**
+- The API and contract already exist on main (R55, `de509806`: `apps/api/src/advisory/`, `packages/types/src/advisory/`).
+- The 25 pages under `firm/(workspace)/business-advisory` are placeholders.
+- **#883: the advisory mock** (merged). Its last tweak, meetings at local business hours, rides in #888. Branch `rasel/R0-advisory-mock`, `f9556631`.
+  - `apps/web/src/mocks/business-advisory.ts` answers all 44 `api.advisory` calls; `lib/api.ts` switches it on with `NEXT_PUBLIC_API_MOCK=advisory`.
+  - Staff (Sam Staff) sees 2 of the 7 live clients, with no figures and no settings. `empty` keeps the services, resources and settings.
+  - Checked with tsc, eslint and a node smoke script (`pnpm exec tsx` from `packages/db`, importing the mock by a `file:///F:/...` URL).
+- **API gaps:** none in `api.advisory` itself. The Documents, Notes and Reports tabs read other modules:
+  - Documents: `api.documents.list(clientId, { serviceId })`
+  - Notes: `api.clientNotes`
+  - Reports: `api.reports`, category ADVISORY
+- **Next, the screens, about four PRs (at most 2 open):**
+  1. The shell (tabs) and the Overview: **#888**
+  2. The list tabs: clients, plans, goals, financial-analysis, action-plans, resources, reports
+  3. The plan wizard: `plans/new` and `plans/[planId]/edit/{,assessment,goals,action-plan,review}`
+  4. Client detail (11 tabs)
+  - Each PR: mock-mode Playwright specs and three-state screenshots at 1440 px.
+- **Mockups:** `docs/mockups/firm-workspace/business-advisory/source/` (overview, create-edit plan, client detail) plus the developer guide docx.
+- **How the screens were checked (#888):**
+  - **Dev server:** `WEB_PORT=3580 NEXT_DIST_DIR=.next/r0 NEXT_PUBLIC_API_MOCK=all NEXT_PUBLIC_API_MOCK_ROLE=OWNER node scripts/next.mjs dev`, run from `apps/web`.
+    - Empty: add `NEXT_PUBLIC_API_MOCK_EMPTY=advisory`.
+    - API unreachable: `NEXT_PUBLIC_API_MOCK=me`.
+    - Restart it when a new arbitrary Tailwind class doesn't show; Turbopack's CSS goes stale.
+  - **Spec:** run through an uncommitted copy of `playwright.mock.config.ts` with `reuseExistingServer: true` and `testMatch`, with `WEB_PORT=3579` so the spec's port is 3580.
+  - **Screenshots:** quantized to 128 colours into `apps/web/e2e/mock/r0-screenshots/`.
+  - **Git Bash:** set `MSYS_NO_PATHCONV=1` for `/path` arguments.
+  - **Clean-up:** delete `.next/r0`, `test-results` and the config copy.
+
+**Shelved, pushed, no PR:** `rasel/R0-demo-stage5-automations` (6 tables, stacked on #868). Don't open it unless Rasel asks.
+
+**Merged today:**
+- #815 (D1 Sales Center)
+- #832 (`staff_import_previews`)
+- #834, #841, #850, #855 and #856 (demo groups: Tasks, Payroll, Compliance, Templates, Bookkeeping)
+- #860 (the gap queue)
+
+**Not R0's any more:** the Super Admin Support, Billing and Sales APIs (R60 has them). Stages D2 and D3 stay queued; MRR history goes into D2.
+
+**Local rules (Scrum, 11:46Z):**
+- Run only lint on changed files, typecheck of the changed package, and the touched module's tests. CI's 4 shards are the full gate.
+- No Playwright from an API session.
+- At most two heavy jobs on the laptop.
+- On the shared Postgres, add `?connect_timeout=60` to both DB URLs (Prisma P1001 otherwise).
+- When `migrate dev` can't build its shadow database, generate the SQL with `migrate diff` against a scratch DB that has every migration applied.
+
+**Scrum thread:** this session can't reply to it (no remote `send_message` tool), so Rasel relays PR numbers.
+
+## Handoff, Oct 18 afternoon (superseded by the Oct 19 handoff above)
 
 **Where things stand.**
 - **Merged on Oct 18:**

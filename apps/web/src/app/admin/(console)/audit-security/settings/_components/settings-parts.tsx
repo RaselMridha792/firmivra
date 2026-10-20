@@ -128,19 +128,24 @@ export function NumberSelect({
   choices,
   show,
   onChange,
+  disabled,
 }: {
   label: string;
   value: number;
   choices: readonly number[];
   show: (value: number) => string;
   onChange: (value: number) => void;
+  disabled?: boolean;
 }) {
+  // A stored value outside the list (set through the API) is shown as it is.
+  const all = choices.includes(value) ? choices : [...choices, value];
   return (
     <Select
       label={label}
       value={String(value)}
+      disabled={disabled}
       onChange={(event) => onChange(Number(event.target.value))}
-      options={choices.map((choice) => ({ value: String(choice), label: show(choice) }))}
+      options={all.map((choice) => ({ value: String(choice), label: show(choice) }))}
     />
   );
 }

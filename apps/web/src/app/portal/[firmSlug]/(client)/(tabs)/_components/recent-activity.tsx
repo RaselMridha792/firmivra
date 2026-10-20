@@ -1,7 +1,7 @@
 'use client';
 
 import { notificationLink, type NotificationItem } from '@firmivra/types';
-import { Card } from '@firmivra/ui';
+import { Card, portalIconTones } from '@firmivra/ui';
 import {
   ArrowRight,
   BriefcaseBusiness,
@@ -19,16 +19,13 @@ import Link from 'next/link';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 
-const when = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-});
+// The date over the time, at the row's right (Intake form tab.png).
+const day = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 
 type ActivityGlyph =
   | 'file'
+  | 'return'
   | 'document'
   | 'intake'
   | 'message'
@@ -39,30 +36,35 @@ type ActivityGlyph =
   | 'person'
   | 'account';
 
+/**
+ * Each event's icon and colour. Intake form tab.png and Messages and notes.png colour four of them
+ * (R61): an upload green, a message blue, a submitted form magenta, a tax return orange.
+ */
 function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: string } {
   if (
     item.target.kind === 'message_thread' &&
     item.title.toLocaleLowerCase().includes('new message')
   ) {
-    return { glyph: 'file', color: 'text-firm-text' };
+    return { glyph: 'file', color: portalIconTones.blue };
   }
 
   switch (item.target.kind) {
     case 'document':
     case 'document_request':
-      return { glyph: 'document', color: 'text-success' };
+      return { glyph: 'document', color: portalIconTones.green };
     case 'intake':
-      return { glyph: 'intake', color: 'text-purple' };
+      return { glyph: 'intake', color: portalIconTones.magenta };
     case 'message_thread':
-      return { glyph: 'message', color: 'text-firm-text' };
+      return { glyph: 'message', color: portalIconTones.blue };
     case 'client_note_reminder':
       return { glyph: 'note', color: 'text-firm-text' };
     case 'appointment':
       return { glyph: 'appointment', color: 'text-firm-text' };
     case 'invoice':
       return { glyph: 'invoice', color: 'text-success' };
-    case 'engagement':
     case 'tax_return':
+      return { glyph: 'return', color: portalIconTones.orange };
+    case 'engagement':
       return { glyph: 'service', color: 'text-firm-text' };
     case 'client_account':
     case 'membership':
@@ -74,10 +76,11 @@ function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: st
 
 function ActivityIcon({ item }: { item: NotificationItem }) {
   const { glyph, color } = activityIcon(item);
-  const className = `mt-0.5 size-5 shrink-0 ${color}`;
+  const className = `mt-0.5 size-7 shrink-0 ${color}`;
 
   switch (glyph) {
     case 'file':
+    case 'return':
       return <FileText aria-hidden className={className} />;
     case 'document':
       return <CloudUpload aria-hidden className={className} />;
@@ -138,15 +141,16 @@ export function RecentActivity({
                     notificationLink(item.target, { site: 'portal', firmSlug: slug }) ??
                     `/${slug}/notifications`
                   }
-                  className="flex flex-wrap items-start gap-x-3 py-2 hover:bg-folder-surface"
+                  className="flex items-start gap-x-3 py-1.5 hover:bg-folder-surface"
                 >
                   <ActivityIcon item={item} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-semibold text-heading">{item.title}</span>
-                    <span className="block text-sm text-text">{item.body}</span>
+                  <span className="min-w-0 flex-1 leading-tight">
+                    <span className="block text-sm font-semibold text-heading">{item.title}</span>
+                    <span className="block truncate text-xs text-text">{item.body}</span>
                   </span>
-                  <span className="text-xs text-muted">
-                    {when.format(new Date(item.createdAt))}
+                  <span className="shrink-0 text-right text-xs leading-tight text-text">
+                    <span className="block">{day.format(new Date(item.createdAt))}</span>
+                    <span className="block">{time.format(new Date(item.createdAt))}</span>
                   </span>
                 </Link>
               </li>
