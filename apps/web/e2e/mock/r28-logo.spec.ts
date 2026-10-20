@@ -74,14 +74,15 @@ test('the shell shows the dark logo, the slogan and motto, and the light logo in
   await expect(slogan).toContainText('More Than');
   await expect(page.getByTestId('firm-motto')).toHaveText('PEOPLE|PLANS|PROSPERITY');
 
-  // The design's rows: a 37 px pill every 33 px, whatever the window height.
+  // The design's rows (dashboard/source/firm-dashboard.jpg, measured at 1440 px): a 32 px pill
+  // every 34 px, whatever the window height.
   const links = sidebar.getByTestId('sidebar-menu').getByRole('link');
   const first = await links.nth(0).boundingBox();
   const second = await links.nth(1).boundingBox();
   const third = await links.nth(2).boundingBox();
-  expect(first?.height).toBe(37);
-  expect((third?.y ?? 0) - (second?.y ?? 0)).toBe(33);
-  expect((second?.y ?? 0) - (first?.y ?? 0)).toBe(33);
+  expect(first?.height).toBe(32);
+  expect((third?.y ?? 0) - (second?.y ?? 0)).toBe(34);
+  expect((second?.y ?? 0) - (first?.y ?? 0)).toBe(34);
 
   // A short window scrolls the menu inside; the logo and the slogan block stay in place.
   const menu = page.getByTestId('sidebar-menu');
