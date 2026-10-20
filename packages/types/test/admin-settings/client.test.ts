@@ -1,6 +1,8 @@
 // Super Admin System Settings contract (R55): the rules the requests keep, and every path.
 import { describe, expect, it } from 'vitest';
 import {
+  AdminEmailStatus,
+  AdminSystemHealth,
   AdminGeneralSettings,
   ApiRequestError,
   CreateAdminLegalHoldRequest,
@@ -105,6 +107,8 @@ describe('api.adminSettings', () => {
       api.branding(),
       api.email(),
       api.testEmail({ to: 'admin@firmivra.test' }),
+      api.emailStatus(),
+      api.health(),
       api.brandAssets('LOGO'),
       api.setBrandAsset('FAVICON', { assetId: ID }),
       api.resetBrandAsset('LOGO'),
@@ -128,6 +132,8 @@ describe('api.adminSettings', () => {
       'GET /api/v1/admin/system-settings/branding',
       'GET /api/v1/admin/system-settings/email',
       'POST /api/v1/admin/system-settings/email/test',
+      'GET /api/v1/admin/system-settings/email/status',
+      'GET /api/v1/admin/system-settings/health',
       'GET /api/v1/admin/system-settings/branding/assets?kind=LOGO',
       'PUT /api/v1/admin/system-settings/branding/current/FAVICON',
       'DELETE /api/v1/admin/system-settings/branding/current/LOGO',
@@ -150,5 +156,28 @@ describe('api.adminSettings', () => {
     const { fn, calls } = fakeFetch(200, {});
     await expect(client(fn).updateFeature('Bad Key', {})).rejects.toBeInstanceOf(ApiRequestError);
     expect(calls).toHaveLength(0);
+  });
+
+  it('reads the email status and health, figures with no source as null', () => {
+    expect(
+      AdminEmailStatus.parse({
+        sender: 'LOG',
+        customSmtp: false,
+        lastTest: null,
+        deliveryRate24h: null,
+        bounced24h: null,
+      }).sender,
+    ).toBe('LOG');
+    const health = AdminSystemHealth.parse({
+      checkedAt: '2026-10-20T10:00:00.000Z',
+      services: [{ key: 'storage', status: 'ONLINE', detail: null }],
+    });
+    expect(health.services[0]?.status).toBe('ONLINE');
+    expect(
+      AdminSystemHealth.safeParse({
+        checkedAt: '2026-10-20T10:00:00.000Z',
+        services: [{ key: 'storage', status: 'UP', detail: null }],
+      }).success,
+    ).toBe(false);
   });
 });

@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { OkResponse, PlatformBrandAssetKind } from '../schemas.js';
 import {
+  AdminEmailStatus,
+  AdminSystemHealth,
   AdminBrandAsset,
   AdminBrandAssetList,
   AdminBrandAssetTicket,
@@ -93,6 +95,11 @@ export function createAdminSettingsClient(request: ApiRequest) {
     saveEmail: async (body: SaveAdminEmailRequest): Promise<AdminEmailSection> =>
       request(AdminEmailSection, `${BASE}/email`, put(parseInput(SaveAdminEmailRequest, body))),
     /** Send Test Email: the provider's answer (`accepted: false` with the reason when no sender is configured). */
+    /** Email Delivery Status: the sender, the last test, and the 24-hour figures (null for now). */
+    emailStatus: async (): Promise<AdminEmailStatus> =>
+      request(AdminEmailStatus, `${BASE}/email/status`),
+    /** The platform's services as the API can check them now. */
+    health: async (): Promise<AdminSystemHealth> => request(AdminSystemHealth, `${BASE}/health`),
     testEmail: async (body: AdminTestEmailRequest): Promise<AdminTestEmailResult> =>
       request(
         AdminTestEmailResult,
