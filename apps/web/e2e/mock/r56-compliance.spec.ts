@@ -79,7 +79,9 @@ test('Add Deadline: checks the fields, saves, and opens the new deadline', async
 test('Changing a statutory date needs a reason', async ({ page }) => {
   await page.goto(`${base}/${FIRST}/edit`);
   await expect(page.getByLabel('Deadline Name *')).not.toHaveValue('');
-  await page.locator('#df-due').fill('2027-02-01');
+  // Any date but the stored one (the mock's is 9 days ago).
+  const moved = new Date(Date.now() + 120 * 86_400_000).toISOString().slice(0, 10);
+  await page.locator('#df-due').fill(moved);
   await page.getByTestId('deadline-save').click();
   await expect(page.getByText('Give a reason for changing the statutory date')).toBeVisible();
   await page.getByLabel('Reason for changing the statutory date *').fill('IRS disaster relief');

@@ -96,14 +96,15 @@ function Card({
       data-testid={`settings-${id}`}
       className={`min-w-0 scroll-mt-4 rounded-xl border border-divider bg-surface p-4 shadow-sm contain-paint ${wide ? 'xl:col-span-2' : ''}`}
     >
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+      {/* The card's button stays beside its title, as in the design; the subtitle wraps. */}
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <h2 id={`support-${id}-title`} className="text-xl font-bold text-heading">
             {title}
           </h2>
           <p className="text-sm text-muted">{subtitle}</p>
         </div>
-        {action}
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
       {children}
     </section>
