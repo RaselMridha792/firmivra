@@ -4,7 +4,7 @@ import { ArrowUp, CheckCircle, User, Users, UsersThree, type Icon } from '@phosp
 import { Card, Skeleton } from '@firmivra/ui';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import type { TeamSummary } from '../../../../../mocks/admin-team';
+import type { TeamSummary } from './team-api';
 import { percent } from './team-parts';
 
 /** The design's KPI card: a soft square tile, the number, its label and a line under it. */

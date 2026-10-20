@@ -500,3 +500,120 @@ for the admin-scope sweep. No contract change.
     empty, as now?
 11. Status moves between Suspended, Inactive and Deactivated (Remove from Team a suspended person)
     are allowed; the rules above list only ACTIVE to them. Confirm.
+
+## Team screens
+
+`apps/web/src/app/admin/(console)/team/_components/team-api.ts`: the three screens (`/team`,
+`/team/new`, `/team/[memberId]/edit`) call `api.adminTeam` through this adapter, which exports the
+mock's names, methods and shapes. With `NEXT_PUBLIC_API_MOCK=adminTeam` (or `all`) it hands back
+`mocks/admin-team.ts` unchanged, so mock mode and `e2e/mock/tumit-admin-team.spec.ts` keep working.
+Every screen imports from it, including its `errorMessage` (lib/errors' one, with the adapter's own
+messages shown as written); no screen imports the mocks. No contract change.
+
+### Mapping
+
+43. **Levels, ids and titles.** Levels are numbers again (`ADMIN_TEAM_LEVEL_NUMBERS`), so the level
+    labels, sorts and the supervisor rule stay; ids are the database's. `jobTitle` and `roleTitle`
+    are the role's title (note 4). The title badge's colour keys by the department's `code`
+    (`departmentCode`, set on the API only).
+44. **Permissions.** The grid keeps the mock's `{ module: actions }` value; the adapter reads keys
+    into it and back by `meta().modules` (each key's column), so the Team row has six columns and
+    Support's four. `teamModules()` gives the rows: the catalog once loaded, the mock's before it
+    (the form's frame when the API is unreachable). Keys with no column (`team.view_profile`,
+    `org.view`, `team.assign_department`, the message and announce keys, Support's others) are not
+    shown and are kept: an edit sends the person's off-grid keys back with the grid's (the new
+    role's when the grid was changed after Load Role Defaults). A new role whose grid is its
+    template leaves `permissions` out, so the API loads the whole template. `roleTemplate`,
+    `grantable` and the module counts read the API's templates and catalog; the profile lists the
+    grid's keys only.
+45. **Statuses.** The hire waiting for the department head reads as the mock's Pending Approval, and
+    so does the database's own PENDING_APPROVAL (no route sets it); the Status filter's Pending
+    Approval asks for both. Add's Status select offers Pending Invitation only (note 9).
+46. **Scopes.** On the API the scope select and labels are `ADMIN_TEAM_SCOPES` (OWN_RECORDS, no
+    LOCATION), and a new role loads its own `defaultScope` (`roleDefaultScope`), not the mock's level
+    rule.
+47. **The directory query.** `status` is `statuses`, `descending` is `dir`. Sorts: Job Title is
+    ROLE, Availability LAST_SIGNED_IN, Location NAME (no one has a location, so it sorts as the
+    mock's ties did). A Location or Team filter (none can be chosen) answers an empty page.
+48. **Rights.** `can` maps one to one (`editMembers` is `edit`, `changeRoles` `changeRole`, `remove`
+    `changeStatus`), plus `changeDepartment`; `manageGroups`, `messageCompany` and `announce` come
+    from the viewer's keys (`team.create_group`, `team.message_company`, `team.announce_*`). A
+    member's `remove` is `changeStatus` unless they are Deactivated; `resendInvite` is
+    `resendInvitation` (false).
+49. **Edit Team Member** sends only what differs from the member as last read, with
+    `expectedUpdatedAt` from that read (409 CONFLICT when someone changed them meanwhile); a new
+    role always sends the scope and supervisor the form shows. Nothing changed: no request, and the
+    member as read. A refusal of a field (a 400's `details`, EMAIL_TAKEN, ROLE_NOT_IN_DEPARTMENT,
+    SUPERVISOR_INVALID, SCOPE_CEILING, CUSTOM_SCOPE_INVALID, STATUS_NOT_ALLOWED, PHONE_REQUIRED)
+    shows by that field.
+50. **Name and phone** (note 38): the form sends a changed name or phone and shows the API's 400 by
+    its field ("Names and phone numbers of team members cannot be changed here yet …"); the same
+    values pass (a phone typed with spaces, the name split another way). Chosen over leaving them
+    out: one line in the form, no rule of its own, and the fields work once R0's policy lands.
+51. **The form's checks** on the API are the contract's for names, email and phone (E.164; a US
+    number may come without +1), a role of the chosen department, and no job title of the person's
+    own: Job Title takes the role's title or nothing ("The role's title is the job title for now").
+52. **Bulk.** `confirmedCount` is the number selected; skips read as
+    `ADMIN_TEAM_SKIP_REASON_LABELS`, someone outside the directory as "one person"; `unchanged` is
+    counted apart in the summary.
+53. **Activity.** Each line is `adminTeamActivityText`; ACTIVATED, REPORTS_TO_CHANGED and
+    MAPPED_TO_CEO have icons; an entry with no actor (R0's bootstrap) shows "System".
+
+### Not available yet (422) or empty
+
+54. **Add Team Member** (note 30): `can.add` is false, so the directory hides the button. `/team/new`
+    keeps its form, filled from `formOptions()`, and its submit answers 422 "Adding team members is
+    not available yet." `ADD_MEMBER_AVAILABLE` (true in mock mode) turns the no-permission line
+    back on with the route.
+55. **Resend Invitation** is hidden in the member menus (`allowed.resendInvitation`); the
+    selection's More Actions keeps it and answers 422 "Invitations cannot be resent yet."
+56. **Approval** answers `invitation: null`: the toast says "… role is approved. No invitation was
+    sent yet." instead of "the invitation is on its way".
+57. **Messages.** A message to one member (Message on a card, a row or the profile, or one person in
+    Specific Team Members) goes out through `api.adminCommunications.messages.create` with
+    `contact: { type: 'TEAM', userId }`: by email (the subject and the editor's HTML), then by text
+    (its plain text, at most 1,600 characters) in the same thread. In-App Chat has no route and
+    counts as unavailable in the result ("In-App Chat unavailable for 1"), as do a missing phone and
+    NO_DESTINATION. Refused with 422 rather than dropped: several people, a department, a location,
+    a custom group or the whole company ("Team messages are not available yet. Send to one team
+    member at a time, by email or text message."), in-app only, attachments (the dialog's files are
+    not Communications' file library), a priority other than Normal, replies turned off, and Save
+    as Announcement. `api.adminBroadcasts` was not used for the whole team: each send would need a
+    saved audience and a named broadcast, records the dialog would create in Communications' lists.
+58. **Recipients**: the directory's people whose `allowed.message` is true; departments from
+    `meta().filters` with their counts; Entire Company and Department by `team.message_company` and
+    `team.message_department`. No locations, teams or groups are stored, so those lists stay empty
+    ("Nothing matches your search."). Create Custom Group shows by `team.create_group` and answers
+    422 "Custom groups are not available yet."; Save as Announcement is enabled by `team.announce_*`
+    and refused on send.
+59. **Location, team, presence and job title**: the card's "No location", the table's "—", the
+    profile's "No team" and the empty Location and Team filters are the existing empty states.
+    Presence reads "Presence unknown" on cards and the profile; the table's Availability column
+    shows the last sign-in ("Signed in Oct 3, 2026", "Never signed in"), which it sorts by.
+60. **Card / List** (note 28) is kept in memory while the page is open.
+
+### Screen edits beyond the imports
+
+61. `team-parts.tsx`: `Presence` takes null (and `signedInAt`); `TitleBadge` takes `department` (a
+    code, or the mock's id) with the 13 codes' colours.
+62. `member-card.tsx`: the badge by `departmentCode`. `member-table.tsx`: Availability passes
+    `signedInAt`.
+63. `team-toolbar.tsx`: Change Department by `can.changeDepartment` (the mock's `changeRoles` when
+    absent).
+64. `team-screen.tsx`: the approval toast (note 56).
+65. `bulk-dialog.tsx`: `bulkSummary` adds "N team members were already up to date."
+66. `access-permissions.tsx`, `member-form.tsx`, `member-profile.tsx`: `teamModules()` instead of
+    `TEAM_MODULES` (the grid's lookup is built per render). `member-form.tsx` loads a new role's
+    scope with `roleDefaultScope` and puts a refusal's messages by their fields (`fieldErrorsOf`).
+    `member-profile.tsx`: icons for the three new kinds, "System" for no actor.
+67. `new-member-screen.tsx`: the no-permission line only with `ADD_MEMBER_AVAILABLE`.
+68. **Checked on the local API** (Oct 20, at 1440 px with data, empty and the API unreachable,
+    and at 375 px with data; sheets in `apps/web/e2e/screenshots/r60-team-screens/`): no API
+    response of 400 or more from the Team routes and no console error. The data is six synthetic
+    members made in the local database the way the Team e2e test makes its people (Add Team Member
+    waits on R2), on the shipped catalog. Edit Team Member saved twice from the page (a module
+    granted, then taken back: PATCH 200 each). One change after the check: **Add Team Member stays
+    in the page header on the API** (the design's), leading to the form whose submit answers
+    "Adding team members is not available yet.", instead of being hidden by `can.add` (false for
+    everyone until the route exists); mock mode still follows `can.add`. The mock spec
+    (`e2e/mock/tumit-admin-team.spec.ts`) passes, 8 of 8.

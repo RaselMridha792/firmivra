@@ -3,7 +3,6 @@
 import { Warning } from '@phosphor-icons/react';
 import { Button, Callout, Modal, Select } from '@firmivra/ui';
 import { useState } from 'react';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import {
   adminTeam,
@@ -11,10 +10,11 @@ import {
   AUTHORITY_LEVELS,
   type BulkChange,
   type BulkResult,
+  errorMessage,
   MEMBER_STATUSES,
   type MemberStatus,
   TEAM_ERROR_MESSAGES,
-} from '../../../../../mocks/admin-team';
+} from './team-api';
 import { members as countText, TEAM_KEY } from './team-parts';
 
 export type BulkKind = 'department' | 'role' | 'status' | 'remove';
@@ -28,10 +28,16 @@ const TITLES: Record<BulkKind, string> = {
 
 const STATUS_CHOICES: MemberStatus[] = ['ACTIVE', 'SUSPENDED', 'INACTIVE', 'DEACTIVATED'];
 
-/** "Updated 2 team members. Skipped Morgan Admin (You can't change yourself)." */
+/**
+ * "Updated 2 team members. Skipped Morgan Admin (You can't change yourself)." The API counts
+ * people already as asked apart (`unchanged`); the mock counts them as updated.
+ */
 export function bulkSummary(result: BulkResult, done: string): string {
   const skipped = result.skipped.map((entry) => `${entry.name} (${entry.reason})`).join(', ');
-  return `${done} ${countText(result.updated)}.${skipped ? ` Skipped ${skipped}.` : ''}`;
+  const unchanged = result.unchanged
+    ? ` ${countText(result.unchanged)} ${result.unchanged === 1 ? 'was' : 'were'} already up to date.`
+    : '';
+  return `${done} ${countText(result.updated)}.${unchanged}${skipped ? ` Skipped ${skipped}.` : ''}`;
 }
 
 /** Change department, role or status, or remove, for the selected people (or one person). */
