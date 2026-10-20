@@ -1,8 +1,8 @@
-import { PageHeader } from '@firmivra/ui';
 import type { Metadata } from 'next';
+import { EmailSettings } from './_components/email-settings';
 
 export const metadata: Metadata = { title: 'Email & notifications' };
 
-export default function AdminSystemSettingsEmailNotificationsPage() {
-  return <PageHeader title="Email & Notifications" />;
+export default function EmailSettingsPage() {
+  return <EmailSettings />;
 }

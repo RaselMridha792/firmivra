@@ -241,7 +241,7 @@ function GuideRowCard({ row }: { row: GuideRow }) {
       className="grid min-w-0 gap-3 p-3! lg:grid-cols-4 lg:gap-0"
     >
       <div className="flex min-w-0 items-start gap-3 lg:pr-3">
-        <span className="grid size-14 shrink-0 place-items-center rounded-full bg-folder-surface text-firm-text">
+        <span className="grid size-14 shrink-0 place-items-center rounded-full bg-folder-surface text-action">
           <Icon aria-hidden className="size-8" />
         </span>
         <div className="min-w-0">
@@ -259,7 +259,10 @@ function GuideRowCard({ row }: { row: GuideRow }) {
               key={requirement}
               className="flex items-start gap-1.5 text-sm leading-snug text-text"
             >
-              <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-firm-text" />
+              <CircleCheck
+                aria-hidden
+                className="mt-0.5 size-4 shrink-0 fill-action text-surface"
+              />
               <span>{requirement}</span>
             </li>
           ))}
@@ -269,7 +272,7 @@ function GuideRowCard({ row }: { row: GuideRow }) {
         <ol className="grid gap-1.5">
           {row.steps.map((step, index) => (
             <li key={step} className="flex items-start gap-1.5 text-sm leading-snug text-text">
-              <span className="grid size-5 shrink-0 place-items-center rounded-full bg-firm-primary text-xs font-bold text-on-action">
+              <span className="grid size-5 shrink-0 place-items-center rounded-full bg-action text-xs font-bold text-on-action">
                 {index + 1}
               </span>
               <span>{step}</span>
@@ -291,12 +294,12 @@ export function StartupGuideScreen() {
       <header className="min-w-0 lg:col-span-3">
         <Link
           href={`/${slug}/business`}
-          className="inline-flex items-center gap-2 text-firm-text hover:underline"
+          className="inline-flex items-center gap-2 text-action hover:underline"
         >
           <ArrowLeft aria-hidden className="size-4" /> Back to Resources
         </Link>
         <h1 className="mt-1 font-display text-4xl leading-tight font-bold text-heading md:text-5xl">
-          Business Startup <span className="text-firm-accent">Guide</span>
+          Business Startup <span className="text-action">Guide</span>
         </h1>
         <p className="mt-1 text-sm leading-relaxed text-text md:text-base">
           Starting a business is an exciting step toward financial freedom. This guide provides a
@@ -307,7 +310,7 @@ export function StartupGuideScreen() {
 
       <Card className="grid content-start gap-3 border-folder-border! bg-folder-surface! p-4! lg:col-span-1">
         <div className="flex items-start gap-3">
-          <Lightbulb aria-hidden className="size-10 shrink-0 text-firm-text" />
+          <Lightbulb aria-hidden className="size-10 shrink-0 text-firm-accent" />
           <div>
             <h2 className="font-display text-xl font-bold text-heading">Need Professional Help?</h2>
             <p className="mt-1 text-sm leading-relaxed text-text">

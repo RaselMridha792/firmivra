@@ -8,7 +8,7 @@ import {
   lostReasonLabel,
   type PipelineStage,
   type SalesOpportunity,
-} from '../../../../../../mocks/admin-sales';
+} from '../../_components/sales-api';
 import {
   ATTENTION_TONE,
   attentionLabel,
