@@ -28,11 +28,11 @@ import {
 } from '@phosphor-icons/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useId, useRef } from 'react';
-import type { SubscriptionDetail } from '../../../../../mocks/admin-subscriptions';
 import { loadErrorText } from './format';
 import { StatusBadge, useDetail } from './parts';
 import { BillingTab, HistoryTab, NotesTab, OverviewTab, UsageTab } from './panel-tabs';
 import type { DialogKind } from './subscription-dialogs';
+import type { SubscriptionDetail } from './subscriptions-api';
 
 export type PanelTab = 'overview' | 'usage' | 'billing' | 'history' | 'notes';
 const TABS: readonly PanelTab[] = ['overview', 'usage', 'billing', 'history', 'notes'];

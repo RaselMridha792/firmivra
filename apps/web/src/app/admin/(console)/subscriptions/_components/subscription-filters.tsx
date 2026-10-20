@@ -10,16 +10,16 @@ import {
   type DateRange,
 } from '@firmivra/ui';
 import { ArrowCounterClockwise } from '@phosphor-icons/react';
+import { useApiQuery } from '../../../../../lib/query';
+import { KEY } from './parts';
 import {
+  adminSubscriptions,
   CYCLE_LABELS,
-  PLAN_ORDER,
-  PLANS,
-  STATUS_LABELS,
-  STATUS_ORDER,
+  STATUS_FILTERS,
   type BillingCycle,
   type PlanId,
   type StatusFilter,
-} from '../../../../../mocks/admin-subscriptions';
+} from './subscriptions-api';
 
 export interface Filters {
   search: string;
@@ -31,17 +31,7 @@ export interface Filters {
 }
 export const NO_FILTERS: Filters = { search: '', plan: '', status: '', cycle: '', period: null };
 
-const planOptions = [
-  { value: '', label: 'All Plans' },
-  ...PLAN_ORDER.map((plan) => ({ value: plan, label: PLANS[plan].name })),
-];
 /** The statuses, then the KPI cards' groups. */
-const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
-  ...STATUS_ORDER.map((status) => ({ value: status, label: STATUS_LABELS[status] })),
-  { value: 'PAYING', label: 'Paying (MRR)' },
-  { value: 'RENEWING_SOON', label: 'Renewing in 30 days' },
-  { value: 'ENDED', label: 'Canceled or Closed' },
-];
 const statusOptions = [{ value: '', label: 'All Statuses' }, ...STATUS_FILTERS];
 const cycleOptions = [
   { value: '', label: 'All Billing Cycles' },
@@ -69,6 +59,13 @@ export function SubscriptionFilters({
   onApply: () => void;
   onClear: () => void;
 }) {
+  // The plans are the API's (meta), in display order; until they load only "All Plans".
+  const meta = useApiQuery([KEY, 'meta'], () => adminSubscriptions.meta());
+  const plans = meta.data?.plans ?? [];
+  const planOptions = [
+    { value: '', label: 'All Plans' },
+    ...plans.map((plan) => ({ value: plan.id, label: plan.name })),
+  ];
   return (
     <form
       role="search"
@@ -93,7 +90,15 @@ export function SubscriptionFilters({
             hideLabel
             options={planOptions}
             value={draft.plan}
-            onChange={(event) => onDraft({ ...draft, plan: pick(PLAN_ORDER, event.target.value) })}
+            onChange={(event) =>
+              onDraft({
+                ...draft,
+                plan: pick(
+                  plans.map((plan) => plan.id),
+                  event.target.value,
+                ),
+              })
+            }
           />
         </div>
         <div className="w-full sm:w-44">

@@ -27,22 +27,22 @@ import {
   Receipt,
   UsersThree,
 } from '@phosphor-icons/react';
+import { autoRenewEditable, autoRenewLock, dayText, LIVE, money } from './format';
+import { StatusBadge, UsageBar, usageTone } from './parts';
+import type { DialogKind } from './subscription-dialogs';
+import type { PanelTab } from './subscription-panel';
 import {
   ADDONS,
   CHANGEABLE,
   CYCLE_LABELS,
-  PLAN_ORDER,
-  PLANS,
+  planName,
+  planRank,
   REACTIVATABLE,
   STATUS_ORDER,
   SUSPENDABLE,
   type Discount,
   type SubscriptionListItem,
-} from '../../../../../mocks/admin-subscriptions';
-import { autoRenewEditable, autoRenewLock, dayText, LIVE, money } from './format';
-import { StatusBadge, UsageBar, usageTone } from './parts';
-import type { DialogKind } from './subscription-dialogs';
-import type { PanelTab } from './subscription-panel';
+} from './subscriptions-api';
 
 /**
  * Slimmer cell padding, so every column fits the card at 1440 px. When the table still has to
@@ -233,11 +233,11 @@ export function SubscriptionTable({
     {
       id: 'plan',
       label: 'Plan',
-      sortValue: (row) => PLAN_ORDER.indexOf(row.plan),
+      sortValue: (row) => planRank(row.plan),
       cell: (row) => (
         <>
           <span className="block font-medium whitespace-nowrap text-heading">
-            {PLANS[row.plan].name}
+            {planName(row.plan)}
           </span>
           <span className="block text-muted">{CYCLE_LABELS[row.cycle]}</span>
         </>
@@ -259,28 +259,35 @@ export function SubscriptionTable({
     {
       id: 'seats',
       label: 'Seats',
-      sortValue: (row) => row.seatsUsed,
+      // Seats in use may not be counted yet (null): a dash, sorted first.
+      sortValue: (row) => row.seatsUsed ?? -1,
       cell: (row) => (
         <span className="whitespace-nowrap">
-          {row.seatsUsed} / {row.seats}
+          {row.seatsUsed ?? '—'} / {row.seats}
         </span>
       ),
     },
     {
       id: 'usage',
       label: 'Usage',
-      sortValue: (row) => row.usagePercent,
-      cell: (row) => (
-        <span className="flex items-center gap-2 whitespace-nowrap">
-          <UsageBar
-            percent={row.usagePercent}
-            tone={usageTone(row.status, row.usagePercent)}
-            label={`Seats used by ${row.firm.name}`}
-            className="w-10"
-          />
-          {row.usagePercent}%
-        </span>
-      ),
+      sortValue: (row) => row.usagePercent ?? -1,
+      cell: (row) =>
+        row.usagePercent === null ? (
+          <span className="text-muted">
+            <span aria-hidden>—</span>
+            <span className="sr-only">Not counted yet</span>
+          </span>
+        ) : (
+          <span className="flex items-center gap-2 whitespace-nowrap">
+            <UsageBar
+              percent={row.usagePercent}
+              tone={usageTone(row.status, row.usagePercent)}
+              label={`Seats used by ${row.firm.name}`}
+              className="w-10"
+            />
+            {row.usagePercent}%
+          </span>
+        ),
     },
     {
       id: 'next',
