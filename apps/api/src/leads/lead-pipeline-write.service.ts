@@ -168,7 +168,7 @@ export class LeadPipelineWriteService {
       }
       await tx.lead.update({ where: { id }, data });
       if (body.serviceIds)
-        await this.setServices(tx, businessId, id, [...new Set(body.serviceIds)]);
+        await this.setServices(tx, businessId, id, lead.serviceId, [...new Set(body.serviceIds)]);
       if (body.tags) await this.setTags(tx, businessId, actor, [id], body.tags, true);
       return loadProfile(tx, businessId, actor, id, { unrestricted: true });
     });
@@ -304,9 +304,12 @@ export class LeadPipelineWriteService {
     tx: TxClient,
     businessId: string,
     leadId: string,
+    firstServiceId: string,
     ids: string[],
   ): Promise<void> {
     await this.requireServices(tx, businessId, ids);
+    // The lead's first service never changes (leads_rules) and its engagement is for it.
+    if (!ids.includes(firstServiceId)) throw invalid("The lead's first service cannot be removed");
     await tx.leadService.deleteMany({ where: { businessId, leadId, serviceId: { notIn: ids } } });
     await tx.leadService.createMany({
       data: ids.map((serviceId) => ({ businessId, leadId, serviceId })),

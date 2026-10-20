@@ -64,7 +64,7 @@ export function ResetPasswordScreen() {
         <div role="status" data-testid="password-changed" className="grid gap-4 text-center">
           <Check
             aria-hidden
-            className="mx-auto size-20 rounded-full bg-folder-surface p-4 text-firm-primary"
+            className="mx-auto size-20 rounded-full bg-folder-surface p-4 text-firm-text"
           />
           <StepHeading title="Password Changed">
             You can now sign in with your new password.

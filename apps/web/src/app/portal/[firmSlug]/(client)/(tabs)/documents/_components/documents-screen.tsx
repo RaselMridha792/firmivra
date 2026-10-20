@@ -54,7 +54,7 @@ export function DocumentsScreen() {
         <div className="flex min-w-0 flex-col gap-4 md:col-span-2 md:flex-row md:items-start">
           <FileText
             aria-hidden
-            className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-primary"
+            className="size-16 shrink-0 rounded-full bg-folder-surface p-4 text-firm-text"
           />
           <div className="flex-1">
             <h1 className="font-display text-3xl font-bold text-heading">
@@ -70,12 +70,12 @@ export function DocumentsScreen() {
         <div className="grid content-start gap-2">
           <Button
             onClick={() => setUploading({})}
-            className="bg-firm-primary! hover:bg-navigation-hover!"
+            className="bg-firm-button! hover:bg-firm-button-hover!"
           >
             <CloudUpload aria-hidden className="size-5" /> Upload Documents
           </Button>
           <p className="flex gap-2 rounded-card bg-folder-surface p-2 text-xs text-text">
-            <Info aria-hidden className="size-4 shrink-0 text-firm-primary" />
+            <Info aria-hidden className="size-4 shrink-0 text-firm-text" />
             <span>
               Only upload additional documents if your taxes or business project is still being
               created or prepared by our team. Otherwise, document upload is not permitted.
@@ -102,8 +102,8 @@ export function DocumentsScreen() {
             onClick={() => choose(s.id)}
             className={
               source === s.id
-                ? 'bg-firm-primary! hover:bg-navigation-hover!'
-                : 'border-firm-primary! text-firm-primary! hover:bg-folder-surface!'
+                ? 'bg-firm-button! hover:bg-firm-button-hover!'
+                : 'border-firm-primary! text-firm-text! hover:bg-folder-surface!'
             }
           >
             {s.label}
@@ -184,7 +184,7 @@ function DocumentTable({ slug, rows, firm }: { slug: string; rows: MyDocument[];
         d.status === 'READY' ? (
           <Button
             variant="ghost"
-            className="text-firm-primary! underline"
+            className="text-action! underline"
             disabled={download.isPending}
             onClick={() => download.mutate(d.id)}
             aria-label={`Download ${d.fileName}`}
@@ -211,7 +211,7 @@ function DocumentTable({ slug, rows, firm }: { slug: string; rows: MyDocument[];
         columns={columns}
         rowKey={(d) => d.id}
         pageSize={10}
-        tableClassName="[&_button]:text-firm-primary [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2"
+        tableClassName="[&_button]:text-firm-text [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2"
         emptyTitle="No documents yet"
         emptyText={
           firm
@@ -238,7 +238,7 @@ function FileNameWithIcon({ fileName }: { fileName: string }) {
         ? 'bg-success text-on-action'
         : extension === 'jpg' || extension === 'jpeg' || extension === 'png'
           ? 'bg-info text-on-action'
-          : 'bg-folder-surface text-firm-primary';
+          : 'bg-folder-surface text-firm-text';
   return (
     <span className="flex min-w-0 items-center gap-2">
       <span className={`grid size-6 shrink-0 place-items-center rounded-sm ${tone}`}>

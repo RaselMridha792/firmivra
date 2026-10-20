@@ -70,6 +70,42 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** A plain open lead whose first service is `leadService`, for Convert Lead to Client (R57). */
+  leadConvert: {
+    async create({ tx, businessId, get }) {
+      const row = await tx.lead.create({
+        data: {
+          businessId,
+          serviceId: await get('leadService'),
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          firstName: 'Fake',
+          lastName: 'Convert',
+          email: `iso-convert-${randomUUID().slice(0, 8)}@iso.test`,
+        },
+      });
+      return row.id;
+    },
+  },
+  /** An open lead with a next action, for completing a follow-up (R57). */
+  leadFollowUp: {
+    async create({ tx, businessId, own }) {
+      const row = await tx.lead.create({
+        data: {
+          businessId,
+          serviceId: own.service,
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          firstName: 'Fake',
+          lastName: 'FollowUp',
+          email: `iso-follow-${randomUUID().slice(0, 8)}@iso.test`,
+          nextActionType: 'CALL',
+          nextActionAt: new Date(Date.now() + 86_400_000),
+        },
+      });
+      return row.id;
+    },
+  },
   /** The lead's clean file, made with the lead (above). */
   leadUpload: {
     async create({ get }) {
@@ -116,8 +152,44 @@ export const cases: CaseModule['cases'] = {
   },
   'GET /api/v1/business/leads/:id/profile': { params: { id: 'lead' } },
   'PATCH /api/v1/business/leads/:id': {
-    params: { id: 'lead' },
+    params: { id: 'leadConvert' },
     body: { priority: 'COLD' },
     bodyIds: { serviceIds: 'leadService', assignedUserId: 'staffUser' },
+  },
+  // Lead Profile tabs and Convert Lead to Client (R57 part 2).
+  'PUT /api/v1/business/leads/:id/follow-up': {
+    params: { id: 'lead' },
+    body: { type: 'CALL', dueAt: '2030-01-01T10:00:00Z' },
+  },
+  'POST /api/v1/business/leads/:id/follow-up/complete': {
+    params: { id: 'leadFollowUp' },
+    body: {},
+  },
+  'GET /api/v1/business/leads/:id/activity': { params: { id: 'lead' } },
+  'POST /api/v1/business/leads/:id/activity': {
+    params: { id: 'lead' },
+    body: { kind: 'CALL', summary: 'Fake call' },
+  },
+  'GET /api/v1/business/leads/:id/notes': { params: { id: 'lead' } },
+  'POST /api/v1/business/leads/:id/notes': { params: { id: 'lead' }, body: { text: 'Fake note' } },
+  'GET /api/v1/business/leads/:id/tasks': { params: { id: 'lead' } },
+  'GET /api/v1/business/leads/:id/appointments': { params: { id: 'lead' } },
+  'GET /api/v1/business/leads/:id/documents-and-forms': { params: { id: 'lead' } },
+  // The lead's first service is `leadService`, named in the body; the client and staff too.
+  'POST /api/v1/business/leads/:id/convert-to-client': {
+    params: { id: 'leadConvert' },
+    body: {
+      idempotencyKey: '01a14ebc-7954-75a4-be30-0ba529ae2e1b',
+      fullName: 'Fake Convert',
+      email: 'iso-convert@iso.test',
+      phone: '+15550100000',
+      sendPortalInvite: false,
+    },
+    bodyIds: {
+      serviceIds: 'leadService',
+      primaryStaffUserId: 'staffUser',
+      additionalStaffUserIds: 'staffUser',
+      clientId: 'client',
+    },
   },
 };

@@ -122,7 +122,7 @@ export function UploadInput({
       {files.map((file) => (
         <li
           key={file.id}
-          className="flex items-center gap-2 rounded-control border border-folder-border px-2 py-1 text-xs"
+          className="flex items-center gap-2 rounded-control border border-folder-border px-2 py-1 text-sm"
         >
           <FileText aria-hidden="true" className="size-4 shrink-0 text-accent" />
           <span className="min-w-0 flex-1 truncate">{file.fileName}</span>
@@ -138,14 +138,14 @@ export function UploadInput({
                 .remove(file.id)
                 .catch((e: unknown) => setFailure(errorMessage(e, BEGIN_ONLINE_ERRORS)));
             }}
-            className="min-h-7! px-1! py-1!"
+            className="min-h-7 px-1! py-1!"
           >
             <X aria-hidden="true" className="size-4" />
           </Button>
         </li>
       ))}
       {busy > 0 && (
-        <li className="flex items-center gap-2 text-xs text-muted">
+        <li className="flex items-center gap-2 text-sm text-muted">
           <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
           Uploading…
         </li>
@@ -160,10 +160,10 @@ export function UploadInput({
           <span id={`${id}-label`}>{fill(field.label)}</span>
           {fileInput}
         </label>
-        {field.help && <p className="text-xs text-muted">{fill(field.help)}</p>}
+        {field.help && <p className="text-sm text-muted">{fill(field.help)}</p>}
         {fileList}
         {failure && (
-          <p role="alert" className="text-xs text-danger">
+          <p role="alert" className="text-sm text-danger">
             {failure}
           </p>
         )}
@@ -196,10 +196,10 @@ export function UploadInput({
         </div>
       ) : (
         <div className={quiet ? 'sr-only' : tile ? 'min-h-8' : ''}>
-          <p id={`${id}-label`} className="text-xs font-semibold text-heading">
+          <p id={`${id}-label`} className="text-sm font-semibold text-heading">
             {label}
           </p>
-          {field.help && <p className="text-xs text-firm-primary">{fill(field.help)}</p>}
+          {field.help && <p className="text-sm text-firm-primary">{fill(field.help)}</p>}
         </div>
       )}
       <div className={`grid gap-3 ${field.examples?.length && !tile ? 'md:grid-cols-2' : ''}`}>
@@ -216,7 +216,7 @@ export function UploadInput({
             setDragging(false);
             void send(Array.from(event.dataTransfer.files));
           }}
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-control border border-dashed text-center text-xs has-focus-visible:outline-2 has-focus-visible:outline-focus ${tile ? 'p-2' : 'min-h-28 p-3'} ${CardIcon ? 'bg-surface' : ''} ${dragging ? 'border-heading bg-folder-surface' : error ? 'border-danger' : CardIcon ? 'border-info' : 'border-heading'}`}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-control border border-dashed text-center text-sm has-focus-visible:outline-2 has-focus-visible:outline-focus ${tile ? 'p-2' : 'min-h-28 p-3'} ${CardIcon ? 'bg-surface' : ''} ${dragging ? 'border-heading bg-folder-surface' : error ? 'border-danger' : CardIcon ? 'border-info' : 'border-heading'}`}
         >
           {CardIcon ? (
             <>
@@ -235,7 +235,7 @@ export function UploadInput({
                     Drag and drop your files here
                   </span>
                   <span>or</span>
-                  <span className="mt-1 rounded-control bg-navigation px-8 py-1 text-xs font-semibold text-on-action">
+                  <span className="mt-1 rounded-control bg-navigation px-8 py-1 text-sm font-semibold text-on-action">
                     Choose Files
                   </span>
                 </span>
@@ -270,7 +270,7 @@ export function UploadInput({
           />
         </label>
         {field.examples && field.examples.length > 0 && (
-          <div className="flex gap-3 rounded-control bg-folder-surface p-3 text-xs">
+          <div className="flex gap-3 rounded-control bg-folder-surface p-3 text-sm">
             <FileText aria-hidden="true" className="size-8 shrink-0 text-heading" />
             <div className="min-w-0 flex-1">
               <p className="mb-1 font-semibold text-heading">Examples of {fill(field.label)}:</p>
@@ -285,16 +285,16 @@ export function UploadInput({
       </div>
       {fileList}
       {failure && (
-        <p role="alert" className="text-xs text-danger">
+        <p role="alert" className="text-sm text-danger">
           {failure}
         </p>
       )}
-      {error && <p className="text-xs text-danger">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
       {field.notAvailable && (
         <div className="space-y-1">
           <Checkbox
             label="I don't have this document"
-            className="gap-2! text-xs! sm:min-h-6!"
+            className="gap-2! text-sm! sm:min-h-6"
             checked={value.notAvailable}
             onChange={(event) =>
               onChange({ notAvailable: event.target.checked, reason: value.reason })
@@ -302,7 +302,7 @@ export function UploadInput({
           />
           {value.notAvailable && (
             <div className="flex flex-col gap-1">
-              <label htmlFor={`${id}-reason`} className="text-xs text-firm-primary">
+              <label htmlFor={`${id}-reason`} className="text-sm text-firm-primary">
                 Please explain why you don&apos;t have this document *
               </label>
               <textarea
@@ -312,9 +312,9 @@ export function UploadInput({
                 aria-invalid={reasonError ? true : undefined}
                 value={value.reason}
                 onChange={(event) => onChange({ notAvailable: true, reason: event.target.value })}
-                className={`rounded-control border bg-surface px-2 py-1 text-xs ${reasonError ? 'border-danger' : 'border-border'}`}
+                className={`rounded-control border bg-surface px-2 py-1 text-sm ${reasonError ? 'border-danger' : 'border-border'}`}
               />
-              {reasonError && <p className="text-xs text-danger">{reasonError}</p>}
+              {reasonError && <p className="text-sm text-danger">{reasonError}</p>}
             </div>
           )}
         </div>

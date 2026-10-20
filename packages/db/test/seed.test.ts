@@ -55,6 +55,11 @@ describe('seed', () => {
       // Stage C1: a settlement's items are the processor's own payments, refunds and fees, which come
       // with a processor connection; the sample client's settlement is matched to its bank deposit only.
       'bookkeeping_settlement_items',
+      // Staff import previews live for an hour between an upload and its confirm; a seeded one
+      // would be gone (no longer read) within the hour.
+      'staff_import_previews',
+      // The daily MRR rollup is the platform job's to write; the regular seed has no subscriptions.
+      'platform_mrr_daily',
     ];
     const empty: string[] = [];
     for (const t of tables) {

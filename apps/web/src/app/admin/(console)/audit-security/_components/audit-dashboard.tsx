@@ -42,7 +42,6 @@ import { useDeferredValue, useEffect, useState } from 'react';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import {
-  adminAuditSecurity,
   ALERT_STATES,
   AUDIT_VIEWS,
   OUTCOMES,
@@ -53,6 +52,7 @@ import {
   type AuditView,
   type ExportFormat,
 } from '../../../../../mocks/admin-audit-security';
+import { adminAuditSecurity } from './audit-api';
 import { AuditKpis } from './audit-kpis';
 import {
   ALERT_LABELS,
@@ -117,7 +117,7 @@ const VIEWS: { id: AuditView; label: string; icon: Icon; text: string }[] = [
 ];
 
 type SortId = NonNullable<AuditEventQuery['sort']>;
-const SORTS: readonly SortId[] = ['at', 'user', 'firm', 'action', 'severity'];
+const SORTS: readonly SortId[] = ['at', 'action', 'severity'];
 const ALERT_FILTERS = [...ALERT_STATES, 'NONE'] as const;
 const PAGE_SIZE = 8;
 
@@ -326,7 +326,6 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
     {
       id: 'user',
       label: 'User',
-      sortable: true,
       className: 'min-w-44',
       cell: (event) => (
         <span className="flex items-center gap-3">
@@ -341,7 +340,6 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
     {
       id: 'firm',
       label: 'Firm',
-      sortable: true,
       className: 'min-w-32',
       cell: (event) => event.firm.name,
     },

@@ -75,11 +75,11 @@ export function GridInput({
   const parts = half ? [field.rows.slice(0, half), field.rows.slice(half)] : [field.rows];
   return (
     <div className="min-w-0">
-      <p className={quiet ? 'sr-only' : 'mb-1 text-xs font-medium text-firm-primary'}>
+      <p className={quiet ? 'sr-only' : 'mb-1 text-sm font-medium text-firm-primary'}>
         {label}
         {field.required ? ' *' : ''}
       </p>
-      {field.help && <p className="mb-1 text-xs text-muted">{fill(field.help)}</p>}
+      {field.help && <p className="mb-1 text-sm text-muted">{fill(field.help)}</p>}
       <div className={half ? 'grid items-start gap-3 lg:grid-cols-2' : ''}>
         {parts.map((rows, part) => (
           <div
@@ -90,7 +90,7 @@ export function GridInput({
             aria-label={parts.length > 1 ? `${label}, part ${part + 1} of ${parts.length}` : label}
           >
             <table
-              className={`w-full border-collapse text-left text-xs ${wide ? 'min-w-3xl lg:min-w-0' : ''}`}
+              className={`w-full border-collapse text-left text-sm ${wide ? 'min-w-3xl lg:min-w-0' : ''}`}
             >
               <caption className="sr-only">{label}</caption>
               <thead className="bg-folder-surface text-heading">
@@ -169,11 +169,11 @@ export function GridInput({
                               }
                               value={value[row.key]?.[col.key] ?? ''}
                               onChange={(event) => set(row.key, col.key, event.target.value)}
-                              className={`min-h-11 w-full rounded-control border bg-surface px-2 py-1 text-xs sm:min-h-7 ${col.type === 'currency' ? 'pl-5' : ''} ${error ? 'border-danger' : 'border-border'}`}
+                              className={`min-h-11 w-full rounded-control border bg-surface px-2 py-1 text-sm sm:min-h-7 ${col.type === 'currency' ? 'pl-5' : ''} ${error ? 'border-danger' : 'border-border'}`}
                             />
                           </span>
                           {error && (
-                            <span id={errorId} className="text-xs text-danger">
+                            <span id={errorId} className="text-sm text-danger">
                               {error}
                             </span>
                           )}
@@ -191,7 +191,7 @@ export function GridInput({
                         {fill(field.totalLabel)}
                       </span>
                       {tones && (
-                        <span className="block font-sans text-xs font-normal text-text">
+                        <span className="block font-sans text-sm font-normal text-text">
                           (This will auto-calculate)
                         </span>
                       )}
@@ -215,7 +215,7 @@ export function GridInput({
         ))}
       </div>
       {errors[issueKey([field.key])] && (
-        <p className="text-xs text-danger">{errors[issueKey([field.key])]}</p>
+        <p className="text-sm text-danger">{errors[issueKey([field.key])]}</p>
       )}
     </div>
   );

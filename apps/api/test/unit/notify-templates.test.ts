@@ -4,6 +4,7 @@ import {
   ALWAYS_SENT,
   type NotifyTemplate,
   TEMPLATE_CHANNEL,
+  TEMPLATE_SENDER,
 } from '../../src/notify/notify.types.js';
 import {
   NotifyTemplateError,
@@ -26,8 +27,9 @@ const templates = Object.keys(TEMPLATE_CHANNEL) as NotifyTemplate[];
 /** render with the sites' origins, as SendingNotifyService passes them from config. */
 const render: typeof renderWithout = (t, data, branding, options: RenderOptions = {}) =>
   renderWithout(t, data, branding, { linkOrigins: LINK_ORIGINS, ...options });
+/** Firmivra's own templates (firm applications, Super Admin messages) in its branding. */
 const brandingOf = (t: NotifyTemplate) =>
-  t.startsWith('firm-application.') ? FIRMIVRA_BRANDING : firm;
+  TEMPLATE_SENDER[t] === 'platform' ? FIRMIVRA_BRANDING : firm;
 const email = <T extends NotifyTemplate>(t: T, data = SAMPLE_DATA[t], options = {}) =>
   render(t, data, brandingOf(t), options) as RenderedEmail;
 
@@ -40,7 +42,7 @@ describe('templates', () => {
       expect(all).not.toContain(bad);
     }
     if (out.channel === 'sms') {
-      expect(out.text).toContain(FIRM_NAME);
+      expect(out.text).toContain(TEMPLATE_SENDER[t] === 'platform' ? 'Firmivra' : FIRM_NAME);
       if (t === 'client.signup-sms-code') {
         expect(out.text).toBe(`482913 is your ${FIRM_NAME} verification code. Never share it.`);
       }

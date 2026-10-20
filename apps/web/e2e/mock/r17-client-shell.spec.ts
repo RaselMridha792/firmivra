@@ -14,10 +14,8 @@ test('the shell has the firm header, the menu with its extra lines, and the side
   const menu = page.getByRole('navigation', { name: 'Main' });
   await expect(menu.getByRole('link', { name: 'Signatures' })).toBeVisible();
   await expect(menu.getByRole('link', { name: 'Tax Calculators' })).toBeVisible();
-  await expect(menu.getByRole('link', { name: 'My Documents' })).toHaveAttribute(
-    'aria-current',
-    'page',
-  );
+  // My docs tab.png lights Home on the My Uploaded Documents tab (R61).
+  await expect(menu.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
   const side = page.getByRole('complementary', { name: 'Help and shortcuts' });
   await expect(side.getByRole('link', { name: 'Send a Message' })).toBeVisible();
   await expect(side.getByRole('heading', { name: 'Upcoming Appointment' })).toBeVisible();

@@ -145,6 +145,9 @@ describe('api.myDocuments(slug) (portal)', () => {
       () => api.categories(),
       () => api.requests(),
       () => api.notAvailable(id, { reason: 'We had none this year' }),
+      () => api.packets(),
+      () => api.packet(id),
+      () => api.submitPacket(id),
     ]) {
       await call().catch(() => undefined);
     }
@@ -159,6 +162,9 @@ describe('api.myDocuments(slug) (portal)', () => {
       `GET ${me}/document-categories`,
       `GET ${me}/document-requests`,
       `POST ${me}/document-requests/${id}/not-available`,
+      `GET ${me}/request-packets`,
+      `GET ${me}/request-packets/${id}`,
+      `POST ${me}/request-packets/${id}/submit`,
     ]);
   });
 
