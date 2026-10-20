@@ -4,23 +4,21 @@ import { Button, Callout, Checkbox, Drawer, Input, Select, Textarea } from '@fir
 import { Warning } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
+import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import {
   adminSales,
+  errorMessage,
   fieldErrors,
   LEAD_SOURCES,
   maxExtraUsers,
   monthlyCents,
-  PLAN_IDS,
-  planName,
   SalesDuplicateError,
   type LeadSource,
   type PlanId,
   type SalesOpportunity,
   type SalesPipeline,
   type SaveOpportunity,
-} from '../../../../../mocks/admin-sales';
-import { errorMessage } from '../../../../../lib/errors';
-import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+} from './sales-api';
 import { FrameError, money, parseMoney, SALES_KEY, useSalesMeta } from './sales-ui';
 import { EMPTY_ENTRY, entryInput, StageEntryFields, type EntryState } from './stage-entry-fields';
 
@@ -90,6 +88,8 @@ export function AddLeadPanel({
   const [entry, setEntry] = useState<EntryState>(EMPTY_ENTRY);
   const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
   const [allowDuplicate, setAllowDuplicate] = useState(false);
+  // One per opening: a double click or a retry never makes a second record.
+  const [requestId] = useState(() => crypto.randomUUID());
   const create = useApiMutation((body: SaveOpportunity) => adminSales.createOpportunity(body), {
     invalidate: SALES_KEY,
   });
@@ -112,6 +112,7 @@ export function AddLeadPanel({
     if (Object.keys(problems).length) return;
     create.mutate(
       {
+        requestId,
         pipelineId: pipeline?.id,
         firmName: form.firmName,
         contactName: form.contactName,
@@ -133,6 +134,7 @@ export function AddLeadPanel({
   }
 
   const reps = meta.data?.reps ?? [];
+  const plans = meta.data?.plans ?? [];
   const failed = (meta.isError && !meta.data) || (pipelines.isError && !pipelines.data);
   const generalError =
     create.error && !Object.keys(fieldErrors(create.error)).length && !duplicates.length
@@ -230,13 +232,13 @@ export function AddLeadPanel({
                 value={form.plan}
                 error={errors['plan']}
                 onChange={(event) => {
-                  const plan = PLAN_IDS.find((id) => id === event.target.value);
-                  set('plan', plan ?? '');
+                  const plan = plans.find((item) => item.id === event.target.value);
+                  set('plan', plan?.id ?? '');
                   set('extraUsers', '0');
                 }}
                 options={[
                   { value: '', label: 'Not decided' },
-                  ...PLAN_IDS.map((id) => ({ value: id, label: planName(id) })),
+                  ...plans.map((item) => ({ value: item.id, label: item.name })),
                 ]}
               />
               {extraLimit > 0 ? (

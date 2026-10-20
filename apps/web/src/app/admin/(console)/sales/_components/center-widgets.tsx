@@ -18,6 +18,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState, type ComponentProps } from 'react';
+import { useApiQuery } from '../../../../../lib/query';
 import {
   adminSales,
   appointmentTypeLabel,
@@ -27,8 +28,7 @@ import {
   type RevenueSlice,
   type SalesActivity,
   type SalesPeriod,
-} from '../../../../../mocks/admin-sales';
-import { useApiQuery } from '../../../../../lib/query';
+} from './sales-api';
 import {
   Bar,
   BarRow,
@@ -89,6 +89,9 @@ const SLICE_TONES: Record<RevenueSlice['id'], { chart: ChartTone; dot: string }>
   BUSINESS: { chart: 'purple', dot: 'bg-purple' },
   ENTERPRISE: { chart: 'yellow', dot: 'bg-chart-yellow' },
   ADD_ONS: { chart: 'green', dot: 'bg-chart-green' },
+  // On the API: a plan outside the six, and deals won without a plan.
+  OTHER: { chart: 'red', dot: 'bg-chart-red' },
+  NO_PLAN: { chart: 'grey', dot: 'bg-chart-grey' },
 };
 const REVENUE_PERIODS: SalesPeriod[] = ['THIS_MONTH', 'LAST_30_DAYS', 'THIS_QUARTER', 'THIS_YEAR'];
 
@@ -127,7 +130,7 @@ export function RevenueByPlanCard() {
                 <span className="text-xl leading-tight tabular-nums">{money(data.totalCents)}</span>
               }
               centerLabel="Total Sales"
-              label={`Monthly revenue of clients won, ${PERIOD_LABELS[period].toLowerCase()}: ${money(data.totalCents)}`}
+              label={`Revenue of deals won, ${PERIOD_LABELS[period].toLowerCase()}: ${money(data.totalCents)}`}
               emptyText="No sales in this period."
             />
             <ul aria-label="Revenue by plan" className="flex min-w-48 flex-1 flex-col gap-3">

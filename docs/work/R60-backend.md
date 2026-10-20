@@ -82,6 +82,8 @@ Checked and fine:
 - [ ] 5b. Billing screens: switch `apps/web/src/app/admin/(console)/billing/` to `api.adminBilling`.
 - [x] 6. Sales contract (Pipeline B5 + Sales Center D1; notes: `R60-sales.md`).
 - [x] 7. Sales API (notes: `R60-sales.md`, "Sales API (step 7)").
+- [ ] 7b. Sales screens: switch `apps/web/src/app/admin/(console)/sales/` to `api.adminSales`
+  (notes: `R60-sales.md`, "Sales screens (step 7b)").
 - [ ] 8. Firm Settings Overview and Users API (contract already on main).
 - [ ] 9. Super Admin Team contract and API.
 - [ ] 10. Super Admin Subscriptions contract and API.
@@ -110,6 +112,13 @@ Checked and fine:
   32 e2e tests and 24 admin-scope write cases (`test/isolation/admin-sales-writes.ts`). Two
   contract changes it needed (note routes by note id; no `startTrial`) in their own PR, #902.
   The API PR waits for a free slot (two non-contract PRs open: #890, #898).
+- 2026-10-19: the Scrum thread answered the five Sales questions (`R60-sales.md`); the API now
+  keeps the conversion rate at most 100% and takes every active platform admin as a rep.
+  #890 and #898 got their design-vs-result screenshots (three states, from an empty local
+  database for "empty").
+- 2026-10-20: step 7b, the Sales screens on `api.adminSales` (`sales/_components/sales-api.ts`),
+  branch `rasel/R60-sales-screens` stacked on the Sales API branch; checked on the local API in
+  three states and at 375 px. Its PR follows the Sales API PR.
 
 ### Support contract (step 2)
 
