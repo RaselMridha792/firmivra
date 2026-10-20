@@ -32,6 +32,7 @@ import {
   savedStatus,
   SectionCard,
   SettingsHeader,
+  NewImage,
   SS,
   uploadBrandImage,
 } from '../../_components/settings-kit';
@@ -502,6 +503,7 @@ function BrandImage({
           <span className="text-xs text-danger">Remove</span>
         </Button>
       </div>
+      <NewImage kind={kind} currentId={asset?.id ?? null} onDone={onDone} />
       <input
         ref={input}
         type="file"
@@ -519,7 +521,7 @@ function BrandImage({
                     ? { tone: 'ok', text: `${label}: the new image is in use.` }
                     : {
                         tone: 'info',
-                        text: `${label}: the image is being checked and goes in use once it is clean.`,
+                        text: `${label}: the image is being checked; choose Use new image once it is ready.`,
                       },
                 ),
               onError: (err) => onDone(failedStatus(err)),

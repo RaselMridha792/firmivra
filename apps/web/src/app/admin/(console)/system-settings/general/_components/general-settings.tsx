@@ -24,6 +24,7 @@ import {
   savedStatus,
   SectionCard,
   SettingsHeader,
+  NewImage,
   SS,
   uploadBrandImage,
 } from '../../_components/settings-kit';
@@ -402,6 +403,7 @@ function PlatformLogo({
           <span className="text-danger">Remove</span>
         </Button>
       </div>
+      <NewImage kind={'LOGO'} currentId={logo?.id ?? null} onDone={onDone} />
       <input
         ref={input}
         type="file"
@@ -419,7 +421,7 @@ function PlatformLogo({
                     ? { tone: 'ok', text: 'The new logo is in use.' }
                     : {
                         tone: 'info',
-                        text: 'The logo is being checked; set it in Branding once it is ready.',
+                        text: 'The logo is being checked; choose Use new image once it is ready.',
                       },
                 ),
               onError: (err) => onDone(failedStatus(err)),

@@ -90,11 +90,16 @@ export function DataRetention() {
   };
   const save = useApiMutation(
     async () => {
-      for (const p of changed)
+      for (const p of changed) {
+        // Only the request's own fields (the row also carries the policy's read-only facts).
+        const e = edits[p.category]!;
         await api.adminSettings.updateRetention(p.category, {
           version: p.version,
-          ...edits[p.category]!,
+          retentionDays: e.retentionDays,
+          disposition: e.disposition,
+          archiveAfterDays: e.archiveAfterDays,
         });
+      }
       return changed.length;
     },
     { invalidate: [...SS] },
