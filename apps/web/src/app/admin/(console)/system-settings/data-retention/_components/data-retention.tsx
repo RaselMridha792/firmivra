@@ -144,7 +144,7 @@ export function DataRetention() {
           <Body query={q} rows={6}>
             {() => (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-2xl text-left text-sm">
+                <table className="w-full text-left text-sm">
                   <thead className="bg-table-head text-text">
                     <tr>
                       {['Data Type', 'Retention Period', 'Action After Retention', 'Status'].map(
