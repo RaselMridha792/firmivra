@@ -79,7 +79,7 @@ const MODULES: [AutomationCatalog['modules'][number]['module'], string, string][
   ['APPOINTMENTS', 'Appointments', '/calendar'],
   ['INTAKE_FORMS', 'Intake Forms', '/intake-forms'],
   ['DOCUMENTS', 'Documents', '/documents'],
-  ['TAX_RETURNS', 'Tax Returns', '/modules/tax-returns'],
+  ['TAX_RETURNS', 'Tax Returns', '/tax-returns'],
   ['BOOKKEEPING', 'Bookkeeping', '/modules/bookkeeping'],
   ['PAYROLL', 'Payroll', '/payroll'],
   ['TAX_PLANNING', 'Tax Planning', '/modules/tax-planning'],
