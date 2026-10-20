@@ -1,6 +1,10 @@
 'use client';
 
-import { ApiRequestError, type IntegrationConnectionDetail } from '@firmivra/types';
+import {
+  ApiRequestError,
+  type IntegrationConnectionDetail,
+  type UpdateIntegrationSettingsRequest,
+} from '@firmivra/types';
 import { Button, Card, Modal } from '@firmivra/ui';
 import { useState, type ReactNode } from 'react';
 import { PageState } from '../../../../../../components/page-state';
@@ -33,7 +37,8 @@ export function ManageIntegrationOverviewScreen({ integrationId }: { integration
     { invalidate: ['integrations', 'connection', integrationId] },
   );
   const save = useApiMutation(
-    (entities: string[]) => api.integrations.updateSettings(integrationId, { entities }),
+    (body: UpdateIntegrationSettingsRequest) =>
+      api.integrations.updateSettings(integrationId, body),
     { invalidate: ['integrations', 'connection', integrationId] },
   );
   const test = useApiMutation(() => api.integrations.test(integrationId), {
@@ -63,6 +68,7 @@ export function ManageIntegrationOverviewScreen({ integrationId }: { integration
         onToggle={() => undefined}
         onSync={() => undefined}
         onPause={() => undefined}
+        onSettings={() => undefined}
         onSave={() => undefined}
         onTest={() => undefined}
         onDisconnect={() => undefined}
@@ -101,13 +107,18 @@ export function ManageIntegrationOverviewScreen({ integrationId }: { integration
             }
             onSync={() => sync.mutate(undefined)}
             onPause={() => pause.mutate(data.paused)}
-            onSave={() => save.mutate(selected)}
+            onSettings={(body) => save.mutate(body)}
+            onSave={() => save.mutate({ entities: selected })}
             onTest={() => test.mutate(undefined)}
             onDisconnect={() => setDisconnectOpen(true)}
             notice={
               mutationError ? (
                 <Card role="alert">
                   <p className="text-sm text-danger">{integrationError(mutationError)}</p>
+                </Card>
+              ) : save.isSuccess ? (
+                <Card role="status">
+                  <p className="text-sm text-success">Sync settings saved.</p>
                 </Card>
               ) : test.isSuccess ? (
                 <Card role="status">
@@ -154,6 +165,7 @@ function OverviewFrame({
   onToggle,
   onSync,
   onPause,
+  onSettings,
   onSave,
   onTest,
   onDisconnect,
@@ -166,6 +178,7 @@ function OverviewFrame({
   onToggle: (key: string, checked: boolean) => void;
   onSync: () => void;
   onPause: () => void;
+  onSettings: (body: UpdateIntegrationSettingsRequest) => void;
   onSave: () => void;
   onTest: () => void;
   onDisconnect: () => void;
@@ -177,14 +190,21 @@ function OverviewFrame({
       {notice}
       <ManageHeader integrationId={integrationId} detail={detail} busy={busy} onSync={onSync} />
       <ManageTabsNav integrationId={integrationId} current="" />
-      <div className="grid gap-4 xl:grid-cols-12">
-        <div className="xl:col-span-4">
+      {/* The design's column widths: the details widest, Sync Data narrowest. */}
+      <div className="grid gap-4 xl:grid-cols-[34fr_32fr_29fr]">
+        <div className="min-w-0">
           <ConnectionDetails detail={detail} onDisconnect={onDisconnect} />
         </div>
-        <div className="xl:col-span-4">
-          <SyncControls detail={detail} busy={busy} onSync={onSync} onPause={onPause} />
+        <div className="min-w-0">
+          <SyncControls
+            detail={detail}
+            busy={busy}
+            onSync={onSync}
+            onPause={onPause}
+            onSettings={onSettings}
+          />
         </div>
-        <div className="xl:col-span-4">
+        <div className="min-w-0">
           <SyncData
             detail={detail}
             selected={selected}
@@ -194,14 +214,14 @@ function OverviewFrame({
           />
         </div>
       </div>
-      <div className="grid gap-4 xl:grid-cols-12">
-        <div className="xl:col-span-4">
+      <div className="grid gap-4 xl:grid-cols-[34fr_38fr_23fr]">
+        <div className="min-w-0">
           <RecentActivity detail={detail} />
         </div>
-        <div className="xl:col-span-5">
+        <div className="min-w-0">
           <MappingPreview detail={detail} />
         </div>
-        <div className="xl:col-span-3">
+        <div className="min-w-0">
           <ConnectionHealth detail={detail} busy={busy} onTest={onTest} />
         </div>
       </div>

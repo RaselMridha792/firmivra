@@ -59,6 +59,39 @@ export function Sidebar({
   // The menu's scrollbar is hidden (it looked wrong next to the navy menu), so a soft fade at its
   // bottom edge shows while more items are below.
   const menuRef = useRef<HTMLDivElement>(null);
+  // The current page's item stays in view: a module low in a long menu (Integrations in the firm
+  // workspace) would otherwise open below the fold. The menu settles as the session's items and the
+  // firm's footer arrive, so it is kept in view on each resize until the person scrolls the menu.
+  // Only the menu scrolls, never the page.
+  useEffect(() => {
+    const menu = menuRef.current;
+    if (!menu || !current) return;
+    let touched = false;
+    const show = () => {
+      const item = menu.querySelector<HTMLElement>('[aria-current="page"]');
+      if (touched || !item) return;
+      const box = menu.getBoundingClientRect();
+      const row = item.getBoundingClientRect();
+      if (row.bottom > box.bottom) menu.scrollTop += row.bottom - box.bottom + 24;
+      else if (row.top < box.top) menu.scrollTop -= box.top - row.top + 24;
+    };
+    const stop = () => {
+      touched = true;
+    };
+    show();
+    const observer = new ResizeObserver(show);
+    observer.observe(menu);
+    for (const child of menu.children) observer.observe(child);
+    menu.addEventListener('wheel', stop, { passive: true });
+    menu.addEventListener('touchstart', stop, { passive: true });
+    menu.addEventListener('keydown', stop);
+    return () => {
+      observer.disconnect();
+      menu.removeEventListener('wheel', stop);
+      menu.removeEventListener('touchstart', stop);
+      menu.removeEventListener('keydown', stop);
+    };
+  }, [current]);
   const [moreBelow, setMoreBelow] = useState(false);
   useEffect(() => {
     const menu = menuRef.current;
