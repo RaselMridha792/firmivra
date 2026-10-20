@@ -258,18 +258,19 @@ Both merged: D4 in #885 (Oct 19) and MRR history in #899 (Oct 19). Nothing else 
 
 The R0 window closed on Oct 20 at the Scrum thread's wrap-up order: Rasel's laptop is slow and this window's context was full. The big end-to-end check of Business Advisory was skipped, except for a quick pass for pages that error (below).
 
-**Open PRs:**
-- **#950: plan profile `referralSource` and `notes`** (`rasel/R0-advisory-plan-notes`, main merged in at `d58bfe27`). CI is green; the review thread merges it.
+**Open PRs:** only #958, this handoff. No migration PR is open, so the DB lock is free for the next R0 window.
+
+**Merged on Oct 20:**
+- **#950: plan profile `referralSource` and `notes`** (design 2's Additional Information card).
   - No migration: the profile is JSONB, checked only for its shape, size and EIN keys.
   - Shard 4's earlier failure was the appointments unit test's fixed date (now past). Main fixed it in #946.
-- **#954: migration `r0_admin_team_profile`** (`rasel/R0-admin-team-user-update`, `4a891e88`). Asked for by R60's Edit Team Member.
-  - It needs Rasel's yes (packages/db) and a merge window. It is the only open migration PR.
+- **#954: migration `r0_admin_team_profile`**, asked for by R60's Edit Team Member.
   - It adds one policy, `users_admin_team_update`: the CEO may update the ADMIN login of anyone on the org chart. The triggers keep the change to name and phone.
-  - Drift check on a fresh database: empty. `admin-team-profile` and `platform-team-hierarchy` pass locally (17 tests).
-  - **After it merges, R60** replaces `NAME_LOCKED` in `checkProfile` (`apps/api/src/admin-team/team-plan.ts`) with the write.
+  - Drift check on a fresh database: empty. Tests: `admin-team-profile` (6) and `platform-team-hierarchy`.
+  - **Still to do, R60's code:** replace `NAME_LOCKED` in `checkProfile` (`apps/api/src/admin-team/team-plan.ts`) with the write.
 
 **Merged since the Oct 19 handoff:**
-- Schema: #885 (D4, platform legal documents) and #899 (MRR history).
+- Schema: #885 (D4, platform legal documents), #899 (MRR history) and #954 (above).
 - Business Advisory: #883 (mock), #888 (shell and overview), #897 (reports contract and error `details`), #908 (clients, plans and goals tabs), #910 (reports endpoint), #915 (financial analysis, action plans, resources and reports tabs), #929 (plan wizard), #934 (client detail), #943 (client tabs) and #948 (Documents and Client Portal tabs).
 - R1's #947: the Meetings, Financials and Recommendations client tabs, in `_components/client-tabs-r1.tsx`.
 
@@ -283,7 +284,7 @@ The R0 window closed on Oct 20 at the Scrum thread's wrap-up order: Rasel's lapt
 
 **Remaining schema gaps:**
 - None queued. D4 and MRR merged. The other Super Admin items need no migration (see "Schema gaps from the Super Admin API sessions").
-- #954 is waiting, as above.
+- R60's admin-team profile gap is closed by #954; only its API change is left (R60's).
 - Not schema: the daily rollups (MRR, feature use, firm activity) still have no writer. That is a scheduled job in platform scope (R1's scheduler or the API's jobs module).
 - Old follow-up: `set-module.mjs` should take the migrate task's `DB_*` variables (Oct 17 handoff).
 
