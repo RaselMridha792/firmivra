@@ -24,6 +24,8 @@ import { StaffSecurityService } from './staff-security.service.js';
 import { StaffWriteController } from './staff-write.controller.js';
 import { StaffWriteService } from './staff-write.service.js';
 import { StaffController } from './staff.controller.js';
+import { UsersController } from './users.controller.js';
+import { UsersService } from './users.service.js';
 
 /**
  * Staff Management (R55; contract in packages/types/src/staff): the directory and one member
@@ -40,6 +42,7 @@ import { StaffController } from './staff.controller.js';
     StaffWriteController,
     StaffSecurityController,
     StaffDraftsController,
+    UsersController,
   ],
   providers: [
     StaffReadService,
@@ -51,6 +54,7 @@ import { StaffController } from './staff.controller.js';
     StaffDocumentsService,
     StaffScanHandler,
     StaffImportService,
+    UsersService,
     // The documents bucket and settings, as DocumentsModule builds them (that module exports none).
     { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
     {

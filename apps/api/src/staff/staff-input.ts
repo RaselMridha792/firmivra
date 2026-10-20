@@ -19,6 +19,7 @@ import {
   StaffSessionId,
   UpdateStaffDocumentRequest,
   UpdateStaffRequest,
+  UsersQuery,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { badTextPaths } from '../workspaces/input.js';
@@ -35,6 +36,7 @@ const clean = <S extends z.ZodType>(schema: S): S =>
 
 export const StaffIdParam = StaffId;
 export const StaffListQ = clean(StaffListQuery);
+export const UsersQ = clean(UsersQuery);
 export const StaffDraftIdParam = StaffDraftId;
 export const CreateStaffBody = clean(CreateStaffRequest);
 export const UpdateStaffBody = clean(UpdateStaffRequest);
