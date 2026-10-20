@@ -167,8 +167,9 @@ export function IntegrationsScreen() {
           tone="amber"
         />
       </section>
-      <div className="grid min-w-0 items-center gap-3 xl:grid-cols-[minmax(0,1fr)_15rem_11rem_auto]">
-        <div className="min-w-0 overflow-x-auto">
+      <div className="grid min-w-0 items-center gap-3 lg:grid-cols-[minmax(0,1fr)_11rem_auto] 2xl:grid-cols-[minmax(0,1fr)_15rem_11rem_auto]">
+        {/* The tabs take their own row below 2xl, so none is cut off. */}
+        <div className="min-w-0 overflow-x-auto lg:col-span-3 2xl:col-span-1">
           <Tabs
             variant="segmented"
             label="Integration status"

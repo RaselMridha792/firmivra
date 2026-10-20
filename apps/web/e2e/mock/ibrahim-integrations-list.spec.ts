@@ -120,11 +120,18 @@ for (const state of ['empty', 'offline', 'forbidden'] as const) {
     await page.goto(url);
     await expectFrames(page);
     await expect(page.getByTestId('integration-card')).toHaveCount(0);
-    await expect(page.getByText('No fields mapped yet.')).toBeVisible();
     if (state === 'offline') await expect(page.getByTestId('page-error')).toBeVisible();
     if (state === 'forbidden') await expect(page.getByTestId('page-forbidden')).toBeVisible();
     if (state === 'empty')
       await expect(page.getByText('No integrations available yet.')).toBeVisible();
+    // An empty firm has nothing mapped; a failed load says the status is unknown (R56).
+    await expect(
+      page.getByText(
+        state === 'empty'
+          ? 'No fields mapped yet.'
+          : 'Mapping status is unavailable until the connection is restored.',
+      ),
+    ).toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath(`integrations-${state}-desktop.png`),
       fullPage: true,
