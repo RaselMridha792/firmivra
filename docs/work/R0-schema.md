@@ -259,20 +259,18 @@ Relayed by the Scrum thread from R55's notes on Audit & Security, System Setting
    - Then the screens: every widget built, empty states rather than fake data, three-state screenshots at 1440 px, and `docs/design-match.md`.
 3. **No more demo seed groups.** The demo data gets replaced later, and nobody reseeds dev now (R1 has been told).
 
-**Open PRs (Oct 20):**
-- **#943: client detail tabs Business Plan, Goals & Milestones, Tasks, Notes, Activity Log.**
-  - The spec has 18 tests.
-  - `GoalsList`, `RecommendationsSection` and `ActionItemsSection` are shared by the module tabs and the client tabs.
+**Open PRs (Oct 20, afternoon):**
+- **#948: client detail Documents and Client Portal tabs.** Taken over from R1, who agreed by cross-session message.
+- **#950: plan profile `referralSource` and `notes`** (design 2's Additional Information card).
+  - No migration: the profile is JSONB, checked only for its shape, size and EIN keys.
+  - Covered by a types test, an API e2e test and the wizard spec.
 - **#875:** this handoff.
-- **Merged since Oct 19:** #868, #871, #883, #885, #888, #897, #899, #908, #910, #915, #929 and #934.
+- **R1's #947:** client tabs Meetings, Financials and Recommendations, in `_components/client-tabs-r1.tsx`.
+- **Merged since Oct 19:** #868, #871, #883, #885, #888, #897, #899, #908, #910, #915, #929, #934 and #943.
 
-**Split with R1 (Scrum, Oct 20):** R1 builds the client tabs Meetings, Financials, Recommendations, Documents and Client Portal.
-- For R1 to reuse: `RecommendationsSection`, `HealthFactors`, `BudgetCell`, `AddFiguresDialog`, `noneWhenMissing`.
-- My earlier full Financials and Recommendations tabs are at `2199adde` (`client-tabs.tsx`).
+**Next (Rasel's order via the Scrum thread, Oct 20):** an end-to-end check of the whole Business Advisory module against the docx and the three designs, at 1440 px, filled, empty and error, then fix the differences.
 
-**After #943 R0's Business Advisory part is done.** Left open:
-- the plan profile's missing "How did you hear about us?" and notes (contract gap from #929)
-- whatever review asks
+**Gotcha:** the Turbopack dev server can answer 404 for nested routes (the wizard's `edit/*` steps) after long sessions or branch switches. Stop it, delete `.next/r0` and restart.
 
 **Business Advisory (item 2), started Oct 19:**
 - The API and contract already exist on main (R55, `de509806`: `apps/api/src/advisory/`, `packages/types/src/advisory/`).
