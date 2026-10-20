@@ -8,10 +8,12 @@ import type {
   UpdateIntegrationSettingsRequest,
 } from '@firmivra/types';
 import { Button, Card, Checkbox, Input, Radio, Select, Toggle } from '@firmivra/ui';
+import { Database } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiMutation } from '../../../../../../../lib/query';
 import {
+  CardTitle,
   EmptyLine,
   entityIcons,
   formatDirection,
@@ -71,13 +73,16 @@ export function SyncSettingsTab({ integrationId }: { integrationId: string }) {
 function SettingsFrames() {
   return (
     <div className="grid gap-4 xl:grid-cols-3">
-      <Card title="Sync Schedule" data-testid="sync-schedule" className="p-5!">
+      <Card data-testid="sync-schedule" className="p-5!">
+        <CardTitle>Sync Schedule</CardTitle>
         <EmptyLine>The schedule shows when the integration loads.</EmptyLine>
       </Card>
-      <Card title="Data to Sync" data-testid="sync-objects" className="p-5!">
+      <Card data-testid="sync-objects" className="p-5!">
+        <CardTitle>Data to Sync</CardTitle>
         <EmptyLine>The objects this provider can sync show here.</EmptyLine>
       </Card>
-      <Card title="Provider Options" data-testid="provider-options" className="p-5!">
+      <Card data-testid="provider-options" className="p-5!">
+        <CardTitle>Provider Options</CardTitle>
         <EmptyLine>The provider&apos;s own options show here.</EmptyLine>
       </Card>
     </div>
@@ -129,7 +134,8 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
       ) : null}
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <Card title="Sync Schedule" data-testid="sync-schedule" className="p-5!">
+        <Card data-testid="sync-schedule" className="p-5!">
+          <CardTitle>Sync Schedule</CardTitle>
           <fieldset className="flex flex-col gap-1" disabled={!canEdit}>
             <legend className="text-sm font-medium text-heading">Sync mode</legend>
             <Radio
@@ -188,35 +194,36 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
           </div>
         </Card>
 
-        <Card title="Data to Sync" data-testid="sync-objects" className="p-5!">
+        <Card data-testid="sync-objects" className="p-5!">
+          <CardTitle>Data to Sync</CardTitle>
           {provider.entities.length ? (
-            <ul className="flex flex-col divide-y divide-divider">
+            <ul className="flex flex-col divide-y divide-divider border-y border-divider">
               {provider.entities.map((entity) => {
-                const Glyph = entityIcons[entity.key];
+                const Glyph = entityIcons[entity.key] ?? Database;
                 return (
-                  <li key={entity.key} className="flex items-start gap-3 py-1">
-                    {Glyph ? (
-                      <Glyph
-                        aria-hidden
-                        weight="fill"
-                        className="mt-3 size-5 shrink-0 text-action"
-                      />
-                    ) : null}
-                    <div className="min-w-0 flex-1">
-                      <Checkbox
-                        label={entity.label}
-                        checked={draft.entities.includes(entity.key)}
-                        disabled={!canEdit}
-                        onChange={(event) =>
-                          set({
-                            entities: event.target.checked
-                              ? [...draft.entities, entity.key]
-                              : draft.entities.filter((key) => key !== entity.key),
-                          })
-                        }
-                      />
-                      <p className="-mt-2 pb-1 text-xs text-muted">{entity.description}</p>
-                    </div>
+                  // The Overview's Sync Data row: box, icon, name, what it holds.
+                  <li
+                    key={entity.key}
+                    className="grid grid-cols-[1.25rem_1.25rem_minmax(0,1fr)_minmax(0,1.1fr)] items-center gap-2 py-1.5"
+                  >
+                    <Checkbox
+                      label={entity.label}
+                      checked={draft.entities.includes(entity.key)}
+                      disabled={!canEdit}
+                      className="min-h-0! [&>span]:sr-only"
+                      onChange={(event) =>
+                        set({
+                          entities: event.target.checked
+                            ? [...draft.entities, entity.key]
+                            : draft.entities.filter((key) => key !== entity.key),
+                        })
+                      }
+                    />
+                    <Glyph aria-hidden weight="fill" className="size-5 text-heading" />
+                    <span aria-hidden className="text-sm leading-tight text-heading">
+                      {entity.label}
+                    </span>
+                    <span className="text-xs leading-tight text-text">{entity.description}</span>
                   </li>
                 );
               })}
@@ -226,7 +233,8 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
           )}
         </Card>
 
-        <Card title="Provider Options" data-testid="provider-options" className="p-5!">
+        <Card data-testid="provider-options" className="p-5!">
+          <CardTitle>Provider Options</CardTitle>
           {provider.options.length ? (
             <div className="flex flex-col gap-4">
               {provider.options.map((option) => (

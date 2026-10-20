@@ -103,7 +103,7 @@ function History({
     <Card data-testid="sync-history" className="flex min-w-0 flex-col gap-4 p-5!">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-heading">Sync History</h2>
+          <h2 className="text-xl font-bold text-heading">Sync History</h2>
           <p className="text-sm text-muted">Every sync, test and webhook run, newest first.</p>
         </div>
         <div className="grid w-full gap-2 sm:grid-cols-3 lg:w-auto">
