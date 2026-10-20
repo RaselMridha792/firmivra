@@ -1,5 +1,8 @@
-import type { IntegrationConnectionDetail } from '@firmivra/types';
-import { Button, Card, Checkbox, Toggle } from '@firmivra/ui';
+import type {
+  IntegrationConnectionDetail,
+  UpdateIntegrationSettingsRequest,
+} from '@firmivra/types';
+import { Button, Card, Checkbox, Select, Toggle } from '@firmivra/ui';
 import {
   ArrowRight,
   ArrowsClockwise,
@@ -12,6 +15,9 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { api } from '../../../../../../lib/api';
+import { errorMessage } from '../../../../../../lib/errors';
+import { useApiMutation } from '../../../../../../lib/query';
 import {
   DirectionIcon,
   EmptyLine,
@@ -40,7 +46,14 @@ export function ConnectionDetails({
     ['Connected Since', detail ? formatDate(detail.connectedAt) : 'Not available'],
     ['Company', detail?.accountLabel ?? 'Not provided'],
     ['Provider Account ID', detail?.accountIdMasked ?? 'Not provided'],
-    ['Environment', detail?.environment === 'TEST' ? 'Test / Sandbox' : 'Live (Production)'],
+    [
+      'Environment',
+      detail
+        ? detail.environment === 'TEST'
+          ? 'Test / Sandbox'
+          : 'Live (Production)'
+        : 'Not available',
+    ],
     ['Connection Type', detail?.connectionType ?? 'Not provided'],
   ];
   return (
@@ -71,7 +84,7 @@ export function ConnectionDetails({
           disabled={!detail?.canManage}
           onClick={onDisconnect}
         >
-          <LinkSimple weight="bold" className="size-5" /> Disconnect
+          <LinkSimple weight="fill" className="size-5" /> Disconnect
         </Button>
       </div>
     </Card>
@@ -89,6 +102,16 @@ export function SyncControls({
   onSync: () => void;
   onPause: () => void;
 }) {
+  const settings = useApiMutation(
+    async (changes: UpdateIntegrationSettingsRequest) => {
+      if (!detail) throw new Error('Connection details are unavailable.');
+      const updated = await api.integrations.updateSettings(detail.id, changes);
+      if (changes.syncMode === 'AUTO' && detail.paused) await api.integrations.resume(detail.id);
+      return updated;
+    },
+    { invalidate: ['integrations', 'connection', detail?.id] },
+  );
+  const disabled = !detail?.canManage || busy || settings.isPending;
   return (
     <Card title="Sync Controls" data-testid="sync-controls" className="h-full !p-5">
       <p className="-mt-3 mb-3 text-sm text-muted">
@@ -96,12 +119,12 @@ export function SyncControls({
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <Button disabled={!detail?.canManage || detail.syncing || busy} onClick={onSync}>
-          <ArrowsClockwise weight="bold" className="size-5" />{' '}
+          <ArrowsClockwise weight="fill" className="size-5" />{' '}
           {detail?.syncing ? 'Syncing…' : 'Sync Now'}
         </Button>
         <Button variant="secondary" disabled={!detail?.canManage || busy} onClick={onPause}>
           {detail?.paused ? (
-            <ArrowsClockwise weight="bold" className="size-5" />
+            <ArrowsClockwise weight="fill" className="size-5" />
           ) : (
             <Pause weight="fill" className="size-5" />
           )}
@@ -113,24 +136,70 @@ export function SyncControls({
           <span className="font-medium text-text">Auto Sync</span>
           <Toggle
             checked={!!detail && !detail.paused && detail.syncMode === 'AUTO'}
-            disabled
+            disabled={disabled || !detail?.provider.frequencies.length}
             label="Auto sync status"
-            onChange={() => undefined}
+            onChange={(enabled) => {
+              settings.mutate({
+                syncMode: enabled ? 'AUTO' : 'MANUAL',
+                syncEveryMinutes: enabled
+                  ? (detail?.syncEveryMinutes ?? detail?.provider.frequencies[0] ?? null)
+                  : null,
+              });
+            }}
           />
         </div>
         <div className="flex min-h-12 items-center justify-between gap-4">
           <span className="text-muted">Sync Frequency</span>
-          <span className="font-medium text-text">
-            {detail ? formatFrequency(detail.syncEveryMinutes) : 'Not available'}
-          </span>
+          <Select
+            label="Sync Frequency"
+            hideLabel
+            value={detail?.syncEveryMinutes?.toString() ?? ''}
+            disabled={disabled || detail?.syncMode !== 'AUTO'}
+            options={[
+              { value: '', label: detail ? 'Manual sync' : 'Not available' },
+              ...(detail?.provider.frequencies.map((minutes) => ({
+                value: String(minutes),
+                label: formatFrequency(minutes),
+              })) ?? []),
+            ]}
+            onChange={(event) =>
+              settings.mutate(
+                event.target.value
+                  ? { syncMode: 'AUTO', syncEveryMinutes: Number(event.target.value) }
+                  : { syncMode: 'MANUAL', syncEveryMinutes: null },
+              )
+            }
+          />
         </div>
         <div className="flex min-h-12 items-center justify-between gap-4">
           <span className="text-muted">Sync Direction</span>
-          <span className="font-medium text-text">
-            {detail ? formatDirection(detail.direction) : 'Not available'}
-          </span>
+          <Select
+            label="Sync Direction"
+            hideLabel
+            value={detail?.direction ?? ''}
+            disabled={disabled}
+            options={
+              detail?.provider.directions.map((value) => ({
+                value,
+                label: formatDirection(value),
+              })) ?? [{ value: '', label: 'Not available' }]
+            }
+            onChange={(event) => {
+              const direction = detail?.provider.directions.find(
+                (value) => value === event.target.value,
+              );
+              if (direction) settings.mutate({ direction });
+            }}
+          />
         </div>
       </div>
+      {settings.isError ? (
+        <p role="alert" className="mt-3 text-sm text-danger">
+          {errorMessage(settings.error, {
+            NOT_SUPPORTED: 'These sync settings are not supported by this provider.',
+          })}
+        </p>
+      ) : null}
       <div className="mt-4 flex gap-3 rounded-control bg-info-soft p-3 text-sm text-info">
         <WarningCircle weight="fill" className="mt-0.5 size-5 shrink-0" />
         <p>
@@ -215,7 +284,7 @@ export function RecentActivity({ detail }: { detail: IntegrationConnectionDetail
           href={detail ? `/integrations/${detail.id}/sync-history` : '#'}
           className="inline-flex items-center gap-1 text-sm font-medium text-link"
         >
-          View All <ArrowRight weight="bold" className="size-4" />
+          View All <ArrowRight weight="fill" className="size-4" />
         </Link>
       </div>
       {detail?.recentRuns.length ? (
