@@ -17,7 +17,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { errorMessage } from '../../../../../lib/errors';
+import { errorCode, errorMessage } from '../../../../../lib/errors';
 
 /** Every query of the Business Advisory module starts here: a change in one view refreshes the others. */
 export const BA_KEY = ['business-advisory'] as const;
@@ -220,6 +220,14 @@ export function errorText(error: unknown): string {
   const lines = error instanceof ApiRequestError ? (error.details ?? []).map((d) => d.message) : [];
   return lines.length ? `${text} Still needed: ${lines.join('; ')}.` : text;
 }
+
+/** A client record another module does not know reads as "none yet", not as an outage. */
+export const noneWhenMissing =
+  <T,>(none: T) =>
+  (e: unknown): T => {
+    if (errorCode(e) === 'NOT_FOUND') return none;
+    throw e;
+  };
 
 /** A goal's or milestone's progress: the bar and its percent. */
 export function ProgressBar({ value, label }: { value: number; label: string }) {
