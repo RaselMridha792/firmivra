@@ -106,40 +106,42 @@ export function WorkflowStepper({
 }) {
   const steps = workflowSteps(status, frame);
   return (
-    <ol className="flex w-full items-start" aria-label="Return workflow">
-      {steps.map((s, i) => {
-        const done = s.state === 'complete';
-        const on = s.state === 'current' || s.state === 'waiting' || s.state === 'rejected';
-        return (
-          <li
-            key={s.label}
-            className="relative flex flex-1 flex-col items-center gap-1 text-center"
-            aria-current={on ? 'step' : undefined}
-          >
-            {i > 0 ? (
+    <div className="overflow-x-auto">
+      <ol className="flex w-full min-w-[30rem] items-start" aria-label="Return workflow">
+        {steps.map((s, i) => {
+          const done = s.state === 'complete';
+          const on = s.state === 'current' || s.state === 'waiting' || s.state === 'rejected';
+          return (
+            <li
+              key={s.label}
+              className="relative flex flex-1 flex-col items-center gap-1 text-center"
+              aria-current={on ? 'step' : undefined}
+            >
+              {i > 0 ? (
+                <span
+                  aria-hidden
+                  className={`absolute top-4 right-1/2 h-1 w-full -translate-y-1/2 ${done || on ? 'bg-success' : 'bg-divider'}`}
+                />
+              ) : null}
               <span
-                aria-hidden
-                className={`absolute top-4 right-1/2 h-1 w-full -translate-y-1/2 ${done || on ? 'bg-success' : 'bg-divider'}`}
-              />
-            ) : null}
-            <span
-              className={`relative z-10 flex size-9 items-center justify-center rounded-full text-sm font-bold ${done ? 'bg-success text-on-action' : on ? (s.state === 'rejected' ? 'bg-danger text-on-action' : 'bg-action text-on-action') : 'bg-control-border text-on-action'}`}
-            >
-              {done ? <Check aria-hidden weight="bold" className="size-5" /> : i + 1}
-            </span>
-            <span className={`text-sm font-medium ${on ? 'text-action' : 'text-heading'}`}>
-              {numbered ? `${i + 1}. ` : ''}
-              {s.label}
-            </span>
-            <span
-              className={`rounded px-1.5 text-[11px] font-medium ${done ? 'bg-success-soft text-success' : on ? (s.state === 'rejected' ? 'bg-danger-soft text-danger' : 'bg-info-soft text-action') : 'bg-disabled text-muted'}`}
-            >
-              {STEP_TEXT[s.state]}
-            </span>
-          </li>
-        );
-      })}
-    </ol>
+                className={`relative z-10 flex size-9 items-center justify-center rounded-full text-sm font-bold ${done ? 'bg-success text-on-action' : on ? (s.state === 'rejected' ? 'bg-danger text-on-action' : 'bg-action text-on-action') : 'bg-control-border text-on-action'}`}
+              >
+                {done ? <Check aria-hidden weight="bold" className="size-5" /> : i + 1}
+              </span>
+              <span className={`text-sm font-medium ${on ? 'text-action' : 'text-heading'}`}>
+                {numbered ? `${i + 1}. ` : ''}
+                {s.label}
+              </span>
+              <span
+                className={`rounded px-1.5 text-[11px] font-medium ${done ? 'bg-success-soft text-success' : on ? (s.state === 'rejected' ? 'bg-danger-soft text-danger' : 'bg-info-soft text-action') : 'bg-disabled text-muted'}`}
+              >
+                {STEP_TEXT[s.state]}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 

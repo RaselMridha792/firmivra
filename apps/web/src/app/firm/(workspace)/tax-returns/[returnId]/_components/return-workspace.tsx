@@ -19,7 +19,6 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../../lib/api';
-import { errorMessage } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
 import {
   AssignDialog,
@@ -42,7 +41,6 @@ import {
   BLOCKER_LABEL,
   FILING_STATUS_LABEL,
   STATUS_LABEL,
-  TR_ERRORS,
   TR_KEY,
   card,
   dayText,
@@ -50,9 +48,10 @@ import {
   outlined,
   primary,
   quiet,
-  returnKind,
+  returnTitle,
   shortName,
 } from '../../_components/tr-shared';
+import { UnavailableReturn } from '../../_components/unavailable';
 import {
   ActivityPanel,
   ChecklistPanel,
@@ -114,9 +113,7 @@ export function ReturnWorkspace({ returnId }: { returnId: string }) {
     return (
       <div className="flex flex-col gap-4" data-testid="return-workspace">
         <Crumbs />
-        <p role="alert" className={quiet}>
-          This return is not available. {errorMessage(q.error, TR_ERRORS)}
-        </p>
+        <UnavailableReturn error={q.error} frame={2} onRetry={() => void q.refetch()} />
         <BackLink />
       </div>
     );
@@ -156,7 +153,6 @@ export function ReturnWorkspace({ returnId }: { returnId: string }) {
 }
 
 function Crumbs({ detail }: { detail?: TaxReturnDetail }) {
-  const kind = detail ? returnKind(detail) : null;
   return (
     <nav aria-label="Breadcrumb" className="text-sm">
       <ol className="flex flex-wrap items-center gap-2 text-heading">
@@ -175,7 +171,7 @@ function Crumbs({ detail }: { detail?: TaxReturnDetail }) {
             </li>
             <li aria-hidden>›</li>
             <li aria-current="page">
-              {detail.taxYear} {kind?.group.replace(/s$/, '')} Return
+              {detail.taxYear} {returnTitle(detail)}
             </li>
           </>
         ) : null}
@@ -209,7 +205,6 @@ function Header({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notic
   const box = 'flex min-w-36 flex-col gap-1 rounded-xl border border-divider bg-surface px-3 py-2';
   const select =
     'min-h-10 rounded-control border border-divider bg-surface px-2 text-base text-heading';
-  const kind = returnKind(detail);
   const change = (to: TaxReturnWorkflowStatus) => {
     if (isBackward(detail.workflowStatus, to)) setStatusTo(to);
     else
@@ -278,7 +273,7 @@ function Header({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notic
             {(sameYear.length ? sameYear : [detail]).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.id === detail.id
-                  ? `${kind.group.replace(/s$/, '')} (${detail.formType ?? '—'})`
+                  ? `${returnTitle(detail)} (${detail.formType ?? '—'})`
                   : `${s.formType ?? 'Return'}${s.quarter ? ` Q${s.quarter}` : ''}`}
               </option>
             ))}

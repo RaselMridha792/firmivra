@@ -16,7 +16,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
-import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
 import {
   DetailsDialog,
@@ -39,16 +38,15 @@ import {
   BLOCKER_LABEL,
   FILING_STATUS_LABEL,
   STATUS_LABEL,
-  TR_ERRORS,
   TR_KEY,
   card,
   dateTimeText,
   dayText,
   outlined,
   primary,
-  quiet,
-  returnKind,
+  returnTitle,
 } from '../../../_components/tr-shared';
+import { UnavailableReturn } from '../../../_components/unavailable';
 import {
   NotesPanel,
   ReturnDocumentsPanel,
@@ -89,9 +87,7 @@ export function ReviewScreen({ returnId }: { returnId: string }) {
           </Link>
         </nav>
         {q.isError ? (
-          <p role="alert" className={quiet}>
-            This return is not available. {errorMessage(q.error, TR_ERRORS)}
-          </p>
+          <UnavailableReturn error={q.error} frame={3} onRetry={() => void q.refetch()} />
         ) : (
           <div className={`${card} h-32 animate-pulse`} aria-label="Loading" />
         )}
@@ -103,8 +99,7 @@ export function ReviewScreen({ returnId }: { returnId: string }) {
       </div>
     );
   }
-  const kind = returnKind(r);
-  const title = `${r.taxYear} ${kind.group.replace(/s$/, '')} Return`;
+  const title = `${r.taxYear} ${returnTitle(r)}`;
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="review-screen">
       <nav aria-label="Breadcrumb" className="text-sm">
@@ -279,10 +274,7 @@ function ReturnDetails({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
       : '—';
   const rows: [string, string][] = [
     ['Tax Year', String(detail.taxYear)],
-    [
-      'Return Type',
-      `${returnKind(detail).group.replace(/s$/, '')}${detail.formType ? ` (${detail.formType})` : ''}`,
-    ],
+    ['Return Type', `${returnTitle(detail)}${detail.formType ? ` (${detail.formType})` : ''}`],
     ['Filing Status', detail.filingStatus ? FILING_STATUS_LABEL[detail.filingStatus] : '—'],
     ['Federal E-File', fs(federal?.status)],
     [
@@ -329,7 +321,10 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
   const blocked = detail.blockers.filter(
     (b) => b !== 'NO_FILING_TRANSMITTED' && b !== 'FILINGS_NOT_ACCEPTED',
   );
-  const ready = canFile && blocked.length === 0;
+  // From review or signature only (the guide's workflow), and only with nothing blocking it.
+  const inReview =
+    detail.workflowStatus === 'READY_FOR_REVIEW' || detail.workflowStatus === 'READY_FOR_SIGNATURE';
+  const ready = canFile && inReview && blocked.length === 0;
   const button =
     'inline-flex min-h-11 items-center gap-2 rounded-control border border-action bg-surface px-4 font-medium text-action hover:bg-accent-soft';
   return (
@@ -397,7 +392,7 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
             !ready
               ? blocked.length
                 ? blocked.map((b) => BLOCKER_LABEL[b]).join('\n')
-                : 'Not available from this stage'
+                : 'Available once the return is in review or awaiting signatures'
               : undefined
           }
           onClick={() =>

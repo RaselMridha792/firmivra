@@ -414,7 +414,7 @@ export function ApprovalsPanel({
                   <span className="text-xs text-muted">{dateTimeText(a.decidedAt)}</span>
                 ) : null}
                 {a.status === 'PENDING' ? (
-                  <span className="flex gap-3">
+                  <span className="flex flex-wrap gap-x-3">
                     <button
                       type="button"
                       className={textButton}
@@ -596,7 +596,7 @@ export function SignaturesPanel({
                     {a.required ? '' : ' (if required)'}
                   </span>
                   {a.status !== 'SIGNED' && a.status !== 'COMPLETED' ? (
-                    <span className="flex gap-3">
+                    <span className="flex flex-wrap gap-x-3">
                       <button type="button" className={textButton} onClick={() => setLink(a)}>
                         Link Firm Sign request
                       </button>
@@ -1521,10 +1521,20 @@ function AmountDialog({
 
 /** Next Steps: what still stands between the return and its next stage, from the API's blockers. */
 export function NextSteps({ detail }: { detail: TaxReturnDetail }) {
+  // A step is done only when there is something there that is done: no authorization or
+  // approval set up yet is not "signed" or "approved".
+  const auths = usePart(detail.id, 'authorizations', () =>
+    api.taxReturnWorkspace.authorizations(detail.id),
+  );
+  const approvals = usePart(detail.id, 'approvals', () =>
+    api.taxReturnWorkspace.approvals(detail.id),
+  );
   const steps: { label: string; done: boolean }[] = [
     {
       label: 'Obtain client signatures (Form 8879)',
-      done: !detail.blockers.includes('AUTHORIZATION_UNSIGNED'),
+      done:
+        (auths.data ?? []).some((a) => a.required) &&
+        !detail.blockers.includes('AUTHORIZATION_UNSIGNED'),
     },
     {
       label: 'Complete final validation',
@@ -1537,6 +1547,7 @@ export function NextSteps({ detail }: { detail: TaxReturnDetail }) {
     {
       label: 'Complete the required approvals',
       done:
+        (approvals.data ?? []).length > 0 &&
         !detail.blockers.includes('APPROVAL_PENDING') &&
         !detail.blockers.includes('APPROVAL_RETURNED'),
     },
