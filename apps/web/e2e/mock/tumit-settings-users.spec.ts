@@ -114,6 +114,34 @@ test('Reset User Passwords and Deactivate User find any user, whatever the table
   await expect(table).toContainText('Marcus Bell');
 });
 
+test('Unlock and Reactivate from the row: review who it is, then confirm', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/users`);
+  const table = page.getByTestId('user-management');
+
+  await table.getByLabel('Status').selectOption('locked');
+  await table.getByRole('button', { name: 'Actions for Iris Novak' }).click();
+  await page.getByRole('menuitem', { name: 'Unlock Account' }).click();
+  const unlock = page.getByTestId('unlock-user');
+  await expect(unlock).toContainText('Saved role');
+  await expect(unlock).toContainText('Read Only');
+  await expect(unlock).toContainText('does not reset a password');
+  await unlock.getByRole('button', { name: 'Unlock Account' }).click();
+  await expect(page.getByTestId('users-result')).toHaveText('Iris Novak’s account is unlocked.');
+  await table.getByLabel('Status').selectOption('active');
+  await expect(table).toContainText('Iris Novak');
+
+  await table.getByLabel('Status').selectOption('inactive');
+  await table.getByRole('button', { name: 'Actions for Victor Lane' }).click();
+  await page.getByRole('menuitem', { name: 'Reactivate User' }).click();
+  const reactivate = page.getByTestId('reactivate-user');
+  await expect(reactivate).toContainText('Individual overrides');
+  await reactivate.getByRole('button', { name: 'Reactivate' }).click();
+  await expect(page.getByTestId('users-result')).toContainText('Victor Lane');
+  // No longer inactive (the success line above the table names him; the rows do not).
+  await expect(table.getByRole('row', { name: /Victor Lane/ })).toHaveCount(0);
+});
+
 test('Change Role: one person, with the new role previewed and their overrides kept', async ({
   page,
 }) => {

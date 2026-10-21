@@ -10,6 +10,7 @@ Guide: `docs/specs/settings-review-2026-10-20/users-and-roles--firmivra-users-an
 - [ ] 4. **Admin permission edits rejected** (P1): Owner and Admin may edit every role in their firm.
 - [ ] 5. **Custom role** (P1): template, then a Set Permissions dialog, then save. Needs a `custom_roles` table (R0).
 - [ ] 6. P3: individual overrides (Inherit, Allow, Deny), change role, revoke invitation, unlock, reactivate, bulk actions, last-administrator protection.
+  - [x] Unlock and Reactivate (row menu): a review of who it is, company, saved role and own overrides, then the Staff routes (`staff.unlocked`; reactivate re-invites someone who never joined). Unlock is offered for Locked rows only; the API never unlocks an inactive account.
   - [x] Change Role (row menu): who and current role, the new role's permissions in this firm, the person's own overrides (kept); saved through Edit Staff's route (`membership.role_changed` with from and to). Shown only for people whose role you may change (`ROLES_MANAGED_BY`).
 
 ## Decisions
