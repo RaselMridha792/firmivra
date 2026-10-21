@@ -1,13 +1,13 @@
 'use client';
 
 import { type BrandingSettings, UpdateBrandingRequest } from '@firmivra/types';
-import { Button, Callout, Input, Skeleton, Textarea } from '@firmivra/ui';
+import { Button, Callout, Input, Modal, Skeleton, Textarea } from '@firmivra/ui';
 import { ChatText, EnvelopeSimple, Eye, Info, PaperPlaneTilt } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
-import { moduleHref } from '../../../../../../lib/firm-modules';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { NOT_LOADED, Quiet, SettingsCard, SettingsHeader } from '../../_components/settings-parts';
@@ -25,6 +25,9 @@ const COMMS_ERRORS: Record<string, string> = {
     'Someone saved these settings while you were editing. Reload to see their changes, then make yours again.',
   FORBIDDEN: 'Only an Owner or an Admin can change communication settings.',
 };
+
+/** The main Communications module: the sidebar's Communications item (firm layout). */
+const COMMUNICATIONS_HREF = '/communications';
 
 const fromBranding = (b: BrandingSettings): Form => ({
   fromName: b.email.fromName ?? '',
@@ -97,6 +100,48 @@ function CommunicationsForm({
   };
   const firmName = firm?.name ?? 'Your firm';
   const fromName = form.fromName.trim() || firmName;
+  const router = useRouter();
+  // Open Communications with unsaved edits asks first: Save and Leave, Discard and Leave, or Stay.
+  const [leaving, setLeaving] = useState(false);
+  const savedForm = fromBranding(branding);
+  const dirty = (Object.keys(savedForm) as (keyof Form)[]).some((k) => form[k] !== savedForm[k]);
+
+  /** Checks the draft: the update to send, or null with the field errors shown. */
+  const validate = (): NonNullable<UpdateBrandingRequest['email']> | null => {
+    const email = {
+      fromName: form.fromName.trim() || null,
+      replyToEmail: form.replyToEmail.trim() || null,
+      header: form.header.trim() || null,
+      footer: form.footer.trim() || null,
+      disclaimer: form.disclaimer.trim() || null,
+    };
+    const result = UpdateBrandingRequest.shape.email.safeParse(email);
+    const found: Record<string, string> = {};
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        const field = String(issue.path[0] ?? '');
+        found[field] ??=
+          field === 'replyToEmail' ? 'Enter a valid email, or leave it empty.' : issue.message;
+      }
+    }
+    setErrors(found);
+    return Object.keys(found).length ? null : email;
+  };
+
+  // A failed check or save keeps this page and the draft; the field or save error shows here.
+  const saveAndLeave = async () => {
+    const email = validate();
+    if (!email) {
+      setLeaving(false);
+      return;
+    }
+    try {
+      await save.mutateAsync(email);
+      router.push(COMMUNICATIONS_HREF);
+    } catch {
+      setLeaving(false);
+    }
+  };
 
   return (
     <form
@@ -105,25 +150,8 @@ function CommunicationsForm({
       className="flex flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault();
-        const email = {
-          fromName: form.fromName.trim() || null,
-          replyToEmail: form.replyToEmail.trim() || null,
-          header: form.header.trim() || null,
-          footer: form.footer.trim() || null,
-          disclaimer: form.disclaimer.trim() || null,
-        };
-        const result = UpdateBrandingRequest.shape.email.safeParse(email);
-        const found: Record<string, string> = {};
-        if (!result.success) {
-          for (const issue of result.error.issues) {
-            const field = String(issue.path[0] ?? '');
-            found[field] ??=
-              field === 'replyToEmail' ? 'Enter a valid email, or leave it empty.' : issue.message;
-          }
-        }
-        setErrors(found);
-        if (Object.keys(found).length) return;
-        save.mutate(email);
+        const email = validate();
+        if (email) save.mutate(email);
       }}
     >
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
@@ -224,13 +252,53 @@ function CommunicationsForm({
             client data. Each client chooses whether to get them.
           </p>
           <Link
-            href={moduleHref('communications')}
+            href={COMMUNICATIONS_HREF}
             className="text-sm font-semibold text-link hover:underline"
+            onClick={(event) => {
+              // A new tab or window keeps this page and its draft, so only a plain click asks.
+              if (!dirty || event.button !== 0) return;
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              setLeaving(true);
+            }}
           >
             Open Communications
           </Link>
         </SettingsCard>
       </div>
+      {leaving ? (
+        <Modal
+          open
+          title="Leave with unsaved changes?"
+          onClose={() => setLeaving(false)}
+          footer={
+            <div className="flex flex-wrap justify-end gap-3">
+              <Button
+                variant="secondary"
+                disabled={save.isPending}
+                onClick={() => setLeaving(false)}
+              >
+                Stay
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={save.isPending}
+                onClick={() => router.push(COMMUNICATIONS_HREF)}
+              >
+                Discard and Leave
+              </Button>
+              <Button disabled={save.isPending} onClick={() => void saveAndLeave()}>
+                Save and Leave
+              </Button>
+            </div>
+          }
+        >
+          <p className="max-w-lg text-sm text-text">
+            Your changes to these communication settings are not saved yet. Save them before you
+            open Communications, or leave without them.
+          </p>
+        </Modal>
+      ) : null}
       <Callout icon={Info} tone="navy" surface="plain" size="compact">
         Your logo on emails follows Branding. Required security and legal notices are always added
         and cannot be removed.
