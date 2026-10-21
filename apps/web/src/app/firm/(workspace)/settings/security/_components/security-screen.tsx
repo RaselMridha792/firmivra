@@ -108,8 +108,7 @@ export function SecurityScreen() {
           />
           <NotInForce testId="password-not-in-force">
             New passwords still need at least 12 characters, with an upper-case letter, a lower-case
-            letter and a number. Failed sign-ins are already limited, but not yet by this lockout
-            rule.
+            letter and a number.
           </NotInForce>
           <p className="text-xs text-muted">
             Nobody at your firm, and nobody at Firmivra, can see or set a staff password.
