@@ -310,13 +310,17 @@ export function createUsersMock(options: Options = {}): UsersClient {
     summary: async () => {
       await allowed(options.role);
       const c = staffCounts(shared);
+      // As the API counts: accepted accounts (active, locked, inactive), invitations apart, and
+      // the firm's eight roles.
+      const accepted = listStaffRows(shared, { status: 'all' }).filter(
+        (r) => r.status !== 'INVITED',
+      ).length;
       return {
-        total: c.total,
+        total: accepted,
         addedThisMonth: c.addedThisMonth,
         active: c.active,
         pendingInvitations: c.invited,
-        roles: c.roles,
-        customRoles: 0,
+        roles: 8,
       };
     },
     exportUrl: () =>
