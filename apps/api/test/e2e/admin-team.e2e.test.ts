@@ -1057,9 +1057,9 @@ const loginsOf = (email: string) =>
   );
 
 /**
- * A new team member's `platform_admins` row needs INSERT on that table for the app's role, which
- * R0's `r0_platform_tightening` (Oct 7) revoked ("Super Admins are added by ops or the seed").
- * Until R0 grants it back for TEAM_MEMBER rows, a new login's Add Team Member answers 500.
+ * A new team member's `platform_admins` row needs INSERT on that table for the app's role. R0's
+ * `r0_platform_tightening` (Oct 7) revoked it and #981 granted it back for TEAM_MEMBER rows; this
+ * names the grant if it is ever missing, instead of a bare 500 from Add Team Member.
  */
 async function needsAdminRowInsert(): Promise<void> {
   const [row] = await owner(

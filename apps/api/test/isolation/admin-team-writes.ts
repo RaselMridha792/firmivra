@@ -71,7 +71,7 @@ export async function prepareTeam(fx: Fixtures): Promise<void> {
       await person('teamResend', 'PENDING_INVITATION');
       // Add Team Member's person: a login left half-made (an admin row, no org-chart row), which
       // the route reuses. A brand-new login also needs INSERT on platform_admins for the app,
-      // which R0's r0_platform_tightening revoked (docs/work/R60-team.md, note 80).
+      // which #981 granted for TEAM_MEMBER rows (docs/work/R60-team.md, note 80).
       const added = randomUUID();
       await tx.user.create({
         data: {

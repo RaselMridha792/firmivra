@@ -405,8 +405,8 @@ for the admin-scope sweep. No contract change.
     inactive.
   - `IdentityProvider.enableUser`, if deactivating should also disable the Cognito login.
 - **R0:**
-  - **INSERT on `platform_admins` for TEAM_MEMBER rows** (blocks Add Team Member for a new email,
-    note 80): `GRANT INSERT ON platform_admins TO firmivra_app`, with the policy narrowed so the
+  - Done in #981 (Oct 21): **INSERT on `platform_admins` for TEAM_MEMBER rows** (blocked Add Team
+    Member for a new email, note 80): `GRANT INSERT ON platform_admins TO firmivra_app`, with the policy narrowed so the
     app can add only TEAM_MEMBER rows in platform scope (for example `WITH CHECK (app_scope() =
     'platform' AND role = 'TEAM_MEMBER')`), so Super Admins are still added only by ops or the
     seed. No UPDATE or DELETE is needed.
@@ -631,15 +631,10 @@ link), `team-invitation.ts` (the token, the caps, the messages), and `planCreate
 `test/unit/admin-team.test.ts` (53), `test/e2e/admin-team.e2e.test.ts` (34), and 5 write cases in
 `test/isolation/admin-team-writes.ts`. No contract change.
 
-**Blocked on R0 for a brand-new login (note 80, first trap; Needs).** The app's role has no
-INSERT on `platform_admins`: R0's `r0_platform_tightening` (Oct 7) revoked it ("Super Admins are
-added by ops or the seed"), whatever `platform_admins_access` allows. Until R0 grants it for
-TEAM_MEMBER rows in platform scope, Add Team Member for an email with no ADMIN-pool login answers
-500. Nothing is left in the database (the `users` insert rolls back with it), and the Cognito login
-made for the request is disabled. Everything else works today: a login left half-made (with an
-admin row) is reused, and Resend, APPROVE's link and the edits are unaffected. Locally, 4 of the 34 e2e tests need the grant and fail until then, each
-with the message "R0: firmivra_app needs INSERT on platform_admins". The other 30 pass, and so do
-the 53 unit tests.
+**R0's grant landed (#981, Oct 21).** The app's role may now insert TEAM_MEMBER rows into
+`platform_admins` in platform scope, so Add Team Member works for an email with no ADMIN-pool
+login too (note 80's first trap is gone). After merging `main`: all 34 e2e tests pass (the 4 that
+waited on the grant included), with the 53 unit tests and the 3 isolation tests.
 
 69. **The routes.**
     - `POST /members` answers 201 `{ member, invitation }`.
@@ -812,3 +807,8 @@ the 53 unit tests.
     - The platform cap is the whole test database's. The e2e lowers
       `TEAM_INVITE_LIMITS.perPlatform` to the current count, instead of writing 50 rows that would
       make other files' sends answer 429.
+
+## Progress log
+
+- Oct 21: merged `main` (#981's grant); 34 of 34 e2e, 53 unit and 3 isolation tests pass. PR
+  opened.
