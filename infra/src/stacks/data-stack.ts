@@ -115,7 +115,9 @@ export class DataStack extends Stack {
       ],
       lifecycleRules: [
         {
-          noncurrentVersionExpiration: Duration.days(30),
+          // Replaced or deleted document versions stay 35 days, the same recovery window as the
+          // database backups (Rasel, Oct 21).
+          noncurrentVersionExpiration: Duration.days(35),
           abortIncompleteMultipartUploadAfter: Duration.days(1),
         },
       ],

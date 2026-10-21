@@ -297,11 +297,11 @@ describe('intake settings rules', () => {
       { firstReminderDays: 5, finalReminderDays: 5 },
       { finalReminderDays: 61 },
       { expiryAlertHours: 169 },
-      { maxFileSizeMb: 20 },
+      { maxFileSizeMb: 101 },
     ]) {
       await expect(settings(data)).rejects.toThrow(/intake_settings_ranges/);
     }
-    await expect(settings({ defaultExpiryDays: 30, maxFileSizeMb: 5 })).resolves.toBeTruthy();
+    await expect(settings({ defaultExpiryDays: 30, maxFileSizeMb: 100 })).resolves.toBeTruthy();
   });
 
   it('accepts only the platform upload types, and a https redirect that is set when on', async () => {

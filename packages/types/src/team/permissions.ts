@@ -109,6 +109,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<MembershipRole, PermissionGrid> = 
     CLIENT_PORTAL: [V],
   },
 
+  // No grid in any design (Rasel, Oct 21): Staff's work plus Business Advisory.
+  BUSINESS_CONSULTANT: {
+    ...Object.fromEntries(STAFF_MODULES.map((m) => [m, [V, C, E]])),
+    BUSINESS_ADVISORY: [V, C, E],
+  },
+
   // The design names Viewer (Read Only) and nothing else. Narrowest: look, never change, and
   // not the money or the conversations.
   READ_ONLY: { DASHBOARD: [V], CLIENTS: [V], APPOINTMENTS: [V], TASKS: [V] },

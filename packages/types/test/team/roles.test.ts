@@ -10,7 +10,7 @@ import {
 } from '../../src/index.js';
 
 describe('the firm roles', () => {
-  it('lists the eight roles, highest authority first, matching the database enum', () => {
+  it('lists the nine roles, highest authority first, matching the database enum', () => {
     expect(FIRM_ROLES).toEqual([
       'OWNER',
       'ADMIN',
@@ -19,6 +19,7 @@ describe('the firm roles', () => {
       'BOOKKEEPER',
       'TAX_PREPARER',
       'CLIENT_SUPPORT',
+      'BUSINESS_CONSULTANT',
       'READ_ONLY',
     ]);
     expect([...MembershipRole.options].sort()).toEqual([...FIRM_ROLES].sort());
@@ -26,7 +27,7 @@ describe('the firm roles', () => {
 
   it('labels and orders every role', () => {
     for (const role of FIRM_ROLES) expect(FIRM_ROLE_LABELS[role]).toMatch(/\S/);
-    expect(FIRM_ROLES.map((role) => FIRM_ROLE_ORDER[role])).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(FIRM_ROLES.map((role) => FIRM_ROLE_ORDER[role])).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   it('lets an invite give any role but Owner, and a role change any role', () => {
@@ -45,6 +46,7 @@ describe('the firm roles', () => {
       'BOOKKEEPER',
       'TAX_PREPARER',
       'CLIENT_SUPPORT',
+      'BUSINESS_CONSULTANT',
       'READ_ONLY',
     ] as const) {
       expect(ROLES_MANAGED_BY[role]).toEqual([]);

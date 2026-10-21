@@ -11,7 +11,8 @@ test('a lead shows who sent it, the answers with the SSN masked, and the files',
 }) => {
   await page.goto(lead(1));
   await expect(page.getByTestId('page-title')).toHaveText('Avery Sample');
-  await expect(page.getByText('New', { exact: true })).toBeVisible();
+  // The lead's status, not the shell's "New" button in the header.
+  await expect(page.getByRole('main').getByText('New', { exact: true })).toBeVisible();
   await expect(page.getByText('Annual Tax · 2025')).toBeVisible();
   await expect(page.getByText('•••-••-6789')).toBeVisible();
   await expect(page.getByText('123-45-6789')).toHaveCount(0);

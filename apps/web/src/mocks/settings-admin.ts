@@ -298,7 +298,9 @@ export function createUsersMock(options: Options = {}): UsersClient {
     list: async (query = {}) => {
       await allowed(options.role);
       const q = parseInput(UsersQuery, query);
-      const rows = listStaffRows(shared, q).map((r) => ({ ...r, company: COMPANY }));
+      const rows = listStaffRows(shared, q)
+        .filter((r) => !q.ids || q.ids.includes(r.id))
+        .map((r) => ({ ...r, company: COMPANY }));
       const start = (q.page - 1) * q.pageSize;
       return {
         items: rows.slice(start, start + q.pageSize),

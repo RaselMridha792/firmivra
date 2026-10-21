@@ -107,7 +107,9 @@ const dev: EnvConfig = {
     instanceClass: 't3.micro',
     allocatedStorageGiB: 20,
     maxAllocatedStorageGiB: 50,
-    backupDays: 7,
+    // 35 days, the RDS maximum: the Data & Backups page promises a 35-day recovery window (Rasel,
+    // Oct 21).
+    backupDays: 35,
   },
   task: { cpu: 256, memoryMiB: 512, spot: true, count: 1 },
 };
