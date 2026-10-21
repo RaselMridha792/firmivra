@@ -14,8 +14,8 @@ invites (below).
   screenshots (data, empty, API unreachable) and the ticked `docs/design-match.md` checklist.
 - Anything needing a database or infra change goes to Rasel as a written item, not built.
 - Ask Rasel before touching the sign-in guards or anything in `apps/api/src/auth/`. Rasel (Oct
-  21): R60 may change them for exactly the item 1 rules he decided (edge spaces, per-account
-  lockout, who may change MFA), nothing else.
+  21): R60 may change the sign-in code for exactly the item 1 rules (spaces, who may change MFA,
+  the per-account lockout), nothing else.
 - Merge `main`, never rebase. Local checks: lint and prettier on the changed files, typecheck of
   the changed packages, the tests of the touched module only. Run the dev server only while
   checking a screen, then stop it and delete `.next`.
@@ -55,19 +55,22 @@ was fixed by R55 in #991 (merged Oct 21).
 
 ### 1. Security: the sign-in rules
 
-Rasel decided (Oct 21), and R60 may touch the sign-in guards for exactly these rules:
+Rasel decided and answered (Oct 21). R60 may change the sign-in code for exactly these rules:
 
-- **Spaces:** a space at the start or end of a password is allowed, and nothing trims it. Before
-  building, check Cognito: the repo says it refuses a password that starts or ends with a space
-  (`packages/types/src/auth/schemas.ts:41-44`, the `edges` rule). If it does, this rule cannot
-  hold with Cognito as is, so ask Rasel again rather than encode or trim the password.
-- **Lockout:** per account, 5 failures in 15 minutes, on top of the existing network rate limit
-  (`SIGN_IN_LIMIT`, which stays). A per-account counter needs somewhere to live (R0 if a table
-  or column).
-- **MFA:** no new "security admin" role. The Owner, and an Admin with the security permission,
-  may change the MFA requirement, after a fresh sign-in, with an audit entry. The permission grid
-  has no security module (`packages/types/src/team/permissions.ts`): the nearest is `SETTINGS`
-  with `MANAGE`. Confirm with Rasel which key "the security permission" is.
+- **Spaces:** allowed inside a password. Cognito refuses a space at the start or end (its guide
+  counts only "non-leading, non-trailing space characters"), and that refusal stays: keep the
+  `edges` rule in `PASSWORD_RULES`, and never trim or encode a password to get around Cognito.
+  Nothing trims today (`SignInRequest.password` is `z.string().min(1).max(256)`). The page says
+  "Allowed; spaces inside the password, not at the start or end" (#998).
+- **MFA:** no new role or permission. The Owner, and any Admin with `MANAGE` on `SETTINGS` (the
+  "Admin" column of Users & Roles), may change the MFA requirement, after a fresh sign-in, with
+  an audit entry. Nothing to enforce yet: MFA is `Mfa.REQUIRED` on the Cognito pool and no firm
+  setting exists, so the check comes with that setting (R0 column, R1 pool change).
+- **Lockout:** per account, 5 failures in 15 minutes, on top of the existing network limits (the
+  per-IP `@Throttle(ATTEMPTS)` on the sign-in routes and `SIGN_IN_LIMIT`). No schema change is
+  needed: `reserve()` in `sign-in.service.ts` already counts open attempts per `emailKey` (an
+  HMAC of the email, per firm on a portal) from `audit_logs`, unknown emails the same as real
+  ones. Plan sent to Rasel Oct 21; build after his go, on its own branch, PR when a slot frees.
 
 The page says the rules and marks what is not in force. Enforcement needs auth and infra changes;
 none were made. Map (file, now, required, owner):
@@ -75,13 +78,13 @@ none were made. Map (file, now, required, owner):
 | Rule | Where | Now | Required | Owner |
 | --- | --- | --- | --- | --- |
 | 15-character minimum, no forced mix | `infra/src/stacks/auth-stack.ts:110-117` (`passwordPolicy`, three pools) | 12, upper, lower, digit | `minLength: 15`, the `require*` false | R1 |
-| Same rule in the contract and screens | `packages/types/src/auth/schemas.ts:41-53` (`PASSWORD_RULES`), `docs/api/auth.yaml:85,502`, `docs/AUTH-DESIGN.md:25` | 12 + mix, no edge spaces | 15, no mix, edge spaces allowed and not trimmed (if Cognito accepts them, above) | R2 or R60 |
-| Lockout: 5 failures on one account in 15 min locks 15 min | `apps/api/src/auth/sign-in.service.ts:67-80` (`SIGN_IN_LIMIT`), `auth-errors.ts:35` | 10 per email per network in 15 min, then 429 | Keep that limit; add a per-account lock at the 5th failure, `retryAt` in the 429 for a countdown | R60 (+R0 for the counter) |
+| Same rule in the contract and screens | `packages/types/src/auth/schemas.ts:41-53` (`PASSWORD_RULES`), `docs/api/auth.yaml:85,502`, `docs/AUTH-DESIGN.md:25` | 12 + mix, no edge spaces | 15 and no mix once R1's pool policy changes; the `edges` rule stays; nothing trims | R2 or R60 |
+| Lockout: 5 failures on one account in 15 min locks 15 min | `apps/api/src/auth/sign-in.service.ts:67-80` (`SIGN_IN_LIMIT`), `auth-errors.ts:35` | 10 per email per network in 15 min, then 429 | Keep the network limits; add a per-account lock at the 5th failure, `retryAt` in the 429 for a countdown | R60 (no schema change) |
 | 8-hour maximum | `auth-stack.ts:67` (refresh 7 days), `apps/api/src/auth/site.ts:92-96`, `session.service.ts:80` | 7 days | `Duration.hours(8)` and the cookie lifetimes | R1 + R2 |
 | 15 min idle, warning at 13 | none; `apps/web/src/lib/session.ts:40` refreshes on any 401 | none | Server-side last activity checked in `SessionService.refresh`, polling not counted, web idle timer with the warning | R2 (+R0 if a column) |
 | Reset ends every session | `cognito-identity.provider.ts:338` | Refresh revoked; access tokens live up to 15 min | Reject tokens issued before the reset | R2 |
 | Deactivation ends every session | `staff-actions.service.ts:147-169`, `staff.common.ts:106`, `session.service.ts:171` | Firm access ends at once (`tenant.guard.ts:116`); tokens live up to 7 days | Refuse refresh without an active membership, or revoke | R2 |
-| MFA change only by the Owner or an Admin with the security permission, fresh sign-in, audited | `auth-stack.ts:67` (`Mfa.REQUIRED`) | Always required; no setting | Only if a firm may ever change it: policy table, the permission check, re-auth, audit | R0 + R60 |
+| MFA change only by the Owner or an Admin with `MANAGE` on `SETTINGS`, fresh sign-in, audited | `auth-stack.ts:67` (`Mfa.REQUIRED`) | Always required; no setting | Only if a firm may ever change it: a policy column, the `SETTINGS`/`MANAGE` check, re-auth, audit; no new role or permission | R0 + R1 + R60 |
 | Real MFA enrolment on the card | `apps/api/src/staff/staff-read.service.ts:58-63` (`mfaOf` placeholder) | "Not recorded yet" | Ask Cognito (`AdminGetUser` MFA settings) or record setup in `sign-in.service.ts` | R2 (+R0) |
 
 Remove each "Not in force yet" note in `settings/security/_components/security-screen.tsx` as its
@@ -283,3 +286,6 @@ status, exports, restore) and the two rows show real dates.
   the security permission, edge spaces allowed and not trimmed, per-account lockout), and the
   sheet was reshot. Web `tsc` 0 errors, ESLint and Prettier clean, `tumit-settings-security.spec.ts`
   4 of 4. Two R60 non-contract PRs are now open (#997, #998): Team invites waits for one to merge.
+- Oct 21: Rasel's answers (spaces inside the password, the edge refusal stays; `MANAGE` on
+  `SETTINGS`) in item 1 and on the Security page (#998, sheet reshot, spec 4 of 4). Lockout plan
+  sent to Rasel; no schema change needed.
