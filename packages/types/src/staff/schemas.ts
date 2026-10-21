@@ -540,6 +540,40 @@ export const SetStaffPermissionsRequest = z.strictObject({
 });
 export type SetStaffPermissionsRequest = z.input<typeof SetStaffPermissionsRequest>;
 
+/**
+ * One cell of a person's own permissions (Octavia's review, Oct 20, section 3): INHERIT follows
+ * the role (the firm's grid for it), ALLOW and DENY are the person's whatever the role says, also
+ * when ALLOW matches the role today (so a later change to the role does not take it away).
+ */
+export const PermissionOverrideMode = z.enum(['INHERIT', 'ALLOW', 'DENY']);
+export type PermissionOverrideMode = z.infer<typeof PermissionOverrideMode>;
+
+/**
+ * PATCH /business/staff/{id}/permissions: Inherit, Allow or Deny for the cells sent; the others
+ * stay as they are. Owner and Admin; never the Owner. 400 PERMISSION_NEEDS_VIEW when a module
+ * would have a capability without View; 409 PERMISSION_ESCALATION when an ALLOW gives more than
+ * the role (resend with acknowledgeEscalation). Answers the member's permissions, where a cell
+ * with an override has source MEMBER.
+ */
+export const SetStaffOverridesRequest = z.strictObject({
+  overrides: z
+    .array(
+      z.strictObject({
+        module: PermissionModule,
+        capability: PermissionCapability,
+        mode: PermissionOverrideMode,
+      }),
+    )
+    .min(1)
+    .max(24 * 7)
+    .refine(
+      (cells) => new Set(cells.map((c) => `${c.module}:${c.capability}`)).size === cells.length,
+      'Send each cell once',
+    ),
+  acknowledgeEscalation: z.boolean().optional(),
+});
+export type SetStaffOverridesRequest = z.input<typeof SetStaffOverridesRequest>;
+
 /** High-risk actions (reset password or MFA, lock, sign out all): a reason and a confirm. */
 export const StaffSecurityActionRequest = z.strictObject({
   reason: clearable(text(500, 'many')),
