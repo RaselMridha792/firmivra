@@ -143,6 +143,9 @@ test('adopt a signature, fill each required field with Next, then finish', async
 test('upload an optional attachment', async ({ page }) => {
   await openDocument(page, MOCK_SIGNING_TOKENS.emailCode);
   await page.getByLabel('Photo ID (optional), Jamie Sample').click();
+  await expect(page.getByTestId('attachment-upload')).toHaveAccessibleName(
+    /PDF, JPG or PNG, up to 100 MB$/,
+  );
   await page.getByTestId('attachment-upload').setInputFiles({
     name: 'photo-id.pdf',
     mimeType: 'application/pdf',
