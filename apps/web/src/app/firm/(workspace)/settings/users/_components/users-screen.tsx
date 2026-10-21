@@ -41,12 +41,7 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { RowMenu, type RowMenuItem } from '../../../team/_components/row-menu';
 import { ActionModal, type StaffAction } from '../../../team/[id]/_components/staff-actions';
 import { MEMBER_ERRORS } from '../../../team/[id]/_components/staff-parts';
-import {
-  BandCard,
-  NOT_LOADED,
-  SettingsHeader,
-  SettingsKpi,
-} from '../../_components/settings-parts';
+import { BandCard, SettingsHeader, SettingsKpi } from '../../_components/settings-parts';
 import { InviteUserModal } from './invite-user-modal';
 import { RolePanel } from './role-panel';
 import { RoleTemplates } from './role-templates';
@@ -86,6 +81,31 @@ const day = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
 /** "Today 9:12 AM", "Sep 28, 2026", or "Invited Sep 25, 2026" (the date never breaks). */
+/** A counter that filters the table (Octavia's review): pressed while its filter is on. */
+function KpiFilter({
+  on,
+  label,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={label}
+      onClick={onClick}
+      className={`block h-full rounded-xl ${on ? 'ring-2 ring-action' : ''}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function lastLogin(u: FirmUser): ReactNode {
   if (u.status === 'INVITED' && u.invite) {
     return (
@@ -149,6 +169,14 @@ export function UsersScreen() {
   const n = (v: number | undefined) =>
     summary.isPending ? <Skeleton className="h-8 w-12" /> : (v ?? '—');
   const filtered = Boolean(search.trim() || role || status !== 'all');
+  /** A counter's click: that status alone, with the search and role cleared. */
+  const showOnly = (next: StaffStatusFilter) => {
+    setSearch('');
+    setRole('');
+    setStatus(next);
+    setPage(1);
+    setSelected([]);
+  };
 
   const menu = (u: FirmUser): RowMenuItem[] => {
     const act = (action: StaffAction) => () => setDialog({ kind: 'action', action, user: u });
@@ -272,39 +300,65 @@ export function UsersScreen() {
         }
       />
 
+      {summary.isError ? (
+        <p
+          role="alert"
+          className="flex flex-wrap items-center gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger"
+          data-testid="users-kpis-error"
+        >
+          The user counts could not load. {errorMessage(summary.error, MEMBER_ERRORS)}
+          <Button variant="outline" onClick={() => void summary.refetch()}>
+            Retry
+          </Button>
+        </p>
+      ) : null}
       <div
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-[1440px]:grid-cols-4"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-[1440px]:grid-cols-4 [&>button]:text-left [&>button>section]:h-full [&>section]:h-full"
         data-testid="users-kpis"
       >
-        <SettingsKpi
-          label="Total Users"
-          icon={UsersThree}
-          tone="blue"
-          value={n(s?.total)}
-          change={s?.addedThisMonth}
-          note={summary.isError ? 'Not loaded' : 'Across all companies'}
-        />
-        <SettingsKpi
-          label="Active Users"
-          icon={User}
-          tone="green"
-          value={n(s?.active)}
-          noteTone="text-success"
-          note={
-            s
-              ? `${s.total ? Math.round((s.active / s.total) * 100) : 0}% active`
-              : summary.isError
-                ? 'Not loaded'
-                : ' '
-          }
-        />
-        <SettingsKpi
-          label="Pending Invitations"
-          icon={EnvelopeSimple}
-          tone="amber"
-          value={n(s?.pendingInvitations)}
-          note={summary.isError ? 'Not loaded' : 'Awaiting response'}
-        />
+        <KpiFilter on={!filtered} label="Show all users" onClick={() => showOnly('all')}>
+          <SettingsKpi
+            label="Total Users"
+            icon={UsersThree}
+            tone="blue"
+            value={n(s?.total)}
+            change={s?.addedThisMonth}
+            note={summary.isError ? 'Could not load' : 'Active, locked and inactive'}
+          />
+        </KpiFilter>
+        <KpiFilter
+          on={status === 'active' && !search && !role}
+          label="Show active users"
+          onClick={() => showOnly('active')}
+        >
+          <SettingsKpi
+            label="Active Users"
+            icon={User}
+            tone="green"
+            value={n(s?.active)}
+            noteTone="text-success"
+            note={
+              s
+                ? `${s.total ? Math.round((s.active / s.total) * 100) : 0}% active`
+                : summary.isError
+                  ? 'Could not load'
+                  : ' '
+            }
+          />
+        </KpiFilter>
+        <KpiFilter
+          on={status === 'invited' && !search && !role}
+          label="Show pending invitations"
+          onClick={() => showOnly('invited')}
+        >
+          <SettingsKpi
+            label="Pending Invitations"
+            icon={EnvelopeSimple}
+            tone="amber"
+            value={n(s?.pendingInvitations)}
+            note={summary.isError ? 'Could not load' : 'Awaiting response'}
+          />
+        </KpiFilter>
         <SettingsKpi
           label="Roles"
           icon={ShieldCheck}
@@ -314,7 +368,7 @@ export function UsersScreen() {
             s?.customRoles
               ? `${s.customRoles} custom roles`
               : summary.isError
-                ? 'Not loaded'
+                ? 'Could not load'
                 : 'Custom roles'
           }
         />
@@ -398,52 +452,62 @@ export function UsersScreen() {
                   {resend.error ? errorMessage(resend.error, MEMBER_ERRORS) : message}
                 </p>
               ) : null}
-              <Table
-                rows={rows}
-                loading={list.isPending}
-                rowKey={(u) => u.id}
-                caption="Users"
-                noun="users"
-                dense
-                tableClassName="[&_td]:px-1.5 [&_th]:px-1.5 [&_thead_th]:font-bold [&_thead_th]:text-heading"
-                columns={columns}
-                selection={{ selected, onChange: setSelected }}
-                rowActions={(u) => (
-                  <RowMenu vertical label={`Actions for ${u.name}`} items={menu(u)} />
-                )}
-                pageSize={pageSize}
-                pageSizes={PAGE_SIZES}
-                onPageSize={(size) => {
-                  setPageSize(size);
-                  setPage(1);
-                }}
-                server={
-                  list.data && {
-                    page: list.data.page,
-                    total: list.data.total,
-                    hasNext: list.data.page * list.data.pageSize < list.data.total,
-                    hasPrevious: list.data.page > 1,
-                    onNext: () => setPage(list.data.page + 1),
-                    onPrevious: () => setPage(list.data.page - 1),
-                    onPage: setPage,
-                    onSort: () => undefined,
+              {list.isError ? (
+                <div
+                  role="alert"
+                  className="flex flex-col items-center gap-3 rounded-lg border border-divider px-4 py-10 text-center"
+                  data-testid="users-error"
+                >
+                  <p className="font-semibold text-heading">Unable to load employees</p>
+                  <p className="text-sm text-muted">{errorMessage(list.error, MEMBER_ERRORS)}</p>
+                  <Button variant="outline" onClick={() => void list.refetch()}>
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <Table
+                  rows={rows}
+                  loading={list.isPending}
+                  rowKey={(u) => u.id}
+                  caption="Users"
+                  noun="users"
+                  dense
+                  tableClassName="[&_td]:px-1.5 [&_th]:px-1.5 [&_thead_th]:font-bold [&_thead_th]:text-heading"
+                  columns={columns}
+                  selection={{ selected, onChange: setSelected }}
+                  rowActions={(u) => (
+                    <RowMenu vertical label={`Actions for ${u.name}`} items={menu(u)} />
+                  )}
+                  pageSize={pageSize}
+                  pageSizes={PAGE_SIZES}
+                  onPageSize={(size) => {
+                    setPageSize(size);
+                    setPage(1);
+                  }}
+                  server={
+                    list.data && {
+                      page: list.data.page,
+                      total: list.data.total,
+                      hasNext: list.data.page * list.data.pageSize < list.data.total,
+                      hasPrevious: list.data.page > 1,
+                      onNext: () => setPage(list.data.page + 1),
+                      onPrevious: () => setPage(list.data.page - 1),
+                      onPage: setPage,
+                      onSort: () => undefined,
+                    }
                   }
-                }
-                emptyTitle={
-                  list.isError
-                    ? 'Users are not available'
-                    : filtered || company
-                      ? 'No matching users'
-                      : 'No users yet'
-                }
-                emptyText={
-                  list.isError
-                    ? NOT_LOADED
-                    : filtered || company
+                  emptyTitle={
+                    filtered || company
+                      ? 'No employees match your filters'
+                      : 'No employees added yet'
+                  }
+                  emptyText={
+                    filtered || company
                       ? 'Try another search, company, role or status.'
-                      : 'Invite your first user to give them access.'
-                }
-              />
+                      : 'Add employees in Staff Management, then invite them here.'
+                  }
+                />
+              )}
             </div>
           </BandCard>
 

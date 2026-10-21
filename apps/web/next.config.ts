@@ -3,9 +3,8 @@ import type { NextConfig } from 'next';
 
 const repoRoot = path.resolve(process.cwd(), '../..');
 
-// Local development: the browser calls /api/v1 on its own host and Next forwards it to the API,
-// so each app host keeps its own HttpOnly session cookie. In AWS, CloudFront routes /api/* instead.
-const apiBase = process.env['API_BASE_URL'];
+// /api/v1 is forwarded to the API locally by a route handler (src/app/api/v1/[...path]/route.ts),
+// not a rewrite: the rewrite's proxy turned a request the browser aborted into a 500.
 
 const nextConfig: NextConfig = {
   output: 'standalone',
@@ -20,8 +19,6 @@ const nextConfig: NextConfig = {
     // moved ("Page not found" for pages that exist, Oct 6-7). Builds keep their cache.
     turbopackFileSystemCacheForDev: false,
   },
-  rewrites: async () =>
-    apiBase ? [{ source: '/api/v1/:path*', destination: `${apiBase}/api/v1/:path*` }] : [],
 };
 
 export default nextConfig;

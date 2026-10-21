@@ -12,9 +12,12 @@ import {
 } from '@nestjs/common';
 import type { z } from 'zod';
 import {
+  BulkClientsRequest,
+  type BulkClientsResponse,
   ClientId,
   type ClientProfile,
   type ClientRecord,
+  type ClientsSummary,
   CreateClientRequest,
   ListClientsQuery,
   type ListClientsResponse,
@@ -75,6 +78,30 @@ export class ClientsController {
     @Body(new ZodValidationPipe(CreateClientRequest)) body: z.output<typeof CreateClientRequest>,
   ): Promise<ClientRecord> {
     return this.clients.create(tenant.businessId, actorOf(auth, tenant), body);
+  }
+
+  // Static routes before ':id'.
+
+  /** The list's KPI cards and tab counts (Staff: their own clients). */
+  @Get('summary')
+  @Roles(...FIRM_STAFF)
+  summary(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<ClientsSummary> {
+    return this.clients.summary(tenant.businessId, actorOf(auth, tenant));
+  }
+
+  /** Owner and Admin: assign, archive or restore up to 100 clients (each change audited). */
+  @Post('bulk')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  bulk(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(BulkClientsRequest)) body: z.output<typeof BulkClientsRequest>,
+  ): Promise<BulkClientsResponse> {
+    return this.clients.bulk(tenant.businessId, actorOf(auth, tenant), body);
   }
 
   @Get(':id')

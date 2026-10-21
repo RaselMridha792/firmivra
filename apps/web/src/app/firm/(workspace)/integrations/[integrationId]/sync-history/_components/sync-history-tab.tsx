@@ -7,10 +7,17 @@ import type {
 } from '@firmivra/types';
 import { Badge, Button, Card, Drawer, Pagination, Select } from '@firmivra/ui';
 import { useSearchParams } from 'next/navigation';
+import {
+  ArrowsClockwise,
+  CheckCircle,
+  Clock,
+  WarningCircle,
+  type Icon,
+} from '@phosphor-icons/react';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
-import { EmptyLine, formatDate } from '../../_components/manage-integration-shared';
+import { EmptyLine, formatDate, shortTime } from '../../_components/manage-integration-shared';
 import { integrationError, ManageShell, Notice } from '../../_components/manage-shell';
 
 /**
@@ -42,6 +49,25 @@ const STATUS_TONES = {
   FAILED: 'danger',
 } as const;
 type Started = '' | 'true' | 'false';
+
+/** The Overview's Recent Sync Activity marks: a green check, a warning, a clock. */
+const RESULT_MARKS: Record<IntegrationSyncRunStatus, { icon: Icon; tone: string }> = {
+  QUEUED: { icon: Clock, tone: 'text-muted' },
+  RUNNING: { icon: ArrowsClockwise, tone: 'text-info' },
+  SUCCEEDED: { icon: CheckCircle, tone: 'text-success' },
+  PARTIAL: { icon: WarningCircle, tone: 'text-warning' },
+  FAILED: { icon: WarningCircle, tone: 'text-danger' },
+};
+
+function RunResult({ status }: { status: IntegrationSyncRunStatus }) {
+  const { icon: Mark, tone } = RESULT_MARKS[status];
+  return (
+    <span className={`flex items-center gap-2 font-medium whitespace-nowrap ${tone}`}>
+      <Mark aria-hidden weight="fill" className="size-5 shrink-0" />
+      {STATUS_LABELS[status]}
+    </span>
+  );
+}
 
 export function RunStatus({ status }: { status: IntegrationSyncRunStatus }) {
   return (
@@ -180,11 +206,11 @@ function History({
           ) : null}
         </div>
       ) : (
-        <div className="relative w-full max-w-full min-w-0 overflow-x-auto">
+        <div className="relative w-full max-w-full min-w-0 overflow-x-auto rounded-control border border-divider">
           <table className="w-full min-w-[44rem] text-sm">
             <caption className="sr-only">Sync runs</caption>
             <thead>
-              <tr className="border-b border-divider bg-canvas text-left text-xs text-muted">
+              <tr className="bg-table-head text-left text-xs text-heading">
                 {[
                   'Time',
                   'Object',
@@ -195,7 +221,7 @@ function History({
                   'Duration',
                   '',
                 ].map((label) => (
-                  <th key={label || 'actions'} scope="col" className="px-3 py-2 font-medium">
+                  <th key={label || 'actions'} scope="col" className="px-3 py-2 font-semibold">
                     {label || <span className="sr-only">Actions</span>}
                   </th>
                 ))}
@@ -203,16 +229,19 @@ function History({
             </thead>
             <tbody className="divide-y divide-divider">
               {data.items.map((run) => (
-                <tr key={run.id}>
+                // A failed run is the pink row of the Overview's Recent Sync Activity.
+                <tr key={run.id} className={run.status === 'FAILED' ? 'bg-danger-soft' : undefined}>
                   <td className="px-3 py-2 whitespace-nowrap text-heading">
-                    {formatDate(run.createdAt)}
+                    <time dateTime={run.createdAt} title={formatDate(run.createdAt)}>
+                      {shortTime(run.createdAt)}
+                    </time>
                   </td>
                   <td className="px-3 py-2 text-heading">{run.entityLabel}</td>
                   <td className="px-3 py-2 text-text">
                     {run.manual ? (run.requestedBy?.name ?? 'Manual') : 'Scheduled'}
                   </td>
                   <td className="px-3 py-2">
-                    <RunStatus status={run.status} />
+                    <RunResult status={run.status} />
                   </td>
                   <td className="px-3 py-2 text-text">{run.recordCount}</td>
                   <td className={`px-3 py-2 ${run.failedCount ? 'text-danger' : 'text-text'}`}>
@@ -220,7 +249,11 @@ function History({
                   </td>
                   <td className="px-3 py-2 text-text">{duration(run)}</td>
                   <td className="px-3 py-2 text-right">
-                    <Button variant="secondary" onClick={() => setRunId(run.id)}>
+                    <Button
+                      variant="secondary"
+                      className="min-h-9! border-action! px-4! py-1! text-action!"
+                      onClick={() => setRunId(run.id)}
+                    >
                       View<span className="sr-only"> {run.entityLabel} run</span>
                     </Button>
                   </td>

@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
-import { ClientListItem as ListShape, ClientRecord as RecordShape } from '@firmivra/types';
+import { ClientListRow as ListShape, ClientRecord as RecordShape } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -23,6 +23,7 @@ const ListItem = z.strictObject(ListShape.shape);
 const ListResponse = z.strictObject({
   items: z.array(ListItem),
   nextCursor: z.string().nullable(),
+  total: z.number().int(),
 });
 
 const fx = inject('fixtures');

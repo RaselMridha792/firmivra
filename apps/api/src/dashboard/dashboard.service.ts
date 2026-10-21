@@ -1,11 +1,14 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { type Database, Prisma } from '@firmivra/db';
-import type { DashboardSummary } from '@firmivra/types';
+import type { DashboardSummary, DashboardSummaryQuery, TaskPriority } from '@firmivra/types';
+import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { TasksService } from '../workspaces/tasks.service.js';
-import { dueTasks, kpi, revenueOf, type RevenueRow } from './dashboard-math.js';
+import { completedIn, dueTasks, kpi, revenueOf, type RevenueRow } from './dashboard-math.js';
+
+type SummaryQuery = z.output<typeof DashboardSummaryQuery>;
 
 interface Counts {
   today: string;
@@ -18,6 +21,7 @@ interface Counts {
   returns_before: number;
   filed_now: number;
   filed_before: number;
+  filed_year: number;
   intakes_open: number;
   appointments_today: number;
   outstanding: number;
@@ -42,13 +46,17 @@ export class DashboardService {
     private readonly tasks: TasksService,
   ) {}
 
-  async summary(businessId: string, actor: ClientsActor): Promise<DashboardSummary> {
+  async summary(
+    businessId: string,
+    actor: ClientsActor,
+    q: SummaryQuery = { pipelinePeriod: 'THIS_MONTH' },
+  ): Promise<DashboardSummary> {
     const staff = actor.role === 'STAFF' ? actor.userId : null;
     // The clients in reach, on a query that names the client `c`.
     const mine = Prisma.sql`(${staff}::uuid IS NULL OR c.assigned_user_id = ${staff}::uuid)`;
     const ofClient = (alias: string) =>
       Prisma.sql`JOIN clients c ON c.business_id = ${Prisma.raw(alias)}.business_id AND c.id = ${Prisma.raw(alias)}.client_id`;
-    const { counts, revenue } = await this.database.withScope(
+    const { counts, revenue, year, previousYearCents } = await this.database.withScope(
       { kind: 'business', businessId },
       async (tx) => {
         const [counts] = await tx.$queryRaw<Counts[]>`
@@ -56,6 +64,7 @@ export class DashboardService {
           p AS (
             SELECT (now() AT TIME ZONE tz)::date AS today,
               date_trunc('month', now() AT TIME ZONE tz) AT TIME ZONE tz AS month_start,
+              date_trunc('year', now() AT TIME ZONE tz) AT TIME ZONE tz AS year_start,
               (date_trunc('month', now() AT TIME ZONE tz) - interval '1 month') AT TIME ZONE tz AS last_month_start,
               date_trunc('day', now() AT TIME ZONE tz) AT TIME ZONE tz AS day_start,
               (date_trunc('day', now() AT TIME ZONE tz) + interval '1 day') AT TIME ZONE tz AS day_end,
@@ -83,6 +92,8 @@ export class DashboardService {
             (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
               AND t.first_filed_at >= p.last_month_start AND t.first_filed_at < p.month_start
               AND ${mine}) AS filed_before,
+            (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
+              AND t.first_filed_at >= p.year_start AND ${mine}) AS filed_year,
             (SELECT count(*)::int FROM intakes i
               JOIN engagements e ON e.business_id = i.business_id AND e.id = i.engagement_id
               ${ofClient('e')} WHERE i.business_id = ${businessId}::uuid
@@ -95,10 +106,19 @@ export class DashboardService {
               FROM invoices i ${ofClient('i')} WHERE i.business_id = ${businessId}::uuid
               AND i.status = 'OPEN' AND ${mine}) AS outstanding
           FROM p`;
+        if (!counts) throw new Error('dashboard counts returned no row');
+        const thisYear = Number(counts.today.slice(0, 4));
+        const year = q.revenueYear ?? thisYear;
+        if (year > thisYear) {
+          throw new BadRequestException({
+            code: 'VALIDATION_FAILED',
+            message: 'The revenue year cannot be in the future',
+            details: [{ path: 'revenueYear', message: 'Choose this year or an earlier one' }],
+          });
+        }
         // Money received, on the firm's calendar: Stripe payments when paid, less refunds when
         // confirmed, plus check and cash on the day received (a voided one never counts).
-        const revenue = await tx.$queryRaw<RevenueRow[]>`
-          WITH s AS (${zone(businessId)}),
+        const money = Prisma.sql`
           money AS (
             SELECT pm.invoice_id, (pm.paid_at AT TIME ZONE s.tz)::date AS day, pm.amount_cents AS cents
               FROM payments pm, s WHERE pm.business_id = ${businessId}::uuid
@@ -111,7 +131,10 @@ export class DashboardService {
               AND r.refunded_at IS NOT NULL
             UNION ALL
             SELECT o.invoice_id, o.received_on, o.amount_cents FROM offline_payments o
-              WHERE o.business_id = ${businessId}::uuid AND o.voided_at IS NULL)
+              WHERE o.business_id = ${businessId}::uuid AND o.voided_at IS NULL)`;
+        const revenue = await tx.$queryRaw<RevenueRow[]>`
+          WITH s AS (${zone(businessId)}),
+          ${money}
           SELECT extract(month FROM m.day)::int AS month, sv.id AS "serviceId", sv.name,
             sum(m.cents)::float8 AS cents
           FROM money m
@@ -119,14 +142,37 @@ export class DashboardService {
           ${ofClient('i')}
           LEFT JOIN engagements e ON e.business_id = i.business_id AND e.id = i.engagement_id
           LEFT JOIN services sv ON sv.business_id = e.business_id AND sv.id = e.service_id
-          WHERE extract(year FROM m.day) = (SELECT extract(year FROM now() AT TIME ZONE tz) FROM s)
+          WHERE extract(year FROM m.day) = ${year}
             AND ${mine}
           GROUP BY 1, 2, 3`;
-        if (!counts) throw new Error('dashboard counts returned no row');
-        return { counts, revenue };
+        // The year before over the same span: to today's month and day for this year, the whole
+        // year for a past one. Null when no money was received in it at all.
+        const span =
+          year < thisYear
+            ? Prisma.sql`TRUE`
+            : Prisma.sql`to_char(m.day, 'MM-DD') <= ${counts.today.slice(5)}`;
+        const [before] = await tx.$queryRaw<{ cents: number | null }[]>`
+          WITH s AS (${zone(businessId)}),
+          ${money}
+          SELECT sum(m.cents)::float8 AS cents
+          FROM money m
+          JOIN invoices i ON i.business_id = ${businessId}::uuid AND i.id = m.invoice_id
+          ${ofClient('i')}
+          WHERE extract(year FROM m.day) = ${year - 1}
+            AND ${span}
+            AND ${mine}`;
+        return { counts, revenue, year, previousYearCents: before?.cents ?? null };
       },
     );
     const open = await this.tasks.list(businessId, actor, { status: 'OPEN', limit: 5 });
+    const priorities = new Map(
+      (
+        await this.database.forBusiness(businessId).task.findMany({
+          where: { businessId, id: { in: open.items.map((t) => t.id) } },
+          select: { id: true, priority: true },
+        })
+      ).map((t): [string, TaskPriority] => [t.id, t.priority]),
+    );
     await this.audit.log('dashboard.viewed', { type: 'dashboard' });
     const c = counts;
     return {
@@ -144,10 +190,17 @@ export class DashboardService {
         consultation: null,
         intake: c.intakes_open,
         inProgress: c.returns_now,
-        completed: c.filed_now,
+        completed: completedIn(q.pipelinePeriod, {
+          thisMonth: c.filed_now,
+          lastMonth: c.filed_before,
+          thisYear: c.filed_year,
+        }),
+        period: q.pipelinePeriod,
       },
-      revenue: revenueOf(revenue, Number(c.today.slice(0, 4))),
-      tasksDue: dueTasks(open.items),
+      revenue: revenueOf(revenue, year, previousYearCents),
+      tasksDue: dueTasks(open.items, priorities),
+      // The firm's settings hold no tax season yet (R0 adds the columns); then it is filled here.
+      taxSeason: null,
     };
   }
 }

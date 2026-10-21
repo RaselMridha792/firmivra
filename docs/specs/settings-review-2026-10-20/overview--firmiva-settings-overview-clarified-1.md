@@ -1,0 +1,66 @@
+FIRMIVA SETTINGS
+# Settings → Overview Tab
+Firm Workspace | October 18, 2026 | Section 1 of the continuing Firmiva Settings developer guide
+Scope: Firm Workspace only—not Firmiva Super Admin. Mockup office names, addresses, staff counts and plan figures are examples. Developer must use live company-scoped data.
+# Red-numbered mockup — Part A (items 1–9)
+Each red number is beside the interface element, with an arrow pointing to it. Detailed instructions are in the numbered table below.
+# Red-numbered mockup — Part B (items 10–17)
+Both annotated views use the same approved redesign. The red number identifies a table row—not a clickable prototype.
+# Numbered correction and update table
+Legend: Red = Correction; Blue = Addition; Gray = Keep as is. “✓” confirms ONLY that navigation reaches the intended page, as reported during review. Destination page functionality remains pending review.
+# | Type | Current section / label | Requested section / label | Exact instructions / behavior | Destination / status
+1 | Correction | No Locations tab | Add Locations below Overview | Add Locations immediately below Overview; open the single company-specific Locations module. This tab does not exist in developer screenshot. | Settings → LocationsPAGE: Pending review
+2 | Correction | Profile | Company Profile (rename only) | Rename existing Profile to Company Profile; preserve existing company-profile page and data. Do not create a duplicate page. | Settings → Company ProfilePAGE: Pending review
+3 | Correction | Active Companies | Active Locations | Display count of active offices for this company; click card/link to open Locations. Update count after location activation or deactivation. | Settings → LocationsPAGE: Pending review
+4 | Correction | Staff Users — Across all companies | Staff Users — Across all locations | Change Across all companies to Across all locations. Count distinct staff once, even if assigned to several offices. Card must open Users & Roles and the shared Staff Management module. | Settings → Users & roles → Staff ManagementPAGE: Pending review
+5 | Correction | Pending Applications | Subscription & Locations | Show subscription allocation and actual used locations; Manage Plan opens billing where authorized admins can upgrade/downgrade. Handle downgrade exceeding current location usage. | Settings → BillingPAGE: Pending review
+6 | Correction | Security Alerts / View Alerts | Keep card; fix route + Settings badge | Keep card. View Alerts opens Security & access filtered to unresolved security alerts; do not route it to general Notifications. Counts must update. | Settings → Security & accessPAGE: Pending review
+7 | Correction | Search clients... | Search clients, locations, or team members... | Replace Search clients... with Search clients, locations, or team members... Search these entities across authorized scope and open corresponding records. | Global results → selected recordPAGE: Pending review
+8 | Correction | ? button launches support email | Shared Help & Support panel | Keep question-mark icon; replace direct email launch with shared Help & Support slide-out: Help Center, Contact Support (preserve current email), Report a Problem. | Shared Help & Support slide-outPAGE: Pending review
+9 | Correction | Account menu: Admin / Sign Out | Add My Profile, My Settings, Help & Support; preserve admin/sign out | For all users display My Profile, My Settings, Help & Support, Sign Out; Admin Panel only if authorized. Route to logged-in user, not company profile. Role-based edit restrictions apply. | Personal Profile / Preferences / HelpPAGE: Pending review
+10 | Correction | Company Applications table | Location Management table | Replace approvals table with location name, address, assigned staff, location manager, status and actions. Keep existing visual table layout; display only company locations. | Settings → LocationsPAGE: Pending review
+11 | Addition | No Add Location on original page | View All Locations / + Add Location | View All Locations opens Locations list. + Add Location opens creation form within same module, subject to subscription limit and admin authorization. | Settings → Locations (list or new form)PAGE: Pending review
+12 | Addition | No location action controls on original | View, Edit and three-dot actions | View opens selected location profile; Edit opens same record in edit mode; three-dot menu offers Manage Staff, Assign/Change Manager, Set Primary, Activate/Deactivate, View History. Staff count can open location-filtered staff list. | Settings → Locations → selected locationPAGE: Pending review
+13 | Correction | Quick Settings: Company Management | Location Management → Manage Locations | Rename to Location Management, change link to Manage Locations, and route to same Locations module; preserve remaining five cards. | Settings → LocationsPAGE: Pending review
+14 | Keep as is | Branding & White Label | No navigation update | ✓ Correct destination confirmed by user; no navigation change. User confirmed navigation destination is correct. No navigation change required; destination page features are not approved or tested. | Settings → BrandingPAGE: Pending review
+15 | Keep as is | Billing & Subscriptions | No navigation update | ✓ Correct destination confirmed by user; no navigation change. User confirmed navigation destination is correct. No navigation change required; destination page features are not approved or tested. | Settings → BillingPAGE: Pending review
+16 | Keep as is | Users & Permissions / Security & Compliance / System & Data | No navigation update | ✓ Correct destination confirmed by user; no navigation change. User confirmed existing quick links correctly open Users & roles, Security & access, and Data & backups, respectively. Do not duplicate modules. | Settings → respective existing sectionsPAGE: Pending review
+17 | Correction | Recent Administrative Activity | Keep design; filter to this company | Keep visual layout and View All Activity; show only events for this company and its locations, including actor/time and changes. | Company-specific activity historyPAGE: Pending review
+# Workspace-wide requirements and confirmations
+Ref | Classification / area | Developer requirement
+18 | Correction — Collapsible main sidebar | Workspace-wide toggle: expanded by default on first visit; icons-only collapsed state, hover labels, user preference retained; responsive slide-out on mobile.
+19 | Correction — Security badge on Settings | Unresolved security alerts create badge at main Settings nav; clicking badge opens Security & access alert details, not Messages. Remove badge when clear.
+20 | Correction — Profile permissions | All users get My Profile and My Settings. Staff self-edit photo, phone, password and preferences; name/work email/role/location controlled by authorized management. Location managers can edit assigned staff (not their own restricted fields); audit changes.
+21 | Keep as is — New (+) menu | Preserve currently functioning New Client, Appointment, Invoice, and Message menu; no changes requested.
+22 | Clarification — Access control review | Company-level Settings visibility and fine-grained role permissions to be reviewed later under Staff Management; do not infer blanket access approvals.
+# Quick Settings navigation confirmation
+Quick Settings card | Type / link check | Destination | Destination-page review
+Location Management | Correction — new route | Settings → Locations | PENDING REVIEW — functionality not approved
+Branding & White Label | ✓ Links correctly | Settings → Branding | PENDING REVIEW — functionality not approved
+Users & Permissions | ✓ Links correctly | Settings → Users & roles / Staff Management | PENDING REVIEW — functionality not approved
+Billing & Subscriptions | ✓ Links correctly | Settings → Billing | PENDING REVIEW — functionality not approved
+Security & Compliance | ✓ Links correctly | Settings → Security & access | PENDING REVIEW — functionality not approved
+System & Data | ✓ Links correctly | Settings → Data & backups | PENDING REVIEW — functionality not approved
+The Help & Support (?) button is a CORRECTION: keep the existing email function under Contact Support, add Help Center and Report a Problem, and reuse the same slide-out panel from the user menu. The user/account menu is available to all users, with role-specific permissions. Profile permissions, security-alert routing and collapsible sidebar are implementation requirements, not approvals of destination pages.
+# Developer acceptance checklist
+Match every red numeric arrow to the corresponding numbered table row.
+Keep original Settings Menu order; add Locations below Overview; rename Profile to Company Profile only.
+Reuse existing shared modules—do not create duplicate Staff, Locations, Billing, Security or Help systems.
+Location managers edit assigned employees but cannot change their own restricted fields or elevate privileges.
+Security badge and View Alerts route to Security & access, not Messages or general Notifications.
+Leave all destination pages marked Pending Review until inspected separately.
+# Overview — Additional Developer Clarifications
+The following clarifications supplement the existing Overview corrections (1–22). They do not replace approved screenshots, change previously confirmed links, or approve destination-page functionality.
+# | Classification | Area | Exact developer requirement
+23 | Correction / Navigation | Manage Users / Staff Users | Staff Users summary opens Settings → Users & Roles; that area shares the underlying staff records with main-sidebar Staff Management. Staff Management remains the place to manage employee records; Users & Roles governs access and permissions. Do not create duplicate staff accounts or separate databases.
+24 | Correction / Consistency | Overview location three-dot actions | Use the same location actions and destinations as Settings → Locations: View Profile (modal over Locations), Edit Location, Manage Staff (existing Staff Management filtered to location), Set as Primary (authorized confirmation), and Activate/Deactivate. Do not offer permanent Delete. Maintain consistent labels and role checks.
+25 | Clarification / Subscription | Manage Plan / downgrade limits | Manage Plan opens Settings → Billing. Before confirming a downgrade, compare permitted locations with existing usage; do not silently remove or deactivate locations. If usage exceeds the proposed limit, show a clear warning and require an authorized resolution before completing the downgrade.
+26 | Clarification / Scheduling | Deactivate location or manager | Where the relevant Locations or Staff Management flow supports scheduling, offer immediate or future-effective date/time with timezone, explicit confirmation, visible pending status, and an audit trail. Preserve records and do not automatically deactivate staff accounts when a location is deactivated. Detailed controls belong to the Locations/Staff Management sections, not a duplicate Overview dialog.
+27 | Clarification / Pending actions | Edit or cancel scheduled changes | Authorized users should be able to inspect, cancel or reschedule pending future-effective actions before execution. Record original and revised effective times, the actor and the outcome; avoid duplicate execution.
+28 | Clarification / Manager coverage | Multiple manager assignments | The firm can have one company administrator and separate location managers. A manager may be associated with multiple authorized locations if the role model permits; show the assignments accurately and enforce location-scoped permissions. Do not interpret Primary Location as the company administrator.
+29 | Clarification / Continuity | Manager replacement on deactivation | Before a location manager loses access, prompt an authorized admin to select or schedule a replacement; flag locations without a manager. Do not automatically choose a replacement without explicit approval. Reassignment and account deactivation are distinct actions.
+30 | Clarification / Data integrity | Duplicate location prevention | When adding a location, check for likely duplicate records within the same firm (for example, matching name/address); warn and offer review rather than silently creating duplicates. Do not merge or overwrite existing records without explicit authorization.
+31 | Keep as is / Scope | Quick Settings link verification | A checkmark means the card navigates to the intended destination only. Branding, Users & Permissions, Billing, Security, and System & Data destination pages remain Pending Review; no functional approval is implied.
+Implementation note: Items 26–30 expand cross-module behavior. Apply them in the relevant Locations, Billing and Staff Management workflows, while keeping Overview as a navigation and summary page. Verify any unreviewed destination functionality before marking it approved.
+# Upcoming Settings Pages
+Additional Settings pages will be appended here after each is reviewed and approved. Destination-page functionality remains pending review unless separately confirmed.

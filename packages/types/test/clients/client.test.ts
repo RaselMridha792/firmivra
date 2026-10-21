@@ -66,7 +66,7 @@ const clients = (fn: typeof fetch) =>
 
 describe('api.clients', () => {
   it('lists with the query in the URL and the defaults filled in', async () => {
-    const { fn, calls } = fakeFetch(200, { items: [], nextCursor: null });
+    const { fn, calls } = fakeFetch(200, { items: [], nextCursor: null, total: 0 });
     await clients(fn).list({ search: ' Sample ', limit: 10 });
     expect(calls[0]).toMatchObject({
       url: '/api/v1/business/clients?search=Sample&status=active&limit=10',
