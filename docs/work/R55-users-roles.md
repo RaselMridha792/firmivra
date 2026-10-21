@@ -20,6 +20,8 @@ Guide: `docs/specs/settings-review-2026-10-20/users-and-roles--firmivra-users-an
 
 ## Needs from others
 
+- **R2 (auth):** Reset Password from Users & Roles calls the identity service's `forgotPassword`, which swallows a failed Cognito send (right for the public Forgot Password page, which must not reveal accounts). For the admin action the guide asks the screen never to claim an email that failed; it needs an admin reset call that reports the failure. Locally (`AUTH_MODE=local`) no reset email is sent at all; in AWS Cognito sends it.
+
 - **R42 (contract owner):** drop `InviteUserRequest` / `api.users.invite` (name and email) from `packages/types/src/settings/users.ts`, or keep it for a later "add and invite in one step"; the screen no longer calls it.
 
 - **R0 (schema):** the guide's ninth role, **Business Consultant** (`MembershipRole` has eight), and a `custom_roles` table (name, description, template, permissions) for item 5.
