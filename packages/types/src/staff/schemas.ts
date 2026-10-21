@@ -248,12 +248,6 @@ export const StaffAccountInput = z.strictObject({
   departmentIds: Ids.min(1, 'Choose at least one department'),
   jobTitle: text(100),
   role: MembershipRole,
-  /**
-   * A firm's own role (Create Custom Role). `role` is then the role it is based on (400
-   * CUSTOM_ROLE_MISMATCH otherwise); an archived one is 409 CUSTOM_ROLE_ARCHIVED. Null, or a new
-   * `role` alone, takes it away.
-   */
-  customRoleId: z.uuid().nullable().optional(),
   serviceAreas: z.array(z.string().max(40)).max(20).optional(),
   accessLevel: StaffAccessLevel.optional(),
   accessStartsOn: CalendarDate.nullable().optional(),
