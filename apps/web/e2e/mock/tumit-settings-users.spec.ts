@@ -26,6 +26,17 @@ test('lists, filters and invites users', async ({ page }) => {
   await expect(table).not.toContainText('Hana Kim');
   await table.getByLabel('Status').selectOption('all');
 
+  // The counters filter the table: Pending Invitations, then back to everyone.
+  await page.getByRole('button', { name: 'Show pending invitations' }).click();
+  await expect(table.getByLabel('Status')).toHaveValue('invited');
+  await expect(table).not.toContainText('Hana Kim');
+  await page.getByRole('button', { name: 'Show all users' }).click();
+  await expect(table.getByLabel('Status')).toHaveValue('all');
+  await expect(table).toContainText('Hana Kim');
+  await table.getByLabel('Search users').fill('no such person');
+  await expect(table).toContainText('No employees match your filters');
+  await table.getByLabel('Search users').fill('');
+
   await page.getByRole('button', { name: 'Invite User' }).first().click();
   const invite = page.getByRole('dialog', { name: 'Invite User' });
   await invite.getByRole('button', { name: 'Send Invitation' }).click();
