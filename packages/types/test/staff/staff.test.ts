@@ -6,6 +6,7 @@ import {
   createRequest,
   createRolesClient,
   createStaffClient,
+  SetStaffOverridesRequest,
   SetStaffTeamMembersRequest,
   StaffAccessInput,
   StaffDraftData,
@@ -185,6 +186,34 @@ describe('api.staff', () => {
     const { fn, calls } = fakeFetch(200, { role: 'STAFF', cells: [], updatedAt: null });
     await staff(fn).copyPermissions(id, other);
     expect(calls[0]?.url).toBe(`/api/v1/business/staff/${id}/permissions/copy-from/${other}`);
+  });
+
+  it('sets individual permissions: Inherit, Allow or Deny per cell, each cell once', async () => {
+    const { fn, calls } = fakeFetch(200, { role: 'STAFF', cells: [], updatedAt: null });
+    await staff(fn).setOverrides(id, {
+      overrides: [
+        { module: 'REPORTS', capability: 'EXPORT', mode: 'ALLOW' },
+        { module: 'CLIENTS', capability: 'DELETE', mode: 'INHERIT' },
+      ],
+    });
+    expect(calls[0]?.url).toBe(`/api/v1/business/staff/${id}/permissions`);
+    expect(calls[0]?.init.method).toBe('PATCH');
+    expect(bodyOf(calls[0]?.init)).toEqual({
+      overrides: [
+        { module: 'REPORTS', capability: 'EXPORT', mode: 'ALLOW' },
+        { module: 'CLIENTS', capability: 'DELETE', mode: 'INHERIT' },
+      ],
+    });
+    const twice = { module: 'REPORTS', capability: 'EXPORT', mode: 'DENY' } as const;
+    expect(SetStaffOverridesRequest.safeParse({ overrides: [twice, twice] }).success).toBe(false);
+    expect(SetStaffOverridesRequest.safeParse({ overrides: [] }).success).toBe(false);
+    expect(
+      SetStaffOverridesRequest.safeParse({ overrides: [{ ...twice, mode: 'MAYBE' }] }).success,
+    ).toBe(false);
+    await expect(staff(fn).setOverrides(id, { overrides: [] })).rejects.toBeInstanceOf(
+      ApiRequestError,
+    );
+    expect(calls).toHaveLength(1);
   });
 
   it('parses a member', async () => {

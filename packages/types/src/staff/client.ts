@@ -37,6 +37,7 @@ import {
   LockStaffRequest,
   SaveStaffDraftRequest,
   SetStaffNoteRequest,
+  SetStaffOverridesRequest,
   SetStaffPermissionsRequest,
   StaffAccessInput,
   StaffActionResult,
@@ -184,6 +185,15 @@ export function createStaffClient(request: ApiRequest, baseUrl = '') {
         `${one(id)}/permissions`,
         put(parseInput(SetStaffPermissionsRequest, body)),
       ),
+    /**
+     * Individual permissions: Inherit, Allow or Deny for the cells sent (the rest unchanged).
+     * 400 PERMISSION_NEEDS_VIEW; 409 PERMISSION_ESCALATION (resend with acknowledgeEscalation).
+     */
+    setOverrides: async (id: string, body: SetStaffOverridesRequest): Promise<StaffPermissions> =>
+      request(StaffPermissions, `${one(id)}/permissions`, {
+        method: 'PATCH',
+        body: parseInput(SetStaffOverridesRequest, body),
+      }),
     /** "Copy Permissions from Another Staff Member": copies `fromId`'s grid onto `id`. */
     copyPermissions: async (id: string, fromId: string): Promise<StaffPermissions> =>
       request(

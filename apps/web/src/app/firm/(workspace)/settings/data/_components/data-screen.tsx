@@ -10,6 +10,7 @@ import {
   Scales,
   ShieldCheck,
 } from '@phosphor-icons/react';
+import { COMPANY } from '../../../../../../lib/company';
 import {
   CardLink,
   Facts,
@@ -18,12 +19,17 @@ import {
   SettingsHeader,
 } from '../../_components/settings-parts';
 
+/** A Backups row with nothing recorded behind it: quiet, never a made-up date. */
+const NOT_RECORDED = <span className="font-normal text-muted">Not recorded yet</span>;
+
 /**
- * Settings > Data & Backups (guide §11-12: backup status, retention, export, restore and
- * lifecycle). Backups and restores are run by the Firmivra platform (docs/SYSTEM-DESIGN.md:
- * encrypted backups, 35-day point-in-time recovery, a quarterly restore test). Export and restore
- * are high-risk and have no API yet (Settings contract), so they are not offered as buttons: the
- * cards say how they work today. The audit log is linked.
+ * Settings > Data & Backups (guide §11-12; Octavia's review of Oct 19,
+ * docs/specs/settings-review-2026-10-20/data-and-backups--...). Backups and restores are run by the
+ * Firmivra platform (RDS automated backups and versioned document storage, infra/), for every firm.
+ * Nothing in Firmivra records a backup or a restore test yet, so the two "last successful" rows say
+ * so instead of showing a date. A full company export and a self-service restore have no API and no
+ * job behind them yet, so neither is offered as a button: the cards say what happens today. The
+ * audit log is linked (approved).
  */
 export function DataScreen() {
   return (
@@ -50,14 +56,16 @@ export function DataScreen() {
             rows={[
               ['Backups', 'Continuous, encrypted'],
               ['Recovery window', 'Any point in the last 35 days'],
-              ['Restore test', 'Every quarter'],
+              ['Restore test', 'Every month'],
+              ['Last successful backup', NOT_RECORDED],
+              ['Last successful restore test', NOT_RECORDED],
             ]}
           />
         </SettingsCard>
 
         <SettingsCard
           title="Retention"
-          subtitle="How long records are kept, even after an account closes."
+          subtitle="How long records are kept while your firm uses Firmivra."
           icon={Scales}
           testId="data-retention"
         >
@@ -65,10 +73,17 @@ export function DataScreen() {
             rows={[
               ['Tax records', '7 years'],
               ['Payroll records', 'At least 4 years'],
-              ['Business formation records', 'Kept permanently'],
+              ['Business formation records', 'Kept while your firm is active'],
               ['Audit log', 'Kept; never changed or removed'],
             ]}
           />
+          <p className="text-sm text-text">
+            While your firm is active, records stay until your firm deletes them. Each document
+            category sets how long its documents are kept before they can be deleted, and a document
+            on legal hold can&apos;t be deleted. These periods are guidance, not legal minimums for
+            every firm: your firm keeps any records it must hold beyond its Firmivra access. Backups
+            only bring data back; they don&apos;t keep it longer.
+          </p>
           <CardLink href="/settings/forms-documents">Document categories</CardLink>
         </SettingsCard>
 
@@ -79,8 +94,8 @@ export function DataScreen() {
           testId="data-export"
         >
           <Quiet>
-            Exporting all of your firm&apos;s records is a restricted action that is recorded in the
-            audit log. It is not offered on this page yet; contact Firmivra Support.
+            A full export of your firm&apos;s records and uploaded files can&apos;t be made in
+            Firmivra yet. Documents download from Documents, and each report exports from Reports.
           </Quiet>
         </SettingsCard>
 
@@ -92,8 +107,12 @@ export function DataScreen() {
           testId="data-restore"
         >
           <Quiet>
-            Restoring from a backup is a high-risk action for the Firmivra platform team, recorded
-            in the audit log. Contact Firmivra Support if you need data brought back.
+            Restoring is done by the Firmivra platform team, not on this page. To ask for data back
+            from a recovery point, email Firmivra Support at{' '}
+            <a href={`mailto:${COMPANY.supportEmail}`} className="font-medium text-link underline">
+              {COMPANY.supportEmail}
+            </a>{' '}
+            with what needs to come back and from when.
           </Quiet>
         </SettingsCard>
 
