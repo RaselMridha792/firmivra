@@ -69,6 +69,7 @@ describe('seed', () => {
       'custom_role_permissions',
       'document_links',
       'document_link_codes',
+      'firm_office_members',
     ];
     const empty: string[] = [];
     for (const t of tables) {
