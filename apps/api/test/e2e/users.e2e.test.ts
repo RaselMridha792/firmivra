@@ -199,6 +199,25 @@ describe('Users & Roles', () => {
     expect(row.metadata).toEqual({ count: 1, filters: ['status'] });
   });
 
+  it('keeps a selection by ids, in the list and in the export (audited)', async () => {
+    const ids = [member.staffA, member.lockedA].join(',');
+    const list = FirmUserList.parse(ok(await get(`/users?ids=${ids}`, ownerA)));
+    expect(list.items.map((u) => u.id).sort()).toEqual([member.staffA, member.lockedA].sort());
+    // Another firm's member is never found by id.
+    const other = FirmUserList.parse(ok(await get(`/users?ids=${member.ownerB}`, ownerA)));
+    expect(other.items).toEqual([]);
+    const csv = await get(`/users/export?ids=${ids}`, ownerA);
+    expect(csv.text.trim().split(String.fromCharCode(13, 10))).toHaveLength(3);
+    const row = await inFirm('a', (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { businessId: firms.a, action: 'users.exported' },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+    expect(row.metadata).toEqual({ count: 2, filters: ['ids'] });
+    expect((await get('/users?ids=nope', ownerA)).status).toBe(400);
+  });
+
   it('is for Owner and Admin, in their own firm only', async () => {
     for (const who of [staffA, managerA]) expect((await get('/users', who)).status).toBe(403);
     expect(codeOf(await get('/users/summary', staffA))).toBe('FORBIDDEN');

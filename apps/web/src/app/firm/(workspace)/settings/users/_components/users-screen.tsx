@@ -9,6 +9,7 @@ import {
 } from '@firmivra/types';
 import {
   Avatar,
+  BulkBar,
   Button,
   Modal,
   SearchField,
@@ -44,6 +45,7 @@ import { RowMenu, type RowMenuItem } from '../../../team/_components/row-menu';
 import { ActionModal, type StaffAction } from '../../../team/[id]/_components/staff-actions';
 import { MEMBER_ERRORS } from '../../../team/[id]/_components/staff-parts';
 import { BandCard, SettingsHeader, SettingsKpi } from '../../_components/settings-parts';
+import { type BulkAction, BulkDialog } from './bulk-dialog';
 import { AccessModal } from './access-modal';
 import { ChangeRoleModal } from './change-role-modal';
 import { InviteUserModal } from './invite-user-modal';
@@ -152,6 +154,8 @@ export function UsersScreen() {
   const [company, setCompany] = useState('');
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0] ?? 10);
   const [selected, setSelected] = useState<string[]>([]);
+  const [chosen, setChosen] = useState<Map<string, FirmUser>>(() => new Map());
+  const [bulk, setBulk] = useState<BulkAction | null>(null);
   const [role, setRole] = useState<MembershipRole | ''>('');
   const [status, setStatus] = useState<StaffStatusFilter>('all');
   const [page, setPage] = useState(1);
@@ -179,13 +183,27 @@ export function UsersScreen() {
   const n = (v: number | undefined) =>
     summary.isPending ? <Skeleton className="h-8 w-12" /> : (v ?? '—');
   const filtered = Boolean(search.trim() || role || status !== 'all');
+  function clearSelection() {
+    setSelected([]);
+    setChosen(new Map());
+  }
+  /** Rows picked on this page join the ones picked on other pages of the same filters. */
+  const pick = (keys: string[]) => {
+    const next = new Map<string, FirmUser>();
+    for (const k of keys) {
+      const u = chosen.get(k) ?? (list.data?.items ?? []).find((r) => r.id === k);
+      if (u) next.set(k, u);
+    }
+    setSelected([...next.keys()]);
+    setChosen(next);
+  };
   /** A counter's click: that status alone, with the search and role cleared. */
   const showOnly = (next: StaffStatusFilter) => {
     setSearch('');
     setRole('');
     setStatus(next);
     setPage(1);
-    setSelected([]);
+    clearSelection();
   };
 
   const menu = (u: FirmUser): RowMenuItem[] => {
@@ -418,6 +436,7 @@ export function UsersScreen() {
                     onChange={(event) => {
                       setSearch(event.target.value);
                       setPage(1);
+                      clearSelection();
                     }}
                   />
                 </div>
@@ -430,7 +449,10 @@ export function UsersScreen() {
                       { value: firm.name, label: firm.name },
                     ]}
                     value={company}
-                    onChange={(event) => setCompany(event.target.value)}
+                    onChange={(event) => {
+                      setCompany(event.target.value);
+                      clearSelection();
+                    }}
                   />
                 </div>
                 <div className="w-36">
@@ -445,6 +467,7 @@ export function UsersScreen() {
                     onChange={(event) => {
                       setRole(event.target.value as MembershipRole | '');
                       setPage(1);
+                      clearSelection();
                     }}
                   />
                 </div>
@@ -463,6 +486,7 @@ export function UsersScreen() {
                     onChange={(event) => {
                       setStatus(event.target.value as StaffStatusFilter);
                       setPage(1);
+                      clearSelection();
                     }}
                   />
                 </div>
@@ -482,6 +506,38 @@ export function UsersScreen() {
                 >
                   {resend.error ? errorMessage(resend.error, MEMBER_ERRORS) : message}
                 </p>
+              ) : null}
+              {selected.length && manages ? (
+                <BulkBar
+                  count={selected.length}
+                  noun={selected.length === 1 ? 'user' : 'users'}
+                  actions={[
+                    {
+                      label: 'Export Selected',
+                      icon: DownloadSimple,
+                      onClick: () => window.location.assign(api.users.exportUrl({ ids: selected })),
+                    },
+                    {
+                      label: 'Resend Invitations',
+                      icon: EnvelopeSimple,
+                      onClick: () => setBulk('resend'),
+                    },
+                    {
+                      label: 'Deactivate Selected',
+                      icon: LockSimple,
+                      danger: true,
+                      onClick: () => setBulk('deactivate'),
+                    },
+                  ]}
+                >
+                  <button
+                    type="button"
+                    className="text-sm text-link hover:underline"
+                    onClick={clearSelection}
+                  >
+                    Clear selection
+                  </button>
+                </BulkBar>
               ) : null}
               {list.isError ? (
                 <div
@@ -505,7 +561,7 @@ export function UsersScreen() {
                   dense
                   tableClassName="[&_td]:px-1.5 [&_th]:px-1.5 [&_thead_th]:font-bold [&_thead_th]:text-heading"
                   columns={columns}
-                  selection={{ selected, onChange: setSelected }}
+                  selection={{ selected, onChange: pick }}
                   rowActions={(u) => (
                     <RowMenu vertical label={`Actions for ${u.name}`} items={menu(u)} />
                   )}
@@ -601,6 +657,18 @@ export function UsersScreen() {
             setDialog(null);
             setMessage(text);
             void queryClient.invalidateQueries({ queryKey: ['users'] });
+          }}
+        />
+      ) : null}
+      {bulk ? (
+        <BulkDialog
+          action={bulk}
+          users={[...chosen.values()]}
+          me={me}
+          onClose={() => setBulk(null)}
+          onFinished={() => {
+            setBulk(null);
+            clearSelection();
           }}
         />
       ) : null}

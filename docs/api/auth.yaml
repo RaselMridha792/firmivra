@@ -93,9 +93,15 @@ info:
     `activate` answer `429 RATE_LIMITED` when called too often. Limits count per viewer IP (the
     address CloudFront saw, not the load balancer's), in each API task's memory, and per email, in
     the database, shared by every API task:
-    - 10 failed sign-ins for one email in 15 minutes (wrong passwords and wrong MFA codes alike):
-      then every sign-in for it answers `429 RATE_LIMITED` until the window passes, the same for
-      an email with no account;
+    - account lockout: 5 failed sign-ins for one email (per firm on a portal) in 15 minutes, wrong
+      passwords and wrong MFA codes alike and from any network, lock it for 15 minutes from the
+      5th. Until then every `sign-in` and `mfa` for it answers `429 RATE_LIMITED` with
+      `error.details.retryAt` (when it may try again) and a `Retry-After` header (the seconds
+      until then), the same for an email with no account. A successful `reset-password` for the
+      email lifts the lock;
+    - 10 failed sign-ins for one email from one network (/24 or /48) in 15 minutes: `429
+      RATE_LIMITED` from that network, without `retryAt` (under the account lockout it is not
+      reached; past 50 from every network each attempt is slowed);
     - 5 wrong MFA codes in one sign-in: then `401 CHALLENGE_EXPIRED`, sign in again (those codes
       still count for the email, so starting again gives no fresh tries).
 
@@ -106,7 +112,8 @@ info:
     counted. Show "Too many attempts. Wait a few minutes and try again."
     Every attempt let past the limits is audited with its end (`auth.sign_in_attempt`, then
     `auth.sign_in_passed`, `auth.sign_in_released` or `auth.sign_in_failed`, and `auth.signed_in`;
-    password resets the same with `auth.password_reset_*`); a 429 writes no row. The email is
+    password resets the same with `auth.password_reset_*`); a 429 writes no row. The failure that
+    locks an account also writes `auth.locked` with `lockedUntil`. The email is
     stored only as a keyed hash. Cognito
     threat protection gets the viewer's IP and browser (User-Agent, Accept-Language), never
     cookies or tokens.
@@ -414,7 +421,8 @@ components:
         tags: [sign-in]
         summary: Set a new password with the emailed code
         description: |
-          Ends every session of the person. They sign in again with the new password. Real and
+          Ends every session of the person, and lifts a sign-in lockout of the email (see "Rate
+          limits"). They sign in again with the new password. Real and
           unknown emails get the same answers: any failure is `RESET_CODE_INVALID`, and after 5
           failures for an email within 15 minutes every attempt for it answers `429 RATE_LIMITED`
           until the window passes.
@@ -488,7 +496,9 @@ components:
       description: '`INVITE_EXPIRED`: the link is older than 7 days. Ask for a new invite.'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     RateLimited:
-      description: '`RATE_LIMITED`: too many attempts. Wait and try again.'
+      description: |
+        `RATE_LIMITED`: too many attempts. Wait and try again. On `sign-in` and `mfa`, a locked
+        account's answer carries `error.details.retryAt` and `Retry-After` (see "Rate limits").
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 
   schemas:
@@ -716,4 +726,7 @@ components:
                 closed).
             message: { type: string, description: For people; may change }
             requestId: { type: string }
-            details: {}
+            details:
+              description: |
+                Per code. `RATE_LIMITED` on `sign-in` and `mfa` while the account is locked:
+                `{ retryAt }` (date-time), when it may try again.
