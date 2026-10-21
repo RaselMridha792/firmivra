@@ -13,7 +13,7 @@ import { CardFrame } from './profile-cards';
 import { useProfile } from './profile-frame';
 import { stamp, wsKey } from './profile-shared';
 
-const ACTIONS: { value: LeadActionType; label: string }[] = [
+export const ACTIONS: { value: LeadActionType; label: string }[] = [
   { value: 'CALL', label: 'Call' },
   { value: 'EMAIL', label: 'Email' },
   { value: 'SMS', label: 'SMS' },
@@ -53,7 +53,7 @@ const dueText = (date: string | null) =>
  * The Next Action / Follow-Up card: one action, one date and time (docx 8). It is "Overdue" in red
  * when the time has passed; completing it logs it and lets the next one be set.
  */
-function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
+export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
   const next = lead?.nextAction ?? null;
   const [type, setType] = useState<LeadActionType>(next?.type ?? 'CALL');
   const [date, setDate] = useState(() => (next ? next.dueAt.slice(0, 10) : ''));
@@ -182,70 +182,78 @@ function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
   );
 }
 
-/** Tasks tab: the follow-up and the Open Tasks card. */
-export function TasksTab() {
-  const { id, profile } = useProfile();
+/** Open Tasks (Overview and the Tasks tab): the lead's unfinished tasks, Add Task. */
+export function OpenTasksCard() {
+  const { id } = useProfile();
   const query = useApiQuery(wsKey(id, 'tasks'), () => api.leadPipeline.tasks(id));
   const open = (query.data ?? []).filter((t) => !t.done);
   const done = (query.data ?? []).length - open.length;
   return (
+    <CardFrame
+      icon={CheckSquare}
+      title="Open Tasks"
+      testId="card-open-tasks"
+      action={
+        <Link href="/tasks/new" className="text-sm font-medium text-link underline">
+          Add Task
+        </Link>
+      }
+    >
+      {open.length === 0 ? (
+        <p className="rounded-lg bg-canvas p-6 text-center text-sm text-muted">
+          {query.isPending
+            ? 'Loading…'
+            : query.isError
+              ? 'Tasks are not available right now.'
+              : 'No open tasks for this lead.'}
+        </p>
+      ) : (
+        <ul className="flex flex-col" data-testid="lead-task-list">
+          {open.map((task) => (
+            <li
+              key={task.id}
+              className="flex items-center justify-between gap-3 border-b border-divider py-3 last:border-b-0"
+            >
+              <label className="flex min-w-0 items-center gap-3 text-sm text-heading">
+                <input
+                  type="checkbox"
+                  disabled
+                  checked={false}
+                  readOnly
+                  aria-label={`${task.title} is open`}
+                  className="size-5 shrink-0"
+                />
+                <span className="truncate">{task.title}</span>
+              </label>
+              <span className="flex shrink-0 items-center gap-3 text-sm text-muted">
+                {dueText(task.dueOn)}
+                <Badge
+                  tone={PRIORITY[task.priority].tone}
+                  {...(task.priority === 'HIGH' || task.priority === 'URGENT'
+                    ? { icon: Fire }
+                    : {})}
+                >
+                  {PRIORITY[task.priority].label}
+                </Badge>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {done > 0 ? (
+        <p className="mt-3 text-xs text-muted">{done} completed task(s) not shown.</p>
+      ) : null}
+    </CardFrame>
+  );
+}
+
+/** Tasks tab: the follow-up and the Open Tasks card. */
+export function TasksTab() {
+  const { profile } = useProfile();
+  return (
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
       <FollowUpCard key={profile ? 'loaded' : 'none'} lead={profile} />
-      <CardFrame
-        icon={CheckSquare}
-        title="Open Tasks"
-        testId="card-open-tasks"
-        action={
-          <Link href="/tasks/new" className="text-sm font-medium text-link underline">
-            Add Task
-          </Link>
-        }
-      >
-        {open.length === 0 ? (
-          <p className="rounded-lg bg-canvas p-6 text-center text-sm text-muted">
-            {query.isPending
-              ? 'Loading…'
-              : query.isError
-                ? 'Tasks are not available right now.'
-                : 'No open tasks for this lead.'}
-          </p>
-        ) : (
-          <ul className="flex flex-col" data-testid="lead-task-list">
-            {open.map((task) => (
-              <li
-                key={task.id}
-                className="flex items-center justify-between gap-3 border-b border-divider py-3 last:border-b-0"
-              >
-                <label className="flex min-w-0 items-center gap-3 text-sm text-heading">
-                  <input
-                    type="checkbox"
-                    disabled
-                    checked={false}
-                    readOnly
-                    aria-label={`${task.title} is open`}
-                    className="size-5 shrink-0"
-                  />
-                  <span className="truncate">{task.title}</span>
-                </label>
-                <span className="flex shrink-0 items-center gap-3 text-sm text-muted">
-                  {dueText(task.dueOn)}
-                  <Badge
-                    tone={PRIORITY[task.priority].tone}
-                    {...(task.priority === 'HIGH' || task.priority === 'URGENT'
-                      ? { icon: Fire }
-                      : {})}
-                  >
-                    {PRIORITY[task.priority].label}
-                  </Badge>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {done > 0 ? (
-          <p className="mt-3 text-xs text-muted">{done} completed task(s) not shown.</p>
-        ) : null}
-      </CardFrame>
+      <OpenTasksCard />
     </div>
   );
 }

@@ -3,11 +3,11 @@
 import type { LeadDetail } from '@firmivra/types';
 import { Badge, Card } from '@firmivra/ui';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
+import { errorCode } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
 import { LeadActions } from './lead-actions';
 import { LeadAnswers } from './lead-answers';
@@ -68,25 +68,32 @@ function LeadSummary({ lead }: { lead: LeadDetail }) {
 }
 
 /**
- * One Begin Online lead: who sent it, the intake answers as sent (SSN and EIN as last 4 only) and
- * the uploaded files. Every member of the firm reads leads; another firm's is 404.
+ * A Begin Online lead's request, on its Overview: the status, the review actions (Mark as in review,
+ * Decline, Convert to client), who sent it, the intake answers as sent (SSN and EIN as last 4 only)
+ * and the uploaded files. The request reads while it is New, In Review, Converted or Not
+ * Qualified; once the lead moves on in the pipeline, a quiet line says so.
  */
-export function LeadScreen() {
-  const { id } = useParams<{ id: string }>();
+export function BeginOnlineRequest({ id }: { id: string }) {
   const { firm } = useFirm();
   const lead = useApiQuery(leadKey(id), () => api.leads.get(id));
+  if (lead.isError && errorCode(lead.error) === 'NOT_FOUND')
+    return (
+      <Card title="Begin Online request">
+        <p className="text-sm text-muted" data-testid="begin-online-moved">
+          This lead has moved on in the pipeline; its Begin Online files are in Documents &amp;
+          Forms.
+        </p>
+      </Card>
+    );
   return (
-    <div className="flex flex-col gap-4">
-      <Link href="/leads" className="w-fit text-sm text-link">
-        ← All leads
-      </Link>
+    <section className="flex flex-col gap-4" data-testid="begin-online-request">
       <PageState query={lead}>
         {(data) => (
           <>
             <div className="flex flex-wrap items-center gap-3">
-              <h1 data-testid="page-title" className="text-2xl font-semibold text-text">
-                {data.firstName} {data.lastName}
-              </h1>
+              <h2 data-testid="page-title" className="text-xl font-semibold text-heading">
+                Begin Online request
+              </h2>
               <Badge tone={STATUS[data.status].tone}>{STATUS[data.status].label}</Badge>
             </div>
             <LeadActions lead={data} />
@@ -105,6 +112,6 @@ export function LeadScreen() {
           </>
         )}
       </PageState>
-    </div>
+    </section>
   );
 }
