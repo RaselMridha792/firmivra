@@ -49,6 +49,7 @@ import { type BulkAction, BulkDialog } from './bulk-dialog';
 import { AccessModal } from './access-modal';
 import { ChangeRoleModal } from './change-role-modal';
 import { InviteUserModal } from './invite-user-modal';
+import { PermissionsModal } from './permissions-modal';
 import { RolePanel } from './role-panel';
 import { RoleTemplates } from './role-templates';
 
@@ -69,6 +70,7 @@ const ROLE_CHIPS: Record<MembershipRole, string> = {
   BOOKKEEPER: 'bg-warning-soft text-warning',
   TAX_PREPARER: 'bg-info-soft text-action',
   CLIENT_SUPPORT: 'bg-success-soft text-success',
+  BUSINESS_CONSULTANT: 'bg-purple-soft text-purple',
   READ_ONLY: 'bg-disabled text-text',
 };
 
@@ -133,6 +135,7 @@ type Dialog =
   | { kind: 'invite' }
   | { kind: 'action'; action: StaffAction; user: FirmUser }
   | { kind: 'revoke'; user: FirmUser }
+  | { kind: 'permissions'; user: FirmUser }
   | { kind: 'access'; action: 'unlock' | 'reactivate'; user: FirmUser }
   | { kind: 'role'; user: FirmUser }
   | { kind: 'pick'; action: 'resetPassword' | 'deactivate' };
@@ -212,6 +215,15 @@ export function UsersScreen() {
     items.push(
       { label: 'Edit User', onSelect: () => router.push(`/team/${u.id}`) },
       { label: 'Manage Access', onSelect: () => router.push(`/team/${u.id}/security/permissions`) },
+      // Inherit, Allow or Deny per permission, for someone whose access you manage.
+      ...(me && ROLES_MANAGED_BY[me].includes(u.role)
+        ? [
+            {
+              label: 'Individual Permissions',
+              onSelect: () => setDialog({ kind: 'permissions', user: u }),
+            },
+          ]
+        : []),
       // Only someone whose role you may change (an Admin never changes an Admin or the Owner).
       ...(me && u.status !== 'DEACTIVATED' && ROLES_MANAGED_BY[me].includes(u.role)
         ? [{ label: 'Change Role', onSelect: () => setDialog({ kind: 'role', user: u }) }]
@@ -657,6 +669,16 @@ export function UsersScreen() {
           onFinished={() => {
             setBulk(null);
             clearSelection();
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'permissions' ? (
+        <PermissionsModal
+          user={dialog.user}
+          onClose={() => setDialog(null)}
+          onDone={(text) => {
+            setDialog(null);
+            setMessage(text);
           }}
         />
       ) : null}

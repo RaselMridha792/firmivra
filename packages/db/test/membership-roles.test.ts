@@ -42,7 +42,7 @@ afterAll(async () => {
 });
 
 describe('membership roles and statuses', () => {
-  it('has the eight roles and the four statuses', () => {
+  it('has the nine roles and the four statuses', () => {
     expect(Object.values(MembershipRole)).toEqual([
       'OWNER',
       'ADMIN',
@@ -51,6 +51,7 @@ describe('membership roles and statuses', () => {
       'BOOKKEEPER',
       'TAX_PREPARER',
       'CLIENT_SUPPORT',
+      'BUSINESS_CONSULTANT',
       'READ_ONLY',
     ]);
     expect(Object.values(MembershipStatus)).toEqual(['INVITED', 'ACTIVE', 'LOCKED', 'DEACTIVATED']);

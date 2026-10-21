@@ -60,6 +60,15 @@ describe('seed', () => {
       'staff_import_previews',
       // The daily MRR rollup is the platform job's to write; the regular seed has no subscriptions.
       'platform_mrr_daily',
+      // r1_locations_roles_links (Oct 21): seeding is paused until the screens and APIs are done
+      // (Rasel); their seed rows come then.
+      'firm_office_services',
+      'firm_office_hours',
+      'firm_office_actions',
+      'custom_roles',
+      'custom_role_permissions',
+      'document_links',
+      'document_link_codes',
     ];
     const empty: string[] = [];
     for (const t of tables) {

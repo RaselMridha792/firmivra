@@ -83,6 +83,14 @@ describe('api.users', () => {
     expect(UsersQuery.safeParse({ ids: Array.from({ length: 101 }, () => a) }).success).toBe(false);
   });
 
+  it('filters by one custom role id', async () => {
+    const a = '0199c0a0-0a00-7000-8000-000000000001';
+    const { fn, calls } = fakeFetch(200, { items: [], total: 0, page: 1, pageSize: 10 });
+    await createUsersClient(request(fn), '/api/v1').list({ customRoleId: a });
+    expect(calls[0]?.url).toContain(`customRoleId=${a}`);
+    expect(UsersQuery.safeParse({ customRoleId: 'BOOKKEEPER' }).success).toBe(false);
+  });
+
   it('never invites an owner', () => {
     expect(
       InviteUserRequest.safeParse({ name: 'A B', email: 'a@b.test', role: 'OWNER' }).success,

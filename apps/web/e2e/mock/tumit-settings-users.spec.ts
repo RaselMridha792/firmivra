@@ -166,6 +166,43 @@ test('Change Role: one person, with the new role previewed and their overrides k
   await expect(table.getByRole('row', { name: /Hana Kim/ })).toContainText('Bookkeeper');
 });
 
+test('Individual Permissions: Inherit, Allow or Deny per permission, and Reset to Inherit', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/users`);
+  const table = page.getByTestId('user-management');
+  const open = async () => {
+    await table.getByRole('button', { name: 'Actions for Hana Kim' }).click();
+    await page.getByRole('menuitem', { name: 'Individual Permissions' }).click();
+    return page.getByTestId('individual-permissions');
+  };
+  let dialog = await open();
+  await expect(dialog).toContainText('Inherit follows the role');
+  await dialog
+    .getByRole('list', { name: 'Modules' })
+    .getByRole('button', { name: 'Reports' })
+    .click();
+  const cells = dialog.getByTestId('override-cells');
+  await expect(cells).toContainText('Reports');
+  await expect(dialog.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
+  await cells.getByRole('group', { name: 'Reports View' }).getByText('Allow').click();
+  await cells.getByRole('group', { name: 'Reports Export' }).getByText('Allow').click();
+  await dialog.getByRole('button', { name: 'Save Changes' }).click();
+  // More than the Staff role has: it asks first.
+  await expect(dialog).toContainText('more than the Staff role has');
+  await dialog.getByRole('button', { name: 'Save Anyway' }).click();
+  await expect(page.getByTestId('users-result')).toContainText('Hana Kim’s permissions are saved');
+
+  dialog = await open();
+  await expect(dialog.getByRole('list', { name: 'Modules' })).toContainText('Reports2');
+  await dialog.getByRole('button', { name: 'Reset all to Inherit' }).click();
+  await dialog.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByTestId('users-result')).toContainText('Hana Kim’s permissions are saved');
+  dialog = await open();
+  await expect(dialog.getByRole('button', { name: 'Reset all to Inherit' })).toBeDisabled();
+});
+
 test('Bulk actions: selection across pages, who is left out, and a result per person', async ({
   page,
 }) => {

@@ -84,7 +84,7 @@ describe('data', () => {
       PubliclyAccessible: false,
       StorageEncrypted: true,
       DeletionProtection: true,
-      BackupRetentionPeriod: 7,
+      BackupRetentionPeriod: 35,
     });
   });
 
@@ -104,6 +104,12 @@ describe('data', () => {
             ServerSideEncryptionByDefault: Match.objectLike({ SSEAlgorithm: 'aws:kms' }),
           }),
         ],
+      },
+      // Old versions stay 35 days, the database backups' recovery window.
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({ NoncurrentVersionExpiration: { NoncurrentDays: 35 } }),
+        ]),
       },
     });
   });
@@ -208,12 +214,42 @@ describe('auth (docs/AUTH-DESIGN.md)', () => {
 });
 
 describe('app', () => {
-  it('runs api and web on Fargate Spot at 0.25 vCPU / 0.5 GB, x86', () => {
-    for (const family of ['firmivra-dev-api', 'firmivra-dev-web', 'firmivra-dev-migrate']) {
+  it('gives a 100 MB upload time to confirm and lets the api see multipart parts', () => {
+    // CloudFront waits 60 s for the api; the ALB keeps an idle connection longer than that.
+    t('app').hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Origins: Match.arrayWith([
+          Match.objectLike({ VpcOriginConfig: Match.objectLike({ OriginReadTimeout: 60 }) }),
+        ]),
+      }),
+    });
+    t('app').hasResourceProperties('AWS::ElasticLoadBalancingV2::LoadBalancer', {
+      LoadBalancerAttributes: Match.arrayWith([
+        { Key: 'idle_timeout.timeout_seconds', Value: '120' },
+      ]),
+    });
+    t('app').hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Sid: 'TenantDocuments',
+            Action: Match.arrayWith(['s3:ListMultipartUploadParts']),
+          }),
+        ]),
+      }),
+    });
+  });
+
+  it('runs api and web on Fargate Spot at 0.25 vCPU, x86: 1 GB for the api, 0.5 GB for the rest', () => {
+    for (const [family, memory] of [
+      ['firmivra-dev-api', '1024'],
+      ['firmivra-dev-web', '512'],
+      ['firmivra-dev-migrate', '512'],
+    ]) {
       t('app').hasResourceProperties('AWS::ECS::TaskDefinition', {
         Family: family,
         Cpu: '256',
-        Memory: '512',
+        Memory: memory,
         RuntimePlatform: { CpuArchitecture: 'X86_64', OperatingSystemFamily: 'LINUX' },
       });
     }

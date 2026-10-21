@@ -391,11 +391,11 @@ describe('firm agreements', () => {
 });
 
 describe('agreement PDF originals', () => {
-  it('PDF only, at most 10 MB, under the firm agreements prefix, starting unscanned', async () => {
+  it('PDF only, at most 100 MB, under the firm agreements prefix, starting unscanned', async () => {
     await expect(newFile({ contentType: 'application/msword' })).rejects.toThrow(
       /check constraint/i,
     );
-    await expect(newFile({ sizeBytes: 10_485_761 })).rejects.toThrow(/check constraint/i);
+    await expect(newFile({ sizeBytes: 104_857_601 })).rejects.toThrow(/check constraint/i);
     await expect(newFile({ s3Key: `tenant/${ids.firmA}/documents/x` })).rejects.toThrow(
       /check constraint/i,
     );

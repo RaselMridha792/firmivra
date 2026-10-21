@@ -38,6 +38,9 @@ enum MembershipRole {
   BOOKKEEPER
   TAX_PREPARER
   CLIENT_SUPPORT
+  /// R1 (Oct 21): the ninth built-in role (Users & Roles guide); reaches routes through the
+  /// permission grid, like the R35 roles.
+  BUSINESS_CONSULTANT
   READ_ONLY
 }
 
@@ -865,6 +868,13 @@ model Business {
   intakeTemplates          IntakeTemplate[]
   documentFolders          DocumentFolder[]
   firmOffices              FirmOffice[]
+  firmOfficeServices       FirmOfficeService[]
+  firmOfficeHours          FirmOfficeHours[]
+  firmOfficeActions        FirmOfficeAction[]
+  customRoles              CustomRole[]
+  customRolePermissions    CustomRolePermission[]
+  documentLinks            DocumentLink[]
+  documentLinkCodes        DocumentLinkCode[]
   appointmentSettings      AppointmentSettings?
   tags                     Tag[]
   documentRequestTemplates DocumentRequestTemplate[]
@@ -956,44 +966,56 @@ model PlatformOwnerInvite {
 
 /// A staff user's role in one business.
 model Membership {
-  id         String           @id @default(uuid(7)) @db.Uuid
-  businessId String           @map("business_id") @db.Uuid
-  userId     String           @map("user_id") @db.Uuid
-  role       MembershipRole
-  status     MembershipStatus @default(INVITED)
+  id           String           @id @default(uuid(7)) @db.Uuid
+  businessId   String           @map("business_id") @db.Uuid
+  userId       String           @map("user_id") @db.Uuid
+  role         MembershipRole
+  status       MembershipStatus @default(INVITED)
   /// Set by the database the first time the membership is ACTIVE; never changes. Until then
   /// the firm sees only the invite's name and email, never the person's user row.
-  joinedAt   DateTime?        @map("joined_at") @db.Timestamptz(3)
+  joinedAt     DateTime?        @map("joined_at") @db.Timestamptz(3)
   /// The member's own video meeting link (Zoom, Meet, Teams) for their VIDEO appointments:
   /// https only, no spaces or control characters, at most 500 characters (database CHECK).
-  meetingUrl String?          @map("meeting_url")
+  meetingUrl   String?          @map("meeting_url")
   /// Firm Sign's Staff Title merge field: the member's own job title, up to 100 characters.
-  jobTitle   String?          @map("job_title")
-  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  jobTitle     String?          @map("job_title")
+  /// R1 (Oct 21): the firm's own role this member has; `role` then equals its `based_on`, and
+  /// the custom role's permissions apply (database rule).
+  customRoleId String?          @map("custom_role_id") @db.Uuid
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business               Business               @relation(fields: [businessId], references: [id])
-  user                   User                   @relation(fields: [userId], references: [id])
-  invites                Invite[]
-  assignedClients        Client[]
-  assignedEngagements    Engagement[]
-  assignedTasks          Task[]
-  workingHours           WorkingHours[]
-  blockedTimes           BlockedTime[]
-  appointments           Appointment[]
-  invoicesCreated        Invoice[]
-  invoicesAssigned       Invoice[]              @relation("InvoiceAssignedTo")
-  paymentSettingsChanged PaymentSettings[]
-  invoiceEvents          InvoiceEvent[]
-  invoicesArchived       InvoiceTracking[]
-  contentCreated         ContentItem[]
-  agreementsCreated      FirmAgreement[]
-  agreementFiles         FirmAgreementFile[]
-  agreementVersions      FirmAgreementVersion[]
-  taskCollaborations     TaskAssignee[]
-  checklistAssigned      TaskChecklistItem[]
-  taskTemplates          TaskTemplate[]
-  taskSeries             TaskSeries[]
+  business                Business               @relation(fields: [businessId], references: [id])
+  user                    User                   @relation(fields: [userId], references: [id])
+  customRole              CustomRole?            @relation(fields: [businessId, customRoleId], references: [businessId, id], onDelete: Restrict)
+  invites                 Invite[]
+  // R1 (Oct 21): Locations and secure links.
+  officesManaged          FirmOffice[]           @relation("FirmOfficeManager")
+  officeActionsAbout      FirmOfficeAction[]     @relation("FirmOfficeActionManager")
+  officeActionsNewManager FirmOfficeAction[]     @relation("FirmOfficeActionNewManager")
+  officeActionsCreated    FirmOfficeAction[]     @relation("FirmOfficeActionCreatedBy")
+  officeActionsUpdated    FirmOfficeAction[]     @relation("FirmOfficeActionUpdatedBy")
+  documentLinksCreated    DocumentLink[]         @relation("DocumentLinkCreatedBy")
+  documentLinksReceived   DocumentLink[]         @relation("DocumentLinkRecipient")
+  assignedClients         Client[]
+  assignedEngagements     Engagement[]
+  assignedTasks           Task[]
+  workingHours            WorkingHours[]
+  blockedTimes            BlockedTime[]
+  appointments            Appointment[]
+  invoicesCreated         Invoice[]
+  invoicesAssigned        Invoice[]              @relation("InvoiceAssignedTo")
+  paymentSettingsChanged  PaymentSettings[]
+  invoiceEvents           InvoiceEvent[]
+  invoicesArchived        InvoiceTracking[]
+  contentCreated          ContentItem[]
+  agreementsCreated       FirmAgreement[]
+  agreementFiles          FirmAgreementFile[]
+  agreementVersions       FirmAgreementVersion[]
+  taskCollaborations      TaskAssignee[]
+  checklistAssigned       TaskChecklistItem[]
+  taskTemplates           TaskTemplate[]
+  taskSeries              TaskSeries[]
 
   // Offline payments this member recorded or voided.
   offlinePaymentsRecorded OfflinePayment[] @relation("OfflinePaymentRecordedBy")
@@ -1103,6 +1125,7 @@ model Membership {
   // Target of same-firm foreign keys (see Invite).
   @@unique([businessId, id])
   @@index([userId])
+  @@index([businessId, customRoleId])
   @@map("memberships")
 }
 
@@ -2835,6 +2858,9 @@ model Client {
   complianceFacts       ClientComplianceFacts?       @relation("ClientComplianceFacts")
   salesTaxRegistrations ClientSalesTaxRegistration[] @relation("ClientSalesTaxRegistrations")
 
+  // R1 (Oct 21): secure links sent to this client.
+  documentLinks DocumentLink[]
+
   @@unique([businessId, id])
   @@unique([businessId, email])
   @@unique([businessId, clientNumber])
@@ -3007,6 +3033,9 @@ model Service {
   intakeTemplates  IntakeTemplate[]
   appointments     Appointment[]
   appointmentTypes AppointmentType[]
+
+  // R1 (Oct 21): the locations offering this service.
+  firmOffices FirmOfficeService[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -3354,6 +3383,9 @@ model Document {
   bookkeepingReportFiles    BookkeepingReportVersion[] @relation("BookkeepingReportVersionFile")
   bookkeepingTermsAgreement BookkeepingTerms[]         @relation("BookkeepingTermsAgreement")
   bookkeepingTermsSigned    BookkeepingTerms[]         @relation("BookkeepingTermsSignedAgreement")
+
+  // R1 (Oct 21): secure share links to this document.
+  links DocumentLink[]
 
   @@unique([businessId, id])
   // One document per carried-over lead upload.
@@ -3743,16 +3775,21 @@ model NotificationPreference {
 /// A kind of appointment the firm offers ("Tax consultation", 30 minutes, video). Clients can
 /// book only types marked clientBookable. Archived, not deleted, once used.
 model AppointmentType {
-  id              String       @id @default(uuid(7)) @db.Uuid
-  businessId      String       @map("business_id") @db.Uuid
+  id              String         @id @default(uuid(7)) @db.Uuid
+  businessId      String         @map("business_id") @db.Uuid
   name            String
-  durationMinutes Int          @map("duration_minutes")
-  locationKind    LocationKind @default(VIDEO) @map("location_kind")
-  clientBookable  Boolean      @default(false) @map("client_bookable")
-  sortOrder       Int          @default(0) @map("sort_order")
-  archivedAt      DateTime?    @map("archived_at") @db.Timestamptz(3)
-  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  durationMinutes Int            @map("duration_minutes")
+  /// The first of `meetingMethods` (kept in step by the database).
+  locationKind    LocationKind   @default(VIDEO) @map("location_kind")
+  /// R1 (Oct 21): the meeting methods clients may choose, 1 to 3, no repeats; the first is
+  /// `locationKind`. Left empty on insert, the database fills it from `locationKind`; changing
+  /// either one updates the other.
+  meetingMethods  LocationKind[] @default([]) @map("meeting_methods")
+  clientBookable  Boolean        @default(false) @map("client_bookable")
+  sortOrder       Int            @default(0) @map("sort_order")
+  archivedAt      DateTime?      @map("archived_at") @db.Timestamptz(3)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// Clients reschedule or cancel until this many hours before the start (0 to 720; 0 = until
   /// the start).
@@ -10564,10 +10601,14 @@ model DocumentSettings {
   documentExpiryReminderDays Int?     @map("document_expiry_reminder_days")
   /// Default expiry for new shares, days (1 to 365).
   shareExpiryDays            Int?     @map("share_expiry_days")
-  /// Narrows the platform's 10 MB; 1 to 10485760.
+  /// Narrows the platform's 100 MB; 1 to 104857600.
   uploadMaxBytes             Int?     @map("upload_max_bytes")
   /// A subset of the platform's upload types; empty means all of them.
   uploadTypes                String[] @default([]) @map("upload_types")
+  /// R1 (Oct 21): a secure client link asks for a one-time code sent over the other channel.
+  clientLinkCodeRequired     Boolean  @default(true) @map("client_link_code_required")
+  /// R1 (Oct 21): the same for internal (staff) links.
+  internalLinkCodeRequired   Boolean  @default(true) @map("internal_link_code_required")
   defaultReviewerUserId      String?  @map("default_reviewer_user_id") @db.Uuid
   createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt                  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -10933,11 +10974,41 @@ model FirmOffice {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business     Business      @relation(fields: [businessId], references: [id])
-  rooms        FirmRoom[]
-  appointments Appointment[]
+  // R1 (Oct 21): Settings > Locations.
+  /// OFFICE has a street address; VIRTUAL (online / remote) has none.
+  kind           FirmOfficeKind   @default(OFFICE)
+  /// Activate / Deactivate, either way; archiving stays separate and final. The main location
+  /// is ACTIVE.
+  status         FirmOfficeStatus @default(ACTIVE)
+  addressLine2   String?          @map("address_line2")
+  /// E.164 (+15551234567).
+  phone          String?
+  /// E.164.
+  alternatePhone String?          @map("alternate_phone")
+  /// Lower case.
+  email          String?
+  /// IANA time zone; null means the firm's (business_settings.timezone).
+  timeZone       String?          @map("time_zone")
+  /// The location's manager. Null means unassigned: the main location's manager acts.
+  managerUserId  String?          @map("manager_user_id") @db.Uuid
+  /// Up to 500 characters.
+  notes          String?
+  /// The location photo's S3 key, under tenant/{businessId}/offices/.
+  photoKey       String?          @map("photo_key")
+  /// Set by the database from the address (lower case, punctuation and repeated spaces removed,
+  /// ZIP to its first 5 digits): one live location per address, the duplicate check.
+  addressKey     String?          @map("address_key")
+
+  business         Business            @relation(fields: [businessId], references: [id])
+  manager          Membership?         @relation("FirmOfficeManager", fields: [businessId, managerUserId], references: [businessId, userId], onDelete: Restrict)
+  rooms            FirmRoom[]
+  appointments     Appointment[]
+  services         FirmOfficeService[]
+  hours            FirmOfficeHours[]
+  scheduledActions FirmOfficeAction[]
 
   @@unique([businessId, id])
+  @@index([businessId, managerUserId])
   @@map("firm_offices")
 }
 
@@ -13647,4 +13718,233 @@ model PlatformMrrDaily {
   computedAt   DateTime @default(now()) @map("computed_at") @db.Timestamptz(3)
 
   @@map("platform_mrr_daily")
+}
+
+// ---------- R1 (Oct 21): Locations, custom roles, secure document links ----------
+
+/// A location's kind: OFFICE has a street address, VIRTUAL (online / remote) has none.
+enum FirmOfficeKind {
+  OFFICE
+  VIRTUAL
+}
+
+/// Activate / Deactivate a location, either way (archiving is separate and final).
+enum FirmOfficeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// A scheduled Locations change.
+enum FirmOfficeActionKind {
+  /// The location becomes INACTIVE; its staff accounts stay as they are.
+  DEACTIVATE_LOCATION
+  /// The manager's firm access ends; their locations get `new_manager_user_id`, or the main
+  /// location's manager acts.
+  DEACTIVATE_MANAGER
+  /// The location gets `new_manager_user_id` as its manager.
+  REASSIGN_MANAGER
+}
+
+/// PENDING until its time; DONE, CANCELLED and FAILED are final.
+enum FirmOfficeActionStatus {
+  PENDING
+  DONE
+  CANCELLED
+  FAILED
+}
+
+/// CLIENT links open without a portal account (at most 24 hours); INTERNAL links still need the
+/// staff member's sign-in (at most 48 hours).
+enum DocumentLinkKind {
+  CLIENT
+  INTERNAL
+}
+
+/// R1 (Oct 21): the Services & Pricing services a location offers (existing services only).
+model FirmOfficeService {
+  businessId String   @map("business_id") @db.Uuid
+  officeId   String   @map("office_id") @db.Uuid
+  serviceId  String   @map("service_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business Business   @relation(fields: [businessId], references: [id])
+  office   FirmOffice @relation(fields: [businessId, officeId], references: [businessId, id], onDelete: Restrict)
+  service  Service    @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([officeId, serviceId])
+  @@index([businessId, serviceId])
+  @@map("firm_office_services")
+}
+
+/// R1 (Oct 21): a location's opening hours, one row per open interval. Weekday 0 (Sunday) to 6,
+/// times in the location's time zone. A day without rows is closed; a day's intervals never
+/// overlap (database exclusion constraint).
+model FirmOfficeHours {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  officeId   String   @map("office_id") @db.Uuid
+  weekday    Int
+  opensAt    DateTime @map("opens_at") @db.Time(0)
+  closesAt   DateTime @map("closes_at") @db.Time(0)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business   @relation(fields: [businessId], references: [id])
+  office   FirmOffice @relation(fields: [businessId, officeId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, officeId])
+  @@map("firm_office_hours")
+}
+
+/// R1 (Oct 21): a Locations change that runs at `effectiveAt` (now or later, by a job). While
+/// PENDING its time and new manager may change and it may be cancelled; a finished action never
+/// changes. One PENDING action per location, and one PENDING manager deactivation per manager.
+model FirmOfficeAction {
+  id                  String                 @id @default(uuid(7)) @db.Uuid
+  businessId          String                 @map("business_id") @db.Uuid
+  kind                FirmOfficeActionKind
+  /// The location (DEACTIVATE_LOCATION, REASSIGN_MANAGER); null for DEACTIVATE_MANAGER, which
+  /// covers every location the manager runs.
+  officeId            String?                @map("office_id") @db.Uuid
+  /// DEACTIVATE_MANAGER: the manager. REASSIGN_MANAGER: the manager being replaced (null when
+  /// the location was unassigned).
+  managerUserId       String?                @map("manager_user_id") @db.Uuid
+  /// The new manager (required for REASSIGN_MANAGER; optional for DEACTIVATE_MANAGER, where
+  /// null means the main location's manager acts).
+  newManagerUserId    String?                @map("new_manager_user_id") @db.Uuid
+  status              FirmOfficeActionStatus @default(PENDING)
+  effectiveAt         DateTime               @map("effective_at") @db.Timestamptz(3)
+  /// Set by the database to the first `effectiveAt`; never changes.
+  originalEffectiveAt DateTime?              @map("original_effective_at") @db.Timestamptz(3)
+  createdByUserId     String                 @map("created_by_user_id") @db.Uuid
+  updatedByUserId     String?                @map("updated_by_user_id") @db.Uuid
+  /// Set by the database when the action becomes DONE, CANCELLED or FAILED.
+  finishedAt          DateTime?              @map("finished_at") @db.Timestamptz(3)
+  /// FAILED only: a short code (UPPER_SNAKE).
+  failureCode         String?                @map("failure_code")
+  createdAt           DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business   Business    @relation(fields: [businessId], references: [id])
+  office     FirmOffice? @relation(fields: [businessId, officeId], references: [businessId, id], onDelete: Restrict)
+  manager    Membership? @relation("FirmOfficeActionManager", fields: [businessId, managerUserId], references: [businessId, userId], onDelete: Restrict)
+  newManager Membership? @relation("FirmOfficeActionNewManager", fields: [businessId, newManagerUserId], references: [businessId, userId], onDelete: Restrict)
+  createdBy  Membership  @relation("FirmOfficeActionCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy  Membership? @relation("FirmOfficeActionUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, status, effectiveAt])
+  @@index([businessId, officeId])
+  @@map("firm_office_actions")
+}
+
+/// R1 (Oct 21, Users & Roles): a firm's own role. "Start From" copies a built-in role's
+/// permissions into custom_role_permissions (the built-in role never changes); the role and its
+/// permissions are saved together. Names are unique per firm among live roles; archived, never
+/// deleted.
+model CustomRole {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  businessId  String         @map("business_id") @db.Uuid
+  /// 1 to 60 characters.
+  name        String
+  /// Up to 300 characters.
+  description String?
+  /// The built-in role it started from (never Owner); a member with this custom role has this
+  /// `role`. Never changes.
+  basedOn     MembershipRole @map("based_on")
+  archivedAt  DateTime?      @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business    Business               @relation(fields: [businessId], references: [id])
+  permissions CustomRolePermission[]
+  memberships Membership[]
+
+  @@unique([businessId, id])
+  @@map("custom_roles")
+}
+
+/// R1 (Oct 21): a custom role's whole grid, one row per module and capability (not a diff).
+model CustomRolePermission {
+  businessId   String               @map("business_id") @db.Uuid
+  customRoleId String               @map("custom_role_id") @db.Uuid
+  module       PermissionModule
+  capability   PermissionCapability
+  granted      Boolean
+  updatedAt    DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business   Business   @relation(fields: [businessId], references: [id])
+  customRole CustomRole @relation(fields: [businessId, customRoleId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([customRoleId, module, capability])
+  @@index([businessId, customRoleId])
+  @@map("custom_role_permissions")
+}
+
+/// R1 (Oct 21): a secure link to one document for one recipient. Only the token's SHA-256 is
+/// kept; the database caps the expiry (CLIENT 24 hours, INTERNAL 48 hours) by its own clock.
+/// With `codeRequired` (the firm's setting when sent), opening it needs a one-time code sent over
+/// the other channel than `sentVia`, so both addresses are then required. Wrong codes count on
+/// the link: 5 start a 15-minute lockout, and sending a new code never resets them.
+model DocumentLink {
+  id              String              @id @default(uuid(7)) @db.Uuid
+  businessId      String              @map("business_id") @db.Uuid
+  documentId      String              @map("document_id") @db.Uuid
+  kind            DocumentLinkKind
+  /// CLIENT: the client it is for.
+  clientId        String?             @map("client_id") @db.Uuid
+  /// INTERNAL: the staff member it is for.
+  recipientUserId String?             @map("recipient_user_id") @db.Uuid
+  /// Lower case.
+  recipientEmail  String?             @map("recipient_email")
+  /// E.164.
+  recipientPhone  String?             @map("recipient_phone")
+  /// How the link was sent; the code goes the other way.
+  sentVia         VerificationChannel @map("sent_via")
+  codeRequired    Boolean             @map("code_required")
+  /// SHA-256 of the token, lower-case hex.
+  tokenHash       String              @map("token_hash")
+  expiresAt       DateTime            @map("expires_at") @db.Timestamptz(3)
+  /// Wrong codes since the last lockout (0 to 4); the fifth starts a lockout and resets it.
+  failedAttempts  Int                 @default(0) @map("failed_attempts")
+  /// At most 15 minutes after it is set (database clock).
+  lockedUntil     DateTime?           @map("locked_until") @db.Timestamptz(3)
+  /// The first time a correct code (or, without one, the link) was used.
+  verifiedAt      DateTime?           @map("verified_at") @db.Timestamptz(3)
+  revokedAt       DateTime?           @map("revoked_at") @db.Timestamptz(3)
+  createdByUserId String              @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business  Business           @relation(fields: [businessId], references: [id])
+  document  Document           @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+  client    Client?            @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  recipient Membership?        @relation("DocumentLinkRecipient", fields: [businessId, recipientUserId], references: [businessId, userId], onDelete: Restrict)
+  createdBy Membership         @relation("DocumentLinkCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  codes     DocumentLinkCode[]
+
+  @@unique([businessId, tokenHash])
+  @@unique([businessId, id])
+  @@index([businessId, documentId])
+  @@index([businessId, clientId])
+  @@map("document_links")
+}
+
+/// R1 (Oct 21): a one-time code for a document link: only its hash (HMAC, hex) is kept; it
+/// expires 10 minutes after it is sent (database clock) and is used once. Only the link's newest
+/// code can be used, so sending a new one invalidates the last.
+model DocumentLinkCode {
+  id         String              @id @default(uuid(7)) @db.Uuid
+  businessId String              @map("business_id") @db.Uuid
+  linkId     String              @map("link_id") @db.Uuid
+  /// Where the code was sent.
+  channel    VerificationChannel
+  codeHash   String              @map("code_hash")
+  expiresAt  DateTime            @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime?           @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business Business     @relation(fields: [businessId], references: [id])
+  link     DocumentLink @relation(fields: [businessId, linkId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, linkId, createdAt])
+  @@map("document_link_codes")
 }

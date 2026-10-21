@@ -11,6 +11,8 @@ export const ROLE_DESCRIPTIONS: Record<MembershipRole, string> = {
   BOOKKEEPER: 'Keeps the books for their clients; reads clients and invoices.',
   TAX_PREPARER: 'Prepares returns for their clients; reads the other business modules.',
   CLIENT_SUPPORT: 'Answers clients and books appointments; reads the rest.',
+  BUSINESS_CONSULTANT:
+    'Advises their assigned clients: Business Advisory plus the work Staff does for them.',
   READ_ONLY: 'Looks but does not change: can view the modules they are given.',
 };
 

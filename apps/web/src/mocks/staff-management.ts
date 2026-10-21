@@ -1340,6 +1340,7 @@ const ROLE_DESCRIPTIONS: Record<MembershipRole, string> = {
   TAX_PREPARER:
     'Can prepare and manage tax returns, access client information, and view related documents. Limited access to financial and administrative settings.',
   CLIENT_SUPPORT: 'Answers clients, books appointments and handles messages.',
+  BUSINESS_CONSULTANT: 'Advises their clients: Business Advisory plus the work Staff does.',
   READ_ONLY: 'Can look at clients, appointments and tasks, and change nothing.',
 };
 
@@ -1697,6 +1698,19 @@ export function createRolesMock(options: Options = {}): RolesClient {
       await g.allowed();
       if (g.role !== 'OWNER' && g.role !== 'ADMIN') throw forbidden();
       parseInput(CreateCustomRoleRequest, body);
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
+    // The mock's custom roles come with the screens (R55); until then, as the API answered.
+    customRole: async () => {
+      await g.allowed();
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
+    updateCustom: async () => {
+      await g.allowed();
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
+    archiveCustom: async () => {
+      await g.allowed();
       throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
     },
   };
