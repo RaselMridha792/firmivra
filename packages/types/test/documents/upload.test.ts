@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DOCUMENT_ERRORS,
   fileNameFitsType,
   UPLOAD_LIMITS,
+  uploadBatchProblem,
   uploadContentTypeFor,
   UploadContentType,
 } from '../../src/index.js';
@@ -103,5 +105,32 @@ describe('fileNameFitsType', () => {
     ['Scan.pdf.exe', 'application/pdf'],
   ] as const)('%s does not fit %s', (fileName, type) => {
     expect(fileNameFitsType(fileName, type)).toBe(false);
+  });
+});
+
+describe('uploadBatchProblem', () => {
+  const MB = 1024 * 1024;
+  const files = (count: number, size = MB) => Array.from({ length: count }, () => ({ size }));
+
+  it('takes up to 20 files and 500 MB in all', () => {
+    expect([UPLOAD_LIMITS.maxBatchFiles, UPLOAD_LIMITS.maxBatchBytes]).toEqual([20, 500 * MB]);
+    expect(uploadBatchProblem([])).toBeNull();
+    expect(uploadBatchProblem(files(1))).toBeNull();
+    expect(uploadBatchProblem(files(20))).toBeNull();
+    expect(uploadBatchProblem(files(20, 25 * MB))).toBeNull();
+    expect(uploadBatchProblem([...files(4, 100 * MB), { size: 100 * MB }])).toBeNull();
+  });
+
+  it('refuses a 21st file, and more than 500 MB together', () => {
+    expect(uploadBatchProblem(files(21))).toBe('TOO_MANY_FILES');
+    expect(uploadBatchProblem(files(21, 30 * MB))).toBe('TOO_MANY_FILES');
+    expect(uploadBatchProblem([...files(5, 100 * MB), { size: 1 }])).toBe('BATCH_TOO_LARGE');
+  });
+
+  it('names both refusals for the screens', () => {
+    expect(DOCUMENT_ERRORS.TOO_MANY_FILES).toBe('Upload at most 20 files at a time.');
+    expect(DOCUMENT_ERRORS.BATCH_TOO_LARGE).toBe(
+      'These files come to more than 500 MB together. Upload them in smaller groups.',
+    );
   });
 });

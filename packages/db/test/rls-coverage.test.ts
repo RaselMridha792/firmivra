@@ -43,10 +43,9 @@ describe('row-level security coverage', () => {
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relkind = 'r'`);
     const app = rows.filter((r) => r.table !== '_prisma_migrations');
-    // platform_admins is read-only for the app: Super Admins are added by ops or the seed. The
-    // others are written only by their triggers, running as the table owner.
+    // These are written only by their triggers, running as the table owner. (platform_admins:
+    // the app inserts TEAM_MEMBER rows only; see the TEAM_MEMBER test below.)
     const readOnly = [
-      'platform_admins',
       'client_tax_status_history',
       'tax_return_history',
       'client_status_history',
@@ -111,8 +110,7 @@ describe('row-level security coverage', () => {
                    ('platform_user_signups', 'DELETE'),
                    ('platform_owner_invites', 'INSERT'), ('platform_owner_invites', 'UPDATE'),
                    ('platform_owner_invites', 'DELETE'),
-                   ('platform_admins', 'INSERT'), ('platform_admins', 'UPDATE'),
-                   ('platform_admins', 'DELETE'),
+                   ('platform_admins', 'UPDATE'), ('platform_admins', 'DELETE'),
                    ('firm_agreements', 'DELETE'),
                    ('firm_agreement_files', 'DELETE'),
                    ('firm_agreement_versions', 'UPDATE'), ('firm_agreement_versions', 'DELETE'),
@@ -158,6 +156,29 @@ describe('row-level security coverage', () => {
                    ('client_compliance_facts', 'DELETE'),
                    ('client_sales_tax_registrations', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
+  });
+
+  it('lets the app insert TEAM_MEMBER platform_admins rows only, in platform scope', async () => {
+    // r0_platform_admins_team_insert: INSERT is granted for Team invitations, and a restrictive
+    // policy for the app role allows TEAM_MEMBER rows in platform scope only. Super Admins are
+    // added by ops or the seed (the owner); UPDATE and DELETE stay revoked (the limits above).
+    const { rows } = await client.query<{
+      permissive: string;
+      cmd: string;
+      roles: string[];
+      check: string;
+    }>(`
+      SELECT permissive, cmd, roles::text[] AS roles, with_check AS check
+      FROM pg_policies
+      WHERE tablename = 'platform_admins' AND policyname = 'platform_admins_app_insert_team_member'`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      permissive: 'RESTRICTIVE',
+      cmd: 'INSERT',
+      roles: ['firmivra_app'],
+    });
+    expect(rows[0]?.check).toContain(`'TEAM_MEMBER'`);
+    expect(rows[0]?.check).toContain(`'platform'`);
   });
 
   it('agreements and their files update only the columns the workflow changes', async () => {

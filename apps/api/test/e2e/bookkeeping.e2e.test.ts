@@ -563,7 +563,9 @@ describe('the list, the overview and the exports', () => {
     });
     await call('post', `/clients/${bks.green}/status`, people.ownerA, { status: 'ON_TRACK' });
     await call('patch', `/clients/${bks.turner}`, people.ownerA, { nextReportDueOn: day(5) });
-    await call('patch', `/clients/${bks.davis}`, people.ownerA, { nextReportDueOn: day(40) });
+    // A fixed date years past any client's default due date (the 20th after a period of at most
+    // a year), so the report-due filter below finds Davis alone whatever day the suite runs.
+    await call('patch', `/clients/${bks.davis}`, people.ownerA, { nextReportDueOn: '2039-03-15' });
     await call('post', `/clients/${bks.green}/connections`, people.ownerA, {
       provider: 'quickbooks',
       providerCompany: `FAKE-QB-${run}`,
@@ -620,7 +622,7 @@ describe('the list, the overview and the exports', () => {
     expect(await q('software=NOT_CONNECTED')).toContain(bks.turner);
     expect(await q('software=NOT_CONNECTED')).not.toContain(bks.green);
     expect(await q('search=Green Leaf')).toEqual([bks.green]);
-    expect(await q(`reportDueFrom=${day(30)}&reportDueTo=${day(50)}`)).toEqual([bks.davis]);
+    expect(await q('reportDueFrom=2039-03-01&reportDueTo=2039-03-31')).toEqual([bks.davis]);
     expect(await q(`assignedUserId=${people.adminA.id}`)).toEqual([bks.green]);
     expect(await q('status=MISSING_DOCUMENTS&tab=ALL')).toContain(bks.davis);
     expect(await q('tab=OVERDUE&status=ON_TRACK')).toEqual([]);

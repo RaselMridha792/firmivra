@@ -1,9 +1,14 @@
 'use client';
 
 import { Bell, ChevronDown, Menu, Search } from 'lucide-react';
+import Link from 'next/link';
 import { type ReactNode, useState } from 'react';
 import { useMe } from '../signed-in';
 import { initials } from './types';
+
+/** One entry of the account menu above Sign out: a page, or an action such as opening a panel. */
+export type AccountMenuItem =
+  { label: string; href: string } | { label: string; onSelect: () => void };
 
 /** Top bar: menu button (below 768 px), search (Super Admin) or greeting (portal), bell, user menu. */
 export function Header({
@@ -15,7 +20,10 @@ export function Header({
   hideRole = false,
   start,
   actions,
+  accountMenu = [],
 }: {
+  /** Account menu entries above Sign out (the firm's My Profile, My Settings, Help & Support). */
+  accountMenu?: AccountMenuItem[];
   /** Replaces the search box or greeting, for example the firm's search form. */
   start?: ReactNode;
   /** Controls before the bell, for example the firm's "+ New" menu. */
@@ -121,6 +129,35 @@ export function Header({
                 </span>
                 <span className="text-muted">{roleLabel}</span>
               </p>
+              {accountMenu.map((item) =>
+                'href' in item ? (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    role="menuitem"
+                    onClick={() => setOpen(false)}
+                    className="block w-full rounded-control px-3 py-2 text-left text-sm text-text hover:bg-canvas"
+                  >
+                    {item.label}
+                  </Link>
+                ) : (
+                  <button
+                    key={item.label}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpen(false);
+                      item.onSelect();
+                    }}
+                    className="w-full rounded-control px-3 py-2 text-left text-sm text-text hover:bg-canvas"
+                  >
+                    {item.label}
+                  </button>
+                ),
+              )}
+              {accountMenu.length ? (
+                <span aria-hidden className="my-1 block h-px bg-divider" />
+              ) : null}
               <button
                 type="button"
                 role="menuitem"
