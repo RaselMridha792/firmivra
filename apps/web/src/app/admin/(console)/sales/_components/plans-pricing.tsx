@@ -113,25 +113,27 @@ export function PlansPricing({
                 <li
                   key={plan.id}
                   data-testid={`plan-${plan.id}`}
-                  className="flex min-w-0 flex-col gap-2 rounded-xl border border-divider p-3"
+                  className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-divider p-3"
                 >
                   <div className="flex items-start gap-2">
                     <span
-                      className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${style.tile}`}
+                      className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${style.tile}`}
                     >
-                      <Glyph aria-hidden weight="fill" className="size-6" />
+                      <Glyph aria-hidden weight="fill" className="size-5" />
                     </span>
                     <div className="min-w-0">
-                      <h3 className="font-semibold text-heading">{plan.name}</h3>
-                      {plan.tagline ? <p className="text-xs text-muted">{plan.tagline}</p> : null}
+                      <h3 className="text-sm leading-snug font-bold text-heading">{plan.name}</h3>
+                      {plan.tagline ? (
+                        <p className="text-xs leading-snug text-muted">{plan.tagline}</p>
+                      ) : null}
                     </div>
                   </div>
-                  <p className="flex flex-wrap items-baseline gap-1 text-heading">
+                  <p className="flex flex-wrap items-baseline gap-x-1 text-heading">
                     {plan.priceFrom ? <span className="text-sm font-medium">From</span> : null}
-                    <span className="text-2xl font-bold">{wholeDollars(plan.priceCents)}</span>
+                    <span className="text-xl font-bold">{wholeDollars(plan.priceCents)}</span>
                     <span className="text-sm text-text">/ month</span>
                   </p>
-                  <ul className="flex flex-1 flex-col gap-1 text-sm text-text">
+                  <ul className="flex flex-1 flex-col gap-0.5 text-sm leading-snug text-text">
                     {plan.highlights.map((line) => (
                       <li key={line} className="flex items-start gap-2">
                         <Check
@@ -146,7 +148,7 @@ export function PlansPricing({
                   <button
                     type="button"
                     onClick={() => (plan.trial ? onTrial(plan.id) : onContactSales(plan.id))}
-                    className={`min-h-9 rounded-lg px-2 py-1.5 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus ${style.button}`}
+                    className={`mt-1 min-h-8 rounded-lg px-2 py-1 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus ${style.button}`}
                   >
                     {plan.trial ? 'Start 14-Day Trial' : 'Contact Sales'}
                     <span className="sr-only"> for {plan.name}</span>
@@ -154,7 +156,7 @@ export function PlansPricing({
                   <button
                     type="button"
                     onClick={() => onDetails(plan)}
-                    className="min-h-9 rounded-lg border border-action bg-surface px-2 py-1.5 text-sm font-medium text-action hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                    className="min-h-8 rounded-lg border border-action bg-surface px-2 py-1 text-sm font-medium text-action hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
                   >
                     View Details<span className="sr-only"> of {plan.name}</span>
                   </button>

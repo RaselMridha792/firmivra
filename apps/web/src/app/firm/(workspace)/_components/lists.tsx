@@ -6,7 +6,6 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../lib/api';
-import { moduleHref } from '../../../../lib/firm-modules';
 import { errorMessage } from '../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../lib/query';
 import { LOCATION_LABELS } from '../calendar/_components/shared';
@@ -93,7 +92,7 @@ export function TasksDue({ summary }: { summary: UseQueryResult<DashboardSummary
     <Widget
       title="Tasks Due"
       query={summary}
-      link={{ href: moduleHref('tasks'), label: 'View All' }}
+      link={{ href: '/tasks', label: 'View All' }}
       isEmpty={(d) => d.tasksDue.length === 0}
       empty="No tasks due"
     >
