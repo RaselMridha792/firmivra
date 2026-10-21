@@ -4,6 +4,7 @@ import {
   createRequest,
   createSettingsOverviewClient,
   createUsersClient,
+  UsersQuery,
   InviteUserRequest,
   ResetBrandingRequest,
   UpdateBrandingRequest,
@@ -65,6 +66,29 @@ describe('api.users', () => {
     expect(client.exportUrl({ role: 'STAFF', page: 3 })).toBe(
       '/api/v1/business/users/export?role=STAFF&status=all',
     );
+  });
+
+  it('sends a selection as one comma-separated ids value, at most 100 member ids', async () => {
+    const a = '0199c0a0-0a00-7000-8000-000000000001';
+    const b = '0199c0a0-0a00-7000-8000-000000000002';
+    const { fn, calls } = fakeFetch(200, { items: [], total: 0, page: 1, pageSize: 10 });
+    const client = createUsersClient(request(fn), '/api/v1');
+    expect(client.exportUrl({ ids: [a, b] })).toBe(
+      `/api/v1/business/users/export?status=all&ids=${encodeURIComponent(`${a},${b}`)}`,
+    );
+    await client.list({ ids: `${a},${b}` });
+    expect(calls[0]?.url).toContain(`ids=${encodeURIComponent(`${a},${b}`)}`);
+    expect(UsersQuery.safeParse({ ids: 'not-an-id' }).success).toBe(false);
+    expect(UsersQuery.safeParse({ ids: '' }).success).toBe(false);
+    expect(UsersQuery.safeParse({ ids: Array.from({ length: 101 }, () => a) }).success).toBe(false);
+  });
+
+  it('filters by one custom role id', async () => {
+    const a = '0199c0a0-0a00-7000-8000-000000000001';
+    const { fn, calls } = fakeFetch(200, { items: [], total: 0, page: 1, pageSize: 10 });
+    await createUsersClient(request(fn), '/api/v1').list({ customRoleId: a });
+    expect(calls[0]?.url).toContain(`customRoleId=${a}`);
+    expect(UsersQuery.safeParse({ customRoleId: 'BOOKKEEPER' }).success).toBe(false);
   });
 
   it('never invites an owner', () => {

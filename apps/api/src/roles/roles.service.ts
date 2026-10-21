@@ -12,7 +12,6 @@ import {
   FIRM_ROLES,
   PermissionCapability,
   PermissionModule,
-  ROLES_MANAGED_BY,
   type MembershipRole,
   type PermissionModuleList,
   type RoleList,
@@ -31,6 +30,8 @@ type Save = z.output<typeof SaveRoleBody>;
 const MODULES = PermissionModule.options;
 const CAPABILITIES = PermissionCapability.options;
 const key = (m: string, c: string) => `${m}:${c}`;
+/** What Roles & Permissions itself needs: read, save and reset a grid. */
+const ROLE_PAGE: PermissionCapability[] = ['VIEW', 'EDIT', 'DELETE'];
 
 const forbidden = (code: 'FORBIDDEN' | 'CANNOT_GRANT', message: string) =>
   new ForbiddenException({ code, message });
@@ -49,10 +50,14 @@ export class RolesService {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * Owner and Admin change every role's grid but the Owner's (Octavia's review, Oct 20: an Admin
+   * may edit the Admin role too). Who may give a role to a person stays ROLES_MANAGED_BY.
+   */
   private assertCanChange(actor: TenantContext, role: MembershipRole) {
     if (role === 'OWNER') throw forbidden('FORBIDDEN', 'The Owner role cannot be changed');
-    const managed = ROLES_MANAGED_BY[actor.role as MembershipRole] ?? [];
-    if (!managed.includes(role)) throw forbidden('CANNOT_GRANT', 'You cannot change this role');
+    if (actor.role !== 'OWNER' && actor.role !== 'ADMIN')
+      throw forbidden('CANNOT_GRANT', 'You cannot change this role');
   }
 
   list(tenant: TenantContext): Promise<RoleList> {
@@ -152,6 +157,16 @@ export class RolesService {
               details: [{ path: 'grants', module: m }],
             });
         }
+        // An Admin cannot close this page to every Admin (only the Owner may take it away).
+        if (
+          tenant.role === 'ADMIN' &&
+          role === 'ADMIN' &&
+          ROLE_PAGE.some((c) => !now.get(key('STAFF_MANAGEMENT', c)))
+        )
+          throw new ConflictException({
+            code: 'ADMIN_LOCKOUT',
+            message: 'Admins would lose Roles & Permissions; only the Owner can take it away',
+          });
         const escalates = body.grants.some((g) => g.granted && !isDefault(g.module, g.capability));
         if (escalates && !body.acknowledgeEscalation)
           throw new ConflictException({

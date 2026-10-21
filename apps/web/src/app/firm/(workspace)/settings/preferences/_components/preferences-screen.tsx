@@ -3,7 +3,7 @@
 import type { BrandingSettings, FirmPreferences, FirmSettings } from '@firmivra/types';
 import { Button, Callout, Select, Skeleton } from '@firmivra/ui';
 import { Clock, GearSix, Globe, Info, NumberSquareOne } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
@@ -26,11 +26,12 @@ const TIME_ZONES: [string, string][] = [
   ['Pacific/Honolulu', '(GMT-10:00) Hawaii'],
   ['America/Puerto_Rico', '(GMT-04:00) Atlantic Time (Puerto Rico)'],
 ];
+/** Each language named in itself (guide, "Persistence and selector"). */
 const LOCALES: [string, string][] = [
   ['en-US', 'English (United States)'],
-  ['es-US', 'Spanish (United States)'],
+  ['es-US', 'Español (Estados Unidos)'],
   ['en-CA', 'English (Canada)'],
-  ['fr-CA', 'French (Canada)'],
+  ['fr-CA', 'Français (Canada)'],
   ['en-GB', 'English (United Kingdom)'],
 ];
 const CURRENCIES: [string, string][] = [
@@ -85,7 +86,9 @@ function sampleTime(zone: string): string {
  * Settings > System Preferences (guide §2, §11, §17.1 Preferences): the firm's time zone
  * (`api.settings`, used by schedules, reports and appointments) and its locale, currency, date
  * and number formats (`api.branding` preferences), with a live example. Changing the currency
- * never rewrites past invoices.
+ * never converts past invoices or payments (nothing converts: invoices keep their own currency).
+ * The language is saved, but no screen, email or text message is translated yet, so the page
+ * says so under the choice.
  */
 export function PreferencesScreen() {
   const firm = useApiQuery(FIRM_SETTINGS, () => api.settings.get());
@@ -147,6 +150,7 @@ function PreferencesForm({
   onFirmSaved: () => Promise<void>;
   onReload: () => void;
 }) {
+  const noteId = useId();
   const [zone, setZone] = useState(firm.timezone);
   const [prefs, setPrefs] = useState<FirmPreferences>(branding.preferences);
   const save = useApiMutation(
@@ -206,16 +210,23 @@ function PreferencesForm({
             label="Language & Region"
             options={options(LOCALES)}
             value={prefs.locale}
+            aria-describedby={`${noteId}-language`}
             onChange={(e) => set('locale', e.target.value)}
           />
+          <p id={`${noteId}-language`} className="text-xs text-muted">
+            Screens, emails and text messages are in English for now. The language you pick is saved
+            but not applied yet.
+          </p>
           <Select
             label="Currency"
             options={options(CURRENCIES)}
             value={prefs.currency}
+            aria-describedby={`${noteId}-currency`}
             onChange={(e) => set('currency', e.target.value)}
           />
-          <p className="text-xs text-muted">
-            Changing the currency never rewrites past invoices or payments.
+          <p id={`${noteId}-currency`} className="text-xs text-muted">
+            Changing the currency never converts past invoices or payments. They keep their original
+            amounts and currencies.
           </p>
         </SettingsCard>
         <SettingsCard

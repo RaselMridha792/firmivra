@@ -96,6 +96,8 @@ export const StaffListItem = z.object({
   jobTitle: z.string().nullable(),
   departments: z.array(NamedRef),
   role: MembershipRole,
+  /** The firm's own role they have (its `basedOn` is `role`), or null. */
+  customRole: NamedRef.nullable().optional(),
   accessLevel: StaffAccessLevel,
   status: TeamMemberStatus,
   /** Null until they first sign in; for INVITED the row shows the invite instead. */
@@ -139,6 +141,17 @@ export const StaffFormOptions = z.object({
   managers: z.array(StaffRef),
   /** The roles the signed-in person may give (ROLES_MANAGED_BY), with the screen's description. */
   roles: z.array(z.object({ role: MembershipRole, label: z.string(), description: z.string() })),
+  /** The firm's live custom roles the signed-in person may give (their `basedOn` is in `roles`). */
+  customRoles: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        name: z.string(),
+        basedOn: MembershipRole,
+        description: z.string().nullable(),
+      }),
+    )
+    .optional(),
   /** Titles already used at the firm, for "Select or enter job title". Free text is allowed. */
   jobTitles: z.array(z.string()),
   /**
@@ -200,6 +213,8 @@ export const StaffDetail = z.object({
   phone: z.string().nullable(),
   avatarUrl: z.string().nullable().optional(),
   role: MembershipRole,
+  /** The firm's own role they have (its `basedOn` is `role`), or null. */
+  customRole: NamedRef.nullable().optional(),
   status: TeamMemberStatus,
   jobTitle: z.string().nullable(),
   departments: z.array(NamedRef),
@@ -528,6 +543,8 @@ export type PermissionCell = z.infer<typeof PermissionCell>;
 /** GET /business/staff/{id}/permissions: Access Summary and the Permissions tab. */
 export const StaffPermissions = z.object({
   role: MembershipRole,
+  /** Their custom role, whose grid stands in for the role's (cells with source FIRM_ROLE). */
+  customRole: NamedRef.nullable().optional(),
   /** Every module and capability (24 x 7 cells). */
   cells: z.array(PermissionCell),
   updatedAt: DateTime.nullable(),
@@ -540,6 +557,40 @@ export const SetStaffPermissionsRequest = z.strictObject({
   acknowledgeEscalation: z.boolean().optional(),
 });
 export type SetStaffPermissionsRequest = z.input<typeof SetStaffPermissionsRequest>;
+
+/**
+ * One cell of a person's own permissions (Octavia's review, Oct 20, section 3): INHERIT follows
+ * the role (the firm's grid for it), ALLOW and DENY are the person's whatever the role says, also
+ * when ALLOW matches the role today (so a later change to the role does not take it away).
+ */
+export const PermissionOverrideMode = z.enum(['INHERIT', 'ALLOW', 'DENY']);
+export type PermissionOverrideMode = z.infer<typeof PermissionOverrideMode>;
+
+/**
+ * PATCH /business/staff/{id}/permissions: Inherit, Allow or Deny for the cells sent; the others
+ * stay as they are. Owner and Admin; never the Owner. 400 PERMISSION_NEEDS_VIEW when a module
+ * would have a capability without View; 409 PERMISSION_ESCALATION when an ALLOW gives more than
+ * the role (resend with acknowledgeEscalation). Answers the member's permissions, where a cell
+ * with an override has source MEMBER.
+ */
+export const SetStaffOverridesRequest = z.strictObject({
+  overrides: z
+    .array(
+      z.strictObject({
+        module: PermissionModule,
+        capability: PermissionCapability,
+        mode: PermissionOverrideMode,
+      }),
+    )
+    .min(1)
+    .max(24 * 7)
+    .refine(
+      (cells) => new Set(cells.map((c) => `${c.module}:${c.capability}`)).size === cells.length,
+      'Send each cell once',
+    ),
+  acknowledgeEscalation: z.boolean().optional(),
+});
+export type SetStaffOverridesRequest = z.input<typeof SetStaffOverridesRequest>;
 
 /** High-risk actions (reset password or MFA, lock, sign out all): a reason and a confirm. */
 export const StaffSecurityActionRequest = z.strictObject({

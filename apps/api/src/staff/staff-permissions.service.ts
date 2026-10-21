@@ -6,6 +6,7 @@ import {
   PermissionCapability,
   PermissionModule,
   type PermissionGrant,
+  type PermissionOverrideMode,
   type StaffPermissions,
 } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
@@ -205,6 +206,104 @@ export class StaffPermissionsService {
           'staff.permissions_saved',
           { type: 'membership', id },
           { ...out, ...(copiedFrom ? { copiedFrom } : {}) },
+          { businessId },
+        );
+      });
+    } catch (e) {
+      throw mapStaffDbError(e);
+    }
+    this.grants.invalidateMember(businessId);
+    return this.get(businessId, id);
+  }
+
+  /**
+   * Individual permissions (Octavia's review, Oct 20, section 3): Inherit removes the person's own
+   * cell (the role decides again), Allow and Deny keep one, also an Allow that matches the role
+   * today. Only the cells sent change. View first in a module (400 PERMISSION_NEEDS_VIEW); an
+   * Allow beyond the role asks first (409 PERMISSION_ESCALATION); never the Owner's grid.
+   */
+  async overrides(
+    actor: StaffActor,
+    id: string,
+    cells: readonly {
+      module: PermissionModule;
+      capability: PermissionCapability;
+      mode: PermissionOverrideMode;
+    }[],
+    acknowledged: boolean,
+  ): Promise<StaffPermissions> {
+    const businessId = actor.businessId;
+    try {
+      await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+        const by = await requireManager(tx, actor);
+        const target = await lockTarget(tx, businessId, id);
+        assertManages(actor, target);
+        if (target.role === 'OWNER')
+          throw new BadRequestException({
+            code: 'VALIDATION_FAILED',
+            message: "The Owner's permissions cannot be changed",
+          });
+        const grid = await memberGrid(tx, businessId, target.role, id);
+        const roleHas = (k: string) => grid.role.get(k)?.granted ?? false;
+        const now = new Map([...grid.member].map(([k, v]) => [k, v.granted]));
+        for (const c of cells) {
+          const k = cellKey(c.module, c.capability);
+          now.set(k, c.mode === 'INHERIT' ? roleHas(k) : c.mode === 'ALLOW');
+        }
+        // Only the modules this change touches: what is saved elsewhere never blocks it.
+        for (const m of new Set(cells.map((c) => c.module))) {
+          const others = CAPABILITIES.some((c) => c !== 'VIEW' && now.get(cellKey(m, c)));
+          if (others && !now.get(cellKey(m, 'VIEW')))
+            throw new BadRequestException({
+              code: 'PERMISSION_NEEDS_VIEW',
+              message: 'Give View before the other capabilities',
+              details: [{ path: 'overrides', module: m }],
+            });
+        }
+        const escalated = cells.some(
+          (c) => c.mode === 'ALLOW' && !roleHas(cellKey(c.module, c.capability)),
+        );
+        if (escalated && !acknowledged)
+          throw staffConflict(
+            'PERMISSION_ESCALATION',
+            "This gives the member more than their role's permissions; confirm to continue",
+          );
+        let changedCells = 0;
+        for (const c of cells) {
+          const k = cellKey(c.module, c.capability);
+          const before = grid.member.get(k) as Cell;
+          const key = { businessId, membershipId: id, module: c.module, capability: c.capability };
+          if (c.mode === 'INHERIT') {
+            if (before.source === 'MEMBER') {
+              await tx.memberPermission.delete({
+                where: { businessId_membershipId_module_capability: key },
+              });
+              changedCells++;
+            }
+            continue;
+          }
+          const value = c.mode === 'ALLOW';
+          if (before.source !== 'MEMBER' || before.granted !== value) {
+            await tx.memberPermission.upsert({
+              where: { businessId_membershipId_module_capability: key },
+              create: { ...key, granted: value, updatedById: by },
+              update: { granted: value, updatedAt: new Date(), updatedById: by },
+            });
+            changedCells++;
+          }
+        }
+        const count = (mode: PermissionOverrideMode) => cells.filter((c) => c.mode === mode).length;
+        await this.audit.logIn(
+          tx,
+          'staff.permissions_overridden',
+          { type: 'membership', id },
+          {
+            changedCells,
+            allowed: count('ALLOW'),
+            denied: count('DENY'),
+            inherited: count('INHERIT'),
+            escalated,
+          },
           { businessId },
         );
       });

@@ -1,22 +1,25 @@
 'use client';
 
-import { Badge, Table } from '@firmivra/ui';
+import type { UsersSummary } from '@firmivra/types';
+import { Badge, Button, Callout, Skeleton, Table } from '@firmivra/ui';
 import {
   CheckCircle,
   ClockCountdown,
+  Info,
   Key,
   LockKey,
   PuzzlePiece,
   ShieldCheck,
   ShieldWarning,
 } from '@phosphor-icons/react';
-import { useState } from 'react';
+import type { UseQueryResult } from '@tanstack/react-query';
+import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../../lib/api';
+import { errorMessage } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
 import {
   CardLink,
   Facts,
-  Loaded,
   NOT_LOADED,
   SettingsCard,
   SettingsHeader,
@@ -34,13 +37,15 @@ const when = (iso: string) =>
 const since = () => new Date(Date.now() - 30 * 86_400_000).toISOString();
 
 /**
- * Settings > Security & Access (guide §10): the firm's sign-in and session rules, who has set up
- * two-factor sign-in, and the failed sign-ins to review. The rules are the platform's minimum
- * (docs/AUTH-DESIGN.md): no firm-wide policy table exists yet (Settings contract), so the cards
- * show them and open the pages where each person's settings change.
+ * Settings > Security & Access (guide §10; Octavia's review of Oct 20,
+ * docs/specs/settings-review-2026-10-20/security--*.md): the sign-in, password and session rules,
+ * the firm's staff accounts under the two-factor rule, and the failed sign-ins to review. The
+ * rules are the platform's (no firm-wide policy table exists). Where the sign-in service does not
+ * apply a rule yet, the card says what applies today instead of claiming it.
  */
 export function SecurityScreen() {
-  const users = useApiQuery(['users', 'list', 'security'], () => api.users.list({ pageSize: 100 }));
+  // Users & Roles' counters (the same cache entry): every account of the firm, not a first page.
+  const summary = useApiQuery(['users', 'summary'], () => api.users.summary());
   const overview = useApiQuery(['settings', 'overview'], () => api.settingsOverview.get());
   // Fixed for the visit, so the query keeps its key.
   const [from] = useState(since);
@@ -52,8 +57,6 @@ export function SecurityScreen() {
       limit: 10,
     }),
   );
-  const count = (state: string) =>
-    (users.data?.items ?? []).filter((u) => u.status !== 'DEACTIVATED' && u.mfa === state).length;
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -65,7 +68,7 @@ export function SecurityScreen() {
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <SettingsCard
           title="Two-Factor Sign-in (MFA)"
-          subtitle="Required for every staff account; it cannot be turned off."
+          subtitle="Required by default for every staff account, at every sign-in."
           icon={ShieldCheck}
           tone="green"
           testId="mfa-policy"
@@ -75,18 +78,12 @@ export function SecurityScreen() {
             </Badge>
           }
         >
-          <Loaded query={users}>
-            {() => (
-              <Facts
-                rows={[
-                  ['Method', 'Authenticator app'],
-                  ['Staff with 2FA set up', count('ENABLED')],
-                  ['Waiting to set it up', count('PENDING')],
-                  ['Not set up', count('DISABLED')],
-                ]}
-              />
-            )}
-          </Loaded>
+          <MfaAccounts summary={summary} />
+          <p className="text-xs text-muted">
+            Only the Owner, or an Admin with the security permission, may change this requirement,
+            after signing in again, and each change is recorded in the audit log. There is no
+            setting to change it yet, so it stays on for every staff account.
+          </p>
           <CardLink href="/settings/users">Review Users</CardLink>
         </SettingsCard>
 
@@ -98,13 +95,19 @@ export function SecurityScreen() {
         >
           <Facts
             rows={[
-              ['Minimum length', '12 characters'],
-              ['Must include', 'Upper and lower case letters and a number'],
+              ['Minimum length', '15 characters'],
+              ['Spaces and symbols', 'Allowed anywhere, and never trimmed'],
+              ['Character mix', 'Not required'],
               ['Compromised-password check', 'On'],
-              ['Lockout after repeated failures', 'On'],
+              ['Lockout', '5 failures on one account in 15 minutes lock it for 15 minutes'],
               ['Who sets a password', 'The person, from a secure link'],
             ]}
           />
+          <NotInForce testId="password-not-in-force">
+            New passwords still need at least 12 characters, with an upper-case letter, a lower-case
+            letter and a number, and can&apos;t start or end with a space. Failed sign-ins are
+            already limited, but not yet by this lockout rule.
+          </NotInForce>
           <p className="text-xs text-muted">
             Nobody at your firm, and nobody at Firmivra, can see or set a staff password.
           </p>
@@ -118,11 +121,16 @@ export function SecurityScreen() {
         >
           <Facts
             rows={[
-              ['Longest sign-in', '7 days, then sign in again'],
-              ['Automatic logout and trusted devices', 'Set per person'],
-              ['Deactivation or password reset', 'Signs out every session at once'],
+              ['Longest sign-in', '8 hours, then sign in again'],
+              ['Sign-out when idle', 'After 15 minutes, with a warning 2 minutes before'],
+              ['Deactivation or password reset', 'Ends every session'],
             ]}
           />
+          <NotInForce testId="sessions-not-in-force">
+            A sign-in still lasts up to 7 days, and there is no idle sign-out or warning yet.
+            Deactivation ends access to your firm at once. A password reset signs out every device
+            within 15 minutes of the new password being set.
+          </NotInForce>
           <CardLink href="/team">Open Staff Management</CardLink>
         </SettingsCard>
 
@@ -180,6 +188,55 @@ export function SecurityScreen() {
         <LockKey aria-hidden weight="fill" className="size-4" />
         Changes to security settings and every security action are recorded in the audit log.
       </div>
+    </div>
+  );
+}
+
+/**
+ * The firm's staff accounts under the two-factor rule, from Users & Roles' counters. Who has
+ * finished setting up an authenticator is not recorded yet (only the sign-in service knows), so
+ * that row says so instead of showing 0. A failed call says so, with Retry, never as zero.
+ */
+function MfaAccounts({ summary }: { summary: UseQueryResult<UsersSummary> }) {
+  if (summary.isPending) return <Skeleton className="h-24" />;
+  const count = (n: number | undefined) => n ?? 'Could not load';
+  return (
+    <>
+      <Facts
+        rows={[
+          ['Method', 'Authenticator app'],
+          ['Active staff accounts', count(summary.data?.active)],
+          ['Invited, not signed in yet', count(summary.data?.pendingInvitations)],
+          ['Staff with 2FA set up', 'Not recorded yet'],
+        ]}
+      />
+      {summary.isError ? (
+        <p
+          role="alert"
+          className="flex flex-wrap items-center gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger"
+          data-testid="mfa-error"
+        >
+          The staff counts could not load. {errorMessage(summary.error)}
+          <Button
+            variant="outline"
+            disabled={summary.isFetching}
+            onClick={() => void summary.refetch()}
+          >
+            Retry
+          </Button>
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/** What applies today where the sign-in service does not apply the card's rules yet. */
+function NotInForce({ testId, children }: { testId: string; children: ReactNode }) {
+  return (
+    <div data-testid={testId}>
+      <Callout icon={Info} tone="amber" surface="warning" size="compact" title="Not in force yet">
+        <span>{children}</span>
+      </Callout>
     </div>
   );
 }

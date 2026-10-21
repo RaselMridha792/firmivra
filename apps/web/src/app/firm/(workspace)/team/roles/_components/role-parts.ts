@@ -94,5 +94,7 @@ export const ROLE_ERRORS: Record<string, string> = {
   CANNOT_GRANT: 'You cannot change this role, or give what you do not have yourself.',
   PERMISSION_NEEDS_VIEW: 'Give View first in each module you give anything else in.',
   NOT_IMPLEMENTED: 'Custom roles are not available yet.',
-  FORBIDDEN: 'Only an Owner or an Admin can change roles.',
+  FORBIDDEN: 'Only an Owner or an Admin can change roles, and the Owner role never changes.',
+  ADMIN_LOCKOUT:
+    'Admins would lose access to Roles & Permissions. Only the Owner can take Staff Management away from the Admin role.',
 };
