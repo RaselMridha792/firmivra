@@ -1,4 +1,4 @@
-// End-to-end: the eight firm roles (R35). One representative route per module, for each role: the
+// End-to-end: the nine firm roles (R35; Business Consultant Oct 21). One representative route per module, for each role: the
 // guard lets a role in where its grid allows it, and refuses it everywhere else. Owner, Admin and
 // Staff keep the access their routes list. The expected table is written out by hand so a change
 // to the grid or to a route's access shows up here. Synthetic data only.
@@ -121,58 +121,79 @@ const ROUTES: {
     module: 'Clients (create)',
     method: 'post',
     path: '/business/clients',
-    allowed: only(...LEGACY, 'MANAGER', 'TAX_PREPARER', 'CLIENT_SUPPORT'),
+    allowed: only(...LEGACY, 'MANAGER', 'TAX_PREPARER', 'CLIENT_SUPPORT', 'BUSINESS_CONSULTANT'),
   },
   {
     module: 'Leads',
     method: 'get',
     path: '/business/leads',
-    allowed: only(...LEGACY, 'MANAGER', 'TAX_PREPARER', 'CLIENT_SUPPORT'),
+    allowed: only(...LEGACY, 'MANAGER', 'TAX_PREPARER', 'CLIENT_SUPPORT', 'BUSINESS_CONSULTANT'),
   },
   {
     module: 'Appointments',
     method: 'get',
     path: '/business/appointments',
-    allowed: only(...LEGACY, 'MANAGER', 'TAX_PREPARER', 'CLIENT_SUPPORT', 'READ_ONLY'),
+    allowed: only(
+      ...LEGACY,
+      'MANAGER',
+      'TAX_PREPARER',
+      'CLIENT_SUPPORT',
+      'BUSINESS_CONSULTANT',
+      'READ_ONLY',
+    ),
   },
   {
     module: 'Intake Forms',
     method: 'get',
     path: `/business/intakes/${anyId}`,
-    allowed: only(...LEGACY, 'MANAGER', 'TAX_PREPARER', 'CLIENT_SUPPORT'),
+    allowed: only(...LEGACY, 'MANAGER', 'TAX_PREPARER', 'CLIENT_SUPPORT', 'BUSINESS_CONSULTANT'),
   },
   {
     module: 'Documents',
     method: 'get',
     path: '/business/document-categories',
-    allowed: only(...LEGACY, 'MANAGER', 'BOOKKEEPER', 'TAX_PREPARER', 'CLIENT_SUPPORT'),
+    allowed: only(
+      ...LEGACY,
+      'MANAGER',
+      'BOOKKEEPER',
+      'TAX_PREPARER',
+      'CLIENT_SUPPORT',
+      'BUSINESS_CONSULTANT',
+    ),
   },
   { module: 'Tasks (view)', method: 'get', path: '/business/tasks', allowed: ALL },
   {
     module: 'Tasks (edit)',
     method: 'patch',
     path: `/business/tasks/${anyId}`,
-    allowed: only(...LEGACY, 'MANAGER', 'BOOKKEEPER'),
+    allowed: only(...LEGACY, 'MANAGER', 'BOOKKEEPER', 'BUSINESS_CONSULTANT'),
   },
   {
     module: 'Tax Returns',
     method: 'get',
     path: `/business/clients/${anyId}/tax-returns`,
-    allowed: only(...LEGACY, 'MANAGER', 'TAX_PREPARER'),
+    allowed: only(...LEGACY, 'MANAGER', 'TAX_PREPARER', 'BUSINESS_CONSULTANT'),
   },
   {
     module: 'Messages',
     method: 'get',
     path: '/business/message-threads',
-    allowed: only(...LEGACY, 'MANAGER', 'BOOKKEEPER', 'TAX_PREPARER', 'CLIENT_SUPPORT'),
+    allowed: only(
+      ...LEGACY,
+      'MANAGER',
+      'BOOKKEEPER',
+      'TAX_PREPARER',
+      'CLIENT_SUPPORT',
+      'BUSINESS_CONSULTANT',
+    ),
   },
   {
     module: 'Invoices & Payments',
     method: 'get',
     path: '/business/invoices',
-    allowed: only(...LEGACY, 'MANAGER', 'BOOKKEEPER', 'TAX_PREPARER'),
+    allowed: only(...LEGACY, 'MANAGER', 'BOOKKEEPER', 'TAX_PREPARER', 'BUSINESS_CONSULTANT'),
   },
-  // Not opened to the five newer roles (no @Access): Firm Sign, and anything Owner and Admin keep.
+  // Not opened to the six newer roles (no @Access): Firm Sign, and anything Owner and Admin keep.
   { module: 'Firm Sign', method: 'get', path: '/esign/requests', allowed: only(...LEGACY) },
   {
     module: 'Staff Management',
@@ -189,7 +210,7 @@ const ROUTES: {
   },
 ];
 
-describe('the eight firm roles on one route per module', () => {
+describe('the nine firm roles on one route per module', () => {
   for (const route of ROUTES) {
     describe(`${route.module}: ${route.method.toUpperCase()} ${route.path}`, () => {
       for (const role of FIRM_ROLES) {

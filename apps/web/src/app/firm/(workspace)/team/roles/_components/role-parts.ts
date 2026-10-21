@@ -69,6 +69,7 @@ export const ROLE_LOOKS: Record<MembershipRole, [Icon, TileTone]> = {
   BOOKKEEPER: [Calculator, 'amber'],
   TAX_PREPARER: [IdentificationCard, 'blue'],
   CLIENT_SUPPORT: [Headset, 'green'],
+  BUSINESS_CONSULTANT: [ChartBar, 'purple'],
   READ_ONLY: [Eye, 'grey'],
 };
 

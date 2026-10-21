@@ -1302,6 +1302,7 @@ const ROLE_DESCRIPTIONS: Record<MembershipRole, string> = {
   TAX_PREPARER:
     'Can prepare and manage tax returns, access client information, and view related documents. Limited access to financial and administrative settings.',
   CLIENT_SUPPORT: 'Answers clients, books appointments and handles messages.',
+  BUSINESS_CONSULTANT: 'Advises their clients: Business Advisory plus the work Staff does.',
   READ_ONLY: 'Can look at clients, appointments and tasks, and change nothing.',
 };
 
