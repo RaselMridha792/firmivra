@@ -67,6 +67,7 @@ const ROLE_CHIPS: Record<MembershipRole, string> = {
   BOOKKEEPER: 'bg-warning-soft text-warning',
   TAX_PREPARER: 'bg-info-soft text-action',
   CLIENT_SUPPORT: 'bg-success-soft text-success',
+  BUSINESS_CONSULTANT: 'bg-purple-soft text-purple',
   READ_ONLY: 'bg-disabled text-text',
 };
 

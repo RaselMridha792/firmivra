@@ -130,12 +130,12 @@ describe('staff documents: rules', () => {
     await expect(doc({ s3Key: d.s3Key })).rejects.toThrow();
   });
 
-  it('accepts only the listed types, up to 10 MB, with a plain name and a SHA-256', async () => {
+  it('accepts only the listed types, up to 100 MB, with a plain name and a SHA-256', async () => {
     await expect(doc({ contentType: 'application/zip' })).rejects.toThrow();
     await expect(doc({ contentType: 'text/html' })).rejects.toThrow();
     await expect(doc({ sizeBytes: 0 })).rejects.toThrow();
-    await expect(doc({ sizeBytes: 10_485_761 })).rejects.toThrow();
-    await expect(doc({ sizeBytes: 10_485_760 })).resolves.toBeTruthy();
+    await expect(doc({ sizeBytes: 104_857_601 })).rejects.toThrow();
+    await expect(doc({ sizeBytes: 104_857_600 })).resolves.toBeTruthy();
     await expect(doc({ fileName: '../secrets.pdf' })).rejects.toThrow();
     await expect(doc({ fileName: 'a\\b.pdf' })).rejects.toThrow();
     await expect(doc({ sha256: 'abc' })).rejects.toThrow();
