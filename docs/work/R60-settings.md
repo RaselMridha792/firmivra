@@ -37,14 +37,16 @@ invites (below).
 
 | PR / branch | What | State |
 | --- | --- | --- |
-| #997 `rasel/R60-settings-preferences` | Settings Preferences: language saved but not applied yet; currency note | Open (opened Oct 21) |
-| #998 `rasel/R60-settings-security` | Settings Security: Octavia's rules on the page with "Not in force yet" notes; the MFA card reads `api.users.summary()` with Retry; copy follows Rasel's Oct 21 decisions (item 1) | Open (opened Oct 21). `GET /business/settings/overview` answers 404 on the local API (known, hidden badge) |
+| `rasel/R60-security-copy` | Settings Security: the spaces and MFA lines follow Rasel's answers (#998 merged before them), and this handoff | PR opened Oct 21 |
+| `rasel/R60-lockout-contract` | `retryAt` on the sign-in 429 (contract) | Item 1, lockout. Opened before the API PR |
+| `rasel/R60-sign-in-lockout` | Per-account sign-in lockout (API) | Item 1, lockout. Rasel's go Oct 21 |
 | `rasel/R60-team-invites` | Super Admin Team: invitations through Cognito (`team-invite.service.ts`, `team-invitation.ts`) | #981 merged Oct 21. Next: merge `main`, rerun the admin-team e2e (4 tests waited on the grant), open the PR when a slot frees |
 | `rasel/R60-begin-online` | Begin Online audit at 1440 px | Audit done (`R60-begin-online-audit.md`); Rasel decided the [decide] items that block the shared fixes (item 5); fixes not started |
 
 Merged on Oct 21: #975 Staff Management, #976 Team messages, #982 dashboard links, #983
 Communications, #987 Workflow & Automations, #969 intake-forms settings, #985 Forms & Documents,
-#993 Data & Backups.
+#993 Data & Backups, #996 this handoff, #997 Preferences, #998 Security (with its first wording;
+`GET /business/settings/overview` answers 404 on the local API, known, hidden badge).
 
 ## Blocking CI (fixed)
 
@@ -70,7 +72,11 @@ Rasel decided and answered (Oct 21). R60 may change the sign-in code for exactly
   per-IP `@Throttle(ATTEMPTS)` on the sign-in routes and `SIGN_IN_LIMIT`). No schema change is
   needed: `reserve()` in `sign-in.service.ts` already counts open attempts per `emailKey` (an
   HMAC of the email, per firm on a portal) from `audit_logs`, unknown emails the same as real
-  ones. Plan sent to Rasel Oct 21; build after his go, on its own branch, PR when a slot frees.
+  ones. Rasel's go (Oct 21), with three answers: wrong MFA codes count toward the 5; a
+  successful password reset lifts the lock; API first, and the sign-in screens keep "Too many
+  attempts. Wait a few minutes and try again." (a countdown from `retryAt` later). Only the
+  sign-in code for this lockout: no guards, Cognito or schema changes. The q20 test ("another
+  network still signs in") is rewritten to the per-account rule.
 
 The page says the rules and marks what is not in force. Enforcement needs auth and infra changes;
 none were made. Map (file, now, required, owner):
@@ -289,3 +295,6 @@ status, exports, restore) and the two rows show real dates.
 - Oct 21: Rasel's answers (spaces inside the password, the edge refusal stays; `MANAGE` on
   `SETTINGS`) in item 1 and on the Security page (#998, sheet reshot, spec 4 of 4). Lockout plan
   sent to Rasel; no schema change needed.
+- Oct 21: #996, #997 and #998 merged before the answers' commits, so the Security copy and this
+  handoff go in `rasel/R60-security-copy` from `main`. Rasel's go on the lockout; contract PR
+  for `retryAt` first, then the API PR.
