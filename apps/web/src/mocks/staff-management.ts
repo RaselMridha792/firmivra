@@ -1700,5 +1700,18 @@ export function createRolesMock(options: Options = {}): RolesClient {
       parseInput(CreateCustomRoleRequest, body);
       throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
     },
+    // The mock's custom roles come with the screens (R55); until then, as the API answered.
+    customRole: async () => {
+      await g.allowed();
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
+    updateCustom: async () => {
+      await g.allowed();
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
+    archiveCustom: async () => {
+      await g.allowed();
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
   };
 }
