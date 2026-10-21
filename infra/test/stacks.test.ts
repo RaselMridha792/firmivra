@@ -84,7 +84,7 @@ describe('data', () => {
       PubliclyAccessible: false,
       StorageEncrypted: true,
       DeletionProtection: true,
-      BackupRetentionPeriod: 7,
+      BackupRetentionPeriod: 35,
     });
   });
 
@@ -104,6 +104,12 @@ describe('data', () => {
             ServerSideEncryptionByDefault: Match.objectLike({ SSEAlgorithm: 'aws:kms' }),
           }),
         ],
+      },
+      // Old versions stay 35 days, the database backups' recovery window.
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({ NoncurrentVersionExpiration: { NoncurrentDays: 35 } }),
+        ]),
       },
     });
   });
