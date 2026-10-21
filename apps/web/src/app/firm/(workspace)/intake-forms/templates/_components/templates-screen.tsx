@@ -44,7 +44,9 @@ import { TemplateCard, TemplateCardSkeleton, type TemplateActions } from './temp
 import {
   ArchiveTemplateDialog,
   ChooseTemplateDialog,
+  CreateTemplateDialog,
   ImportTemplateDialog,
+  type NewTemplateService,
 } from './template-dialogs';
 import { INTAKE_KEY, LIBRARY_KEY, LoadFailed, Quiet, TAB_CATEGORIES } from './template-look';
 import { TemplatePreview } from './template-preview';
@@ -141,8 +143,10 @@ export function TemplatesScreen() {
     return () => clearTimeout(timer);
   }, [searchText]);
 
+  // Every template the firm keeps (its service forms, custom ones, drafts and duplicates), so
+  // the cards, the numbers and the categories all count the same rows (Octavia's review, I1).
   const query: IntakeFormsQuery = {
-    templates: 'true',
+    templates: 'all',
     category: category ?? undefined,
     search: search || undefined,
     sort: filters.sort,
@@ -150,16 +154,19 @@ export function TemplatesScreen() {
   };
   const summary = useApiQuery([...LIBRARY_KEY, 'summary'], () => api.intakeForms.librarySummary());
   const list = useApiQuery([...LIBRARY_KEY, 'list', query], () => api.intakeForms.forms(query));
-  // The whole library by last use: Recently Used and the Quick Actions' template choice.
+  // The whole library by last use: Recently Used, the Quick Actions' template choice and the
+  // services a new template can be for.
   const library = useApiQuery([...LIBRARY_KEY, 'recent'], () =>
-    api.intakeForms.forms({ templates: 'true', sort: 'recent' }),
+    api.intakeForms.forms({ templates: 'all', sort: 'recent' }),
   );
+  const [creating, setCreating] = useState(false);
 
   const create = useApiMutation(
-    (inCategory: FormCategory) =>
+    (service: NewTemplateService) =>
       api.intakeForms.createForm({
         name: 'Untitled Form Template',
-        category: inCategory,
+        category: service.category,
+        serviceId: service.id,
         isTemplate: true,
         startFrom: { kind: 'SCRATCH' },
       }),
@@ -173,13 +180,21 @@ export function TemplatesScreen() {
   });
   const failed = (error: unknown) => setNotice({ message: errorMessage(error), tone: 'error' });
 
-  /** Create Template: a blank template draft in the open category, then the builder (Frame 1). */
+  /** Create Template asks which service the template is for (every form belongs to one). */
   function createTemplate() {
     setNotice(null);
     setImporting(false);
-    create.mutate(category ?? 'OTHER', {
+    setCreating(true);
+  }
+
+  /** A blank template draft for the chosen service, then the builder (Frame 1). */
+  function createFor(service: NewTemplateService) {
+    create.mutate(service, {
       onSuccess: (form) => router.push(`/intake-forms/builder/${form.id}`),
-      onError: failed,
+      onError: (error) => {
+        setCreating(false);
+        failed(error);
+      },
     });
   }
 
@@ -231,6 +246,12 @@ export function TemplatesScreen() {
   ];
   const sortLabel = SORTS.find((sort) => sort.value === filters.sort)?.label;
   const statusLabel = STATUSES.find((status) => status.value === filters.status)?.label;
+  // The built-in forms' categories the firm has no service for: their forms can't exist yet.
+  const missing = summary.data
+    ? SERVICE_FORM_CATEGORIES.filter(
+        (id) => !summary.data.byCategory.some((c) => c.category === id && c.count > 0),
+      )
+    : [];
 
   return (
     <div className="flex flex-col gap-4" data-testid="templates-page">
@@ -398,6 +419,16 @@ export function TemplatesScreen() {
               </ul>
             )}
           </div>
+          {!narrowed && missing.length > 0 ? (
+            <p className="text-sm text-muted" data-testid="missing-service-forms">
+              The built-in {listOf(missing.map((id) => FORM_CATEGORY_LABELS[id]))}{' '}
+              {missing.length === 1 ? 'form appears' : 'forms appear'} here once your firm offers{' '}
+              {missing.length === 1 ? 'that service' : 'those services'}.{' '}
+              <Link href="/services-pricing" className="font-medium text-link underline">
+                Open Services &amp; Pricing
+              </Link>
+            </p>
+          ) : null}
         </section>
 
         <aside
@@ -471,8 +502,34 @@ export function TemplatesScreen() {
         onClose={() => setImporting(false)}
         onCreate={createTemplate}
       />
+      {creating ? (
+        <CreateTemplateDialog
+          library={library}
+          category={category}
+          busy={create.isPending}
+          onClose={() => setCreating(false)}
+          onCreate={createFor}
+        />
+      ) : null}
     </div>
   );
+}
+
+/** The categories of the six built-in (Begin Online) forms, one per service kind. */
+const SERVICE_FORM_CATEGORIES: FormCategory[] = [
+  'PERSONAL_TAX',
+  'BUSINESS_TAX',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'TAX_PLANNING',
+  'ADVISORY',
+];
+
+/** "A", "A and B", "A, B and C". */
+function listOf(words: string[]): string {
+  return words.length <= 2
+    ? words.join(' and ')
+    : `${words.slice(0, -1).join(', ')} and ${words.at(-1) ?? ''}`;
 }
 
 const quickAction =

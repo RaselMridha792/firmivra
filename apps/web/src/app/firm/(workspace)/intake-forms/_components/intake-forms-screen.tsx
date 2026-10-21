@@ -498,8 +498,9 @@ export function IntakeFormsScreen() {
   const assignedForms = useApiQuery([...INTAKE_KEY, 'list', query], () =>
     api.intakeForms.list(query),
   );
+  // The same library as Form Templates: every template the firm keeps (I1).
   const templates = useApiQuery([...INTAKE_KEY, 'templates'], () =>
-    api.intakeForms.forms({ templates: 'true', sort: 'used' }),
+    api.intakeForms.forms({ templates: 'all', sort: 'used' }),
   );
   const createDraft = useApiMutation(
     (input: { isTemplate: boolean; templateId?: string; category: FormCategory }) =>

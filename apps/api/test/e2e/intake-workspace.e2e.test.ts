@@ -340,6 +340,83 @@ describe('the form library', () => {
     expect(d.settings).toMatchObject({ requireSignature: true, showProgressBar: true });
     expect(d.publishedAt).toBeTruthy();
   });
+
+  // Octavia's review of Oct 20 (I1): every service of the six kinds has its built-in form, the
+  // numbers count the same rows as the list, and an archived form stays archived.
+  it('gives each service of the six kinds its built-in form once, and keeps an archived one archived', async () => {
+    const service = (kind: 'PAYROLL' | 'OTHER', name: string) =>
+      inFirm('a', (tx) =>
+        tx.service.create({
+          data: { businessId: firms.a, kind, name: `${name} ${run}`, status: 'ACTIVE' },
+          select: { id: true },
+        }),
+      );
+    const payroll = await service('PAYROLL', 'Payroll');
+    const notary = await service('OTHER', 'Notary');
+    const builtIn = INTAKE_FORMS.PAYROLL;
+    if (!builtIn) throw new Error('the built-in payroll form is missing');
+
+    // Three readers at once fill it once.
+    const lists = await Promise.all(
+      [ownerA, adminA, staffA].map(async (who) =>
+        IntakeFormList.parse(ok(await call('get', '/intake-forms', who))),
+      ),
+    );
+    for (const list of lists) {
+      const mine = list.items.filter((f) => f.service?.id === payroll.id);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]).toMatchObject({
+        name: builtIn.title,
+        category: 'PAYROLL',
+        status: 'PUBLISHED',
+        isTemplate: true,
+        custom: false,
+        usageCount: 0,
+        owner: null,
+      });
+      expect(list.items.some((f) => f.service?.id === notary.id)).toBe(false);
+    }
+    const versions = () =>
+      inFirm('a', (tx) =>
+        tx.intakeForm.count({ where: { businessId: firms.a, serviceId: payroll.id } }),
+      );
+    expect(await versions()).toBe(1);
+
+    // The numbers count the same rows as the list, templates or not.
+    const list = IntakeFormList.parse(ok(await call('get', '/intake-forms', ownerA)));
+    const sum = IntakeFormLibrarySummary.parse(
+      ok(await call('get', '/intake-forms/summary', ownerA)),
+    );
+    expect(sum.total).toBe(list.items.length);
+    expect(sum.byCategory.reduce((n, c) => n + c.count, 0)).toBe(list.items.length);
+    expect(sum.custom).toBe(list.items.filter((f) => f.custom).length);
+
+    // Archived, it is not made again.
+    const id = list.items.find((f) => f.service?.id === payroll.id)?.id;
+    if (!id) throw new Error('the payroll form is missing');
+    ok(await call('post', `/intake-forms/${id}/archive`, ownerA, {}));
+    const after = IntakeFormList.parse(ok(await call('get', '/intake-forms', ownerA)));
+    expect(after.items.some((f) => f.service?.id === payroll.id)).toBe(false);
+    expect(await versions()).toBe(1);
+  });
+
+  it('keeps a duplicate in the library beside its service form', async () => {
+    const copy = IntakeFormDetail.parse(
+      ok(
+        await call('post', `/intake-forms/${ids.template}/duplicate`, ownerA, {
+          asTemplate: true,
+        }),
+        201,
+      ),
+    );
+    expect(copy).toMatchObject({ status: 'DRAFT', isTemplate: false, category: 'PERSONAL_TAX' });
+    const list = IntakeFormList.parse(ok(await call('get', '/intake-forms', ownerA)));
+    expect(list.items.map((f) => f.id)).toEqual(expect.arrayContaining([ids.template, copy.id]));
+    const sum = IntakeFormLibrarySummary.parse(
+      ok(await call('get', '/intake-forms/summary', ownerA)),
+    );
+    expect(sum.total).toBe(list.items.length);
+  });
 });
 
 describe('the settings', () => {
