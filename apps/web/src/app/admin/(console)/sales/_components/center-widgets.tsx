@@ -55,13 +55,13 @@ export function CenterPipelineCard({ period }: { period: SalesPeriod }) {
       icon={TrendUp}
       title="Sales Pipeline"
       testId="center-pipeline"
-      action={<ViewAll href="/sales/pipeline" label="pipeline" />}
+      action={<ViewAll href="/sales/pipeline" text="View Full Pipeline" />}
     >
       <FrameState query={counts} empty="No stages yet." lines={7}>
         {(stages) => {
           const max = Math.max(0, ...stages.map((stage) => stage.count));
           return (
-            <ul aria-label="Records per stage" className="flex flex-col gap-1.5">
+            <ul aria-label="Records per stage" className="flex flex-col gap-2">
               {stages.map((stage) => (
                 <li key={stage.stageId}>
                   <BarRow
@@ -69,7 +69,9 @@ export function CenterPipelineCard({ period }: { period: SalesPeriod }) {
                     value={stage.count}
                     max={max}
                     fillClass={STAGE_STYLE[stage.tone].bar}
-                    labelClass="w-36"
+                    labelClass="w-34"
+                    barClass="h-4"
+                    numberAfterBar
                   />
                 </li>
               ))}
@@ -117,7 +119,9 @@ export function RevenueByPlanCard() {
     >
       <FrameState query={revenue} empty="No sales in this period." isEmpty={() => false} lines={5}>
         {(data) => (
-          <div className="flex flex-wrap items-center gap-5">
+          // The kit's empty caption would push the legend under the ring; the line goes under
+          // the legend instead.
+          <div className="flex flex-wrap items-center gap-4 [&_figcaption]:hidden">
             <DonutChart
               size="lg"
               legend={false}
@@ -135,20 +139,23 @@ export function RevenueByPlanCard() {
             />
             <ul aria-label="Revenue by plan" className="flex min-w-48 flex-1 flex-col gap-3">
               {data.slices.map((slice) => (
-                <li key={slice.id} className="flex items-center gap-3 text-sm text-text">
+                <li key={slice.id} className="flex items-center gap-2 text-sm text-text">
                   <span
                     aria-hidden
                     className={`size-3 shrink-0 rounded-sm ${SLICE_TONES[slice.id].dot}`}
                   />
-                  <span className="min-w-0 flex-1">{slice.label}</span>
-                  <span className="w-10 text-right tabular-nums">
+                  <span className="min-w-0 flex-1 truncate whitespace-nowrap">{slice.label}</span>
+                  <span className="w-9 shrink-0 text-right tabular-nums">
                     {data.totalCents ? Math.round((slice.cents / data.totalCents) * 100) : 0}%
                   </span>
-                  <span className="w-16 text-right font-medium text-heading tabular-nums">
+                  <span className="w-14 shrink-0 text-right font-medium text-heading tabular-nums">
                     {money(slice.cents)}
                   </span>
                 </li>
               ))}
+              {data.totalCents ? null : (
+                <li className="text-sm text-muted">No sales in this period.</li>
+              )}
             </ul>
           </div>
         )}
@@ -188,10 +195,10 @@ const QUICK: { id: QuickAction | 'PIPELINE'; label: string; icon: Icon; tone: st
 
 export function QuickActionsCard({ onAction }: { onAction: (action: QuickAction) => void }) {
   const row =
-    'flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus';
+    'flex h-8 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus';
   return (
     <Panel icon={Lightning} iconClassName="text-gold" title="Quick Actions" testId="quick-actions">
-      <ul className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-1.5">
         {QUICK.map(({ id, label, icon: Glyph, tone }) => {
           const content = (
             <>
@@ -249,8 +256,9 @@ function activityLabel(entry: SalesActivity) {
   }
 }
 
-const th = 'px-2 py-2 text-left font-medium whitespace-nowrap first:rounded-l-md last:rounded-r-md';
-const td = 'px-2 py-2 align-top';
+const th =
+  'px-1.5 py-2 text-left font-medium whitespace-nowrap first:rounded-l-md first:pl-2 last:rounded-r-md';
+const td = 'px-1.5 py-2 align-top first:pl-2';
 
 export function RecentSalesActivityCard({ onViewAll }: { onViewAll: () => void }) {
   const feed = useApiQuery([...SALES_KEY, 'activity', 'sales', 'all', 'recent'], () =>
@@ -411,7 +419,7 @@ export function LeadSourcesCard({ period }: { period: SalesPeriod }) {
         {(shares) => (
           <ul aria-label="New leads by source" className="flex flex-col gap-2.5">
             {shares.map((share) => (
-              <li key={share.source} className="flex items-center gap-3 text-sm text-text">
+              <li key={share.source} className="flex items-center gap-2 text-sm text-text">
                 <span
                   aria-hidden
                   className={`size-3 shrink-0 rounded-full ${SOURCE_COLOURS[share.source].dot}`}
@@ -420,7 +428,7 @@ export function LeadSourcesCard({ period }: { period: SalesPeriod }) {
                 <span className="min-w-0 flex-1">
                   <Bar
                     value={share.percent}
-                    max={100}
+                    max={Math.max(...shares.map((item) => item.percent))}
                     fillClass={SOURCE_COLOURS[share.source].fill}
                     className="h-2.5"
                   />

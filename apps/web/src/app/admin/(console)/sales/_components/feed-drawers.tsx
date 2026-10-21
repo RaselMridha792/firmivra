@@ -48,19 +48,27 @@ export function ActivityLine({
   const marker = activityMarker(entry.kind);
   const Glyph = marker.icon;
   return (
-    <li className="flex items-start gap-3 border-b border-divider py-2.5 last:border-0">
-      <Glyph aria-hidden weight="fill" className={`mt-0.5 size-5 shrink-0 ${marker.className}`} />
+    <li
+      className={`flex items-start border-b border-divider last:border-0 ${compact ? 'gap-2 py-2' : 'gap-3 py-2.5'}`}
+    >
+      <Glyph
+        aria-hidden
+        weight="fill"
+        className={`shrink-0 ${compact ? 'size-4' : 'mt-0.5 size-5'} ${marker.className}`}
+      />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
         <Link
           href={`/sales/opportunities/${entry.opportunityId}`}
-          className="min-w-0 text-sm text-text hover:text-action hover:underline"
+          className={`min-w-0 text-text hover:text-action hover:underline ${compact ? 'text-xs leading-snug' : 'text-sm'}`}
         >
           {entry.text}
           {!compact && entry.detail ? (
             <span className="block text-xs text-muted">{entry.detail}</span>
           ) : null}
         </Link>
-        <span className="flex shrink-0 flex-col text-xs text-muted sm:items-end sm:text-sm">
+        <span
+          className={`flex shrink-0 flex-col text-xs text-muted sm:items-end ${compact ? 'whitespace-nowrap' : 'sm:text-sm'}`}
+        >
           <time dateTime={entry.at}>{dateTimeText(entry.at)}</time>
           {!compact ? <span>{entry.actor.name}</span> : null}
         </span>
