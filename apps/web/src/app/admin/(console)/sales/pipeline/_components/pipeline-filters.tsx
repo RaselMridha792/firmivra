@@ -166,7 +166,7 @@ export function PipelineFilterBar({
 }) {
   const set = <K extends keyof PipelineFilters>(key: K, value: PipelineFilters[K]) =>
     onChange({ ...filters, [key]: value });
-  const field = 'w-full sm:w-34';
+  const field = 'w-full sm:w-30 [&_select]:h-10 [&_select]:py-0 [&_select]:pr-8 [&_select]:text-sm';
   return (
     <div data-testid="pipeline-filters" className="flex flex-wrap items-end gap-2">
       {pipelines.length > 1 ? (
@@ -183,7 +183,7 @@ export function PipelineFilterBar({
       <SearchField
         label="Search opportunities"
         placeholder="Search opportunities..."
-        minWidth="8rem"
+        minWidth="14rem"
         maxLength={100}
         value={filters.search}
         onChange={(event) => set('search', event.target.value)}

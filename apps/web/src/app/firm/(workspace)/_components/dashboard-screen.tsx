@@ -15,7 +15,6 @@ import { useState } from 'react';
 import { RequireRole } from '../../../../components/require-role';
 import { useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
-import { moduleHref } from '../../../../lib/firm-modules';
 import { useApiQuery } from '../../../../lib/query';
 import { todayIn } from '../calendar/_components/time';
 import { RevenueOverview, ServiceBreakdown } from './charts';
@@ -51,7 +50,7 @@ const actions: {
     title: 'Create a Bulk Email',
     hint: 'Send updates to multiple clients at once.',
     button: 'Go to Communications',
-    href: moduleHref('communications'),
+    href: '/communications',
     icon: PaperPlaneTilt,
   },
   {
@@ -66,7 +65,7 @@ const actions: {
     title: 'Upload Documents',
     hint: 'Upload and organize client documents securely.',
     button: 'Upload Now',
-    href: moduleHref('documents'),
+    href: '/documents',
     icon: UploadSimple,
     outline: true,
   },

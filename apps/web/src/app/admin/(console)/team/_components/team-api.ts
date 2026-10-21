@@ -645,6 +645,71 @@ function commError(error: unknown): unknown {
   return error;
 }
 
+/** One send reaches at most this many people (one Communications conversation each). */
+export const MESSAGE_RECIPIENT_LIMIT = 100;
+
+/** The people a message goes to: the chosen members, and everyone in the chosen departments. */
+async function messageRecipients(body: Mock.SendTeamMessage): Promise<ApiMember[]> {
+  const people = new Map<string, ApiMember>();
+  const everyone = async (departmentId?: string) => {
+    // Every page (100 a page), stopping past the limit.
+    for (let page = 1; people.size <= MESSAGE_RECIPIENT_LIMIT; page += 1) {
+      const found = await api.adminTeam.members({ departmentId, page, pageSize: 100 });
+      for (const person of found.items) people.set(person.id, person);
+      if (page * found.pageSize >= found.total) break;
+    }
+  };
+  if (body.audience === 'COMPANY') {
+    await everyone();
+    return [...people.values()];
+  }
+  for (const target of body.targets) {
+    if (target.kind === 'member') {
+      const person =
+        membersRead.get(target.id) ?? (await api.adminTeam.member(memberIdOf(target.id)));
+      people.set(person.id, person);
+    } else if (target.kind === 'department') await everyone(target.id);
+    else throw notYet('Messages to a location, a team or a group are not available yet.');
+  }
+  return [...people.values()];
+}
+
+/**
+ * One member's message: by email and by text in one Communications thread (`contact` TEAM). A
+ * channel they have no address for is skipped; the result counts it as unavailable.
+ */
+async function sendToMember(
+  person: ApiMember,
+  body: Mock.SendTeamMessage,
+  outward: Mock.MessageChannel[],
+  text: string,
+): Promise<{ first?: AdminCommMessage; sent: Set<Mock.MessageChannel>; failure?: unknown }> {
+  const sent = new Set<Mock.MessageChannel>();
+  let first: AdminCommMessage | undefined;
+  let failure: unknown;
+  for (const channel of outward) {
+    if (channel === 'SMS' && !person.phone) continue;
+    try {
+      const message = await api.adminCommunications.messages.create({
+        ...(first
+          ? { conversationId: first.conversationId }
+          : { contact: { type: 'TEAM' as const, userId: person.id } }),
+        channel: channel === 'EMAIL' ? 'EMAIL' : 'SMS',
+        ...(channel === 'EMAIL' ? { subject: body.subject.trim() } : {}),
+        body: channel === 'EMAIL' ? body.body : text,
+        mode: 'SEND',
+        idempotencyKey: crypto.randomUUID(),
+      });
+      first ??= message;
+      if (message.status !== 'FAILED') sent.add(channel);
+    } catch (error) {
+      // No address for this channel: unavailable for them, as the result counts it.
+      if (!(error instanceof ApiRequestError && error.code === 'NO_DESTINATION')) failure ??= error;
+    }
+  }
+  return { first, sent, failure };
+}
+
 // ---------- The client ----------
 
 let view: Mock.TeamView = 'card';
@@ -870,18 +935,18 @@ const real = {
   },
 
   /**
-   * A message to one member goes out through Communications (`contact` TEAM): by email and by
-   * text, in one thread. In-app delivery has no route: it counts as unavailable. Anything the
-   * Communications message has no field for is refused rather than dropped.
+   * A message to the chosen members, to everyone in the chosen departments, or to the whole
+   * company goes out through Communications (`contact` TEAM), one conversation per person: by
+   * email and by text, in one thread each. In-app delivery has no route: it counts as unavailable.
+   * A location or a group has no audience there yet, and anything the Communications message has
+   * no field for is refused rather than dropped.
    */
   sendMessage: async (body: Mock.SendTeamMessage): Promise<Mock.SendMessageResult> => {
     const problem = Object.values(checkMessage(body)).find(Boolean);
     if (problem) throw new TeamNotice(400, 'VALIDATION_FAILED', problem);
-    const target =
-      body.audience === 'MEMBERS' && body.targets.length === 1 ? body.targets[0] : null;
-    if (target?.kind !== 'member')
+    if (body.audience === 'LOCATION' || body.audience === 'GROUP')
       throw notYet(
-        'Team messages are not available yet. Send to one team member at a time, by email or text message.',
+        'Messages to a location or a group are not available yet. Choose team members, a department or the whole company.',
       );
     if (body.announcement) throw notYet('Announcements are not available yet.');
     if (body.attachments.length)
@@ -895,47 +960,39 @@ const real = {
       throw notYet(
         'In-app messages to team members are not available yet. Send it by email or text message.',
       );
-    const person =
-      membersRead.get(target.id) ?? (await api.adminTeam.member(memberIdOf(target.id)));
-    if (!person.allowed.message)
-      throw new TeamNotice(403, 'FORBIDDEN', ADMIN_TEAM_ERRORS.FORBIDDEN);
+    const people = await messageRecipients(body);
+    if (people.length > MESSAGE_RECIPIENT_LIMIT)
+      throw notYet(
+        `Send to at most ${MESSAGE_RECIPIENT_LIMIT} team members at a time. Choose fewer people or a smaller department.`,
+      );
+    const reachable = people.filter((person) => person.allowed.message);
+    if (reachable.length === 0) throw new TeamNotice(403, 'FORBIDDEN', ADMIN_TEAM_ERRORS.FORBIDDEN);
     const text = plainText(body.body);
-    if (outward.includes('SMS') && person.phone && text.length > ADMIN_COMM_SMS_MAX)
+    if (
+      outward.includes('SMS') &&
+      reachable.some((person) => person.phone) &&
+      text.length > ADMIN_COMM_SMS_MAX
+    )
       throw new TeamNotice(
         400,
         'VALIDATION_FAILED',
         `A text message is at most ${ADMIN_COMM_SMS_MAX.toLocaleString('en-US')} characters.`,
       );
-    const sent = new Set<Mock.MessageChannel>();
+    const sentTo = new Map<Mock.MessageChannel, number>();
     let first: AdminCommMessage | undefined;
     let failure: unknown;
-    for (const channel of outward) {
-      if (channel === 'SMS' && !person.phone) continue;
-      try {
-        const message = await api.adminCommunications.messages.create({
-          ...(first
-            ? { conversationId: first.conversationId }
-            : { contact: { type: 'TEAM' as const, userId: person.id } }),
-          channel: channel === 'EMAIL' ? 'EMAIL' : 'SMS',
-          ...(channel === 'EMAIL' ? { subject: body.subject.trim() } : {}),
-          body: channel === 'EMAIL' ? body.body : text,
-          mode: 'SEND',
-          idempotencyKey: crypto.randomUUID(),
-        });
-        first ??= message;
-        if (message.status !== 'FAILED') sent.add(channel);
-      } catch (error) {
-        // No address for this channel: unavailable for them, as the result counts it.
-        if (!(error instanceof ApiRequestError && error.code === 'NO_DESTINATION'))
-          failure ??= error;
-      }
+    for (const person of reachable) {
+      const result = await sendToMember(person, body, outward, text);
+      first ??= result.first;
+      failure ??= result.failure;
+      for (const channel of result.sent) sentTo.set(channel, (sentTo.get(channel) ?? 0) + 1);
     }
     if (!first)
       throw (
         commError(failure) ??
         new TeamNotice(409, 'NO_DESTINATION', ADMIN_COMM_ERRORS.NO_DESTINATION)
       );
-    if (sent.size === 0)
+    if (sentTo.size === 0)
       throw new TeamNotice(
         502,
         'SEND_FAILED',
@@ -943,12 +1000,11 @@ const real = {
       );
     return {
       id: first.id,
-      recipients: 1,
-      channels: body.channels.map((channel) => ({
-        channel,
-        sent: sent.has(channel) ? 1 : 0,
-        unavailable: sent.has(channel) ? 0 : 1,
-      })),
+      recipients: people.length,
+      channels: body.channels.map((channel) => {
+        const sent = sentTo.get(channel) ?? 0;
+        return { channel, sent, unavailable: people.length - sent };
+      }),
       announcement: false,
     };
   },
