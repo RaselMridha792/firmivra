@@ -45,9 +45,16 @@ export class RolesGuard implements CanActivate {
       // The member's own change to this route's cell (Staff Management) can only take away here.
       const own = await this.memberCell(ctx, req);
       if (own === false) throw forbidden();
-      // An Admin also loses a cell the firm took away from the Admin role (Settings > Users &
-      // Roles). The Admin default is every cell, so only a firm's explicit change closes one.
-      if (own === undefined && (await this.adminCellRemoved(ctx, req))) throw forbidden();
+      if (own === undefined) {
+        // A custom role's grid stands in for its role's: a cell it refuses closes the route where
+        // the role's default gives it (where the default does not, the role's own members pass
+        // by @Roles as before, and so do they).
+        const custom = await this.customCell(ctx, req);
+        if (custom === false && this.defaultGives(ctx, req)) throw forbidden();
+        // An Admin also loses a cell the firm took away from the Admin role (Settings > Users &
+        // Roles). The Admin default is every cell, so only a firm's explicit change closes one.
+        if (custom === undefined && (await this.adminCellRemoved(ctx, req))) throw forbidden();
+      }
       return true;
     }
     if (
@@ -65,6 +72,7 @@ export class RolesGuard implements CanActivate {
         const own = await this.memberCell(ctx, req);
         const allowed =
           own ??
+          (await this.customCell(ctx, req)) ??
           (this.grants
             ? await this.grants.can(
                 req.tenant.businessId,
@@ -90,6 +98,36 @@ export class RolesGuard implements CanActivate {
       }
     }
     throw forbidden();
+  }
+
+  /** The route's cell (@Access, else the method's capability), or undefined if it names none. */
+  private cellOf(ctx: ExecutionContext, req: Request) {
+    const access = accessFor(this.reflector, ctx);
+    const capability = access?.capability ?? capabilityOfMethod(req.method);
+    return access && capability ? { module: access.module, capability } : undefined;
+  }
+
+  /** Whether the member's role gives the route's cell by default (code, not the firm's grid). */
+  private defaultGives(ctx: ExecutionContext, req: Request): boolean {
+    const cell = this.cellOf(ctx, req);
+    if (!cell || req.tenant?.kind !== 'staff') return false;
+    return roleCan(req.tenant.role, cell.module, cell.capability);
+  }
+
+  /**
+   * The member's custom role's cell for this route (Settings > Users & Roles), or undefined: no
+   * custom role, or a route that names no module.
+   */
+  private async customCell(ctx: ExecutionContext, req: Request): Promise<boolean | undefined> {
+    if (!this.grants || req.tenant?.kind !== 'staff' || !req.tenant.customRoleId) return undefined;
+    const cell = this.cellOf(ctx, req);
+    if (!cell) return undefined;
+    return this.grants.customCell(
+      req.tenant.businessId,
+      req.tenant.customRoleId,
+      cell.module,
+      cell.capability,
+    );
   }
 
   /** Whether the firm took this route's cell away from the Admin role (a saved `false`). */

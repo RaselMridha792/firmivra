@@ -16,6 +16,7 @@ import {
 import type { z } from 'zod';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { CustomRolesService } from '../roles/custom-roles.service.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { ROLE_DESCRIPTIONS } from '../roles/roles-catalog.js';
 import { notFound } from '../workspaces/common.js';
@@ -75,6 +76,7 @@ export class StaffReadService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly grants: PermissionGrantsService,
+    private readonly custom: CustomRolesService,
   ) {}
 
   /**
@@ -85,7 +87,7 @@ export class StaffReadService {
   private async inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
     if (
       tenant.role === 'STAFF' &&
-      !(await this.grants.can(tenant.businessId, 'STAFF', 'STAFF_MANAGEMENT', 'VIEW'))
+      !(await this.grants.canTenant(tenant, 'STAFF_MANAGEMENT', 'VIEW'))
     )
       throw new ForbiddenException({
         code: 'FORBIDDEN',
@@ -116,12 +118,17 @@ export class StaffReadService {
     return out;
   }
 
-  /** `searchRoles`: roles whose name matched the search (Users & Roles searches by role too). */
+  /**
+   * `searchRoles`: roles whose name matched the search (Users & Roles searches by role too, custom
+   * roles included); `customRoleId`: Users & Roles' filter by one custom role. `ids`: only these
+   * members (Users & Roles' Export Selected).
+   */
   list(
     tenant: TenantContext,
     userId: string,
-    q: Out<typeof StaffListQ>,
+    q: Out<typeof StaffListQ> & { customRoleId?: string },
     searchRoles: MembershipRole[] = [],
+    ids?: readonly string[],
   ): Promise<StaffListResponse> {
     return this.inFirm(tenant, async (tx) => {
       const businessId = tenant.businessId;
@@ -129,6 +136,8 @@ export class StaffReadService {
       const st = STATUS[q.status];
       if (st) and.push(st);
       if (q.role) and.push({ role: q.role });
+      if (q.customRoleId) and.push({ customRoleId: q.customRoleId });
+      if (ids) and.push({ id: { in: [...ids] } });
       if (q.departmentId) and.push({ departments: { some: { departmentId: q.departmentId } } });
       if (q.search)
         and.push({
@@ -137,6 +146,7 @@ export class StaffReadService {
             { user: { email: { contains: q.search, mode: 'insensitive' } } },
             { jobTitle: { contains: q.search, mode: 'insensitive' } },
             ...(searchRoles.length ? [{ role: { in: searchRoles } }] : []),
+            { customRole: { name: { contains: q.search, mode: 'insensitive' as const } } },
           ],
         });
       const where: Prisma.MembershipWhereInput = { AND: and };
@@ -146,6 +156,7 @@ export class StaffReadService {
           where,
           include: {
             user: { select: { name: true, email: true } },
+            customRole: { select: { id: true, name: true } },
             staffProfile: { select: { accessLevel: true } },
             departments: {
               select: { department: { select: { id: true, name: true, status: true } } },
@@ -180,6 +191,7 @@ export class StaffReadService {
             .filter((d) => d.department.status !== 'ARCHIVED')
             .map((d) => ({ id: d.department.id, name: d.department.name })),
           role: r.role,
+          customRole: r.customRole,
           accessLevel: r.staffProfile?.accessLevel ?? 'STANDARD_USER',
           status: r.status,
           lastLoginAt: login.get(r.id)?.toISOString() ?? null,
@@ -225,7 +237,8 @@ export class StaffReadService {
   options(tenant: TenantContext): Promise<StaffFormOptions> {
     return this.inFirm(tenant, async (tx) => {
       const businessId = tenant.businessId;
-      const [departments, teams, managers, titles, offices] = await Promise.all([
+      const actor = tenant.role as MembershipRole;
+      const [departments, teams, managers, titles, offices, customRoles] = await Promise.all([
         tx.department.findMany({
           where: { businessId, status: 'ACTIVE' },
           select: { id: true, name: true },
@@ -255,8 +268,8 @@ export class StaffReadService {
           orderBy: { office: 'asc' },
           take: 100,
         }),
+        this.custom.givable(tx, businessId, actor),
       ]);
-      const actor = tenant.role as MembershipRole;
       const roles = (ROLES_MANAGED_BY[actor] ?? []).map((role) => ({
         role,
         label: FIRM_ROLE_LABELS[role],
@@ -267,6 +280,7 @@ export class StaffReadService {
         teams,
         managers: managers.map(ref),
         roles,
+        customRoles,
         jobTitles: titles.flatMap((t) => (t.jobTitle ? [t.jobTitle] : [])),
         offices: offices.flatMap((o) => (o.office ? [o.office] : [])),
         workSchedules: WORK_SCHEDULES,
@@ -282,6 +296,7 @@ export class StaffReadService {
         where: { businessId, id },
         include: {
           user: { select: { name: true, email: true, phone: true } },
+          customRole: { select: { id: true, name: true } },
           staffProfile: {
             include: {
               supervisor: { select: memberSelect },
@@ -321,6 +336,7 @@ export class StaffReadService {
         phone: m.user.phone,
         avatarUrl: null,
         role: m.role,
+        customRole: m.customRole,
         status: m.status,
         jobTitle: m.jobTitle,
         departments: m.departments
@@ -370,10 +386,14 @@ export class StaffReadService {
     return this.inFirm(tenant, async (tx) => {
       const m = await tx.membership.findFirst({
         where: { businessId: tenant.businessId, id },
-        select: { id: true, role: true },
+        select: { id: true, role: true, customRole: { select: { id: true, name: true } } },
       });
       if (!m) throw notFound();
-      return toPermissions(m.role, await memberGrid(tx, tenant.businessId, m.role, m.id));
+      return toPermissions(
+        m.role,
+        await memberGrid(tx, tenant.businessId, m.role, m.id, m.customRole?.id),
+        m.customRole,
+      );
     });
   }
 

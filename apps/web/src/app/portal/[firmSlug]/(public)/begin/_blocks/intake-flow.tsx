@@ -13,6 +13,7 @@ import {
   type IntakeUpload,
   shownIntakeKeys,
   StartBeginDraftRequest,
+  UPLOAD_LIMITS,
 } from '@firmivra/types';
 import { Button, Input, PageContainer } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
@@ -713,6 +714,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         const saved = await uploadFile(file, {
           start: (facts) => client.createUpload(form, { slot, ...facts }),
           finish: (uploadToken) => client.confirmUpload(form, { uploadToken }),
+          maxBytes: UPLOAD_LIMITS.maxBytes,
         });
         setUploads((list) => [...list, saved]);
       },

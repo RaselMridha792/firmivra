@@ -8,8 +8,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   StreamableFile,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import type { z } from 'zod';
 import {
   DuplicateEsignTemplateBody,
@@ -27,6 +29,7 @@ import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decora
 import { EsignRoute } from '../extras/esign-role.guard.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
+import { untilClosed } from '../../storage/read-budget.js';
 import { actorOf } from '../requests/requests.controller.js';
 import { EsignTemplateCopyService } from './template-copy.service.js';
 import { EsignTemplateUseService } from './template-use.service.js';
@@ -94,8 +97,10 @@ export class EsignTemplatesController {
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Param('templateId', templateIdPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const bytes = await this.templates.packet(tenant.businessId, actorOf(auth, tenant), id);
+    const actor = actorOf(auth, tenant);
+    const bytes = await this.templates.packet(tenant.businessId, actor, id, untilClosed(res));
     return new StreamableFile(bytes, { type: 'application/pdf', length: bytes.byteLength });
   }
 

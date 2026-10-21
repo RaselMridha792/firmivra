@@ -25,6 +25,7 @@ import {
   type NotificationEvent,
   PORTAL_BLOCKED_TEXT,
   UploadTargets,
+  UploadPutTicket,
   UploadTicket,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -33,18 +34,27 @@ import { loadEnv } from '../../src/config/env.js';
 import { storedType } from '../../src/notifications/notification-text.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config.js';
-import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import {
+  DOCUMENT_STORAGE,
+  type DocumentStorage,
+  type FileFacts,
+} from '../../src/storage/document-storage.js';
 import { ScanResultsService, type ScanResult } from '../../src/storage/scan-results.service.js';
 import { DOCX, office, pdf, sha256 } from '../office-files.js';
+import { bigPdf, MemoryUploads, ticketKey } from '../memory-uploads.js';
 
 /** Storage in memory: `objects.set(key, bytes)` is the browser's PUT. */
 class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
-  presignUpload(file: { key: string; contentType: string }) {
-    return Promise.resolve({
-      url: `memory:${file.key}`,
-      headers: { 'content-type': file.contentType },
-    });
+  readonly uploads = new MemoryUploads(this.objects);
+  presignUpload(file: FileFacts) {
+    return this.uploads.presign(file);
+  }
+  completeUpload(key: string, uploadId: string, sizeBytes: number) {
+    return this.uploads.complete(key, uploadId, sizeBytes);
+  }
+  abortUpload(key: string, uploadId: string) {
+    return this.uploads.abort(key, uploadId);
   }
   head(key: string, { checksum = false } = {}) {
     const b = this.objects.get(key);
@@ -194,8 +204,8 @@ async function upload(
   );
   if (start.status !== 200) return { res: start, key: '', token: '' };
   const ticket = exact(UploadTicket, start);
-  const key = ticket.url.slice('memory:'.length);
-  storage.objects.set(key, bytes);
+  const key = ticketKey(ticket);
+  storage.uploads.send(ticket, bytes);
   const confirm = portal ? '/me/documents/uploads/confirm' : '/documents/uploads/confirm';
   const res = await call('post', confirm, who, { uploadToken: ticket.uploadToken }, firm);
   return { res, key, token: ticket.uploadToken };
@@ -519,7 +529,7 @@ describe('portal uploads (household rules, q12)', () => {
       serviceId: ids.e1,
       requestId: r.id,
     });
-    const ticket = exact(UploadTicket, start);
+    const ticket = exact(UploadPutTicket, start);
     const key = ticket.url.slice('memory:'.length);
     storage.objects.set(key, bytes);
     exact(FirmDocumentRequest, await decide(r.id, 'cancel'));
@@ -544,7 +554,7 @@ describe('portal uploads (household rules, q12)', () => {
     const bytes = pdf('bound');
     const ticketOf = async (who: Person, body: Record<string, unknown> = {}) => {
       const t = exact(
-        UploadTicket,
+        UploadPutTicket,
         await call('post', '/me/documents/uploads', who, {
           ...facts(bytes),
           serviceId: ids.e1,
@@ -581,6 +591,28 @@ describe('portal uploads (household rules, q12)', () => {
     }
     exact(MyDocument, await confirm(people.primary, t.uploadToken));
     expectError(await confirm(people.primary, t.uploadToken), 410, 'UPLOAD_EXPIRED');
+  });
+
+  it('takes a file over 16 MB as a multipart upload that confirm completes', async () => {
+    const bytes = bigPdf();
+    const body = { ...facts(bytes), serviceId: ids.e1 };
+    const ticket = exact(
+      UploadTicket,
+      await call('post', '/me/documents/uploads', people.primary, body),
+    );
+    expect(ticket.method).toBe('MULTIPART');
+    const { res, key } = await upload(people.primary, { serviceId: ids.e1 }, bigPdf());
+    const doc = exact(MyDocument, res);
+    expect(doc).toMatchObject({ source: 'MINE', status: 'READY', sizeBytes: bytes.length });
+    expect(storage.objects.has(key)).toBe(true);
+    // The first ticket was never sent: its parts are missing, so confirm refuses and drops it.
+    const confirm = () =>
+      call('post', '/me/documents/uploads/confirm', people.primary, {
+        uploadToken: ticket.uploadToken,
+      });
+    expectError(await confirm(), 409, 'UPLOAD_MISMATCH');
+    expect(storage.uploads.open.size).toBe(0);
+    expectError(await confirm(), 410, 'UPLOAD_EXPIRED');
   });
 });
 
@@ -1031,7 +1063,7 @@ describe('document requests', () => {
     // An upload started while the request is open, confirmed once it is answered (below).
     const bytes = pdf('answered meanwhile');
     const late = exact(
-      UploadTicket,
+      UploadPutTicket,
       await call('post', '/me/documents/uploads', people.primary, {
         ...facts(bytes),
         serviceId: ids.e1,
@@ -1127,7 +1159,7 @@ describe('document requests', () => {
     const ticketOf = async (who: Person, label: string) => {
       const bytes = pdf(label);
       const t = exact(
-        UploadTicket,
+        UploadPutTicket,
         await call('post', '/me/documents/uploads', who, {
           ...facts(bytes),
           serviceId: ids.e1,
@@ -1169,7 +1201,7 @@ describe('document requests', () => {
     const r = await newRequest();
     const bytes = pdf('cancel race');
     const t = exact(
-      UploadTicket,
+      UploadPutTicket,
       await call('post', '/me/documents/uploads', people.primary, {
         ...facts(bytes),
         serviceId: ids.e1,
@@ -1278,7 +1310,7 @@ describe('scan results (q22, q24)', () => {
     const bytes = pdf('early result');
     const t = await scanned(async () =>
       exact(
-        UploadTicket,
+        UploadPutTicket,
         await call('post', '/me/documents/uploads', people.primary, {
           ...facts(bytes),
           serviceId: ids.e1,
@@ -1307,7 +1339,7 @@ describe('scan results (q22, q24)', () => {
   it('ignores a result for an upload the confirm refused; one never confirmed stays UNKNOWN', async () => {
     const ticketOf = async (label: string) => {
       const t = exact(
-        UploadTicket,
+        UploadPutTicket,
         await call('post', '/me/documents/uploads', people.primary, {
           ...facts(pdf(label)),
           serviceId: ids.e1,

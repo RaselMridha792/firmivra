@@ -7,8 +7,10 @@ import {
   Header,
   Param,
   Post,
+  Res,
   StreamableFile,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import type { z } from 'zod';
 import {
   ConfirmEsignUploadBody,
@@ -25,6 +27,7 @@ import {
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
+import { untilClosed } from '../../storage/read-budget.js';
 import { EsignRoute } from '../extras/esign-role.guard.js';
 import { EsignDocumentsService } from './documents.service.js';
 import { actorOf } from './requests.controller.js';
@@ -100,7 +103,10 @@ export class EsignDocumentsController {
     return this.documents.removeDocument(tenant.businessId, actor, id, documentId);
   }
 
-  /** The bytes for the page viewer on this site only: never cached, never framed elsewhere. */
+  /**
+   * The bytes for the page viewer on this site only: never cached, never framed elsewhere. They
+   * hold their size of the read budget until the response closes (503 without room).
+   */
   @Get(':documentId/content')
   @Header('Cache-Control', 'no-store')
   @Header('Cross-Origin-Resource-Policy', 'same-origin')
@@ -110,9 +116,11 @@ export class EsignDocumentsController {
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
     @Param('documentId', documentIdPipe) documentId: string,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const actor = actorOf(auth, tenant);
-    const file = await this.documents.content(tenant.businessId, actor, id, documentId);
+    const keep = untilClosed(res);
+    const file = await this.documents.content(tenant.businessId, actor, id, documentId, keep);
     return new StreamableFile(file.bytes, {
       type: file.contentType,
       length: file.bytes.byteLength,

@@ -58,6 +58,7 @@ import {
   StaffImportRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { mockUploadTicket } from './upload-ticket';
 
 /**
  * Mock data for `api.staff`, `api.departments` and `api.roles` (R42 contract, Staff Management).
@@ -1175,13 +1176,13 @@ export function createStaffMock(options: Options = {}): StaffClient {
       g.find(id);
       const n = s.next++;
       s.uploads.set(`mock-upload-${n}`, { memberId: id, body: input });
-      return {
+      return mockUploadTicket({
         uploadToken: `mock-upload-${n}`,
         url: `mock:upload/${n}`,
-        method: 'PUT',
+        sizeBytes: input.sizeBytes,
         headers: { 'content-type': input.contentType },
         expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
-      };
+      });
     },
     confirmDocumentUpload: async (id, body) => {
       await g.allowed();
@@ -1698,6 +1699,19 @@ export function createRolesMock(options: Options = {}): RolesClient {
       await g.allowed();
       if (g.role !== 'OWNER' && g.role !== 'ADMIN') throw forbidden();
       parseInput(CreateCustomRoleRequest, body);
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
+    // The mock's custom roles come with the screens (R55); until then, as the API answered.
+    customRole: async () => {
+      await g.allowed();
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
+    updateCustom: async () => {
+      await g.allowed();
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
+    archiveCustom: async () => {
+      await g.allowed();
       throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
     },
   };

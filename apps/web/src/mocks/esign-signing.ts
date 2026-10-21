@@ -45,6 +45,7 @@ import { mockDelay } from '../lib/mock';
 import { copy, DAY, ESIGN_OFF, fail, iso, LETTER, MINUTE, SAMPLE_PDF_URL } from './esign-common';
 import { clientFixtures } from './clients';
 import { mockBusiness } from './me';
+import { mockUploadTicket } from './upload-ticket';
 
 /**
  * Mock data for Firm Sign's contract 2 (R13): Signing Settings and templates on `api.esign`, the
@@ -356,13 +357,13 @@ export function createSigningMock(firmSlug: string): SigningClient {
       if (!s.fields.some((f) => f.id === input.fieldId && f.type === 'ATTACHMENT')) {
         throw fail(400, 'VALIDATION_FAILED', 'Unknown field');
       }
-      return {
+      return mockUploadTicket({
         uploadToken: `mock-attachment:${input.fieldId}:${input.fileName}`,
         url: `mock:upload/attachment-${input.fieldId}`,
-        method: 'PUT' as const,
+        sizeBytes: input.sizeBytes,
         headers: { 'content-type': input.contentType },
         expiresAt: iso(Date.now() + 15 * MINUTE),
-      };
+      });
     },
     confirmAttachment: async (body) => {
       const { fieldId, uploadToken } = parseInput(SignerAttachmentConfirmBody, body);

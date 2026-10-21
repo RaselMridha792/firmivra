@@ -1,5 +1,5 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
-import { ConfirmUploadRequest, DownloadLink, UploadTicket } from '../documents/schemas.js';
+import { ConfirmUploadRequest, DownloadLink, UploadPutTicket } from '../documents/schemas.js';
 import { OkResponse } from '../schemas.js';
 import {
   ArchiveMessageTemplateRequest,
@@ -152,9 +152,9 @@ export function createTemplatesClient(request: ApiRequest) {
     startAttachment: async (
       id: string,
       body: StartTemplateAttachmentRequest,
-    ): Promise<UploadTicket> =>
+    ): Promise<UploadPutTicket> =>
       request(
-        UploadTicket,
+        UploadPutTicket,
         `${template(id)}/attachments/uploads`,
         post(parseInput(StartTemplateAttachmentRequest, body)),
       ),

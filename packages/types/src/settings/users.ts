@@ -29,6 +29,8 @@ export const UsersQuery = z.strictObject({
     .pipe(z.array(z.string().regex(UUID, 'Use member ids')).min(1).max(100))
     .optional(),
   role: MembershipRole.optional(),
+  /** The people with this custom role (the Role filter's custom roles). */
+  customRoleId: z.uuid().optional(),
   status: StaffStatusFilter.optional().default('all'),
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(10),
@@ -53,9 +55,9 @@ export const UsersSummary = z.object({
   addedThisMonth: z.number().int(),
   active: z.number().int(),
   pendingInvitations: z.number().int(),
-  /** Roles in use at the firm (of the eight). */
+  /** The firm's roles: the built-in ones plus its live custom roles. */
   roles: z.number().int(),
-  /** The "Custom roles" KPI: optional until custom roles exist (staff/roles.ts CustomRole). */
+  /** The firm's live custom roles (staff/roles.ts CustomRole). */
   customRoles: z.number().int().optional(),
 });
 export type UsersSummary = z.infer<typeof UsersSummary>;

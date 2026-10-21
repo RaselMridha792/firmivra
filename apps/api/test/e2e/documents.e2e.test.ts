@@ -24,14 +24,20 @@ import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config.js';
-import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import {
+  DOCUMENT_STORAGE,
+  type DocumentStorage,
+  type FileFacts,
+} from '../../src/storage/document-storage.js';
+import { readBudget } from '../../src/storage/read-budget.js';
 import { UploadTokens } from '../../src/storage/upload-token.js';
-import { CHECKS_AT_ONCE } from '../../src/storage/uploads.service.js';
+import { bigPdf, MemoryUploads, ticketKey, ticketUploadId } from '../memory-uploads.js';
 import { cfb, contentTypes, DOCX, office, pdf, png, sha256, XLSX } from '../office-files.js';
 
-/** Storage in memory: `put(ticket, bytes)` is the browser's PUT. */
+/** Storage in memory: `put(ticket, bytes)` is the browser's PUT (or its parts). */
 class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
+  readonly uploads = new MemoryUploads(this.objects);
   /** A Content-Encoding stored with an object (a repeated PUT could set one). */
   readonly encodings = new Map<string, string>();
   /** What every HEAD fails with while set (S3's 503 SlowDown). */
@@ -43,9 +49,14 @@ class MemoryStorage implements DocumentStorage {
   /** Awaited after a HEAD and after a read, to hold a confirm there. */
   afterHead: (() => Promise<void>) | null = null;
   afterRead: (() => Promise<void>) | null = null;
-  presignUpload(file: { key: string; contentType: string }) {
-    const headers = { 'content-type': file.contentType };
-    return Promise.resolve({ url: `memory:${file.key}`, headers });
+  presignUpload(file: FileFacts) {
+    return this.uploads.presign(file);
+  }
+  completeUpload(key: string, uploadId: string, sizeBytes: number) {
+    return this.uploads.complete(key, uploadId, sizeBytes);
+  }
+  abortUpload(key: string, uploadId: string) {
+    return this.uploads.abort(key, uploadId);
   }
   async head(key: string, { checksum = false } = {}) {
     if (this.headError) throw this.headError;
@@ -73,7 +84,7 @@ class MemoryStorage implements DocumentStorage {
     return Promise.resolve(`memory:${file.key}?download`);
   }
   put(ticket: UploadTicket, bytes: Buffer) {
-    this.objects.set(ticket.url.slice('memory:'.length), bytes);
+    this.uploads.send(ticket, bytes);
   }
 }
 const storage = new MemoryStorage();
@@ -205,7 +216,7 @@ async function upload(
   storage.put(ticket, stored);
   const { uploadToken } = ticket;
   const res = await call('post', '/documents/uploads/confirm', who, { uploadToken }, firm);
-  return { res, key: ticket.url.slice('memory:'.length) };
+  return { res, key: ticketKey(ticket) };
 }
 const firmDoc = async (who: Person, body: Record<string, unknown>, bytes: Buffer = pdf()) =>
   exact(FirmDocument, (await upload(who, { serviceId: ids.e1, ...body }, bytes)).res);
@@ -516,7 +527,7 @@ describe('confirm after the ticket: the client, the service or storage changed',
     storage.put(ticket, bytes);
     const { uploadToken } = ticket;
     return {
-      key: ticket.url.slice('memory:'.length),
+      key: ticketKey(ticket),
       confirm: () => call('post', '/documents/uploads/confirm', who, { uploadToken }),
     };
   }
@@ -624,7 +635,7 @@ describe('confirm after the ticket: the client, the service or storage changed',
     const path = `/clients/${ids.c1}/documents/uploads`;
     const body = { serviceId: ids.e1, ...facts(bytes) };
     const ticket = exact(UploadTicket, await call('post', path, people.ownerA, body));
-    const key = ticket.url.slice('memory:'.length);
+    const key = ticketKey(ticket);
     const { uploadToken } = ticket;
     const confirm = () =>
       call('post', '/documents/uploads/confirm', people.ownerA, { uploadToken });
@@ -647,7 +658,7 @@ describe('confirm after the ticket: the client, the service or storage changed',
     const path = `/clients/${ids.c1}/documents/uploads`;
     const body = { serviceId: ids.e1, ...facts(bytes) };
     const ticket = exact(UploadTicket, await call('post', path, people.ownerA, body));
-    const key = ticket.url.slice('memory:'.length);
+    const key = ticketKey(ticket);
     const { uploadToken } = ticket;
     const confirm = () =>
       call('post', '/documents/uploads/confirm', people.ownerA, { uploadToken });
@@ -718,31 +729,97 @@ describe('confirm after the ticket: the client, the service or storage changed',
     ]);
   });
 
-  it(`checks at most ${CHECKS_AT_ONCE} files at once: one more is 503 and deletes nothing`, async () => {
-    const running: Awaited<ReturnType<typeof ticketed>>[] = [];
-    for (let i = 0; i < CHECKS_AT_ONCE; i++) {
-      running.push(await ticketed(people.ownerA, { serviceId: ids.e1 }));
-    }
+  it('checks a file only within the read budget: without room, 503 and nothing deleted', async () => {
+    const running = await ticketed(people.ownerA, { serviceId: ids.e1 });
     const extra = await ticketed(people.ownerA, { serviceId: ids.e1 });
-    const release = gate();
-    const all = gate();
-    let reading = 0;
-    storage.afterRead = async () => {
-      if (++reading === CHECKS_AT_ONCE) all.open();
-      await release.opened;
-    };
-    const confirms = running.map((r) => r.confirm());
+    // A confirm that is reading holds its file's size of the budget until it ends.
+    const held = holdNext('afterRead');
+    const first = running.confirm();
+    await held.reached;
+    const free = readBudget.free;
+    expect(free).toBeLessThan(readBudget.total);
+    // The rest of the budget is taken (other reads): the next confirm has no room.
+    const taken = readBudget.tryTake(free)!;
     try {
-      await all.opened;
       expectUnavailable(await extra.confirm());
     } finally {
-      storage.afterRead = null;
-      release.open();
+      taken();
+      held.release();
     }
-    for (const res of await Promise.all(confirms)) exact(FirmDocument, res);
+    exact(FirmDocument, await first);
+    expect(readBudget.free).toBe(readBudget.total);
     expect(storage.objects.has(extra.key)).toBe(true);
     expect(await refusalOf(extra.key)).toBeNull();
     exact(FirmDocument, await extra.confirm());
+  });
+
+  it('sends a file over 16 MB as a multipart upload that confirm completes and checks', async () => {
+    const bytes = bigPdf();
+    const path = `/clients/${ids.c1}/documents/uploads`;
+    const body = { serviceId: ids.e1, ...facts(bytes, 'Ledger 2025.pdf') };
+    const before = Date.now();
+    const ticket = exact(UploadTicket, await call('post', path, people.ownerA, body));
+    if (ticket.method !== 'MULTIPART') throw new Error('expected a multipart ticket');
+    expect(ticket.partSizeBytes).toBe(UPLOAD_LIMITS.partSizeBytes);
+    expect(ticket.parts.map((p) => p.partNumber)).toEqual([1, 2]);
+    const expires = Date.parse(ticket.expiresAt) - before;
+    expect(expires).toBeGreaterThanOrEqual(3_600_000 - 5_000);
+    expect(expires).toBeLessThanOrEqual(3_600_000 + 5_000);
+    const key = ticketKey(ticket);
+    expect(key).toMatch(new RegExp(`^tenant/${firms.a.id}/documents/[0-9a-f-]{36}$`));
+    // The confirm body is the same as for a PUT: only the token.
+    const { uploadToken } = ticket;
+    const confirm = () =>
+      call('post', '/documents/uploads/confirm', people.ownerA, { uploadToken });
+    storage.put(ticket, bytes);
+    const doc = exact(FirmDocument, await confirm());
+    expect(doc.sizeBytes).toBe(bytes.length);
+    expect(storage.uploads.completed.has(ticketUploadId(ticket)!)).toBe(true);
+    expect(storage.objects.get(key)?.equals(bytes)).toBe(true);
+    expect((await download(doc.id)).status).toBe(200);
+    // Single use, as a PUT's.
+    expectError(await confirm(), 410, 'UPLOAD_EXPIRED');
+  });
+
+  it('refuses a multipart upload with a part missing or of another size, and drops it', async () => {
+    const bytes = bigPdf(UPLOAD_LIMITS.partSizeBytes * 2 + 5);
+    const path = `/clients/${ids.c1}/documents/uploads`;
+    const body = { serviceId: ids.e1, ...facts(bytes) };
+    const ticket = exact(UploadTicket, await call('post', path, people.ownerA, body));
+    if (ticket.method !== 'MULTIPART') throw new Error('expected a multipart ticket');
+    const [one, two] = ticket.parts;
+    storage.uploads.putPart(one!.url, bytes.subarray(0, UPLOAD_LIMITS.partSizeBytes));
+    storage.uploads.putPart(two!.url, bytes.subarray(UPLOAD_LIMITS.partSizeBytes, -5));
+    const { uploadToken } = ticket;
+    const confirm = () =>
+      call('post', '/documents/uploads/confirm', people.ownerA, { uploadToken });
+    expectError(await confirm(), 409, 'UPLOAD_MISMATCH');
+    const key = ticketKey(ticket);
+    expect(storage.uploads.aborted.has(ticketUploadId(ticket)!)).toBe(true);
+    expect(storage.objects.has(key)).toBe(false);
+    await expectRefused(key, 'UPLOAD_MISMATCH');
+    // Storage no longer has the upload: the token can't bring it back.
+    expectError(await confirm(), 410, 'UPLOAD_EXPIRED');
+  });
+
+  it('confirms a completed multipart upload again after a 503 (storage failed after completing)', async () => {
+    const bytes = bigPdf();
+    const path = `/clients/${ids.c1}/documents/uploads`;
+    const body = { serviceId: ids.e1, ...facts(bytes) };
+    const ticket = exact(UploadTicket, await call('post', path, people.ownerA, body));
+    storage.put(ticket, bytes);
+    const { uploadToken } = ticket;
+    const confirm = () =>
+      call('post', '/documents/uploads/confirm', people.ownerA, { uploadToken });
+    storage.readError = s3Error('SlowDown', 503);
+    try {
+      expectUnavailable(await confirm());
+    } finally {
+      storage.readError = null;
+    }
+    // Completed by the first confirm: the retry finds the object and saves the document.
+    expect(storage.objects.has(ticketKey(ticket))).toBe(true);
+    exact(FirmDocument, await confirm());
   });
 
   it('refuses a stored file with a Content-Encoding: at confirm (deleted) and at download', async () => {

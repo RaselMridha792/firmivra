@@ -18,6 +18,7 @@ import { StaffReadService } from './staff-read.service.js';
 import {
   assertManages,
   assertMayGive,
+  customRoleFor,
   invalid,
   lockTarget,
   mapStaffDbError,
@@ -115,6 +116,9 @@ export class StaffWriteService {
           if (first) return first;
           const by = await requireManager(tx, actor);
           assertMayGive(actor, a.role);
+          const custom = a.customRoleId
+            ? await customRoleFor(tx, businessId, a.customRoleId, a.role)
+            : null;
           await this.assertNewEmail(tx, businessId, a.email);
           await this.checkRefs(tx, businessId, null, {
             departmentIds: a.departmentIds,
@@ -130,6 +134,7 @@ export class StaffWriteService {
           const gridInput = {
             businessId,
             role: a.role,
+            customRoleId: custom?.id ?? null,
             grants: body.permissions ?? [],
             acknowledged: true,
             updatedById: by,
@@ -156,7 +161,7 @@ export class StaffWriteService {
 
           await tx.membership.updateMany({
             where: { businessId, id },
-            data: { jobTitle: a.jobTitle },
+            data: { jobTitle: a.jobTitle, ...(custom ? { customRoleId: custom.id } : {}) },
           });
           await tx.memberDepartment.createMany({
             data: a.departmentIds.map((departmentId) => ({
@@ -194,6 +199,7 @@ export class StaffWriteService {
               idempotencyKey: body.idempotencyKey,
               inviteId: invite.id,
               role: a.role,
+              customRoleId: custom?.id ?? null,
               departments: a.departmentIds.length,
               fields: [
                 ...keysOf('details', body.details),
@@ -426,6 +432,11 @@ export class StaffWriteService {
           departmentIds: a?.departmentIds,
           details: body.details,
         });
+        // A custom role brings the role it is based on; a new built-in role alone takes the
+        // custom role away (the database keeps the two in step).
+        const custom = a?.customRoleId
+          ? await customRoleFor(tx, businessId, a.customRoleId, a.role)
+          : null;
         const profile = await tx.staffProfile.findUnique({
           where: { businessId_membershipId: { businessId, membershipId: id } },
           select: { updatedAt: true },
@@ -451,11 +462,19 @@ export class StaffWriteService {
               'The sign-in email cannot be changed here: revoke the invite or deactivate, then add the person again',
             );
         }
-        const memberData: Prisma.MembershipUpdateManyMutationInput = { updatedAt: new Date() };
+        const memberData: Prisma.MembershipUncheckedUpdateManyInput = { updatedAt: new Date() };
         if (a?.jobTitle !== undefined) memberData.jobTitle = a.jobTitle;
-        if (a?.role !== undefined && a.role !== target.role) {
-          assertMayGive(actor, a.role);
-          memberData.role = a.role;
+        const role = custom?.basedOn ?? a?.role ?? target.role;
+        const customRoleId =
+          a?.customRoleId !== undefined
+            ? (custom?.id ?? null)
+            : role !== target.role
+              ? null
+              : target.customRoleId;
+        if (role !== target.role || customRoleId !== target.customRoleId) {
+          assertMayGive(actor, role);
+          if (role !== target.role) memberData.role = role;
+          if (customRoleId !== target.customRoleId) memberData.customRoleId = customRoleId;
         }
         const moved = await tx.membership.updateMany({
           where: { businessId, id, role: target.role, status: target.status },
@@ -486,12 +505,18 @@ export class StaffWriteService {
           update: data,
         });
         await this.setTeams(tx, businessId, id, body.details);
-        if (memberData.role)
+        if (memberData.role || memberData.customRoleId !== undefined)
           await this.audit.logIn(
             tx,
             'membership.role_changed',
             { type: 'membership', id },
-            { from: target.role, to: memberData.role },
+            {
+              from: target.role,
+              to: role,
+              ...(target.customRoleId || customRoleId
+                ? { fromCustomRoleId: target.customRoleId, toCustomRoleId: customRoleId }
+                : {}),
+            },
             { businessId },
           );
         await this.audit.logIn(

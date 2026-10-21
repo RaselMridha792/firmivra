@@ -3,6 +3,7 @@
 import {
   ApiRequestError,
   DOCUMENT_ERRORS,
+  megabytes,
   type MyRequestPacket,
   type MyRequestPacketItem,
   UPLOAD_LIMITS,
@@ -114,6 +115,7 @@ export function PacketScreen() {
               ...facts,
             }),
           finish: (uploadToken) => api.myDocuments(slug).confirmUpload({ uploadToken }),
+          maxBytes: UPLOAD_LIMITS.maxBytes,
         });
       return files.length;
     },
@@ -417,7 +419,9 @@ export function PacketScreen() {
                   maxBytes={UPLOAD_LIMITS.maxBytes}
                   multiple={p?.allowMultipleFiles}
                   disabled={upload.isPending || !chosen}
-                  hints={[`${UPLOAD_LIMITS.typeNames}, up to 10 MB each.`]}
+                  hints={[
+                    `${UPLOAD_LIMITS.typeNames}, up to ${megabytes(UPLOAD_LIMITS.maxBytes)} each.`,
+                  ]}
                   onFiles={(files) => chosen && send(chosen, files)}
                   onReject={() =>
                     setNotice({ tone: 'error', text: DOCUMENT_ERRORS.FILE_TYPE_NOT_ALLOWED })

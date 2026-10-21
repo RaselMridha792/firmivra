@@ -3,8 +3,10 @@
 import {
   StaffAccountInput,
   StaffCompensationInput,
+  megabytes,
   type StaffDetailsInput as DetailsInput,
   StaffDetailsInput,
+  STAFF_DOCUMENT_LIMITS,
   type StaffDocumentType,
   type StaffDraftData,
   type StaffEmploymentType,
@@ -271,6 +273,7 @@ function DetailsForm({
                     type: q.type,
                   }),
                 finish: (uploadToken) => api.staff.confirmDocumentUpload(id, { uploadToken }),
+                maxBytes: STAFF_DOCUMENT_LIMITS.maxBytes,
               });
             } catch {
               failed += 1;
@@ -530,9 +533,12 @@ function DetailsForm({
                 label="Staff documents"
                 multiple
                 accept={['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx']}
-                maxBytes={10 * 1024 * 1024}
+                maxBytes={STAFF_DOCUMENT_LIMITS.maxBytes}
                 title="Drag & drop files here or click to upload"
-                hints={['Accepted formats: PDF, JPG, PNG, DOC, DOCX', 'Max size: 10MB per file']}
+                hints={[
+                  'Accepted formats: PDF, JPG, PNG, DOC, DOCX',
+                  `Max size: ${megabytes(STAFF_DOCUMENT_LIMITS.maxBytes)} per file`,
+                ]}
                 onFiles={(chosen) => {
                   setFileNote('');
                   setFiles((list) => [
@@ -546,7 +552,7 @@ function DetailsForm({
                 }}
                 onReject={(rejections) =>
                   setFileNote(
-                    `${rejections.length} file${rejections.length === 1 ? ' was' : 's were'} not added: use PDF, JPG, PNG, DOC or DOCX up to 10 MB.`,
+                    `${rejections.length} file${rejections.length === 1 ? ' was' : 's were'} not added: use PDF, JPG, PNG, DOC or DOCX up to ${megabytes(STAFF_DOCUMENT_LIMITS.maxBytes)}.`,
                   )
                 }
               />

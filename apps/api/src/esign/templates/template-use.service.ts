@@ -102,7 +102,6 @@ export class EsignTemplateUseService {
     const service = body.engagementId ?? null;
     const engagementId = await this.requests.openService(businessId, clientId, service);
     const recipients = await this.recipients(businessId, actor, clientId, v, body.roles);
-    const bytes = await this.copies.packet(businessId, v);
     const [id, docId, now] = [options.id ?? randomUUID(), randomUUID(), new Date()];
     const s3Key = this.store.keyFor(businessId, id, `source/${docId}`);
     const roleOf = new Map(v.roles.map((role, i) => [role.key, recipients[i]!.id]));
@@ -127,7 +126,7 @@ export class EsignTemplateUseService {
       position: 0,
       fileName: `${t.name}.pdf`,
       contentType: 'application/pdf' as const,
-      sizeBytes: bytes.byteLength,
+      sizeBytes: v.sizeBytes,
       pageCount: v.pageSizes.length,
       pageSizes: v.pageSizes,
       sourceDocumentId: null,
@@ -148,7 +147,10 @@ export class EsignTemplateUseService {
       })),
     };
     const created = event('CREATED', now, { kind: 'STAFF', name: caller?.name ?? '' }, null);
-    await this.store.put(businessId, s3Key, bytes, 'application/pdf');
+    // The packet must be the bytes the version saved (409 FILE_BLOCKED), read under the budget.
+    await this.copies.withPacket(businessId, v, (bytes) =>
+      this.store.put(businessId, s3Key, bytes, 'application/pdf'),
+    );
     const written = await this.copies.removingOnFailure(businessId, s3Key, () =>
       this.templates.createDraft(businessId, { record, parts, event: created }),
     );

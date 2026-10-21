@@ -6,7 +6,12 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type { IntakeSettings, IntakeSettingsChange, OkResponse } from '@firmivra/types';
+import {
+  INTAKE_MAX_FILE_SIZE_MB,
+  type IntakeSettings,
+  type IntakeSettingsChange,
+  type OkResponse,
+} from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantContext } from '../common/request-context.js';
@@ -218,8 +223,11 @@ export class IntakeSettingsService {
           ];
         }
         if (s.maxFileSizeMb !== undefined) {
-          if (s.maxFileSizeMb > 10)
-            throw invalid('security.maxFileSizeMb', 'Files can be at most 10 MB');
+          if (s.maxFileSizeMb > INTAKE_MAX_FILE_SIZE_MB)
+            throw invalid(
+              'security.maxFileSizeMb',
+              `Files can be at most ${INTAKE_MAX_FILE_SIZE_MB} MB`,
+            );
           data.maxFileSizeMb = s.maxFileSizeMb;
         }
         if (s.consentRequired !== undefined) data.consentRequired = s.consentRequired;

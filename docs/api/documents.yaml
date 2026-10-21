@@ -20,29 +20,49 @@ info:
     1. `POST .../documents/uploads` with the service, optional request, category and tax year,
        plus the file's name, type, size and SHA-256. The API checks that the service is open
        (ACTIVE engagement), the request is open, the category is active, and the limits, then
-       answers an `UploadTicket`: a one-time URL valid for a few minutes, the headers to send,
-       and an `uploadToken`.
-    2. The browser `PUT`s the file to `ticket.url` with exactly `ticket.headers`. The file goes
-       straight to storage under the firm's own prefix (`tenant/{businessId}/...`), at a key the
-       API chooses; the API never streams it. Storage refuses bytes that don't match the signed
-       type, length and checksum.
-    3. `POST .../documents/uploads/confirm` with the `uploadToken`. The API checks the stored
-       object (size, magic bytes, checksum; an Excel or Word file also as a package, see "Rules
-       for the API"), saves the document and starts the malware scan. `410 UPLOAD_EXPIRED` for
-       an old or used token; `409 UPLOAD_MISMATCH` if the stored file is not what step 1
-       described; `409 FILE_PASSWORD_PROTECTED` or `409 FILE_HAS_MACROS` for an Excel or Word
-       file saved with a password or holding macros; `503 SERVICE_UNAVAILABLE` (with
-       `Retry-After`) when storage fails or is busy: nothing is deleted, confirm again.
-       `uploadFile()` does that itself: it confirms again with the same token after
-       `Retry-After` (at most 30 seconds), up to 3 times (`retryWhenUnavailable`).
+       answers an `UploadTicket` and an `uploadToken`. The ticket is one of two
+       (`ticket.method`):
+       - `PUT` (`UploadPutTicket`), for a file of at most 16 MB
+         (`UPLOAD_LIMITS.multipartThresholdBytes`): one URL valid for 4 minutes and the headers
+         to send.
+       - `MULTIPART` (`UploadMultipartTicket`), for a larger file: `partSizeBytes` (10 MB,
+         `UPLOAD_LIMITS.partSizeBytes`) and `parts`, one `{ partNumber, url, headers }` for each
+         10 MB of the file (the last part the rest), numbered from 1. Every part URL is valid
+         for an hour (`expiresAt`): the multipart session lasts an hour, and the token 10 minutes
+         more, so a part started near the end can still finish and be confirmed.
+    2. The browser sends the file straight to storage under the firm's own prefix
+       (`tenant/{businessId}/...`), at a key the API chooses; the API never streams it.
+       - `PUT`: the whole file to `ticket.url` with exactly `ticket.headers`. Storage refuses
+         bytes that don't match the signed type, length and checksum.
+       - `MULTIPART`: part N is the file's bytes from `(N - 1) * partSizeBytes`, `partSizeBytes`
+         long (the last one to the end), `PUT` to `parts[N - 1].url` with exactly that part's
+         `headers` (today none). Each URL signs its part's exact `Content-Length`, which the
+         browser sets from the part; storage refuses a part of another length. Parts may go up
+         at once (a few at a time), and a failed part may be sent again with the same URL while
+         it is valid: storage keeps the last one. The browser needs nothing from the answers
+         (no ETag): confirm asks storage which parts it holds.
+    3. `POST .../documents/uploads/confirm` with the `uploadToken`, the same body for both. For a
+       multipart upload the API first completes it: storage must hold exactly parts 1 to N, each
+       of its size, else `409 UPLOAD_MISMATCH` and the upload is dropped; an upload storage no
+       longer has (dropped, or never begun) is `410 UPLOAD_EXPIRED`. Then the API checks the
+       stored object (size, magic bytes, checksum; an Excel or Word file also as a package, see
+       "Rules for the API"), saves the document and starts the malware scan. `410
+       UPLOAD_EXPIRED` for an old or used token; `409 UPLOAD_MISMATCH` if the stored file is not
+       what step 1 described; `409 FILE_PASSWORD_PROTECTED` or `409 FILE_HAS_MACROS` for an
+       Excel or Word file saved with a password or holding macros; `503 SERVICE_UNAVAILABLE`
+       (with `Retry-After`) when storage fails or is busy, or the API has no room to check the
+       file now: nothing is deleted, confirm again. `uploadFile()` does that itself: it confirms
+       again with the same token after `Retry-After` (at most 30 seconds), up to 3 times
+       (`retryWhenUnavailable`). A confirm sent again after the upload was completed finds the
+       stored object and goes on.
 
     Limits (`UPLOAD_LIMITS`), the same for clients and staff: PDF, JPG, PNG, Excel (.xlsx) or
-    Word (.docx), at most 10 MB. Office files only without macros: `.xls`, `.xlsm`, `.doc`,
+    Word (.docx), at most 100 MB. Office files only without macros: `.xls`, `.xlsm`, `.doc`,
     `.docm` and `.csv` are refused (their types are not in the list, and a name's ending must fit
     its declared type, so a `Budget.xlsm` sent as an .xlsx is refused too). A browser may give an
     .xlsx or .docx no type (`''` or `application/octet-stream`): `uploadFile()` then takes the
     type from the name's ending (`uploadContentTypeFor`). It refuses a file of another type, an
-    empty one or one over 10 MB before anything is sent (`400 FILE_TYPE_NOT_ALLOWED`,
+    empty one or one over 100 MB before anything is sent (`400 FILE_TYPE_NOT_ALLOWED`,
     `FILE_EMPTY`, `FILE_TOO_LARGE`). Files chosen together go up as one batch of at most 20
     files and 500 MB in all; the API has no batch (each file is its own upload), so the browser
     refuses a bigger one before anything is sent (`checkUploadBatch()`: `400 TOO_MANY_FILES`,
@@ -134,26 +154,49 @@ info:
 
     - **Ticket.** The `uploadToken` is sealed (or stored) by the API and binds the business, the
       uploader (user and side), the client, service, request, category, direction, the S3 key,
-      size, SHA-256 and an expiry of 15 minutes or less (a PUT that starts near the end of its
-      URL can run until the browser's 10-minute timeout, and the confirm comes after it).
+      size, SHA-256, the multipart upload's id (none for a PUT) and an expiry: 15 minutes for a
+      PUT (a PUT that starts near the end of its URL can run until the browser's 10-minute
+      timeout, and the confirm comes after it), 70 for a multipart upload (its part URLs last an
+      hour, plus the same 10 minutes). Firm Sign keeps only a token's SHA-256, so its token
+      carries the multipart upload's id itself (`<random>.<uploadId>`, all of it hashed).
     - **Presigned PUT.** `Content-Type`, `Content-Length` and `x-amz-checksum-sha256` are in
-      `X-Amz-SignedHeaders`; expiry 4 minutes (the token's 15 cover a slow upload and the confirm). (`Content-Length`
-      is signed but not in `ticket.headers`: the browser sends it.) No SSE headers: objects take
-      the bucket's default SSE-KMS with the documents key (see "KMS"). s3mock does not check
-      signatures, so a unit test checks the presigned URL itself (signed headers, expiry).
+      `X-Amz-SignedHeaders`; expiry 4 minutes (the token's 15 cover a slow upload and the
+      confirm). (`Content-Length` is signed but not in `ticket.headers`: the browser sends it.)
+      No SSE headers: objects take the bucket's default SSE-KMS with the documents key (see
+      "KMS"). s3mock does not check signatures, so a unit test checks the presigned URL itself
+      (signed headers, expiry).
+    - **Multipart upload** (a file over 16 MB). The API begins it at the ticket
+      (`CreateMultipartUpload` with the `Content-Type` and, as metadata `x-amz-meta-sha256`, the
+      SHA-256 step 1 described: the browser can change neither) and presigns an `UploadPart`
+      per part with its exact `Content-Length` in `X-Amz-SignedHeaders`, for an hour. No
+      per-part checksum: confirm hashes the whole file. Confirm lists the parts (`ListParts`,
+      every page) and completes the upload (`CompleteMultipartUpload` with the ETags storage
+      listed) only when they are exactly parts 1 to N of the expected sizes; otherwise, and on
+      every refusal after it, the upload is dropped (`AbortMultipartUpload`) and any object
+      deleted. Needs `s3:ListMultipartUploadParts` and `s3:AbortMultipartUpload` beside
+      `s3:PutObject`, and on SSE-KMS `kms:GenerateDataKey` and `kms:Decrypt` for the parts.
+      An upload never confirmed stays as parts until a bucket lifecycle rule
+      (`AbortIncompleteMultipartUpload`, planned with infra) drops it.
     - **Confirm** re-reads the object (size, checksum, magic bytes; Excel and Word as below).
       Missing or different, or stored with a `Content-Encoding` (the PUT signs none, so a
       repeated PUT could add one): `409 UPLOAD_MISMATCH`, and the API deletes the object. The
       unique `s3_key` makes confirm single use (`410 UPLOAD_EXPIRED` the second time). Confirm's
       HEAD never asks for S3's checksum (on SSE-KMS that needs `kms:Decrypt`, and a 403 must not
-      look like a missing file); it hashes the bytes itself. At most 4 confirms read a file at
-      once in each API task (each holds up to 10 MB); one more is `503 SERVICE_UNAVAILABLE`.
+      look like a missing file); it hashes the bytes itself.
+    - **Memory: one read budget.** Every whole-file read in an API task holds its bytes of one
+      budget (`apps/api/src/storage/read-budget.ts`, 320 MB for the 1 GiB task) from before the
+      read until the work ends: confirm's checks in every flow (twice the size for a PDF that
+      is parsed), and Firm Sign's packets, copies and page-viewer bytes (until the response
+      closes). A read that doesn't fit is `503 SERVICE_UNAVAILABLE` with `Retry-After: 5`
+      before anything is read, completed or deleted; a need larger than the budget runs only
+      when nothing else holds any.
     - **Storage failures.** Any S3 failure that isn't "no such object" (a 503 SlowDown, a
       timeout, a 403 from KMS) is `503 SERVICE_UNAVAILABLE` with `Retry-After: 5` on the ticket,
       confirm and the download, and deletes nothing; the log names the operation, the error's
       name and its HTTP status only. Every S3 call has timeouts (3 s to connect, 5 s for the
-      answer's headers, 2 attempts; a GET has 30 s in all, its body included), and no S3 call
-      runs while the upload holds a client, service or category row.
+      answer's headers, 2 attempts; a GET has 40 s in all, its body included, enough for
+      100 MB while confirm still answers inside CloudFront's 60 s), and no S3 call runs while
+      the upload holds a client, service or category row.
     - **Excel and Word (confirm).** An `.xlsx` or `.docx` must be an Office Open XML package
       without macros. Read it in memory and never unpack it to disk; each refusal deletes the
       object, as for a mismatch. The checks, in this order:
@@ -243,9 +286,9 @@ info:
         `REQUESTED` in the same transaction (see "Requests"; kept, Rasel q22). A request the
         firm cancelled or marked missing, or the client answered "I don't have this", keeps its
         status and note.
-      - GuardDuty scans the object as soon as the PUT ends, so a result can arrive before the
-        confirm commits the document (a confirm may come up to the token's 15 minutes later,
-        after a `503`). Such a result is `UNKNOWN` (logged with the upload id): the consumer
+      - GuardDuty scans the object as soon as the PUT ends (a multipart upload's once confirm
+        completes it), so a result can arrive before the confirm commits the document (a confirm
+        may come up to the token's 15 minutes later, after a `503`). Such a result is `UNKNOWN` (logged with the upload id): the consumer
         leaves the message on the queue for redelivery (after 20 s on its first 5 receives,
         then 120 s; 20 receives, about 32 minutes). Once the confirm window has passed (the
         event's `time` plus the token's 15 minutes plus 5) the upload is an orphan, never
@@ -279,8 +322,11 @@ info:
         their results are `UNKNOWN` and wait in the dead-letter queue for a redrive.
     - **Replays.** A presigned PUT can be replayed until it expires and the bucket is versioned,
       so a download pins the confirmed version (R0: `documents.s3_version_id`) or the API checks
-      the checksum before signing the GET. Today it checks the size, S3's checksum and that no
-      `Content-Encoding` is set (`409 FILE_BLOCKED` otherwise).
+      the checksum before signing the GET. Today it checks the size, the SHA-256 and that no
+      `Content-Encoding` is set (`409 FILE_BLOCKED` otherwise). The SHA-256 is S3's checksum
+      for a PUT; a multipart object has none of the whole file (a composite one, `-N`, is not
+      used), so it is the `x-amz-meta-sha256` the API set when it began the upload and confirm
+      checked the bytes against. A part URL can't replace a completed object.
     - **Presigned GET.** `response-content-disposition=attachment` for every file whatever its
       type (never `inline`), with an RFC 5987 file name, `response-content-type` set to the
       stored type, `response-content-encoding=identity` and `response-cache-control=private,
@@ -572,7 +618,11 @@ components:
       content: { application/json: { schema: { $ref: '#/components/schemas/ConfirmUploadRequest' } } }
   responses:
     NotFound: { description: NOT_FOUND (also for another firm's or another client's records) }
-    UploadTicket: { description: UploadTicket }
+    UploadTicket:
+      description: >-
+        UploadTicket: `{ uploadToken, method: 'PUT', url, headers, expiresAt }` for a file of at
+        most 16 MB, else `{ uploadToken, method: 'MULTIPART', partSizeBytes, parts: [{ partNumber,
+        url, headers }], expiresAt }` (parts numbered from 1; an hour to start them).
     DownloadLink: { description: DownloadLink (url and expiresAt, 5 minutes) }
     FirmDocumentList: { description: FirmDocumentList (items, nextCursor, years) }
   schemas:

@@ -18,6 +18,7 @@ import {
   IntakeSettings,
   IntakeSettingsChangeList,
   INTAKE_FORMS,
+  INTAKE_MAX_FILE_SIZE_MB,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -377,7 +378,10 @@ describe('the settings', () => {
     const next = (over: object) =>
       call('put', '/intake-settings', ownerA, { version: saved.version, ...over });
     expect((await next({ security: { acceptedFileTypes: ['HEIC'] } })).status).toBe(400);
-    expect((await next({ security: { maxFileSizeMb: 20 } })).status).toBe(400);
+    // At most the documents' 100 MB.
+    expect(INTAKE_MAX_FILE_SIZE_MB).toBe(100);
+    const tooBig = { security: { maxFileSizeMb: INTAKE_MAX_FILE_SIZE_MB + 1 } };
+    expect((await next(tooBig)).status).toBe(400);
     expect((await next({ clientExperience: { redirectAfterCompletion: true } })).status).toBe(400);
     expect(
       (await next({ notifications: { firstReminderAfterDays: 9, finalReminderAfterDays: 4 } }))

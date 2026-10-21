@@ -1,5 +1,5 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
-import { UploadTicket } from '../documents/schemas.js';
+import { UploadPutTicket } from '../documents/schemas.js';
 import {
   BrandAssetKind,
   BrandingSettings,
@@ -41,9 +41,9 @@ export function createBrandingClient(request: ApiRequest) {
         method: 'PATCH',
         body: parseInput(UpdateBrandingRequest, body),
       }),
-    createAssetUpload: async (body: CreateBrandAssetUploadRequest): Promise<UploadTicket> =>
+    createAssetUpload: async (body: CreateBrandAssetUploadRequest): Promise<UploadPutTicket> =>
       request(
-        UploadTicket,
+        UploadPutTicket,
         '/business/branding/assets/uploads',
         post(parseInput(CreateBrandAssetUploadRequest, body)),
       ),

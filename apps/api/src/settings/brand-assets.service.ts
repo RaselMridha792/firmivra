@@ -16,6 +16,7 @@ import { notFound, refusal, storageUnavailable } from '../storage/document-recor
 import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
+  onlyPut,
   PUT_URL_SECONDS,
   statusOf,
 } from '../storage/document-storage.js';
@@ -133,9 +134,11 @@ export class BrandAssetsService {
     const path = BRAND_ASSET_COLUMNS[body.kind].path;
     const key = `tenant/${businessId}/branding/${path}/${randomUUID()}.${EXTENSION[type]}`;
     const claim: BrandClaim = { pool: 'STAFF', businessId, userId, key, ...body };
-    const put = await this.s3('presign PUT', () =>
+    const presigned = await this.s3('presign PUT', () =>
       this.storage.presignUpload({ ...claim, contentType: body.contentType }),
     );
+    // A small file (its own limit is at most 10 MB): always one PUT.
+    const put = onlyPut(presigned);
     return {
       uploadToken: await this.tokens.seal(claim, UPLOAD_TOKEN_SECONDS),
       url: put.url,

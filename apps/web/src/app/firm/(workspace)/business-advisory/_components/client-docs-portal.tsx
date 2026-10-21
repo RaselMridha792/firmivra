@@ -2,6 +2,7 @@
 
 import {
   DOCUMENT_ERRORS,
+  megabytes,
   UPLOAD_LIMITS,
   type FirmDocument,
   type FirmDocumentList,
@@ -375,6 +376,7 @@ function UploadDocumentDialog({
             ...facts,
           }),
         finish: (uploadToken) => api.documents.confirmUpload({ uploadToken }),
+        maxBytes: UPLOAD_LIMITS.maxBytes,
         onProgress: setPercent,
       });
       await qc.invalidateQueries({ queryKey: [...BA_KEY] });
@@ -428,10 +430,18 @@ function UploadDocumentDialog({
         <FileDropzone
           label="File"
           onFiles={(files) => setFile(files[0])}
-          onReject={() => setError('Use a PDF, JPG, PNG, Excel or Word file up to 10 MB.')}
+          onReject={() =>
+            setError(
+              `Use a PDF, JPG, PNG, Excel or Word file up to ${megabytes(UPLOAD_LIMITS.maxBytes)}.`,
+            )
+          }
           maxBytes={UPLOAD_LIMITS.maxBytes}
           multiple={false}
-          hints={[file ? `Chosen: ${file.name}` : 'PDF, JPG, PNG, Excel or Word, up to 10 MB']}
+          hints={[
+            file
+              ? `Chosen: ${file.name}`
+              : `PDF, JPG, PNG, Excel or Word, up to ${megabytes(UPLOAD_LIMITS.maxBytes)}`,
+          ]}
         />
         <Checkbox
           label="Share with the client (shows in their portal)"

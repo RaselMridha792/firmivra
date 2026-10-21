@@ -9,7 +9,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { HttpException, Logger, NotFoundException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EsignField } from '@firmivra/types';
+import {
+  type EsignField,
+  UPLOAD_LIMITS,
+  UploadMultipartTicket,
+  UploadPutTicket,
+} from '@firmivra/types';
 import { EsignCompletionService } from '../../src/esign/completion/completion.service.js';
 import type {
   CertificateInput,
@@ -220,10 +225,20 @@ const api = (b: Browser, slug = SLUG_A) => {
     finish: async (values: { fieldId: string; value: string }[] = []) =>
       svc.finish(await at('SIGN'), values),
     upload: async (fieldId: string, bytes: Uint8Array = PDF, extra = {}) =>
-      files.createUpload(await at('SIGN'), {
-        ...{ fieldId, fileName: 'id.pdf', contentType: 'application/pdf' as const },
-        ...{ sizeBytes: bytes.byteLength, sha256: sha(bytes), ...extra },
-      }),
+      UploadPutTicket.parse(
+        await files.createUpload(await at('SIGN'), {
+          ...{ fieldId, fileName: 'id.pdf', contentType: 'application/pdf' as const },
+          ...{ sizeBytes: bytes.byteLength, sha256: sha(bytes), ...extra },
+        }),
+      ),
+    /** A file over 16 MB: a multipart upload. */
+    uploadParts: async (fieldId: string, bytes: Uint8Array) =>
+      UploadMultipartTicket.parse(
+        await files.createUpload(await at('SIGN'), {
+          ...{ fieldId, fileName: 'id.png', contentType: 'image/png' as const },
+          ...{ sizeBytes: bytes.byteLength, sha256: sha(bytes) },
+        }),
+      ),
     confirm: async (fieldId: string, uploadToken: string) =>
       files.confirmUpload(await at('SIGN'), fieldId, uploadToken),
     remove: async (fieldId: string) => files.remove(await at('SIGN'), fieldId),
@@ -351,6 +366,38 @@ describe('attachments', () => {
     await put(w.a, t3.url);
     vi.setSystemTime(Date.now() + 16 * 60_000);
     expect(await refused(api(b).confirm(two.id, t3.uploadToken))).toBe('410 UPLOAD_EXPIRED');
+  });
+
+  it('takes a file over 16 MB as a multipart upload; parts missing are 409 and dropped', async () => {
+    const { me, id, b, attach } = await withAttachmentField();
+    const big = new Uint8Array(UPLOAD_LIMITS.multipartThresholdBytes + 3);
+    big.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const ticket = await api(b).uploadParts(attach.id, big);
+    expect(ticket.parts.map((p) => p.partNumber)).toEqual([1, 2]);
+    // The token carries the upload id after a dot; the confirm body is the token alone.
+    expect(ticket.uploadToken).toMatch(/^[\w-]{43}\.[0-9a-f-]{36}$/);
+    const sendParts = (t: UploadMultipartTicket, bytes: Uint8Array) =>
+      t.parts.forEach((part, i) =>
+        w.store.putPart(part.url, bytes.subarray(i * t.partSizeBytes, (i + 1) * t.partSizeBytes)),
+      );
+    sendParts(ticket, big);
+    const confirmed = await api(b).confirm(attach.id, ticket.uploadToken);
+    expect(confirmed.attachmentName).toBe('id.png');
+    const [stored] = await signers.attachments(w.a, id, me.id);
+    expect(stored).toMatchObject({ sizeBytes: big.byteLength, sha256: sha(big) });
+    expect((await w.store.read(w.a, stored!.key))?.byteLength).toBe(big.byteLength);
+
+    // Only the first part: 409, the upload dropped and the earlier file kept.
+    const short = await api(b).uploadParts(attach.id, big);
+    w.store.putPart(short.parts[0]!.url, big.subarray(0, short.partSizeBytes));
+    expect(await refused(api(b).confirm(attach.id, short.uploadToken))).toBe('409 UPLOAD_MISMATCH');
+    expect(w.store.uploads.size).toBe(0);
+    expect(await w.store.read(w.a, stored!.key)).not.toBeNull();
+    // A changed upload id in the token finds no upload.
+    const other = await api(b).uploadParts(attach.id, big);
+    sendParts(other, big);
+    const forged = `${other.uploadToken.split('.')[0]}.${randomUUID()}`;
+    expect(await refused(api(b).confirm(attach.id, forged))).toBe('410 UPLOAD_EXPIRED');
   });
 
   it('only their own ATTACHMENT fields (400), and only at SIGN (409 WRONG_STEP)', async () => {

@@ -5,6 +5,7 @@ import { AuditService } from '../../audit/audit.service.js';
 import { ENV } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../../notify/notify.types.js';
+import { readBudget } from '../../storage/read-budget.js';
 import { safeTimeZone } from '../engine/certificate.js';
 import * as engine from '../engine/engine.types.js';
 import type { EsignStore, LinkTokens, PdfEngine } from '../engine/engine.types.js';
@@ -12,6 +13,7 @@ import type { SignaturePageSigner, Stamp } from '../engine/engine.types.js';
 import { sha256Hex } from '../engine/pdf-engine.js';
 import { ESIGN_DIRECTORY, type EsignDirectory } from '../requests/esign-directory.js';
 import { ESIGN_REPOSITORY, type EsignRepository } from '../requests/esign.repository.js';
+import { filesBusy, packetBudget } from '../requests/esign-uploads.js';
 import type { EsignEventRecord, EsignRecipientRecord } from '../requests/esign.repository.js';
 import type { EsignRequestParts, EsignRequestRecord } from '../requests/esign.repository.js';
 import { COMPLETION_REPOSITORY, type CompletionInputs } from './completion.repository.js';
@@ -91,38 +93,48 @@ export class EsignCompletionService {
       this.requests.events(businessId, id),
     ]);
     const timeZone = safeTimeZone(firm.timeZone);
-    const packet = await this.store.read(
-      businessId,
-      this.store.keyFor(businessId, id, `packet-${q.originalSha256}.pdf`),
+    const { originalSha256 } = q;
+    // The packet, the signed PDF and pdf-lib's copy hold the read budget until both are stored
+    // (no room: the job tries again later).
+    const { completedAt, event, final, cert } = await readBudget.hold(
+      packetBudget(parts.documents),
+      filesBusy,
+      async () => {
+        const packet = await this.store.read(
+          businessId,
+          this.store.keyFor(businessId, id, `packet-${originalSha256}.pdf`),
+        );
+        if (!packet) throw failure('PacketMissing');
+        const signed = await this.pdf.finalize(packet, {
+          ...this.stamps(parts, inputs, timeZone),
+          timeZone,
+        });
+        const finalSha256 = sha256Hex(signed);
+        const completedAt = new Date();
+        const event: EsignEventRecord = {
+          ...{ id: randomUUID(), type: 'COMPLETED', createdAt: completedAt, actorKind: 'SYSTEM' },
+          ...{ actorName: 'Firmivra', recipient: null, reason: null, authMethod: null },
+        };
+        const consent = new Map(inputs.consentVersions.map((c) => [c.recipientId, c.version]));
+        const certificate = await this.pdf.certificate({
+          request: { id, title: q.title, firmName: firm.name, sentAt: q.sentAt!, completedAt },
+          signers: signers.map((r) => ({
+            ...{ name: r.name, email: r.email, role: r.roleLabel ?? r.role },
+            ...{ authMethod: r.authMethod, consentVersion: consent.get(r.id) ?? null },
+            ...{ viewedAt: r.viewedAt, signedAt: r.signedAt, ip: null, userAgent: null },
+          })),
+          events: [...events, event].map((e) => ({
+            ...{ at: e.createdAt, type: e.type, actor: e.actorName, authMethod: e.authMethod },
+          })),
+          originalSha256,
+          finalSha256,
+          timeZone,
+        });
+        const final = await this.put(businessId, q, 'final', signed);
+        const cert = await this.put(businessId, q, 'certificate', certificate);
+        return { completedAt, event, final, cert };
+      },
     );
-    if (!packet) throw failure('PacketMissing');
-    const signed = await this.pdf.finalize(packet, {
-      ...this.stamps(parts, inputs, timeZone),
-      timeZone,
-    });
-    const finalSha256 = sha256Hex(signed);
-    const completedAt = new Date();
-    const event: EsignEventRecord = {
-      ...{ id: randomUUID(), type: 'COMPLETED', createdAt: completedAt, actorKind: 'SYSTEM' },
-      ...{ actorName: 'Firmivra', recipient: null, reason: null, authMethod: null },
-    };
-    const consent = new Map(inputs.consentVersions.map((c) => [c.recipientId, c.version]));
-    const certificate = await this.pdf.certificate({
-      request: { id, title: q.title, firmName: firm.name, sentAt: q.sentAt!, completedAt },
-      signers: signers.map((r) => ({
-        ...{ name: r.name, email: r.email, role: r.roleLabel ?? r.role },
-        ...{ authMethod: r.authMethod, consentVersion: consent.get(r.id) ?? null },
-        ...{ viewedAt: r.viewedAt, signedAt: r.signedAt, ip: null, userAgent: null },
-      })),
-      events: [...events, event].map((e) => ({
-        ...{ at: e.createdAt, type: e.type, actor: e.actorName, authMethod: e.authMethod },
-      })),
-      originalSha256: q.originalSha256,
-      finalSha256,
-      timeZone,
-    });
-    const final = await this.put(businessId, q, 'final', signed);
-    const cert = await this.put(businessId, q, 'certificate', certificate);
     const notices = this.notices(firm.slug, parts.recipients);
     const expiresAt = new Date(completedAt.getTime() + ESIGN_COPY_LINK_DAYS * DAY_MS);
     const result = await this.repo.complete(businessId, id, {

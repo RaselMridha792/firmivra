@@ -1,5 +1,5 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
-import { ConfirmUploadRequest, UploadTicket } from '../documents/schemas.js';
+import { ConfirmUploadRequest, UploadPutTicket } from '../documents/schemas.js';
 import { OkResponse } from '../schemas.js';
 import { MessageTemplateDetail, RenderedTemplate } from '../templates/schemas.js';
 import {
@@ -134,9 +134,9 @@ export function createCommunicationsClient(request: ApiRequest) {
     startAttachment: async (
       id: string,
       body: StartCommunicationAttachmentRequest,
-    ): Promise<UploadTicket> =>
+    ): Promise<UploadPutTicket> =>
       request(
-        UploadTicket,
+        UploadPutTicket,
         `${item(id)}/attachments/uploads`,
         post(parseInput(StartCommunicationAttachmentRequest, body)),
       ),
