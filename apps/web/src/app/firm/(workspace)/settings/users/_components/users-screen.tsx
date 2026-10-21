@@ -2,6 +2,7 @@
 
 import {
   FIRM_ROLE_LABELS,
+  ROLES_MANAGED_BY,
   type FirmUser,
   type MembershipRole,
   type StaffStatusFilter,
@@ -31,9 +32,10 @@ import {
   UsersThree,
   WarningCircle,
 } from '@phosphor-icons/react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, createElement, useState } from 'react';
+import { type ReactNode, createElement, useDeferredValue, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
@@ -42,6 +44,7 @@ import { RowMenu, type RowMenuItem } from '../../../team/_components/row-menu';
 import { ActionModal, type StaffAction } from '../../../team/[id]/_components/staff-actions';
 import { MEMBER_ERRORS } from '../../../team/[id]/_components/staff-parts';
 import { BandCard, SettingsHeader, SettingsKpi } from '../../_components/settings-parts';
+import { ChangeRoleModal } from './change-role-modal';
 import { InviteUserModal } from './invite-user-modal';
 import { RolePanel } from './role-panel';
 import { RoleTemplates } from './role-templates';
@@ -128,6 +131,7 @@ type Dialog =
   | { kind: 'invite' }
   | { kind: 'action'; action: StaffAction; user: FirmUser }
   | { kind: 'revoke'; user: FirmUser }
+  | { kind: 'role'; user: FirmUser }
   | { kind: 'pick'; action: 'resetPassword' | 'deactivate' };
 
 /**
@@ -138,6 +142,7 @@ type Dialog =
  */
 export function UsersScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { role: me, firm } = useFirm();
   const [search, setSearch] = useState('');
   const [company, setCompany] = useState('');
@@ -188,6 +193,10 @@ export function UsersScreen() {
     items.push(
       { label: 'Edit User', onSelect: () => router.push(`/team/${u.id}`) },
       { label: 'Manage Access', onSelect: () => router.push(`/team/${u.id}/security/permissions`) },
+      // Only someone whose role you may change (an Admin never changes an Admin or the Owner).
+      ...(me && u.status !== 'DEACTIVATED' && ROLES_MANAGED_BY[me].includes(u.role)
+        ? [{ label: 'Change Role', onSelect: () => setDialog({ kind: 'role', user: u }) }]
+        : []),
     );
     if (u.status === 'INVITED') {
       items.push(
@@ -565,7 +574,18 @@ export function UsersScreen() {
         <ActionModal
           action={dialog.action}
           id={dialog.user.id}
-          name={dialog.user.name}
+          name={`${dialog.user.name} (${dialog.user.email})`}
+          onClose={() => setDialog(null)}
+          onDone={(text) => {
+            setDialog(null);
+            setMessage(text);
+            void queryClient.invalidateQueries({ queryKey: ['users'] });
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'role' ? (
+        <ChangeRoleModal
+          user={dialog.user}
           onClose={() => setDialog(null)}
           onDone={(text) => {
             setDialog(null);
@@ -586,13 +606,6 @@ export function UsersScreen() {
       {dialog?.kind === 'pick' ? (
         <PickUserModal
           action={dialog.action}
-          users={(list.data?.items ?? []).filter(
-            (u) =>
-              !u.isYou &&
-              (dialog.action === 'deactivate'
-                ? u.status !== 'DEACTIVATED'
-                : u.status === 'ACTIVE' || u.status === 'LOCKED'),
-          )}
           onClose={() => setDialog(null)}
           onPick={(user) => setDialog({ kind: 'action', action: dialog.action, user })}
         />
@@ -647,33 +660,90 @@ function RevokeModal({
 /** Reset User Passwords and Deactivate User from Quick Actions: choose the user first. */
 function PickUserModal({
   action,
-  users,
   onClose,
   onPick,
 }: {
   action: 'resetPassword' | 'deactivate';
-  users: FirmUser[];
   onClose: () => void;
   onPick: (user: FirmUser) => void;
 }) {
+  const [search, setSearch] = useState('');
+  const term = useDeferredValue(search.trim());
   const [id, setId] = useState('');
-  const user = users.find((u) => u.id === id);
+  // Every user of the firm, not the table's page or filters (Octavia's review, sections 7 and 8).
+  const all = useApiQuery(['users', 'pick', term], () =>
+    api.users.list({ pageSize: 100, ...(term.length >= 2 ? { search: term } : {}) }),
+  );
+  const eligible = (all.data?.items ?? []).filter(
+    (u) =>
+      !u.isYou &&
+      (action === 'deactivate'
+        ? u.status !== 'DEACTIVATED'
+        : u.status === 'ACTIVE' || u.status === 'LOCKED'),
+  );
+  const user = eligible.find((u) => u.id === id);
+  const more = (all.data?.total ?? 0) > (all.data?.items.length ?? 0);
   return (
     <Modal
       open
       title={action === 'resetPassword' ? 'Reset User Password' : 'Deactivate User'}
       onClose={onClose}
     >
-      <div className="flex flex-col gap-4">
-        <Select
-          label="User"
-          options={[
-            { value: '', label: users.length ? 'Choose a user' : 'No users on this page' },
-            ...users.map((u) => ({ value: u.id, label: `${u.name} (${u.email})` })),
-          ]}
-          value={id}
-          onChange={(event) => setId(event.target.value)}
+      <div className="flex flex-col gap-4" data-testid="pick-user">
+        <p className="text-sm text-text">
+          {action === 'resetPassword'
+            ? 'Choose who gets a secure link to set a new password. Active and locked accounts are listed.'
+            : 'Choose whose access ends. Their records stay, and you can reactivate them later.'}
+        </p>
+        <SearchField
+          label="Search users"
+          placeholder="Search by name or email…"
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setId('');
+          }}
         />
+        {all.isError ? (
+          <p role="alert" className="flex flex-wrap items-center gap-2 text-sm text-danger">
+            Users could not load. {errorMessage(all.error, MEMBER_ERRORS)}
+            <Button variant="outline" onClick={() => void all.refetch()}>
+              Retry
+            </Button>
+          </p>
+        ) : all.isPending ? (
+          <p className="text-sm text-muted">Loading users…</p>
+        ) : eligible.length === 0 ? (
+          <p className="rounded-lg bg-canvas px-3 py-2 text-sm text-text">
+            {term ? 'No user matches this search.' : 'No other user can be chosen for this.'}
+          </p>
+        ) : (
+          <ul
+            role="listbox"
+            aria-label="Users"
+            className="flex max-h-64 flex-col overflow-y-auto rounded-lg border border-divider"
+          >
+            {eligible.map((u) => (
+              <li key={u.id} role="option" aria-selected={u.id === id}>
+                <button
+                  type="button"
+                  onClick={() => setId(u.id)}
+                  className={`flex w-full flex-col items-start px-3 py-2 text-left text-sm ${u.id === id ? 'bg-accent-soft' : 'hover:bg-canvas'}`}
+                >
+                  <span className="font-medium text-heading">{u.name}</span>
+                  <span className="text-muted">
+                    {u.email} · {FIRM_ROLE_LABELS[u.role]} · {STATUS_CHIPS[u.status][0]}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {more ? (
+          <p className="text-xs text-muted">
+            The first 100 users are listed. Search to find others.
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
           <Button variant="secondary" onClick={onClose}>
             Cancel
