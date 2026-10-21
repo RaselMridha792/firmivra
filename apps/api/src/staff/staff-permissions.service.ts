@@ -29,18 +29,27 @@ const CAPABILITIES = PermissionCapability.options;
 type Source = StaffPermissions['cells'][number]['source'];
 type Cell = { granted: boolean; source: Source };
 
-/** A member's grid: the role's default, the firm's role changes, then the member's own. */
+/**
+ * A member's grid: the role's default, the firm's role changes, then the member's own. With a
+ * custom role, its whole grid stands in for the role's (Settings > Users & Roles).
+ */
 export async function memberGrid(
   tx: TxClient,
   businessId: string,
   role: MembershipRole,
   membershipId: string | null,
+  customRoleId?: string | null,
 ): Promise<{ role: Map<string, Cell>; member: Map<string, Cell>; updatedAt: Date | null }> {
   const [roleRows, memberRows] = await Promise.all([
-    tx.rolePermission.findMany({
-      where: { businessId, role },
-      select: { module: true, capability: true, granted: true },
-    }),
+    customRoleId
+      ? tx.customRolePermission.findMany({
+          where: { businessId, customRoleId },
+          select: { module: true, capability: true, granted: true },
+        })
+      : tx.rolePermission.findMany({
+          where: { businessId, role },
+          select: { module: true, capability: true, granted: true },
+        }),
     membershipId
       ? tx.memberPermission.findMany({
           where: { businessId, membershipId },
@@ -84,6 +93,8 @@ export async function writeMemberGrid(
     businessId: string;
     membershipId: string;
     role: MembershipRole;
+    /** Their custom role, whose grid is the one "more than the role" is measured against. */
+    customRoleId?: string | null;
     grants: readonly PermissionGrant[];
     acknowledged: boolean;
     updatedById: string;
@@ -99,7 +110,13 @@ export async function writeMemberGrid(
       code: 'VALIDATION_FAILED',
       message: "The Owner's permissions cannot be changed",
     });
-  const grid = await memberGrid(tx, businessId, role, input.fresh ? null : membershipId);
+  const grid = await memberGrid(
+    tx,
+    businessId,
+    role,
+    input.fresh ? null : membershipId,
+    input.customRoleId,
+  );
   const now = new Map([...grid.member].map(([k, v]) => [k, v.granted]));
   for (const g of input.grants) now.set(cellKey(g.module, g.capability), g.granted);
   for (const m of MODULES) {
@@ -147,8 +164,10 @@ export async function writeMemberGrid(
 export const toPermissions = (
   role: MembershipRole,
   grid: Awaited<ReturnType<typeof memberGrid>>,
+  customRole: { id: string; name: string } | null = null,
 ): StaffPermissions => ({
   role,
+  customRole,
   cells: MODULES.flatMap((module) =>
     CAPABILITIES.map((capability) => ({
       module,
@@ -173,10 +192,14 @@ export class StaffPermissionsService {
     return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       const m = await tx.membership.findFirst({
         where: { businessId, id },
-        select: { id: true, role: true },
+        select: { id: true, role: true, customRole: { select: { id: true, name: true } } },
       });
       if (!m) throw notFound();
-      return toPermissions(m.role, await memberGrid(tx, businessId, m.role, m.id));
+      return toPermissions(
+        m.role,
+        await memberGrid(tx, businessId, m.role, m.id, m.customRole?.id),
+        m.customRole,
+      );
     });
   }
 
@@ -197,6 +220,7 @@ export class StaffPermissionsService {
           businessId,
           membershipId: id,
           role: target.role,
+          customRoleId: target.customRoleId,
           grants,
           acknowledged,
           updatedById: by,
@@ -243,7 +267,8 @@ export class StaffPermissionsService {
             code: 'VALIDATION_FAILED',
             message: "The Owner's permissions cannot be changed",
           });
-        const grid = await memberGrid(tx, businessId, target.role, id);
+        // With a custom role, Inherit and "more than the role" follow the custom role's grid.
+        const grid = await memberGrid(tx, businessId, target.role, id, target.customRoleId);
         const roleHas = (k: string) => grid.role.get(k)?.granted ?? false;
         const now = new Map([...grid.member].map(([k, v]) => [k, v.granted]));
         for (const c of cells) {

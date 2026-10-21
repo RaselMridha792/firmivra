@@ -160,7 +160,7 @@ export async function requireCapability(
   capability: 'DELETE' | 'MANAGE',
 ): Promise<void> {
   if (tenant.role !== 'STAFF') return;
-  if (!(await grants.can(tenant.businessId, 'STAFF', 'DOCUMENTS', capability))) {
+  if (!(await grants.canTenant(tenant, 'DOCUMENTS', capability))) {
     throw new ForbiddenException({
       code: 'FORBIDDEN',
       message: 'You do not have access to this action',

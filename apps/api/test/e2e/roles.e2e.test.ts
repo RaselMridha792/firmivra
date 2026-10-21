@@ -408,10 +408,11 @@ describe('who may', () => {
     expectError(await call('get', '/roles/STAFF/permissions', preparerA), 403, 'FORBIDDEN');
     expectError(await save('MANAGER', [], staffA), 403, 'FORBIDDEN');
     expectError(await call('get', '/roles', undefined), 401, 'UNAUTHENTICATED');
+    // Custom roles have their own e2e (custom-roles.e2e.test.ts): Staff is refused here too.
     expectError(
-      await call('post', '/roles/custom', ownerA, { name: 'Custom', basedOn: 'STAFF' }),
-      501,
-      'NOT_IMPLEMENTED',
+      await call('post', '/roles/custom', staffA, { name: 'Custom', basedOn: 'STAFF' }),
+      403,
+      'FORBIDDEN',
     );
     // Firm B's grid is its own.
     const b = await grid('MANAGER', ownerB, 'b');

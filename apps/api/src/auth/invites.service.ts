@@ -452,7 +452,8 @@ export class InvitesService {
         status: existing.status as 'INVITED' | 'DEACTIVATED',
         role: existing.role,
       },
-      data: { status: 'INVITED', role },
+      // A new role takes the custom role away (it belongs to the role it is based on).
+      data: { status: 'INVITED', role, ...(role !== existing.role ? { customRoleId: null } : {}) },
     });
     if (moved.count !== 1) throw new MembershipChanged();
     return { id: existing.id };

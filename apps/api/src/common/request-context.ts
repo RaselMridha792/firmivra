@@ -32,7 +32,13 @@ export function legacyFirmRole(role: TenantRole): LegacyFirmRole {
 
 /** Which firm the request acts in and the caller's role there, from the database. Set by TenantGuard. */
 export type TenantContext =
-  | { businessId: string; role: Exclude<TenantRole, 'CLIENT'>; kind: 'staff' }
+  | {
+      businessId: string;
+      role: Exclude<TenantRole, 'CLIENT'>;
+      kind: 'staff';
+      /** Their custom role (Users & Roles), whose grid stands in for the role's; absent if none. */
+      customRoleId?: string;
+    }
   | {
       businessId: string;
       role: 'CLIENT';
