@@ -53,7 +53,7 @@ export const exportLine = (u: FirmUser): string =>
   csvRow([
     u.name,
     u.email,
-    FIRM_ROLE_LABELS[u.role],
+    u.customRole?.name ?? FIRM_ROLE_LABELS[u.role],
     u.company,
     STATUS_TEXT[u.status],
     MFA_TEXT[u.mfa],
@@ -99,8 +99,8 @@ export class UsersService {
 
   /**
    * Total Users counts accepted accounts (Active, Locked, Inactive); Pending Invitations counts
-   * the invited ones on their own (Octavia's review, Oct 18). Roles: the firm's eight roles; no
-   * custom role exists yet.
+   * the invited ones on their own (Octavia's review, Oct 18). Roles: the built-in roles plus the
+   * firm's live custom roles.
    */
   summary(tenant: TenantContext): Promise<UsersSummary> {
     return this.database.withScope(
@@ -110,11 +110,12 @@ export class UsersService {
         const monthStart = new Date();
         monthStart.setUTCDate(1);
         monthStart.setUTCHours(0, 0, 0, 0);
-        const [by, added] = await Promise.all([
+        const [by, added, custom] = await Promise.all([
           tx.membership.groupBy({ by: ['status'], where: { businessId }, _count: { _all: true } }),
           tx.membership.count({
             where: { businessId, status: { not: 'INVITED' }, createdAt: { gte: monthStart } },
           }),
+          tx.customRole.count({ where: { businessId, archivedAt: null } }),
         ]);
         const n = (s: string) => by.find((b) => b.status === s)?._count._all ?? 0;
         return {
@@ -122,7 +123,8 @@ export class UsersService {
           addedThisMonth: added,
           active: n('ACTIVE'),
           pendingInvitations: n('INVITED'),
-          roles: FIRM_ROLES.length,
+          roles: FIRM_ROLES.length + custom,
+          customRoles: custom,
         };
       },
     );
@@ -136,7 +138,7 @@ export class UsersService {
       lines.push(...batch.items.map(exportLine));
       if (page * PAGE >= batch.total || !batch.items.length) break;
     }
-    const filters = (['search', 'role', 'status'] as const).filter(
+    const filters = (['search', 'role', 'customRoleId', 'status'] as const).filter(
       (k) => q[k] !== undefined && !(k === 'status' && q.status === 'all'),
     );
     await this.audit.log(

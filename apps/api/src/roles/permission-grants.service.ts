@@ -6,6 +6,7 @@ import {
   type PermissionCapability,
   type PermissionModule,
 } from '@firmivra/types';
+import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 
 /** How long one API task trusts a firm's saved grid before reading it again. */
@@ -50,6 +51,40 @@ export class PermissionGrantsService {
     return changed;
   }
 
+  /** Forgets a custom role's grid (after it was edited), or all of the firm's. */
+  invalidateCustom(businessId: string, customRoleId?: string): void {
+    for (const key of [...this.cache.keys()])
+      if (key.startsWith(`${businessId}:custom:${customRoleId ?? ''}`)) this.cache.delete(key);
+  }
+
+  /**
+   * A custom role's cell (`custom_role_permissions`, its whole grid), which stands in for the
+   * role's grid for the members who have it. Undefined only for a cell the grid lacks.
+   */
+  async customCell(
+    businessId: string,
+    customRoleId: string,
+    module: PermissionModule,
+    capability: PermissionCapability,
+  ): Promise<boolean | undefined> {
+    const key = `${businessId}:custom:${customRoleId}`;
+    let entry = this.cache.get(key);
+    if (!entry || Date.now() - entry.at >= TTL_MS) {
+      const rows = await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+        tx.customRolePermission.findMany({
+          where: { businessId, customRoleId },
+          select: { module: true, capability: true, granted: true },
+        }),
+      );
+      entry = {
+        at: Date.now(),
+        changed: new Map(rows.map((r) => [`${r.module}:${r.capability}`, r.granted])),
+      };
+      this.cache.set(key, entry);
+    }
+    return entry.changed.get(`${module}:${capability}`);
+  }
+
   /** Forgets the members' own changes of one firm (after Staff Management saved one). */
   invalidateMember(businessId: string): void {
     for (const key of [...this.cache.keys()])
@@ -82,6 +117,28 @@ export class PermissionGrantsService {
       this.cache.set(key, entry);
     }
     return entry.changed.get(`${module}:${capability}`);
+  }
+
+  /**
+   * What the signed-in member's role may do here, for the checks a service makes itself: their
+   * custom role's grid when they have one, else the role's. A client gets nothing.
+   */
+  async canTenant(
+    tenant: TenantContext,
+    module: PermissionModule,
+    capability: PermissionCapability,
+  ): Promise<boolean> {
+    if (tenant.kind !== 'staff') return false;
+    if (tenant.customRoleId) {
+      const cell = await this.customCell(
+        tenant.businessId,
+        tenant.customRoleId,
+        module,
+        capability,
+      );
+      if (cell !== undefined) return cell;
+    }
+    return this.can(tenant.businessId, tenant.role, module, capability);
   }
 
   async can(

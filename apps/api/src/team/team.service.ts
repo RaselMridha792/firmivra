@@ -317,7 +317,8 @@ export class TeamService {
   ): Promise<void> {
     const { count } = await tx.membership.updateMany({
       where: { businessId, id: target.id, role: target.role, status: target.status },
-      data,
+      // A new role takes the custom role away (it belongs to the role it is based on).
+      data: data.role && data.role !== target.role ? { ...data, customRoleId: null } : data,
     });
     if (count !== 1) throw new MemberChanged();
   }
