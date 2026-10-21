@@ -37,9 +37,9 @@ invites (below).
 
 | PR / branch | What | State |
 | --- | --- | --- |
-| `rasel/R60-security-copy` | Settings Security: the spaces and MFA lines follow Rasel's answers (#998 merged before them), and this handoff | PR opened Oct 21 |
-| `rasel/R60-lockout-contract` | `retryAt` on the sign-in 429 (contract) | Item 1, lockout. Opened before the API PR |
-| `rasel/R60-sign-in-lockout` | Per-account sign-in lockout (API) | Item 1, lockout. Rasel's go Oct 21 |
+| #1006 `rasel/R60-security-copy` | Settings Security: the spaces and MFA lines follow Rasel's answers (#998 merged before them), and this handoff | Open (Oct 21) |
+| #1007 `rasel/R60-lockout-contract` | The sign-in 429's `details.retryAt` and Retry-After (contract) | Open (Oct 21) |
+| #1008 `rasel/R60-sign-in-lockout` | Per-account sign-in lockout (API), stacked on #1007 | Open (Oct 21). After it merges: take "but not yet by this lockout rule" out of the Security page's password note (web PR), and merge `main` into this branch after #1007 merges |
 | `rasel/R60-team-invites` | Super Admin Team: invitations through Cognito (`team-invite.service.ts`, `team-invitation.ts`) | #981 merged Oct 21. Next: merge `main`, rerun the admin-team e2e (4 tests waited on the grant), open the PR when a slot frees |
 | `rasel/R60-begin-online` | Begin Online audit at 1440 px | Audit done (`R60-begin-online-audit.md`); Rasel decided the [decide] items that block the shared fixes (item 5); fixes not started |
 
@@ -298,3 +298,7 @@ status, exports, restore) and the two rows show real dates.
 - Oct 21: #996, #997 and #998 merged before the answers' commits, so the Security copy and this
   handoff go in `rasel/R60-security-copy` from `main`. Rasel's go on the lockout; contract PR
   for `retryAt` first, then the API PR.
+- Oct 21: #1006 (Security copy and this handoff), #1007 (lockout contract: `retryAt` in
+  `error.details`, because the API's error filter forwards only `details`; audit row `auth.locked`)
+  and #1008 (lockout API, 19 of 19 in `sign-in-limits`, 35 of 35 in `auth` and `portal-sign-in`)
+  opened.
