@@ -138,10 +138,9 @@ The contract keeps Tumit's method names and field names, so his screens switch w
 - **R0: Integrations part 2 gaps** (schema request, not edited here): a usage alert thresholds table (error rate, latency, quota, cost, sync failures, versioned); per-plan adoption in `platform_integration_usage_daily` (the Usage page's plan distribution); a redacted payload on `platform_webhook_deliveries` (the deliveries drawer shows one).
 - **R1: Integrations part 2 workers**: the webhook delivery worker (sends `PENDING` deliveries, redeliveries included, and writes each result), the export worker for `INTEGRATION_LOGS` jobs (the file under `platform/exports/<id>/`), and B1's download route (`GET /api/v1/admin/exports/:id` with a signed URL).
 
-- **R1: Integrations workers and secrets** (B8 "Needs from R1"): the sync worker (a `SYNC` run stays `QUEUED` until it runs), real provider connection tests (today a local check of the values), the health checks, the daily usage rollup (`platform_integration_usage_daily`; until it runs, usage and uptime show N/A), the API role's Secrets Manager grant on `firmivra/platform/integrations/*` (SECRETS_MODE=aws), the S3 grant on `platform/integrations/*` for catalog logos (the contract keeps the logo's metadata only), and an OAuth app per OAuth provider (DocuSign) for reconnect.
-- **R0: webhook to integration link** (schema request, not edited here): `platform_webhook_endpoints` has no integration column, so an integration's dependents list no webhooks.
-- **R0: Integrations part 2 gaps** (schema request, not edited here): a usage alert thresholds table (error rate, latency, quota, cost, sync failures, versioned); per-plan adoption in `platform_integration_usage_daily` (the Usage page's plan distribution); a redacted payload on `platform_webhook_deliveries` (the deliveries drawer shows one).
-- **R1: Integrations part 2 workers**: the webhook delivery worker (sends `PENDING` deliveries, redeliveries included, and writes each result), the export worker for `INTEGRATION_LOGS` jobs (the file under `platform/exports/<id>/`), and B1's download route (`GET /api/v1/admin/exports/:id` with a signed URL).
+- **R1: Locations API** (Rasel, Oct 21: the Locations backend and the FirmOffice migration are R1's): R56 then builds Settings > Locations (list, profile modal, add, edit, three-dot menu), the Overview's Locations parts (items 1, 3 to 5, 10 to 13) and location results in the header search.
+- **R1: staff self-profile API** (Settings review, Overview items 9 and 20): photo, phone, password and personal preferences for the signed-in person. Until then My Profile (#990) is read-only from `/me`.
+- **R60 / R0: Sales data gaps** filed as schema request #984 (est. close, an appointment requirement on a stage, plan copy, the Card / List preference); Rasel: not built now.
 - **R55 / Fahad: firm Integrations gaps** (from Ibrahim's drafts and R56's tabs): `IntegrationCard` has no secondary action, so the main page shows Sync Now or Test by sync mode instead of the design's per-provider pair; the connect flow's Add Custom Folder has no contract field (shown disabled); the kit has no provider logo set, so cards show the provider's initial.
 
 ## Progress log
@@ -180,10 +179,12 @@ Limits: at most 2 open non-contract PRs; `git merge origin/main`, never rebase o
 
 **Ownership (Rasel, Oct 20).** The developers keep no work. Sessions may change any file `docs/junior/PAGE-MAP.md` lists under a developer, inside their task, after merging main. R60 owns Support, Billing, Sales, Subscriptions and Team, so agree file splits with R60 (`firmivra-r60-f6`) by cross-session message and keep visual fixes out of the `*-api.ts` adapters. R60 also owns Begin Online outside the three field files above.
 
+**Update (Oct 21).** Merged: #971 (Firms table at 1280 px), #972 (legal pages), #979 (Sales design pass). Open: #981 (`rasel/R0-platform-admins-team-insert`, the app's TEAM_MEMBER inserts on `platform_admins`, Rasel's request, under R0's lock) and #990 (`rasel/R56-settings-shell`, Overview items 2, 7, 8 and 9). Rasel's order: (1) #981, (2) the Overview items without Locations (#990), (3) the Sales screens without a design, (4) Locations.
+
 **Next, in order:**
 
-1. **Sales design pass** (Super Admin `sales/`, free since R60's #930 merged): Sales Center and Pipeline against `docs/mockups/super-admin/sales/source/`, three states, no adapter changes.
-2. **Settings > Overview rewrite and Settings > Locations** (after the Locations database and API exist; Rasel is deciding who builds them). Read `docs/specs/settings-review-2026-10-20/CHANGE-LIST.md` first. Octavia's change: "Active Companies" becomes "Locations". Overview items 1 to 31 in `overview--*.md`; mockups in `.../overview/` and `.../locations/`.
+1. **Sales screens without a design** (Rasel chose this as the Sales leftovers): List View (the table runs past its card, emails wrap, stage badges break), Pipeline Builder (Type and On entry selects cut their values), the opportunity page, Add Lead, the action dialogs and drawers, in the Sales Center's compact language. Branch `rasel/R56-sales-screens`; "before" shots of all 14 were taken with a temporary `zz-r56-sales-ui-shots.spec.ts`. No adapter changes.
+2. **Settings > Locations and the Overview's Locations parts**, after R1's Locations API is merged (not before; no FirmOffice migration from R56). Read `docs/specs/settings-review-2026-10-20/CHANGE-LIST.md` (P3 Locations) and `locations--final-lvp-locations-settings-final-developer-guide.md`; mockups in `.../overview/` and `.../locations/`.
 
 When `GET /api/v1/legal/:kind` (stage D4) exists, the legal pages can render the published version; its version 1 should then carry the docx text from `app/firm/(legal)/_components/`.
 
