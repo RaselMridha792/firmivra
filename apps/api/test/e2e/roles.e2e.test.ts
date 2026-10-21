@@ -146,7 +146,7 @@ afterAll(async () => {
 });
 
 describe('the roles and the grid', () => {
-  it('lists the eight roles with their counts, and serves the modules and capabilities', async () => {
+  it('lists the nine roles with their counts, and serves the modules and capabilities', async () => {
     const list = RoleList.parse(ok(await call('get', '/roles', ownerA)));
     expect(list.items.map((r) => r.role)).toEqual([
       'OWNER',
@@ -156,6 +156,7 @@ describe('the roles and the grid', () => {
       'BOOKKEEPER',
       'TAX_PREPARER',
       'CLIENT_SUPPORT',
+      'BUSINESS_CONSULTANT',
       'READ_ONLY',
     ]);
     const by = (r: string) => list.items.find((i) => i.role === r);
@@ -272,18 +273,28 @@ describe('saving the grid', () => {
     expect(cell(back, 'REPORTS', 'EXPORT')?.granted).toBe(false);
   });
 
-  it('never changes the Owner, and an Admin cannot change an Admin', async () => {
+  it('never changes the Owner; an Admin changes every other role, the Admin role too', async () => {
     expectError(
       await save('OWNER', [{ module: 'CLIENTS', capability: 'VIEW', granted: false }]),
       403,
       'FORBIDDEN',
     );
     expectError(await call('delete', '/roles/OWNER/permissions', ownerA), 403, 'FORBIDDEN');
+    // Octavia's review (Oct 20): Owner and Admin edit every role but the Owner's.
+    ok(await save('ADMIN', [{ module: 'REPORTS', capability: 'EXPORT', granted: false }], adminA));
+    expect(cell(await grid('ADMIN', adminA), 'REPORTS', 'EXPORT')?.granted).toBe(false);
+    // ...but an Admin cannot close Roles & Permissions to every Admin; the Owner can.
     expectError(
-      await save('ADMIN', [{ module: 'CLIENTS', capability: 'VIEW', granted: false }], adminA),
-      403,
-      'CANNOT_GRANT',
+      await save(
+        'ADMIN',
+        [{ module: 'STAFF_MANAGEMENT', capability: 'EDIT', granted: false }],
+        adminA,
+      ),
+      409,
+      'ADMIN_LOCKOUT',
     );
+    ok(await save('ADMIN', [{ module: 'STAFF_MANAGEMENT', capability: 'EDIT', granted: false }]));
+    ok(await call('delete', '/roles/ADMIN/permissions', ownerA));
     // An Admin may change the roles below.
     ok(await save('MANAGER', [{ module: 'CLIENTS', capability: 'VIEW', granted: true }], adminA));
     expect((await save('NOBODY', [], ownerA)).status).toBe(400);
@@ -327,6 +338,23 @@ describe('the saved grid decides what the guard allows', () => {
     const segments = () => make(preparerA);
     ok(await call('delete', '/roles/TAX_PREPARER/permissions', ownerA));
     expectError(await segments(), 403, 'FORBIDDEN');
+  });
+
+  it('closes a cell the firm took away from the Admin role, and opens it again', async () => {
+    const make = () =>
+      call('post', '/templates', adminA, {
+        kind: 'EMAIL',
+        name: `Tpl ${run} ${randomUUID().slice(0, 6)}`,
+        subject: 'S',
+        body: '<p>Hello</p>',
+      });
+    expect((await make()).status).toBe(201);
+    ok(await save('ADMIN', [{ module: 'TEMPLATES', capability: 'CREATE', granted: false }]));
+    expectError(await make(), 403, 'FORBIDDEN');
+    // Other modules stay open, and the Owner is never affected.
+    expect((await call('get', '/templates', adminA)).status).toBe(200);
+    ok(await call('delete', '/roles/ADMIN/permissions', ownerA));
+    expect((await make()).status).toBe(201);
   });
 
   it('takes a default away too', async () => {

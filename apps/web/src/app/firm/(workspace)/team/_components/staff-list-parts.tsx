@@ -9,6 +9,7 @@ const ROLE_CHIPS: Record<MembershipRole, string> = {
   BOOKKEEPER: 'bg-info-soft text-link',
   TAX_PREPARER: 'bg-info-soft text-link',
   CLIENT_SUPPORT: 'bg-info-soft text-link',
+  BUSINESS_CONSULTANT: 'bg-info-soft text-link',
   READ_ONLY: 'bg-disabled text-text',
 };
 

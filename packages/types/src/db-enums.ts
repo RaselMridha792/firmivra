@@ -18,6 +18,7 @@ export const MembershipRole = z.enum([
   'BOOKKEEPER',
   'TAX_PREPARER',
   'CLIENT_SUPPORT',
+  'BUSINESS_CONSULTANT',
   'READ_ONLY',
 ]);
 export type MembershipRole = z.infer<typeof MembershipRole>;
@@ -2171,3 +2172,27 @@ export type PlatformLegalDocumentKind = z.infer<typeof PlatformLegalDocumentKind
 
 export const PlatformLegalDocumentStatus = z.enum(['DRAFT', 'PUBLISHED', 'RETIRED']);
 export type PlatformLegalDocumentStatus = z.infer<typeof PlatformLegalDocumentStatus>;
+
+/** A location's kind: OFFICE has a street address, VIRTUAL (online / remote) has none. */
+export const FirmOfficeKind = z.enum(['OFFICE', 'VIRTUAL']);
+export type FirmOfficeKind = z.infer<typeof FirmOfficeKind>;
+
+/** Activate / Deactivate a location, either way (archiving is separate and final). */
+export const FirmOfficeStatus = z.enum(['ACTIVE', 'INACTIVE']);
+export type FirmOfficeStatus = z.infer<typeof FirmOfficeStatus>;
+
+/** A scheduled Locations change. */
+export const FirmOfficeActionKind = z.enum([
+  'DEACTIVATE_LOCATION',
+  'DEACTIVATE_MANAGER',
+  'REASSIGN_MANAGER',
+]);
+export type FirmOfficeActionKind = z.infer<typeof FirmOfficeActionKind>;
+
+/** PENDING until its time; DONE, CANCELLED and FAILED are final. */
+export const FirmOfficeActionStatus = z.enum(['PENDING', 'DONE', 'CANCELLED', 'FAILED']);
+export type FirmOfficeActionStatus = z.infer<typeof FirmOfficeActionStatus>;
+
+/** CLIENT links open without a portal account (at most 24 hours); INTERNAL links still need the staff member's sign-in (at most 48 hours). */
+export const DocumentLinkKind = z.enum(['CLIENT', 'INTERNAL']);
+export type DocumentLinkKind = z.infer<typeof DocumentLinkKind>;

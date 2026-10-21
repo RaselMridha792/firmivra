@@ -72,13 +72,18 @@ export type BrandingClient = ReturnType<typeof createBrandingClient>;
 /** `api.users`: Settings > Users & Roles' table and Invite User. Owner and Admin only. */
 /** `baseUrl` ('/api/v1' in the browser) prefixes the export download link. */
 export function createUsersClient(request: ApiRequest, baseUrl = '') {
+  /** The query as URL values: a selection's ids go as one comma-separated value. */
+  const values = (query: UsersQuery) => {
+    const { ids, ...rest } = parseInput(UsersQuery, query);
+    return { ...rest, ...(ids ? { ids: ids.join(',') } : {}) };
+  };
   return {
     list: async (query: UsersQuery = {}): Promise<FirmUserList> =>
-      request(FirmUserList, `/business/users${toQuery(parseInput(UsersQuery, query))}`),
+      request(FirmUserList, `/business/users${toQuery(values(query))}`),
     summary: async (): Promise<UsersSummary> => request(UsersSummary, '/business/users/summary'),
     /** Export: a CSV download link with the same filters (audited by the API). */
     exportUrl: (query: UsersQuery = {}): string => {
-      const { page: _page, pageSize: _size, ...filters } = parseInput(UsersQuery, query);
+      const { page: _page, pageSize: _size, ...filters } = values(query);
       return `${baseUrl}/business/users/export${toQuery(filters)}`;
     },
     invite: async (body: InviteUserRequest): Promise<InviteUserResponse> =>
