@@ -123,6 +123,15 @@ export function returnKind(
     ? { title: `Individual ${form}`.trim(), group: 'Personal Tax', tone: 'blue' as const }
     : { title: `Business ${form}`.trim(), group: 'Business Tax', tone: 'blue' as const };
 }
+/** "Personal Tax Return", "Prior Year Return", "Quarterly Estimate": the return's kind in a title. */
+export function returnTitle(r: Parameters<typeof returnKind>[0]) {
+  const { group } = returnKind(r);
+  return group === 'Quarterly Taxes'
+    ? 'Quarterly Estimate'
+    : group.endsWith('Returns')
+      ? group.slice(0, -1)
+      : `${group} Return`;
+}
 const KIND_TONE = {
   blue: 'bg-info-soft text-action',
   amber: 'bg-warning-soft text-warning',
