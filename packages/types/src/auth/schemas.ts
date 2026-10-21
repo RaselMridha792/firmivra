@@ -226,16 +226,17 @@ export type AuthErrorCode = z.infer<typeof AuthErrorCode>;
  * The 429 RATE_LIMITED body of `sign-in` and `mfa`. 5 failures for one email (per firm on a
  * portal) in 15 minutes, wrong passwords and wrong MFA codes alike and from any network, lock it
  * for 15 minutes from the 5th; an email with no account the same, so the lock never shows whether
- * an account exists. A successful password reset lifts the lock. While it holds, `retryAt` says
- * when the email may try again. The network limits answer the same code without `retryAt`.
- * Screens show "Too many attempts. Wait a few minutes and try again." for now (a countdown later).
+ * an account exists. A successful password reset lifts the lock. While it holds, `details.retryAt`
+ * says when the email may try again, and the Retry-After header the seconds until then. The
+ * network limits answer the same code without them. Screens show "Too many attempts. Wait a few
+ * minutes and try again." for now (a countdown later).
  */
 export const SignInRateLimited = z.object({
   error: z.object({
     code: z.literal('RATE_LIMITED'),
     message: z.string(),
     requestId: z.string().optional(),
-    retryAt: z.iso.datetime({ offset: true }).optional(),
+    details: z.object({ retryAt: z.iso.datetime({ offset: true }) }).optional(),
   }),
 });
 export type SignInRateLimited = z.infer<typeof SignInRateLimited>;

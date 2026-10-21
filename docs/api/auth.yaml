@@ -96,8 +96,9 @@ info:
     - account lockout: 5 failed sign-ins for one email (per firm on a portal) in 15 minutes, wrong
       passwords and wrong MFA codes alike and from any network, lock it for 15 minutes from the
       5th. Until then every `sign-in` and `mfa` for it answers `429 RATE_LIMITED` with
-      `error.retryAt` (when it may try again), the same for an email with no account. A
-      successful `reset-password` for the email lifts the lock;
+      `error.details.retryAt` (when it may try again) and a `Retry-After` header (the seconds
+      until then), the same for an email with no account. A successful `reset-password` for the
+      email lifts the lock;
     - 10 failed sign-ins for one email from one network (/24 or /48) in 15 minutes: `429
       RATE_LIMITED` from that network, without `retryAt` (under the account lockout it is not
       reached; past 50 from every network each attempt is slowed);
@@ -497,7 +498,7 @@ components:
     RateLimited:
       description: |
         `RATE_LIMITED`: too many attempts. Wait and try again. On `sign-in` and `mfa`, a locked
-        account's answer carries `error.retryAt` (see "Rate limits").
+        account's answer carries `error.details.retryAt` and `Retry-After` (see "Rate limits").
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 
   schemas:
@@ -725,10 +726,7 @@ components:
                 closed).
             message: { type: string, description: For people; may change }
             requestId: { type: string }
-            retryAt:
-              type: string
-              format: date-time
+            details:
               description: |
-                `RATE_LIMITED` on `sign-in` and `mfa` while the account is locked: when it may try
-                again. Absent otherwise.
-            details: {}
+                Per code. `RATE_LIMITED` on `sign-in` and `mfa` while the account is locked:
+                `{ retryAt }` (date-time), when it may try again.
