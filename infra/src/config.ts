@@ -71,6 +71,11 @@ export interface EnvConfig {
   };
   /** Fargate size per service (0.25 vCPU / 0.5 GB), on Spot in dev; tasks per service once an image is deployed. */
   task: { cpu: number; memoryMiB: number; spot: boolean; count: number };
+  /**
+   * The API task's memory: more than the others, as it checks uploads of up to 100 MB and Firm
+   * Sign loads whole PDFs (Rasel, Oct 21). 1024 MiB is valid with 0.25 vCPU.
+   */
+  apiMemoryMiB: number;
 }
 
 /** dev.firmivra.com, used once GoDaddy delegates the zone to Route 53. */
@@ -112,6 +117,7 @@ const dev: EnvConfig = {
     backupDays: 35,
   },
   task: { cpu: 256, memoryMiB: 512, spot: true, count: 1 },
+  apiMemoryMiB: 1024,
 };
 
 export function configFor(envName: unknown, overrides: Partial<EnvConfig> = {}): EnvConfig {

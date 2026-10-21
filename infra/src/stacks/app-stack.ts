@@ -133,6 +133,9 @@ export class AppStack extends Stack {
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       securityGroup: network.albSg,
       dropInvalidHeaderFields: true,
+      // Above CloudFront's 60 s origin read timeout, so CloudFront always ends a slow request
+      // first (the confirm of a 100 MB upload reads and checks the whole file).
+      idleTimeout: Duration.seconds(120),
     });
     alb.logAccessLogs(albLogs, 'alb');
     const listener = alb.addListener('Http', {
@@ -168,7 +171,9 @@ export class AppStack extends Stack {
     const distribution = (site: Site) => {
       const origin = origins.VpcOrigin.withVpcOrigin(vpcOrigin, {
         customHeaders: { 'X-Origin-Verify': originHeader },
-        readTimeout: Duration.seconds(30),
+        // 60 s, CloudFront's most without a quota raise: confirming a 100 MB upload reads the
+        // whole file from S3 and checks it before it answers.
+        readTimeout: Duration.seconds(60),
       });
       const dynamic: cloudfront.BehaviorOptions = {
         origin,
@@ -319,7 +324,7 @@ export class AppStack extends Stack {
     const apiTask = new ecs.FargateTaskDefinition(this, 'ApiTask', {
       family: name('api'),
       cpu: config.task.cpu,
-      memoryLimitMiB: config.task.memoryMiB,
+      memoryLimitMiB: config.apiMemoryMiB,
       runtimePlatform: platform,
     });
     apiTask.addContainer('api', {
@@ -378,7 +383,15 @@ export class AppStack extends Stack {
     apiRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
         sid: 'TenantDocuments',
-        actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:AbortMultipartUpload'],
+        // Multipart uploads (files over 16 MB): PutObject covers create, part and complete;
+        // ListMultipartUploadParts lets confirm see the parts the browser sent.
+        actions: [
+          's3:GetObject',
+          's3:PutObject',
+          's3:DeleteObject',
+          's3:AbortMultipartUpload',
+          's3:ListMultipartUploadParts',
+        ],
         resources: [`arn:aws:s3:::${name('documents')}-${this.account}/tenant/*`],
       }),
     );
