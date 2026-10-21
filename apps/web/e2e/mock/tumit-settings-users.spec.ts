@@ -38,14 +38,15 @@ test('lists, filters and invites users', async ({ page }) => {
   await table.getByLabel('Search users').fill('');
 
   await page.getByRole('button', { name: 'Invite User' }).first().click();
+  // An existing staff record is invited (no second record): pick it, check the role, send.
   const invite = page.getByRole('dialog', { name: 'Invite User' });
-  await invite.getByRole('button', { name: 'Send Invitation' }).click();
-  await expect(invite.getByText('Enter their name.')).toBeVisible();
-  await invite.getByLabel('Name *').fill('Nora Diaz');
-  await invite.getByLabel('Work Email *').fill('nora.diaz@example.test');
+  await expect(invite.getByRole('button', { name: 'Send Invitation' })).toBeDisabled();
+  await invite.getByLabel('Search employees').fill('whit');
+  await invite.getByRole('option', { name: /Sam Whitley/ }).click();
+  await expect(invite.getByLabel('Role *')).toHaveValue('TAX_PREPARER');
   await invite.getByLabel('Role *').selectOption({ label: 'Bookkeeper' });
   await invite.getByRole('button', { name: 'Send Invitation' }).click();
-  await expect(page.getByTestId('users-result')).toHaveText('Invitation sent to Nora Diaz.');
+  await expect(page.getByTestId('users-result')).toContainText('Invitation sent to Sam Whitley');
 });
 
 test('signs a user out from the row menu and edits a role grid', async ({ page }) => {
