@@ -113,7 +113,7 @@ info:
     Every attempt let past the limits is audited with its end (`auth.sign_in_attempt`, then
     `auth.sign_in_passed`, `auth.sign_in_released` or `auth.sign_in_failed`, and `auth.signed_in`;
     password resets the same with `auth.password_reset_*`); a 429 writes no row. The failure that
-    locks an account also writes `auth.account_locked` with `lockedUntil`. The email is
+    locks an account also writes `auth.locked` with `lockedUntil`. The email is
     stored only as a keyed hash. Cognito
     threat protection gets the viewer's IP and browser (User-Agent, Accept-Language), never
     cookies or tokens.
