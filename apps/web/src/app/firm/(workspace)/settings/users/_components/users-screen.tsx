@@ -47,6 +47,7 @@ import { BandCard, SettingsHeader, SettingsKpi } from '../../_components/setting
 import { AccessModal } from './access-modal';
 import { ChangeRoleModal } from './change-role-modal';
 import { InviteUserModal } from './invite-user-modal';
+import { roleChoices } from './custom-roles';
 import { RolePanel } from './role-panel';
 import { RoleTemplates } from './role-templates';
 
@@ -142,7 +143,7 @@ type Dialog =
  * through `api.staff`), the role grid (`api.roles`), Quick Actions and Role Templates. Owner and
  * Admin only. A firm has one company, so All Companies offers the firm itself.
  */
-export function UsersScreen() {
+export function UsersScreen({ initialRole }: { initialRole?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { role: me, firm } = useFirm();
@@ -150,15 +151,17 @@ export function UsersScreen() {
   const [company, setCompany] = useState('');
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0] ?? 10);
   const [selected, setSelected] = useState<string[]>([]);
-  const [role, setRole] = useState<MembershipRole | ''>('');
+  /** A built-in role, or `custom:<id>` for one of the firm's custom roles. */
+  const [role, setRole] = useState('');
   const [status, setStatus] = useState<StaffStatusFilter>('all');
   const [page, setPage] = useState(1);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [message, setMessage] = useState('');
-  const [picked, setPicked] = useState<MembershipRole | null>(null);
+  const [picked, setPicked] = useState<string | null>(initialRole ?? null);
+  const customRoleId = role.startsWith('custom:') ? role.slice('custom:'.length) : '';
   const query = {
     ...(search.trim() ? { search: search.trim() } : {}),
-    ...(role ? { role } : {}),
+    ...(customRoleId ? { customRoleId } : role ? { role: role as MembershipRole } : {}),
     status,
     page,
     pageSize,
@@ -171,8 +174,11 @@ export function UsersScreen() {
   });
   const s = summary.data;
   const roleItems = roles.data?.items ?? [];
+  const choices = roleChoices(roles.data);
   const selectedRole =
-    roleItems.find((r) => r.role === picked) ?? roleItems.find((r) => !r.locked) ?? roleItems[0];
+    choices.find((c) => c.key === picked) ??
+    choices.find((c) => c.kind === 'role' && !c.summary.locked) ??
+    choices[0];
   const manages = me === 'OWNER' || me === 'ADMIN';
   const n = (v: number | undefined) =>
     summary.isPending ? <Skeleton className="h-8 w-12" /> : (v ?? '—');
@@ -259,7 +265,12 @@ export function UsersScreen() {
       id: 'role',
       label: 'Role',
       cell: (u) => (
-        <span className={`${chip} min-w-24 ${ROLE_CHIPS[u.role]}`}>{FIRM_ROLE_LABELS[u.role]}</span>
+        <span
+          className={`${chip} min-w-24 ${ROLE_CHIPS[u.role]}`}
+          title={u.customRole ? `Based on ${FIRM_ROLE_LABELS[u.role]}` : undefined}
+        >
+          {u.customRole?.name ?? FIRM_ROLE_LABELS[u.role]}
+        </span>
       ),
     },
     { id: 'company', label: 'Company', cell: (u) => u.company, className: 'min-w-24' },
@@ -386,7 +397,7 @@ export function UsersScreen() {
           value={n(s?.roles)}
           note={
             s?.customRoles
-              ? `${s.customRoles} custom roles`
+              ? `${s.customRoles} custom role${s.customRoles === 1 ? '' : 's'}`
               : summary.isError
                 ? 'Could not load'
                 : 'Custom roles'
@@ -428,11 +439,11 @@ export function UsersScreen() {
                     hideLabel
                     options={[
                       { value: '', label: 'All Roles' },
-                      ...roleItems.map((r) => ({ value: r.role, label: r.label })),
+                      ...choices.map((c) => ({ value: c.key, label: c.label })),
                     ]}
                     value={role}
                     onChange={(event) => {
-                      setRole(event.target.value as MembershipRole | '');
+                      setRole(event.target.value);
                       setPage(1);
                     }}
                   />
@@ -532,10 +543,14 @@ export function UsersScreen() {
           </BandCard>
 
           <RolePanel
-            key={selectedRole?.role ?? 'none'}
-            roles={roleItems}
+            key={selectedRole?.key ?? 'none'}
+            choices={choices}
             selected={selectedRole}
             onSelect={setPicked}
+            onDone={(text) => {
+              setPicked(null);
+              setMessage(text);
+            }}
           />
         </div>
 

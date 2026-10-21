@@ -50,6 +50,7 @@ import {
   type StaffTeam,
   StaffTeamListQuery,
   type TeamMemberKind,
+  UpdateCustomRoleRequest,
   UpdateDepartmentRequest,
   UpdateStaffDocumentRequest,
   UpdateStaffRequest,
@@ -99,8 +100,20 @@ interface Member {
   documents: StaffDocument[];
 }
 
+/** A firm's own role (Create Custom Role): its whole grid, `${module}:${capability}`. */
+interface MockCustomRole {
+  id: string;
+  name: string;
+  description: string | null;
+  basedOn: MembershipRole;
+  archivedAt: string | null;
+  updatedAt: string;
+  grid: Map<string, boolean>;
+}
+
 interface Store {
   members: Member[];
+  customRoles: MockCustomRole[];
   departments: Department[];
   teams: StaffTeam[];
   /** teamId -> membershipId -> kind */
@@ -203,6 +216,7 @@ const emptyComp = (): StaffCompensation => ({
 function seed(empty: boolean): Store {
   const s: Store = {
     members: [],
+    customRoles: [],
     departments: [],
     teams: [],
     teamMembers: new Map(),
@@ -483,7 +497,9 @@ function recount(s: Store) {
 const key = (module: string, capability: string) => `${module}:${capability}`;
 
 function cellsFor(s: Store, role: MembershipRole, member?: Member): PermissionCell[] {
-  const roleRows = s.roleOverrides.get(role);
+  // A custom role's whole grid stands in for the role's (as the API reads it).
+  const custom = s.customRoles.find((c) => c.id === member?.detail.customRole?.id);
+  const roleRows = custom?.grid ?? s.roleOverrides.get(role);
   const cells: PermissionCell[] = [];
   for (const mod of PermissionModule.options) {
     for (const capability of PermissionCapability.options) {
@@ -525,6 +541,7 @@ function toListItem(m: Member): StaffListItem {
     jobTitle: d.jobTitle,
     departments: d.departments,
     role: d.role,
+    customRole: d.customRole ?? null,
     accessLevel: d.accessLevel,
     status: d.status,
     lastLoginAt: d.lastLogin?.at ?? null,
@@ -544,7 +561,13 @@ const STATUS_OF = {
 /** Shared by api.staff and api.users (Settings > Users & Roles): filter, sort, page. */
 export function listStaffRows(
   options: Options,
-  q: { search?: string; status?: string; role?: MembershipRole; departmentId?: string },
+  q: {
+    search?: string;
+    status?: string;
+    role?: MembershipRole;
+    customRoleId?: string;
+    departmentId?: string;
+  },
 ): StaffListItem[] {
   const s = storeFor(options);
   const search = q.search?.toLowerCase() ?? '';
@@ -553,12 +576,17 @@ export function listStaffRows(
       const d = m.detail;
       if (
         search &&
-        ![d.name, d.email, d.jobTitle ?? '', FIRM_ROLE_LABELS[d.role]].some((t) =>
-          t.toLowerCase().includes(search),
-        )
+        ![
+          d.name,
+          d.email,
+          d.jobTitle ?? '',
+          FIRM_ROLE_LABELS[d.role],
+          d.customRole?.name ?? '',
+        ].some((t) => t.toLowerCase().includes(search))
       ) {
         return false;
       }
+      if (q.customRoleId && d.customRole?.id !== q.customRoleId) return false;
       if (
         q.status &&
         q.status !== 'all' &&
@@ -575,6 +603,11 @@ export function listStaffRows(
         a.detail.name.localeCompare(b.detail.name),
     )
     .map(toListItem);
+}
+
+/** The firm's live custom roles (Users & Roles' Roles count). */
+export function liveCustomRoles(options: Options): number {
+  return storeFor(options).customRoles.filter((c) => !c.archivedAt).length;
 }
 
 /** Counts for Settings > Users & Roles. */
@@ -777,6 +810,9 @@ export function createStaffMock(options: Options = {}): StaffClient {
           label: FIRM_ROLE_LABELS[r],
           description: ROLE_DESCRIPTIONS[r],
         })),
+        customRoles: s.customRoles
+          .filter((c) => !c.archivedAt && ROLES_MANAGED_BY[g.role].includes(c.basedOn))
+          .map((c) => ({ id: c.id, name: c.name, basedOn: c.basedOn, description: c.description })),
         jobTitles: [
           ...new Set(s.members.map((m) => m.detail.jobTitle).filter((t): t is string => !!t)),
         ].sort(),
@@ -857,12 +893,27 @@ export function createStaffMock(options: Options = {}): StaffClient {
       if (input.version !== m.detail.version)
         throw fail(409, 'SAVE_CONFLICT', 'Someone saved this member first');
       const a = input.account;
-      if (a?.role && a.role !== m.detail.role) {
-        if (!ROLES_MANAGED_BY[g.role].includes(a.role))
+      // A custom role brings the role it is based on; a new role alone takes it away (as the API).
+      const custom = a?.customRoleId
+        ? s.customRoles.find((c) => c.id === a.customRoleId)
+        : undefined;
+      if (a?.customRoleId && !custom) throw notFound();
+      if (custom?.archivedAt)
+        throw fail(409, 'CUSTOM_ROLE_ARCHIVED', 'This role is archived and can no longer be given');
+      if (custom && a?.role && a.role !== custom.basedOn)
+        throw fail(400, 'CUSTOM_ROLE_MISMATCH', 'The role must be the one it is based on');
+      const before = m.detail.role;
+      const role = custom?.basedOn ?? a?.role ?? before;
+      if (role !== before || (custom && custom.id !== m.detail.customRole?.id)) {
+        if (!ROLES_MANAGED_BY[g.role].includes(role))
           throw fail(403, 'CANNOT_GRANT', 'You cannot give this role');
-        if (a.role !== 'OWNER') g.keepsAnOwner(m);
-        m.detail.role = a.role;
       }
+      if (role !== before) {
+        if (role !== 'OWNER') g.keepsAnOwner(m);
+        m.detail.role = role;
+      }
+      if (custom) m.detail.customRole = { id: custom.id, name: custom.name };
+      else if (a?.customRoleId === null || role !== before) m.detail.customRole = null;
       if (a?.firstName || a?.lastName) {
         m.detail.firstName = a.firstName ?? m.detail.firstName;
         m.detail.lastName = a.lastName ?? m.detail.lastName;
@@ -1057,7 +1108,12 @@ export function createStaffMock(options: Options = {}): StaffClient {
     permissions: async (id) => {
       await g.allowed();
       const m = g.find(id);
-      return { role: m.detail.role, cells: cellsFor(s, m.detail.role, m), updatedAt: null };
+      return {
+        role: m.detail.role,
+        customRole: m.detail.customRole ?? null,
+        cells: cellsFor(s, m.detail.role, m),
+        updatedAt: null,
+      };
     },
     setPermissions: async (id, body) => {
       await g.allowed();
@@ -1599,6 +1655,54 @@ export function createRolesMock(options: Options = {}): RolesClient {
     updatedAt: s.roleOverrides.get(r)?.size ? now() : null,
     updatedBy: s.roleOverrides.get(r)?.size ? 'You' : null,
   });
+  /** A built-in role's grid in this firm. */
+  const gridOf = (r: MembershipRole) =>
+    new Map(cellsFor(s, r).map((c) => [key(c.module, c.capability), c.granted]));
+  const peopleWith = (id: string) =>
+    s.members.filter((m) => m.detail.customRole?.id === id && m.detail.status !== 'DEACTIVATED')
+      .length;
+  const toCustom = (c: MockCustomRole) => ({
+    id: c.id,
+    name: c.name,
+    description: c.description,
+    basedOn: c.basedOn,
+    memberCount: peopleWith(c.id),
+    archivedAt: c.archivedAt,
+    updatedAt: c.updatedAt,
+  });
+  const detailOf = (c: MockCustomRole) => ({
+    role: toCustom(c),
+    cells: PermissionModule.options.flatMap((module) =>
+      PermissionCapability.options.map((capability) => ({
+        module,
+        capability,
+        granted: c.grid.get(key(module, capability)) ?? false,
+        source: 'FIRM_ROLE' as const,
+      })),
+    ),
+    updatedBy: 'You',
+  });
+  const findCustom = (id: string) => {
+    const c = s.customRoles.find((r) => r.id === id);
+    if (!c) throw notFound();
+    return c;
+  };
+  const nameFree = (name: string, except?: string) => {
+    const wanted = name.toLowerCase();
+    if (
+      FIRM_ROLES.some((r) => FIRM_ROLE_LABELS[r].toLowerCase() === wanted) ||
+      s.customRoles.some((c) => !c.archivedAt && c.id !== except && c.name.toLowerCase() === wanted)
+    )
+      throw fail(409, 'ROLE_NAME_TAKEN', 'A role with this name already exists');
+  };
+  const viewFirst = (grid: Map<string, boolean>) => {
+    for (const m of PermissionModule.options)
+      if (
+        PermissionCapability.options.some((c) => c !== 'VIEW' && grid.get(key(m, c))) &&
+        !grid.get(key(m, 'VIEW'))
+      )
+        throw fail(400, 'PERMISSION_NEEDS_VIEW', 'Give View first in this module');
+  };
   return {
     list: async () => {
       await g.allowed();
@@ -1613,7 +1717,10 @@ export function createRolesMock(options: Options = {}): RolesClient {
           customized: (s.roleOverrides.get(r)?.size ?? 0) > 0,
           locked: r === 'OWNER',
         })),
-        custom: [],
+        custom: s.customRoles
+          .filter((c) => !c.archivedAt)
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map(toCustom),
       };
     },
     permissions: async (r) => {
@@ -1694,24 +1801,83 @@ export function createRolesMock(options: Options = {}): RolesClient {
         ],
       };
     },
+    // Custom roles, as the API keeps them: the role and its whole grid saved together.
     createCustom: async (body) => {
       await g.allowed();
       if (g.role !== 'OWNER' && g.role !== 'ADMIN') throw forbidden();
-      parseInput(CreateCustomRoleRequest, body);
-      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+      const input = parseInput(CreateCustomRoleRequest, body);
+      nameFree(input.name);
+      const base = gridOf(input.basedOn);
+      const grid = new Map(base);
+      for (const gr of input.grants ?? []) grid.set(key(gr.module, gr.capability), gr.granted);
+      viewFirst(grid);
+      if (
+        (input.grants ?? []).some((gr) => gr.granted && !base.get(key(gr.module, gr.capability))) &&
+        !input.acknowledgeEscalation
+      )
+        throw fail(409, 'PERMISSION_ESCALATION', 'This gives the role more; confirm to continue');
+      const role: MockCustomRole = {
+        id: `00000000-0000-4000-8000-${String(++s.next).padStart(12, '0')}`,
+        name: input.name,
+        description: input.description ?? null,
+        basedOn: input.basedOn,
+        archivedAt: null,
+        updatedAt: now(),
+        grid,
+      };
+      s.customRoles.push(role);
+      return toCustom(role);
     },
-    // The mock's custom roles come with the screens (R55); until then, as the API answered.
-    customRole: async () => {
+    customRole: async (id) => {
       await g.allowed();
-      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+      return detailOf(findCustom(id));
     },
-    updateCustom: async () => {
+    updateCustom: async (id, body) => {
       await g.allowed();
-      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+      if (g.role !== 'OWNER' && g.role !== 'ADMIN') throw forbidden();
+      const input = parseInput(UpdateCustomRoleRequest, body);
+      const role = findCustom(id);
+      if (role.archivedAt)
+        throw fail(409, 'CUSTOM_ROLE_ARCHIVED', 'This role is archived and cannot be changed');
+      if (input.name !== undefined && input.name.toLowerCase() !== role.name.toLowerCase())
+        nameFree(input.name, id);
+      if (input.grants?.length) {
+        const base = gridOf(role.basedOn);
+        const grid = new Map(role.grid);
+        for (const gr of input.grants) grid.set(key(gr.module, gr.capability), gr.granted);
+        viewFirst(grid);
+        if (
+          input.grants.some((gr) => {
+            const k = key(gr.module, gr.capability);
+            return gr.granted && !role.grid.get(k) && !base.get(k);
+          }) &&
+          !input.acknowledgeEscalation
+        )
+          throw fail(409, 'PERMISSION_ESCALATION', 'This gives the role more; confirm to continue');
+        role.grid = grid;
+      }
+      if (input.name !== undefined) {
+        role.name = input.name;
+        for (const m of s.members)
+          if (m.detail.customRole?.id === id) m.detail.customRole = { id, name: input.name };
+      }
+      if (input.description !== undefined) role.description = input.description ?? null;
+      role.updatedAt = now();
+      return detailOf(role);
     },
-    archiveCustom: async () => {
+    archiveCustom: async (id) => {
       await g.allowed();
-      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+      if (g.role !== 'OWNER' && g.role !== 'ADMIN') throw forbidden();
+      const role = findCustom(id);
+      const inUse = peopleWith(id);
+      if (inUse)
+        throw fail(
+          409,
+          'CUSTOM_ROLE_IN_USE',
+          `${inUse} ${inUse === 1 ? 'person has' : 'people have'} this role`,
+        );
+      role.archivedAt ??= now();
+      return toCustom(role);
     },
   };
 }

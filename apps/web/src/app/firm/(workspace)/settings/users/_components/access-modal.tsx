@@ -95,7 +95,7 @@ export function AccessModal({
           <dt className="text-muted">Company</dt>
           <dd className="text-heading">{user.company}</dd>
           <dt className="text-muted">Saved role</dt>
-          <dd className="text-heading">{FIRM_ROLE_LABELS[user.role]}</dd>
+          <dd className="text-heading">{user.customRole?.name ?? FIRM_ROLE_LABELS[user.role]}</dd>
         </dl>
         <section aria-label="Individual overrides" className="text-sm">
           <h3 className="font-semibold text-heading">Individual overrides</h3>
