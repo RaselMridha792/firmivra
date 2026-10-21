@@ -246,9 +246,10 @@ export function PipelineScreen() {
 
       <section
         aria-label="Pipeline numbers"
-        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 min-[1440px]:grid-cols-6"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 min-[1440px]:flex min-[1440px]:gap-2"
       >
         <SalesKpi
+          fit
           testId="kpi-total"
           icon={Users}
           tone="blue"
@@ -261,6 +262,7 @@ export function PipelineScreen() {
           onClick={() => showScope({})}
         />
         <SalesKpi
+          fit
           testId="kpi-in-progress"
           icon={Flask}
           tone="purple"
@@ -272,6 +274,7 @@ export function PipelineScreen() {
           onClick={() => showScope({ scope: 'IN_PROGRESS' })}
         />
         <SalesKpi
+          fit
           testId="kpi-value"
           icon={CurrencyDollar}
           tone="green"
@@ -283,6 +286,7 @@ export function PipelineScreen() {
           onClick={() => showScope({ scope: 'PIPELINE' })}
         />
         <SalesKpi
+          fit
           testId="kpi-conversion"
           icon={Percent}
           tone="orange"
@@ -294,6 +298,7 @@ export function PipelineScreen() {
           onClick={() => showScope({ scope: 'CONVERTED' })}
         />
         <SalesKpi
+          fit
           testId="kpi-clients"
           icon={Users}
           tone="blue"
@@ -305,6 +310,7 @@ export function PipelineScreen() {
           onClick={() => showScope({ scope: 'CLIENTS' })}
         />
         <SalesKpi
+          fit
           testId="kpi-attention"
           icon={Clock}
           tone="orange"

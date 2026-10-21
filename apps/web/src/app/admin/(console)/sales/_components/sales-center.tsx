@@ -90,10 +90,15 @@ function ActionTile({
   href?: string;
   children: ReactNode;
 }) {
-  const className = `flex min-h-12 items-center justify-center gap-3 rounded-lg px-3 py-2 text-center text-base leading-tight font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus min-[1440px]:gap-2 min-[1440px]:text-sm ${tone}`;
+  // At 1440 px each button is as wide as its words, on one line, as in the design.
+  const className = `flex min-h-12 items-center justify-center gap-3 rounded-lg px-3 py-2 text-center text-base leading-tight font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus min-[1440px]:min-h-10 min-[1440px]:flex-auto min-[1440px]:gap-2 min-[1440px]:text-sm min-[1440px]:whitespace-nowrap ${tone}`;
   const content = (
     <>
-      <Glyph aria-hidden weight="fill" className={`size-6 shrink-0 ${iconClass}`} />
+      <Glyph
+        aria-hidden
+        weight="fill"
+        className={`size-6 shrink-0 min-[1440px]:size-5 ${iconClass}`}
+      />
       <span>{children}</span>
     </>
   );
@@ -171,7 +176,7 @@ export function SalesCenter() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 min-[1440px]:grid-cols-6">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 min-[1440px]:flex min-[1440px]:gap-2">
         <ActionTile
           icon={Plus}
           tone="bg-action text-on-action hover:bg-action-hover"
@@ -223,13 +228,14 @@ export function SalesCenter() {
 
       <section
         aria-label="Sales numbers"
-        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 min-[1440px]:grid-cols-6"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 min-[1440px]:flex min-[1440px]:gap-2"
       >
         {KPIS.map((kpi) => {
           const metric = kpis.data?.[kpi.key];
           return (
             <SalesKpi
               key={kpi.key}
+              fit
               testId={`center-kpi-${kpi.key}`}
               icon={kpi.icon}
               tone={kpi.tone}
