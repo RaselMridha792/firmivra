@@ -44,7 +44,8 @@ import {
   FirmBell,
   FirmFooter,
   FirmSearch,
-  HelpLink,
+  HelpButton,
+  HelpSupportPanel,
   NewMenu,
 } from '../../../components/app-shell/firm-controls';
 import type { NavItem } from '../../../components/app-shell/types';
@@ -224,6 +225,8 @@ function FirmShell({
   const unread = useApiQuery(['messages', 'unread-count'], () => api.messages.unreadCount());
   const branding = info.data?.branding;
   const badge = unread.data?.total;
+  // The Help & Support slide-out opens from the "?" button and from the account menu.
+  const [help, setHelp] = useState(false);
   // The firm's theme colours on the page root, so dialogs and menus drawn outside the shell follow
   // them too; removed when the workspace closes (another firm, or signing out).
   useEffect(() => applyFirmTheme(document.documentElement.style, branding), [branding]);
@@ -242,13 +245,20 @@ function FirmShell({
         slogan: branding?.sidebarSlogan ?? null,
         motto: branding?.sidebarMotto ?? null,
       }}
-      headerStart={<FirmSearch />}
+      headerStart={<FirmSearch team={manager} />}
       headerActions={
         <>
           <NewMenu links={newLinks.filter((l) => manager || !('managers' in l))} />
-          <HelpLink email={COMPANY.supportEmail} />
+          <HelpButton onOpen={() => setHelp(true)} />
         </>
       }
+      // Settings review, Overview item 9: for everyone; Admin Panel (Settings) for Owner and Admin.
+      accountMenu={[
+        { label: 'My Profile', href: '/profile' },
+        { label: 'My Settings', href: '/settings/notifications' },
+        { label: 'Help & Support', onSelect: () => setHelp(true) },
+        ...(manager ? [{ label: 'Admin Panel', href: '/settings/overview' }] : []),
+      ]}
       bell={<FirmBell />}
       footer={
         <FirmFooter
@@ -259,6 +269,12 @@ function FirmShell({
       }
     >
       {children}
+      <HelpSupportPanel
+        open={help}
+        onClose={() => setHelp(false)}
+        email={COMPANY.supportEmail}
+        firmName={firm.name}
+      />
     </AppShell>
   );
 }

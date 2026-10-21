@@ -113,3 +113,27 @@ test('Reset User Passwords and Deactivate User find any user, whatever the table
   await table.getByLabel('Status').selectOption('active');
   await expect(table).toContainText('Marcus Bell');
 });
+
+test('Change Role: one person, with the new role previewed and their overrides kept', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/users`);
+  const table = page.getByTestId('user-management');
+  await table.getByRole('button', { name: 'Actions for Hana Kim' }).click();
+  await page.getByRole('menuitem', { name: 'Change Role' }).click();
+  const dialog = page.getByTestId('change-role');
+  await expect(dialog).toContainText('Current role');
+  await expect(dialog).toContainText('Staff');
+  await expect(dialog.getByRole('button', { name: 'Change Role' })).toBeDisabled();
+  await dialog.getByLabel('New role *').selectOption({ label: 'Bookkeeper' });
+  await expect(dialog).toContainText('What Bookkeeper can do in this firm');
+  await expect(dialog).toContainText('Bookkeeping');
+  await expect(dialog).toContainText('Individual overrides');
+  await dialog.getByRole('button', { name: 'Change Role' }).click();
+  await expect(page.getByTestId('users-result')).toHaveText(
+    'Hana Kim is now Bookkeeper (was Staff).',
+  );
+  await table.getByLabel('Search users').fill('hana');
+  await expect(table.getByRole('row', { name: /Hana Kim/ })).toContainText('Bookkeeper');
+});
