@@ -25,6 +25,7 @@ import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { BackToWorkflow } from '../../../settings/workflow/_components/back-to-workflow';
 import { RowMenu } from '../../../team/_components/row-menu';
 import { METHOD_LABELS, NOT_LOADED, SCHEDULING } from '../../_components/appointments-parts';
 
@@ -50,9 +51,10 @@ const card =
  * types (R12 `api.appointmentTypes`: name, length, location, client self-booking, change cutoff,
  * active or archived) with Add, Edit, Archive and Restore, and each type's settings
  * (`api.scheduling.typeConfig`: description, methods, buffers, notice, booking window, default
- * reminder). Owner and Admin change them; everyone else reads.
+ * reminder). Owner and Admin change them; everyone else reads. Opened from Settings > Workflow &
+ * Automations (`fromWorkflow`), Back to Workflow & Automations sits beside Back to Appointments.
  */
-export function TypesScreen() {
+export function TypesScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }) {
   const { role } = useFirm();
   const manages = role === 'OWNER' || role === 'ADMIN';
   const types = useApiQuery([...TYPES_KEY, 'all'], () =>
@@ -71,13 +73,16 @@ export function TypesScreen() {
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <Link
-        href="/calendar"
-        className="inline-flex min-h-9 w-fit items-center gap-2 text-sm font-semibold text-link hover:underline"
-      >
-        <ArrowLeft aria-hidden weight="bold" className="size-4" />
-        Back to Appointments
-      </Link>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <Link
+          href="/calendar"
+          className="inline-flex min-h-9 w-fit items-center gap-2 text-sm font-semibold text-link hover:underline"
+        >
+          <ArrowLeft aria-hidden weight="bold" className="size-4" />
+          Back to Appointments
+        </Link>
+        {fromWorkflow ? <BackToWorkflow /> : null}
+      </div>
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <span className="flex size-16 shrink-0 items-center justify-center rounded-xl bg-action text-on-action">
