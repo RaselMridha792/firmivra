@@ -13,7 +13,9 @@ invites (below).
 - At most 2 open non-contract PRs. Every UI PR body: the mockup beside three-state 1440 px
   screenshots (data, empty, API unreachable) and the ticked `docs/design-match.md` checklist.
 - Anything needing a database or infra change goes to Rasel as a written item, not built.
-- Ask Rasel before touching the sign-in guards or anything in `apps/api/src/auth/`.
+- Ask Rasel before touching the sign-in guards or anything in `apps/api/src/auth/`. Rasel (Oct
+  21): R60 may change them for exactly the item 1 rules he decided (edge spaces, per-account
+  lockout, who may change MFA), nothing else.
 - Merge `main`, never rebase. Local checks: lint and prettier on the changed files, typecheck of
   the changed packages, the tests of the touched module only. Run the dev server only while
   checking a screen, then stop it and delete `.next`.
@@ -35,49 +37,53 @@ invites (below).
 
 | PR / branch | What | State |
 | --- | --- | --- |
-| #985 `rasel/R60-settings-forms` | Settings Forms & Documents (Templates link, batch limits 20 files and 500 MB, retention wording) | Open. CI red only on `bookkeeping.e2e.test.ts` (see "Blocking CI"), not this PR |
-| #993 `rasel/R60-settings-data` | Settings Data & Backups: monthly restore tests, "Not recorded yet" rows, honest Export and Restore, 35-day wording (Rasel approved 35 days; R1 raises infra) | Open |
-| `rasel/R60-settings-preferences` (9848f5bf) | Settings Preferences: language saved but not applied yet; currency note | Pushed, `main` merged, sheet committed (`apps/web/e2e/screenshots/r60-settings-preferences/`). PR when a slot frees: run web `tsc`, ESLint and Prettier on the two files and `tumit-settings-preferences.spec.ts` first, and write the body like #993 (her guide is the design; no review screenshot) |
-| `rasel/R60-settings-security` (08ef72da) | Settings Security: Octavia's rules on the page with "Not in force yet" notes; the MFA card reads `api.users.summary()` with Retry | Same as Preferences: sheet in `r60-settings-security/`, spec `tumit-settings-security.spec.ts` (4 tests). The body lists the enforcement map and the decisions in item 1 below. `GET /business/settings/overview` answers 404 on the local API (known, hidden badge) |
-| `rasel/R60-team-invites` | Super Admin Team: invitations through Cognito (`team-invite.service.ts`, `team-invitation.ts`) | Waits on R0's #981 (R56 is fixing its test). Then merge `main`, rerun the admin-team e2e (4 tests wait on the grant), open the PR |
-| `rasel/R60-begin-online` | Begin Online audit at 1440 px | Audit done (`R60-begin-online-audit.md`); fixes not started |
+| `rasel/R60-settings-preferences` | Settings Preferences: language saved but not applied yet; currency note | PR opened Oct 21 (number in the Progress log) |
+| `rasel/R60-settings-security` | Settings Security: Octavia's rules on the page with "Not in force yet" notes; the MFA card reads `api.users.summary()` with Retry; copy follows Rasel's Oct 21 decisions (item 1) | PR opened Oct 21 (number in the Progress log). `GET /business/settings/overview` answers 404 on the local API (known, hidden badge) |
+| `rasel/R60-team-invites` | Super Admin Team: invitations through Cognito (`team-invite.service.ts`, `team-invitation.ts`) | #981 merged Oct 21. Next: merge `main`, rerun the admin-team e2e (4 tests waited on the grant), open the PR when a slot frees |
+| `rasel/R60-begin-online` | Begin Online audit at 1440 px | Audit done (`R60-begin-online-audit.md`); Rasel decided the [decide] items that block the shared fixes (item 5); fixes not started |
 
 Merged on Oct 21: #975 Staff Management, #976 Team messages, #982 dashboard links, #983
-Communications, #987 Workflow & Automations, #969 intake-forms settings.
+Communications, #987 Workflow & Automations, #969 intake-forms settings, #985 Forms & Documents,
+#993 Data & Backups.
 
-## Blocking CI (report to Rasel; not R60's file)
+## Blocking CI (fixed)
 
-`apps/api/test/e2e/bookkeeping.e2e.test.ts:623` ("lists with tab counts and filters") fails on
-every PR that runs the API tests from Oct 21 to Nov 10. It filters `reportDueFrom=day(30)` to
-`reportDueTo=day(50)` and expects only Davis, but the custom 2-month client from "a custom
-cadence needs its months" gets the computed due date Dec 10 (`nextReportDue`, period Oct 1 to
-Nov 30, close day 10), which is inside that window until Nov 10. A web-only PR skips the API
-tests, so it passes. Fix (test only): put Davis far out, `nextReportDueOn: day(400)`, and query
-`day(390)` to `day(410)`; computed dues are never more than about 15 months out. Owner: R55
-(Bookkeeping Terms, #857) or whoever Rasel names.
+The day-dependent `bookkeeping.e2e.test.ts` filter test that failed every API-test PR from Oct 21
+was fixed by R55 in #991 (merged Oct 21).
 
 ## Remaining work
 
-### 1. Security: the sign-in rules (ask Rasel first)
+### 1. Security: the sign-in rules
 
-The page now says the rules and marks what is not in force. Enforcement needs auth and infra
-changes; none were made. Map (file, now, required, owner):
+Rasel decided (Oct 21), and R60 may touch the sign-in guards for exactly these rules:
+
+- **Spaces:** a space at the start or end of a password is allowed, and nothing trims it. Before
+  building, check Cognito: the repo says it refuses a password that starts or ends with a space
+  (`packages/types/src/auth/schemas.ts:41-44`, the `edges` rule). If it does, this rule cannot
+  hold with Cognito as is, so ask Rasel again rather than encode or trim the password.
+- **Lockout:** per account, 5 failures in 15 minutes, on top of the existing network rate limit
+  (`SIGN_IN_LIMIT`, which stays). A per-account counter needs somewhere to live (R0 if a table
+  or column).
+- **MFA:** no new "security admin" role. The Owner, and an Admin with the security permission,
+  may change the MFA requirement, after a fresh sign-in, with an audit entry. The permission grid
+  has no security module (`packages/types/src/team/permissions.ts`): the nearest is `SETTINGS`
+  with `MANAGE`. Confirm with Rasel which key "the security permission" is.
+
+The page says the rules and marks what is not in force. Enforcement needs auth and infra changes;
+none were made. Map (file, now, required, owner):
 
 | Rule | Where | Now | Required | Owner |
 | --- | --- | --- | --- | --- |
 | 15-character minimum, no forced mix | `infra/src/stacks/auth-stack.ts:110-117` (`passwordPolicy`, three pools) | 12, upper, lower, digit | `minLength: 15`, the `require*` false | R1 |
-| Same rule in the contract and screens | `packages/types/src/auth/schemas.ts:41-53` (`PASSWORD_RULES`), `docs/api/auth.yaml:85,502`, `docs/AUTH-DESIGN.md:25` | 12 + mix | 15, no mix, keep the edge-space rule | R2 |
-| Lockout: 5 failures in 15 min locks 15 min | `apps/api/src/auth/sign-in.service.ts:67-80` (`SIGN_IN_LIMIT`), `auth-errors.ts:35` | 10 per email per network in 15 min, then 429 | Per-account lock at the 5th failure, `retryAt` in the 429 for a countdown | R2 |
+| Same rule in the contract and screens | `packages/types/src/auth/schemas.ts:41-53` (`PASSWORD_RULES`), `docs/api/auth.yaml:85,502`, `docs/AUTH-DESIGN.md:25` | 12 + mix, no edge spaces | 15, no mix, edge spaces allowed and not trimmed (if Cognito accepts them, above) | R2 or R60 |
+| Lockout: 5 failures on one account in 15 min locks 15 min | `apps/api/src/auth/sign-in.service.ts:67-80` (`SIGN_IN_LIMIT`), `auth-errors.ts:35` | 10 per email per network in 15 min, then 429 | Keep that limit; add a per-account lock at the 5th failure, `retryAt` in the 429 for a countdown | R60 (+R0 for the counter) |
 | 8-hour maximum | `auth-stack.ts:67` (refresh 7 days), `apps/api/src/auth/site.ts:92-96`, `session.service.ts:80` | 7 days | `Duration.hours(8)` and the cookie lifetimes | R1 + R2 |
 | 15 min idle, warning at 13 | none; `apps/web/src/lib/session.ts:40` refreshes on any 401 | none | Server-side last activity checked in `SessionService.refresh`, polling not counted, web idle timer with the warning | R2 (+R0 if a column) |
 | Reset ends every session | `cognito-identity.provider.ts:338` | Refresh revoked; access tokens live up to 15 min | Reject tokens issued before the reset | R2 |
 | Deactivation ends every session | `staff-actions.service.ts:147-169`, `staff.common.ts:106`, `session.service.ts:171` | Firm access ends at once (`tenant.guard.ts:116`); tokens live up to 7 days | Refuse refresh without an active membership, or revoke | R2 |
-| MFA change only by owner or security admin, fresh sign-in, audited | `auth-stack.ts:67` (`Mfa.REQUIRED`) | Always required; no setting; no security-admin role | Only if a firm may ever change it: policy table, role, re-auth, audit | R0 + R2 |
+| MFA change only by the Owner or an Admin with the security permission, fresh sign-in, audited | `auth-stack.ts:67` (`Mfa.REQUIRED`) | Always required; no setting | Only if a firm may ever change it: policy table, the permission check, re-auth, audit | R0 + R60 |
 | Real MFA enrolment on the card | `apps/api/src/staff/staff-read.service.ts:58-63` (`mfaOf` placeholder) | "Not recorded yet" | Ask Cognito (`AdminGetUser` MFA settings) or record setup in `sign-in.service.ts` | R2 (+R0) |
 
-Decisions for Rasel: spaces (Cognito refuses a leading or trailing space, so "spaces allowed" is
-partly true); lockout scope (his Oct 8 q20 counts per email and network so a stranger cannot lock
-someone out; Octavia's guide counts per account); "security admin" is not one of the eight roles.
 Remove each "Not in force yet" note in `settings/security/_components/security-screen.tsx` as its
 change lands. Also seen: Security Alerts show "Unknown account" because staff sign-in failures go
 to the platform audit log, not the firm's; `GET /business/settings/overview` has no route, so the
@@ -103,7 +109,16 @@ link toggles.
 ### 4. Documents with no retention years: deletable by the firm
 
 Rasel's decision: a document kept for good (its category has no retention years) may be deleted
-by an Owner or Admin, audited, never under legal hold. This is item 7 of R1's schema batch:
+by an Owner or Admin, audited, never under legal hold. This is item 7 of R1's schema batch.
+
+Rasel's answers (Oct 21) to the three open points below:
+
+- **Files from a submitted intake are not deletable.** Leave `documents_intake_rules()` as it is
+  (point 2); the API answers 409 `DOCUMENT_IN_INTAKE` and the intake keeps its file.
+- **Deleting a document removes all its versions.** The API deletes the whole `replaces_id`
+  chain in one transaction, and then every S3 object of the chain.
+- **Documents with no category are deletable like "keep for good"** (`retention_until` NULL),
+  under the same Owner or Admin, legal-hold and in-use rules.
 
 Database (one migration):
 
@@ -130,10 +145,8 @@ Database (one migration):
 
 2. `documents_intake_rules()` (same migration, line 297): the delete branch reads
    `OLD.intake_id IS NOT NULL AND NOT coalesce(OLD.retention_until < current_date, false)`, so a
-   kept-for-good file of a submitted intake still cannot be deleted. Either leave it (recommended:
-   the API answers 409 `DOCUMENT_IN_INTAKE` and the intake keeps its file) or change it to
-   `OLD.intake_id IS NOT NULL AND NOT (OLD.retention_until IS NULL OR OLD.retention_until < current_date)`.
-   Rasel to pick.
+   kept-for-good file of a submitted intake still cannot be deleted. Rasel: leave it (the API
+   answers 409 `DOCUMENT_IN_INTAKE` and the intake keeps its file).
 3. `documents_rules()` (last defined in `20261010050000_r0_esign/migration.sql:1324`, the check
    at 1391-1395) refuses NULL to a date, but lets a date become NULL (`NEW < OLD` is NULL there).
    With branch 1 that is a way past retention: clear the date, then delete. Refuse it too:
@@ -164,9 +177,11 @@ Notes for the API (R60 or the Documents owner, after the migration):
   `bookkeeping_report_versions`, `bookkeeping_terms` (two). `task_attachments`,
   `compliance_deadline_documents` and `tax_plan_documents` cascade. The API checks first and
   answers 409 `DOCUMENT_IN_USE` with where it is used, rather than surfacing a foreign-key error.
-- Versions: `replaces_id` has no foreign key; delete the whole version chain together, or refuse
-  while a newer version exists. Rasel to pick.
-- No category also means `retention_until` NULL. Rasel to confirm those are deletable too.
+- Versions: `replaces_id` has no foreign key. Rasel: delete the whole version chain together.
+  Every version must pass the checks above (legal hold, retention date, intake, in use), or
+  nothing is deleted and the 409 names the version that blocks it.
+- No category also means `retention_until` NULL. Rasel: those are deletable too, under the same
+  rules.
 - In one transaction: the delete and `AuditService.log('document.deleted', 'Document', { name,
   categoryId })` (no content). Then remove the S3 object and its old versions (the bucket keeps
   noncurrent versions 30 days, 35 once R1 raises it).
@@ -214,14 +229,27 @@ Hand to others, do not build:
   firm, so locally (and on dev if seeded with `pnpm db:seed`) five forms are a 3-step stub.
   Shoot those flows with `NEXT_PUBLIC_API_MOCK=beginOnline,publicAgreements` until R0 changes it.
 
-The [decide] list goes to Rasel first: header and footer variants, taglines, 44 px controls
-against the mockup's 35 px, mockup colours that fail contrast (input border 1.47:1, white on
-orange 3.06:1), conditional follow-ups always drawn, "with a copy of your submission" on
-Success (CLAUDE.md rule 4), masking, the start card that no mockup has.
+Rasel decided (Oct 21):
+
+- **Header and footer (S8, S9):** follow each design's own header and footer, so the variants
+  differ by screen as the mockups do. They live in R17's `(public)/layout.tsx` and
+  `portal-footer.tsx`, and the footer's contact details need `PortalInfo` fields, so plan that
+  PR with R17 and the contract first.
+- **Control heights (S3):** 35 px on desktop, as in the design; 44 px on phones. Agree the CSS
+  with R56 (its control rules in `intake-scale.module.css`).
+- **Colours (S4, S6, S8, S27):** keep Octavia's colours as designed, including the light input
+  border and placeholder and white on orange, even where they measure under AA.
+- **Success pages:** they say "confirmation" ("You'll receive a confirmation email."), and the
+  email carries no submission content (hard rule 4). Ours already drops "with a copy of your
+  submission"; keep it so.
+
+Still for Rasel: taglines and firm photos (S10), conditional follow-ups always drawn (S11),
+masking, the start card that no mockup has, and the per-screen [decide] items in the audit.
 
 ### 6. Team invites
 
-Branch `rasel/R60-team-invites` waits on #981. After it merges: switch the Team screens adapter
+#981 merged on Oct 21, so branch `rasel/R60-team-invites` can go: merge `main`, rerun the
+admin-team e2e, open the PR when a slot frees. Then switch the Team screens adapter
 (`apps/web/src/app/admin/(console)/team/_components/team-api.ts`) `createMember` and
 `resendInvitation` to the real API, and show name and phone saving (after R0's #954).
 
@@ -244,3 +272,8 @@ status, exports, restore) and the two rows show real dates.
   `actions`.
 - Staff API contract gaps reported in #975: sort order, department count, `addedThisMonth`,
   search not covering role.
+
+## Progress log
+
+- Oct 21: handoff, Begin Online audit and Rasel's Oct 21 decisions (items 1, 4 and 5) in a
+  docs PR.

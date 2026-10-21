@@ -602,6 +602,12 @@ Fix the spec to `toHaveCount(3)` at 1024, or scope it to `main` and expect 2.
 - Note: a stored firm form keeps its version. The seed stores `INTAKE_FORMS` into `intake_forms` rows, and the API publishes the built-in form as version 1 on first use (`apps/api/src/begin-online/begin-online.service.ts:204-217`). So copy or field changes to `forms/*.ts` reach an existing firm only through a new published version.
 
 ### [decide]
+
+Rasel decided on Oct 21: S3 (35 px on desktop, 44 px on phones), S4, S6 and S27 (keep the
+mockup colours), S8 and S9 (each design's own header and footer) and the Success copy
+("confirmation", no submission content in the email). See `R60-settings.md` item 5. The other
+items below are still open.
+
 - **S3** control and row heights. Mockup about 35 px fields and about 25 px choice rows; the kit's 44 px controls. The project bar is WCAG 2.1 AA ("WCAG 2.1 AA: keyboard navigation, visible focus, 4.5:1 contrast...", `docs/PROJECT-DRAFT-v2.md:269`); 44 px targets are AAA.
 - **S6** mockup input border 1.47:1 and placeholder 1.97:1, against WCAG 1.4.11 (3:1) and 1.4.3 (4.5:1).
 - **S8** header. The mockups disagree: full nav with Begin Online, nav without it plus a tagline, no nav, and photo heroes. It is R17's layout. The gold header button is 2.42:1.
