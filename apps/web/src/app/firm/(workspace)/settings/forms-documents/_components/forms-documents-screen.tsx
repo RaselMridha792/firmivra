@@ -10,7 +10,6 @@ import {
   ShieldCheck,
 } from '@phosphor-icons/react';
 import { api } from '../../../../../../lib/api';
-import { moduleHref } from '../../../../../../lib/firm-modules';
 import { useApiQuery } from '../../../../../../lib/query';
 import {
   CardLink,
@@ -20,14 +19,16 @@ import {
   SettingsHeader,
 } from '../../_components/settings-parts';
 
-const MB = UPLOAD_LIMITS.maxBytes / (1024 * 1024);
+const MB = 1024 * 1024;
 
 /**
  * Settings > Forms & Documents (guide §11: allowed file types and limits, naming and storage
- * defaults, categories and retention references). The limits are the ones the document
- * contract fixes for every firm (`UPLOAD_LIMITS`), the categories are the firm's own
- * (`api.documents.categories`), and each card opens the page that changes it. No firm-wide
- * document defaults are stored yet (Settings contract).
+ * defaults, categories and retention references; review of Oct 19 in
+ * docs/specs/settings-review-2026-10-20/). The limits are the ones the document contract fixes
+ * for every firm (`UPLOAD_LIMITS`: the largest file, and the batch the browser checks), the
+ * categories are the firm's own (`api.documents.categories`), and each card opens the page that
+ * changes it. Retention reads as the firm's own recordkeeping: records stay until the firm
+ * deletes them, and nothing here promises that Firmivra keeps them forever.
  */
 export function FormsDocumentsScreen() {
   const categories = useApiQuery(['documents', 'categories'], () => api.documents.categories());
@@ -48,7 +49,11 @@ export function FormsDocumentsScreen() {
           <Facts
             rows={[
               ['File types', UPLOAD_LIMITS.typeNames],
-              ['Largest file', `${MB} MB`],
+              ['Largest file', `${UPLOAD_LIMITS.maxBytes / MB} MB`],
+              [
+                'Files per upload',
+                `Up to ${UPLOAD_LIMITS.maxBatchFiles}, ${UPLOAD_LIMITS.maxBatchBytes / MB} MB in all`,
+              ],
               ['Office files with macros', 'Refused'],
             ]}
           />
@@ -99,7 +104,7 @@ export function FormsDocumentsScreen() {
 
         <SettingsCard
           title="Retention"
-          subtitle="How long records are kept (platform policy)."
+          subtitle="While your account is active, records stay until your firm deletes them."
           icon={Scales}
           testId="retention"
         >
@@ -107,10 +112,15 @@ export function FormsDocumentsScreen() {
             rows={[
               ['Tax records', '7 years'],
               ['Payroll records', 'At least 4 years'],
-              ['Business formation records', 'Kept permanently'],
+              ['Business formation records', 'Permanently, in your firm’s own records'],
               ['Legal hold', 'Stops any removal while it lasts'],
             ]}
           />
+          <p className="text-sm text-muted">
+            These periods are guidance for your firm’s recordkeeping, not legal minimums. Firmivra
+            does not keep records forever: your firm is responsible for keeping any it needs after
+            its access to Firmivra ends.
+          </p>
         </SettingsCard>
 
         <SettingsCard
@@ -122,7 +132,7 @@ export function FormsDocumentsScreen() {
         >
           <div className="flex flex-wrap gap-3">
             <CardLink href="/intake-forms/settings">Intake Form Settings</CardLink>
-            <CardLink href={moduleHref('templates')}>Templates</CardLink>
+            <CardLink href="/templates">Templates</CardLink>
             <CardLink href="/settings/legal">Terms &amp; Privacy</CardLink>
             <CardLink href="/firm-sign">Firm Sign</CardLink>
           </div>
