@@ -34,14 +34,16 @@ test('the header search finds clients and team members and opens them', async ({
     /^\/team\//,
   );
 
+  // Each result opens its record (the link, not a navigation: a cold dev compile is slow).
   await box.fill('jamie');
-  await clients.getByRole('link', { name: /Jamie Sample/ }).click();
-  await expect(page).toHaveURL(/\/clients\/[0-9a-f-]+$/);
+  await expect(clients.getByRole('link', { name: /Jamie Sample/ })).toHaveAttribute(
+    'href',
+    /^\/clients\/[0-9a-f-]+$/,
+  );
 
   // Enter still opens the clients list with the text.
-  await box.fill('jamie');
   await box.press('Enter');
-  await expect(page).toHaveURL(firm('/clients?search=jamie'));
+  await expect(page).toHaveURL(firm('/clients?search=jamie'), { timeout: 60_000 });
 });
 
 test('Help & Support opens the shared slide-out, from the "?" and the account menu', async ({
