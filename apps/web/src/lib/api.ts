@@ -107,6 +107,7 @@ import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createClientsMock } from '../mocks/clients';
 import { createContentMock, myContentMock } from '../mocks/content';
+import { createDocumentLibraryMock } from '../mocks/document-library';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import {
   createEsignMock,
@@ -177,6 +178,9 @@ const dev = process.env.NODE_ENV !== 'production';
  *   taxStatuses: dev && mocked('taxStatuses') ? createTaxStatusesMock({ role: MOCK_ROLE }) : createTaxStatusesClient(request),
  * See "Adding a module" in packages/types/README.md.
  */
+/** One documents mock, shared with the library mock so an upload confirms against it. */
+const documentsMock = dev && mocked('documents') ? createDocumentsMock({ role: MOCK_ROLE }) : null;
+
 export const api = {
   ...createApiClient(options),
   // The signed-in user and their firm (`me`, `currentBusiness`), for the layouts in mock mode.
@@ -322,12 +326,15 @@ export const api = {
       ? myCalculatorsMock(firmSlug)
       : createPublicCalculatorsClient(request, firmSlug),
   /** Documents (R5): a client's files and document requests, for the firm. Upload with uploadFile(). */
-  documents:
-    dev && mocked('documents')
-      ? createDocumentsMock({ role: MOCK_ROLE })
-      : createDocumentsClient(request),
+  documents: documentsMock ?? createDocumentsClient(request),
   /** Documents (R55 contract): the firm-wide library, requests dashboard, folders and settings. */
-  documentLibrary: createDocumentLibraryClient(request),
+  documentLibrary:
+    dev && mocked('documentLibrary')
+      ? createDocumentLibraryMock({
+          documents: documentsMock ?? createDocumentsMock({ role: MOCK_ROLE }),
+          empty: mockedEmpty('documentLibrary'),
+        })
+      : createDocumentLibraryClient(request),
   /** Documents (R5): the signed-in client's own files and requests, per firm (portal). */
   myDocuments: (firmSlug: string) =>
     dev && mocked('myDocuments')

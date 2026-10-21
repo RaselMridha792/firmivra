@@ -36,7 +36,7 @@ export function DocumentsTab() {
         title="Documents"
         testId="card-documents"
         action={
-          <Link href="/modules/document-upload" className="text-sm font-medium text-link underline">
+          <Link href="/documents/upload" className="text-sm font-medium text-link underline">
             Upload Document
           </Link>
         }
