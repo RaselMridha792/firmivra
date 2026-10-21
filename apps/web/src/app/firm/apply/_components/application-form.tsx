@@ -25,6 +25,7 @@ import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { useFieldArray, useForm, type DefaultValues } from 'react-hook-form';
 import { api } from '../../../../lib/api';
+import { LEGAL_PATHS } from '../../../../lib/company';
 import { errorMessage } from '../../../../lib/errors';
 import { useApiMutation } from '../../../../lib/query';
 
@@ -493,6 +494,10 @@ export function ApplicationForm() {
               label="I accept Firmivra’s terms and privacy notice."
               {...form.register('agreement.acceptedTerms')}
             />
+            <p className="pl-8 text-sm text-muted">
+              Read the <LegalLink href={LEGAL_PATHS.terms}>Terms of Service</LegalLink> and the{' '}
+              <LegalLink href={LEGAL_PATHS.privacy}>Privacy Policy</LegalLink>.
+            </p>
             <Checkbox
               label="I certify that the information above is accurate."
               {...form.register('agreement.certifiedAccurate')}
@@ -522,5 +527,15 @@ export function ApplicationForm() {
         </label>
       </div>
     </form>
+  );
+}
+
+/** Opens a legal page in a new tab, so the application keeps what was typed. */
+function LegalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener" className="font-medium text-link hover:underline">
+      {children}
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
   );
 }
