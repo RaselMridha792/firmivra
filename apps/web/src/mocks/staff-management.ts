@@ -1551,9 +1551,8 @@ export function createRolesMock(options: Options = {}): RolesClient {
   const { s } = g;
   const manage = (r: MembershipRole) => {
     if (g.role !== 'OWNER' && g.role !== 'ADMIN') throw forbidden();
-    if (r === 'OWNER') throw fail(403, 'CANNOT_GRANT', "The owner's permissions cannot be changed");
-    if (!ROLES_MANAGED_BY[g.role].includes(r))
-      throw fail(403, 'CANNOT_GRANT', 'You cannot change this role');
+    if (r === 'OWNER') throw fail(403, 'FORBIDDEN', "The owner's permissions cannot be changed");
+    // Owner and Admin change every other role's grid, the Admin role too (as the API does).
   };
   const view = (r: MembershipRole) => ({
     role: r,
@@ -1587,6 +1586,22 @@ export function createRolesMock(options: Options = {}): RolesClient {
       manage(r);
       const input = parseInput(SaveRolePermissionsRequest, body);
       checkGrants(input.grants);
+      // An Admin cannot close Roles & Permissions to every Admin; the Owner can.
+      if (
+        g.role === 'ADMIN' &&
+        r === 'ADMIN' &&
+        input.grants.some(
+          (gr) =>
+            gr.module === 'STAFF_MANAGEMENT' &&
+            ['VIEW', 'EDIT', 'DELETE'].includes(gr.capability) &&
+            !gr.granted,
+        )
+      )
+        throw fail(
+          409,
+          'ADMIN_LOCKOUT',
+          'Admins would lose Roles & Permissions; only the Owner can take it away',
+        );
       const escalates = input.grants.some(
         (gr) =>
           gr.granted && !(DEFAULT_ROLE_PERMISSIONS[r][gr.module]?.includes(gr.capability) ?? false),
