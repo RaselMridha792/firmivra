@@ -154,6 +154,16 @@ describe('clients', () => {
       action: 'appointment.',
     });
     expect(audit.calls[0]?.url).toBe('/business/audit-log?action=appointment.&limit=50');
+    // The export link: the same filters, never the paging, no request sent.
+    const exporting = createAuditLogClient(
+      createRequest({ baseUrl: '', fetch: audit.fn }),
+      '/api/v1',
+    );
+    expect(exporting.exportUrl({ action: 'staff.', cursor: 'next', limit: 10 })).toBe(
+      '/api/v1/business/audit-log/export?action=staff.',
+    );
+    expect(() => exporting.exportUrl({ action: 'Not An Action' })).toThrow();
+    expect(audit.calls).toHaveLength(1);
   });
 });
 

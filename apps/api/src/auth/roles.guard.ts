@@ -43,7 +43,11 @@ export class RolesGuard implements CanActivate {
     if (roles.includes('AUTHENTICATED') && req.auth) return true;
     if (req.tenant && roles.includes(req.tenant.role)) {
       // The member's own change to this route's cell (Staff Management) can only take away here.
-      if ((await this.memberCell(ctx, req)) === false) throw forbidden();
+      const own = await this.memberCell(ctx, req);
+      if (own === false) throw forbidden();
+      // An Admin also loses a cell the firm took away from the Admin role (Settings > Users &
+      // Roles). The Admin default is every cell, so only a firm's explicit change closes one.
+      if (own === undefined && (await this.adminCellRemoved(ctx, req))) throw forbidden();
       return true;
     }
     if (
@@ -86,6 +90,16 @@ export class RolesGuard implements CanActivate {
       }
     }
     throw forbidden();
+  }
+
+  /** Whether the firm took this route's cell away from the Admin role (a saved `false`). */
+  private async adminCellRemoved(ctx: ExecutionContext, req: Request): Promise<boolean> {
+    if (!this.grants || req.tenant?.kind !== 'staff' || req.tenant.role !== 'ADMIN') return false;
+    const access = accessFor(this.reflector, ctx);
+    const capability = access?.capability ?? capabilityOfMethod(req.method);
+    if (!access || !capability) return false;
+    const changed = await this.grants.changes(req.tenant.businessId, 'ADMIN');
+    return changed.get(`${access.module}:${capability}`) === false;
   }
 
   /**
