@@ -42,6 +42,9 @@ type Reminder = Schedule['reminders'][number];
 /** The video integrations that count as "connected" (see SchedulingReadService.options). */
 const VIDEO_PROVIDERS = ['zoom', 'microsoft_teams', 'teams', 'google_meet'];
 const HOUR = 60 * MINUTE;
+/** An inactive location (Settings > Locations) keeps its appointments but takes no new times. */
+const inactiveOffice = () =>
+  errors.unsupported('This location is inactive. Choose an active location.');
 
 const placed = (a: { startsAt: Date; endsAt: Date; staffUserId: string }) => ({
   startsAt: a.startsAt,
@@ -412,10 +415,24 @@ export class SchedulingWriteService {
                 ? current.roomId
                 : null
               : body.roomId;
-        const place = await this.placeFor(tx, businessId, kind, wantedOffice, wantedRoom);
+        const place = await this.placeFor(
+          tx,
+          businessId,
+          kind,
+          wantedOffice,
+          wantedRoom,
+          timeChanged ? null : current.officeId,
+        );
         roomId = place.roomId;
         set('place', 'officeId', place.officeId, place.officeId === current.officeId);
         set('place', 'roomId', roomId, roomId === current.roomId);
+      } else if (timeChanged && current.officeId) {
+        // Moved to another time at its own office: an inactive location takes no new times.
+        const office = await tx.firmOffice.findFirst({
+          where: { businessId, id: current.officeId },
+          select: { status: true },
+        });
+        if (office?.status === 'INACTIVE') throw inactiveOffice();
       }
 
       const location = await this.locationAfter(tx, businessId, current, kind, staff.userId, body);
@@ -635,13 +652,18 @@ export class SchedulingWriteService {
     }
   }
 
-  /** The office and room, from this firm and not archived; only for an in-person meeting. */
+  /**
+   * The office and room, from this firm and not archived; only for an in-person meeting. An
+   * INACTIVE location (Settings > Locations) takes no new or moved booking: only `keepOfficeId`,
+   * the appointment's own office when neither it nor the time changes, may stay inactive.
+   */
   private async placeFor(
     tx: TxClient,
     businessId: string,
     kind: 'IN_PERSON' | 'PHONE' | 'VIDEO',
     officeId: string | null | undefined,
     roomId: string | null | undefined,
+    keepOfficeId: string | null = null,
   ): Promise<{ officeId: string | null; roomId: string | null }> {
     if (!officeId && !roomId) return { officeId: null, roomId: null };
     if (kind !== 'IN_PERSON') {
@@ -650,9 +672,10 @@ export class SchedulingWriteService {
     if (!officeId) throw errors.unsupported('Choose the office of the room');
     const office = await tx.firmOffice.findFirst({
       where: { businessId, id: officeId, archivedAt: null },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!office) throw errors.notFound();
+    if (office.status !== 'ACTIVE' && office.id !== keepOfficeId) throw inactiveOffice();
     if (roomId) {
       const room = await tx.firmRoom.findFirst({
         where: { businessId, officeId, id: roomId, archivedAt: null },
