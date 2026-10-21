@@ -9,5 +9,7 @@ export default async function ClientsPage({
   searchParams: Promise<{ search?: string | string[] }>;
 }) {
   const { search } = await searchParams;
-  return <ClientsScreen initialSearch={typeof search === 'string' ? search : ''} />;
+  const text = typeof search === 'string' ? search : '';
+  // Keyed by the search, so the header's search box opens a fresh list on this page too.
+  return <ClientsScreen key={text} initialSearch={text} />;
 }

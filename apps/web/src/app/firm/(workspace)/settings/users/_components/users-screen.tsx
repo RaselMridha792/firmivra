@@ -44,6 +44,8 @@ import { RowMenu, type RowMenuItem } from '../../../team/_components/row-menu';
 import { ActionModal, type StaffAction } from '../../../team/[id]/_components/staff-actions';
 import { MEMBER_ERRORS } from '../../../team/[id]/_components/staff-parts';
 import { BandCard, SettingsHeader, SettingsKpi } from '../../_components/settings-parts';
+import { AccessModal } from './access-modal';
+import { ChangeRoleModal } from './change-role-modal';
 import { InviteUserModal } from './invite-user-modal';
 import { PermissionsModal } from './permissions-modal';
 import { RolePanel } from './role-panel';
@@ -131,6 +133,8 @@ type Dialog =
   | { kind: 'action'; action: StaffAction; user: FirmUser }
   | { kind: 'revoke'; user: FirmUser }
   | { kind: 'permissions'; user: FirmUser }
+  | { kind: 'access'; action: 'unlock' | 'reactivate'; user: FirmUser }
+  | { kind: 'role'; user: FirmUser }
   | { kind: 'pick'; action: 'resetPassword' | 'deactivate' };
 
 /**
@@ -201,6 +205,10 @@ export function UsersScreen() {
             },
           ]
         : []),
+      // Only someone whose role you may change (an Admin never changes an Admin or the Owner).
+      ...(me && u.status !== 'DEACTIVATED' && ROLES_MANAGED_BY[me].includes(u.role)
+        ? [{ label: 'Change Role', onSelect: () => setDialog({ kind: 'role', user: u }) }]
+        : []),
     );
     if (u.status === 'INVITED') {
       items.push(
@@ -218,6 +226,11 @@ export function UsersScreen() {
         },
       );
     }
+    if (u.status === 'LOCKED')
+      items.push({
+        label: 'Unlock Account',
+        onSelect: () => setDialog({ kind: 'access', action: 'unlock', user: u }),
+      });
     if (u.status === 'ACTIVE' || u.status === 'LOCKED') {
       items.push(
         { label: 'Reset Password', onSelect: act('resetPassword') },
@@ -227,7 +240,10 @@ export function UsersScreen() {
     }
     items.push(
       u.status === 'DEACTIVATED'
-        ? { label: 'Reactivate User', onSelect: act('reactivate') }
+        ? {
+            label: 'Reactivate User',
+            onSelect: () => setDialog({ kind: 'access', action: 'reactivate', user: u }),
+          }
         : { label: 'Deactivate User', danger: true, onSelect: act('deactivate') },
       { label: 'View Activity', onSelect: () => router.push(`/team/${u.id}/security/activity`) },
     );
@@ -589,6 +605,27 @@ export function UsersScreen() {
       ) : null}
       {dialog?.kind === 'permissions' ? (
         <PermissionsModal
+          user={dialog.user}
+          onClose={() => setDialog(null)}
+          onDone={(text) => {
+            setDialog(null);
+            setMessage(text);
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'access' ? (
+        <AccessModal
+          action={dialog.action}
+          user={dialog.user}
+          onClose={() => setDialog(null)}
+          onDone={(text) => {
+            setDialog(null);
+            setMessage(text);
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'role' ? (
+        <ChangeRoleModal
           user={dialog.user}
           onClose={() => setDialog(null)}
           onDone={(text) => {
