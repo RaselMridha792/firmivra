@@ -1,10 +1,18 @@
+import { randomUUID } from 'node:crypto';
 import {
   CopyObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
-import { S3DocumentStorage, statusOf } from '../../storage/document-storage.js';
+import { UPLOAD_LIMITS } from '@firmivra/types';
+import {
+  type CompletedUpload,
+  partSizes,
+  type PresignedUpload,
+  S3DocumentStorage,
+  statusOf,
+} from '../../storage/document-storage.js';
 import type { EsignStore, EsignStoredObject } from './engine.types.js';
 
 // Firm Sign's objects in the documents bucket (R18 step 4). Every key is chosen by the API and
@@ -95,6 +103,14 @@ export class S3EsignStore implements EsignStore {
     return this.objects.presignUpload({ ...file, key: checkKey(businessId, key) });
   }
 
+  completeUpload(businessId: string, key: string, uploadId: string, sizeBytes: number) {
+    return this.objects.completeUpload(checkKey(businessId, key), uploadId, sizeBytes);
+  }
+
+  abortUpload(businessId: string, key: string, uploadId: string) {
+    return this.objects.abortUpload(checkKey(businessId, key), uploadId);
+  }
+
   async copyFromVault(businessId: string, sourceKey: string, key: string) {
     const source = checkKey(businessId, sourceKey, 'documents');
     const Key = checkKey(businessId, key);
@@ -120,6 +136,11 @@ export class S3EsignStore implements EsignStore {
 export class MemoryEsignStore implements EsignStore {
   /** Every object by key; tests may seed vault files here directly. */
   readonly objects = new Map<string, { bytes: Uint8Array; contentType: string }>();
+  /** Multipart uploads not yet completed or dropped, by upload id. */
+  readonly uploads = new Map<
+    string,
+    { key: string; contentType: string; parts: Map<number, Uint8Array> }
+  >();
 
   keyFor(businessId: string, requestId: string, name: string) {
     return esignKey(businessId, requestId, name);
@@ -147,17 +168,65 @@ export class MemoryEsignStore implements EsignStore {
     );
   }
 
+  /** A PUT to memory://<key>; a larger file, parts to memory://<key>?uploadId=..&partNumber=N. */
   presignUpload(
     businessId: string,
     key: string,
     file: { contentType: string; sizeBytes: number; sha256: string },
-  ) {
+  ): Promise<PresignedUpload> {
     const url = `memory://${checkKey(businessId, key)}`;
+    if (file.sizeBytes > UPLOAD_LIMITS.multipartThresholdBytes) {
+      const uploadId = randomUUID();
+      this.uploads.set(uploadId, { key, contentType: file.contentType, parts: new Map() });
+      const parts = partSizes(file.sizeBytes).map((_, i) => ({
+        partNumber: i + 1,
+        url: `${url}?uploadId=${uploadId}&partNumber=${i + 1}`,
+        headers: {},
+      }));
+      const partSizeBytes = UPLOAD_LIMITS.partSizeBytes;
+      return Promise.resolve({ method: 'MULTIPART', uploadId, partSizeBytes, parts });
+    }
     const checksum = Buffer.from(file.sha256, 'hex').toString('base64');
     return Promise.resolve({
+      method: 'PUT',
       url,
       headers: { 'content-type': file.contentType, 'x-amz-checksum-sha256': checksum },
     });
+  }
+
+  /** The browser's PUT of one part (tests): the URL a multipart ticket gave. */
+  putPart(url: string, bytes: Uint8Array): void {
+    const at = new URL(url.replace('memory://', 'memory://x/'));
+    const upload = this.uploads.get(at.searchParams.get('uploadId') ?? '');
+    if (!upload) throw new Error('NoSuchUpload');
+    upload.parts.set(Number(at.searchParams.get('partNumber')), bytes.slice());
+  }
+
+  completeUpload(
+    businessId: string,
+    key: string,
+    uploadId: string,
+    sizeBytes: number,
+  ): Promise<CompletedUpload> {
+    const k = checkKey(businessId, key);
+    const upload = this.uploads.get(uploadId);
+    if (upload?.key !== k) return Promise.resolve(this.objects.has(k) ? 'COMPLETE' : 'MISSING');
+    const sizes = partSizes(sizeBytes);
+    const parts = [...upload.parts.entries()].sort(([a], [b]) => a - b);
+    const exact =
+      parts.length === sizes.length &&
+      parts.every(([n, bytes], i) => n === i + 1 && bytes.byteLength === sizes[i]);
+    if (!exact) return Promise.resolve('MISMATCH');
+    this.uploads.delete(uploadId);
+    const bytes = new Uint8Array(Buffer.concat(parts.map(([, b]) => b)));
+    this.objects.set(k, { bytes, contentType: upload.contentType });
+    return Promise.resolve('COMPLETE');
+  }
+
+  abortUpload(businessId: string, key: string, uploadId: string) {
+    const k = checkKey(businessId, key);
+    if (this.uploads.get(uploadId)?.key === k) this.uploads.delete(uploadId);
+    return Promise.resolve();
   }
 
   copyFromVault(businessId: string, sourceKey: string, key: string) {

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFString } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
+import { UPLOAD_LIMITS } from '@firmivra/types';
 import { EsignEngineError, type SourceFile } from '../../src/esign/engine/engine.types.js';
 import { compose, imagePageSize, inspect } from '../../src/esign/engine/pdf-compose.js';
 import { parsePng } from '../../src/esign/engine/images.js';
@@ -68,8 +69,8 @@ describe('inspect', () => {
     );
   });
 
-  it('refuses files over 10 MB', async () => {
-    const big = new Uint8Array(10 * 1024 * 1024 + 1);
+  it('refuses files over 100 MB (UPLOAD_LIMITS.maxBytes)', async () => {
+    const big = new Uint8Array(UPLOAD_LIMITS.maxBytes + 1);
     big.set(new TextEncoder().encode('%PDF-1.7'));
     expect(await refusal(inspect({ contentType: PDF, bytes: big }))).toBe('PDF_UNREADABLE');
     expect(await refusal(inspect({ contentType: 'image/png', bytes: big }))).toBe('PDF_UNREADABLE');

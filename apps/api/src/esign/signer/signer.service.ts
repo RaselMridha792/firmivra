@@ -22,7 +22,9 @@ import { BUSINESS_MODULES, type BusinessModules } from '../../common/modules/req
 import { ENV } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../../notify/notify.types.js';
+import { type Keep, readBudget } from '../../storage/read-budget.js';
 import * as engine from '../engine/engine.types.js';
+import { filesBusy, packetBudget } from '../requests/esign-uploads.js';
 import type {
   CodeHasher,
   EsignCodeKind,
@@ -316,18 +318,25 @@ export class EsignSignerService {
     return this.moveOn(c, res);
   }
 
-  /** GET packet: as it stands (the sender's values, earlier signatures), CLEAN files only. */
-  async packet(c: SignerCall): Promise<Uint8Array> {
+  /**
+   * GET packet: as it stands (the sender's values, earlier signatures), CLEAN files only. The
+   * packet, pdf-lib's copy and the stamped PDF hold the read budget (503 without room); with
+   * `keep` (the route that streams it) until it is given back there.
+   */
+  async packet(c: SignerCall, keep?: Keep): Promise<Uint8Array> {
     const q = c.signer.request;
     const { documents } = await this.requests.parts(c.firm.id, q.id);
     if (documents.some((d) => d.scanStatus === 'PENDING')) throw esignRefusal('SCAN_PENDING');
     if (documents.some((d) => d.scanStatus !== 'CLEAN')) throw esignRefusal('FILE_BLOCKED');
     const key = this.store.keyFor(c.firm.id, q.id, `packet-${q.originalSha256}.pdf`);
-    const bytes = q.originalSha256 ? await this.store.read(c.firm.id, key) : null;
-    if (!bytes) throw esignRefusal('INVALID_STATE');
-    const stamped = await this.completion.stampedPacket(c.firm.id, q.id, bytes);
-    await this.log(c, 'esign.signer_packet_read');
-    return stamped;
+    const read = async () => {
+      const bytes = q.originalSha256 ? await this.store.read(c.firm.id, key) : null;
+      if (!bytes) throw esignRefusal('INVALID_STATE');
+      const stamped = await this.completion.stampedPacket(c.firm.id, q.id, bytes);
+      await this.log(c, 'esign.signer_packet_read');
+      return stamped;
+    };
+    return readBudget.hold(packetBudget(documents), filesBusy, read, keep);
   }
 
   /** GET envelope: their own fields and everyone's progress; the first read records VIEWED. */

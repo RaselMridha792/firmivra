@@ -25,8 +25,10 @@ import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
   GET_URL_SECONDS,
+  onlyPut,
   PUT_URL_SECONDS,
 } from '../storage/document-storage.js';
+import { readBudget } from '../storage/read-budget.js';
 import { checkFile } from '../storage/file-checks.js';
 import { notFound } from '../workspaces/common.js';
 import { canEdit, templateErrors, visibleTo } from './templates.common.js';
@@ -37,9 +39,6 @@ export const TEMPLATE_UPLOAD_LABEL = 'fv-template-upload-v1';
 export const TEMPLATE_UPLOAD_SECONDS = 900;
 /** At most this many files on one template. */
 export const MAX_ATTACHMENTS = 10;
-/** At most this many confirms read stored bytes at once; one more is 503 (as documents). */
-export const TEMPLATE_CHECKS_AT_ONCE = 4;
-let checking = 0;
 
 const Claim = z.object({
   pool: z.literal('STAFF'),
@@ -139,7 +138,7 @@ export class TemplateAttachmentsService {
       }
     });
     const key = `tenant/${businessId}/templates/${randomUUID()}`;
-    const put = await this.s3(() =>
+    const presigned = await this.s3(() =>
       this.storage.presignUpload({
         key,
         contentType: body.contentType,
@@ -147,6 +146,8 @@ export class TemplateAttachmentsService {
         sha256: body.sha256,
       }),
     );
+    // A small file (its own limit is at most 10 MB): always one PUT.
+    const put = onlyPut(presigned);
     const uploadToken = await this.tokens.seal(
       { pool: 'STAFF', businessId, userId: actor.userId, templateId, key, ...body },
       TEMPLATE_UPLOAD_SECONDS,
@@ -280,11 +281,9 @@ export class TemplateAttachmentsService {
     });
   }
 
-  /** At most TEMPLATE_CHECKS_AT_ONCE at a time; one more is 503 (nothing deleted). */
-  private async checkStored(claim: Claim): Promise<string | null> {
-    if (checking >= TEMPLATE_CHECKS_AT_ONCE) throw unavailable();
-    checking += 1;
-    try {
+  /** Holding the file's size of the read budget (read-budget.ts); without room, 503 (nothing deleted). */
+  private checkStored(claim: Claim): Promise<string | null> {
+    return readBudget.hold(claim.sizeBytes, unavailable, async () => {
       const head = await this.s3(() => this.storage.head(claim.key));
       if (head?.sizeBytes !== claim.sizeBytes || head.contentEncoding !== null) {
         return 'UPLOAD_MISMATCH';
@@ -295,9 +294,7 @@ export class TemplateAttachmentsService {
         return 'UPLOAD_MISMATCH';
       }
       return checkFile(claim.contentType as UploadContentType, bytes);
-    } finally {
-      checking -= 1;
-    }
+    });
   }
 
   /** A storage call; any failure is 503 with Retry-After (nothing deleted). */

@@ -9,7 +9,7 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { BrandingSettings, UploadTicket } from '@firmivra/types';
+import { BrandingSettings, UploadPutTicket } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -25,9 +25,16 @@ class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
   presignUpload(file: { key: string; contentType: string }) {
     return Promise.resolve({
+      method: 'PUT' as const,
       url: `memory:${file.key}`,
       headers: { 'content-type': file.contentType },
     });
+  }
+  completeUpload() {
+    return Promise.resolve('MISSING' as const);
+  }
+  abortUpload() {
+    return Promise.resolve();
   }
   head(key: string) {
     const b = this.objects.get(key);
@@ -43,7 +50,7 @@ class MemoryStorage implements DocumentStorage {
   presignDownload(file: { key: string }) {
     return Promise.resolve(`memory:${file.key}?download`);
   }
-  put(ticket: UploadTicket, bytes: Buffer) {
+  put(ticket: UploadPutTicket, bytes: Buffer) {
     this.objects.set(ticket.url.slice('memory:'.length), bytes);
   }
 }
@@ -271,7 +278,7 @@ describe('brand images', () => {
     });
 
   it('uploads a favicon, serves it publicly, replaces and removes it', async () => {
-    const t = UploadTicket.parse((await ticket('FAVICON', ICO, 'image/x-icon')).body);
+    const t = UploadPutTicket.parse((await ticket('FAVICON', ICO, 'image/x-icon')).body);
     expect(t.url).toMatch(new RegExp(`^memory:tenant/${firms.a.id}/branding/favicon/`));
     storage.put(t, ICO);
     const saved = ok(
@@ -296,7 +303,7 @@ describe('brand images', () => {
         .status,
     ).toBe(404);
 
-    const t2 = UploadTicket.parse((await ticket('FAVICON', PNG, 'image/png')).body);
+    const t2 = UploadPutTicket.parse((await ticket('FAVICON', PNG, 'image/png')).body);
     storage.put(t2, PNG);
     ok(
       await call('post', '/branding/assets/uploads/confirm', ownerA, {
@@ -318,7 +325,7 @@ describe('brand images', () => {
   it('refuses a type the kind does not take, and bytes that are not the image', async () => {
     expectError(await ticket('EMAIL_LOGO', SVG, 'image/svg+xml'), 400, 'INVALID_ASSET');
     expectError(await ticket('FAVICON', PNG, 'image/jpeg'), 400, 'INVALID_ASSET');
-    const t = UploadTicket.parse((await ticket('EMAIL_LOGO', PNG, 'image/png')).body);
+    const t = UploadPutTicket.parse((await ticket('EMAIL_LOGO', PNG, 'image/png')).body);
     storage.put(t, SVG);
     expectError(
       await call('post', '/branding/assets/uploads/confirm', ownerA, {
@@ -344,7 +351,7 @@ describe('brand images', () => {
 
 describe('POST /business/branding/reset', () => {
   it('restores the groups asked for and keeps the rest', async () => {
-    const t = UploadTicket.parse(
+    const t = UploadPutTicket.parse(
       (
         await call('post', '/branding/assets/uploads', ownerA, {
           kind: 'PORTAL_LOGO',

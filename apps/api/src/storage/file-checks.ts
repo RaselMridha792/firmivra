@@ -2,8 +2,9 @@ import { inflateRawSync } from 'node:zlib';
 import type { DocumentErrorCode, UploadContentType } from '@firmivra/types';
 
 // Confirm's checks of the stored bytes (docs/api/documents.yaml, "Excel and Word (confirm)").
-// Everything is read in memory from the at most 10 MB the upload may hold; nothing is unpacked
-// to disk and no general CFB, ZIP or XML library is used.
+// Everything is read in memory from the at most 100 MB the upload may hold (under the read
+// budget, read-budget.ts); nothing is unpacked to disk and no general CFB, ZIP or XML library is
+// used. Only [Content_Types].xml is inflated, capped at 1 MB.
 
 export type FileRefusal = Extract<
   DocumentErrorCode,

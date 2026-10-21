@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { text } from '../clients/text.js';
 import { AgreementScope, ScanStatus, SignatureMethod } from '../db-enums.js';
-import { DownloadLink, FileName, UPLOAD_LIMITS } from '../documents/schemas.js';
+import { DownloadLink, FileName, megabytes, UPLOAD_LIMITS } from '../documents/schemas.js';
 import { ServiceRef } from '../engagements/schemas.js';
 import { SignatureCaptureInput } from '../esign/capture.js';
 import { IntakeFormKey } from '../intake/definition.js';
@@ -193,7 +193,7 @@ export const AgreementVersionNumber = VersionNumber;
 export const AgreementPathId = z.uuid();
 
 // ---------- PDF originals ----------
-/** PDF only, at most 10 MB (the same limit as documents). */
+/** PDF only, at most 100 MB (the same limit as documents). */
 export const AGREEMENT_PDF_LIMITS = { maxBytes: UPLOAD_LIMITS.maxBytes, maxPages: 200 } as const;
 
 /**
@@ -208,7 +208,10 @@ export const CreateAgreementUploadRequest = z.strictObject({
     .number()
     .int()
     .min(1, 'The file is empty')
-    .max(AGREEMENT_PDF_LIMITS.maxBytes, 'The file is larger than 10 MB'),
+    .max(
+      AGREEMENT_PDF_LIMITS.maxBytes,
+      `The file is larger than ${megabytes(AGREEMENT_PDF_LIMITS.maxBytes)}`,
+    ),
   sha256: Sha256,
 });
 export type CreateAgreementUploadRequest = z.input<typeof CreateAgreementUploadRequest>;

@@ -3,18 +3,37 @@
 // files, and one round trip through s3mock when it runs (docker compose up -d).
 import { randomUUID } from 'node:crypto';
 import { type AddressInfo, createServer, type Server, type Socket } from 'node:net';
-import { HeadObjectCommand, type S3Client } from '@aws-sdk/client-s3';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
+  HeadObjectCommand,
+  ListPartsCommand,
+  type S3Client,
+  UploadPartCommand,
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { UPLOAD_LIMITS, UploadTicket } from '@firmivra/types';
 import { loadDocumentsConfig } from '../../src/storage/config.js';
 import {
   attachment,
   createS3Client,
+  MULTIPART_URL_SECONDS,
+  onlyPut,
+  partSizes,
   PUT_URL_SECONDS,
   S3_TIMEOUTS,
   S3DocumentStorage,
+  uploadTicket,
 } from '../../src/storage/document-storage.js';
 import { checkFile } from '../../src/storage/file-checks.js';
-import { UPLOAD_TOKEN_SECONDS } from '../../src/storage/upload-token.js';
+import {
+  LONGEST_UPLOAD_SECONDS,
+  MULTIPART_TOKEN_SECONDS,
+  UPLOAD_TOKEN_SECONDS,
+  uploadTokenSeconds,
+} from '../../src/storage/upload-token.js';
 import { REFUSALS_SINCE_MS } from '../../src/storage/uploads.service.js';
 import {
   cfb,
@@ -106,7 +125,7 @@ describe('how long an upload lasts', () => {
   /** The browser's PUT timeout in apps/web/src/lib/upload.ts (PUT_TIMEOUT_MS). */
   const BROWSER_PUT_TIMEOUT_SECONDS = 10 * 60;
 
-  it('the token outlives a slow 10 MB PUT that starts just before its URL expires', () => {
+  it('the token outlives a slow PUT that starts just before its URL expires', () => {
     // A PUT may start at the last second of its URL and run until the browser gives up; the
     // confirm after it must still find a live token (else 410 and an orphaned object).
     expect(UPLOAD_TOKEN_SECONDS).toBeGreaterThanOrEqual(
@@ -114,8 +133,30 @@ describe('how long an upload lasts', () => {
     );
   });
 
-  it('confirm looks back for refusals longer than a token lives', () => {
-    expect(REFUSALS_SINCE_MS).toBeGreaterThan(UPLOAD_TOKEN_SECONDS * 1000);
+  it('a multipart token outlives its part URLs (an hour) by a slow part', () => {
+    expect(MULTIPART_URL_SECONDS).toBe(3_600);
+    expect(MULTIPART_TOKEN_SECONDS).toBeGreaterThanOrEqual(
+      MULTIPART_URL_SECONDS + BROWSER_PUT_TIMEOUT_SECONDS,
+    );
+    expect(uploadTokenSeconds(null)).toBe(UPLOAD_TOKEN_SECONDS);
+    expect(uploadTokenSeconds('an-upload-id')).toBe(MULTIPART_TOKEN_SECONDS);
+    expect(LONGEST_UPLOAD_SECONDS).toBe(MULTIPART_TOKEN_SECONDS);
+  });
+
+  it('confirm looks back for refusals longer than any token lives', () => {
+    expect(REFUSALS_SINCE_MS).toBeGreaterThan(LONGEST_UPLOAD_SECONDS * 1000);
+  });
+
+  it('sends files over 16 MB in parts of 10 MB, the last one the rest', () => {
+    const MB = 1024 * 1024;
+    expect(UPLOAD_LIMITS).toMatchObject({
+      maxBytes: 100 * MB,
+      multipartThresholdBytes: 16 * MB,
+      partSizeBytes: 10 * MB,
+    });
+    expect(partSizes(16 * MB + 1)).toEqual([10 * MB, 6 * MB + 1]);
+    expect(partSizes(20 * MB)).toEqual([10 * MB, 10 * MB]);
+    expect(partSizes(100 * MB)).toEqual(Array.from({ length: 10 }, () => 10 * MB));
   });
 });
 
@@ -123,12 +164,14 @@ describe('presigned URLs', () => {
   it('signs a PUT for exactly the content type, length and checksum, for 4 minutes', async () => {
     const file = pdf();
     const k = key();
-    const put = await storage().presignUpload({
-      key: k,
-      contentType: 'application/pdf',
-      sizeBytes: file.length,
-      sha256: sha256(file),
-    });
+    const put = onlyPut(
+      await storage().presignUpload({
+        key: k,
+        contentType: 'application/pdf',
+        sizeBytes: file.length,
+        sha256: sha256(file),
+      }),
+    );
     const url = new URL(put.url);
     expect(url.pathname).toBe(`/${BUCKET}/${k}`);
     expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe(
@@ -163,6 +206,227 @@ describe('presigned URLs', () => {
     expect(attachment("it's (1).pdf")).toBe(
       `attachment; filename="it's (1).pdf"; filename*=UTF-8''it%27s%20%281%29.pdf`,
     );
+  });
+});
+
+describe('multipart uploads', () => {
+  const MB = 1024 * 1024;
+  const s3Error = (name: string, httpStatusCode: number) =>
+    Object.assign(new Error(name), { name, $metadata: { httpStatusCode } });
+  /** A real client (presigning needs one) whose `send` answers `answer` and records commands. */
+  const faked = (answer: (command: unknown) => Promise<unknown>) => {
+    const s3 = createS3Client({
+      bucket: BUCKET,
+      region: 'us-east-1',
+      endpoint: 'http://localhost:9090',
+      forcePathStyle: true,
+      credentials: { accessKeyId: 'local', secretAccessKey: 'local' },
+      scanMode: 'local',
+    });
+    const sent: unknown[] = [];
+    vi.spyOn(s3, 'send').mockImplementation(((command: unknown) => {
+      sent.push(command);
+      return answer(command);
+    }) as never);
+    return { s3, sent, storage: new S3DocumentStorage(s3, BUCKET) };
+  };
+  const listed = (sizes: number[], extra: object = {}) => ({
+    Parts: sizes.map((Size, i) => ({ PartNumber: i + 1, Size, ETag: `"etag-${i + 1}"` })),
+    ...extra,
+  });
+
+  it('begins the upload with the type and the claimed SHA-256, and signs each part length', async () => {
+    vi.useFakeTimers({ now: Date.UTC(2026, 9, 21, 12), toFake: ['Date'] });
+    try {
+      const { s3, sent, storage: s } = faked(() => Promise.resolve({ UploadId: 'upload-1' }));
+      const k = key();
+      const sizeBytes = 25 * MB + 3;
+      const sha = 'ab'.repeat(32);
+      const presigned = await s.presignUpload({
+        key: k,
+        contentType: 'application/pdf',
+        sizeBytes,
+        sha256: sha,
+      });
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toBeInstanceOf(CreateMultipartUploadCommand);
+      expect((sent[0] as CreateMultipartUploadCommand).input).toEqual({
+        Bucket: BUCKET,
+        Key: k,
+        ContentType: 'application/pdf',
+        Metadata: { sha256: sha },
+      });
+      if (presigned.method !== 'MULTIPART') throw new Error('expected a multipart upload');
+      expect(presigned).toMatchObject({ uploadId: 'upload-1', partSizeBytes: 10 * MB });
+      expect(presigned.parts.map((p) => p.partNumber)).toEqual([1, 2, 3]);
+      const sizes = [10 * MB, 10 * MB, 5 * MB + 3];
+      for (const [i, part] of presigned.parts.entries()) {
+        const url = new URL(part.url);
+        expect(url.pathname).toBe(`/${BUCKET}/${k}`);
+        expect(url.searchParams.get('uploadId')).toBe('upload-1');
+        expect(url.searchParams.get('partNumber')).toBe(String(i + 1));
+        expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe('content-length;host');
+        expect(url.searchParams.get('X-Amz-Expires')).toBe('3600');
+        // No checksum the SDK would compute for an empty body.
+        expect([...url.searchParams.keys()].some((q) => /checksum/i.test(q))).toBe(false);
+        expect(part.headers).toEqual({});
+        // The signature is the one for exactly this part's length (and no other).
+        const signed = (ContentLength: number) =>
+          getSignedUrl(
+            s3,
+            new UploadPartCommand({
+              Bucket: BUCKET,
+              Key: k,
+              UploadId: 'upload-1',
+              PartNumber: i + 1,
+              ContentLength,
+            }),
+            { expiresIn: 3600, signableHeaders: new Set(['content-length']) },
+          );
+        expect(part.url).toBe(await signed(sizes[i]!));
+        expect(part.url).not.toBe(await signed(sizes[i]! + 1));
+      }
+      // The ticket: an hour to start every part.
+      const ticket = UploadTicket.parse(uploadTicket('token', presigned));
+      expect(ticket).toMatchObject({ method: 'MULTIPART', partSizeBytes: 10 * MB });
+      expect(Date.parse(ticket.expiresAt)).toBe(Date.now() + 3_600_000);
+      expect(() => onlyPut(presigned)).toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('presigns one PUT up to 16 MB, without beginning anything', async () => {
+    const { sent, storage: s } = faked(() => Promise.reject(new Error('no call')));
+    const put = await s.presignUpload({
+      key: key(),
+      contentType: 'application/pdf',
+      sizeBytes: 16 * MB,
+      sha256: 'ab'.repeat(32),
+    });
+    expect(put.method).toBe('PUT');
+    expect(sent).toEqual([]);
+  });
+
+  it('completes only exactly parts 1 to N of their sizes, with the listed ETags', async () => {
+    const sizeBytes = 25 * MB;
+    const good = faked((c) =>
+      Promise.resolve(c instanceof ListPartsCommand ? listed([10 * MB, 10 * MB, 5 * MB]) : {}),
+    );
+    expect(await good.storage.completeUpload('k', 'u', sizeBytes)).toBe('COMPLETE');
+    expect(good.sent.map((c) => c?.constructor)).toEqual([
+      ListPartsCommand,
+      CompleteMultipartUploadCommand,
+    ]);
+    expect((good.sent[1] as CompleteMultipartUploadCommand).input).toEqual({
+      Bucket: BUCKET,
+      Key: 'k',
+      UploadId: 'u',
+      MultipartUpload: {
+        Parts: [1, 2, 3].map((n) => ({ PartNumber: n, ETag: `"etag-${n}"` })),
+      },
+    });
+    const wrong: [string, object][] = [
+      ['a part missing', listed([10 * MB, 10 * MB])],
+      ['a part extra', listed([10 * MB, 10 * MB, 5 * MB, 1])],
+      ['a part short', listed([10 * MB, 10 * MB - 1, 5 * MB])],
+      ['the last part long', listed([10 * MB, 10 * MB, 5 * MB + 1])],
+      [
+        'a part out of order',
+        { Parts: [2, 1, 3].map((n) => ({ PartNumber: n, Size: 10 * MB, ETag: 'e' })) },
+      ],
+      ['a part without its ETag', { Parts: [{ PartNumber: 1, Size: 10 * MB }] }],
+      ['no parts', {}],
+    ];
+    for (const [what, answer] of wrong) {
+      const f = faked(() => Promise.resolve(answer));
+      expect(await f.storage.completeUpload('k', 'u', sizeBytes), what).toBe('MISMATCH');
+      expect(
+        f.sent.some((c) => c instanceof CompleteMultipartUploadCommand),
+        what,
+      ).toBe(false);
+    }
+  });
+
+  it('reads every page of the parts', async () => {
+    const pages = [
+      {
+        Parts: [{ PartNumber: 1, Size: 10 * MB, ETag: 'a' }],
+        IsTruncated: true,
+        NextPartNumberMarker: '1',
+      },
+      { Parts: [{ PartNumber: 2, Size: 10 * MB, ETag: 'b' }], IsTruncated: false },
+    ];
+    const f = faked((c) => Promise.resolve(c instanceof ListPartsCommand ? pages.shift() : {}));
+    expect(await f.storage.completeUpload('k', 'u', 20 * MB)).toBe('COMPLETE');
+    const lists = f.sent.filter((c): c is ListPartsCommand => c instanceof ListPartsCommand);
+    expect(lists.map((c) => c.input.PartNumberMarker)).toEqual([undefined, '1']);
+  });
+
+  it('an upload storage no longer has is MISSING, unless an earlier confirm completed it', async () => {
+    const noSuchUpload = s3Error('NoSuchUpload', 404);
+    const gone = faked((c) =>
+      Promise.reject(c instanceof HeadObjectCommand ? s3Error('NotFound', 404) : noSuchUpload),
+    );
+    expect(await gone.storage.completeUpload('k', 'u', 20 * MB)).toBe('MISSING');
+    const done = faked((c) =>
+      c instanceof HeadObjectCommand
+        ? Promise.resolve({ ContentLength: 20 * MB })
+        : Promise.reject(noSuchUpload),
+    );
+    expect(await done.storage.completeUpload('k', 'u', 20 * MB)).toBe('COMPLETE');
+    // Gone between the list and the complete (another confirm finished it).
+    const raced = faked((c) => {
+      if (c instanceof ListPartsCommand) return Promise.resolve(listed([10 * MB, 10 * MB]));
+      if (c instanceof HeadObjectCommand) return Promise.resolve({ ContentLength: 20 * MB });
+      return Promise.reject(noSuchUpload);
+    });
+    expect(await raced.storage.completeUpload('k', 'u', 20 * MB)).toBe('COMPLETE');
+    // Anything else is storage failing: it throws (503 in the flows), nothing decided.
+    const slow = faked(() => Promise.reject(s3Error('SlowDown', 503)));
+    await expect(slow.storage.completeUpload('k', 'u', 20 * MB)).rejects.toThrow('SlowDown');
+  });
+
+  it('drops an upload, and one storage no longer has is fine', async () => {
+    const ok = faked(() => Promise.resolve({}));
+    await ok.storage.abortUpload('k', 'u');
+    expect(ok.sent[0]).toBeInstanceOf(AbortMultipartUploadCommand);
+    expect((ok.sent[0] as AbortMultipartUploadCommand).input).toEqual({
+      Bucket: BUCKET,
+      Key: 'k',
+      UploadId: 'u',
+    });
+    await faked(() => Promise.reject(s3Error('NoSuchUpload', 404))).storage.abortUpload('k', 'u');
+    await expect(
+      faked(() => Promise.reject(s3Error('AccessDenied', 403))).storage.abortUpload('k', 'u'),
+    ).rejects.toThrow('AccessDenied');
+  });
+
+  it("downloads check S3's whole-file SHA-256, else the multipart upload's metadata", async () => {
+    const sha = 'cd'.repeat(32);
+    const b64 = (hex: string) => Buffer.from(hex, 'hex').toString('base64');
+    const headWith = async (answer: object) =>
+      (
+        await faked(() => Promise.resolve({ ContentLength: 5, ...answer })).storage.head('k', {
+          checksum: true,
+        })
+      )?.sha256;
+    // A PUT: S3's own checksum of the whole file.
+    expect(await headWith({ ChecksumSHA256: b64(sha), ChecksumType: 'FULL_OBJECT' })).toBe(sha);
+    expect(
+      await headWith({ ChecksumSHA256: b64(sha), Metadata: { sha256: 'ab'.repeat(32) } }),
+    ).toBe(sha);
+    // A multipart object: a composite checksum of the parts is not the file's.
+    const composite = `${b64(sha)}-3`;
+    expect(await headWith({ ChecksumSHA256: composite })).toBeNull();
+    expect(await headWith({ ChecksumSHA256: b64(sha), ChecksumType: 'COMPOSITE' })).toBeNull();
+    expect(
+      await headWith({ ChecksumSHA256: composite, Metadata: { sha256: 'ab'.repeat(32) } }),
+    ).toBe('ab'.repeat(32));
+    expect(await headWith({ Metadata: { sha256: 'AB'.repeat(32) } })).toBe('ab'.repeat(32));
+    // Metadata that is not a SHA-256 is none.
+    expect(await headWith({ Metadata: { sha256: 'not-hex' } })).toBeNull();
+    expect(await headWith({})).toBeNull();
   });
 });
 
@@ -293,7 +557,8 @@ describe('the S3 adapter against storage that never answers', () => {
     expect(error).toMatchObject({ name: 'TimeoutError' });
     expect(ms).toBeGreaterThanOrEqual(900);
     expect(ms).toBeLessThan(3_000);
-    expect(S3_TIMEOUTS.readMs).toBe(30_000);
+    // A 100 MB GET fits; confirm still answers inside CloudFront's 60 s.
+    expect(S3_TIMEOUTS.readMs).toBe(40_000);
   }, 10_000);
 });
 
@@ -595,16 +860,64 @@ const s3mock = await fetch('http://localhost:9090/favicon.ico', {
   .catch(() => false);
 
 describe.skipIf(!s3mock)('the S3 adapter against s3mock', () => {
-  it('puts with the ticket, refuses other bytes, reads, links a download and deletes', async () => {
+  it('sends a file over 16 MB in parts, completes it, checks it and drops another', async () => {
     const s3 = storage();
-    const file = pdf('round trip');
+    const file = Buffer.alloc(UPLOAD_LIMITS.multipartThresholdBytes + 5, 0x20);
+    pdf('multipart').copy(file);
     const k = key();
-    const put = await s3.presignUpload({
+    const facts = {
       key: k,
       contentType: 'application/pdf',
       sizeBytes: file.length,
       sha256: sha256(file),
+    };
+    const presigned = await s3.presignUpload(facts);
+    if (presigned.method !== 'MULTIPART') throw new Error('expected a multipart upload');
+    const sendPart = (i: number, bytes: Buffer) =>
+      fetch(presigned.parts[i]!.url, {
+        method: 'PUT',
+        headers: presigned.parts[i]!.headers,
+        body: bytes,
+      });
+    const size = presigned.partSizeBytes;
+    expect((await sendPart(0, file.subarray(0, size))).status).toBe(200);
+    // One part is not the file: nothing is stored.
+    expect(await s3.completeUpload(k, presigned.uploadId, file.length)).toBe('MISMATCH');
+    expect(await s3.head(k)).toBeNull();
+    expect((await sendPart(1, file.subarray(size))).status).toBe(200);
+    expect(await s3.completeUpload(k, presigned.uploadId, file.length)).toBe('COMPLETE');
+    // Again (a retried confirm): the object is there.
+    expect(await s3.completeUpload(k, presigned.uploadId, file.length)).toBe('COMPLETE');
+    // Buffer.equals: a deep toEqual of 16 MB walks every byte as a key.
+    expect(Buffer.from((await s3.read(k))!).equals(file)).toBe(true);
+    // The download check's SHA-256 is the one the API set when it began the upload.
+    expect(await s3.head(k, { checksum: true })).toEqual({
+      sizeBytes: file.length,
+      sha256: sha256(file),
+      contentEncoding: null,
     });
+    await s3.remove(k);
+
+    const dropped = key();
+    const other = await s3.presignUpload({ ...facts, key: dropped });
+    if (other.method !== 'MULTIPART') throw new Error('expected a multipart upload');
+    await s3.abortUpload(dropped, other.uploadId);
+    await s3.abortUpload(dropped, other.uploadId);
+    expect(await s3.completeUpload(dropped, other.uploadId, file.length)).toBe('MISSING');
+  });
+
+  it('puts with the ticket, refuses other bytes, reads, links a download and deletes', async () => {
+    const s3 = storage();
+    const file = pdf('round trip');
+    const k = key();
+    const put = onlyPut(
+      await s3.presignUpload({
+        key: k,
+        contentType: 'application/pdf',
+        sizeBytes: file.length,
+        sha256: sha256(file),
+      }),
+    );
     const send = (body: Buffer) => fetch(put.url, { method: 'PUT', headers: put.headers, body });
     expect((await send(pdf('other bytes'))).status).toBe(400);
     expect((await send(file)).status).toBe(200);

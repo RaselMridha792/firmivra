@@ -27,7 +27,8 @@ import {
   EsignRequestList,
   EsignStatus,
   EsignSummary,
-  UploadTicket,
+  UPLOAD_LIMITS,
+  UploadPutTicket,
 } from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
@@ -357,7 +358,7 @@ describe('Firm Sign documents over HTTP', () => {
     const base = `/esign/requests/${id}/documents`;
     const started = await send('post', `${base}/uploads`, ownerA(), facts);
     expect(started.status).toBe(201);
-    const ticket = UploadTicket.parse(started.body);
+    const ticket = UploadPutTicket.parse(started.body);
     await w.store.put(w.a, ticket.url.replace('memory://', ''), content, 'application/pdf');
     const confirm = { uploadToken: ticket.uploadToken };
     const confirmed = await send('post', `${base}/uploads/confirm`, ownerA(), confirm);
@@ -402,7 +403,7 @@ describe('Firm Sign documents over HTTP', () => {
       400,
       'FILE_TYPE_NOT_ALLOWED',
     ]);
-    const big = { ...facts, sizeBytes: 10 * 1024 * 1024 + 1 };
+    const big = { ...facts, sizeBytes: UPLOAD_LIMITS.maxBytes + 1 };
     expect(errorOf(await send('post', `${base}/uploads`, ownerA(), big))).toEqual([
       400,
       'VALIDATION_FAILED',

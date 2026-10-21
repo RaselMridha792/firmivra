@@ -27,7 +27,7 @@ import {
   AdminSettingsOverview,
   AdminSystemHealth,
   AdminTestEmailResult,
-  type UploadTicket,
+  type UploadPutTicket,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -240,7 +240,7 @@ describe('brand images and secrets', () => {
         sha256: sha256(PNG),
       }),
       201,
-    ) as UploadTicket;
+    ) as UploadPutTicket;
     storage.put(ticket, PNG);
     const asset = AdminBrandAsset.parse(
       ok(
@@ -275,7 +275,7 @@ describe('brand images and secrets', () => {
         sha256: sha256(Buffer.from('nope')),
       }),
       201,
-    ) as UploadTicket;
+    ) as UploadPutTicket;
     storage.put(bad, Buffer.from('nope'));
     expectError(
       await call('post', '/branding/assets/uploads/confirm', { uploadToken: bad.uploadToken }),

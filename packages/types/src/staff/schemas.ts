@@ -16,6 +16,7 @@ import {
   StaffPayType,
 } from '../schemas.js';
 import { TeamMemberStatus } from '../team/schemas.js';
+import { megabytes, UPLOAD_LIMITS } from '../documents/schemas.js';
 
 // Staff Management (R42 contract, for Tumit's screens): the directory, Create/Edit Staff in four
 // steps, drafts, staff documents, the account access and security page, and bulk upload.
@@ -572,8 +573,9 @@ export type SetStaffNoteRequest = z.input<typeof SetStaffNoteRequest>;
 
 // ---------- Staff documents ----------
 
+/** The documents' limit (100 MB); a larger file goes up as a multipart upload. */
 export const STAFF_DOCUMENT_LIMITS = {
-  maxBytes: 10 * 1024 * 1024,
+  maxBytes: UPLOAD_LIMITS.maxBytes,
   contentTypes: [
     'application/pdf',
     'image/jpeg',
@@ -607,7 +609,11 @@ export const CreateStaffDocumentUploadRequest = z.strictObject({
   type: StaffDocumentType,
   fileName: text(200),
   contentType: StaffDocumentContentType,
-  sizeBytes: z.number().int().positive().max(STAFF_DOCUMENT_LIMITS.maxBytes, 'Max size: 10 MB'),
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(STAFF_DOCUMENT_LIMITS.maxBytes, `Max size: ${megabytes(STAFF_DOCUMENT_LIMITS.maxBytes)}`),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   replacesId: StaffDocumentId.optional(),
 });

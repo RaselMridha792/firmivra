@@ -18,7 +18,7 @@ import {
   SupportTicket,
   SupportTicketDetail,
   SupportTicketPage,
-  type UploadTicket,
+  type UploadPutTicket,
 } from '@firmivra/types';
 import { SupportFilesService } from '../../src/admin-support/support-files.service.js';
 import { SupportTicketsService } from '../../src/admin-support/support-tickets.service.js';
@@ -35,9 +35,16 @@ class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
   presignUpload(file: { key: string; contentType: string }) {
     return Promise.resolve({
+      method: 'PUT' as const,
       url: `memory:${file.key}`,
       headers: { 'content-type': file.contentType },
     });
+  }
+  completeUpload() {
+    return Promise.resolve('MISSING' as const);
+  }
+  abortUpload() {
+    return Promise.resolve();
   }
   head(key: string, { checksum = false } = {}) {
     const b = this.objects.get(key);
@@ -57,7 +64,7 @@ class MemoryStorage implements DocumentStorage {
   presignDownload(file: { key: string }) {
     return Promise.resolve(`memory:${file.key}?download`);
   }
-  put(ticket: UploadTicket, bytes: Buffer) {
+  put(ticket: UploadPutTicket, bytes: Buffer) {
     this.objects.set(ticket.url.slice('memory:'.length), bytes);
   }
 }
@@ -138,7 +145,7 @@ async function upload(
     sha256: sha256(bytes),
   });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
-  const ticket = res.body as UploadTicket;
+  const ticket = res.body as UploadPutTicket;
   storage.put(ticket, bytes);
   return ticket.uploadToken;
 }
@@ -494,7 +501,7 @@ describe('tickets', () => {
       sha256: sha256(PDF),
     });
     expect(res.status).toBe(200);
-    expect((res.body as UploadTicket).url).toMatch(
+    expect((res.body as UploadPutTicket).url).toMatch(
       new RegExp(`^memory:tenant/${fx.firmA.id}/support/`),
     );
     const unknown = await call('post', '/uploads', {

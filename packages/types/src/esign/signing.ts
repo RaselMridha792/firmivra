@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { SignatureMethod } from '../db-enums.js';
-import { fileNameFitsType, UPLOAD_LIMITS } from '../documents/schemas.js';
+import { fileNameFitsType, megabytes, UPLOAD_LIMITS } from '../documents/schemas.js';
 import { text } from '../clients/text.js';
 import { SignatureCaptureInput, SignatureText } from './capture.js';
 import {
@@ -259,8 +259,8 @@ export type SignerDeclineBody = z.input<typeof SignerDeclineBody>;
 
 /**
  * POST attachments/uploads: an upload ticket for an ATTACHMENT field (PDF, JPG or PNG, at most
- * 10 MB). Takes `uploadFile()`'s facts plus the field. The file is checked for malware before
- * the firm can open it.
+ * 100 MB; a PUT or, for a larger file, a multipart upload). Takes `uploadFile()`'s facts plus the
+ * field. The file is checked for malware before the firm can open it.
  */
 export const SignerAttachmentUploadBody = z
   .strictObject({
@@ -271,7 +271,11 @@ export const SignerAttachmentUploadBody = z
       .max(255)
       .regex(/^[^\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}/\\]+$/u, 'This file name is not allowed'),
     contentType: EsignContentType,
-    sizeBytes: z.number().int().min(1).max(UPLOAD_LIMITS.maxBytes, 'Files can be at most 10 MB'),
+    sizeBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(UPLOAD_LIMITS.maxBytes, `Files can be at most ${megabytes(UPLOAD_LIMITS.maxBytes)}`),
     /** SHA-256 of the file, hex (the storage checks it). */
     sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Not a SHA-256'),
   })
