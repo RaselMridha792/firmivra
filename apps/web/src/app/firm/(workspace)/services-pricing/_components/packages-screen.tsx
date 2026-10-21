@@ -1,8 +1,17 @@
 'use client';
 
-import type { ServicePackageRow } from '@firmivra/types';
+import type { CatalogStatus, ServicePackageRow } from '@firmivra/types';
 import { Badge, Toast } from '@firmivra/ui';
-import { Archive, Copy, Eye, PencilSimple, Plus, Power, Package } from '@phosphor-icons/react';
+import {
+  Archive,
+  ArrowCounterClockwise,
+  Copy,
+  Eye,
+  PencilSimple,
+  Plus,
+  Power,
+  Package,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -23,6 +32,24 @@ import {
 } from './catalog-shared';
 
 const PACKAGES = [...CATALOG_KEY, 'packages'];
+
+/** Every package is reachable (Octavia's review S4): archived ones too, with Restore. */
+type PackageView = CatalogStatus | 'ALL';
+const VIEWS: { id: PackageView; label: string; empty: string }[] = [
+  { id: 'ACTIVE', label: 'Active', empty: 'No active packages.' },
+  { id: 'INACTIVE', label: 'Inactive', empty: 'No inactive packages.' },
+  { id: 'DRAFT', label: 'Draft', empty: 'No draft packages.' },
+  {
+    id: 'ARCHIVED',
+    label: 'Archived',
+    empty: 'No archived packages to show.',
+  },
+  {
+    id: 'ALL',
+    label: 'All',
+    empty: 'No packages yet. Combine services into a package to sell them together.',
+  },
+];
 const small =
   'inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-divider px-3 text-sm font-medium text-heading hover:bg-canvas';
 
@@ -31,7 +58,11 @@ export function PackagesScreen() {
   const router = useRouter();
   const list = useApiQuery(PACKAGES, () => api.servicesPricing.packages());
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
-  const rows = (list.data ?? []).filter((p) => p.status !== 'ARCHIVED');
+  const [view, setView] = useState<PackageView>('ACTIVE');
+  const all = list.data ?? [];
+  const count = (id: PackageView) =>
+    id === 'ALL' ? all.length : all.filter((p) => p.status === id).length;
+  const rows = view === 'ALL' ? all : all.filter((p) => p.status === view);
   const options = { invalidate: [...CATALOG_KEY] };
   const done = (text: string) => () => setMessage({ text, tone: 'success' });
   const fail = (error: unknown) =>
@@ -50,69 +81,97 @@ export function PackagesScreen() {
     ? 'Loading…'
     : list.isError
       ? 'Packages are not available right now.'
-      : 'No packages yet. Combine services into a package to sell them together.';
+      : (VIEWS.find((v) => v.id === view)?.empty ?? '');
 
-  const actions = (p: ServicePackageRow) => (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <Link
-        href={`/services-pricing/packages/${p.id}/edit`}
-        className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-info-soft px-3 text-sm font-semibold text-action"
-      >
-        <PencilSimple aria-hidden weight="fill" className="size-4" /> Edit
-        <span className="sr-only"> {p.name}</span>
-      </Link>
-      <Link href={`/services-pricing/packages/${p.id}`} className={small}>
-        <Eye aria-hidden weight="fill" className="size-4" /> View
-        <span className="sr-only"> {p.name}</span>
-      </Link>
-      <button
-        type="button"
-        className={small}
-        onClick={() =>
-          duplicate.mutate(p.id, {
-            onSuccess: (copy) => router.push(`/services-pricing/packages/${copy.id}/edit`),
-            onError: fail,
-          })
-        }
-      >
-        <Copy aria-hidden weight="fill" className="size-4" /> Duplicate
-        <span className="sr-only"> {p.name}</span>
-      </button>
-      {p.status === 'ACTIVE' ? (
+  const actions = (p: ServicePackageRow) =>
+    p.status === 'ARCHIVED' ? (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Link href={`/services-pricing/packages/${p.id}`} className={small}>
+          <Eye aria-hidden weight="fill" className="size-4" /> View
+          <span className="sr-only"> {p.name}</span>
+        </Link>
+        <button
+          type="button"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-info-soft px-3 text-sm font-semibold text-action"
+          onClick={() =>
+            deactivate.mutate(p.id, {
+              onSuccess: done(
+                `${p.name} restored to Inactive. Activate it when it is ready to sell.`,
+              ),
+              onError: fail,
+            })
+          }
+        >
+          <ArrowCounterClockwise aria-hidden weight="bold" className="size-4" /> Restore
+          <span className="sr-only"> {p.name}</span>
+        </button>
+      </div>
+    ) : (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Link
+          href={`/services-pricing/packages/${p.id}/edit`}
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-info-soft px-3 text-sm font-semibold text-action"
+        >
+          <PencilSimple aria-hidden weight="fill" className="size-4" /> Edit
+          <span className="sr-only"> {p.name}</span>
+        </Link>
+        <Link href={`/services-pricing/packages/${p.id}`} className={small}>
+          <Eye aria-hidden weight="fill" className="size-4" /> View
+          <span className="sr-only"> {p.name}</span>
+        </Link>
         <button
           type="button"
           className={small}
           onClick={() =>
-            deactivate.mutate(p.id, { onSuccess: done(`${p.name} deactivated.`), onError: fail })
+            duplicate.mutate(p.id, {
+              onSuccess: (copy) => router.push(`/services-pricing/packages/${copy.id}/edit`),
+              onError: fail,
+            })
           }
         >
-          <Power aria-hidden weight="fill" className="size-4" /> Deactivate
+          <Copy aria-hidden weight="fill" className="size-4" /> Duplicate
           <span className="sr-only"> {p.name}</span>
         </button>
-      ) : (
+        {p.status === 'ACTIVE' ? (
+          <button
+            type="button"
+            className={small}
+            onClick={() =>
+              deactivate.mutate(p.id, { onSuccess: done(`${p.name} deactivated.`), onError: fail })
+            }
+          >
+            <Power aria-hidden weight="fill" className="size-4" /> Deactivate
+            <span className="sr-only"> {p.name}</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={small}
+            onClick={() =>
+              activate.mutate(p.id, { onSuccess: done(`${p.name} activated.`), onError: fail })
+            }
+          >
+            <Power aria-hidden weight="fill" className="size-4" /> Activate
+            <span className="sr-only"> {p.name}</span>
+          </button>
+        )}
         <button
           type="button"
-          className={small}
+          className={`${small} text-danger`}
           onClick={() =>
-            activate.mutate(p.id, { onSuccess: done(`${p.name} activated.`), onError: fail })
+            archive.mutate(p.id, {
+              onSuccess: done(
+                `${p.name} archived. It stays under Archived, where it can be restored.`,
+              ),
+              onError: fail,
+            })
           }
         >
-          <Power aria-hidden weight="fill" className="size-4" /> Activate
+          <Archive aria-hidden weight="fill" className="size-4" /> Archive
           <span className="sr-only"> {p.name}</span>
         </button>
-      )}
-      <button
-        type="button"
-        className={`${small} text-danger`}
-        onClick={() =>
-          archive.mutate(p.id, { onSuccess: done(`${p.name} archived.`), onError: fail })
-        }
-      >
-        <Archive aria-hidden weight="fill" className="size-4" /> Archive
-        <span className="sr-only"> {p.name}</span>
-      </button>
-    </div>
-  );
+      </div>
+    );
 
   return (
     <CatalogFrame tab="packages">
@@ -147,6 +206,32 @@ export function PackagesScreen() {
             <Plus aria-hidden weight="bold" className="size-4" /> Create Package
           </Link>
         </header>
+        <div
+          role="group"
+          aria-label="Show packages"
+          data-testid="package-views"
+          className="mb-4 flex flex-wrap gap-2"
+        >
+          {VIEWS.map((item) => {
+            const on = view === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setView(item.id)}
+                className={`inline-flex min-h-9 items-center gap-1.5 rounded-pill border px-3 text-sm font-medium ${on ? 'border-action bg-info-soft text-action' : 'border-border bg-surface text-text hover:bg-canvas'}`}
+              >
+                {item.label}
+                {list.data ? (
+                  <span className={`tabular-nums ${on ? 'text-action' : 'text-muted'}`}>
+                    ({count(item.id)})
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
         {rows.length === 0 ? (
           <Quiet>{state}</Quiet>
         ) : (
