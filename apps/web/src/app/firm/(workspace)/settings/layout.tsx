@@ -8,7 +8,7 @@ import { useFirm } from '../../../../components/firm-context';
 
 const menu: [label: string, href: string][] = [
   ['Overview', '/settings/overview'],
-  ['Profile', '/settings/profile'],
+  ['Company Profile', '/settings/profile'],
   ['Branding', '/settings/branding'],
   ['Client portal', '/settings/portal'],
   ['Terms & Privacy', '/settings/legal'],
@@ -33,7 +33,7 @@ const menu: [label: string, href: string][] = [
  */
 const STAFF_MENU = new Set(['/settings/availability', '/settings/tax-statuses']);
 
-/** Settings: its own menu next to the page. `/settings` opens Profile (settings/route.ts). */
+/** Settings: its own menu next to the page. `/settings` opens Company Profile (settings/route.ts). */
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { role } = useFirm();

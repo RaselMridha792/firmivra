@@ -21,12 +21,12 @@ test('the list searches, pages and opens a client', async ({ page }) => {
   await page.getByRole('button', { name: 'Previous', exact: true }).click();
   await expect(links).toHaveCount(3);
 
-  await page.getByLabel('Search clients').fill('carter');
+  await page.getByLabel('Search clients', { exact: true }).fill('carter');
   await expect(links).toHaveText(['James Carter']);
-  await page.getByLabel('Search clients').fill('nobody');
+  await page.getByLabel('Search clients', { exact: true }).fill('nobody');
   await expect(page.getByText('No matching clients')).toBeVisible();
 
-  await page.getByLabel('Search clients').fill('');
+  await page.getByLabel('Search clients', { exact: true }).fill('');
   await expect(links.first()).toHaveAttribute('href', `/clients/${CLIENTS[0]!.id}`);
 });
 
