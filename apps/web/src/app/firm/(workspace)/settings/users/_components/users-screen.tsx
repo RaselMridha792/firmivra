@@ -2,6 +2,7 @@
 
 import {
   FIRM_ROLE_LABELS,
+  ROLES_MANAGED_BY,
   type FirmUser,
   type MembershipRole,
   type StaffStatusFilter,
@@ -44,6 +45,7 @@ import { ActionModal, type StaffAction } from '../../../team/[id]/_components/st
 import { MEMBER_ERRORS } from '../../../team/[id]/_components/staff-parts';
 import { BandCard, SettingsHeader, SettingsKpi } from '../../_components/settings-parts';
 import { InviteUserModal } from './invite-user-modal';
+import { PermissionsModal } from './permissions-modal';
 import { RolePanel } from './role-panel';
 import { RoleTemplates } from './role-templates';
 
@@ -128,6 +130,7 @@ type Dialog =
   | { kind: 'invite' }
   | { kind: 'action'; action: StaffAction; user: FirmUser }
   | { kind: 'revoke'; user: FirmUser }
+  | { kind: 'permissions'; user: FirmUser }
   | { kind: 'pick'; action: 'resetPassword' | 'deactivate' };
 
 /**
@@ -189,6 +192,15 @@ export function UsersScreen() {
     items.push(
       { label: 'Edit User', onSelect: () => router.push(`/team/${u.id}`) },
       { label: 'Manage Access', onSelect: () => router.push(`/team/${u.id}/security/permissions`) },
+      // Inherit, Allow or Deny per permission, for someone whose access you manage.
+      ...(me && ROLES_MANAGED_BY[me].includes(u.role)
+        ? [
+            {
+              label: 'Individual Permissions',
+              onSelect: () => setDialog({ kind: 'permissions', user: u }),
+            },
+          ]
+        : []),
     );
     if (u.status === 'INVITED') {
       items.push(
@@ -572,6 +584,16 @@ export function UsersScreen() {
             setDialog(null);
             setMessage(text);
             void queryClient.invalidateQueries({ queryKey: ['users'] });
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'permissions' ? (
+        <PermissionsModal
+          user={dialog.user}
+          onClose={() => setDialog(null)}
+          onDone={(text) => {
+            setDialog(null);
+            setMessage(text);
           }}
         />
       ) : null}
