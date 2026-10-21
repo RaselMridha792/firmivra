@@ -552,6 +552,13 @@ describe('no scope set', () => {
     expect(await unscopedApp.documentSettings.findMany()).toEqual([]);
     expect(await unscopedApp.documentRequestTemplate.findMany()).toEqual([]);
     expect(await unscopedApp.documentRequestTemplateItem.findMany()).toEqual([]);
+    expect(await unscopedApp.firmOfficeService.findMany()).toEqual([]);
+    expect(await unscopedApp.firmOfficeHours.findMany()).toEqual([]);
+    expect(await unscopedApp.firmOfficeAction.findMany()).toEqual([]);
+    expect(await unscopedApp.customRole.findMany()).toEqual([]);
+    expect(await unscopedApp.customRolePermission.findMany()).toEqual([]);
+    expect(await unscopedApp.documentLink.findMany()).toEqual([]);
+    expect(await unscopedApp.documentLinkCode.findMany()).toEqual([]);
   });
 });
 

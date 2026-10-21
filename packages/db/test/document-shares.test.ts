@@ -294,7 +294,7 @@ describe('document settings', () => {
       { requestExpiryDays: 366 },
       { documentExpiryReminderDays: 0 },
       { shareExpiryDays: 400 },
-      { uploadMaxBytes: 10 * 1024 * 1024 + 1 },
+      { uploadMaxBytes: 100 * 1024 * 1024 + 1 },
       { uploadMaxBytes: 0 },
       { uploadTypes: ['text/csv'] },
     ]) {

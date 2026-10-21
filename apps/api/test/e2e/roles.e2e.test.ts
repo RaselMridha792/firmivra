@@ -146,7 +146,7 @@ afterAll(async () => {
 });
 
 describe('the roles and the grid', () => {
-  it('lists the eight roles with their counts, and serves the modules and capabilities', async () => {
+  it('lists the nine roles with their counts, and serves the modules and capabilities', async () => {
     const list = RoleList.parse(ok(await call('get', '/roles', ownerA)));
     expect(list.items.map((r) => r.role)).toEqual([
       'OWNER',
@@ -156,6 +156,7 @@ describe('the roles and the grid', () => {
       'BOOKKEEPER',
       'TAX_PREPARER',
       'CLIENT_SUPPORT',
+      'BUSINESS_CONSULTANT',
       'READ_ONLY',
     ]);
     const by = (r: string) => list.items.find((i) => i.role === r);
