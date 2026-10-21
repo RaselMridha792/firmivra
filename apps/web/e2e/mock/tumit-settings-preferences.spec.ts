@@ -21,3 +21,25 @@ test('changes the formats with a live example and saves them', async ({ page }) 
   await expect(page.getByTestId('preferences-saved')).toHaveText('Preferences saved.');
   await expect(page.getByLabel('Currency')).toHaveValue('EUR');
 });
+
+test('says the interface stays English and the currency never converts old amounts', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/preferences`);
+  const language = page.getByLabel('Language & Region');
+  await expect(language).toBeVisible({ timeout: 60_000 });
+  await expect(language).toHaveAccessibleDescription(
+    'Screens, emails and text messages are in English for now. The language you pick is saved but not applied yet.',
+  );
+  await expect(page.getByLabel('Currency')).toHaveAccessibleDescription(
+    'Changing the currency never converts past invoices or payments. They keep their original amounts and currencies.',
+  );
+
+  // Each language is named in itself.
+  await language.selectOption({ label: 'Español (Estados Unidos)' });
+  await expect(language).toHaveValue('es-US');
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByTestId('preferences-saved')).toHaveText('Preferences saved.');
+  await expect(language).toHaveValue('es-US');
+});
