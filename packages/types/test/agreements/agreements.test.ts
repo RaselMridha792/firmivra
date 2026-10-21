@@ -141,7 +141,7 @@ describe('agreement requests', () => {
       { contentType: 'image/png' },
       { contentType: undefined },
       { sizeBytes: 0 },
-      { sizeBytes: 10 * 1024 * 1024 + 1 },
+      { sizeBytes: 100 * 1024 * 1024 + 1 },
       { sha256: 'ABC' },
     ]) {
       expect(CreateAgreementUploadRequest.safeParse({ ...file, ...change }).success).toBe(false);

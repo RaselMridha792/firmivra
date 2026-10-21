@@ -1,5 +1,5 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
-import { UploadTicket } from '../documents/schemas.js';
+import { UploadPutTicket } from '../documents/schemas.js';
 import {
   AddSupportAttachmentsRequest,
   AddSupportHolidayRequest,
@@ -85,9 +85,9 @@ export function createAdminSupportClient(request: ApiRequest) {
       request(SupportTicketPage, `${BASE}/tickets${ticketsQuery(query)}`),
     ticket: async (id: string): Promise<SupportTicketDetail> =>
       request(SupportTicketDetail, ticket(id)),
-    createUpload: async (body: CreateSupportUploadRequest): Promise<UploadTicket> =>
+    createUpload: async (body: CreateSupportUploadRequest): Promise<UploadPutTicket> =>
       request(
-        UploadTicket,
+        UploadPutTicket,
         `${BASE}/uploads`,
         send('POST', parseInput(CreateSupportUploadRequest, body)),
       ),

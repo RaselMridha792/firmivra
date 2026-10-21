@@ -5,6 +5,7 @@ import {
   DOCUMENT_ERRORS,
   type IntakeUpload,
   type IntakeUploadField,
+  megabytes,
   PORTAL_BLOCKED_TEXT,
   UPLOAD_LIMITS,
 } from '@firmivra/types';
@@ -31,6 +32,8 @@ export interface UploadActions {
 }
 
 const ACCEPT = Object.values(UPLOAD_LIMITS.types).flat().join(',');
+/** The largest file, in words ("100 MB"). */
+const MAX_SIZE = megabytes(UPLOAD_LIMITS.maxBytes);
 const STATUS_TEXT: Record<IntakeUpload['status'], string> = {
   CHECKING: 'Checking',
   READY: 'Uploaded',
@@ -205,7 +208,7 @@ export function UploadInput({
       <div className={`grid gap-3 ${field.examples?.length && !tile ? 'md:grid-cols-2' : ''}`}>
         {/* The whole zone opens the file chooser; the file input inside stays keyboard-reachable. */}
         <label
-          title={`${UPLOAD_LIMITS.typeNames}, up to 10 MB each`}
+          title={`${UPLOAD_LIMITS.typeNames}, up to ${MAX_SIZE} each`}
           onDragOver={(event) => {
             event.preventDefault();
             setDragging(true);
@@ -224,7 +227,9 @@ export function UploadInput({
               <span className="mt-1 text-sm">
                 <span className="font-semibold text-info">Click to upload</span> or drag and drop
               </span>
-              <span className="text-text">{UPLOAD_LIMITS.typeNames} (Max 10 MB)</span>
+              <span className="text-text">
+                {UPLOAD_LIMITS.typeNames} (Max {MAX_SIZE})
+              </span>
             </>
           ) : chooser ? (
             <>
@@ -252,7 +257,9 @@ export function UploadInput({
               </span>
               <span>or drag and drop{tile ? '' : ' files here'}</span>
               <span>(Upload as many as needed)</span>
-              <span className="sr-only">{UPLOAD_LIMITS.typeNames}, up to 10 MB each</span>
+              <span className="sr-only">
+                {UPLOAD_LIMITS.typeNames}, up to {MAX_SIZE} each
+              </span>
             </>
           )}
           <input

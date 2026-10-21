@@ -38,6 +38,7 @@ import {
   type UploadTicket,
 } from '@firmivra/types';
 import { Public } from '../../auth/decorators.js';
+import { untilClosed } from '../../storage/read-budget.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { EsignSignerFilesService } from './signer-files.service.js';
 import { EsignSignerService } from './signer.service.js';
@@ -142,8 +143,13 @@ export class EsignSignerController {
   @Header('Cache-Control', 'no-store')
   @Header('Cross-Origin-Resource-Policy', 'same-origin')
   @Header('Content-Disposition', 'attachment')
-  async packet(@Param('firmSlug') slug: string, @Req() req: Request): Promise<StreamableFile> {
-    const bytes = await this.signer.packet(await this.signer.call(slug, req, 'SIGN'));
+  async packet(
+    @Param('firmSlug') slug: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const call = await this.signer.call(slug, req, 'SIGN');
+    const bytes = await this.signer.packet(call, untilClosed(res));
     return new StreamableFile(bytes, { type: 'application/pdf', length: bytes.byteLength });
   }
 

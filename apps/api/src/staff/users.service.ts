@@ -91,7 +91,13 @@ export class UsersService {
 
   async list(tenant: TenantContext, userId: string, q: Out<typeof UsersQ>): Promise<FirmUserList> {
     const [page, company] = await Promise.all([
-      this.staff.list(tenant, userId, { ...q, departmentId: undefined }, rolesMatching(q.search)),
+      this.staff.list(
+        tenant,
+        userId,
+        { ...q, departmentId: undefined },
+        rolesMatching(q.search),
+        q.ids,
+      ),
       this.company(tenant),
     ]);
     return { ...page, items: page.items.map((u) => ({ ...u, company })) };
@@ -138,7 +144,7 @@ export class UsersService {
       lines.push(...batch.items.map(exportLine));
       if (page * PAGE >= batch.total || !batch.items.length) break;
     }
-    const filters = (['search', 'role', 'customRoleId', 'status'] as const).filter(
+    const filters = (['search', 'role', 'customRoleId', 'status', 'ids'] as const).filter(
       (k) => q[k] !== undefined && !(k === 'status' && q.status === 'all'),
     );
     await this.audit.log(

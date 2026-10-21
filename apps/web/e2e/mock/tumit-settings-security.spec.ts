@@ -38,9 +38,10 @@ test('the MFA card loads the firm accounts and says what is not recorded', async
   await expect(fact(mfa, 'Staff with 2FA set up')).toHaveText('Not recorded yet');
   await expect(mfa).not.toContainText('Could not load');
   await expect(mfa.getByTestId('mfa-error')).toHaveCount(0);
-  // Rasel (Oct 21): no "security admin" role; the Owner, or an Admin with the security permission.
+  // Rasel (Oct 21): no "security admin" role; the Owner, or an Admin with Manage on Settings,
+  // which Users & Roles shows as the Admin column.
   await expect(mfa).toContainText(
-    'Only the Owner, or an Admin with the security permission, may change this requirement',
+    'Only the Owner, or an Admin whose role has Admin access to Settings in Users & Roles, may change this requirement',
   );
   await expect(mfa).not.toContainText('security admin');
   await expect(mfa).toContainText('There is no setting to change it yet');
@@ -60,10 +61,10 @@ test('states the password, lockout and session rules and what is not in force ye
 
   const password = page.getByTestId('password-policy');
   await expect(fact(password, 'Minimum length')).toHaveText('15 characters', { timeout: 60_000 });
-  // Rasel (Oct 21): a space at the start or end is allowed and never trimmed; the lockout counts
-  // per account, on top of the network limit.
+  // Rasel (Oct 21): spaces inside the password; Cognito refuses one at the start or end, and that
+  // refusal stays (nothing trims). The lockout counts per account, on top of the network limit.
   await expect(fact(password, 'Spaces and symbols')).toHaveText(
-    'Allowed anywhere, and never trimmed',
+    'Allowed; spaces inside the password, not at the start or end',
   );
   await expect(fact(password, 'Character mix')).toHaveText('Not required');
   await expect(fact(password, 'Compromised-password check')).toHaveText('On');
@@ -74,7 +75,9 @@ test('states the password, lockout and session rules and what is not in force ye
   const passwordToday = password.getByTestId('password-not-in-force');
   await expect(passwordToday).toContainText('Not in force yet');
   await expect(passwordToday).toContainText('New passwords still need at least 12 characters');
-  await expect(passwordToday).toContainText("can't start or end with a space");
+  await expect(passwordToday).not.toContainText('space');
+  // The account lockout is in force (#1008), so the note no longer names it.
+  await expect(passwordToday).not.toContainText('lockout');
 
   const sessions = page.getByTestId('session-rules');
   await expect(fact(sessions, 'Longest sign-in')).toHaveText('8 hours, then sign in again');

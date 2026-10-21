@@ -1,5 +1,5 @@
 import { type ApiRequest, parseInput } from '../client.js';
-import { UploadTicket } from '../documents/schemas.js';
+import { UploadPutTicket } from '../documents/schemas.js';
 import { LegalDocument, LegalKind } from '../client-auth/schemas.js';
 import { ConfirmLogoUploadRequest, CreateLogoUploadRequest, LogoVariant } from './logo.js';
 import {
@@ -33,8 +33,8 @@ export function createSettingsClient(request: ApiRequest) {
       }),
 
     /** Step 1 of a new logo (PNG, JPEG or WebP, up to 2 MB): where to PUT the file. */
-    createLogoUpload: async (body: CreateLogoUploadRequest): Promise<UploadTicket> =>
-      request(UploadTicket, `${LOGO}/uploads`, {
+    createLogoUpload: async (body: CreateLogoUploadRequest): Promise<UploadPutTicket> =>
+      request(UploadPutTicket, `${LOGO}/uploads`, {
         method: 'POST',
         body: parseInput(CreateLogoUploadRequest, body),
       }),

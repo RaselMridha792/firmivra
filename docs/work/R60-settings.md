@@ -14,8 +14,8 @@ invites (below).
   screenshots (data, empty, API unreachable) and the ticked `docs/design-match.md` checklist.
 - Anything needing a database or infra change goes to Rasel as a written item, not built.
 - Ask Rasel before touching the sign-in guards or anything in `apps/api/src/auth/`. Rasel (Oct
-  21): R60 may change them for exactly the item 1 rules he decided (edge spaces, per-account
-  lockout, who may change MFA), nothing else.
+  21): R60 may change the sign-in code for exactly the item 1 rules (spaces, who may change MFA,
+  the per-account lockout), nothing else.
 - Merge `main`, never rebase. Local checks: lint and prettier on the changed files, typecheck of
   the changed packages, the tests of the touched module only. Run the dev server only while
   checking a screen, then stop it and delete `.next`.
@@ -37,14 +37,16 @@ invites (below).
 
 | PR / branch | What | State |
 | --- | --- | --- |
-| #997 `rasel/R60-settings-preferences` | Settings Preferences: language saved but not applied yet; currency note | Open (opened Oct 21) |
-| #998 `rasel/R60-settings-security` | Settings Security: Octavia's rules on the page with "Not in force yet" notes; the MFA card reads `api.users.summary()` with Retry; copy follows Rasel's Oct 21 decisions (item 1) | Open (opened Oct 21). `GET /business/settings/overview` answers 404 on the local API (known, hidden badge) |
+| #1006 `rasel/R60-security-copy` | Settings Security: the spaces and MFA lines follow Rasel's answers (#998 merged before them), and this handoff | Open (Oct 21) |
+| #1007 `rasel/R60-lockout-contract` | The sign-in 429's `details.retryAt` and Retry-After (contract) | Open (Oct 21) |
+| #1008 `rasel/R60-sign-in-lockout` | Per-account sign-in lockout (API), stacked on #1007 | Open (Oct 21). After it merges: take "but not yet by this lockout rule" out of the Security page's password note (web PR), and merge `main` into this branch after #1007 merges |
 | `rasel/R60-team-invites` | Super Admin Team: invitations through Cognito (`team-invite.service.ts`, `team-invitation.ts`) | #981 merged Oct 21. Next: merge `main`, rerun the admin-team e2e (4 tests waited on the grant), open the PR when a slot frees |
 | `rasel/R60-begin-online` | Begin Online audit at 1440 px | Audit done (`R60-begin-online-audit.md`); Rasel decided the [decide] items that block the shared fixes (item 5); fixes not started |
 
 Merged on Oct 21: #975 Staff Management, #976 Team messages, #982 dashboard links, #983
 Communications, #987 Workflow & Automations, #969 intake-forms settings, #985 Forms & Documents,
-#993 Data & Backups.
+#993 Data & Backups, #996 this handoff, #997 Preferences, #998 Security (with its first wording;
+`GET /business/settings/overview` answers 404 on the local API, known, hidden badge).
 
 ## Blocking CI (fixed)
 
@@ -55,19 +57,26 @@ was fixed by R55 in #991 (merged Oct 21).
 
 ### 1. Security: the sign-in rules
 
-Rasel decided (Oct 21), and R60 may touch the sign-in guards for exactly these rules:
+Rasel decided and answered (Oct 21). R60 may change the sign-in code for exactly these rules:
 
-- **Spaces:** a space at the start or end of a password is allowed, and nothing trims it. Before
-  building, check Cognito: the repo says it refuses a password that starts or ends with a space
-  (`packages/types/src/auth/schemas.ts:41-44`, the `edges` rule). If it does, this rule cannot
-  hold with Cognito as is, so ask Rasel again rather than encode or trim the password.
-- **Lockout:** per account, 5 failures in 15 minutes, on top of the existing network rate limit
-  (`SIGN_IN_LIMIT`, which stays). A per-account counter needs somewhere to live (R0 if a table
-  or column).
-- **MFA:** no new "security admin" role. The Owner, and an Admin with the security permission,
-  may change the MFA requirement, after a fresh sign-in, with an audit entry. The permission grid
-  has no security module (`packages/types/src/team/permissions.ts`): the nearest is `SETTINGS`
-  with `MANAGE`. Confirm with Rasel which key "the security permission" is.
+- **Spaces:** allowed inside a password. Cognito refuses a space at the start or end (its guide
+  counts only "non-leading, non-trailing space characters"), and that refusal stays: keep the
+  `edges` rule in `PASSWORD_RULES`, and never trim or encode a password to get around Cognito.
+  Nothing trims today (`SignInRequest.password` is `z.string().min(1).max(256)`). The page says
+  "Allowed; spaces inside the password, not at the start or end" (#998).
+- **MFA:** no new role or permission. The Owner, and any Admin with `MANAGE` on `SETTINGS` (the
+  "Admin" column of Users & Roles), may change the MFA requirement, after a fresh sign-in, with
+  an audit entry. Nothing to enforce yet: MFA is `Mfa.REQUIRED` on the Cognito pool and no firm
+  setting exists, so the check comes with that setting (R0 column, R1 pool change).
+- **Lockout:** per account, 5 failures in 15 minutes, on top of the existing network limits (the
+  per-IP `@Throttle(ATTEMPTS)` on the sign-in routes and `SIGN_IN_LIMIT`). No schema change is
+  needed: `reserve()` in `sign-in.service.ts` already counts open attempts per `emailKey` (an
+  HMAC of the email, per firm on a portal) from `audit_logs`, unknown emails the same as real
+  ones. Rasel's go (Oct 21), with three answers: wrong MFA codes count toward the 5; a
+  successful password reset lifts the lock; API first, and the sign-in screens keep "Too many
+  attempts. Wait a few minutes and try again." (a countdown from `retryAt` later). Only the
+  sign-in code for this lockout: no guards, Cognito or schema changes. The q20 test ("another
+  network still signs in") is rewritten to the per-account rule.
 
 The page says the rules and marks what is not in force. Enforcement needs auth and infra changes;
 none were made. Map (file, now, required, owner):
@@ -75,13 +84,13 @@ none were made. Map (file, now, required, owner):
 | Rule | Where | Now | Required | Owner |
 | --- | --- | --- | --- | --- |
 | 15-character minimum, no forced mix | `infra/src/stacks/auth-stack.ts:110-117` (`passwordPolicy`, three pools) | 12, upper, lower, digit | `minLength: 15`, the `require*` false | R1 |
-| Same rule in the contract and screens | `packages/types/src/auth/schemas.ts:41-53` (`PASSWORD_RULES`), `docs/api/auth.yaml:85,502`, `docs/AUTH-DESIGN.md:25` | 12 + mix, no edge spaces | 15, no mix, edge spaces allowed and not trimmed (if Cognito accepts them, above) | R2 or R60 |
-| Lockout: 5 failures on one account in 15 min locks 15 min | `apps/api/src/auth/sign-in.service.ts:67-80` (`SIGN_IN_LIMIT`), `auth-errors.ts:35` | 10 per email per network in 15 min, then 429 | Keep that limit; add a per-account lock at the 5th failure, `retryAt` in the 429 for a countdown | R60 (+R0 for the counter) |
+| Same rule in the contract and screens | `packages/types/src/auth/schemas.ts:41-53` (`PASSWORD_RULES`), `docs/api/auth.yaml:85,502`, `docs/AUTH-DESIGN.md:25` | 12 + mix, no edge spaces | 15 and no mix once R1's pool policy changes; the `edges` rule stays; nothing trims | R2 or R60 |
+| Lockout: 5 failures on one account in 15 min locks 15 min | `apps/api/src/auth/sign-in.service.ts:67-80` (`SIGN_IN_LIMIT`), `auth-errors.ts:35` | 10 per email per network in 15 min, then 429 | Keep the network limits; add a per-account lock at the 5th failure, `retryAt` in the 429 for a countdown | R60 (no schema change) |
 | 8-hour maximum | `auth-stack.ts:67` (refresh 7 days), `apps/api/src/auth/site.ts:92-96`, `session.service.ts:80` | 7 days | `Duration.hours(8)` and the cookie lifetimes | R1 + R2 |
 | 15 min idle, warning at 13 | none; `apps/web/src/lib/session.ts:40` refreshes on any 401 | none | Server-side last activity checked in `SessionService.refresh`, polling not counted, web idle timer with the warning | R2 (+R0 if a column) |
 | Reset ends every session | `cognito-identity.provider.ts:338` | Refresh revoked; access tokens live up to 15 min | Reject tokens issued before the reset | R2 |
 | Deactivation ends every session | `staff-actions.service.ts:147-169`, `staff.common.ts:106`, `session.service.ts:171` | Firm access ends at once (`tenant.guard.ts:116`); tokens live up to 7 days | Refuse refresh without an active membership, or revoke | R2 |
-| MFA change only by the Owner or an Admin with the security permission, fresh sign-in, audited | `auth-stack.ts:67` (`Mfa.REQUIRED`) | Always required; no setting | Only if a firm may ever change it: policy table, the permission check, re-auth, audit | R0 + R60 |
+| MFA change only by the Owner or an Admin with `MANAGE` on `SETTINGS`, fresh sign-in, audited | `auth-stack.ts:67` (`Mfa.REQUIRED`) | Always required; no setting | Only if a firm may ever change it: a policy column, the `SETTINGS`/`MANAGE` check, re-auth, audit; no new role or permission | R0 + R1 + R60 |
 | Real MFA enrolment on the card | `apps/api/src/staff/staff-read.service.ts:58-63` (`mfaOf` placeholder) | "Not recorded yet" | Ask Cognito (`AdminGetUser` MFA settings) or record setup in `sign-in.service.ts` | R2 (+R0) |
 
 Remove each "Not in force yet" note in `settings/security/_components/security-screen.tsx` as its
@@ -283,3 +292,13 @@ status, exports, restore) and the two rows show real dates.
   the security permission, edge spaces allowed and not trimmed, per-account lockout), and the
   sheet was reshot. Web `tsc` 0 errors, ESLint and Prettier clean, `tumit-settings-security.spec.ts`
   4 of 4. Two R60 non-contract PRs are now open (#997, #998): Team invites waits for one to merge.
+- Oct 21: Rasel's answers (spaces inside the password, the edge refusal stays; `MANAGE` on
+  `SETTINGS`) in item 1 and on the Security page (#998, sheet reshot, spec 4 of 4). Lockout plan
+  sent to Rasel; no schema change needed.
+- Oct 21: #996, #997 and #998 merged before the answers' commits, so the Security copy and this
+  handoff go in `rasel/R60-security-copy` from `main`. Rasel's go on the lockout; contract PR
+  for `retryAt` first, then the API PR.
+- Oct 21: #1006 (Security copy and this handoff), #1007 (lockout contract: `retryAt` in
+  `error.details`, because the API's error filter forwards only `details`; audit row `auth.locked`)
+  and #1008 (lockout API, 19 of 19 in `sign-in-limits`, 35 of 35 in `auth` and `portal-sign-in`)
+  opened.

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { AdminActivityItem } from './activity.js';
+import { LocationRow } from './locations.js';
 
 // Settings > Overview (R42 contract): the KPI row, Company Applications, Quick Settings (static
 // links) and Recent Administrative Activity. Owner and Admin only.
@@ -15,21 +17,8 @@ export const CountWithChange = z.object({
 });
 export type CountWithChange = z.infer<typeof CountWithChange>;
 
-/** The icon and colour of an activity row. */
-export const AdminActivityTone = z.enum(['success', 'warning', 'info', 'user', 'system']);
-export type AdminActivityTone = z.infer<typeof AdminActivityTone>;
-
-/** One Recent Administrative Activity row, from the firm's audit log. */
-export const AdminActivityItem = z.object({
-  id: z.uuid(),
-  at: DateTime,
-  /** The audit action, for example "settings.branding_updated". */
-  action: z.string(),
-  /** The screen's words: "Branding settings updated", "New staff user added - T. Williams". */
-  label: z.string(),
-  tone: AdminActivityTone,
-});
-export type AdminActivityItem = z.infer<typeof AdminActivityItem>;
+// The activity row lives in activity.ts (Locations uses it too); exported from here as before.
+export { AdminActivityItem, AdminActivityTone } from './activity.js';
 
 /** A Company Applications row (platform only). */
 export const SettingsApplicationRow = z.object({
@@ -43,7 +32,7 @@ export type SettingsApplicationRow = z.infer<typeof SettingsApplicationRow>;
 
 /** GET /business/settings/overview. */
 export const SettingsOverview = z.object({
-  /** "Staff Users 28 ↑ 4": this firm's members (not deactivated). */
+  /** "Staff Users 28 ↑ 4": this firm's members (not deactivated), each counted once. */
   staffUsers: CountWithChange,
   /** Security events that need review: failed sign-in bursts, MFA resets, lockouts (7 days). */
   securityAlerts: z.number().int(),
@@ -55,5 +44,17 @@ export const SettingsOverview = z.object({
   applications: z.array(SettingsApplicationRow).optional(),
   /** The 5 newest. "View All" opens the audit log. */
   recentActivity: z.array(AdminActivityItem).max(20),
+  // R1 (Oct 21, Settings review): Locations. Optional so the existing shape still parses.
+  /** "Active Locations 2 ↑ 1": ACTIVE locations, and how many became so this month. */
+  activeLocations: CountWithChange.optional(),
+  /** Plan usage: ACTIVE locations against the plan's (null: no limit). */
+  locationAllowance: z
+    .object({
+      used: z.number().int().nonnegative(),
+      allowed: z.number().int().nonnegative().nullable(),
+    })
+    .optional(),
+  /** Location Management: the first 5 rows (primary first); "View All" opens Settings > Locations. */
+  locations: z.array(LocationRow).max(5).optional(),
 });
 export type SettingsOverview = z.infer<typeof SettingsOverview>;

@@ -128,7 +128,7 @@ async function unreadable<T>(work: () => Promise<T> | T): Promise<T> {
 /** Loads a PDF, refusing what Firm Sign can't sign: encrypted, unreadable or XFA files. */
 function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   return unreadable(async () => {
-    // Uploads are at most 10 MB; a bigger file here never came through an upload.
+    // Uploads are at most UPLOAD_LIMITS.maxBytes (100 MB); a bigger file never came through one.
     if (bytes.byteLength > UPLOAD_LIMITS.maxBytes) throw new EsignEngineError('PDF_UNREADABLE');
     const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
     if (doc.isEncrypted) throw new EsignEngineError('PDF_ENCRYPTED');

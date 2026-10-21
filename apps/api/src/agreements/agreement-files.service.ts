@@ -30,13 +30,14 @@ import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
   GET_URL_SECONDS,
-  PUT_URL_SECONDS,
+  multipartIdOf,
+  uploadTicket,
 } from '../storage/document-storage.js';
+import { PDF_PARSE_FACTOR, readBudget } from '../storage/read-budget.js';
+import { MultipartUploadId, uploadTokenSeconds } from '../storage/upload-token.js';
 
 /** HKDF label for agreement upload tokens (not the documents' label: a token opens only here). */
 export const AGREEMENT_UPLOAD_LABEL = 'fv-agreement-upload-v1';
-/** As documents: the confirm comes within 15 minutes of the ticket. */
-export const AGREEMENT_UPLOAD_SECONDS = 900;
 
 const AgreementUploadClaim = z.object({
   pool: z.literal('STAFF'),
@@ -47,6 +48,8 @@ const AgreementUploadClaim = z.object({
   fileName: z.string(),
   sizeBytes: z.number().int().positive(),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  /** The multipart upload confirm completes; null or absent for a PUT. */
+  uploadId: MultipartUploadId.nullable().optional(),
 });
 type AgreementUploadClaim = z.infer<typeof AgreementUploadClaim>;
 
@@ -68,9 +71,6 @@ const FILE_REASON =
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d]; // %PDF-
 /** More indirect objects than this is not an agreement (as esign's pdf-compose.ts). */
 const MAX_OBJECTS = 200_000;
-/** At most this many confirms check stored bytes at once; one more is 503 (as documents). */
-export const AGREEMENT_CHECKS_AT_ONCE = 4;
-let checking = 0;
 
 class PdfRefused extends Error {
   constructor(readonly code: 'NOT_A_PDF' | 'TOO_MANY_PAGES') {
@@ -169,7 +169,7 @@ export class AgreementFilesService {
     body: CreateAgreementUploadRequest,
   ): Promise<UploadTicket> {
     const key = `tenant/${businessId}/agreements/${randomUUID()}`;
-    const put = await this.s3(() =>
+    const presigned = await this.s3(() =>
       this.storage.presignUpload({
         key,
         contentType: 'application/pdf',
@@ -177,10 +177,10 @@ export class AgreementFilesService {
         sha256: body.sha256,
       }),
     );
-    const claim = { pool: 'STAFF' as const, businessId, userId, key, ...body };
-    const uploadToken = await this.tokens.seal(claim, AGREEMENT_UPLOAD_SECONDS);
-    const expiresAt = new Date(Date.now() + PUT_URL_SECONDS * 1000).toISOString();
-    return { uploadToken, url: put.url, method: 'PUT', headers: put.headers, expiresAt };
+    const uploadId = multipartIdOf(presigned);
+    const claim = { pool: 'STAFF' as const, businessId, userId, key, ...body, uploadId };
+    const uploadToken = await this.tokens.seal(claim, uploadTokenSeconds(uploadId));
+    return uploadTicket(uploadToken, presigned);
   }
 
   async confirm(businessId: string, userId: string, uploadToken: string): Promise<AgreementFile> {
@@ -196,6 +196,13 @@ export class AgreementFilesService {
     if (saved) throw refusal('UPLOAD_EXPIRED', 'This upload has expired');
     const refused = await this.checkStored(claim);
     if (refused) {
+      if (claim.uploadId) {
+        await this.storage.abortUpload(claim.key, claim.uploadId).catch(() => {
+          this.logger.warn(
+            `Could not drop a refused agreement multipart upload in firm ${businessId}`,
+          );
+        });
+      }
       await this.storage.remove(claim.key).catch(() => {
         this.logger.warn(`Could not delete a refused agreement upload in firm ${businessId}`);
       });
@@ -379,21 +386,30 @@ export class AgreementFilesService {
     return { url, expiresAt: new Date(Date.now() + GET_URL_SECONDS * 1000).toISOString() };
   }
 
-  /** At most AGREEMENT_CHECKS_AT_ONCE at a time; one more is 503 (nothing deleted). */
-  private async checkStored(claim: AgreementUploadClaim): Promise<PdfRefusal | null> {
-    if (checking >= AGREEMENT_CHECKS_AT_ONCE) {
-      this.logger.warn(`Confirm refused: ${AGREEMENT_CHECKS_AT_ONCE} checks already running; 503`);
-      throw unavailable();
-    }
-    checking += 1;
-    try {
-      return await this.inspectStored(claim);
-    } finally {
-      checking -= 1;
-    }
+  /**
+   * Holding the read budget for the file and pdf-lib's copy of it (no room: 503, nothing deleted
+   * or completed).
+   */
+  private checkStored(claim: AgreementUploadClaim): Promise<PdfRefusal | null> {
+    const busy = () => {
+      this.logger.warn('Confirm refused: the read budget has no room for the file; 503');
+      return unavailable();
+    };
+    return readBudget.hold(claim.sizeBytes * PDF_PARSE_FACTOR, busy, () =>
+      this.inspectStored(claim),
+    );
   }
 
+  /** A multipart upload is completed first: 410 when storage no longer has it. */
   private async inspectStored(claim: AgreementUploadClaim): Promise<PdfRefusal | null> {
+    const { uploadId } = claim;
+    if (uploadId) {
+      const done = await this.s3(() =>
+        this.storage.completeUpload(claim.key, uploadId, claim.sizeBytes),
+      );
+      if (done === 'MISSING') throw refusal('UPLOAD_EXPIRED', 'This upload has expired');
+      if (done === 'MISMATCH') return 'UPLOAD_MISMATCH';
+    }
     const head = await this.s3(() => this.storage.head(claim.key));
     if (head?.sizeBytes !== claim.sizeBytes || head.contentEncoding !== null) {
       return 'UPLOAD_MISMATCH';

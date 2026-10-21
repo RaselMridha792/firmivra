@@ -1,6 +1,8 @@
 // Unit: R60, Super Admin Team's hierarchy rules (who sees, reaches and changes whom, which role,
-// scope and keys a member may give, the status and supervisor rules) and the change planner
-// (edits, bulk changes, the department head's decision), on a fake org chart.
+// scope and keys a member may give, the status and supervisor rules), the change planner (Add
+// Team Member, edits with the name and phone, bulk changes, resends, the department head's
+// decision) and the invitation (its sealed token, the daily caps, the messages), on a fake org
+// chart.
 import type { HttpException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import {
@@ -21,12 +23,25 @@ import {
   type TeamRows,
 } from '../../src/admin-team/team-context.js';
 import {
-  checkProfile,
+  invitationEmail,
+  invitationExpiry,
+  invitationLink,
+  invitationSms,
+  overLimit,
+  TEAM_INVITE_LIMITS,
+  TeamInvitationTokens,
+} from '../../src/admin-team/team-invitation.js';
+import {
+  type CreateBody,
   planBulk,
   planChange,
+  planCreate,
   planDecision,
+  planProfile,
+  planResend,
   type Plan,
   type Planned,
+  withProfile,
 } from '../../src/admin-team/team-plan.js';
 import {
   activityEntry,
@@ -280,9 +295,9 @@ describe('the signed-in member', () => {
     expect(codeOf(() => as(uuid(999)))).toBe('FORBIDDEN');
   });
 
-  it('capabilities follow the keys; Add waits for R2 and stays off', () => {
+  it('capabilities follow the keys: Add with team.create', () => {
     expect(capabilities(as(P.ceo))).toEqual({
-      add: false,
+      add: true,
       edit: true,
       changeRole: true,
       changeDepartment: true,
@@ -299,7 +314,7 @@ describe('the signed-in member', () => {
       customizePermissions: false,
       approve: false,
     });
-    expect(capabilities(as(P.cro)).approve).toBe(true);
+    expect(capabilities(as(P.cro))).toMatchObject({ approve: true, add: true });
   });
 });
 
@@ -731,33 +746,79 @@ describe('an edit (planChange)', () => {
   });
 });
 
-describe('name, phone and the version (checkProfile)', () => {
+describe('name, phone and the version (planProfile)', () => {
   const ctx = as(P.ceo);
-  it('the same name and phone pass; a split that reads the same passes', () => {
+  it('the same name and phone are no change; a split that reads the same is no change', () => {
     expect(
-      codeOf(() =>
-        checkProfile(ctx, P.opsIc, {
-          firstName: 'Mary',
-          lastName: 'Ann Fake',
-          phone: '+15555550101',
-        }),
-      ),
+      planProfile(ctx, P.opsIc, { firstName: 'Mary', lastName: 'Ann Fake', phone: '+15555550101' }),
     ).toBeNull();
-    expect(
-      codeOf(() => checkProfile(ctx, P.opsIc, { firstName: 'Mary Ann', lastName: 'Fake' })),
-    ).toBeNull();
+    expect(planProfile(ctx, P.opsIc, { firstName: 'Mary Ann', lastName: 'Fake' })).toBeNull();
+    expect(planProfile(ctx, P.opsIc, { roleId: R.opsLead.id })).toBeNull();
   });
 
-  it('a new name or phone is 400 (admin scope cannot write logins); a stale version 409', () => {
-    expect(codeOf(() => checkProfile(ctx, P.opsIc, { firstName: 'Marie' }))).toBe(
-      'VALIDATION_FAILED',
-    );
-    expect(codeOf(() => checkProfile(ctx, P.opsIc, { phone: null }))).toBe('VALIDATION_FAILED');
+  it('a new name or phone is a change: "First Last" and E.164 or none', () => {
+    expect(planProfile(ctx, P.opsIc, { firstName: 'Marie' })).toEqual({ name: 'Marie Ann Fake' });
+    expect(planProfile(ctx, P.opsIc, { lastName: '  Fakest  Person ' })).toEqual({
+      name: 'Mary Fakest Person',
+    });
+    expect(planProfile(ctx, P.opsIc, { phone: null })).toEqual({ phone: null });
+    expect(planProfile(ctx, P.opsIc, { firstName: 'Mary', phone: '+15555550199' })).toEqual({
+      phone: '+15555550199',
+    });
+  });
+
+  it('a stale version is 409; the version read passes', () => {
     expect(
-      codeOf(() => checkProfile(ctx, P.opsIc, { expectedUpdatedAt: new Date(NOW).toISOString() })),
+      codeOf(() => planProfile(ctx, P.opsIc, { expectedUpdatedAt: new Date(NOW).toISOString() })),
     ).toBe('CONFLICT');
     const at = ctx.members.get(P.opsIc)!.updatedAt.toISOString();
-    expect(codeOf(() => checkProfile(ctx, P.opsIc, { expectedUpdatedAt: at }))).toBeNull();
+    expect(codeOf(() => planProfile(ctx, P.opsIc, { expectedUpdatedAt: at }))).toBeNull();
+  });
+
+  it('yourself always; anyone else within reach and with team.edit', () => {
+    expect(planProfile(as(P.opsIc), P.opsIc, { firstName: 'Marie' })).toEqual({
+      name: 'Marie Ann Fake',
+    });
+    expect(planProfile(as(P.ceo), P.ceo, { phone: '+15555550123' })).toEqual({
+      phone: '+15555550123',
+    });
+    expect(codeOf(() => planProfile(as(P.superNoRow), P.ceo, { firstName: 'Other' }))).toBe(
+      'PEER_PROTECTED',
+    );
+    expect(codeOf(() => planProfile(as(P.coo), P.cro, { firstName: 'Other' }))).toBe(
+      'PEER_PROTECTED',
+    );
+    // A manager without team.edit (taken away by an override).
+    const lead = as(P.opsManager, {
+      [P.opsManager]: { overrides: [{ key: 'team.edit', state: 'DENY' }] },
+    });
+    expect(codeOf(() => planProfile(lead, P.opsIc, { firstName: 'Other' }))).toBe('FORBIDDEN');
+    expect(planProfile(as(P.opsManager), P.opsIc, { firstName: 'Other' })).toEqual({
+      name: 'Other Ann Fake',
+    });
+  });
+
+  it('the plan: the login’s columns, the row’s version moved, field names only in the audit', () => {
+    const ctx = as(P.ceo);
+    const alone = withProfile(ctx, P.opsIc, null, { name: 'Marie Fake', phone: null });
+    expect(alone.profile).toEqual({ name: 'Marie Fake', phone: null });
+    expect(alone.after.updatedAt.getTime()).toBe(NOW);
+    expect(alone.events).toEqual([
+      {
+        action: ADMIN_TEAM_ACTIVITY_ACTIONS.PROFILE_UPDATED,
+        metadata: { fields: ['name', 'phone'] },
+      },
+    ]);
+    const role = planned(planChange(ctx, P.opsIc, { roleId: R.opsLead.id }, true));
+    const both = withProfile(ctx, P.opsIc, role, { phone: '+15555550199' });
+    expect(actions(both)[0]).toBe(ADMIN_TEAM_ACTIVITY_ACTIONS.PROFILE_UPDATED);
+    expect(both.events[0]!.metadata).toEqual({ fields: ['phone'] });
+    expect(both.after.roleId).toBe(R.opsLead.id);
+    expect(JSON.stringify(both.events)).not.toContain('+15555550199');
+    // Yourself: your name only; anything else on your own row is still SELF_CHANGE.
+    expect(refused(planChange(as(P.opsIc), P.opsIc, { roleId: R.opsLead.id }, true))).toBe(
+      'SELF_CHANGE',
+    );
   });
 });
 
@@ -836,7 +897,7 @@ describe('a bulk change (planBulk)', () => {
 describe('the department head’s decision (planDecision)', () => {
   const approve = { decision: 'APPROVE' as const, invite: { email: true, sms: false } };
 
-  it('the department’s Chief Officer or the CEO approves: Pending Invitation, nothing sent', () => {
+  it('the department’s Chief Officer or the CEO approves: Pending Invitation, a link made', () => {
     const plan = planDecision(as(P.cro), P.hire, approve);
     expect(plan.after).toMatchObject({
       status: 'PENDING_INVITATION',
@@ -852,10 +913,15 @@ describe('the department head’s decision (planDecision)', () => {
         from: 'PENDING_DEPARTMENT_HEAD_APPROVAL',
         to: 'PENDING_INVITATION',
         invite: { email: true, sms: false },
-        invitationSent: false,
+        invitationSent: true,
       },
     });
     expect(planDecision(as(P.ceo), P.hire, approve).after.approvedById).toBe(P.ceo);
+    const silent = planDecision(as(P.ceo), P.hire, {
+      ...approve,
+      invite: { email: false, sms: false },
+    });
+    expect(silent.events[0]!.metadata.invitationSent).toBe(false);
   });
 
   it('refusals: another department’s head, a role that is not a VP there, no phone, not waiting', () => {
@@ -907,6 +973,19 @@ describe('the views', () => {
         resendInvitation: false,
         message: true,
       },
+    });
+    const invited = memberActions(as(P.ceo), personOf(as(P.ceo), P.invited));
+    expect(invited.resendInvitation).toBe(true);
+    expect(memberActions(as(P.opsVp), personOf(as(P.opsVp), P.invited)).resendInvitation).toBe(
+      false,
+    );
+    // Yourself: Edit (your name and phone), nothing else.
+    expect(memberActions(as(P.opsIc), personOf(as(P.opsIc), P.opsIc))).toMatchObject({
+      edit: true,
+      changeRole: false,
+      changeStatus: false,
+      customizePermissions: false,
+      resendInvitation: false,
     });
     const hire = memberView(as(P.cro), P.hire, NO_EXTRAS);
     expect(hire.intendedRole?.id).toBe(R.salesVp.id);
@@ -1002,5 +1081,228 @@ describe('the views', () => {
         metadata: null,
       }),
     ).toBeNull();
+  });
+});
+
+describe('Add Team Member (planCreate)', () => {
+  const body = (over: Partial<CreateBody> = {}): CreateBody => ({
+    firstName: 'Fake',
+    lastName: 'Newcomer Person',
+    email: 'fake-new@example.test',
+    departmentId: D.ops,
+    roleId: R.opsIc.id,
+    reportsToId: null,
+    invite: { email: true, sms: false },
+    ...over,
+  });
+
+  it('the CEO adds anyone below the CEO: Pending Invitation, the role’s template and scope', () => {
+    const plan = planCreate(as(P.ceo), body({ reportsToId: P.opsManager, phone: '+15555550111' }));
+    expect(plan).toMatchObject({
+      email: 'fake-new@example.test',
+      name: 'Fake Newcomer Person',
+      phone: '+15555550111',
+      row: {
+        roleId: R.opsIc.id,
+        departmentId: D.ops,
+        reportsToId: P.opsManager,
+        scope: 'OWN_RECORDS',
+        scopeIds: [],
+        status: 'PENDING_INVITATION',
+        intendedRoleId: null,
+      },
+      overrides: [],
+      invite: { email: true, sms: false },
+    });
+    expect(plan.created).toEqual({
+      action: ADMIN_TEAM_ACTIVITY_ACTIONS.CREATED,
+      metadata: {
+        roleId: R.opsIc.id,
+        departmentId: D.ops,
+        reportsToId: P.opsManager,
+        scope: 'OWN_RECORDS',
+        status: 'PENDING_INVITATION',
+      },
+    });
+    const text = JSON.stringify(plan.created);
+    for (const value of ['Fake', 'fake-new@example.test', '+15555550111'])
+      expect(text).not.toContain(value);
+    expect(planCreate(as(P.ceo), body({ invite: { email: false, sms: false } })).invite).toBeNull();
+  });
+
+  it('keys and scope beyond the role are stored as overrides, in the audit entry as keys', () => {
+    const plan = planCreate(
+      as(P.ceo),
+      body({
+        permissions: [...templateFor('INDIVIDUAL_CONTRIBUTOR'), 'sales.view'],
+        scope: 'CUSTOM',
+        customScope: { departmentIds: [D.sales], memberIds: [P.cro] },
+      }),
+    );
+    expect(plan.overrides).toEqual([{ key: 'sales.view', state: 'ALLOW' }]);
+    expect(plan.row).toMatchObject({ scope: 'CUSTOM', scopeIds: [D.sales, P.cro] });
+    expect(plan.created.metadata).toMatchObject({
+      granted: ['sales.view'],
+      revoked: [],
+      scopeIds: [D.sales, P.cro],
+    });
+  });
+
+  it('HR’s VP / Director hire waits for the department head: no invitation yet', () => {
+    const hr = as(P.hrAdmin, {
+      [P.hrAdmin]: { overrides: [{ key: 'team.create', state: 'ALLOW' }] },
+    });
+    const plan = planCreate(hr, body({ departmentId: D.sales, roleId: R.salesVp.id }));
+    expect(plan.row).toMatchObject({
+      roleId: R.salesVp.id,
+      status: 'PENDING_DEPARTMENT_HEAD_APPROVAL',
+      intendedRoleId: R.salesVp.id,
+    });
+    expect(plan.invite).toBeNull();
+    expect(planCreate(hr, body({ departmentId: D.sales, roleId: R.salesIc.id })).row.status).toBe(
+      'PENDING_INVITATION',
+    );
+  });
+
+  it('the refusals, in order', () => {
+    const ceo = as(P.ceo);
+    const coo = as(P.coo);
+    const icKeys = templateFor('INDIVIDUAL_CONTRIBUTOR');
+    // A manager's template has no team.create.
+    expect(codeOf(() => planCreate(as(P.opsManager), body({ roleId: R.opsLead.id })))).toBe(
+      'FORBIDDEN',
+    );
+    expect(codeOf(() => planCreate(ceo, body({ roleId: R.salesIc.id })))).toBe(
+      'ROLE_NOT_IN_DEPARTMENT',
+    );
+    expect(codeOf(() => planCreate(ceo, body({ departmentId: D.closed })))).toBe(
+      'ROLE_NOT_IN_DEPARTMENT',
+    );
+    expect(codeOf(() => planCreate(ceo, body({ roleId: uuid(998) })))).toBe(
+      'ROLE_NOT_IN_DEPARTMENT',
+    );
+    const unknownScope = { departmentIds: [uuid(997)], memberIds: [] };
+    expect(
+      codeOf(() => planCreate(ceo, body({ scope: 'CUSTOM', customScope: unknownScope }))),
+    ).toBe('CUSTOM_SCOPE_INVALID');
+    expect(codeOf(() => planCreate(coo, body({ scope: 'TEAM' })))).toBe('FORBIDDEN');
+    expect(codeOf(() => planCreate(coo, body({ permissions: [...icKeys, 'sales.view'] })))).toBe(
+      'FORBIDDEN',
+    );
+    expect(
+      codeOf(() => planCreate(coo, body({ departmentId: D.sales, roleId: R.salesIc.id }))),
+    ).toBe('DEPARTMENT_NOT_ALLOWED');
+    expect(codeOf(() => planCreate(ceo, body({ departmentId: D.exec, roleId: R.ceo.id })))).toBe(
+      'ROLE_CEILING',
+    );
+    expect(codeOf(() => planCreate(coo, body({ roleId: R.coo.id })))).toBe('ROLE_CEILING');
+    const customizer = as(P.coo, {
+      [P.coo]: { overrides: [{ key: 'team.change_permissions', state: 'ALLOW' }] },
+    });
+    expect(codeOf(() => planCreate(customizer, body({ scope: 'COMPANY' })))).toBe('SCOPE_CEILING');
+    expect(
+      codeOf(() => planCreate(customizer, body({ permissions: ['team.view', 'not.a_key'] }))),
+    ).toBe('UNKNOWN_PERMISSION');
+    expect(
+      codeOf(() => planCreate(customizer, body({ permissions: ['team.view', 'sales.view'] }))),
+    ).toBe('PERMISSION_CEILING');
+    expect(codeOf(() => planCreate(ceo, body({ reportsToId: P.salesIc })))).toBe(
+      'SUPERVISOR_INVALID',
+    );
+    expect(codeOf(() => planCreate(coo, body({ reportsToId: uuid(996) })))).toBe(
+      'SUPERVISOR_INVALID',
+    );
+  });
+
+  it('409 EMAIL_TAKEN for someone on the team only; a half-made login is reused', () => {
+    const ceo = as(P.ceo);
+    // An org-chart member, and a Super Admin with no org-chart row yet.
+    expect(codeOf(() => planCreate(ceo, body({ email: '0205@example.test' })))).toBe('EMAIL_TAKEN');
+    expect(codeOf(() => planCreate(ceo, body({ email: '0213@example.test' })))).toBe('EMAIL_TAKEN');
+    // A TEAM_MEMBER admin row with no org-chart row: a create that failed half-way.
+    expect(planCreate(ceo, body({ email: '0214@example.test' })).email).toBe('0214@example.test');
+    // A refusal before the email says nothing about who is on the team.
+    expect(codeOf(() => planCreate(as(P.opsManager), body({ email: '0205@example.test' })))).toBe(
+      'FORBIDDEN',
+    );
+  });
+});
+
+describe('Resend Invitation (planResend)', () => {
+  it('those still Pending Invitation; the rest skipped with reasons, in order', () => {
+    const stranger = uuid(995);
+    expect(planResend(as(P.ceo), [P.opsIc, P.invited, stranger, P.ceo])).toEqual({
+      targets: [P.invited],
+      skipped: [
+        { id: P.opsIc, name: 'Mary Ann Fake', reason: 'NOT_PENDING_INVITATION' },
+        { id: stranger, name: null, reason: 'NOT_FOUND' },
+        { id: P.ceo, name: 'Fake Ceo', reason: 'SELF' },
+      ],
+    });
+    expect(planResend(as(P.coo), [P.invited, P.cro]).skipped).toEqual([
+      { id: P.cro, name: 'Fake Cro', reason: 'OUT_OF_REACH' },
+    ]);
+    expect(codeOf(() => planResend(as(P.opsManager), [P.invited]))).toBe('FORBIDDEN');
+  });
+});
+
+describe('the invitation (token, caps, messages)', () => {
+  const secrets = {
+    ADMIN: 'fake-admin-pool-secret-for-unit-tests-only',
+    STAFF: 'fake-staff-pool-secret-for-unit-tests-only',
+  };
+  const tokens = new TeamInvitationTokens(secrets);
+  const updatedAt = new Date('2026-10-20T12:00:00.123Z');
+  const member = { userId: P.invited, status: 'PENDING_INVITATION', updatedAt };
+  const later = invitationExpiry();
+
+  it('seals and opens the user id and the member row’s version', async () => {
+    const token = await tokens.seal(P.invited, updatedAt, later);
+    expect(token).not.toContain(P.invited);
+    const opened = (await tokens.open(token))!;
+    expect(opened).toEqual({ userId: P.invited, memberUpdatedAt: updatedAt, expiresAt: later });
+    expect(TeamInvitationTokens.stillValid(opened, member)).toBe(true);
+  });
+
+  it('a changed member row (a resend, any change), another status or person: refused', async () => {
+    const opened = (await tokens.open(await tokens.seal(P.invited, updatedAt, later)))!;
+    const touched = new Date(updatedAt.getTime() + 1);
+    expect(TeamInvitationTokens.stillValid(opened, { ...member, updatedAt: touched })).toBe(false);
+    expect(TeamInvitationTokens.stillValid(opened, { ...member, status: 'ACTIVE' })).toBe(false);
+    expect(TeamInvitationTokens.stillValid(opened, { ...member, userId: P.opsIc })).toBe(false);
+  });
+
+  it('expired, tampered with, another key or another pool’s secret: does not open', async () => {
+    const token = await tokens.seal(P.invited, updatedAt, later);
+    const expired = await tokens.seal(P.invited, updatedAt, new Date(Date.now() - 1000));
+    expect(await tokens.open(expired)).toBeUndefined();
+    expect(await tokens.open(`${token.slice(0, -2)}xx`)).toBeUndefined();
+    const other = new TeamInvitationTokens({ ADMIN: 'another-admin-pool-secret-for-unit-tests' });
+    expect(await other.open(token)).toBeUndefined();
+    const staffSecret = new TeamInvitationTokens({ ADMIN: secrets.STAFF });
+    expect(await staffSecret.open(token)).toBeUndefined();
+  });
+
+  it('7 days, in whole seconds; the daily caps', () => {
+    const at = Date.parse('2026-10-20T12:00:00.789Z');
+    expect(invitationExpiry(at).toISOString()).toBe('2026-10-27T12:00:00.000Z');
+    const { perPlatform, perPerson } = TEAM_INVITE_LIMITS;
+    expect(overLimit({ platform: 0, person: 0 })).toBe(false);
+    expect(overLimit({ platform: perPlatform - 1, person: perPerson - 1 })).toBe(false);
+    expect(overLimit({ platform: perPlatform, person: 0 })).toBe(true);
+    expect(overLimit({ platform: 0, person: perPerson })).toBe(true);
+  });
+
+  it('the link carries the token in its fragment; the messages carry the link and the expiry', () => {
+    const link = invitationLink('https://admin.dev.firmivra.test', 'abc.def');
+    expect(link).toBe('https://admin.dev.firmivra.test/activate#token=abc.def');
+    const email = invitationEmail('Fake Person', link, new Date('2026-10-27T16:30:00.000Z'));
+    expect(email).toMatchObject({
+      name: 'Fake Person',
+      subject: "You're invited to join the Firmivra team",
+    });
+    expect(email.body).toContain(link);
+    expect(email.body).toContain('Tuesday, October 27, 2026 at 12:30 PM EDT');
+    expect(invitationSms(link).body).toContain(link);
   });
 });

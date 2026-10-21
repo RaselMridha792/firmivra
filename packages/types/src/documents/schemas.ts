@@ -10,12 +10,15 @@ import { clearable, text } from '../clients/text.js';
 // Upload, in three calls (the browser helper `uploadFile()` in apps/web/src/lib/upload.ts does
 // all three):
 //   1. `createUpload` with the file's name, type, size and SHA-256: the API checks the service
-//      and the limits and answers an `UploadTicket` (a one-time URL, valid for minutes).
-//   2. The browser PUTs the file to `ticket.url` with exactly `ticket.headers` (straight to
-//      storage, under the firm's own prefix and key; the API never streams the file).
-//   3. `confirmUpload` with `ticket.uploadToken`: the API checks the stored file (size, type,
-//      checksum; an Excel or Word file must be a real Office package without macros or a
-//      password), saves the document and starts the malware scan.
+//      and the limits and answers an `UploadTicket`: one PUT for a file of at most
+//      `UPLOAD_LIMITS.multipartThresholdBytes`, else a multipart upload (one URL per part).
+//   2. The browser sends the file straight to storage, under the firm's own prefix and key (the
+//      API never streams it). PUT: the whole file to `ticket.url` with exactly `ticket.headers`.
+//      MULTIPART: each part's bytes to its own `url` with exactly its `headers`.
+//   3. `confirmUpload` with `ticket.uploadToken` (the same body for both): the API completes a
+//      multipart upload, checks the stored file (size, type, checksum; an Excel or Word file must
+//      be a real Office package without macros or a password), saves the document and starts
+//      the malware scan.
 // A file can be downloaded only once its scan is clean: `download` answers a link that works for
 // 5 minutes, always as an attachment, or 409 SCAN_PENDING / FILE_BLOCKED.
 // The portal never sees INTERNAL documents, and never another client's. There are no delete
@@ -29,15 +32,21 @@ const DateTime = z.iso.datetime({ offset: true });
 
 /**
  * What a file may be, for clients and staff alike: PDF, JPG, PNG, Excel (.xlsx) or Word (.docx),
- * at most 10 MB (docs/SYSTEM-DESIGN.md "Uploads"; Excel and Word from Rasel, Oct 8). Office files
- * only without macros: .xls, .xlsm, .doc, .docm and .csv stay refused (their types are not here,
- * and a name's ending must fit its declared type). Files chosen together go up as one batch of at
- * most 20 files and 500 MB in all (Settings > Forms & Documents review, Oct 19): the API has no
- * batch (each file is its own `createUpload`), so the browser checks it (`uploadBatchProblem`).
- * The database holds every file to 10 MB (CHECKs), so `maxBytes` rises only with them.
+ * at most 100 MB (docs/SYSTEM-DESIGN.md "Uploads"; Excel and Word from Rasel, Oct 8; 100 MB from
+ * Rasel, Oct 21). Office files only without macros: .xls, .xlsm, .doc, .docm and .csv stay refused
+ * (their types are not here, and a name's ending must fit its declared type). Files chosen
+ * together go up as one batch of at most 20 files and 500 MB in all (Settings > Forms & Documents
+ * review, Oct 19): the API has no batch (each file is its own `createUpload`), so the browser
+ * checks it (`uploadBatchProblem`). The database holds the document paths' files to 100 MB
+ * (CHECKs), so `maxBytes` rises only with them. Support attachments, communications media and
+ * message-template attachments keep their own 10 MB limits.
  */
 export const UPLOAD_LIMITS = {
-  maxBytes: 10 * 1024 * 1024,
+  maxBytes: 100 * 1024 * 1024,
+  /** Larger files go up as a multipart upload (an `UploadMultipartTicket`); smaller, one PUT. */
+  multipartThresholdBytes: 16 * 1024 * 1024,
+  /** Every part of a multipart upload has this size but the last, which has the rest. */
+  partSizeBytes: 10 * 1024 * 1024,
   /** The most files chosen together for one upload (a batch). */
   maxBatchFiles: 20,
   /** The most bytes the files of one batch come to together. */
@@ -58,6 +67,9 @@ export const UploadContentType = z.enum(
   `Upload a ${UPLOAD_LIMITS.typeNames} file`,
 );
 export type UploadContentType = z.infer<typeof UploadContentType>;
+
+/** A size limit in words: `megabytes(UPLOAD_LIMITS.maxBytes)` is "100 MB". */
+export const megabytes = (bytes: number): string => `${Math.floor(bytes / (1024 * 1024))} MB`;
 
 /**
  * True when the file name (trimmed, in any case) ends in an ending of `contentType` with a name
@@ -174,8 +186,8 @@ export const UPLOAD_FILE_FACTS = {
     .number()
     .int()
     .min(1, 'The file is empty')
-    .max(UPLOAD_LIMITS.maxBytes, 'The file is larger than 10 MB'),
-  /** SHA-256 of the file, hex; storage refuses the upload if the bytes differ. */
+    .max(UPLOAD_LIMITS.maxBytes, `The file is larger than ${megabytes(UPLOAD_LIMITS.maxBytes)}`),
+  /** SHA-256 of the file, hex; confirm refuses the upload if the stored bytes differ. */
   sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Not a SHA-256'),
 };
 const FileFacts = UPLOAD_FILE_FACTS;
@@ -195,12 +207,14 @@ export const uploadNameFitsType = (
   }
 };
 
-/** Step 1's answer: where the browser PUTs the file, and how. */
-export const UploadTicket = z.object({
-  /** Give it back to `confirmUpload`. Opaque. */
-  uploadToken: z.string().min(1),
-  url: z.string(),
+/** Give it back to `confirmUpload`. Opaque. */
+const UploadToken = z.string().min(1);
+
+/** Step 1's answer for a file of at most `UPLOAD_LIMITS.multipartThresholdBytes`: one PUT. */
+export const UploadPutTicket = z.object({
+  uploadToken: UploadToken,
   method: z.literal('PUT'),
+  url: z.string(),
   /**
    * Send exactly these with the PUT (the content type and checksum are signed). Never
    * Content-Length: the browser sets it from the file (also signed).
@@ -209,13 +223,60 @@ export const UploadTicket = z.object({
   /** Start the PUT before this (4 minutes); confirm within 15 minutes of the ticket. */
   expiresAt: DateTime,
 });
+export type UploadPutTicket = z.infer<typeof UploadPutTicket>;
+
+/** One part of a multipart upload: the file's bytes from (partNumber - 1) * partSizeBytes. */
+export const UploadPart = z.object({
+  partNumber: z.number().int().min(1).max(10_000),
+  /** PUT the part's bytes here. */
+  url: z.string(),
+  /**
+   * Send exactly these with the part's PUT (today none). Never Content-Length: the browser sets
+   * it from the part, and it is signed: each part must have exactly its size.
+   */
+  headers: z.record(z.string(), z.string()),
+});
+export type UploadPart = z.infer<typeof UploadPart>;
+
+/**
+ * Step 1's answer for a larger file: a multipart upload. Every part has `partSizeBytes` but the
+ * last, which has the rest; `parts` lists them all, numbered 1, 2, 3 and so on. Parts may go up
+ * at once, and a failed part may be sent again (the last one sent counts). Storage keeps no file
+ * until `confirmUpload` completes the upload, which needs every part at exactly its size.
+ */
+export const UploadMultipartTicket = z.object({
+  uploadToken: UploadToken,
+  method: z.literal('MULTIPART'),
+  partSizeBytes: z.number().int().positive(),
+  parts: z
+    .array(UploadPart)
+    .min(1)
+    .max(10_000)
+    .refine((parts) => parts.every((p, i) => p.partNumber === i + 1), 'Parts are numbered from 1'),
+  /** Start every part before this (1 hour); confirm within 70 minutes of the ticket. */
+  expiresAt: DateTime,
+});
+export type UploadMultipartTicket = z.infer<typeof UploadMultipartTicket>;
+
+/**
+ * Step 1's answer: where the browser sends the file, and how. Flows whose files stay small
+ * (support, communications and template attachments, logos and brand images) answer only an
+ * `UploadPutTicket`.
+ */
+export const UploadTicket = z.discriminatedUnion('method', [
+  UploadPutTicket,
+  UploadMultipartTicket,
+]);
 export type UploadTicket = z.infer<typeof UploadTicket>;
 
 /**
- * Step 3: POST .../documents/uploads/confirm. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH,
- * FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS (the API checks the stored bytes).
+ * Step 3: POST .../documents/uploads/confirm, for a PUT and a multipart upload alike. 410
+ * UPLOAD_EXPIRED (also a multipart upload storage no longer has); 409 UPLOAD_MISMATCH (also a
+ * part missing or of another size), FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS (the API checks
+ * the stored bytes). 503 SERVICE_UNAVAILABLE with Retry-After: storage or the file checks are
+ * busy; send the same token again.
  */
-export const ConfirmUploadRequest = z.strictObject({ uploadToken: z.string().min(1).max(4000) });
+export const ConfirmUploadRequest = z.strictObject({ uploadToken: z.string().min(1).max(8192) });
 export type ConfirmUploadRequest = z.input<typeof ConfirmUploadRequest>;
 
 /**
@@ -548,7 +609,7 @@ export const DocumentErrorCode = z.enum([
   'FILE_TYPE_NOT_ALLOWED',
   /** 400 from `uploadFile()`, before anything is sent: the file is empty. */
   'FILE_EMPTY',
-  /** 400 from `uploadFile()`, before anything is sent: the file is larger than 10 MB. */
+  /** 400 from `uploadFile()`, before anything is sent: the file is larger than 100 MB. */
   'FILE_TOO_LARGE',
   /**
    * 400 from the browser's batch check (`checkUploadBatch()`), before any file is sent: more than
@@ -596,9 +657,9 @@ export const DOCUMENT_ERRORS = {
   FILE_HAS_MACROS: 'Save it as a regular .xlsx or .docx without macros and upload again.',
   FILE_TYPE_NOT_ALLOWED: `Upload a ${UPLOAD_LIMITS.typeNames} file.`,
   FILE_EMPTY: 'This file is empty. Choose another file.',
-  FILE_TOO_LARGE: 'This file is larger than 10 MB. Choose a smaller file.',
+  FILE_TOO_LARGE: `This file is larger than ${megabytes(UPLOAD_LIMITS.maxBytes)}. Choose a smaller file.`,
   TOO_MANY_FILES: `Upload at most ${UPLOAD_LIMITS.maxBatchFiles} files at a time.`,
-  BATCH_TOO_LARGE: `These files come to more than ${UPLOAD_LIMITS.maxBatchBytes / (1024 * 1024)} MB together. Upload them in smaller groups.`,
+  BATCH_TOO_LARGE: `These files come to more than ${megabytes(UPLOAD_LIMITS.maxBatchBytes)} together. Upload them in smaller groups.`,
   UPLOAD_FAILED: 'The upload did not go through. Check your connection and try again.',
   SCAN_PENDING: 'This file is still being checked. Try again in a moment.',
   FILE_BLOCKED: "This file couldn't be checked, so it can't be downloaded.",

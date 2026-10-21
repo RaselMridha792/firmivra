@@ -3,6 +3,7 @@
 // from the firm's own documents, and the engine module providing the store.
 import { randomUUID } from 'node:crypto';
 import {
+  AbortMultipartUploadCommand,
   CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
@@ -11,7 +12,8 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { Test } from '@nestjs/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { UPLOAD_LIMITS } from '@firmivra/types';
 import { ConfigModule } from '../../src/config/config.module.js';
 import { loadEnv } from '../../src/config/env.js';
 import { EsignEngineModule } from '../../src/esign/engine/engine.module.js';
@@ -22,6 +24,7 @@ import {
   MemoryEsignStore,
   S3EsignStore,
 } from '../../src/esign/engine/esign-store.js';
+import { onlyPut } from '../../src/storage/document-storage.js';
 
 const firmA = randomUUID();
 const firmB = randomUUID();
@@ -191,7 +194,7 @@ describe('presigned uploads', () => {
     });
     const store = new S3EsignStore(s3, 'fake-bucket');
     const key = store.keyFor(firmA, requestA, 'attachments/a.pdf');
-    const { url, headers } = await store.presignUpload(firmA, key, file);
+    const { url, headers } = onlyPut(await store.presignUpload(firmA, key, file));
     expect(url).toContain(key);
     expect(url).toContain('content-length');
     expect(headers).toEqual({
@@ -202,7 +205,44 @@ describe('presigned uploads', () => {
     expect(() => store.presignUpload(firmA, other, file)).toThrow(EsignKeyError);
     const memory = new MemoryEsignStore();
     expect(() => memory.presignUpload(firmA, other, file)).toThrow(EsignKeyError);
-    expect((await memory.presignUpload(firmA, key, file)).headers).toEqual(headers);
+    expect(onlyPut(await memory.presignUpload(firmA, key, file)).headers).toEqual(headers);
+  });
+
+  it('begins a multipart upload for a file over 16 MB, and completes or drops it in the firm', async () => {
+    const s3 = new S3Client({
+      region: 'us-east-1',
+      credentials: { accessKeyId: 'FAKEKEY', secretAccessKey: 'fake-secret' },
+    });
+    const send = vi
+      .spyOn(s3, 'send')
+      .mockImplementation(() => Promise.resolve({ UploadId: 'fake-upload' }) as never);
+    const store = new S3EsignStore(s3, 'fake-bucket');
+    const key = store.keyFor(firmA, requestA, 'source/big');
+    const big = { ...file, sizeBytes: UPLOAD_LIMITS.multipartThresholdBytes + 1 };
+    const presigned = await store.presignUpload(firmA, key, big);
+    expect(presigned).toMatchObject({ method: 'MULTIPART', uploadId: 'fake-upload' });
+    const other = `tenant/${firmB}/esign/${requestA}/big`;
+    expect(() => store.completeUpload(firmA, other, 'fake-upload', 1)).toThrow(EsignKeyError);
+    expect(() => store.abortUpload(firmA, other, 'fake-upload')).toThrow(EsignKeyError);
+    await store.abortUpload(firmA, key, 'fake-upload');
+    expect(send.mock.calls.at(-1)?.[0]).toBeInstanceOf(AbortMultipartUploadCommand);
+
+    // The in-memory store: parts at memory:// URLs, completed only when all are there.
+    const memory = new MemoryEsignStore();
+    const content = new Uint8Array(big.sizeBytes).fill(7);
+    const parts = await memory.presignUpload(firmA, key, big);
+    if (parts.method !== 'MULTIPART') throw new Error('expected a multipart upload');
+    expect(parts.parts.map((p) => p.partNumber)).toEqual([1, 2]);
+    memory.putPart(parts.parts[0]!.url, content.subarray(0, UPLOAD_LIMITS.partSizeBytes));
+    expect(await memory.completeUpload(firmA, key, parts.uploadId, big.sizeBytes)).toBe('MISMATCH');
+    memory.putPart(parts.parts[1]!.url, content.subarray(UPLOAD_LIMITS.partSizeBytes));
+    expect(await memory.completeUpload(firmA, key, parts.uploadId, big.sizeBytes)).toBe('COMPLETE');
+    expect((await memory.read(firmA, key))?.byteLength).toBe(big.sizeBytes);
+    // Completed: again finds the object; another key with the id finds nothing.
+    expect(await memory.completeUpload(firmA, key, parts.uploadId, big.sizeBytes)).toBe('COMPLETE');
+    const elsewhere = store.keyFor(firmA, requestA, 'source/other');
+    expect(await memory.completeUpload(firmA, elsewhere, parts.uploadId, 1)).toBe('MISSING');
+    expect(() => memory.completeUpload(firmA, other, parts.uploadId, 1)).toThrow(EsignKeyError);
   });
 });
 

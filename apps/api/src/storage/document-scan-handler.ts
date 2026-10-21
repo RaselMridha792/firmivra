@@ -10,7 +10,9 @@ import { UPLOAD_TOKEN_SECONDS } from './upload-token.js';
 /**
  * After this long from GuardDuty's result, an upload with no document will never get one: the
  * PUT happens inside its 15-minute ticket and so does the confirm, plus 5 minutes for a confirm
- * still running. Such a result is an orphan (a closed tab, a confirm that never came).
+ * still running. A multipart upload's object appears only when its confirm completes it, and the
+ * document is saved by that same confirm. Such a result is an orphan (a closed tab, a confirm
+ * that never came).
  */
 export const ORPHAN_AFTER_MS = UPLOAD_TOKEN_SECONDS * 1000 + 5 * 60_000;
 

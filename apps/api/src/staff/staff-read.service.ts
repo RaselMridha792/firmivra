@@ -120,13 +120,15 @@ export class StaffReadService {
 
   /**
    * `searchRoles`: roles whose name matched the search (Users & Roles searches by role too, custom
-   * roles included); `customRoleId`: Users & Roles' filter by one custom role.
+   * roles included); `customRoleId`: Users & Roles' filter by one custom role. `ids`: only these
+   * members (Users & Roles' Export Selected).
    */
   list(
     tenant: TenantContext,
     userId: string,
     q: Out<typeof StaffListQ> & { customRoleId?: string },
     searchRoles: MembershipRole[] = [],
+    ids?: readonly string[],
   ): Promise<StaffListResponse> {
     return this.inFirm(tenant, async (tx) => {
       const businessId = tenant.businessId;
@@ -135,6 +137,7 @@ export class StaffReadService {
       if (st) and.push(st);
       if (q.role) and.push({ role: q.role });
       if (q.customRoleId) and.push({ customRoleId: q.customRoleId });
+      if (ids) and.push({ id: { in: [...ids] } });
       if (q.departmentId) and.push({ departments: { some: { departmentId: q.departmentId } } });
       if (q.search)
         and.push({

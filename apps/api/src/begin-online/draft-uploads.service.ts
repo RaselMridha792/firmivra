@@ -22,12 +22,14 @@ import {
   createS3Client,
   DOCUMENT_STORAGE,
   type DocumentStorage,
-  PUT_URL_SECONDS,
+  multipartIdOf,
   S3DocumentStorage,
+  uploadTicket,
 } from '../storage/document-storage.js';
 import { checkFile, type FileRefusal } from '../storage/file-checks.js';
-import { UPLOAD_TOKEN_SECONDS } from '../storage/upload-token.js';
-import { CHECKS_AT_ONCE, REFUSALS_SINCE_MS } from '../storage/uploads.service.js';
+import { readBudget } from '../storage/read-budget.js';
+import { MultipartUploadId, uploadTokenSeconds } from '../storage/upload-token.js';
+import { REFUSALS_SINCE_MS } from '../storage/uploads.service.js';
 import { BeginOnlineService, intakeUpload } from './begin-online.service.js';
 import {
   draftErrors,
@@ -50,6 +52,8 @@ const LeadUploadClaim = z.object({
   contentType: UploadContentType,
   sizeBytes: z.number().int().positive(),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  /** The multipart upload confirm completes; null or absent for a PUT. */
+  uploadId: MultipartUploadId.nullable().optional(),
 });
 type LeadUploadClaim = z.infer<typeof LeadUploadClaim>;
 
@@ -76,7 +80,6 @@ export const DRAFT_UPLOAD_PROVIDERS: Provider[] = [
 ];
 
 const tooMany = draftErrors.tooManyFiles;
-let checking = 0;
 
 /**
  * A draft's files (R11 step 3), in R5's three steps with R5's storage and file checks: a ticket
@@ -137,11 +140,14 @@ export class DraftUploadsService {
       sizeBytes: body.sizeBytes,
       sha256: body.sha256,
     };
-    const put = await this.s3(() => this.storage.presignUpload(claim));
-    const uploadToken = await this.tokens.seal(claim, UPLOAD_TOKEN_SECONDS);
+    const presigned = await this.s3(() => this.storage.presignUpload(claim));
+    const uploadId = multipartIdOf(presigned);
+    const seconds = uploadTokenSeconds(uploadId);
+    const uploadToken = await this.tokens.seal({ ...claim, uploadId }, seconds);
     // Holding the lead (the intake, then the lead: the lock order of confirm, submit and expiry),
-    // the slot's and the draft's files and open tickets are counted and this ticket is recorded:
-    // parallel tickets count one by one. The PUT URL is handed out only after that commits.
+    // the slot's and the draft's files and open tickets are counted and this ticket is recorded
+    // with its lifetime: parallel tickets count one by one. The URLs are handed out only after
+    // that commits.
     await this.database
       .withScope({ kind: 'business', businessId }, async (tx) => {
         await holdDraft(tx, draft.leadId);
@@ -156,13 +162,12 @@ export class DraftUploadsService {
           tx,
           UPLOAD_ACTIONS.started,
           { type: 'lead', id: draft.leadId },
-          { slot: body.slot, uploadId: uploadIdOf(claim.key) },
+          { slot: body.slot, uploadId: uploadIdOf(claim.key), seconds },
           { businessId },
         );
       })
       .catch(rethrowExpired);
-    const expiresAt = new Date(Date.now() + PUT_URL_SECONDS * 1000).toISOString();
-    return { uploadToken, url: put.url, method: 'PUT', headers: put.headers, expiresAt };
+    return uploadTicket(uploadToken, presigned);
   }
 
   async confirm(
@@ -204,7 +209,7 @@ export class DraftUploadsService {
           const inSlot = files.filter((f) => f.slot === claim.slot).length;
           const max = field?.type === 'upload' ? field.maxFiles : 0;
           if (inSlot >= max || files.length >= INTAKE_LIMITS.maxFiles) throw tooMany();
-          const { pool: _pool, key, leadId, ...file } = claim;
+          const { pool: _pool, key, leadId, uploadId: _uploadId, ...file } = claim;
           const scanned = this.config.scanMode === 'local';
           const row = await tx.leadUpload.create({
             data: { ...file, leadId, s3Key: key },
@@ -279,11 +284,21 @@ export class DraftUploadsService {
     return { ok: true };
   }
 
-  /** Why the stored object is not the described file, or null (R5's checks). */
-  private async checkStored(claim: LeadUploadClaim): Promise<FileRefusal | null> {
-    if (checking >= CHECKS_AT_ONCE) throw storageUnavailable();
-    checking += 1;
-    try {
+  /**
+   * Why the stored object is not the described file, or null (R5's checks), holding the file's
+   * size of the read budget (no room: 503, nothing deleted or completed). A multipart upload is
+   * completed first: 410 when storage no longer has it.
+   */
+  private checkStored(claim: LeadUploadClaim): Promise<FileRefusal | null> {
+    return readBudget.hold(claim.sizeBytes, storageUnavailable, async () => {
+      const { uploadId } = claim;
+      if (uploadId) {
+        const done = await this.s3(() =>
+          this.storage.completeUpload(claim.key, uploadId, claim.sizeBytes),
+        );
+        if (done === 'MISSING') throw refusal('UPLOAD_EXPIRED');
+        if (done === 'MISMATCH') return 'UPLOAD_MISMATCH';
+      }
       const head = await this.s3(() => this.storage.head(claim.key));
       if (head?.sizeBytes !== claim.sizeBytes || head.contentEncoding !== null) {
         return 'UPLOAD_MISMATCH';
@@ -293,9 +308,7 @@ export class DraftUploadsService {
       const sha256 = createHash('sha256').update(bytes).digest('hex');
       if (sha256 !== claim.sha256) return 'UPLOAD_MISMATCH';
       return checkFile(claim.contentType, bytes);
-    } finally {
-      checking -= 1;
-    }
+    });
   }
 
   /**
@@ -359,6 +372,11 @@ export class DraftUploadsService {
       return false;
     });
     if (saved) throw refusal('UPLOAD_EXPIRED');
+    if (claim.uploadId) {
+      await this.storage.abortUpload(claim.key, claim.uploadId).catch(() => {
+        this.logger.warn(`Could not drop the refused multipart upload ${uploadIdOf(claim.key)}`);
+      });
+    }
     await this.storage.remove(claim.key).catch(() => {
       this.logger.warn(`Could not delete the refused upload ${uploadIdOf(claim.key)}`);
     });

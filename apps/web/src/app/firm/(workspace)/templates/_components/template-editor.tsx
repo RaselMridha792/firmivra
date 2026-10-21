@@ -520,6 +520,7 @@ function Editor({
                       await uploadFile(file, {
                         start: (facts) => api.templates.startAttachment(saved.id, facts),
                         finish: (uploadToken) => api.templates.confirmAttachment({ uploadToken }),
+                        maxBytes: TEMPLATE_ATTACHMENT_MAX_BYTES,
                       });
                     }
                     setSaved(await api.templates.get(saved.id));

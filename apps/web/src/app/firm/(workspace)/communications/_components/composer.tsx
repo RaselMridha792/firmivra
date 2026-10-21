@@ -523,6 +523,7 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
                         start: (facts) => api.communications.startAttachment(d.id, facts),
                         finish: (uploadToken) =>
                           api.communications.confirmAttachment({ uploadToken }),
+                        maxBytes: TEMPLATE_ATTACHMENT_MAX_BYTES,
                       });
                     }
                     await refresh();
