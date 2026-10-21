@@ -8,7 +8,6 @@ import {
   ListNumbers,
 } from '@phosphor-icons/react';
 import { api } from '../../../../../../lib/api';
-import { moduleHref } from '../../../../../../lib/firm-modules';
 import { useApiQuery } from '../../../../../../lib/query';
 import {
   CardLink,
@@ -18,12 +17,15 @@ import {
   SettingsCard,
   SettingsHeader,
 } from '../../_components/settings-parts';
+import { fromWorkflow } from './back-to-workflow';
 
 /**
  * Settings > Workflow & Automations (guide §11: automation defaults, assignment behavior and the
  * route to Automations). The defaults that exist today are the firm's tax-return statuses
  * (`api.taxStatuses`) and appointment types (`api.appointmentTypes`); each card opens the page
- * that changes them. Automations and Tasks are their own modules.
+ * that changes them. Automations and Tasks are their own modules, at /automations and /tasks
+ * (`moduleHref` is only for modules with no page yet, and 404s for these). Every link carries
+ * `?from=workflow`, so the page it opens offers Back to Workflow & Automations.
  */
 export function WorkflowScreen() {
   const statuses = useApiQuery(['tax-statuses'], () => api.taxStatuses.list());
@@ -41,7 +43,7 @@ export function WorkflowScreen() {
           subtitle="The steps a return moves through, in order."
           icon={ListNumbers}
           testId="workflow-statuses"
-          action={<CardLink href="/settings/tax-statuses">Edit Statuses</CardLink>}
+          action={<CardLink href={fromWorkflow('/settings/tax-statuses')}>Edit Statuses</CardLink>}
         >
           <Loaded query={statuses}>
             {(list) =>
@@ -68,7 +70,7 @@ export function WorkflowScreen() {
           subtitle="What clients and staff can book, and for how long."
           icon={CalendarCheck}
           testId="workflow-types"
-          action={<CardLink href="/calendar/types">Manage Types</CardLink>}
+          action={<CardLink href={fromWorkflow('/calendar/types')}>Manage Types</CardLink>}
         >
           <Loaded query={types}>
             {(list) =>
@@ -91,7 +93,7 @@ export function WorkflowScreen() {
             Automations are built and switched on in the Automations module, where each one shows
             what starts it and what it does.
           </p>
-          <CardLink href={moduleHref('automations')}>Open Automations</CardLink>
+          <CardLink href={fromWorkflow('/automations')}>Open Automations</CardLink>
         </SettingsCard>
 
         <SettingsCard
@@ -105,8 +107,8 @@ export function WorkflowScreen() {
             departments are set in Staff Management.
           </p>
           <div className="flex flex-wrap gap-3">
-            <CardLink href={moduleHref('tasks')}>Open Tasks</CardLink>
-            <CardLink href="/team/departments">Teams &amp; Departments</CardLink>
+            <CardLink href={fromWorkflow('/tasks')}>Open Tasks</CardLink>
+            <CardLink href={fromWorkflow('/team/departments')}>Teams &amp; Departments</CardLink>
           </div>
         </SettingsCard>
       </div>
