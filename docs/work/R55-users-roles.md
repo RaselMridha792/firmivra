@@ -10,6 +10,7 @@ Guide: `docs/specs/settings-review-2026-10-20/users-and-roles--firmivra-users-an
 - [ ] 4. **Admin permission edits rejected** (P1): Owner and Admin may edit every role in their firm.
 - [ ] 5. **Custom role** (P1): template, then a Set Permissions dialog, then save. Needs a `custom_roles` table (R0).
 - [ ] 6. P3: individual overrides (Inherit, Allow, Deny), change role, revoke invitation, unlock, reactivate, bulk actions, last-administrator protection.
+  - [x] Last Owner/Admin protection: already guaranteed, now proven on Users & Roles' routes (`users.e2e.test.ts`). The database keeps an active Owner always (`memberships_keep_an_owner`, LAST_ACTIVE_OWNER); nobody manages an Owner and only an Owner manages Admins (`ROLES_MANAGED_BY`); nobody changes their own access (CANNOT_CHANGE_SELF). Every action is taken by an active Owner or Admin who cannot act on themselves, so one always remains. No API change.
 
 ## Decisions
 
