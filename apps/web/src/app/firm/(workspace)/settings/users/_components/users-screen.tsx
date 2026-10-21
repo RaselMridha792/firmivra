@@ -2,6 +2,7 @@
 
 import {
   FIRM_ROLE_LABELS,
+  ROLES_MANAGED_BY,
   type FirmUser,
   type MembershipRole,
   type StaffStatusFilter,
@@ -44,6 +45,7 @@ import { ActionModal, type StaffAction } from '../../../team/[id]/_components/st
 import { MEMBER_ERRORS } from '../../../team/[id]/_components/staff-parts';
 import { BandCard, SettingsHeader, SettingsKpi } from '../../_components/settings-parts';
 import { AccessModal } from './access-modal';
+import { ChangeRoleModal } from './change-role-modal';
 import { InviteUserModal } from './invite-user-modal';
 import { RolePanel } from './role-panel';
 import { RoleTemplates } from './role-templates';
@@ -130,6 +132,7 @@ type Dialog =
   | { kind: 'action'; action: StaffAction; user: FirmUser }
   | { kind: 'revoke'; user: FirmUser }
   | { kind: 'access'; action: 'unlock' | 'reactivate'; user: FirmUser }
+  | { kind: 'role'; user: FirmUser }
   | { kind: 'pick'; action: 'resetPassword' | 'deactivate' };
 
 /**
@@ -191,6 +194,10 @@ export function UsersScreen() {
     items.push(
       { label: 'Edit User', onSelect: () => router.push(`/team/${u.id}`) },
       { label: 'Manage Access', onSelect: () => router.push(`/team/${u.id}/security/permissions`) },
+      // Only someone whose role you may change (an Admin never changes an Admin or the Owner).
+      ...(me && u.status !== 'DEACTIVATED' && ROLES_MANAGED_BY[me].includes(u.role)
+        ? [{ label: 'Change Role', onSelect: () => setDialog({ kind: 'role', user: u }) }]
+        : []),
     );
     if (u.status === 'INVITED') {
       items.push(
@@ -588,6 +595,16 @@ export function UsersScreen() {
       {dialog?.kind === 'access' ? (
         <AccessModal
           action={dialog.action}
+          user={dialog.user}
+          onClose={() => setDialog(null)}
+          onDone={(text) => {
+            setDialog(null);
+            setMessage(text);
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'role' ? (
+        <ChangeRoleModal
           user={dialog.user}
           onClose={() => setDialog(null)}
           onDone={(text) => {
