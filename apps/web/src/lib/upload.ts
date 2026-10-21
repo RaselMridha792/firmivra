@@ -8,6 +8,7 @@ import {
   logoFileProblem,
   retryWhenUnavailable,
   UPLOAD_LIMITS,
+  uploadBatchProblem,
   uploadContentTypeFor,
   type UploadFileFacts,
   type UploadTicket,
@@ -30,8 +31,14 @@ export interface UploadSteps<T> {
 const hex = (bytes: ArrayBuffer) =>
   Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
 /** A file refused before anything is sent, with a code the screen can name (DOCUMENT_ERRORS). */
-const refused = (code: 'FILE_TYPE_NOT_ALLOWED' | 'FILE_EMPTY' | 'FILE_TOO_LARGE') =>
-  new ApiRequestError(400, code, DOCUMENT_ERRORS[code]);
+const refused = (
+  code:
+    | 'FILE_TYPE_NOT_ALLOWED'
+    | 'FILE_EMPTY'
+    | 'FILE_TOO_LARGE'
+    | 'TOO_MANY_FILES'
+    | 'BATCH_TOO_LARGE',
+) => new ApiRequestError(400, code, DOCUMENT_ERRORS[code]);
 const failed = (status: number) =>
   new ApiRequestError(status, 'UPLOAD_FAILED', DOCUMENT_ERRORS.UPLOAD_FAILED);
 /** Stops before the next step once the caller has cancelled. */
@@ -82,6 +89,17 @@ export async function uploadFile<T>(file: File, steps: UploadSteps<T>): Promise<
   checkAborted(steps.signal);
   // A 503 deletes nothing, and the token lasts 15 minutes: the same token confirms again.
   return retryWhenUnavailable(() => steps.finish(ticket.uploadToken), { signal: steps.signal });
+}
+
+/**
+ * Refuses files chosen together that one batch can't take: more than 20 files (TOO_MANY_FILES)
+ * or more than 500 MB in all (BATCH_TOO_LARGE), as ApiRequestError 400 before anything is sent.
+ * Call it once before `uploadFile` for the first of them. The API has no batch (each file is its
+ * own upload), so this check is the browser's (`uploadBatchProblem`).
+ */
+export function checkUploadBatch(files: readonly File[]): void {
+  const problem = uploadBatchProblem(files);
+  if (problem) throw refused(problem);
 }
 
 /**

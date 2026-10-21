@@ -447,7 +447,7 @@ export const api = {
   auditLog:
     dev && mocked('auditLog')
       ? createAuditLogMock({ role: MOCK_ROLE })
-      : createAuditLogClient(request),
+      : createAuditLogClient(request, options.baseUrl),
   /** Super Admin Audit & Security (R55): the cross-firm event log, alerts, notes and the security policy. The screens call it through audit-security/_components/audit-api.ts (mock: mocks/admin-audit-security.ts). */
   adminAudit: createAdminAuditClient(request),
   /** Super Admin Reports & Analytics (R55): overview, tabs, firm reports, the builder and saved reports. */

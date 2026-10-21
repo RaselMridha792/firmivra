@@ -386,3 +386,43 @@ describe('RolesGuard and a member’s own permissions', () => {
     expect(grants.memberCell).not.toHaveBeenCalled();
   });
 });
+
+describe('RolesGuard and the Admin role grid', () => {
+  // Octavia's review (Oct 20): a cell the firm takes away from the Admin role is enforced.
+  const guardWith = (removed: string[], own: boolean | undefined = undefined) => {
+    const grants = {
+      memberCell: vi.fn().mockResolvedValue(own),
+      can: vi.fn().mockResolvedValue(true),
+      changes: vi.fn().mockResolvedValue(new Map(removed.map((k) => [k, false]))),
+    };
+    return { guard: new RolesGuard(reflector, fakeDb({}), grants as never), grants };
+  };
+  const as = (role: string) => ({
+    auth: { userId: 'u1' },
+    tenant: { kind: 'staff', role, businessId: FIRM },
+  });
+
+  it('refuses an Admin a cell the firm took away from the Admin role', async () => {
+    const { guard, grants } = guardWith(['TAX_RETURNS:VIEW']);
+    await expect(guard.canActivate(gridCtx('view', as('ADMIN')))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(grants.changes).toHaveBeenCalledWith(FIRM, 'ADMIN');
+  });
+
+  it('keeps an Admin in when the firm changed nothing, or another cell', async () => {
+    await expect(guardWith([]).guard.canActivate(gridCtx('view', as('ADMIN')))).resolves.toBe(true);
+    await expect(
+      guardWith(['TAX_RETURNS:EDIT']).guard.canActivate(gridCtx('view', as('ADMIN'))),
+    ).resolves.toBe(true);
+  });
+
+  it("lets the Admin's own grant win over the role, and never touches Owner or Staff", async () => {
+    const own = guardWith(['TAX_RETURNS:VIEW'], true);
+    await expect(own.guard.canActivate(gridCtx('view', as('ADMIN')))).resolves.toBe(true);
+    const other = guardWith(['TAX_RETURNS:VIEW']);
+    await expect(other.guard.canActivate(gridCtx('view', as('OWNER')))).resolves.toBe(true);
+    await expect(other.guard.canActivate(gridCtx('view', as('STAFF')))).resolves.toBe(true);
+    expect(other.grants.changes).not.toHaveBeenCalled();
+  });
+});

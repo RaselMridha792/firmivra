@@ -28,7 +28,7 @@ import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
-import { uploadFile } from '../../../../../../../lib/upload';
+import { checkUploadBatch, uploadFile } from '../../../../../../../lib/upload';
 import { usePortal } from '../../../../layout';
 
 const day = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -102,6 +102,7 @@ export function PacketScreen() {
 
   const upload = useApiMutation(
     async ({ item, files }: { item: MyRequestPacketItem; files: File[] }) => {
+      checkUploadBatch(files);
       for (const file of files)
         await uploadFile(file, {
           start: (facts) =>
