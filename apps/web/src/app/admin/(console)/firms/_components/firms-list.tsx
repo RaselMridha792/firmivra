@@ -254,7 +254,11 @@ export function FirmsList() {
                           { label: 'Plan' },
                           { label: 'Status' },
                           { label: 'Date Approved' },
-                          { label: 'Actions', center: true, className: 'hidden xl:table-cell' },
+                          {
+                            label: 'Actions',
+                            center: true,
+                            className: 'hidden min-[85rem]:table-cell',
+                          },
                         ]}
                       >
                         {data.items.map((firm, index) => (
@@ -264,7 +268,7 @@ export function FirmsList() {
                               scope="row"
                               className={`${cellClass} min-w-40 break-words font-semibold text-heading`}
                             >
-                              {/* Below xl there is no Actions column: the name opens the firm. */}
+                              {/* Below 1360 px there is no Actions column: the name opens the firm. */}
                               <Link href={`/firms/${firm.id}`} className="hover:text-link">
                                 {firm.name}
                               </Link>
@@ -290,7 +294,9 @@ export function FirmsList() {
                             <td className={`${cellClass} whitespace-nowrap`}>
                               <ApprovedDate value={firm.approvedAt} />
                             </td>
-                            <td className={`${cellClass} hidden text-center xl:table-cell`}>
+                            <td
+                              className={`${cellClass} hidden text-center min-[85rem]:table-cell`}
+                            >
                               <Link
                                 aria-label={`Open firm ${firm.name}`}
                                 href={`/firms/${firm.id}`}
