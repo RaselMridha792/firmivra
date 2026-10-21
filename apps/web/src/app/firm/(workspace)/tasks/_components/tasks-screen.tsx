@@ -32,6 +32,7 @@ import {
   UpcomingDeadlines,
 } from './tasks-rail';
 import { TaskTable } from './task-table';
+import { BackToWorkflow } from '../../settings/workflow/_components/back-to-workflow';
 
 type Tab = 'mine' | 'all' | 'client' | 'project' | 'recurring' | 'templates' | 'completed';
 const TABS: { id: Tab; label: string }[] = [
@@ -111,8 +112,11 @@ function AddMenu({ onTemplates }: { onTemplates: () => void }) {
   );
 }
 
-/** /tasks: the overview. KPI cards, seven views, the table, and the right-hand summary widgets. */
-export function TasksScreen() {
+/**
+ * /tasks: the overview. KPI cards, seven views, the table, and the right-hand summary widgets.
+ * Opened from Settings > Workflow & Automations (`fromWorkflow`), the way back sits by the breadcrumb.
+ */
+export function TasksScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }) {
   const [tab, setTab] = useState<Tab>('mine');
   const [kpi, setKpi] = useState<KpiFilter>();
   const [search, setSearch] = useState('');
@@ -211,18 +215,21 @@ export function TasksScreen() {
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="tasks-page">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
-        <Link href="/" aria-label="Home" className="text-link">
-          <ArrowLeft aria-hidden weight="bold" className="size-4" />
-        </Link>
-        <Link href="/" className="text-link">
-          Home
-        </Link>
-        <span aria-hidden className="text-muted">
-          ›
-        </span>
-        <span className="font-semibold text-heading">Tasks</span>
-      </nav>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
+          <Link href="/" aria-label="Home" className="text-link">
+            <ArrowLeft aria-hidden weight="bold" className="size-4" />
+          </Link>
+          <Link href="/" className="text-link">
+            Home
+          </Link>
+          <span aria-hidden className="text-muted">
+            ›
+          </span>
+          <span className="font-semibold text-heading">Tasks</span>
+        </nav>
+        {fromWorkflow ? <BackToWorkflow /> : null}
+      </div>
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <span className="flex size-20 shrink-0 items-center justify-center rounded-xl bg-navigation text-on-action">
