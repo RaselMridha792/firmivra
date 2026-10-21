@@ -7,6 +7,8 @@ import {
   ESIGN_ERRORS,
   type SignerField,
   type SigningClient,
+  megabytes,
+  UPLOAD_LIMITS,
 } from '@firmivra/types';
 import { Button, Checkbox, Input, Radio, Select } from '@firmivra/ui';
 import { useState } from 'react';
@@ -115,7 +117,7 @@ export function FieldPanel(props: FieldPanelProps) {
   }
 }
 
-/** An ATTACHMENT field: PDF, JPG or PNG up to 10 MB, uploaded straight to storage. */
+/** An ATTACHMENT field: PDF, JPG or PNG up to 100 MB, uploaded straight to storage. */
 function AttachmentInput({
   field: f,
   filled,
@@ -146,6 +148,7 @@ function AttachmentInput({
           });
         },
         finish: (uploadToken) => signing.confirmAttachment({ fieldId: f.id, uploadToken }),
+        maxBytes: UPLOAD_LIMITS.maxBytes,
       });
       onAttachment(f.id, saved.attachmentName ?? file.name);
     } catch (e) {
@@ -159,7 +162,7 @@ function AttachmentInput({
     <div className="flex flex-col gap-2">
       <Input
         type="file"
-        label={`${label}: PDF, JPG or PNG, up to 10 MB`}
+        label={`${label}: PDF, JPG or PNG, up to ${megabytes(UPLOAD_LIMITS.maxBytes)}`}
         accept="application/pdf,image/jpeg,image/png"
         disabled={busy}
         error={error}

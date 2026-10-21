@@ -9,6 +9,7 @@ import type {
   SaveEsignTemplateBody,
 } from '@firmivra/types';
 import { AuditService } from '../../audit/audit.service.js';
+import { readBudget } from '../../storage/read-budget.js';
 import {
   ESIGN_STORE,
   EsignEngineError,
@@ -21,6 +22,7 @@ import {
   type EsignRepository,
   type EsignRequestRecord,
 } from '../requests/esign.repository.js';
+import { filesBusy, packetBudget } from '../requests/esign-uploads.js';
 import {
   type EsignActor,
   EsignRequestsService,
@@ -86,11 +88,8 @@ export class EsignTemplateCopyService {
     const current = await this.templateAccess.current(businessId, source);
     const id = randomUUID();
     const s3Key = this.store.keyFor(businessId, id, `template-${randomUUID()}.pdf`);
-    await this.store.put(
-      businessId,
-      s3Key,
-      await this.packet(businessId, current),
-      'application/pdf',
+    await this.withPacket(businessId, current, (bytes) =>
+      this.store.put(businessId, s3Key, bytes, 'application/pdf'),
     );
     const content = { ...current, s3Key };
     const visibility = body.visibility ?? source.visibility;
@@ -119,25 +118,29 @@ export class EsignTemplateCopyService {
       throw esignRefusal('TEMPLATE_HAS_CLIENT_FILES');
     }
     if (parts.pagePlan.length === 0) throw esignRefusal('INVALID_STATE');
-    const files = await Promise.all(
-      documents.map(async (d) => {
-        const bytes = await this.store.read(businessId, d.s3Key);
-        if (!bytes) throw new Error(`esign document ${d.id} is missing from the store`);
-        return { documentId: d.id, contentType: d.contentType, bytes };
-      }),
-    );
-    const packet = await this.pdf.compose(files, parts.pagePlan).catch((error: unknown) => {
-      throw error instanceof EsignEngineError ? esignRefusal(error.code) : error;
+    const s3Key = this.store.keyFor(businessId, templateId, `template-${randomUUID()}.pdf`);
+    // The files, pdf-lib's copy and the packet hold the read budget until it is stored.
+    const packet = await readBudget.hold(packetBudget(documents), filesBusy, async () => {
+      const files = await Promise.all(
+        documents.map(async (d) => {
+          const bytes = await this.store.read(businessId, d.s3Key);
+          if (!bytes) throw new Error(`esign document ${d.id} is missing from the store`);
+          return { documentId: d.id, contentType: d.contentType, bytes };
+        }),
+      );
+      const composed = await this.pdf.compose(files, parts.pagePlan).catch((error: unknown) => {
+        throw error instanceof EsignEngineError ? esignRefusal(error.code) : error;
+      });
+      await this.store.put(businessId, s3Key, composed, 'application/pdf');
+      return { sha256: sha256(composed), sizeBytes: composed.byteLength };
     });
     const sizes = new Map(documents.map((d) => [d.id, d.pageSizes]));
     const keyOf = new Map(parts.recipients.map((r, i) => [r.id, `role-${i + 1}`]));
-    const s3Key = this.store.keyFor(businessId, templateId, `template-${randomUUID()}.pdf`);
-    await this.store.put(businessId, s3Key, packet, 'application/pdf');
     return {
       ...settingsOf(record),
       s3Key,
-      sha256: sha256(packet),
-      sizeBytes: packet.byteLength,
+      sha256: packet.sha256,
+      sizeBytes: packet.sizeBytes,
       // Each page as shown: a quarter turn swaps its sides.
       pageSizes: parts.pagePlan.map((p) => {
         const { width, height } = sizes.get(p.documentId)![p.page]!;
@@ -196,6 +199,20 @@ export class EsignTemplateCopyService {
     return bytes;
   }
 
+  /**
+   * Runs `work` with the version's packet (`packet`), its bytes held of the read budget until
+   * `work` ends (503 without room).
+   */
+  withPacket<T>(
+    businessId: string,
+    v: EsignTemplateVersionRecord,
+    work: (bytes: Uint8Array) => Promise<T>,
+  ): Promise<T> {
+    return readBudget.hold(v.sizeBytes, filesBusy, async () =>
+      work(await this.packet(businessId, v)),
+    );
+  }
+
   /** A copy of the version's packet under a new key in the template's folder. */
   async copyPacket(
     businessId: string,
@@ -203,7 +220,9 @@ export class EsignTemplateCopyService {
     v: EsignTemplateVersionRecord,
   ): Promise<string> {
     const s3Key = this.store.keyFor(businessId, templateId, `template-${randomUUID()}.pdf`);
-    await this.store.put(businessId, s3Key, await this.packet(businessId, v), 'application/pdf');
+    await this.withPacket(businessId, v, (bytes) =>
+      this.store.put(businessId, s3Key, bytes, 'application/pdf'),
+    );
     return s3Key;
   }
 

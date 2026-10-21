@@ -16,23 +16,32 @@ import {
   MyDocumentRequestList,
   MyRequestPacket,
   MyRequestPacketList,
-  UploadTicket,
+  UploadPutTicket,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config.js';
-import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import {
+  DOCUMENT_STORAGE,
+  type DocumentStorage,
+  type FileFacts,
+} from '../../src/storage/document-storage.js';
 import { pdf, sha256 } from '../office-files.js';
+import { MemoryUploads } from '../memory-uploads.js';
 
 /** Storage in memory: `objects.set(key, bytes)` is the browser's PUT. */
 class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
-  presignUpload(file: { key: string; contentType: string }) {
-    return Promise.resolve({
-      url: `memory:${file.key}`,
-      headers: { 'content-type': file.contentType },
-    });
+  readonly uploads = new MemoryUploads(this.objects);
+  presignUpload(file: FileFacts) {
+    return this.uploads.presign(file);
+  }
+  completeUpload(key: string, uploadId: string, sizeBytes: number) {
+    return this.uploads.complete(key, uploadId, sizeBytes);
+  }
+  abortUpload(key: string, uploadId: string) {
+    return this.uploads.abort(key, uploadId);
   }
   head(key: string, { checksum = false } = {}) {
     const b = this.objects.get(key);
@@ -132,7 +141,7 @@ async function uploadFor(requestId: string, who: Who = people.primary, name = 'W
     sha256: sha256(bytes),
   });
   if (start.status !== 200) return start;
-  const ticket = UploadTicket.parse(start.body);
+  const ticket = UploadPutTicket.parse(start.body);
   storage.objects.set(ticket.url.slice('memory:'.length), bytes);
   return portal('post', '/documents/uploads/confirm', who, { uploadToken: ticket.uploadToken });
 }

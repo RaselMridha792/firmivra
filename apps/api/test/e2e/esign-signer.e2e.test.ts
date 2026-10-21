@@ -11,6 +11,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
+import { UPLOAD_LIMITS } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -156,7 +157,7 @@ describe('Firm Sign signer routes', () => {
       ['finish', { values: [{ fieldId: FIELD, value: 'x'.repeat(1001) }] }],
       ['attachments/uploads', { ...UPLOAD, contentType: 'application/msword' }],
       ['attachments/uploads', { ...UPLOAD, fileName: 'id.png' }],
-      ['attachments/uploads', { ...UPLOAD, sizeBytes: 11 * 1024 * 1024 }],
+      ['attachments/uploads', { ...UPLOAD, sizeBytes: UPLOAD_LIMITS.maxBytes + 1 }],
       ['attachments/uploads', { ...UPLOAD, sha256: 'nope' }],
       ['attachments/uploads', { ...UPLOAD, fieldId: 'nope' }],
       ['attachments/uploads/confirm', { fieldId: FIELD }],

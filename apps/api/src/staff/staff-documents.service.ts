@@ -23,9 +23,12 @@ import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
   GET_URL_SECONDS,
-  PUT_URL_SECONDS,
+  multipartIdOf,
+  uploadTicket,
 } from '../storage/document-storage.js';
 import { checkFile } from '../storage/file-checks.js';
+import { readBudget } from '../storage/read-budget.js';
+import { MultipartUploadId, uploadTokenSeconds } from '../storage/upload-token.js';
 import type { ScanOutcome, ScanResult } from '../storage/scan-results.service.js';
 import { notFound } from '../workspaces/common.js';
 import type { CreateStaffDocumentUploadBody, UpdateStaffDocumentBody } from './staff-input.js';
@@ -40,10 +43,11 @@ import {
 
 type Out<S extends z.ZodType> = z.output<S>;
 
-/** HKDF label for staff document upload tokens: a token opens only here. */
+/**
+ * HKDF label for staff document upload tokens: a token opens only here. As documents, the confirm
+ * comes within 15 minutes of the ticket (70 for a multipart upload: uploadTokenSeconds).
+ */
 export const STAFF_UPLOAD_LABEL = 'fv-staff-document-upload-v1';
-/** As documents: the confirm comes within 15 minutes of the ticket. */
-const UPLOAD_SECONDS = 900;
 
 const StaffUploadClaim = z.object({
   pool: z.literal('STAFF'),
@@ -58,6 +62,8 @@ const StaffUploadClaim = z.object({
   sizeBytes: z.number().int().positive(),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   replacesId: z.uuid().optional(),
+  /** The multipart upload confirm completes; null or absent for a PUT. */
+  uploadId: MultipartUploadId.nullable().optional(),
 });
 type StaffUploadClaim = z.infer<typeof StaffUploadClaim>;
 
@@ -75,10 +81,6 @@ const SCAN_REFUSALS_SINCE_MS = 24 * 60 * 60_000;
 /** UNSUPPORTED because of the file itself (as documents); anything else is our side. */
 const FILE_REASON =
   /^(PASSWORD_PROTECTED|OBJECT_SIZE_LIMIT_EXCEEDED|EXTRACTED_[A-Z_]+_LIMIT_EXCEEDED|EXTRACTION_RATIO_LIMIT_EXCEEDED)$/;
-/** At most this many confirms check stored bytes at once; one more is 503 (as documents). */
-const CHECKS_AT_ONCE = 4;
-let checking = 0;
-
 const CFB = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 /** A Word 97-2003 file's macro storages, as their UTF-16 directory names. */
 const DOC_MACROS = ['Macros', '_VBA_PROJECT'].map((name) => Buffer.from(name, 'utf16le'));
@@ -221,7 +223,7 @@ export class StaffDocumentsService {
       }
     });
     const key = `tenant/${businessId}/staff/${id}/${randomUUID()}`;
-    const put = await this.s3(() =>
+    const presigned = await this.s3(() =>
       this.storage.presignUpload({
         key,
         contentType: body.contentType,
@@ -229,6 +231,7 @@ export class StaffDocumentsService {
         sha256: body.sha256,
       }),
     );
+    const uploadId = multipartIdOf(presigned);
     const claim: StaffUploadClaim = {
       pool: 'STAFF',
       businessId,
@@ -241,10 +244,10 @@ export class StaffDocumentsService {
       sizeBytes: body.sizeBytes,
       sha256: body.sha256,
       ...(body.replacesId ? { replacesId: body.replacesId } : {}),
+      uploadId,
     };
-    const uploadToken = await this.tokens.seal(claim, UPLOAD_SECONDS);
-    const expiresAt = new Date(Date.now() + PUT_URL_SECONDS * 1000).toISOString();
-    return { uploadToken, url: put.url, method: 'PUT', headers: put.headers, expiresAt };
+    const uploadToken = await this.tokens.seal(claim, uploadTokenSeconds(uploadId));
+    return uploadTicket(uploadToken, presigned);
   }
 
   async confirm(actor: StaffActor, id: string, uploadToken: string): Promise<StaffDocument> {
@@ -267,6 +270,11 @@ export class StaffDocumentsService {
     });
     const refused = await this.checkStored(claim);
     if (refused) {
+      if (claim.uploadId) {
+        await this.storage.abortUpload(claim.key, claim.uploadId).catch(() => {
+          this.logger.warn(`Could not drop a refused staff multipart upload in firm ${businessId}`);
+        });
+      }
       await this.storage.remove(claim.key).catch(() => {
         this.logger.warn(`Could not delete a refused staff upload in firm ${businessId}`);
       });
@@ -479,11 +487,20 @@ export class StaffDocumentsService {
     });
   }
 
-  /** At most CHECKS_AT_ONCE at a time; one more is 503 (nothing deleted). */
-  private async checkStored(claim: StaffUploadClaim): Promise<Refusal | null> {
-    if (checking >= CHECKS_AT_ONCE) throw unavailable();
-    checking += 1;
-    try {
+  /**
+   * Holding the file's size of the read budget (no room: 503, nothing deleted or completed). A
+   * multipart upload is completed first: 410 when storage no longer has it.
+   */
+  private checkStored(claim: StaffUploadClaim): Promise<Refusal | null> {
+    return readBudget.hold(claim.sizeBytes, unavailable, async () => {
+      const { uploadId } = claim;
+      if (uploadId) {
+        const done = await this.s3(() =>
+          this.storage.completeUpload(claim.key, uploadId, claim.sizeBytes),
+        );
+        if (done === 'MISSING') throw refusal('UPLOAD_EXPIRED');
+        if (done === 'MISMATCH') return 'UPLOAD_MISMATCH';
+      }
       const head = await this.s3(() => this.storage.head(claim.key));
       if (head?.sizeBytes !== claim.sizeBytes || head.contentEncoding !== null)
         return 'UPLOAD_MISMATCH';
@@ -492,9 +509,7 @@ export class StaffDocumentsService {
       if (createHash('sha256').update(bytes).digest('hex') !== claim.sha256)
         return 'UPLOAD_MISMATCH';
       return checkStaffFile(claim.contentType, bytes);
-    } finally {
-      checking -= 1;
-    }
+    });
   }
 
   /** A storage call; any failure is 503 with Retry-After (nothing deleted). */

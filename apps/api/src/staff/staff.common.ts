@@ -62,6 +62,7 @@ export const targetSelect = {
   id: true,
   userId: true,
   role: true,
+  customRoleId: true,
   status: true,
   joinedAt: true,
   updatedAt: true,
@@ -70,6 +71,7 @@ export type Target = {
   id: string;
   userId: string;
   role: MembershipRole;
+  customRoleId: string | null;
   status: StaffActionResult['status'];
   joinedAt: Date | null;
   updatedAt: Date;
@@ -93,6 +95,33 @@ export function assertManages(actor: StaffActor, target: { role: MembershipRole;
 /** The actor may give this role (ROLES_MANAGED_BY): else 403 CANNOT_GRANT. */
 export function assertMayGive(actor: StaffActor, role: MembershipRole) {
   if (!ROLES_MANAGED_BY[actor.role].includes(role)) throw cannotGrant();
+}
+
+/**
+ * The custom role a change gives (account.customRoleId): in this firm (404), not archived (409
+ * CUSTOM_ROLE_ARCHIVED), and the member's role is the one it is based on (400
+ * CUSTOM_ROLE_MISMATCH).
+ */
+export async function customRoleFor(
+  tx: TxClient,
+  businessId: string,
+  customRoleId: string,
+  role: MembershipRole | undefined,
+): Promise<{ id: string; name: string; basedOn: MembershipRole }> {
+  const r = await tx.customRole.findFirst({
+    where: { businessId, id: customRoleId },
+    select: { id: true, name: true, basedOn: true, archivedAt: true },
+  });
+  if (!r) throw notFound();
+  if (r.archivedAt)
+    throw staffConflict('CUSTOM_ROLE_ARCHIVED', 'This role is archived and can no longer be given');
+  if (role !== undefined && role !== r.basedOn)
+    throw new BadRequestException({
+      code: 'CUSTOM_ROLE_MISMATCH',
+      message: 'The role must be the one this custom role is based on',
+      details: [{ path: 'account.role', message: 'Use the role it is based on' }],
+    });
+  return { id: r.id, name: r.name, basedOn: r.basedOn };
 }
 
 /** GET's `version`: the newer of the membership's and the profile's last change. */

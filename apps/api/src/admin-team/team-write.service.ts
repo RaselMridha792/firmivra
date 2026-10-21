@@ -11,14 +11,16 @@ import { AuditService } from '../audit/audit.service.js';
 import { IDENTITY_PROVIDER, type IdentityProvider } from '../auth/identity/identity-provider.js';
 import { AdminPrisma } from '../firm-applications/admin-prisma.js';
 import { asTeamError, loadContext, refuse, type TeamContext } from './team-context.js';
+import { type IssuedLink, TeamInviteService } from './team-invite.service.js';
 import {
-  checkProfile,
   type DecisionBody,
   type Plan,
   planBulk,
   planChange,
   planDecision,
+  planProfile,
   type UpdateBody,
+  withProfile,
 } from './team-plan.js';
 import { extrasFor } from './team-read.service.js';
 import { memberView, visiblePerson } from './team-views.js';
@@ -32,11 +34,11 @@ const LOOKUPS_AT_ONCE = 10;
 
 /**
  * Super Admin Team changes (R60 on R0's stage A tables), in the Super Admin's admin scope: Edit
- * Team Member, the bulk Change Department, Role and Status, and the department head's decision.
- * Each lands with one audit entry per kind of change (`platform_member.<kind>`, ids and codes
- * only), or not at all. Add Team Member and Resend Invitation create or need ADMIN-pool logins,
- * which only the identity layer may write: they wait for R2's admin-invite service
- * (docs/work/R60-team.md, "Needs from others").
+ * Team Member (with the name and phone on the person's login), the bulk Change Department, Role
+ * and Status, and the department head's decision (APPROVE sends the invitation through
+ * TeamInviteService). Each lands with one audit entry per kind of change (`platform_member.<kind>`,
+ * ids, codes and field names only), or not at all. Add Team Member and Resend Invitation are
+ * TeamInviteService's.
  */
 @Injectable()
 export class TeamWriteService {
@@ -46,16 +48,18 @@ export class TeamWriteService {
     private readonly admin: AdminPrisma,
     private readonly audit: AuditService,
     @Inject(IDENTITY_PROVIDER) private readonly identity: IdentityProvider,
+    private readonly invites: TeamInviteService,
   ) {}
 
   async update(id: string, body: UpdateBody): Promise<AdminTeamMember> {
     const passwords = body.status === 'ACTIVE' ? await this.passwords([id]) : new Set<string>();
     return this.run(async (tx, ctx) => {
       if (!visiblePerson(ctx, id)) throw refuse('NOT_FOUND');
-      checkProfile(ctx, id, body);
+      const profile = planProfile(ctx, id, body);
       const result = planChange(ctx, id, body, passwords.has(id));
       if ('refused' in result) throw refuse(result.refused);
-      if (result.plan) await this.apply(tx, ctx, result.plan, false);
+      const plan = profile ? withProfile(ctx, id, result.plan, profile) : result.plan;
+      if (plan) await this.apply(tx, ctx, plan, false);
       return this.view(tx, id);
     });
   }
@@ -72,12 +76,30 @@ export class TeamWriteService {
     });
   }
 
-  decide(id: string, body: DecisionBody): Promise<AdminTeamMemberResult> {
-    return this.run(async (tx, ctx) => {
+  /**
+   * The decision, and with APPROVE the invitation to the channels chosen: its link is made in
+   * the same transaction (429 RATE_LIMITED past the daily caps refuses the decision too; approve
+   * with neither channel and resend later) and sent once it commits.
+   */
+  async decide(id: string, body: DecisionBody): Promise<AdminTeamMemberResult> {
+    const done = await this.run(async (tx, ctx) => {
       await this.apply(tx, ctx, planDecision(ctx, id, body), false);
-      // The invitation goes out once R2's admin-invite service exists: none is sent here.
-      return { member: await this.view(tx, id), invitation: null };
+      let link: IssuedLink | null = null;
+      if (body.decision === 'APPROVE' && (body.invite.email || body.invite.sms)) {
+        const user = ctx.users.get(id)!;
+        const issued = await this.invites.issue(tx, id, body.invite, 'APPROVAL', {
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+        });
+        if (issued === 'RATE_LIMITED') throw refuse('RATE_LIMITED');
+        if (issued === 'NOT_PENDING_INVITATION') throw refuse('CONFLICT');
+        link = issued;
+      }
+      return { member: await this.view(tx, id), link };
     });
+    const invitation = done.link ? await this.invites.deliver(done.link) : null;
+    return { member: done.member, invitation };
   }
 
   // ---------- Helpers ----------
@@ -114,6 +136,14 @@ export class TeamWriteService {
       },
     });
     if (written.count !== 1) throw refuse('CONFLICT');
+    if (plan.profile) {
+      // The login's name and phone (users_admin_team_update: an org-chart login, admin scope).
+      const saved = await tx.user.updateMany({
+        where: { id: plan.id, pool: 'ADMIN' },
+        data: plan.profile,
+      });
+      if (saved.count !== 1) throw refuse('FORBIDDEN');
+    }
     if (plan.overridesChanged) {
       await tx.platformMemberPermissionOverride.deleteMany({
         where: { platformMemberId: plan.id },

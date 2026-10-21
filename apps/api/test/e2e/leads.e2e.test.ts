@@ -65,7 +65,17 @@ const sha = createHash('sha256').update(bytes).digest('hex');
 /** S3 in memory: every lead upload's key holds the same synthetic bytes. */
 class MemoryStorage implements DocumentStorage {
   presignUpload() {
-    return Promise.resolve({ url: 'memory:', headers: {} });
+    return Promise.resolve({
+      method: 'PUT' as const,
+      url: 'memory:',
+      headers: {},
+    });
+  }
+  completeUpload() {
+    return Promise.resolve('MISSING' as const);
+  }
+  abortUpload() {
+    return Promise.resolve();
   }
   head(key: string) {
     return Promise.resolve(

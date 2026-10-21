@@ -26,8 +26,10 @@ import { legacyFirmRole, type TenantContext } from '../common/request-context.js
 import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
+  onlyPut,
   PUT_URL_SECONDS,
 } from '../storage/document-storage.js';
+import { readBudget } from '../storage/read-budget.js';
 import { checkFile } from '../storage/file-checks.js';
 import { TemplateReadService } from '../templates/template-read.service.js';
 import { TemplatesService } from '../templates/templates.service.js';
@@ -54,8 +56,6 @@ type Out<S extends z.ZodType> = z.output<S>;
 export const COMMUNICATION_UPLOAD_LABEL = 'fv-communication-upload-v1';
 export const COMMUNICATION_UPLOAD_SECONDS = 900;
 export const MAX_COMMUNICATION_ATTACHMENTS = 10;
-const CHECKS_AT_ONCE = 4;
-let checking = 0;
 
 const Claim = z.object({
   pool: z.literal('STAFF'),
@@ -285,7 +285,7 @@ export class CommunicationExtrasService {
         );
     });
     const key = `tenant/${businessId}/communications/${randomUUID()}`;
-    const put = await this.s3(() =>
+    const presigned = await this.s3(() =>
       this.storage.presignUpload({
         key,
         contentType: body.contentType,
@@ -293,6 +293,8 @@ export class CommunicationExtrasService {
         sha256: body.sha256,
       }),
     );
+    // A small file (its own limit is at most 10 MB): always one PUT.
+    const put = onlyPut(presigned);
     const uploadToken = await this.tokens.seal(
       { pool: 'STAFF', businessId, userId, communicationId: id, key, ...body },
       COMMUNICATION_UPLOAD_SECONDS,
@@ -399,11 +401,9 @@ export class CommunicationExtrasService {
       WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid`;
   }
 
-  /** At most CHECKS_AT_ONCE at a time; one more is 503 (nothing deleted). */
-  private async checkStored(claim: Claim): Promise<string | null> {
-    if (checking >= CHECKS_AT_ONCE) throw unavailable();
-    checking += 1;
-    try {
+  /** Holding the file's size of the read budget (read-budget.ts); without room, 503 (nothing deleted). */
+  private checkStored(claim: Claim): Promise<string | null> {
+    return readBudget.hold(claim.sizeBytes, unavailable, async () => {
       const head = await this.s3(() => this.storage.head(claim.key));
       if (head?.sizeBytes !== claim.sizeBytes || head.contentEncoding !== null)
         return 'UPLOAD_MISMATCH';
@@ -412,9 +412,7 @@ export class CommunicationExtrasService {
       if (createHash('sha256').update(bytes).digest('hex') !== claim.sha256)
         return 'UPLOAD_MISMATCH';
       return checkFile(claim.contentType as UploadContentType, bytes);
-    } finally {
-      checking -= 1;
-    }
+    });
   }
 
   private async s3<T>(call: () => Promise<T>): Promise<T> {

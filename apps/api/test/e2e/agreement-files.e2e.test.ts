@@ -1,6 +1,6 @@
 // End-to-end: R14 agreement PDF originals (docs/api/agreements.yaml): upload in three steps,
 // stored-byte checks, the scan, firm and public downloads. Storage is in memory.
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -9,23 +9,32 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { AgreementFile, type UploadTicket } from '@firmivra/types';
+import { AgreementFile, UPLOAD_LIMITS, type UploadTicket } from '@firmivra/types';
 import { AgreementFilesService } from '../../src/agreements/agreement-files.service.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config.js';
-import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import {
+  DOCUMENT_STORAGE,
+  type DocumentStorage,
+  type FileFacts,
+} from '../../src/storage/document-storage.js';
+import { MemoryUploads, ticketKey } from '../memory-uploads.js';
 
 const sha256 = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 
 class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
-  presignUpload(file: { key: string; contentType: string }) {
-    return Promise.resolve({
-      url: `memory:${file.key}`,
-      headers: { 'content-type': file.contentType },
-    });
+  readonly uploads = new MemoryUploads(this.objects);
+  presignUpload(file: FileFacts) {
+    return this.uploads.presign(file);
+  }
+  completeUpload(key: string, uploadId: string, sizeBytes: number) {
+    return this.uploads.complete(key, uploadId, sizeBytes);
+  }
+  abortUpload(key: string, uploadId: string) {
+    return this.uploads.abort(key, uploadId);
   }
   head(key: string, { checksum = false } = {}) {
     const b = this.objects.get(key);
@@ -46,7 +55,7 @@ class MemoryStorage implements DocumentStorage {
     return Promise.resolve(`memory:${file.key}?download`);
   }
   put(ticket: UploadTicket, bytes: Buffer) {
-    this.objects.set(ticket.url.slice('memory:'.length), bytes);
+    this.uploads.send(ticket, bytes);
   }
 }
 const storage = new MemoryStorage();
@@ -67,6 +76,14 @@ async function pdfBytes(pages = 1, encrypted = false): Promise<Buffer> {
   );
 }
 
+/** A real PDF over 16 MB (a page and a large raw stream): it goes up as a multipart upload. */
+async function bigAgreementPdf(): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  doc.addPage();
+  doc.context.register(doc.context.stream(randomBytes(UPLOAD_LIMITS.multipartThresholdBytes)));
+  return Buffer.from(await doc.save({ useObjectStreams: false }));
+}
+
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
 const person = (key: string) => ({ id: randomUUID(), email: `r14f-${key}-${run}@r14.test` });
@@ -77,7 +94,7 @@ const people = {
   ownerB: person('owner-b'),
 };
 const firms = {} as Record<'a' | 'b' | 'pending', { id: string; slug: string }>;
-const keyOf = (t: UploadTicket) => t.url.slice('memory:'.length);
+const keyOf = (t: UploadTicket) => ticketKey(t);
 const uploadIdOf = (t: UploadTicket) => keyOf(t).slice(keyOf(t).lastIndexOf('/') + 1);
 
 async function auditRows(action: string) {
@@ -237,7 +254,7 @@ describe('agreement PDF originals', () => {
     });
     fileId = file.fileId;
     ticket = up.ticket;
-    expect(ticket.url).toContain(`tenant/${firms.a.id}/agreements/`);
+    expect(keyOf(ticket)).toContain(`tenant/${firms.a.id}/agreements/`);
 
     const early = await call('get', `/files/${fileId}/download`);
     expect([early.status, codeOf(early)]).toEqual([409, 'SCAN_PENDING']);
@@ -305,6 +322,28 @@ describe('agreement PDF originals', () => {
     expect((await pub(firms.a.slug, svcId, 1)).status).toBe(200);
     expect((await call('post', `/${svcId}/archive`)).status).toBe(200);
     expect((await pub(firms.a.slug, svcId, 1)).status).toBe(404);
+  });
+
+  it('takes a PDF over 16 MB as a multipart upload that confirm completes', async () => {
+    const bytes = await bigAgreementPdf();
+    expect(bytes.length).toBeGreaterThan(UPLOAD_LIMITS.multipartThresholdBytes);
+    const { res, ticket: t } = await upload(bytes, 'Big agreement.pdf');
+    expect(t.method).toBe('MULTIPART');
+    expect(res.status).toBe(201);
+    expect(AgreementFile.parse(res.body)).toMatchObject({ sizeBytes: bytes.length });
+    expect(storage.objects.get(keyOf(t))?.equals(bytes)).toBe(true);
+    const over = await call(
+      'post',
+      '/files/uploads',
+      {
+        fileName: 'Too big.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: UPLOAD_LIMITS.maxBytes + 1,
+        sha256: sha256(bytes),
+      },
+      people.ownerA,
+    );
+    expect(over.status).toBe(400);
   });
 
   it('refuses what is not a PDF, encrypted, changed or reused, and deletes it', async () => {
@@ -382,7 +421,7 @@ describe('agreement PDF originals', () => {
   });
 
   it('a changed stored file is blocked; staff 403; another firm 404', async () => {
-    storage.objects.set(ticket.url.slice('memory:'.length), await pdfBytes(5));
+    storage.objects.set(keyOf(ticket), await pdfBytes(5));
     const blocked = await call('get', `/files/${fileId}/download`);
     expect([blocked.status, codeOf(blocked)]).toEqual([409, 'FILE_BLOCKED']);
     // The public route checks the stored bytes the same way.

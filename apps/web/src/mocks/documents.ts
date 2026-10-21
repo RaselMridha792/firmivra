@@ -28,13 +28,15 @@ import {
 import { mockDelay } from '../lib/mock';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 import { engagementFixtures } from './engagements';
+import { mockUploadTicket } from './upload-ticket';
 
 /**
  * Mock data for `api.documents` (firm) and `api.myDocuments(slug)` (portal), R5. Synthetic data
  * only. Same input checks, rules and error codes as the API: uploads only for an open service,
  * downloads only after a clean scan, and INTERNAL files never in the portal. A mock upload needs
- * no storage: its ticket URL starts with `mock:` and `uploadFile()` skips the PUT. A new upload
- * is CHECKING for a few seconds, then READY. Nothing is built until the first call.
+ * no storage: its ticket URLs start with `mock:` and `uploadFile()` skips the PUT (a file over
+ * 16 MB gets a multipart ticket, as from the API). A new upload is CHECKING for a few seconds,
+ * then READY. Nothing is built until the first call.
  * To show the Excel and Word errors on a screen, upload an .xlsx or .docx whose name contains
  * "password" (confirm answers 409 FILE_PASSWORD_PROTECTED) or "macro" (409 FILE_HAS_MACROS); the
  * mock sees only the name, the API reads the stored bytes. The portal's FILE_BLOCKED says the
@@ -280,18 +282,17 @@ function store() {
     },
     ticket: (
       clientId: string,
-      body: Record<string, unknown>,
-      contentType: string,
+      body: Record<string, unknown> & { contentType: string; sizeBytes: number },
     ): UploadTicket => {
       const n = next++;
       pending.set(`mock-upload-${n}`, { clientId, body });
-      return {
+      return mockUploadTicket({
         uploadToken: `mock-upload-${n}`,
         url: `mock:upload/${n}`,
-        method: 'PUT',
-        headers: { 'content-type': contentType },
+        sizeBytes: body.sizeBytes,
+        headers: { 'content-type': body.contentType },
         expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
-      };
+      });
     },
     /**
      * Step 3: the pending upload becomes a document (scan running); its request is answered. An
@@ -428,7 +429,7 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
       await mockDelay();
       const b = parseInput(CreateFirmUploadRequest, body);
       s.target(reachable(clientId), b);
-      return s.ticket(clientId, b, b.contentType);
+      return s.ticket(clientId, b);
     },
     confirmUpload: async (body) => {
       await mockDelay();
@@ -605,7 +606,7 @@ export function createMyDocumentsMock(): MyDocumentsClient {
       await mockDelay();
       const b = parseInput(CreateMyUploadRequest, body);
       s.target(me, b);
-      return s.ticket(me, b, b.contentType);
+      return s.ticket(me, b);
     },
     confirmUpload: async (body) => {
       await mockDelay();

@@ -4,7 +4,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import type { UploadTicket } from '@firmivra/types';
+import type { UploadPutTicket } from '@firmivra/types';
 import type { Fixtures } from '../global-setup.js';
 import type { DocumentStorage } from '../../src/storage/document-storage.js';
 
@@ -15,9 +15,16 @@ export class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
   presignUpload(file: { key: string; contentType: string }) {
     return Promise.resolve({
+      method: 'PUT' as const,
       url: `memory:${file.key}`,
       headers: { 'content-type': file.contentType },
     });
+  }
+  completeUpload() {
+    return Promise.resolve('MISSING' as const);
+  }
+  abortUpload() {
+    return Promise.resolve();
   }
   head(key: string, { checksum = false } = {}) {
     const b = this.objects.get(key);
@@ -37,7 +44,7 @@ export class MemoryStorage implements DocumentStorage {
   presignDownload(file: { key: string }) {
     return Promise.resolve(`memory:${file.key}?download`);
   }
-  put(ticket: UploadTicket, bytes: Buffer) {
+  put(ticket: UploadPutTicket, bytes: Buffer) {
     this.objects.set(ticket.url.slice('memory:'.length), bytes);
   }
 }
@@ -186,7 +193,7 @@ export function supportWrites(fx: Fixtures): Record<string, SupportWrite> {
       sizeBytes: PDF.length,
       sha256: sha256(PDF),
     });
-    const ticket = res.body as UploadTicket;
+    const ticket = res.body as UploadPutTicket;
     supportStorage.put(ticket, PDF);
     return ticket.uploadToken;
   };

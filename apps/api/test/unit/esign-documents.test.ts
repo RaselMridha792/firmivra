@@ -5,8 +5,15 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { EsignDocument, type EsignField, UploadTicket } from '@firmivra/types';
+import {
+  EsignDocument,
+  type EsignField,
+  UPLOAD_LIMITS,
+  UploadMultipartTicket,
+  UploadPutTicket,
+} from '@firmivra/types';
 import { EsignDocumentsService } from '../../src/esign/requests/documents.service.js';
+import { readBudget } from '../../src/storage/read-budget.js';
 import type { DirectoryDocument } from '../../src/esign/requests/esign-directory.js';
 import {
   type EsignActor,
@@ -57,7 +64,7 @@ async function start(id: string, content: Uint8Array, actor = owner, type = 'app
   const contentType = type as 'application/pdf';
   const fileName = type === 'image/png' ? 'scan.png' : 'letter.pdf';
   const body = { fileName, contentType, sizeBytes: content.byteLength, sha256: sha(content) };
-  const ticket = UploadTicket.parse(await docs.createUpload(w.a, actor, id, body));
+  const ticket = UploadPutTicket.parse(await docs.createUpload(w.a, actor, id, body));
   return { ticket, key: ticket.url.replace('memory://', ''), contentType };
 }
 
@@ -77,7 +84,94 @@ async function uploaded(
 const confirm = (id: string, token: string, actor = owner) =>
   docs.confirmUpload(w.a, actor, id, token);
 
+/** A "PNG" over 16 MB (the fake engine takes any image as one page): a multipart upload. */
+const bigImage = () => {
+  const bytes = new Uint8Array(UPLOAD_LIMITS.multipartThresholdBytes + 7);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  return bytes;
+};
+async function startParts(id: string, content: Uint8Array) {
+  const body = {
+    fileName: 'scan.png',
+    contentType: 'image/png' as const,
+    sizeBytes: content.byteLength,
+    sha256: sha(content),
+  };
+  return UploadMultipartTicket.parse(await docs.createUpload(w.a, owner, id, body));
+}
+/** The browser's PUT of each part (or only of `only`). */
+const sendParts = (ticket: UploadMultipartTicket, content: Uint8Array, only?: number[]) =>
+  ticket.parts
+    .filter((p) => !only || only.includes(p.partNumber))
+    .forEach((part) => {
+      const at = (part.partNumber - 1) * ticket.partSizeBytes;
+      w.store.putPart(part.url, content.subarray(at, at + ticket.partSizeBytes));
+    });
+
 describe('uploads', () => {
+  it('sends a file over 16 MB as a multipart upload that confirm completes, for an hour', async () => {
+    const id = await draft();
+    const content = bigImage();
+    const before = Date.now();
+    const ticket = await startParts(id, content);
+    expect(ticket.partSizeBytes).toBe(UPLOAD_LIMITS.partSizeBytes);
+    expect(ticket.parts.map((p) => p.partNumber)).toEqual([1, 2]);
+    const expires = Date.parse(ticket.expiresAt) - before;
+    expect(expires).toBeGreaterThanOrEqual(3_600_000);
+    expect(expires).toBeLessThan(3_610_000);
+    sendParts(ticket, content);
+    const doc = EsignDocument.parse(await confirm(id, ticket.uploadToken));
+    expect(doc).toMatchObject({
+      pageCount: 1,
+      sizeBytes: content.byteLength,
+      scanStatus: 'PENDING',
+    });
+    expect(w.store.uploads.size).toBe(0);
+    expect(await refused(confirm(id, ticket.uploadToken))).toEqual([410, 'UPLOAD_EXPIRED']);
+    // A multipart token lives 70 minutes, a PUT's 15.
+    vi.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+    try {
+      const later = await startParts(id, content);
+      sendParts(later, content);
+      vi.setSystemTime(Date.now() + 60 * 60_000);
+      expect(await confirm(id, later.uploadToken)).toMatchObject({ pageCount: 1 });
+      const late = await startParts(id, content);
+      sendParts(late, content);
+      vi.setSystemTime(Date.now() + 71 * 60_000);
+      expect(await refused(confirm(id, late.uploadToken))).toEqual([410, 'UPLOAD_EXPIRED']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refuses a multipart upload with a part missing (409), drops it; storage without it is 410', async () => {
+    const id = await draft();
+    const content = bigImage();
+    const short = await startParts(id, content);
+    sendParts(short, content, [1]);
+    expect(await refused(confirm(id, short.uploadToken))).toEqual([409, 'UPLOAD_MISMATCH']);
+    expect(w.store.uploads.size).toBe(0);
+    const dropped = await startParts(id, content);
+    sendParts(dropped, content);
+    const [, uploadId] = dropped.uploadToken.split('.');
+    const key = dropped.parts[0]!.url.replace('memory://', '').split('?')[0]!;
+    await w.store.abortUpload(w.a, key, uploadId!);
+    expect(await refused(confirm(id, dropped.uploadToken))).toEqual([410, 'UPLOAD_EXPIRED']);
+  });
+
+  it('answers 503 when the read budget has no room, and the same token works after', async () => {
+    const id = await draft();
+    const { ticket } = await uploaded(id, bytesOf('pdf:1'));
+    const taken = readBudget.tryTake(readBudget.total)!;
+    try {
+      expect(await refused(confirm(id, ticket.uploadToken))).toEqual([503, 'SERVICE_UNAVAILABLE']);
+    } finally {
+      taken();
+    }
+    expect(await confirm(id, ticket.uploadToken)).toMatchObject({ pageCount: 1 });
+    expect(readBudget.free).toBe(readBudget.total);
+  });
+
   it('tickets a PUT under the request’s folder and confirms a PDF as PENDING with its pages', async () => {
     const id = await draft();
     const before = Date.now();

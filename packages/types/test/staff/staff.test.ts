@@ -309,4 +309,16 @@ describe('api.roles', () => {
     expect(archive.calls[0]?.url).toBe(`/api/v1/business/roles/custom/${id}/archive`);
     expect(archive.calls[0]?.init.method).toBe('POST');
   });
+
+  it('gives a member a custom role through Edit Staff', () => {
+    expect(
+      UpdateStaffRequest.safeParse({ version: 'v1', account: { customRoleId: id } }).success,
+    ).toBe(true);
+    expect(
+      UpdateStaffRequest.safeParse({ version: 'v1', account: { customRoleId: null } }).success,
+    ).toBe(true);
+    expect(
+      UpdateStaffRequest.safeParse({ version: 'v1', account: { customRoleId: 'x' } }).success,
+    ).toBe(false);
+  });
 });

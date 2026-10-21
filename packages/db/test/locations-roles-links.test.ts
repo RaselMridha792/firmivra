@@ -164,6 +164,26 @@ describe('Locations', () => {
     await hours(2, '16:00', '18:00'); // another day
   });
 
+  it('assigns staff to locations, once each, only of this firm and only to live locations', async () => {
+    const o = await office('Staffed');
+    const assign = (officeId: string, userId: string) =>
+      firm().firmOfficeMember.create({ data: { businessId: ids.firmA, officeId, userId } });
+    await assign(o.id, staffId);
+    await assign(o.id, consultantId);
+    // The same member at a second location is fine; twice at one is not.
+    const other = await office('Staffed too');
+    await assign(other.id, staffId);
+    await expect(assign(o.id, staffId)).rejects.toThrow(/Unique constraint/);
+    // Firm B's member is not a member of firm A.
+    await expect(assign(o.id, otherId)).rejects.toThrow(/foreign key/i);
+    await firm().firmOffice.update({ where: { id: other.id }, data: { archivedAt: new Date() } });
+    await expect(assign(other.id, consultantId)).rejects.toThrow(
+      /archived location gets no new staff/,
+    );
+    expect(await firm().firmOfficeMember.count({ where: { officeId: o.id } })).toBe(2);
+    expect(await db.forBusiness(ids.firmB).firmOfficeMember.findMany()).toEqual([]);
+  });
+
   it('runs a scheduled action once, when due; until then it may move or be cancelled', async () => {
     const o = await office('Scheduled');
     const due = new Date(Date.now() + 2 * HOUR);

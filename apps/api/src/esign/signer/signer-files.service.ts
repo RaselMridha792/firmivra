@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   GoneException,
   HttpException,
@@ -17,12 +17,18 @@ import {
   type SignerField,
   type UploadTicket,
 } from '@firmivra/types';
-import { GET_URL_SECONDS, PUT_URL_SECONDS } from '../../storage/document-storage.js';
-import { UPLOAD_TOKEN_SECONDS } from '../../storage/upload-token.js';
+import { GET_URL_SECONDS, uploadTicket } from '../../storage/document-storage.js';
+import { readBudget } from '../../storage/read-budget.js';
 import { COMPLETION_REPOSITORY } from '../completion/completion.repository.js';
 import type { EsignCompletionRepository } from '../completion/completion.repository.js';
 import { ESIGN_STORE, type EsignStore } from '../engine/engine.types.js';
 import { ESIGN_REPOSITORY, type EsignRepository } from '../requests/esign.repository.js';
+import {
+  esignUploadToken,
+  filesBusy,
+  multipartIdIn,
+  uploadTooOld,
+} from '../requests/esign-uploads.js';
 import { esignRefusal, invalid } from '../requests/requests.service.js';
 import { SIGNER_REPOSITORY } from './signer.repository.js';
 import type { EsignSignerRepository, SignerAttachment } from './signer.repository.js';
@@ -30,7 +36,14 @@ import { type SignerCall, EsignSignerService } from './signer.service.js';
 
 type Store = Pick<
   EsignStore,
-  'keyFor' | 'presignUpload' | 'head' | 'read' | 'remove' | 'presignDownload'
+  | 'keyFor'
+  | 'presignUpload'
+  | 'completeUpload'
+  | 'abortUpload'
+  | 'head'
+  | 'read'
+  | 'remove'
+  | 'presignDownload'
 >;
 
 const sha256 = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
@@ -65,7 +78,10 @@ export class EsignSignerFilesService {
     @Inject(ESIGN_STORE) private readonly store: Store,
   ) {}
 
-  /** POST attachments/uploads: a presigned PUT for exactly this file and a one-time token. */
+  /**
+   * POST attachments/uploads: a presigned PUT for exactly this file (a larger one: a multipart
+   * upload) and a one-time token (esign-uploads.ts).
+   */
   async createUpload(
     c: SignerCall,
     body: z.output<typeof SignerAttachmentUploadBody>,
@@ -74,23 +90,25 @@ export class EsignSignerFilesService {
     await this.field(c, body.fieldId, () => invalid('fieldId', 'Not your attachment field'));
     const { fieldId, fileName, contentType, sizeBytes } = body;
     const key = this.store.keyFor(c.firm.id, q.id, `attachments/${randomUUID()}`);
-    const put = await this.store.presignUpload(c.firm.id, key, {
+    const presigned = await this.store.presignUpload(c.firm.id, key, {
       ...{ contentType, sizeBytes, sha256: body.sha256 },
     });
-    const uploadToken = randomBytes(32).toString('base64url');
+    const uploadToken = esignUploadToken(presigned);
     await this.repo.saveAttachmentUpload(c.firm.id, {
       ...{ tokenHash: sha256(uploadToken), requestId: q.id, recipientId: me.id, fieldId, key },
       ...{ fileName, contentType, sizeBytes, sha256: body.sha256, createdAt: new Date() },
     });
     await this.signer.log(c, 'esign.signer_attachment_started', { fieldId });
-    const expiresAt = new Date(Date.now() + PUT_URL_SECONDS * 1000).toISOString();
-    return { uploadToken, url: put.url, method: 'PUT', headers: put.headers, expiresAt };
+    return uploadTicket(uploadToken, presigned);
   }
 
   /**
-   * POST attachments/uploads/confirm: the stored object must be the described file (409
-   * UPLOAD_MISMATCH); a token that is used, older than 15 minutes, for another field or another
-   * signer's is 410 UPLOAD_EXPIRED. Replaces the field's earlier file.
+   * POST attachments/uploads/confirm: a multipart upload is completed (parts missing or of another
+   * size: 409 UPLOAD_MISMATCH; storage no longer has it: 410); the stored object must be the
+   * described file (409 UPLOAD_MISMATCH); a token that is used, older than 15 minutes (70 for a
+   * multipart upload), for another field or another signer's is 410 UPLOAD_EXPIRED. Replaces the
+   * field's earlier file. Without room in the read budget: 503, and the upload is kept for the
+   * retry.
    */
   async confirmUpload(c: SignerCall, fieldId: string, uploadToken: string): Promise<SignerField> {
     const { request: q, recipient: me } = c.signer;
@@ -101,9 +119,23 @@ export class EsignSignerFilesService {
     const before = (await this.repo.attachments(c.firm.id, q.id, me.id)).find(
       (a) => a.fieldId === fieldId,
     );
+    const uploadId = multipartIdIn(uploadToken);
+    const release = readBudget.tryTake(upload.sizeBytes);
+    if (!release) {
+      // Busy: the upload goes back, so the browser's retry with the same token finds it.
+      await this.repo.saveAttachmentUpload(c.firm.id, upload);
+      throw filesBusy();
+    }
     try {
-      const old = Date.now() - upload.createdAt.getTime() > UPLOAD_TOKEN_SECONDS * 1000;
-      if (old || upload.fieldId !== fieldId) throw expired();
+      if (uploadTooOld(uploadToken, upload.createdAt) || upload.fieldId !== fieldId) {
+        throw expired();
+      }
+      if (uploadId) {
+        const { key, sizeBytes } = upload;
+        const done = await this.store.completeUpload(c.firm.id, key, uploadId, sizeBytes);
+        if (done === 'MISSING') throw expired();
+        if (done === 'MISMATCH') throw esignRefusal('UPLOAD_MISMATCH');
+      }
       const head = await this.store.head(c.firm.id, upload.key);
       const same =
         head?.sizeBytes === upload.sizeBytes &&
@@ -124,11 +156,18 @@ export class EsignSignerFilesService {
         throw esignRefusal('REQUEST_CLOSED');
       }
     } catch (error) {
-      // A refusal: the object goes (the token is used up either way).
+      // A refusal: the upload and the object go (the token is used up either way).
       if (error instanceof HttpException && error.getStatus() < 500) {
+        if (uploadId) {
+          await this.store.abortUpload(c.firm.id, upload.key, uploadId).catch(() => {
+            this.logger.warn('Could not drop a refused esign attachment upload'); // nothing else
+          });
+        }
         await this.removeObject(c.firm.id, upload.key);
       }
       throw error;
+    } finally {
+      release();
     }
     if (before) await this.removeObject(c.firm.id, before.key);
     await this.signer.log(c, 'esign.signer_attachment_added', { fieldId });

@@ -14,6 +14,7 @@ import type {
   EsignRequestStatus,
   EsignRouting,
 } from '@firmivra/types';
+import type { CompletedUpload, PresignedUpload } from '../../storage/document-storage.js';
 
 // Firm Sign's signing engine (R18): the interfaces R13-api's requests, send, signer and
 // completion code call. Library code only: no routes, no database access except the events
@@ -137,14 +138,24 @@ export interface EsignStore {
   /** HEAD: size, Content-Type and Content-Encoding (the upload confirm checks both), or null. */
   head(businessId: string, key: string): Promise<EsignStoredObject | null>;
   /**
-   * A presigned PUT for exactly this file (staff source files, signer attachments): Content-Type,
-   * Content-Length and the SHA-256 are signed, as for R5's document uploads.
+   * How the browser sends exactly this file (staff source files, signer attachments), as for R5's
+   * document uploads: a PUT with Content-Type, Content-Length and the SHA-256 signed, or for a
+   * larger file a multipart upload begun here (DocumentStorage.presignUpload).
    */
   presignUpload(
     businessId: string,
     key: string,
     file: { contentType: string; sizeBytes: number; sha256: string },
-  ): Promise<{ url: string; headers: Record<string, string> }>;
+  ): Promise<PresignedUpload>;
+  /** Completes a multipart upload of exactly `sizeBytes` (DocumentStorage.completeUpload). */
+  completeUpload(
+    businessId: string,
+    key: string,
+    uploadId: string,
+    sizeBytes: number,
+  ): Promise<CompletedUpload>;
+  /** Drops a multipart upload and its parts; one storage no longer has is fine. */
+  abortUpload(businessId: string, key: string, uploadId: string): Promise<void>;
   /** Copies a vault document (tenant/<businessId>/documents/...) into the request's folder. */
   copyFromVault(businessId: string, sourceKey: string, key: string): Promise<void>;
   presignDownload(

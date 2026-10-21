@@ -16,6 +16,7 @@ import {
   StaffPayType,
 } from '../schemas.js';
 import { TeamMemberStatus } from '../team/schemas.js';
+import { megabytes, UPLOAD_LIMITS } from '../documents/schemas.js';
 
 // Staff Management (R42 contract, for Tumit's screens): the directory, Create/Edit Staff in four
 // steps, drafts, staff documents, the account access and security page, and bulk upload.
@@ -248,6 +249,12 @@ export const StaffAccountInput = z.strictObject({
   departmentIds: Ids.min(1, 'Choose at least one department'),
   jobTitle: text(100),
   role: MembershipRole,
+  /**
+   * A firm's own role (Create Custom Role). `role` is then the role it is based on (400
+   * CUSTOM_ROLE_MISMATCH otherwise); an archived one is 409 CUSTOM_ROLE_ARCHIVED. Null, or a new
+   * `role` alone, takes it away.
+   */
+  customRoleId: z.uuid().nullable().optional(),
   serviceAreas: z.array(z.string().max(40)).max(20).optional(),
   accessLevel: StaffAccessLevel.optional(),
   accessStartsOn: CalendarDate.nullable().optional(),
@@ -623,8 +630,9 @@ export type SetStaffNoteRequest = z.input<typeof SetStaffNoteRequest>;
 
 // ---------- Staff documents ----------
 
+/** The documents' limit (100 MB); a larger file goes up as a multipart upload. */
 export const STAFF_DOCUMENT_LIMITS = {
-  maxBytes: 10 * 1024 * 1024,
+  maxBytes: UPLOAD_LIMITS.maxBytes,
   contentTypes: [
     'application/pdf',
     'image/jpeg',
@@ -658,7 +666,11 @@ export const CreateStaffDocumentUploadRequest = z.strictObject({
   type: StaffDocumentType,
   fileName: text(200),
   contentType: StaffDocumentContentType,
-  sizeBytes: z.number().int().positive().max(STAFF_DOCUMENT_LIMITS.maxBytes, 'Max size: 10 MB'),
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(STAFF_DOCUMENT_LIMITS.maxBytes, `Max size: ${megabytes(STAFF_DOCUMENT_LIMITS.maxBytes)}`),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   replacesId: StaffDocumentId.optional(),
 });

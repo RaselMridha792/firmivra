@@ -7,6 +7,7 @@ import { ScanStatus } from '../db-enums.js';
 import {
   DownloadLink,
   fileNameFitsType,
+  megabytes,
   UPLOAD_LIMITS,
   UploadTicket,
 } from '../documents/schemas.js';
@@ -71,7 +72,7 @@ export const ESIGN_MAX_FIELDS = 500;
 export const ESIGN_MAX_FIELD_OPTIONS = 2000;
 
 /**
- * Files Firm Sign takes, at most 10 MB each: PDF, JPG and PNG. An image becomes one page. Word
+ * Files Firm Sign takes, at most 100 MB each: PDF, JPG and PNG. An image becomes one page. Word
  * and Excel files are saved as PDF first.
  */
 export const ESIGN_UPLOAD_TYPES = {
@@ -448,7 +449,7 @@ export const CreateEsignUploadBody = z
       .number()
       .int()
       .min(1, 'The file is empty')
-      .max(UPLOAD_LIMITS.maxBytes, 'The file is larger than 10 MB'),
+      .max(UPLOAD_LIMITS.maxBytes, `The file is larger than ${megabytes(UPLOAD_LIMITS.maxBytes)}`),
     sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Not a SHA-256'),
   })
   .superRefine((b, ctx) => {
