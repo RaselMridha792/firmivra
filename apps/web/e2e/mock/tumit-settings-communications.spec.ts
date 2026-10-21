@@ -107,3 +107,31 @@ test('Open Communications with unsaved edits asks: Stay, Save and Leave, Discard
   await open.click();
   await expect(page).toHaveURL(moduleUrl);
 });
+
+test('Cancel with unsaved edits asks first: Keep Editing keeps them, Discard puts the saved ones back', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(settings);
+  const fromName = page.getByLabel('From Name');
+  await expect(fromName).toBeVisible({ timeout: 60_000 });
+  const saved = await fromName.inputValue();
+  const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
+  const prompt = page.getByRole('dialog', { name: 'Discard your changes?' });
+
+  // No edits: Cancel asks nothing.
+  await cancel.click();
+  await expect(prompt).toHaveCount(0);
+
+  await fromName.fill('LVP Client Team');
+  await cancel.click();
+  await expect(prompt).toBeVisible();
+  await prompt.getByRole('button', { name: 'Keep Editing' }).click();
+  await expect(prompt).toBeHidden();
+  await expect(fromName).toHaveValue('LVP Client Team');
+
+  await cancel.click();
+  await prompt.getByRole('button', { name: 'Discard Changes' }).click();
+  await expect(prompt).toBeHidden();
+  await expect(fromName).toHaveValue(saved);
+});

@@ -61,13 +61,26 @@ export function CommunicationsScreen() {
           onReload={() => void branding.refetch()}
         />
       ) : (
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-          {['Sender Identity', 'Email Content', 'Preview', 'Text Messages'].map((title) => (
-            <SettingsCard key={title} title={title} icon={EnvelopeSimple}>
-              {branding.isPending ? <Skeleton className="h-24" /> : <Quiet>{NOT_LOADED}</Quiet>}
-            </SettingsCard>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+            {['Sender Identity', 'Email Content', 'Preview', 'Text Messages'].map((title) => (
+              <SettingsCard key={title} title={title} icon={EnvelopeSimple}>
+                {branding.isPending ? <Skeleton className="h-24" /> : <Quiet>{NOT_LOADED}</Quiet>}
+              </SettingsCard>
+            ))}
+          </div>
+          {branding.isError ? (
+            <div>
+              <Button
+                variant="secondary"
+                disabled={branding.isFetching}
+                onClick={() => void branding.refetch()}
+              >
+                Try again
+              </Button>
+            </div>
+          ) : null}
+        </>
       )}
     </div>
   );
@@ -103,6 +116,14 @@ function CommunicationsForm({
   const router = useRouter();
   // Open Communications with unsaved edits asks first: Save and Leave, Discard and Leave, or Stay.
   const [leaving, setLeaving] = useState(false);
+  // Cancel with unsaved edits asks before it puts the saved settings back.
+  const [discarding, setDiscarding] = useState(false);
+  const discard = () => {
+    setForm(fromBranding(branding));
+    setErrors({});
+    onSaved('');
+    setDiscarding(false);
+  };
   const savedForm = fromBranding(branding);
   const dirty = (Object.keys(savedForm) as (keyof Form)[]).some((k) => form[k] !== savedForm[k]);
 
@@ -299,6 +320,26 @@ function CommunicationsForm({
           </p>
         </Modal>
       ) : null}
+      {discarding ? (
+        <Modal
+          open
+          title="Discard your changes?"
+          onClose={() => setDiscarding(false)}
+          footer={
+            <div className="flex flex-wrap justify-end gap-3">
+              <Button variant="secondary" onClick={() => setDiscarding(false)}>
+                Keep Editing
+              </Button>
+              <Button onClick={discard}>Discard Changes</Button>
+            </div>
+          }
+        >
+          <p className="max-w-lg text-sm text-text">
+            Your changes to these communication settings are not saved yet. Discard them and go back
+            to the saved settings?
+          </p>
+        </Modal>
+      ) : null}
       <Callout icon={Info} tone="navy" surface="plain" size="compact">
         Your logo on emails follows Branding. Required security and legal notices are always added
         and cannot be removed.
@@ -323,11 +364,7 @@ function CommunicationsForm({
           <Button
             variant="secondary"
             disabled={save.isPending}
-            onClick={() => {
-              setForm(fromBranding(branding));
-              setErrors({});
-              onSaved('');
-            }}
+            onClick={() => (dirty ? setDiscarding(true) : discard())}
           >
             Cancel
           </Button>
