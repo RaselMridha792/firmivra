@@ -15,9 +15,19 @@ import {
 // Owner and Admin only. A firm has one company: the design's "All Companies" filter and Company
 // column are for platform admins; the firm API answers its own name.
 
-/** GET /business/users. Search matches name, email and role. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * GET /business/users. Search matches name, email and role. `ids` (comma-separated, at most 100)
+ * keeps only those people: the export of a selection (Export Selected).
+ */
 export const UsersQuery = z.strictObject({
   search: SearchText.optional(),
+  ids: z
+    .union([z.array(z.string()), z.string()])
+    .transform((v) => (Array.isArray(v) ? v : v.split(',')).map((x) => x.trim()).filter(Boolean))
+    .pipe(z.array(z.string().regex(UUID, 'Use member ids')).min(1).max(100))
+    .optional(),
   role: MembershipRole.optional(),
   status: StaffStatusFilter.optional().default('all'),
   page: z.coerce.number().int().min(1).optional().default(1),
