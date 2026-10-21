@@ -10,6 +10,7 @@ Guide: `docs/specs/settings-review-2026-10-20/users-and-roles--firmivra-users-an
 - [ ] 4. **Admin permission edits rejected** (P1): Owner and Admin may edit every role in their firm.
 - [ ] 5. **Custom role** (P1): template, then a Set Permissions dialog, then save. Needs a `custom_roles` table (R0).
 - [ ] 6. P3: individual overrides (Inherit, Allow, Deny), change role, revoke invitation, unlock, reactivate, bulk actions, last-administrator protection.
+  - [x] Bulk actions: the bulk bar (Export Selected, Resend Invitations, Deactivate Selected); selection kept across pages of one filter set and cleared by any filter change; the dialog lists who is affected and who is left out (yourself, the Owner, roles you do not manage, wrong status) before anything is sent; one Staff route per person with a result each and Retry for the failed ones. Export Selected is the audited server CSV with `ids` (contract #992).
 
 ## Decisions
 
