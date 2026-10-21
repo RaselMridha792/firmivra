@@ -31,10 +31,17 @@ const DateTime = z.iso.datetime({ offset: true });
  * What a file may be, for clients and staff alike: PDF, JPG, PNG, Excel (.xlsx) or Word (.docx),
  * at most 10 MB (docs/SYSTEM-DESIGN.md "Uploads"; Excel and Word from Rasel, Oct 8). Office files
  * only without macros: .xls, .xlsm, .doc, .docm and .csv stay refused (their types are not here,
- * and a name's ending must fit its declared type).
+ * and a name's ending must fit its declared type). Files chosen together go up as one batch of at
+ * most 20 files and 500 MB in all (Settings > Forms & Documents review, Oct 19): the API has no
+ * batch (each file is its own `createUpload`), so the browser checks it (`uploadBatchProblem`).
+ * The database holds every file to 10 MB (CHECKs), so `maxBytes` rises only with them.
  */
 export const UPLOAD_LIMITS = {
   maxBytes: 10 * 1024 * 1024,
+  /** The most files chosen together for one upload (a batch). */
+  maxBatchFiles: 20,
+  /** The most bytes the files of one batch come to together. */
+  maxBatchBytes: 500 * 1024 * 1024,
   /** The types in words, for the picker's hint and the messages. */
   typeNames: 'PDF, JPG, PNG, Excel (.xlsx) or Word (.docx)',
   /** Content type and the file name endings that go with it (for the picker's `accept`). */
@@ -78,6 +85,19 @@ export function uploadContentTypeFor(
   if (Object.hasOwn(UPLOAD_LIMITS.types, browserType)) return browserType as UploadContentType;
   if (!NO_TYPE.includes(browserType)) return null;
   return UploadContentType.options.find((type) => fileNameFitsType(fileName, type)) ?? null;
+}
+
+/**
+ * Why files chosen together can't go up as one batch, or null when they can: more than
+ * `UPLOAD_LIMITS.maxBatchFiles` files (TOO_MANY_FILES), or more than `maxBatchBytes` in all
+ * (BATCH_TOO_LARGE). Each file still has its own checks (`uploadFile()`, then `createUpload`).
+ */
+export function uploadBatchProblem(
+  files: readonly { size: number }[],
+): 'TOO_MANY_FILES' | 'BATCH_TOO_LARGE' | null {
+  if (files.length > UPLOAD_LIMITS.maxBatchFiles) return 'TOO_MANY_FILES';
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+  return total > UPLOAD_LIMITS.maxBatchBytes ? 'BATCH_TOO_LARGE' : null;
 }
 
 /**
@@ -530,6 +550,16 @@ export const DocumentErrorCode = z.enum([
   'FILE_EMPTY',
   /** 400 from `uploadFile()`, before anything is sent: the file is larger than 10 MB. */
   'FILE_TOO_LARGE',
+  /**
+   * 400 from the browser's batch check (`checkUploadBatch()`), before any file is sent: more than
+   * 20 files were chosen together.
+   */
+  'TOO_MANY_FILES',
+  /**
+   * 400 from the browser's batch check (`checkUploadBatch()`), before any file is sent: the files
+   * chosen together come to more than 500 MB.
+   */
+  'BATCH_TOO_LARGE',
   /** The browser could not PUT the file to storage (from `uploadFile()`, not the API). */
   'UPLOAD_FAILED',
   /**
@@ -567,6 +597,8 @@ export const DOCUMENT_ERRORS = {
   FILE_TYPE_NOT_ALLOWED: `Upload a ${UPLOAD_LIMITS.typeNames} file.`,
   FILE_EMPTY: 'This file is empty. Choose another file.',
   FILE_TOO_LARGE: 'This file is larger than 10 MB. Choose a smaller file.',
+  TOO_MANY_FILES: `Upload at most ${UPLOAD_LIMITS.maxBatchFiles} files at a time.`,
+  BATCH_TOO_LARGE: `These files come to more than ${UPLOAD_LIMITS.maxBatchBytes / (1024 * 1024)} MB together. Upload them in smaller groups.`,
   UPLOAD_FAILED: 'The upload did not go through. Check your connection and try again.',
   SCAN_PENDING: 'This file is still being checked. Try again in a moment.',
   FILE_BLOCKED: "This file couldn't be checked, so it can't be downloaded.",
