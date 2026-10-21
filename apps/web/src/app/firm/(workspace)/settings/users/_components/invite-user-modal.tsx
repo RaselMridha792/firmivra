@@ -1,22 +1,32 @@
 'use client';
 
-import { InviteUserRequest, type MembershipRole } from '@firmivra/types';
-import { Button, Input, Modal, Select } from '@firmivra/ui';
-import { useState } from 'react';
+import { FIRM_ROLE_LABELS, type MembershipRole, type StaffListItem } from '@firmivra/types';
+import { Button, Modal, SearchField, Select } from '@firmivra/ui';
+import { useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
+import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
-import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useApiQuery } from '../../../../../../lib/query';
 
 const INVITE_ERRORS: Record<string, string> = {
-  DUPLICATE_EMAIL: 'This email already belongs to a member or an open invitation.',
-  CANNOT_GRANT: 'You cannot give this role.',
+  CANNOT_GRANT: 'You cannot give this role. Choose another role or ask the Owner.',
+  NOT_INVITED: 'This person already has an account. Use Reset Password or Reactivate instead.',
+  SAVE_CONFLICT: 'This staff record changed meanwhile. Choose the person again.',
   FORBIDDEN: 'Only an Owner or an Admin can invite users.',
+  NOT_FOUND: 'This staff record is no longer there. Choose the person again.',
 };
 
+const sentText = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
 /**
- * Invite User (users-and-role.jpg, guide §7): name, email and role; the person gets a secure,
- * time-limited activation link and two-factor sign-in is always required. For everything else
- * (departments, security, details) Create Staff is linked.
+ * Invite User (Octavia's review, Oct 20, section 5): the person is created in Staff Management
+ * first, then invited from here; no second staff record. Choose the existing record (searchable,
+ * name and work email come from it), check the role, send. The activation email carries a
+ * time-limited link; the person sets their own password and two-factor sign-in. A role change is
+ * saved on the record first (Edit Staff's route), then the invitation goes out (Resend's route,
+ * which never claims an email that failed).
  */
 export function InviteUserModal({
   onClose,
@@ -25,90 +35,157 @@ export function InviteUserModal({
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
+  const queryClient = useQueryClient();
   const options = useApiQuery(['staff', 'options'], () => api.staff.options());
-  const roles = (options.data?.roles ?? []).filter((r) => r.role !== 'OWNER');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [role, setRole] = useState<MembershipRole | ''>('');
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const invite = useApiMutation(
-    (body: Parameters<typeof api.users.invite>[0]) => api.users.invite(body),
-    { invalidate: ['users'] },
+  const [search, setSearch] = useState('');
+  const term = useDeferredValue(search.trim());
+  const candidates = useApiQuery(['staff', 'invite-candidates', term], () =>
+    api.staff.list({
+      status: 'invited',
+      pageSize: 100,
+      ...(term.length >= 2 ? { search: term } : {}),
+    }),
   );
+  const [picked, setPicked] = useState<StaffListItem>();
+  const [role, setRole] = useState<MembershipRole | ''>('');
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const roles = (options.data?.roles ?? []).filter((r) => r.role !== 'OWNER');
+  const people = candidates.data?.items ?? [];
+  const chosenRole = role || picked?.role || '';
+  const description = roles.find((r) => r.role === chosenRole)?.description;
+
+  const send = async () => {
+    if (!picked || !chosenRole) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      if (chosenRole !== picked.role) {
+        const record = await api.staff.get(picked.id);
+        await api.staff.update(picked.id, {
+          version: record.version,
+          account: { role: chosenRole },
+        });
+      }
+      await api.staff.resendInvite(picked.id);
+      await queryClient.invalidateQueries({ queryKey: ['users'] });
+      await queryClient.invalidateQueries({ queryKey: ['staff'] });
+      onDone(`Invitation sent to ${picked.name} (${picked.email}).`);
+    } catch (e) {
+      // The inputs stay as they were, so a retry is one click.
+      setError(errorMessage(e, INVITE_ERRORS));
+      setBusy(false);
+    }
+  };
+
   return (
     <Modal open title="Invite User" onClose={onClose}>
       <form
         noValidate
         className="flex flex-col gap-4"
+        data-testid="invite-user"
         onSubmit={(event) => {
           event.preventDefault();
-          const body = { name: name.trim(), email: email.trim(), role };
-          const result = InviteUserRequest.safeParse(body);
-          const found: Record<string, string> = {};
-          if (!result.success) {
-            for (const issue of result.error.issues) {
-              const field = String(issue.path[0] ?? '');
-              found[field] ??=
-                field === 'name'
-                  ? 'Enter their name.'
-                  : field === 'email'
-                    ? 'Enter a valid work email.'
-                    : 'Choose a role.';
-            }
-          }
-          setErrors(found);
-          if (!result.success) return;
-          invite.mutate(result.data, {
-            onSuccess: (r) =>
-              onDone(
-                r.invitation.status === 'SENT'
-                  ? `Invitation sent to ${r.user.name}.`
-                  : `${r.user.name} was added. The invitation did not go out; use Resend Invitation.`,
-              ),
-          });
+          void send();
         }}
       >
-        <Input
-          label="Name *"
-          autoComplete="off"
-          maxLength={120}
-          value={name}
-          error={errors.name}
-          onChange={(event) => setName(event.target.value)}
+        <p className="text-sm text-text">
+          Choose the employee from Staff Management. Their name and work email come from their staff
+          record.
+        </p>
+        <SearchField
+          label="Search employees"
+          placeholder="Search by name or email…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
         />
-        <Input
-          label="Work Email *"
-          type="email"
-          autoComplete="off"
-          value={email}
-          error={errors.email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-        <Select
-          label="Role *"
-          options={[
-            { value: '', label: 'Select a role' },
-            ...roles.map((r) => ({ value: r.role, label: r.label })),
-          ]}
-          value={role}
-          error={errors.role}
-          onChange={(event) => setRole(event.target.value as MembershipRole | '')}
-        />
+        {candidates.isError ? (
+          <p role="alert" className="flex flex-wrap items-center gap-2 text-sm text-danger">
+            Employees could not load. {errorMessage(candidates.error, INVITE_ERRORS)}
+            <Button variant="outline" onClick={() => void candidates.refetch()}>
+              Retry
+            </Button>
+          </p>
+        ) : candidates.isPending ? (
+          <p className="text-sm text-muted">Loading employees…</p>
+        ) : people.length === 0 ? (
+          <p className="rounded-lg bg-canvas px-3 py-2 text-sm text-text">
+            {term
+              ? 'No employee waiting for an invitation matches this search.'
+              : 'No employee is waiting for an invitation.'}{' '}
+            <Link href="/team/new" className="font-medium text-link hover:underline">
+              Add the employee in Staff Management
+            </Link>{' '}
+            first.
+          </p>
+        ) : (
+          <ul
+            role="listbox"
+            aria-label="Employees waiting for an invitation"
+            className="flex max-h-56 flex-col overflow-y-auto rounded-lg border border-divider"
+          >
+            {people.map((p) => {
+              const on = picked?.id === p.id;
+              return (
+                <li key={p.id} role="option" aria-selected={on}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPicked(p);
+                      setRole('');
+                      setError(undefined);
+                    }}
+                    className={`flex w-full flex-col items-start px-3 py-2 text-left text-sm ${on ? 'bg-accent-soft' : 'hover:bg-canvas'}`}
+                  >
+                    <span className="font-medium text-heading">{p.name}</span>
+                    <span className="text-muted">
+                      {p.email} · {FIRM_ROLE_LABELS[p.role]}
+                      {p.invite ? ` · invited ${sentText(p.invite.sentAt)}` : ' · not invited yet'}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {picked ? (
+          <div className="flex flex-col gap-3 rounded-lg border border-divider p-3">
+            <dl className="grid grid-cols-[6rem_1fr] gap-1 text-sm">
+              <dt className="text-muted">Name</dt>
+              <dd className="text-heading">{picked.name}</dd>
+              <dt className="text-muted">Work email</dt>
+              <dd className="break-all text-heading">{picked.email}</dd>
+            </dl>
+            <Select
+              label="Role *"
+              options={roles.map((r) => ({ value: r.role, label: r.label }))}
+              value={chosenRole}
+              onChange={(event) => setRole(event.target.value as MembershipRole)}
+            />
+            {description ? <p className="text-xs text-muted">{description}</p> : null}
+            {picked.invite ? (
+              <p className="text-xs text-muted">
+                Sending again replaces the link sent {sentText(picked.invite.sentAt)}; the old one
+                stops working.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         <p className="text-xs text-muted">
           They get a secure, time-limited link to set their own password; two-factor sign-in is
-          always required. Use Create Staff to add their department, security and details too.
+          always required.
         </p>
-        {invite.error ? (
+        {error ? (
           <p role="alert" className="text-sm text-danger">
-            {errorMessage(invite.error, INVITE_ERRORS)}
+            {error}
           </p>
         ) : null}
         <div className="flex justify-end gap-3">
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={invite.isPending}>
-            Send Invitation
+          <Button type="submit" disabled={!picked || !chosenRole || busy}>
+            {busy ? 'Sending…' : 'Send Invitation'}
           </Button>
         </div>
       </form>

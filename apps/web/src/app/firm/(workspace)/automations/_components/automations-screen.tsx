@@ -25,6 +25,7 @@ import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { BackToWorkflow } from '../../settings/workflow/_components/back-to-workflow';
 import { DuplicateDialog, ImportDialog, RuleMenu, SettingsDialog } from './automation-dialogs';
 import {
   AUTOMATIONS_KEY,
@@ -53,8 +54,11 @@ const STEPS = [
   ['Activate', 'Turn it on and let Firmivra handle the rest.'],
 ] as const;
 
-/** /automations: the command center: KPIs, categories, the rules table, templates and quick actions. */
-export function AutomationsScreen() {
+/**
+ * /automations: the command center: KPIs, categories, the rules table, templates and quick actions.
+ * Opened from Settings > Workflow & Automations (`fromWorkflow`), the way back sits by the breadcrumb.
+ */
+export function AutomationsScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabId>('overview');
   const [search, setSearch] = useState('');
@@ -202,18 +206,21 @@ export function AutomationsScreen() {
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="automations-page">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
-        <Link href="/" aria-label="Home" className="text-link">
-          <ArrowLeft aria-hidden weight="bold" className="size-4" />
-        </Link>
-        <Link href="/" className="text-link">
-          Home
-        </Link>
-        <span aria-hidden className="text-muted">
-          ›
-        </span>
-        <span className="font-semibold text-heading">Automation</span>
-      </nav>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
+          <Link href="/" aria-label="Home" className="text-link">
+            <ArrowLeft aria-hidden weight="bold" className="size-4" />
+          </Link>
+          <Link href="/" className="text-link">
+            Home
+          </Link>
+          <span aria-hidden className="text-muted">
+            ›
+          </span>
+          <span className="font-semibold text-heading">Automation</span>
+        </nav>
+        {fromWorkflow ? <BackToWorkflow /> : null}
+      </div>
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <span className="flex size-20 shrink-0 items-center justify-center rounded-xl bg-navigation text-on-action">
