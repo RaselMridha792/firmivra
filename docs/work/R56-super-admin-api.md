@@ -141,6 +141,7 @@ The contract keeps Tumit's method names and field names, so his screens switch w
 - **R1: Locations API** (Rasel, Oct 21: the Locations backend and the FirmOffice migration are R1's): R56 then builds Settings > Locations (list, profile modal, add, edit, three-dot menu), the Overview's Locations parts (items 1, 3 to 5, 10 to 13) and location results in the header search.
 - **R1: staff self-profile API** (Settings review, Overview items 9 and 20): photo, phone, password and personal preferences for the signed-in person. Until then My Profile (#990) is read-only from `/me`.
 - **R60 / R0: Sales data gaps** filed as schema request #984 (est. close, an appointment requirement on a stage, plan copy, the Card / List preference); Rasel: not built now.
+- **The clients list's owner (R23's spec): `apps/web/e2e/mock/r23-clients.spec.ts` fails on main** (3 of 3). It stubs `/api/v1/business/clients` with `page.route`, but in mock mode the clients list comes from the in-browser mock (registered in R34), so its stubs never fire, and even "an error shows Try again" cannot fail the request. Not a one-line fix in R56's files, so R56 leaves it (Rasel, Oct 21). #990 only made its search box lookup `exact`, so it no longer also matches the header search.
 - **R55 / Fahad: firm Integrations gaps** (from Ibrahim's drafts and R56's tabs): `IntegrationCard` has no secondary action, so the main page shows Sync Now or Test by sync mode instead of the design's per-provider pair; the connect flow's Add Custom Folder has no contract field (shown disabled); the kit has no provider logo set, so cards show the provider's initial.
 
 ## Progress log
@@ -181,9 +182,11 @@ Limits: at most 2 open non-contract PRs; `git merge origin/main`, never rebase o
 
 **Update (Oct 21).** Merged: #971 (Firms table at 1280 px), #972 (legal pages), #979 (Sales design pass). Open: #981 (`rasel/R0-platform-admins-team-insert`, the app's TEAM_MEMBER inserts on `platform_admins`, Rasel's request, under R0's lock) and #990 (`rasel/R56-settings-shell`, Overview items 2, 7, 8 and 9). Rasel's order: (1) #981, (2) the Overview items without Locations (#990), (3) the Sales screens without a design, (4) Locations.
 
+**Update (Oct 21, later).** #981 and #990 merged. Open: #1001 (`rasel/R56-sales-screens`, the Sales screens without a design). #984 stays a schema request; nothing is built for it. Next: wait for R1's Locations API (after #995 merges) before Settings > Locations and the Overview's Locations parts.
+
 **Next, in order:**
 
-1. **Sales screens without a design** (Rasel chose this as the Sales leftovers): List View (the table runs past its card, emails wrap, stage badges break), Pipeline Builder (Type and On entry selects cut their values), the opportunity page, Add Lead, the action dialogs and drawers, in the Sales Center's compact language. Branch `rasel/R56-sales-screens`; "before" shots of all 14 were taken with a temporary `zz-r56-sales-ui-shots.spec.ts`. No adapter changes.
+1. **Done in #1001: Sales screens without a design** (Rasel chose this as the Sales leftovers): List View (the table runs past its card, emails wrap, stage badges break), Pipeline Builder (Type and On entry selects cut their values), the opportunity page, Add Lead, the action dialogs and drawers, in the Sales Center's compact language. Branch `rasel/R56-sales-screens`; "before" shots of all 14 were taken with a temporary `zz-r56-sales-ui-shots.spec.ts`. No adapter changes.
 2. **Settings > Locations and the Overview's Locations parts**, after R1's Locations API is merged (not before; no FirmOffice migration from R56). Read `docs/specs/settings-review-2026-10-20/CHANGE-LIST.md` (P3 Locations) and `locations--final-lvp-locations-settings-final-developer-guide.md`; mockups in `.../overview/` and `.../locations/`.
 
 When `GET /api/v1/legal/:kind` (stage D4) exists, the legal pages can render the published version; its version 1 should then carry the docx text from `app/firm/(legal)/_components/`.

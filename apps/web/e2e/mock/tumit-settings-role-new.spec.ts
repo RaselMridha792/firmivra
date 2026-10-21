@@ -49,6 +49,20 @@ test('checks the name, then Set Permissions saves the role with its grid', async
       name: 'Payroll Specialist (custom)',
     }),
   ).toHaveCount(1);
+
+  // A custom role is a template too: its permissions are the start, Bookkeeper the base.
+  await page
+    .getByTestId('role-templates')
+    .getByRole('button', { name: 'Payroll Specialist' })
+    .click();
+  await expect(page.getByLabel('Start From *')).toHaveValue(/^custom:/);
+  await page.getByLabel('Role Name *').fill('Payroll Lead');
+  await next.click();
+  await expect(dialog.getByRole('checkbox', { name: 'Leads / Prospects: View' })).toBeChecked();
+  await dialog.getByRole('button', { name: 'Save Role' }).click();
+  await expect(dialog).toContainText('more than Bookkeeper has in this firm');
+  await dialog.getByRole('button', { name: 'Save Anyway' }).click();
+  await expect(page.getByText('2 custom roles', { exact: true })).toBeVisible();
 });
 
 test('starts from the template chosen on Users & Roles', async ({ page }) => {

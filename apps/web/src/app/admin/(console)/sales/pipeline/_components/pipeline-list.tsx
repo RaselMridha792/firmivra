@@ -41,7 +41,8 @@ const COLUMNS: Column<SalesOpportunity>[] = [
     cell: (row) => (
       <Link
         href={`/sales/opportunities/${row.id}`}
-        className="font-semibold text-heading hover:text-action hover:underline"
+        title={row.firmName}
+        className="line-clamp-2 min-w-32 font-semibold text-heading hover:text-action hover:underline"
       >
         {row.firmName}
       </Link>
@@ -52,9 +53,13 @@ const COLUMNS: Column<SalesOpportunity>[] = [
     label: 'Contact',
     sortValue: (row) => row.contactName.toLowerCase(),
     cell: (row) => (
-      <span className="flex flex-col">
-        {row.contactName}
-        {row.email ? <span className="text-muted">{row.email}</span> : null}
+      <span className="flex max-w-48 flex-col">
+        <span className="truncate">{row.contactName}</span>
+        {row.email ? (
+          <span title={row.email} className="truncate text-muted">
+            {row.email}
+          </span>
+        ) : null}
       </span>
     ),
   },
@@ -62,31 +67,35 @@ const COLUMNS: Column<SalesOpportunity>[] = [
     id: 'stage',
     label: 'Stage',
     sortValue: (row) => row.stageOrder,
+    className: 'whitespace-nowrap',
     cell: (row) => <Badge tone={STAGE_STYLE[row.stageTone].badge}>{row.stageName}</Badge>,
   },
   {
     id: 'owner',
     label: 'Assigned To',
     sortValue: (row) => row.owner?.name ?? '~',
+    className: 'whitespace-nowrap',
     cell: (row) => row.owner?.name ?? <span className="text-muted">Unassigned</span>,
   },
   {
     id: 'source',
     label: 'Source',
     sortValue: (row) => sourceLabel(row.source),
+    className: 'whitespace-nowrap',
     cell: (row) => sourceLabel(row.source),
   },
   {
     id: 'plan',
     label: 'Plan',
     sortValue: (row) => (row.plan ? planName(row.plan) : '~'),
+    className: 'whitespace-nowrap',
     cell: (row) => (row.plan ? planName(row.plan) : <span className="text-muted">—</span>),
   },
   {
     id: 'value',
     label: 'Value',
     sortValue: (row) => row.valueCents ?? -1,
-    className: 'text-right',
+    className: 'whitespace-nowrap text-right',
     cell: (row) =>
       row.valueCents === null ? <span className="text-muted">—</span> : money(row.valueCents),
   },
@@ -94,12 +103,14 @@ const COLUMNS: Column<SalesOpportunity>[] = [
     id: 'activity',
     label: 'Last Activity',
     sortValue: (row) => Date.parse(row.lastActivityAt),
+    className: 'whitespace-nowrap',
     cell: (row) => dateText(row.lastActivityAt),
   },
   {
     id: 'follow-up',
     label: 'Next Follow-Up',
     sortValue: (row) => (row.nextFollowUpAt ? Date.parse(row.nextFollowUpAt) : Number.MAX_VALUE),
+    className: 'whitespace-nowrap',
     cell: (row) =>
       row.nextFollowUpAt ? dateText(row.nextFollowUpAt) : <span className="text-muted">—</span>,
   },
@@ -107,6 +118,7 @@ const COLUMNS: Column<SalesOpportunity>[] = [
     id: 'attention',
     label: 'Attention Status',
     sortValue: (row) => row.attention.length,
+    className: 'whitespace-nowrap',
     cell: (row) =>
       row.attention.length ? (
         <span className="flex flex-wrap gap-1">
@@ -124,6 +136,7 @@ const COLUMNS: Column<SalesOpportunity>[] = [
     id: 'created',
     label: 'Created Date',
     sortValue: (row) => Date.parse(row.createdAt),
+    className: 'whitespace-nowrap',
     cell: (row) => dateText(row.createdAt),
   },
 ];

@@ -371,6 +371,13 @@ describe('The guard reads the custom grid', () => {
       }),
     );
     expect((await call('get', '/invoices', booksA)).status).toBe(200);
+    // Inherit goes back to the custom role's grid, not the Bookkeeper's.
+    ok(
+      await call('patch', `/staff/${member.booksA}/permissions`, ownerA, {
+        overrides: [{ module: 'INVOICES_PAYMENTS', capability: 'VIEW', mode: 'INHERIT' }],
+      }),
+    );
+    expect((await call('get', '/invoices', booksA)).status).toBe(403);
   });
 
   it('applies Edit Permissions on the next request', async () => {

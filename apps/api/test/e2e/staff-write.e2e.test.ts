@@ -723,6 +723,102 @@ describe("a member's permissions", () => {
     );
   });
 
+  it('sets Inherit, Allow or Deny per cell; an Allow the role already gives stays theirs', async () => {
+    const patch = (overrides: object[], extra: object = {}) =>
+      call('patch', `/staff/${member.staffA}/permissions`, ownerA, { overrides, ...extra });
+    const cellOf = (p: StaffPermissions, module: string, capability: string) =>
+      p.cells.find((c) => c.module === module && c.capability === capability);
+    // Clients View is the Staff role's: an Allow keeps it as the person's own.
+    const kept = StaffPermissions.parse(
+      ok(await patch([{ module: 'CLIENTS', capability: 'VIEW', mode: 'ALLOW' }])),
+    );
+    expect(cellOf(kept, 'CLIENTS', 'VIEW')).toMatchObject({ granted: true, source: 'MEMBER' });
+    // Deny takes it away for this person, and the guard applies it at once.
+    const clients = ['VIEW', 'CREATE', 'EDIT'].map((capability) => ({
+      module: 'CLIENTS',
+      capability,
+    }));
+    ok(await patch(clients.map((c) => ({ ...c, mode: 'DENY' }))));
+    expectError(await call('get', '/clients', staffA), 403, 'FORBIDDEN');
+    // Inherit (Reset to Inherit) gives the cells back to the role.
+    const back = StaffPermissions.parse(
+      ok(await patch(clients.map((c) => ({ ...c, mode: 'INHERIT' })))),
+    );
+    expect(cellOf(back, 'CLIENTS', 'VIEW')).toMatchObject({
+      granted: true,
+      source: 'ROLE_DEFAULT',
+    });
+    ok(await call('get', '/clients', staffA));
+    const row = await inFirm('a', (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { action: 'staff.permissions_overridden', entityId: member.staffA },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+    expect(row.metadata).toMatchObject({ changedCells: 3, inherited: 3, allowed: 0, denied: 0 });
+  });
+
+  it('asks before an Allow beyond the role, needs View first, never the Owner', async () => {
+    const grid = StaffPermissions.parse(
+      ok(await call('get', `/staff/${member.staffA}/permissions`, ownerA)),
+    );
+    const extra = grid.cells.find(
+      (c) => c.capability === 'VIEW' && !c.granted && c.source === 'ROLE_DEFAULT',
+    )!;
+    const allow = { overrides: [{ module: extra.module, capability: 'VIEW', mode: 'ALLOW' }] };
+    const patch = (who: Who, id: string, body: object) =>
+      call('patch', `/staff/${id}/permissions`, who, body);
+    expectError(await patch(ownerA, member.staffA, allow), 409, 'PERMISSION_ESCALATION');
+    ok(await patch(ownerA, member.staffA, { ...allow, acknowledgeEscalation: true }));
+    ok(
+      await patch(ownerA, member.staffA, {
+        overrides: [{ module: extra.module, capability: 'VIEW', mode: 'INHERIT' }],
+      }),
+    );
+    expectError(
+      await patch(ownerA, member.staffA, {
+        overrides: [{ module: extra.module, capability: 'EDIT', mode: 'ALLOW' }],
+        acknowledgeEscalation: true,
+      }),
+      400,
+      'PERMISSION_NEEDS_VIEW',
+    );
+    // Saved data elsewhere (a capability without View, in a module the role does not see) does
+    // not block a change to another module.
+    await inFirm('a', (tx) =>
+      tx.memberPermission.create({
+        data: {
+          businessId: firms.a,
+          membershipId: member.staffA,
+          module: extra.module,
+          capability: 'CREATE',
+          granted: true,
+        },
+      }),
+    );
+    ok(
+      await patch(ownerA, member.staffA, {
+        overrides: [{ module: 'TASKS', capability: 'DELETE', mode: 'DENY' }],
+      }),
+    );
+    ok(
+      await patch(ownerA, member.staffA, {
+        overrides: [
+          { module: 'TASKS', capability: 'DELETE', mode: 'INHERIT' },
+          { module: extra.module, capability: 'CREATE', mode: 'INHERIT' },
+        ],
+      }),
+    );
+    // An Admin never manages the Owner (refused before the Owner's own guard is reached).
+    expectError(await patch(adminA, member.ownerA, allow), 403, 'FORBIDDEN');
+    expectError(await patch(staffA, member.managerA, allow), 403, 'FORBIDDEN');
+    expectError(
+      await patch(ownerA, member.staffA, { overrides: [allow.overrides[0], allow.overrides[0]] }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+
   it("copies another member's grid", async () => {
     const copied = StaffPermissions.parse(
       ok(

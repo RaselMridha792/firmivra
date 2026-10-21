@@ -146,6 +146,10 @@ export const cases: CaseModule['cases'] = {
   [`POST ${BASE}/:id/invite/resend`]: { params: { id: 'staffMembership' }, expect: 409 },
   [`POST ${BASE}/:id/invite/revoke`]: { params: { id: 'staffMembership' }, expect: 409 },
   [`PUT ${BASE}/:id/permissions`]: { params: { id: 'staffMembership' }, body: { grants: [] } },
+  [`PATCH ${BASE}/:id/permissions`]: {
+    params: { id: 'staffMembership' },
+    body: { overrides: [{ module: 'REPORTS', capability: 'VIEW', mode: 'INHERIT' }] },
+  },
   [`POST ${BASE}/:id/permissions/copy-from/:fromId`]: {
     params: { id: 'staffMembership', fromId: 'staffSupervisor' },
   },

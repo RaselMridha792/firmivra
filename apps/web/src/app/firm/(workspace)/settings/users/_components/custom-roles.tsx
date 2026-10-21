@@ -39,6 +39,13 @@ export type RoleChoice =
 
 export const customKey = (id: string) => `custom:${id}`;
 
+/**
+ * A custom role's tint: one of the two the design gives the firm's own roles (Office Manager
+ * purple, Payroll Specialist pink), fixed per role, for its chip and its template.
+ */
+export const customTone = (id: string): 'purple' | 'red' =>
+  [...id].reduce((n, ch) => n + ch.charCodeAt(0), 0) % 2 ? 'red' : 'purple';
+
 /** The built-in roles, then the firm's live custom roles by name. */
 export function roleChoices(list: RoleList | undefined): RoleChoice[] {
   return [
@@ -105,15 +112,24 @@ export function SetPermissionsModal({
   name,
   template,
   start,
+  base,
+  baseName = template,
   onSave,
   onBack,
   onSaved,
 }: {
   name: string;
-  /** The built-in role it starts from, by name. */
+  /** The role it starts from, by name (a built-in role or a custom role used as a template). */
   template: string;
   /** The template's grid in this firm; undefined while it loads, null if it could not. */
   start: RolePermissions | null | undefined;
+  /**
+   * The built-in role's grid the API measures against, when the template is a custom role (the
+   * cells sent are the ones that differ from it). Defaults to `start`.
+   */
+  base?: RolePermissions | null | undefined;
+  /** The built-in role's name, for "more than … has". */
+  baseName?: string;
   onSave: (grants: PermissionGrant[], ack: boolean) => Promise<CustomRole>;
   onBack: () => void;
   onSaved: (role: CustomRole) => void;
@@ -123,11 +139,12 @@ export function SetPermissionsModal({
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const base = start ? toValue(start.cells) : {};
-  const value = draft ?? base;
+  const ticked = start ? toValue(start.cells) : {};
+  const value = draft ?? ticked;
+  const against = base === undefined ? start : base;
 
   const changed = (): PermissionGrant[] =>
-    (start?.cells ?? []).flatMap((c) => {
+    (against?.cells ?? []).flatMap((c) => {
       const now = value[c.module]?.includes(c.capability) ?? false;
       return now === c.granted
         ? []
@@ -154,7 +171,7 @@ export function SetPermissionsModal({
           {template} itself stays as it is.
         </p>
         <div className="max-h-[55vh] min-w-0 overflow-auto">
-          {start && modules.data ? (
+          {start && against && modules.data ? (
             <PermissionMatrix
               rows={modules.data.modules.map((m) => ({
                 id: m.module,
@@ -181,7 +198,7 @@ export function SetPermissionsModal({
               }
               caption={`Permissions for ${name}`}
             />
-          ) : start === null || modules.isError ? (
+          ) : start === null || against === null || modules.isError ? (
             <PermissionMatrix rows={[]} columns={[]} value={{}} emptyText={NOT_LOADED} />
           ) : (
             <Skeleton className="h-80" />
@@ -189,7 +206,7 @@ export function SetPermissionsModal({
         </div>
         {asking ? (
           <Callout icon={Info} tone="amber" surface="warning" size="compact">
-            Some boxes give {name} more than {template} has in this firm. Everyone you give the role
+            Some boxes give {name} more than {baseName} has in this firm. Everyone you give the role
             gets them. Save anyway?
           </Callout>
         ) : null}
@@ -214,7 +231,7 @@ export function SetPermissionsModal({
           <Button variant="secondary" disabled={busy} onClick={onBack}>
             Back
           </Button>
-          <Button disabled={!start || busy} onClick={() => void save(asking)}>
+          <Button disabled={!start || !against || busy} onClick={() => void save(asking)}>
             {busy ? 'Saving…' : asking ? 'Save Anyway' : 'Save Role'}
           </Button>
         </div>

@@ -16,6 +16,7 @@ import {
   Skeleton,
   Table,
   type Column,
+  tileTones,
 } from '@firmivra/ui';
 import {
   DownloadSimple,
@@ -47,7 +48,8 @@ import { BandCard, SettingsHeader, SettingsKpi } from '../../_components/setting
 import { AccessModal } from './access-modal';
 import { ChangeRoleModal } from './change-role-modal';
 import { InviteUserModal } from './invite-user-modal';
-import { roleChoices } from './custom-roles';
+import { customTone, roleChoices } from './custom-roles';
+import { PermissionsModal } from './permissions-modal';
 import { RolePanel } from './role-panel';
 import { RoleTemplates } from './role-templates';
 
@@ -133,6 +135,7 @@ type Dialog =
   | { kind: 'invite' }
   | { kind: 'action'; action: StaffAction; user: FirmUser }
   | { kind: 'revoke'; user: FirmUser }
+  | { kind: 'permissions'; user: FirmUser }
   | { kind: 'access'; action: 'unlock' | 'reactivate'; user: FirmUser }
   | { kind: 'role'; user: FirmUser }
   | { kind: 'pick'; action: 'resetPassword' | 'deactivate' };
@@ -201,6 +204,15 @@ export function UsersScreen({ initialRole }: { initialRole?: string }) {
     items.push(
       { label: 'Edit User', onSelect: () => router.push(`/team/${u.id}`) },
       { label: 'Manage Access', onSelect: () => router.push(`/team/${u.id}/security/permissions`) },
+      // Inherit, Allow or Deny per permission, for someone whose access you manage.
+      ...(me && ROLES_MANAGED_BY[me].includes(u.role)
+        ? [
+            {
+              label: 'Individual Permissions',
+              onSelect: () => setDialog({ kind: 'permissions', user: u }),
+            },
+          ]
+        : []),
       // Only someone whose role you may change (an Admin never changes an Admin or the Owner).
       ...(me && u.status !== 'DEACTIVATED' && ROLES_MANAGED_BY[me].includes(u.role)
         ? [{ label: 'Change Role', onSelect: () => setDialog({ kind: 'role', user: u }) }]
@@ -266,7 +278,7 @@ export function UsersScreen({ initialRole }: { initialRole?: string }) {
       label: 'Role',
       cell: (u) => (
         <span
-          className={`${chip} min-w-24 ${ROLE_CHIPS[u.role]}`}
+          className={`${chip} min-w-24 ${u.customRole ? tileTones[customTone(u.customRole.id)] : ROLE_CHIPS[u.role]}`}
           title={u.customRole ? `Based on ${FIRM_ROLE_LABELS[u.role]}` : undefined}
         >
           {u.customRole?.name ?? FIRM_ROLE_LABELS[u.role]}
@@ -578,9 +590,10 @@ export function UsersScreen({ initialRole }: { initialRole?: string }) {
           </BandCard>
           <RoleTemplates
             roles={roles.data ? roleItems : undefined}
+            custom={roles.data?.custom}
             loading={roles.isPending}
             canChange={manages}
-            onUse={(r) => router.push(`/settings/users/roles/new?from=${r}`)}
+            onUse={(r) => router.push(`/settings/users/roles/new?from=${encodeURIComponent(r)}`)}
             onCreate={() => router.push('/settings/users/roles/new')}
           />
         </aside>
@@ -605,6 +618,16 @@ export function UsersScreen({ initialRole }: { initialRole?: string }) {
             setDialog(null);
             setMessage(text);
             void queryClient.invalidateQueries({ queryKey: ['users'] });
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'permissions' ? (
+        <PermissionsModal
+          user={dialog.user}
+          onClose={() => setDialog(null)}
+          onDone={(text) => {
+            setDialog(null);
+            setMessage(text);
           }}
         />
       ) : null}

@@ -5,6 +5,7 @@ import {
   LockStaffRequest,
   SaveStaffDraftRequest,
   SetStaffNoteRequest,
+  SetStaffOverridesRequest,
   SetStaffPermissionsRequest,
   StaffAccessInput,
   StaffCompensationInput,
@@ -46,6 +47,7 @@ export const SetStaffNoteBody = clean(SetStaffNoteRequest);
 export const StaffCompensationBody = clean(StaffCompensationInput);
 export const SaveStaffDraftBody = clean(SaveStaffDraftRequest);
 export const SetStaffPermissionsBody = clean(SetStaffPermissionsRequest);
+export const SetStaffOverridesBody = clean(SetStaffOverridesRequest);
 export const StaffSessionIdParam = StaffSessionId;
 export const StaffAccessBody = clean(StaffAccessInput);
 export const StaffCursorQ = clean(StaffCursorQuery);

@@ -79,7 +79,7 @@ export function StageRow({
           <IconButton icon={Trash} label={`Remove ${label}`} tone="danger" onClick={onRemove} />
         </span>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.7fr)_minmax(0,1.4fr)] [&_input]:text-sm [&_select]:pr-8 [&_select]:text-sm">
         <Input
           label="Stage name"
           maxLength={40}
@@ -117,7 +117,7 @@ export function StageRow({
         />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
-        <fieldset className="flex flex-wrap items-center gap-x-5">
+        <fieldset className="flex flex-wrap items-center gap-x-5 [&_label]:min-h-8 [&_label]:text-sm">
           <legend className="sr-only">Required before entry</legend>
           <span aria-hidden className="text-sm font-medium text-text">
             Requires:

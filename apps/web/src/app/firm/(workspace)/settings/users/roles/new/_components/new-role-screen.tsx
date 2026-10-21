@@ -19,6 +19,7 @@ import {
 import {
   CUSTOM_ROLE_ERRORS,
   customKey,
+  readGrid,
   SetPermissionsModal,
 } from '../../../_components/custom-roles';
 import { COLUMNS } from '../../../_components/role-panel';
@@ -35,22 +36,47 @@ const toValue = (cells: readonly { module: string; capability: string; granted: 
  * Permissions, guide §5, §8; Octavia's review, section 4): a name, a description and the role it
  * starts from, with that role's grid shown as the starting permissions. Next opens Set
  * Permissions; Save Role there creates the role and its grid together (`api.roles.createCustom`),
- * then Users & Roles shows it. `from` is the template chosen on Users & Roles (`?from=BOOKKEEPER`).
+ * then Users & Roles shows it. `from` is the template chosen on Users & Roles (`?from=BOOKKEEPER`,
+ * or `?from=custom:<id>` for a custom role: its permissions are the start, and the new role is
+ * based on the same built-in role).
  */
 export function NewRoleScreen({ from }: { from?: string }) {
   const roles = useApiQuery(['roles', 'list'], () => api.roles.list());
   const modules = useApiQuery(['roles', 'modules'], () => api.roles.modules());
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const start = MembershipRole.safeParse(from);
-  const [basedOn, setBasedOn] = useState<Exclude<MembershipRole, 'OWNER'>>(
-    start.success && start.data !== 'OWNER' ? start.data : 'STAFF',
+  const given = MembershipRole.safeParse(from);
+  /** A built-in role, or `custom:<id>`. */
+  const [startKey, setStartKey] = useState<string>(
+    from?.startsWith('custom:')
+      ? from
+      : given.success && given.data !== 'OWNER'
+        ? given.data
+        : 'STAFF',
   );
+  const customStart = roles.data?.custom?.find((c) => customKey(c.id) === startKey);
+  const fromCustom = startKey.startsWith('custom:');
+  // A custom role that is gone (archived) falls back to Staff once the roles are known.
+  const basedOn = (customStart?.basedOn ?? (fromCustom ? 'STAFF' : startKey)) as Exclude<
+    MembershipRole,
+    'OWNER'
+  >;
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [setting, setSetting] = useState(false);
   const router = useRouter();
   const queryClient = useQueryClient();
-  const grid = useApiQuery(['roles', 'permissions', basedOn], () => api.roles.permissions(basedOn));
+  const base = useApiQuery(['roles', 'permissions', basedOn], () => api.roles.permissions(basedOn));
+  const grid = useApiQuery(['roles', 'permissions', customStart ? startKey : basedOn], () =>
+    customStart
+      ? readGrid({
+          kind: 'custom',
+          key: startKey,
+          label: customStart.name,
+          custom: customStart,
+        })
+      : api.roles.permissions(basedOn),
+  );
+  const templateName = customStart?.name ?? FIRM_ROLE_LABELS[basedOn];
   const choices = (roles.data?.items ?? []).filter((r) => r.role !== 'OWNER');
   /** A built-in role's name or a live custom role's, in any case (the API checks again). */
   const taken = (wanted: string) =>
@@ -108,9 +134,15 @@ export function NewRoleScreen({ from }: { from?: string }) {
             {roles.data ? (
               <Select
                 label="Start From *"
-                options={choices.map((r) => ({ value: r.role, label: r.label }))}
-                value={basedOn}
-                onChange={(e) => setBasedOn(e.target.value as Exclude<MembershipRole, 'OWNER'>)}
+                options={[
+                  ...choices.map((r) => ({ value: r.role, label: r.label })),
+                  ...(roles.data.custom ?? []).map((c) => ({
+                    value: customKey(c.id),
+                    label: `${c.name} (custom)`,
+                  })),
+                ]}
+                value={customStart || !fromCustom ? startKey : basedOn}
+                onChange={(e) => setStartKey(e.target.value)}
               />
             ) : roles.isPending ? (
               <Skeleton className="h-11" />
@@ -132,10 +164,11 @@ export function NewRoleScreen({ from }: { from?: string }) {
         </BandCard>
         <RoleTemplates
           roles={roles.data ? choices : undefined}
+          custom={roles.data?.custom}
           loading={roles.isPending}
-          selected={basedOn}
+          selected={customStart ? startKey : basedOn}
           canChange
-          onUse={(r) => r !== 'OWNER' && setBasedOn(r)}
+          onUse={(r) => r !== 'OWNER' && setStartKey(r)}
         />
 
         <BandCard
@@ -173,8 +206,10 @@ export function NewRoleScreen({ from }: { from?: string }) {
       {setting ? (
         <SetPermissionsModal
           name={body.name}
-          template={FIRM_ROLE_LABELS[basedOn]}
+          template={templateName}
           start={grid.isError ? null : grid.data}
+          base={base.isError ? null : base.data}
+          baseName={FIRM_ROLE_LABELS[basedOn]}
           onSave={async (grants, ack) => {
             try {
               return await api.roles.createCustom({ ...body, grants, acknowledgeEscalation: ack });
