@@ -78,7 +78,12 @@ const ACTIONS: Record<
       `${name} gets access again with the same role and history. Someone who never joined is invited again.`,
     confirm: 'Reactivate Account',
     reason: 'none',
-    done: (name) => `${name}’s account is active again.`,
+    done: (name, r) =>
+      r.status !== 'INVITED'
+        ? `${name}’s account is active again.`
+        : r.invitation?.status === 'SENT'
+          ? `${name} never joined, so a new invitation was emailed to them.`
+          : `${name} never joined and is invited again, but the invitation email could not be sent. Resend it from the staff list.`,
   },
   deactivate: {
     title: 'Deactivate Account',
