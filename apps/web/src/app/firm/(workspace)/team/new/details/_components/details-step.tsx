@@ -12,6 +12,7 @@ import {
   type StaffPayType,
 } from '@firmivra/types';
 import { Button, Callout, Checkbox, FileDropzone, Input, Select } from '@firmivra/ui';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Briefcase,
@@ -217,10 +218,15 @@ function DetailsForm({
   const [uploading, setUploading] = useState(false);
   const [key] = useState(() => crypto.randomUUID());
   const draft = useDraftSaver(startDraft, 4);
-  const create = useApiMutation(
-    (body: Parameters<typeof api.staff.create>[0]) => api.staff.create(body),
-    { invalidate: ['staff'] },
-  );
+  const client = useQueryClient();
+  // Creating the account deletes its draft: drop the draft from the cache before the staff
+  // lists refresh, so the open draft query is not fetched again (it would answer 404).
+  const create = useApiMutation(async (body: Parameters<typeof api.staff.create>[0]) => {
+    const created = await api.staff.create(body);
+    client.removeQueries({ queryKey: ['staff', 'drafts'] });
+    await client.invalidateQueries({ queryKey: ['staff'] });
+    return created;
+  });
   const set = <K extends keyof Form>(field: K, value: Form[K]) => {
     setForm((f) => ({ ...f, [field]: value }));
     draft.touched();

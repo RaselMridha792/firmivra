@@ -101,11 +101,12 @@ export function ProfileCard({
     );
   }
   const status = STATUS_LOOKS[member.status];
-  const rows: [Icon, string][] = [
-    [EnvelopeSimple, member.email],
-    [Phone, member.phone ?? '—'],
-    [MapPin, member.profile.office ?? '—'],
-    [CalendarBlank, `Member since ${longDate(member.memberSince)}`],
+  // Keyed by name: several empty rows read the same "—".
+  const rows: [string, Icon, string][] = [
+    ['email', EnvelopeSimple, member.email],
+    ['phone', Phone, member.phone ?? '—'],
+    ['office', MapPin, member.profile.office ?? '—'],
+    ['since', CalendarBlank, `Member since ${longDate(member.memberSince)}`],
   ];
   const base = `/team/${member.id}/security`;
   return (
@@ -134,8 +135,8 @@ export function ProfileCard({
         />
       </div>
       <ul className="flex flex-col gap-2 border-t border-divider pt-3">
-        {rows.map(([icon, text]) => (
-          <li key={text} className="flex min-w-0 items-center gap-3 text-sm text-text">
+        {rows.map(([key, icon, text]) => (
+          <li key={key} className="flex min-w-0 items-center gap-3 text-sm text-text">
             {createElement(icon, {
               'aria-hidden': true,
               weight: 'fill',
