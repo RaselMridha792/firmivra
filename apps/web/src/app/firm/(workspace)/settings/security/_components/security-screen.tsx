@@ -80,9 +80,9 @@ export function SecurityScreen() {
         >
           <MfaAccounts summary={summary} />
           <p className="text-xs text-muted">
-            Only the owner or a security admin may change this requirement, after signing in again,
-            and each change is recorded in the audit log. There is no setting to change it yet, so
-            it stays on for every staff account.
+            Only the Owner, or an Admin with the security permission, may change this requirement,
+            after signing in again, and each change is recorded in the audit log. There is no
+            setting to change it yet, so it stays on for every staff account.
           </p>
           <CardLink href="/settings/users">Review Users</CardLink>
         </SettingsCard>
@@ -96,17 +96,17 @@ export function SecurityScreen() {
           <Facts
             rows={[
               ['Minimum length', '15 characters'],
-              ['Spaces and symbols', 'Allowed, but no space at the start or end'],
+              ['Spaces and symbols', 'Allowed anywhere, and never trimmed'],
               ['Character mix', 'Not required'],
               ['Compromised-password check', 'On'],
-              ['Lockout', '5 failures in 15 minutes locks sign-in for 15 minutes'],
+              ['Lockout', '5 failures on one account in 15 minutes lock it for 15 minutes'],
               ['Who sets a password', 'The person, from a secure link'],
             ]}
           />
           <NotInForce testId="password-not-in-force">
             New passwords still need at least 12 characters, with an upper-case letter, a lower-case
-            letter and a number. Failed sign-ins are already limited, but not yet by this lockout
-            rule.
+            letter and a number, and can&apos;t start or end with a space. Failed sign-ins are
+            already limited, but not yet by this lockout rule.
           </NotInForce>
           <p className="text-xs text-muted">
             Nobody at your firm, and nobody at Firmivra, can see or set a staff password.
