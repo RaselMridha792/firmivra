@@ -26,6 +26,7 @@ import {
   SaveRolePermissionsRequest,
   SaveStaffDraftRequest,
   SetStaffNoteRequest,
+  SetStaffOverridesRequest,
   SetStaffPermissionsRequest,
   SetStaffTeamMembersRequest,
   StaffAccessInput,
@@ -1085,6 +1086,43 @@ export function createStaffMock(options: Options = {}): StaffClient {
         )?.granted;
         if (def !== gr.granted) m.overrides.set(key(gr.module, gr.capability), gr.granted);
       }
+      return { role: m.detail.role, cells: cellsFor(s, m.detail.role, m), updatedAt: now() };
+    },
+    // Inherit, Allow or Deny per cell, as the API does: an Allow is kept even when the role has it.
+    setOverrides: async (id, body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const input = parseInput(SetStaffOverridesRequest, body);
+      const m = g.find(id);
+      g.manageable(m);
+      const base = cellsFor(s, m.detail.role);
+      const roleHas = (module: string, capability: string) =>
+        base.find((c) => c.module === module && c.capability === capability)?.granted ?? false;
+      const next = new Map(m.overrides);
+      for (const o of input.overrides) {
+        const k = key(o.module, o.capability);
+        if (o.mode === 'INHERIT') next.delete(k);
+        else next.set(k, o.mode === 'ALLOW');
+      }
+      const has = (module: string, capability: string) =>
+        next.get(key(module, capability)) ?? roleHas(module, capability);
+      for (const mod of new Set(input.overrides.map((o) => o.module)))
+        if (
+          PermissionCapability.options.some((c) => c !== 'VIEW' && has(mod, c)) &&
+          !has(mod, 'VIEW')
+        )
+          throw fail(400, 'PERMISSION_NEEDS_VIEW', 'Give View before the other capabilities');
+      const escalates = input.overrides.some(
+        (o) => o.mode === 'ALLOW' && !roleHas(o.module, o.capability),
+      );
+      if (escalates && !input.acknowledgeEscalation)
+        throw fail(
+          409,
+          'PERMISSION_ESCALATION',
+          'This gives more than the role allows. Confirm to continue.',
+        );
+      m.overrides.clear();
+      for (const [k, v] of next) m.overrides.set(k, v);
       return { role: m.detail.role, cells: cellsFor(s, m.detail.role, m), updatedAt: now() };
     },
     copyPermissions: async (id, fromId) => {

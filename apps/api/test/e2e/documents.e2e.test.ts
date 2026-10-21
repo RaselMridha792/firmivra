@@ -17,6 +17,7 @@ import {
   DocumentCategoryList,
   FirmDocument,
   FirmDocumentList,
+  UPLOAD_LIMITS,
   UploadTicket,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -26,7 +27,7 @@ import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
 import { UploadTokens } from '../../src/storage/upload-token.js';
 import { CHECKS_AT_ONCE } from '../../src/storage/uploads.service.js';
-import { cfb, DOCX, office, pdf, png, sha256, XLSX } from '../office-files.js';
+import { cfb, contentTypes, DOCX, office, pdf, png, sha256, XLSX } from '../office-files.js';
 
 /** Storage in memory: `put(ticket, bytes)` is the browser's PUT. */
 class MemoryStorage implements DocumentStorage {
@@ -364,6 +365,52 @@ describe('firm uploads and confirm', () => {
       contentType: 'application/vnd.ms-excel.sheet.macroEnabled.12',
     };
     expectError(await start(xlsm), 400, 'VALIDATION_FAILED');
+  });
+
+  it('takes a file of exactly the largest size and refuses one byte more before any ticket', async () => {
+    const sized = (sizeBytes: number) => {
+      const head = pdf();
+      return Buffer.concat([head, Buffer.alloc(sizeBytes - head.length, 0x20)]);
+    };
+    const atLimit = await firmDoc(people.ownerA, {}, sized(UPLOAD_LIMITS.maxBytes));
+    expect(atLimit.sizeBytes).toBe(UPLOAD_LIMITS.maxBytes);
+    const below = await firmDoc(people.ownerA, {}, sized(UPLOAD_LIMITS.maxBytes - 1));
+    expect(below.sizeBytes).toBe(UPLOAD_LIMITS.maxBytes - 1);
+    const kept = storage.objects.size;
+    const over = await upload(
+      people.ownerA,
+      { serviceId: ids.e1 },
+      sized(UPLOAD_LIMITS.maxBytes + 1),
+    );
+    expectError(over.res, 400, 'VALIDATION_FAILED');
+    expect([over.key, storage.objects.size]).toEqual(['', kept]);
+  });
+
+  it('refuses Word with macros: a .docm by its type or name, and one renamed .docx at confirm', async () => {
+    const MACRO_WORD = 'application/vnd.ms-word.document.macroEnabled.12';
+    const start = async (fileName: string, contentType: string) =>
+      (await upload(people.ownerA, { serviceId: ids.e1, fileName, contentType }, office('docx')))
+        .res;
+    expectError(await start('Letter.docm', MACRO_WORD), 400, 'VALIDATION_FAILED');
+    expectError(await start('Letter.docm', DOCX), 400, 'VALIDATION_FAILED');
+    // A real .docm (macro-enabled main part and a vbaProject) renamed to .docx.
+    const docm = office('docx', (parts) => [
+      {
+        name: '[Content_Types].xml',
+        data: contentTypes({
+          '/word/document.xml': 'application/vnd.ms-word.document.macroEnabled.main+xml',
+        }),
+      },
+      ...parts.slice(1),
+      { name: 'word/vbaProject.bin', data: 'synthetic' },
+    ]);
+    const renamed = await upload(
+      people.ownerA,
+      { serviceId: ids.e1, fileName: 'Letter.docx', contentType: DOCX },
+      docm,
+    );
+    expectError(renamed.res, 409, 'FILE_HAS_MACROS');
+    expect(storage.objects.has(renamed.key)).toBe(false);
   });
 
   it('refuses stored bytes that are not the file described, and deletes them', async () => {
