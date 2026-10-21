@@ -10,6 +10,7 @@ Guide: `docs/specs/settings-review-2026-10-20/users-and-roles--firmivra-users-an
 - [ ] 4. **Admin permission edits rejected** (P1): Owner and Admin may edit every role in their firm.
 - [ ] 5. **Custom role** (P1): template, then a Set Permissions dialog, then save. Needs a `custom_roles` table (R0).
 - [ ] 6. P3: individual overrides (Inherit, Allow, Deny), change role, revoke invitation, unlock, reactivate, bulk actions, last-administrator protection.
+  - [x] Read-only audit log: already read-only (one GET for Owner and Admin; the app's database role has only SELECT and INSERT on `audit_logs`, proven in e2e). Added the authorized export (`GET /business/audit-log/export`, the filters shown, at most 10,000 rows, logged as `audit_log.exported`; contract #994), the Export button, and the quick views Staff access (`staff.`) and Roles & permissions (`role.`). Users & Roles actions write: `membership.invited` / resent, `invite.revoked`, `membership.role_changed`, `role.permissions_saved` / reset, `staff.permissions_saved` / `staff.permissions_overridden`, `staff.password_reset_sent`, `staff.locked` / `unlocked`, `staff.deactivated` / `reactivated`, `users.exported`.
 
 ## Decisions
 
