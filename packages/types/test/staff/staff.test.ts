@@ -6,10 +6,12 @@ import {
   createRequest,
   createRolesClient,
   createStaffClient,
+  CreateCustomRoleRequest,
   SetStaffOverridesRequest,
   SetStaffTeamMembersRequest,
   StaffAccessInput,
   StaffDraftData,
+  UpdateCustomRoleRequest,
   UpdateStaffRequest,
 } from '../../src/index.js';
 
@@ -259,5 +261,64 @@ describe('api.roles', () => {
     await expect(client.permissions('NOBODY' as never)).rejects.toMatchObject({
       code: 'VALIDATION_FAILED',
     });
+  });
+
+  const customRole = {
+    id,
+    name: 'Senior Bookkeeper',
+    description: null,
+    basedOn: 'BOOKKEEPER',
+    memberCount: 0,
+    archivedAt: null,
+    updatedAt: at,
+  };
+
+  it('creates a custom role with its grid, never from the Owner', async () => {
+    const { fn, calls } = fakeFetch(201, customRole);
+    const client = createRolesClient(createRequest({ baseUrl: '/api/v1', fetch: fn }));
+    const created = await client.createCustom({
+      name: ' Senior Bookkeeper ',
+      basedOn: 'BOOKKEEPER',
+      grants: [{ module: 'REPORTS', capability: 'EXPORT', granted: true }],
+      acknowledgeEscalation: true,
+    });
+    expect(created.archivedAt).toBeNull();
+    expect(calls[0]?.url).toBe('/api/v1/business/roles/custom');
+    expect(bodyOf(calls[0]?.init)).toMatchObject({ name: 'Senior Bookkeeper' });
+    expect(CreateCustomRoleRequest.safeParse({ name: 'X', basedOn: 'OWNER' }).success).toBe(false);
+    expect(CreateCustomRoleRequest.safeParse({ name: ' ', basedOn: 'STAFF' }).success).toBe(false);
+    expect(
+      CreateCustomRoleRequest.safeParse({ name: 'X', basedOn: 'STAFF', businessId: id }).success,
+    ).toBe(false);
+  });
+
+  it('reads, edits and archives a custom role by id', async () => {
+    const { fn, calls } = fakeFetch(200, { role: customRole, cells: [], updatedBy: null });
+    const client = createRolesClient(createRequest({ baseUrl: '/api/v1', fetch: fn }));
+    await client.customRole(id);
+    await client.updateCustom(id, { description: null });
+    expect(calls[0]?.url).toBe(`/api/v1/business/roles/custom/${id}`);
+    expect(calls[1]?.init.method).toBe('PATCH');
+    expect(UpdateCustomRoleRequest.safeParse({}).success).toBe(false);
+    expect(UpdateCustomRoleRequest.safeParse({ basedOn: 'ADMIN' }).success).toBe(false);
+    await expect(client.customRole('nope')).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    const archive = fakeFetch(200, { ...customRole, archivedAt: at });
+    await createRolesClient(createRequest({ baseUrl: '/api/v1', fetch: archive.fn })).archiveCustom(
+      id,
+    );
+    expect(archive.calls[0]?.url).toBe(`/api/v1/business/roles/custom/${id}/archive`);
+    expect(archive.calls[0]?.init.method).toBe('POST');
+  });
+
+  it('gives a member a custom role through Edit Staff', () => {
+    expect(
+      UpdateStaffRequest.safeParse({ version: 'v1', account: { customRoleId: id } }).success,
+    ).toBe(true);
+    expect(
+      UpdateStaffRequest.safeParse({ version: 'v1', account: { customRoleId: null } }).success,
+    ).toBe(true);
+    expect(
+      UpdateStaffRequest.safeParse({ version: 'v1', account: { customRoleId: 'x' } }).success,
+    ).toBe(false);
   });
 });

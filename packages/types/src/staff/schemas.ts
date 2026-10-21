@@ -95,6 +95,8 @@ export const StaffListItem = z.object({
   jobTitle: z.string().nullable(),
   departments: z.array(NamedRef),
   role: MembershipRole,
+  /** The firm's own role they have (its `basedOn` is `role`), or null. */
+  customRole: NamedRef.nullable().optional(),
   accessLevel: StaffAccessLevel,
   status: TeamMemberStatus,
   /** Null until they first sign in; for INVITED the row shows the invite instead. */
@@ -138,6 +140,17 @@ export const StaffFormOptions = z.object({
   managers: z.array(StaffRef),
   /** The roles the signed-in person may give (ROLES_MANAGED_BY), with the screen's description. */
   roles: z.array(z.object({ role: MembershipRole, label: z.string(), description: z.string() })),
+  /** The firm's live custom roles the signed-in person may give (their `basedOn` is in `roles`). */
+  customRoles: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        name: z.string(),
+        basedOn: MembershipRole,
+        description: z.string().nullable(),
+      }),
+    )
+    .optional(),
   /** Titles already used at the firm, for "Select or enter job title". Free text is allowed. */
   jobTitles: z.array(z.string()),
   /**
@@ -199,6 +212,8 @@ export const StaffDetail = z.object({
   phone: z.string().nullable(),
   avatarUrl: z.string().nullable().optional(),
   role: MembershipRole,
+  /** The firm's own role they have (its `basedOn` is `role`), or null. */
+  customRole: NamedRef.nullable().optional(),
   status: TeamMemberStatus,
   jobTitle: z.string().nullable(),
   departments: z.array(NamedRef),
@@ -233,6 +248,12 @@ export const StaffAccountInput = z.strictObject({
   departmentIds: Ids.min(1, 'Choose at least one department'),
   jobTitle: text(100),
   role: MembershipRole,
+  /**
+   * A firm's own role (Create Custom Role). `role` is then the role it is based on (400
+   * CUSTOM_ROLE_MISMATCH otherwise); an archived one is 409 CUSTOM_ROLE_ARCHIVED. Null, or a new
+   * `role` alone, takes it away.
+   */
+  customRoleId: z.uuid().nullable().optional(),
   serviceAreas: z.array(z.string().max(40)).max(20).optional(),
   accessLevel: StaffAccessLevel.optional(),
   accessStartsOn: CalendarDate.nullable().optional(),
@@ -527,6 +548,8 @@ export type PermissionCell = z.infer<typeof PermissionCell>;
 /** GET /business/staff/{id}/permissions: Access Summary and the Permissions tab. */
 export const StaffPermissions = z.object({
   role: MembershipRole,
+  /** Their custom role, whose grid stands in for the role's (cells with source FIRM_ROLE). */
+  customRole: NamedRef.nullable().optional(),
   /** Every module and capability (24 x 7 cells). */
   cells: z.array(PermissionCell),
   updatedAt: DateTime.nullable(),
