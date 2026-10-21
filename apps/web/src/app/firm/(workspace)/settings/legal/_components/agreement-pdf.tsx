@@ -2,6 +2,7 @@
 
 import {
   AGREEMENT_ERRORS,
+  AGREEMENT_PDF_LIMITS,
   type AgreementFile,
   type AgreementPdf,
   DOCUMENT_ERRORS,
@@ -81,6 +82,7 @@ export function PdfPicker({
       let saved = await uploadFile(file, {
         start: (facts) => api.agreements.createUpload(facts),
         finish: (uploadToken) => api.agreements.confirmUpload({ uploadToken }),
+        maxBytes: AGREEMENT_PDF_LIMITS.maxBytes,
         signal: controller.signal,
       });
       setBusy('checking');

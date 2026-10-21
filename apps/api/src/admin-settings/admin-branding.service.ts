@@ -26,6 +26,7 @@ import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../storage/config.js';
 import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
+  onlyPut,
   PUT_URL_SECONDS,
 } from '../storage/document-storage.js';
 import { notFound } from '../workspaces/common.js';
@@ -211,7 +212,7 @@ export class AdminBrandingService {
       );
     const assetId = randomUUID();
     const key = `platform/branding/${assetId}/${body.fileName}`;
-    const put = await this.s3(() =>
+    const presigned = await this.s3(() =>
       this.storage.presignUpload({
         key,
         contentType: body.contentType,
@@ -219,6 +220,8 @@ export class AdminBrandingService {
         sha256: body.sha256,
       }),
     );
+    // A small file (its own limit is at most 10 MB): always one PUT.
+    const put = onlyPut(presigned);
     const claim: BrandUploadClaim = {
       pool: 'ADMIN',
       userId: this.admin.adminUserId,

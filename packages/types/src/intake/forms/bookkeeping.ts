@@ -504,7 +504,7 @@ export const BOOKKEEPING_FORM: IntakeFormDefinition = {
             f.info(
               'uploadRules',
               'Accepted file types',
-              'PDF, JPG, PNG (Max file size: 10 MB per file). All documents are securely uploaded and encrypted. If you do not have a required document, select "I don\'t have this document" and tell us why.',
+              'PDF, JPG, PNG (Max file size: 100 MB per file). All documents are securely uploaded and encrypted. If you do not have a required document, select "I don\'t have this document" and tell us why.',
             ),
             f.upload('formationDocument', 'Business Formation Document', {
               ...R,

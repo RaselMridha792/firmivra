@@ -1,5 +1,6 @@
 import {
   ApiRequestError,
+  SUPPORT_ATTACHMENT_LIMITS,
   type SupportTicket as ApiTicket,
   type SupportTicketDetail as ApiTicketDetail,
   type SupportTicketPage as ApiTicketPage,
@@ -50,6 +51,7 @@ async function upload(firmId: string, files: AttachmentInput[]): Promise<string[
       await uploadFile(file, {
         start: (facts) => api.adminSupport.createUpload({ firmId, ...facts }),
         finish: (uploadToken) => Promise.resolve(uploadToken),
+        maxBytes: SUPPORT_ATTACHMENT_LIMITS.maxBytes,
       }),
     );
   }

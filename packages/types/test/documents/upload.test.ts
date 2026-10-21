@@ -12,7 +12,7 @@ const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 describe('UPLOAD_LIMITS', () => {
-  it('takes PDF, JPG, PNG, Excel (.xlsx) and Word (.docx), up to 10 MB', () => {
+  it('takes PDF, JPG, PNG, Excel (.xlsx) and Word (.docx), up to 100 MB', () => {
     expect(UPLOAD_LIMITS.types).toEqual({
       'application/pdf': ['.pdf'],
       'image/jpeg': ['.jpg', '.jpeg'],
@@ -20,7 +20,7 @@ describe('UPLOAD_LIMITS', () => {
       [XLSX]: ['.xlsx'],
       [DOCX]: ['.docx'],
     });
-    expect(UPLOAD_LIMITS.maxBytes).toBe(10 * 1024 * 1024);
+    expect(UPLOAD_LIMITS.maxBytes).toBe(100 * 1024 * 1024);
     expect(UPLOAD_LIMITS.typeNames).toBe('PDF, JPG, PNG, Excel (.xlsx) or Word (.docx)');
   });
 

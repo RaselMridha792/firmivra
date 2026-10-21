@@ -17,11 +17,18 @@ import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
   GET_URL_SECONDS,
-  PUT_URL_SECONDS,
+  multipartIdOf,
   statusOf,
+  uploadTicket,
 } from './document-storage.js';
 import { checkFile, type FileRefusal } from './file-checks.js';
-import { type UploadClaim, UPLOAD_TOKEN_SECONDS, UploadTokens } from './upload-token.js';
+import { readBudget } from './read-budget.js';
+import {
+  LONGEST_UPLOAD_SECONDS,
+  type UploadClaim,
+  uploadTokenSeconds,
+  UploadTokens,
+} from './upload-token.js';
 
 /** Who confirms: the same person, side and firm the ticket was made for. */
 export interface Uploader {
@@ -32,18 +39,12 @@ export interface Uploader {
 }
 
 /**
- * Confirms that read a stored file at once, in this process: each holds up to 10 MB in memory
- * (the API task has 512 MiB). One more answers 503 with Retry-After and deletes nothing.
+ * How far back confirm looks for an earlier refusal of its key: a ticket lives at most 70 minutes
+ * (LONGEST_UPLOAD_SECONDS, a multipart upload's), so any refusal of it is younger than that plus a
+ * confirm's own time. Generous on purpose. A scan result looks further back
+ * (SCAN_REFUSALS_SINCE_MS).
  */
-export const CHECKS_AT_ONCE = 4;
-let checking = 0;
-
-/**
- * How far back confirm looks for an earlier refusal of its key: a ticket lives 15 minutes
- * (UPLOAD_TOKEN_SECONDS), so any refusal of it is younger than that plus a confirm's own time.
- * Generous on purpose. A scan result looks further back (SCAN_REFUSALS_SINCE_MS).
- */
-export const REFUSALS_SINCE_MS = 30 * 60_000;
+export const REFUSALS_SINCE_MS = LONGEST_UPLOAD_SECONDS * 1000 + 20 * 60_000;
 
 /** The part of an upload's key after tenant/{businessId}/documents/: an id, safe for the audit. */
 const uploadIdOf = (key: string) => key.slice(key.lastIndexOf('/') + 1);
@@ -113,14 +114,17 @@ async function lockUpload(tx: TxClient, key: string): Promise<void> {
 /**
  * The three steps of an upload, for both sides (R5 steps 2 and 3), and the download link (step 4):
  * 1. `ticket`: the API picks the key (tenant/{businessId}/documents/{uuid}), presigns a PUT for
- *    exactly the described file and seals everything it decided into the uploadToken.
- * 2. The browser PUTs the file to storage; the API never streams it to a browser.
- * 3. `confirm`: the token must open for this caller; the stored object must have the size,
- *    checksum and bytes of its type and no Content-Encoding (else it is deleted: 409); the unique
- *    s3_key makes it single use (410 UPLOAD_EXPIRED). The document starts PENDING;
- *    SCAN_MODE=local marks it CLEAN.
- * Storage that fails, times out or is busy is 503 SERVICE_UNAVAILABLE with Retry-After, and
- * deletes nothing. No S3 call runs inside a transaction that holds a client, service or category.
+ *    exactly the described file (a larger file: begins a multipart upload and presigns its parts)
+ *    and seals everything it decided, the multipart upload's id too, into the uploadToken.
+ * 2. The browser sends the file to storage; the API never streams it to a browser.
+ * 3. `confirm`: the token must open for this caller; a multipart upload is completed (parts
+ *    missing or of another size: 409, the upload dropped; storage no longer has it: 410); the
+ *    stored object must have the size, checksum and bytes of its type and no Content-Encoding
+ *    (else it is deleted: 409); the unique s3_key makes it single use (410 UPLOAD_EXPIRED). The
+ *    document starts PENDING; SCAN_MODE=local marks it CLEAN.
+ * Storage that fails, times out or is busy, or a read budget (read-budget.ts) without room for the
+ * file, is 503 SERVICE_UNAVAILABLE with Retry-After, and deletes nothing. No S3 call runs inside
+ * a transaction that holds a client, service or category.
  * Only ids reach the audit log: never a file name, its content or a storage URL.
  */
 @Injectable()
@@ -136,11 +140,13 @@ export class UploadsService {
     private readonly notifier: Notifier,
   ) {}
 
-  /** Step 1, once the caller's checks passed: where and how to PUT, and the sealed token. */
-  async ticket(claim: Omit<UploadClaim, 'key'>): Promise<UploadTicket> {
+  /** Step 1, once the caller's checks passed: where and how to send the file, and the token. */
+  async ticket(claim: Omit<UploadClaim, 'key' | 'uploadId'>): Promise<UploadTicket> {
     const key = `tenant/${claim.businessId}/documents/${randomUUID()}`;
-    const put = await this.s3('presign PUT', () => this.storage.presignUpload({ ...claim, key }));
-    const uploadToken = await this.tokens.seal({ ...claim, key }, UPLOAD_TOKEN_SECONDS);
+    const presigned = await this.s3('presign', () => this.storage.presignUpload({ ...claim, key }));
+    const uploadId = multipartIdOf(presigned);
+    const sealed = { ...claim, key, uploadId };
+    const uploadToken = await this.tokens.seal(sealed, uploadTokenSeconds(uploadId));
     await this.audit.log(
       'document.upload_started',
       { type: 'client', id: claim.clientId },
@@ -151,11 +157,11 @@ export class UploadsService {
         categoryId: claim.categoryId,
         direction: claim.direction,
         clientAccountId: claim.clientAccountId,
+        multipart: uploadId !== null,
         ...(claim.intakeId && { intakeId: claim.intakeId, intakeSlot: claim.intakeSlot }),
       },
     );
-    const expiresAt = new Date(Date.now() + PUT_URL_SECONDS * 1000).toISOString();
-    return { uploadToken, url: put.url, method: 'PUT', headers: put.headers, expiresAt };
+    return uploadTicket(uploadToken, presigned);
   }
 
   /**
@@ -389,16 +395,24 @@ export class UploadsService {
   }
 
   /**
-   * Why the stored object is not the described file, or null when it is. At most CHECKS_AT_ONCE
-   * at a time; one more is 503 (nothing deleted).
+   * Why the stored object is not the described file, or null when it is, holding the file's size
+   * of the read budget: when it has no room, 503 (nothing deleted or completed). A multipart
+   * upload is completed first: 410 when storage no longer has it.
    */
-  private async checkStored(claim: UploadClaim): Promise<FileRefusal | null> {
-    if (checking >= CHECKS_AT_ONCE) {
-      this.logger.warn(`Confirm refused: ${CHECKS_AT_ONCE} file checks already running; 503`);
-      throw storageUnavailable();
-    }
-    checking += 1;
-    try {
+  private checkStored(claim: UploadClaim): Promise<FileRefusal | null> {
+    const busy = () => {
+      this.logger.warn('Confirm refused: the read budget has no room for the file; 503');
+      return storageUnavailable();
+    };
+    return readBudget.hold(claim.sizeBytes, busy, async () => {
+      const { uploadId } = claim;
+      if (uploadId) {
+        const done = await this.s3('complete', () =>
+          this.storage.completeUpload(claim.key, uploadId, claim.sizeBytes),
+        );
+        if (done === 'MISSING') throw refusal('UPLOAD_EXPIRED');
+        if (done === 'MISMATCH') return 'UPLOAD_MISMATCH';
+      }
       const head = await this.s3('HEAD', () => this.storage.head(claim.key));
       if (head?.sizeBytes !== claim.sizeBytes) return 'UPLOAD_MISMATCH';
       // The PUT signs no Content-Encoding: a set one (a repeated PUT) would change the download.
@@ -408,9 +422,7 @@ export class UploadsService {
       const sha256 = createHash('sha256').update(bytes).digest('hex');
       if (sha256 !== claim.sha256) return 'UPLOAD_MISMATCH';
       return checkFile(claim.contentType, bytes);
-    } finally {
-      checking -= 1;
-    }
+    });
   }
 
   /**
@@ -438,15 +450,23 @@ export class UploadsService {
       return false;
     });
     if (saved) throw refusal('UPLOAD_EXPIRED');
-    await this.remove(claim.key);
+    await this.remove(claim.key, claim.uploadId ?? null);
     throw error;
   }
 
   /**
-   * Deletes a refused upload. Should the delete fail, the object stays until it is found by hand:
-   * no lifecycle rule tells unconfirmed uploads apart yet (R5 file, "Needs from others").
+   * Deletes a refused upload: drops its multipart upload (parts and all), then the object. Should
+   * the delete fail, the object stays until it is found by hand: no lifecycle rule tells
+   * unconfirmed uploads apart yet (R5 file, "Needs from others").
    */
-  private async remove(key: string): Promise<void> {
+  private async remove(key: string, uploadId: string | null): Promise<void> {
+    if (uploadId) {
+      await this.storage.abortUpload(key, uploadId).catch((error: unknown) => {
+        this.logger.warn(
+          `Could not drop the refused multipart upload ${uploadIdOf(key)}: ${nameOf(error)} (HTTP ${statusOf(error) ?? 'none'})`,
+        );
+      });
+    }
     await this.storage.remove(key).catch((error: unknown) => {
       // ids, the error's name and status only
       this.logger.warn(

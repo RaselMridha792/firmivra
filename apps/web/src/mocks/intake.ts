@@ -41,6 +41,7 @@ import { mockDelay } from '../lib/mock';
 import { intakeBlockFixture } from './agreements';
 import { engagementFixtures } from './engagements';
 import { mockBusiness } from './me';
+import { mockUploadTicket } from './upload-ticket';
 
 /**
  * Mock data for `api.myIntakes(slug)` (R11): the signed-in portal client's Intake Forms tab
@@ -60,9 +61,10 @@ import { mockBusiness } from './me';
  * `createMyIntakesMock({ portalRole: 'SPOUSE' })` is a spouse's login: it reads everything, and
  * every change answers 403 FORBIDDEN. No form carries an agreement: the review step shows the
  * intake's agreement block from R14's `api.myIntakeAgreements(slug).block(intakeId)`.
- * Uploads need no storage (the ticket URL starts with `mock:`; `uploadFile()` skips the PUT). A
- * new file is CHECKING (scan PENDING) for 4 s, then READY (CLEAN). A name with "virus" ends
- * BLOCKED (INFECTED), one with "unreadable" BLOCKED (FAILED); an .xlsx or .docx named "password"
+ * Uploads need no storage (the ticket URLs start with `mock:`; `uploadFile()` skips the PUT; a
+ * file over 16 MB gets a multipart ticket, as from the API). A new file is CHECKING (scan
+ * PENDING) for 4 s, then READY (CLEAN). A name with "virus" ends BLOCKED (INFECTED), one with
+ * "unreadable" BLOCKED (FAILED); an .xlsx or .docx named "password"
  * or "macro" is refused as the API would. Only CLEAN and PENDING files answer a required slot
  * (`intakeUploadCounts` on the scan status); every file counts toward a slot's `maxFiles` and the
  * form's limit, a blocked one too, checked at step 1 and again at step 3 (several files dropped at
@@ -358,13 +360,13 @@ export function createMockSlotUploads() {
       checkRoom(definition, files, body.slot);
       const token = `mock-slot-upload-${String(next++)}`;
       pending.set(token, { ...body, owner });
-      return {
+      return mockUploadTicket({
         uploadToken: token,
         url: `mock:upload/${token}`,
-        method: 'PUT',
+        sizeBytes: body.sizeBytes,
         headers: { 'content-type': body.contentType },
         expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
-      };
+      });
     },
     /**
      * Step 3: checks the room and stores the file into `holder.files` in one synchronous step

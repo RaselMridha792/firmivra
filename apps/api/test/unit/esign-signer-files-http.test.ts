@@ -9,7 +9,13 @@ import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DownloadLink, SignerCopy, SignerField, SignerState, UploadTicket } from '@firmivra/types';
+import {
+  DownloadLink,
+  SignerCopy,
+  SignerField,
+  SignerState,
+  UploadPutTicket,
+} from '@firmivra/types';
 import type { EsignField } from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { PortalInfoService } from '../../src/client-auth/portal-info.controller.js';
@@ -186,7 +192,7 @@ describe('attachments over HTTP', () => {
       .set('cookie', cookie)
       .send(facts);
     expect(started.status).toBe(200);
-    const ticket = UploadTicket.parse(started.body);
+    const ticket = UploadPutTicket.parse(started.body);
     await w.store.put(w.a, ticket.url.replace('memory://', ''), PDF, 'application/pdf');
     const confirmed = await server()
       .post(`${base()}/attachments/uploads/confirm`)

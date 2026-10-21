@@ -8,7 +8,7 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { FirmSettings, LOGO_LIMITS, PortalInfo, UploadTicket } from '@firmivra/types';
+import { FirmSettings, LOGO_LIMITS, PortalInfo, UploadPutTicket } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { type Env, loadEnv } from '../../src/config/env.js';
@@ -27,7 +27,17 @@ class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
   presignUpload(file: { key: string; contentType: string }) {
     const headers = { 'content-type': file.contentType };
-    return Promise.resolve({ url: `memory:${file.key}`, headers });
+    return Promise.resolve({
+      method: 'PUT' as const,
+      url: `memory:${file.key}`,
+      headers,
+    });
+  }
+  completeUpload() {
+    return Promise.resolve('MISSING' as const);
+  }
+  abortUpload() {
+    return Promise.resolve();
   }
   head(key: string) {
     const b = this.objects.get(key);
@@ -43,7 +53,7 @@ class MemoryStorage implements DocumentStorage {
   presignDownload(file: { key: string }) {
     return Promise.resolve(`memory:${file.key}?download`);
   }
-  put(ticket: UploadTicket, bytes: Buffer) {
+  put(ticket: UploadPutTicket, bytes: Buffer) {
     this.objects.set(ticket.url.slice('memory:'.length), bytes);
   }
   keysOf(businessId: string) {
@@ -104,7 +114,7 @@ async function upload(
   type = 'image/png',
   variant = 'dark',
 ) {
-  const ticket = UploadTicket.parse((await ticketFor(who, firm, described, type, variant)).body);
+  const ticket = UploadPutTicket.parse((await ticketFor(who, firm, described, type, variant)).body);
   storage.put(ticket, stored);
   return confirm(who, firm, ticket.uploadToken);
 }
@@ -171,7 +181,7 @@ describe('POST /business/logo/uploads', () => {
       ...body,
       sizeBytes: LOGO_LIMITS.maxBytes,
     });
-    expect(UploadTicket.parse(ok.body).url).toMatch(
+    expect(UploadPutTicket.parse(ok.body).url).toMatch(
       new RegExp(`^memory:tenant/${fx.firmA.id}/logo/[0-9a-f-]{36}\\.png$`),
     );
   });
@@ -243,7 +253,7 @@ describe('POST /business/logo/uploads/confirm refuses', () => {
   );
 
   it('a ticket never uploaded (409) and a token that is not one (410)', async () => {
-    const ticket = UploadTicket.parse((await ticketFor(ownerA, fx.firmA.id, PNG)).body);
+    const ticket = UploadPutTicket.parse((await ticketFor(ownerA, fx.firmA.id, PNG)).body);
     expect((await confirm(ownerA, fx.firmA.id, ticket.uploadToken)).status).toBe(409);
     const res = await confirm(ownerA, fx.firmA.id, 'not-a-token');
     expect([res.status, codeOf(res)]).toEqual([410, 'UPLOAD_EXPIRED']);
@@ -257,7 +267,7 @@ describe('one firm never sees or changes another firm logo', () => {
     expect((await infoOf(fx.firmB.slug)).branding.logoUrl).toBeNull();
 
     // A's sealed ticket is no use to B, and B's owner is nobody at A.
-    const ticket = UploadTicket.parse((await ticketFor(ownerA, fx.firmA.id, JPEG)).body);
+    const ticket = UploadPutTicket.parse((await ticketFor(ownerA, fx.firmA.id, JPEG)).body);
     storage.put(ticket, JPEG);
     expect((await confirm(ownerB, fx.firmB.id, ticket.uploadToken)).status).toBe(410);
     expect((await confirm(ownerB, fx.firmA.id, ticket.uploadToken)).status).toBe(404);

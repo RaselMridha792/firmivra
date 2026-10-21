@@ -8,6 +8,7 @@ import type {
   EsignRequestDetail,
 } from '@firmivra/types';
 import { AuditService } from '../../audit/audit.service.js';
+import { readBudget } from '../../storage/read-budget.js';
 import { ENV } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
 import {
@@ -23,6 +24,7 @@ import {
 } from '../engine/engine.types.js';
 import { isOpen, TURN } from '../requests/actions.js';
 import { ESIGN_DIRECTORY, type EsignDirectory } from '../requests/esign-directory.js';
+import { filesBusy } from '../requests/esign-uploads.js';
 import {
   ESIGN_REPOSITORY,
   type EsignEventRecord,
@@ -279,10 +281,13 @@ export class EsignLifecycleService {
       const documents = [];
       for (const d of parts.documents) {
         const docId = docIds.get(d.id)!;
-        const bytes = await this.store.read(businessId, d.s3Key);
-        if (!bytes) throw new Error(`esign document ${d.id} is missing from the store`);
         const s3Key = this.store.keyFor(businessId, newId, `source/${docId}`);
-        await this.store.put(businessId, s3Key, bytes, d.contentType);
+        // One file at a time, its bytes held of the read budget (503 without room).
+        await readBudget.hold(d.sizeBytes, filesBusy, async () => {
+          const bytes = await this.store.read(businessId, d.s3Key);
+          if (!bytes) throw new Error(`esign document ${d.id} is missing from the store`);
+          await this.store.put(businessId, s3Key, bytes, d.contentType);
+        });
         copied.push(s3Key);
         documents.push({ ...d, id: docId, s3Key, createdAt: now });
       }

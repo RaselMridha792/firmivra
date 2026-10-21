@@ -5,6 +5,7 @@ import { AuditService } from '../../audit/audit.service.js';
 import { ENV } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../../notify/notify.types.js';
+import { readBudget } from '../../storage/read-budget.js';
 import {
   ESIGN_RULES,
   ESIGN_STORE,
@@ -24,6 +25,7 @@ import {
   type EsignRequestParts,
   type EsignRequestRecord,
 } from './esign.repository.js';
+import { filesBusy, packetBudget } from './esign-uploads.js';
 import { EsignPrepareService } from './prepare.service.js';
 import { type EsignActor, EsignRequestsService, esignRefusal } from './requests.service.js';
 
@@ -145,26 +147,32 @@ export class EsignSendService {
     return { turn, links, mailed: recipients.filter((r) => links.has(r.id) && r.email) };
   }
 
-  /** Composes the packet, stores it under its own hash (a lost race never overwrites it). */
-  private async storePacket(businessId: string, id: string, parts: EsignRequestParts) {
-    const files = await Promise.all(
-      parts.documents.map(async (d) => {
-        const bytes = await this.store.read(businessId, d.s3Key);
-        if (!bytes) throw new Error(`esign document ${d.id} is missing from the store`);
-        return { documentId: d.id, contentType: d.contentType, bytes };
-      }),
-    );
-    let packet: Uint8Array;
-    try {
-      packet = await this.pdf.compose(files, parts.pagePlan);
-    } catch (error) {
-      if (error instanceof EsignEngineError) throw esignRefusal(error.code);
-      throw error;
-    }
-    const sha256 = createHash('sha256').update(packet).digest('hex');
-    const key = this.store.keyFor(businessId, id, `packet-${sha256}.pdf`);
-    await this.store.put(businessId, key, packet, 'application/pdf');
-    return sha256;
+  /**
+   * Composes the packet, stores it under its own hash (a lost race never overwrites it). Every
+   * file is read, composed and the packet stored holding all of it of the read budget
+   * (packetBudget): without room, 503 before anything is read or changed.
+   */
+  private storePacket(businessId: string, id: string, parts: EsignRequestParts) {
+    return readBudget.hold(packetBudget(parts.documents), filesBusy, async () => {
+      const files = await Promise.all(
+        parts.documents.map(async (d) => {
+          const bytes = await this.store.read(businessId, d.s3Key);
+          if (!bytes) throw new Error(`esign document ${d.id} is missing from the store`);
+          return { documentId: d.id, contentType: d.contentType, bytes };
+        }),
+      );
+      let packet: Uint8Array;
+      try {
+        packet = await this.pdf.compose(files, parts.pagePlan);
+      } catch (error) {
+        if (error instanceof EsignEngineError) throw esignRefusal(error.code);
+        throw error;
+      }
+      const sha256 = createHash('sha256').update(packet).digest('hex');
+      const key = this.store.keyFor(businessId, id, `packet-${sha256}.pdf`);
+      await this.store.put(businessId, key, packet, 'application/pdf');
+      return sha256;
+    });
   }
 
   /**

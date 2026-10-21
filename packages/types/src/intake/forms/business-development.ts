@@ -384,7 +384,7 @@ export const BUSINESS_DEVELOPMENT_FORM: IntakeFormDefinition = {
           'Document Uploads (Optional)',
           [
             f.upload('documents', 'Document Uploads (Optional)', {
-              help: 'If you have any documents related to your business, you can upload them here. This is not required. Accepted file types: PDF, DOC, DOCX, JPG, PNG (Max 10 MB per file).',
+              help: 'If you have any documents related to your business, you can upload them here. This is not required. Accepted file types: PDF, DOC, DOCX, JPG, PNG (Max 100 MB per file).',
               examples: [
                 'Business plan (draft or completed)',
                 'Existing operating agreement or formation documents',

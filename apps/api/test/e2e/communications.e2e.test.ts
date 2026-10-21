@@ -13,7 +13,7 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   CommunicationAttachment,
   MessageTemplateDetail,
-  UploadTicket,
+  UploadPutTicket,
   CommunicationActivityPage,
   CommunicationExport,
   CommunicationRecipientPage,
@@ -55,9 +55,16 @@ class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
   presignUpload(file: { key: string; contentType: string }) {
     return Promise.resolve({
+      method: 'PUT' as const,
       url: `memory:${file.key}`,
       headers: { 'content-type': file.contentType },
     });
+  }
+  completeUpload() {
+    return Promise.resolve('MISSING' as const);
+  }
+  abortUpload() {
+    return Promise.resolve();
   }
   head(key: string) {
     const b = this.objects.get(key);
@@ -75,7 +82,7 @@ class MemoryStorage implements DocumentStorage {
   presignDownload(file: { key: string }) {
     return Promise.resolve(`memory:${file.key}?download`);
   }
-  put(ticket: UploadTicket, bytes: Buffer) {
+  put(ticket: UploadPutTicket, bytes: Buffer) {
     this.objects.set(ticket.url.slice('memory:'.length), bytes);
   }
 }
@@ -1591,7 +1598,7 @@ describe('test send, templates and files', () => {
 
   it('uploads a file in three steps, keeps the etag valid, and removes it', async () => {
     const d = await draft();
-    const ticket = UploadTicket.parse(ok(await start(d.id, pdf)));
+    const ticket = UploadPutTicket.parse(ok(await start(d.id, pdf)));
     storage.put(ticket, pdf);
     const before = (await getDetail(d.id)).etag;
     const att = CommunicationAttachment.parse(
@@ -1630,7 +1637,7 @@ describe('test send, templates and files', () => {
 
   it('checks the stored bytes and the channel', async () => {
     const d = await draft();
-    const wrong = UploadTicket.parse(ok(await start(d.id, pdf)));
+    const wrong = UploadPutTicket.parse(ok(await start(d.id, pdf)));
     storage.put(wrong, Buffer.from('not the same bytes at all!!!!!!!!!'));
     expectError(
       await call('post', '/attachments/uploads/confirm', ownerA, {
@@ -1640,7 +1647,7 @@ describe('test send, templates and files', () => {
       'UPLOAD_MISMATCH',
     );
     const notPdf = Buffer.from('hello, I am plain text');
-    const fake = UploadTicket.parse(ok(await start(d.id, notPdf)));
+    const fake = UploadPutTicket.parse(ok(await start(d.id, notPdf)));
     storage.put(fake, notPdf);
     expect(
       (
@@ -1651,7 +1658,7 @@ describe('test send, templates and files', () => {
     ).toBe(409);
     expect((await start(d.id, pdf, { fileName: 'guide.png' })).status).toBe(400);
     // Another person's token is not valid for you; a staff member cannot touch the owner's draft.
-    const mine = UploadTicket.parse(ok(await start(d.id, pdf)));
+    const mine = UploadPutTicket.parse(ok(await start(d.id, pdf)));
     storage.put(mine, pdf);
     expectError(
       await call('post', '/attachments/uploads/confirm', staffA, { uploadToken: mine.uploadToken }),

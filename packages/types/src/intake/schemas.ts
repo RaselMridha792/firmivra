@@ -137,7 +137,7 @@ const { fileName, contentType, sizeBytes, sha256 } = CreateMyUploadRequest.shape
 
 /**
  * Step 1 of an upload for one slot (then the browser PUTs the file and calls `confirmUpload`, as
- * R5's `uploadFile()` does): R5's file rules (PDF, JPG, PNG, .xlsx or .docx, at most 10 MB, the
+ * R5's `uploadFile()` does): R5's file rules (PDF, JPG, PNG, .xlsx or .docx, at most 100 MB, the
  * name's ending fitting its type). 400 for a slot that isn't an upload field of the form; 409
  * TOO_MANY_FILES when the slot has its field's `maxFiles` or the form has
  * INTAKE_LIMITS.maxFiles, counting every file (blocked ones too). Step 3 (`confirmUpload`) checks

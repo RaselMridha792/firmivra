@@ -32,7 +32,7 @@ import {
   TemplatesSummary,
   TemplateVersion,
   TemplateVersionList,
-  UploadTicket,
+  UploadPutTicket,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -50,9 +50,16 @@ class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
   presignUpload(file: { key: string; contentType: string }) {
     return Promise.resolve({
+      method: 'PUT' as const,
       url: `memory:${file.key}`,
       headers: { 'content-type': file.contentType },
     });
+  }
+  completeUpload() {
+    return Promise.resolve('MISSING' as const);
+  }
+  abortUpload() {
+    return Promise.resolve();
   }
   head(key: string) {
     const b = this.objects.get(key);
@@ -70,7 +77,7 @@ class MemoryStorage implements DocumentStorage {
   presignDownload(file: { key: string }) {
     return Promise.resolve(`memory:${file.key}?download`);
   }
-  put(ticket: UploadTicket, bytes: Buffer) {
+  put(ticket: UploadPutTicket, bytes: Buffer) {
     this.objects.set(ticket.url.slice('memory:'.length), bytes);
   }
 }
@@ -1368,7 +1375,7 @@ describe('attachments', () => {
 
   it('uploads in three steps, downloads and removes; the stored bytes are checked', async () => {
     const t = await make();
-    const ticket = UploadTicket.parse(ok(await start(t.id, pdf)));
+    const ticket = UploadPutTicket.parse(ok(await start(t.id, pdf)));
     storage.put(ticket, pdf);
     const confirmed = TemplateAttachment.parse(
       ok(
@@ -1432,7 +1439,7 @@ describe('attachments', () => {
     expectError(await start(randomUUID(), pdf), 404, 'NOT_FOUND');
     expectError(await start(t.id, pdf, {}, people.clientA), 403, 'FORBIDDEN');
 
-    const wrong = UploadTicket.parse(ok(await start(t.id, pdf)));
+    const wrong = UploadPutTicket.parse(ok(await start(t.id, pdf)));
     storage.put(wrong, Buffer.from('not the same bytes at all!!!!!!!!!'));
     expectError(
       await call('post', '/templates/attachments/uploads/confirm', people.ownerA, {
@@ -1447,7 +1454,7 @@ describe('attachments', () => {
     );
 
     const notPdf = Buffer.from('this is plain text, not a pdf');
-    const fake = UploadTicket.parse(ok(await start(t.id, notPdf)));
+    const fake = UploadPutTicket.parse(ok(await start(t.id, notPdf)));
     storage.put(fake, notPdf);
     expectError(
       await call('post', '/templates/attachments/uploads/confirm', people.ownerA, {
@@ -1457,7 +1464,7 @@ describe('attachments', () => {
       'UPLOAD_MISMATCH',
     );
 
-    const mine = UploadTicket.parse(ok(await start(t.id, pdf)));
+    const mine = UploadPutTicket.parse(ok(await start(t.id, pdf)));
     storage.put(mine, pdf);
     expectError(
       await call('post', '/templates/attachments/uploads/confirm', people.adminA, {

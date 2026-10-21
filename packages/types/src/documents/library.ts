@@ -11,7 +11,12 @@ import {
   FolderColor,
   ScanStatus,
 } from '../db-enums.js';
-import { UPLOAD_FILE_FACTS, UploadContentType, uploadNameFitsType } from './schemas.js';
+import {
+  UPLOAD_FILE_FACTS,
+  UPLOAD_LIMITS,
+  UploadContentType,
+  uploadNameFitsType,
+} from './schemas.js';
 
 // The firm-wide Documents module (R55 contract, for R56's screens): the library (main page,
 // Frames 1 Upload, 2 Details and Review, 5 Share), the requests dashboard and Create Request
@@ -708,7 +713,7 @@ export const DocumentSettings = z.object({
   requestExpiryDays: z.number().int().nullable(),
   documentExpiryReminderDays: z.number().int().nullable(),
   shareExpiryDays: z.number().int().nullable(),
-  /** At most 10 MB (the platform's limit). */
+  /** At most 100 MB (the platform's limit, UPLOAD_LIMITS.maxBytes). */
   uploadMaxBytes: z.number().int(),
   /** A subset of the platform's types; all of them when none was chosen. */
   uploadTypes: z.array(UploadContentType),
@@ -724,7 +729,7 @@ export const UpdateDocumentSettingsRequest = z
     requestExpiryDays: z.number().int().min(1).max(365).nullable(),
     documentExpiryReminderDays: z.number().int().min(1).max(365).nullable(),
     shareExpiryDays: z.number().int().min(1).max(365).nullable(),
-    uploadMaxBytes: z.number().int().min(1).max(10_485_760),
+    uploadMaxBytes: z.number().int().min(1).max(UPLOAD_LIMITS.maxBytes),
     uploadTypes: z.array(UploadContentType).max(10),
     defaultReviewerUserId: z.uuid().nullable(),
   })

@@ -21,22 +21,32 @@ import {
   LibraryDocument,
   LibraryPage,
   LibrarySummary,
+  UPLOAD_LIMITS,
   UploadTicket,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config.js';
-import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import {
+  DOCUMENT_STORAGE,
+  type DocumentStorage,
+  type FileFacts,
+} from '../../src/storage/document-storage.js';
 import { pdf, sha256 } from '../office-files.js';
+import { bigPdf, MemoryUploads, ticketKey } from '../memory-uploads.js';
 
 class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
-  presignUpload(file: { key: string; contentType: string }) {
-    return Promise.resolve({
-      url: `memory:${file.key}`,
-      headers: { 'content-type': file.contentType },
-    });
+  readonly uploads = new MemoryUploads(this.objects);
+  presignUpload(file: FileFacts) {
+    return this.uploads.presign(file);
+  }
+  completeUpload(key: string, uploadId: string, sizeBytes: number) {
+    return this.uploads.complete(key, uploadId, sizeBytes);
+  }
+  abortUpload(key: string, uploadId: string) {
+    return this.uploads.abort(key, uploadId);
   }
   head(key: string, { checksum = false } = {}) {
     const b = this.objects.get(key);
@@ -57,7 +67,7 @@ class MemoryStorage implements DocumentStorage {
     return Promise.resolve(`memory:${file.key}?download`);
   }
   put(ticket: UploadTicket, bytes: Buffer) {
-    this.objects.set(ticket.url.slice('memory:'.length), bytes);
+    this.uploads.send(ticket, bytes);
   }
 }
 const storage = new MemoryStorage();
@@ -332,7 +342,7 @@ describe('folders, types and settings', () => {
 
   it('reads and saves the settings', async () => {
     const s = ok(await call('get', '/document-settings', staffA), DocumentSettings);
-    expect(s).toMatchObject({ uploadMaxBytes: 10_485_760, defaultReviewer: null });
+    expect(s).toMatchObject({ uploadMaxBytes: UPLOAD_LIMITS.maxBytes, defaultReviewer: null });
     expect(s.uploadTypes).toHaveLength(5);
     const saved = ok(
       await call('patch', '/document-settings', ownerA, {
@@ -646,5 +656,29 @@ describe('another firm', () => {
       ok(await call('get', '/document-folders', ownerB, undefined, 'b'), DocumentFolderList).items,
     ).toEqual([]);
     expectError(await call('get', '/documents', undefined), 401, 'UNAUTHENTICATED');
+  });
+});
+
+// Last: it adds a document the counts above don't expect.
+describe('large files', () => {
+  it('takes a file over 16 MB as a multipart upload that confirm completes', async () => {
+    const file = bigPdf();
+    const ticket = await call('post', '/documents/uploads', ownerA, {
+      clientId: ids.c1,
+      serviceId: ids.e1,
+      fileName: 'fake-ledger.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: file.length,
+      sha256: sha256(file),
+    });
+    const t = UploadTicket.parse(ticket.body);
+    expect(t.method).toBe('MULTIPART');
+    storage.put(t, file);
+    const doc = ok(
+      await call('post', '/documents/uploads/confirm', ownerA, { uploadToken: t.uploadToken }),
+      FirmDocument,
+    );
+    expect(doc.sizeBytes).toBe(file.length);
+    expect(storage.objects.get(ticketKey(t))?.equals(file)).toBe(true);
   });
 });

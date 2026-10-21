@@ -1,6 +1,6 @@
 'use client';
 
-import { DOCUMENT_ERRORS, UPLOAD_LIMITS, type UploadTargets } from '@firmivra/types';
+import { DOCUMENT_ERRORS, megabytes, UPLOAD_LIMITS, type UploadTargets } from '@firmivra/types';
 import { Button, Modal, Select } from '@firmivra/ui';
 import { BriefcaseBusiness, ChevronRight, FileUser, type LucideIcon, X } from 'lucide-react';
 import Image from 'next/image';
@@ -227,6 +227,7 @@ function UploadForm({
             ...facts,
           }),
         finish: (uploadToken) => api.myDocuments(slug).confirmUpload({ uploadToken }),
+        maxBytes: UPLOAD_LIMITS.maxBytes,
         onProgress: setPercent,
       }),
     { invalidate: ['my-documents', slug] },
@@ -276,7 +277,7 @@ function UploadForm({
             className="rounded-control border border-border p-2 text-base"
           />
           <span className="text-xs font-normal text-muted">
-            {UPLOAD_LIMITS.typeNames}, up to 10 MB.
+            {UPLOAD_LIMITS.typeNames}, up to {megabytes(UPLOAD_LIMITS.maxBytes)}.
           </span>
         </label>
         {upload.isPending ? (

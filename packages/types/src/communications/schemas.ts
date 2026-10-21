@@ -341,8 +341,9 @@ export type TestSendCommunicationRequest = z.input<typeof TestSendCommunicationR
 /** Announcement locations the portal offers (data from the firm's portal settings). */
 /**
  * POST .../{id}/attachments/uploads: the same facts and limits as a template attachment (PDF, JPG,
- * PNG, Word or Excel, up to 10 MB, with the SHA-256); the answer is the documents' UploadTicket and
- * the file is confirmed with `POST .../attachments/uploads/confirm`. Email and announcements only.
+ * PNG, Word or Excel, up to 10 MB, with the SHA-256); the answer is the documents'
+ * UploadPutTicket and the file is confirmed with `POST .../attachments/uploads/confirm`. Email and
+ * announcements only.
  */
 export { StartTemplateAttachmentRequest as StartCommunicationAttachmentRequest } from '../templates/schemas.js';
 

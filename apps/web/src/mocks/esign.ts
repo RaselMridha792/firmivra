@@ -61,6 +61,7 @@ import {
 import { esignExtrasMock, esignKioskOpen, esignMockMayApprove } from './esign-extras';
 import { esignAdminMock, type EsignBaseClient, esignDefaults } from './esign-signing';
 import { mockBusiness } from './me';
+import { mockUploadTicket } from './upload-ticket';
 
 /**
  * Mock data for `api.esign` (Firm Sign, firm side) and `api.mySignatures(slug)`, R13. Synthetic
@@ -940,13 +941,13 @@ export function createEsignMock(
         contentType: input.contentType,
         sizeBytes: input.sizeBytes,
       });
-      return {
+      return mockUploadTicket({
         uploadToken: `mock-esign-upload-${n}`,
         url: `mock:upload/esign-${n}`,
-        method: 'PUT' as const,
+        sizeBytes: input.sizeBytes,
         headers: { 'content-type': input.contentType },
         expiresAt: iso(Date.now() + 15 * 60 * 1000),
-      };
+      });
     },
     confirmUpload: async (requestId, body) => {
       await on();
