@@ -37,8 +37,8 @@ invites (below).
 
 | PR / branch | What | State |
 | --- | --- | --- |
-| `rasel/R60-settings-preferences` | Settings Preferences: language saved but not applied yet; currency note | PR opened Oct 21 (number in the Progress log) |
-| `rasel/R60-settings-security` | Settings Security: Octavia's rules on the page with "Not in force yet" notes; the MFA card reads `api.users.summary()` with Retry; copy follows Rasel's Oct 21 decisions (item 1) | PR opened Oct 21 (number in the Progress log). `GET /business/settings/overview` answers 404 on the local API (known, hidden badge) |
+| #997 `rasel/R60-settings-preferences` | Settings Preferences: language saved but not applied yet; currency note | Open (opened Oct 21) |
+| #998 `rasel/R60-settings-security` | Settings Security: Octavia's rules on the page with "Not in force yet" notes; the MFA card reads `api.users.summary()` with Retry; copy follows Rasel's Oct 21 decisions (item 1) | Open (opened Oct 21). `GET /business/settings/overview` answers 404 on the local API (known, hidden badge) |
 | `rasel/R60-team-invites` | Super Admin Team: invitations through Cognito (`team-invite.service.ts`, `team-invitation.ts`) | #981 merged Oct 21. Next: merge `main`, rerun the admin-team e2e (4 tests waited on the grant), open the PR when a slot frees |
 | `rasel/R60-begin-online` | Begin Online audit at 1440 px | Audit done (`R60-begin-online-audit.md`); Rasel decided the [decide] items that block the shared fixes (item 5); fixes not started |
 
@@ -277,3 +277,9 @@ status, exports, restore) and the two rows show real dates.
 
 - Oct 21: handoff, Begin Online audit and Rasel's Oct 21 decisions (items 1, 4 and 5) in a
   docs PR.
+- Oct 21: #996 (this handoff, docs) opened. #997 Preferences opened after merging `main`: web
+  `tsc` 0 errors, ESLint and Prettier clean, `tumit-settings-preferences.spec.ts` 2 of 2.
+- Oct 21: #998 Security opened. The copy follows Rasel's Oct 21 decisions (Owner or Admin with
+  the security permission, edge spaces allowed and not trimmed, per-account lockout), and the
+  sheet was reshot. Web `tsc` 0 errors, ESLint and Prettier clean, `tumit-settings-security.spec.ts`
+  4 of 4. Two R60 non-contract PRs are now open (#997, #998): Team invites waits for one to merge.
