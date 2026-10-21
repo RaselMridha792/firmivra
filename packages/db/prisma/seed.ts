@@ -43,7 +43,6 @@ import {
   seedServices,
 } from './seed-helpers.js';
 import { seedR36 } from './seed-r36.js';
-import { seedR1Oct21 } from './seed-r1-oct21.js';
 import { seedR37 } from './seed-r37.js';
 import { seedR39 } from './seed-r39.js';
 import { seedWorkModules } from './seed-r38.js';
@@ -2650,10 +2649,6 @@ async function main() {
   await seedR36(prisma, businesses);
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
     seedR37(tx, businesses.lvp),
-  );
-  // R1 (Oct 21): Locations, a custom role and a secure document link (after R37's main office).
-  await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
-    seedR1Oct21(tx, businesses.lvp),
   );
 
   // Stage B6: Firmivra's communications. The Super Admin welcomes LVP's owner by email (admin
