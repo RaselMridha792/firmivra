@@ -117,8 +117,16 @@ export function PermissionsModal({
           follows the role in this firm; Allow and Deny are theirs alone and win over the role.
         </p>
         {failed ? (
-          <p role="alert" className="text-sm text-danger">
+          <p role="alert" className="flex flex-wrap items-center gap-3 text-sm text-danger">
             {errorMessage(failed, OVERRIDE_ERRORS)}
+            <Button
+              variant="outline"
+              onClick={() => {
+                for (const q of [modules, own, role]) if (q.isError) void q.refetch();
+              }}
+            >
+              Retry
+            </Button>
           </p>
         ) : loading || !current ? (
           <p className="text-sm text-muted">Loading permissions…</p>
