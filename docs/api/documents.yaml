@@ -43,7 +43,10 @@ info:
     .xlsx or .docx no type (`''` or `application/octet-stream`): `uploadFile()` then takes the
     type from the name's ending (`uploadContentTypeFor`). It refuses a file of another type, an
     empty one or one over 10 MB before anything is sent (`400 FILE_TYPE_NOT_ALLOWED`,
-    `FILE_EMPTY`, `FILE_TOO_LARGE`). Uploads are only for an open service (an ACTIVE
+    `FILE_EMPTY`, `FILE_TOO_LARGE`). Files chosen together go up as one batch of at most 20
+    files and 500 MB in all; the API has no batch (each file is its own upload), so the browser
+    refuses a bigger one before anything is sent (`checkUploadBatch()`: `400 TOO_MANY_FILES`,
+    `BATCH_TOO_LARGE`). Uploads are only for an open service (an ACTIVE
     engagement; a PENDING one takes none): the portal's pop-up reads
     `GET .../documents/upload-targets`; empty lists are its STOP state, and the API refuses the
     rest with `409 NO_OPEN_SERVICE` however it is reached.

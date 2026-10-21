@@ -287,6 +287,7 @@ describe('summary, options and the template', () => {
       'BOOKKEEPER',
       'TAX_PREPARER',
       'CLIENT_SUPPORT',
+      'BUSINESS_CONSULTANT',
       'READ_ONLY',
     ]);
     const owner = StaffFormOptions.parse(ok(await call('get', '/staff/options', ownerA)));

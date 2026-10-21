@@ -2,7 +2,7 @@
 
 import { X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
-import { Header } from './header';
+import { type AccountMenuItem, Header } from './header';
 import { type FirmBrand, Sidebar } from './sidebar';
 import type { NavSections } from './types';
 
@@ -22,6 +22,7 @@ export function AppShell({
   brand,
   headerStart,
   headerActions,
+  accountMenu,
   children,
 }: {
   /** Under the logo, for example "Super Admin Portal". */
@@ -43,6 +44,8 @@ export function AppShell({
   headerStart?: ReactNode;
   /** Header controls before the bell (the firm's "+ New" menu). */
   headerActions?: ReactNode;
+  /** Account menu entries above Sign out (the firm workspace). */
+  accountMenu?: AccountMenuItem[];
   children: ReactNode;
 }) {
   const [drawer, setDrawer] = useState(false);
@@ -80,6 +83,7 @@ export function AppShell({
           bell={bell}
           start={headerStart}
           actions={headerActions}
+          accountMenu={accountMenu}
           roleLabel={roleLabel}
           onOpenMenu={() => setDrawer(true)}
         />

@@ -141,8 +141,8 @@ describe('where a document can point', () => {
     ).rejects.toThrow(/foreign key/i);
   });
 
-  it('checks the 10 MB limit and the SHA-256 format', async () => {
-    await expect(upload({ sizeBytes: 10 * 1024 * 1024 + 1 })).rejects.toThrow(/check constraint/i);
+  it('checks the 100 MB limit and the SHA-256 format', async () => {
+    await expect(upload({ sizeBytes: 100 * 1024 * 1024 + 1 })).rejects.toThrow(/check constraint/i);
     await expect(upload({ sha256: 'not-a-hash' })).rejects.toThrow(/check constraint/i);
   });
 });
