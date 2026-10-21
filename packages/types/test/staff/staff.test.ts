@@ -6,9 +6,12 @@ import {
   createRequest,
   createRolesClient,
   createStaffClient,
+  CreateCustomRoleRequest,
+  SetStaffOverridesRequest,
   SetStaffTeamMembersRequest,
   StaffAccessInput,
   StaffDraftData,
+  UpdateCustomRoleRequest,
   UpdateStaffRequest,
 } from '../../src/index.js';
 
@@ -187,6 +190,34 @@ describe('api.staff', () => {
     expect(calls[0]?.url).toBe(`/api/v1/business/staff/${id}/permissions/copy-from/${other}`);
   });
 
+  it('sets individual permissions: Inherit, Allow or Deny per cell, each cell once', async () => {
+    const { fn, calls } = fakeFetch(200, { role: 'STAFF', cells: [], updatedAt: null });
+    await staff(fn).setOverrides(id, {
+      overrides: [
+        { module: 'REPORTS', capability: 'EXPORT', mode: 'ALLOW' },
+        { module: 'CLIENTS', capability: 'DELETE', mode: 'INHERIT' },
+      ],
+    });
+    expect(calls[0]?.url).toBe(`/api/v1/business/staff/${id}/permissions`);
+    expect(calls[0]?.init.method).toBe('PATCH');
+    expect(bodyOf(calls[0]?.init)).toEqual({
+      overrides: [
+        { module: 'REPORTS', capability: 'EXPORT', mode: 'ALLOW' },
+        { module: 'CLIENTS', capability: 'DELETE', mode: 'INHERIT' },
+      ],
+    });
+    const twice = { module: 'REPORTS', capability: 'EXPORT', mode: 'DENY' } as const;
+    expect(SetStaffOverridesRequest.safeParse({ overrides: [twice, twice] }).success).toBe(false);
+    expect(SetStaffOverridesRequest.safeParse({ overrides: [] }).success).toBe(false);
+    expect(
+      SetStaffOverridesRequest.safeParse({ overrides: [{ ...twice, mode: 'MAYBE' }] }).success,
+    ).toBe(false);
+    await expect(staff(fn).setOverrides(id, { overrides: [] })).rejects.toBeInstanceOf(
+      ApiRequestError,
+    );
+    expect(calls).toHaveLength(1);
+  });
+
   it('parses a member', async () => {
     const { fn } = fakeFetch(200, detail);
     expect((await staff(fn).get(id)).name).toBe('Morgan Avery');
@@ -230,5 +261,52 @@ describe('api.roles', () => {
     await expect(client.permissions('NOBODY' as never)).rejects.toMatchObject({
       code: 'VALIDATION_FAILED',
     });
+  });
+
+  const customRole = {
+    id,
+    name: 'Senior Bookkeeper',
+    description: null,
+    basedOn: 'BOOKKEEPER',
+    memberCount: 0,
+    archivedAt: null,
+    updatedAt: at,
+  };
+
+  it('creates a custom role with its grid, never from the Owner', async () => {
+    const { fn, calls } = fakeFetch(201, customRole);
+    const client = createRolesClient(createRequest({ baseUrl: '/api/v1', fetch: fn }));
+    const created = await client.createCustom({
+      name: ' Senior Bookkeeper ',
+      basedOn: 'BOOKKEEPER',
+      grants: [{ module: 'REPORTS', capability: 'EXPORT', granted: true }],
+      acknowledgeEscalation: true,
+    });
+    expect(created.archivedAt).toBeNull();
+    expect(calls[0]?.url).toBe('/api/v1/business/roles/custom');
+    expect(bodyOf(calls[0]?.init)).toMatchObject({ name: 'Senior Bookkeeper' });
+    expect(CreateCustomRoleRequest.safeParse({ name: 'X', basedOn: 'OWNER' }).success).toBe(false);
+    expect(CreateCustomRoleRequest.safeParse({ name: ' ', basedOn: 'STAFF' }).success).toBe(false);
+    expect(
+      CreateCustomRoleRequest.safeParse({ name: 'X', basedOn: 'STAFF', businessId: id }).success,
+    ).toBe(false);
+  });
+
+  it('reads, edits and archives a custom role by id', async () => {
+    const { fn, calls } = fakeFetch(200, { role: customRole, cells: [], updatedBy: null });
+    const client = createRolesClient(createRequest({ baseUrl: '/api/v1', fetch: fn }));
+    await client.customRole(id);
+    await client.updateCustom(id, { description: null });
+    expect(calls[0]?.url).toBe(`/api/v1/business/roles/custom/${id}`);
+    expect(calls[1]?.init.method).toBe('PATCH');
+    expect(UpdateCustomRoleRequest.safeParse({}).success).toBe(false);
+    expect(UpdateCustomRoleRequest.safeParse({ basedOn: 'ADMIN' }).success).toBe(false);
+    await expect(client.customRole('nope')).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    const archive = fakeFetch(200, { ...customRole, archivedAt: at });
+    await createRolesClient(createRequest({ baseUrl: '/api/v1', fetch: archive.fn })).archiveCustom(
+      id,
+    );
+    expect(archive.calls[0]?.url).toBe(`/api/v1/business/roles/custom/${id}/archive`);
+    expect(archive.calls[0]?.init.method).toBe('POST');
   });
 });

@@ -89,12 +89,12 @@ function OpportunityCard({
         event.dataTransfer.setData('text/plain', opp.id);
         event.dataTransfer.effectAllowed = 'move';
       }}
-      className={`flex flex-col gap-1 rounded-lg border border-divider bg-surface p-2.5 shadow-sm ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      className={`flex flex-col gap-1 rounded-lg border border-divider bg-surface p-2 shadow-sm ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
       <Link
         href={`/sales/opportunities/${opp.id}`}
         draggable={false}
-        className="text-sm leading-snug font-semibold text-heading hover:text-action hover:underline"
+        className="text-xs leading-snug font-bold text-heading hover:text-action hover:underline"
       >
         {opp.firmName}
       </Link>
@@ -109,8 +109,10 @@ function OpportunityCard({
       <span className="min-h-6">
         <CardMarker opp={opp} stage={stage} />
       </span>
-      <span className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-xs text-muted">{line}</span>
+      <span className="flex items-center justify-between gap-1.5">
+        <span title={line ?? undefined} className="min-w-0 truncate text-xs text-muted">
+          {line}
+        </span>
         {opp.owner ? (
           <span title={opp.owner.name} className="shrink-0">
             <Avatar name={opp.owner.name} size="sm" />
@@ -177,7 +179,7 @@ export function PipelineBoard({
               }}
               onDragLeave={() => setOver((current) => (current === stage.id ? null : current))}
               onDrop={(event) => drop(event, stage)}
-              className={`flex w-44 shrink-0 flex-col overflow-hidden rounded-xl bg-subtle shadow-sm ${over === stage.id ? 'outline-2 outline-action' : ''}`}
+              className={`flex w-38 shrink-0 flex-col overflow-hidden rounded-xl bg-subtle shadow-sm ${over === stage.id ? 'outline-2 outline-action' : ''}`}
             >
               <div className={`flex min-h-14 flex-col justify-center px-3 py-2 ${style.head}`}>
                 <div className="flex items-start justify-between gap-2">
@@ -186,7 +188,7 @@ export function PipelineBoard({
                 </div>
                 <span className="text-xs opacity-80">{money(total)}</span>
               </div>
-              <ul className="flex max-h-72 min-h-40 flex-col gap-2 overflow-y-auto p-2">
+              <ul className="flex max-h-80 min-h-40 flex-col gap-2 overflow-y-auto p-1.5">
                 {cards.length ? (
                   cards.map((opp) => (
                     <OpportunityCard key={opp.id} opp={opp} stage={stage} draggable={canMove} />
@@ -198,7 +200,7 @@ export function PipelineBoard({
               <button
                 type="button"
                 onClick={() => onAdd(stage)}
-                className={`mt-auto flex h-11 items-center justify-center gap-1.5 text-sm font-medium hover:underline ${style.foot} ${style.add}`}
+                className={`mt-auto flex h-10 items-center justify-center gap-1.5 text-sm font-medium hover:underline ${style.foot} ${style.add}`}
               >
                 <Plus aria-hidden weight="bold" className="size-4" />
                 {index === 0 ? 'Add Lead' : 'Add'}
@@ -221,7 +223,7 @@ export function BoardSkeleton() {
       className="relative flex min-w-0 gap-2 overflow-hidden contain-paint"
     >
       {['a', 'b', 'c', 'd', 'e', 'f'].map((key) => (
-        <div key={key} className="flex w-44 shrink-0 flex-col gap-2 rounded-xl bg-subtle p-2">
+        <div key={key} className="flex w-38 shrink-0 flex-col gap-2 rounded-xl bg-subtle p-2">
           <Skeleton className="h-10" />
           <Skeleton className="h-24" />
           <Skeleton className="h-24" />

@@ -94,8 +94,10 @@ test('Plan: create it, enter figures, override an estimate, finalize it', async 
   await page.getByRole('button', { name: 'Next', exact: true }).first().click();
   await page.waitForURL(/\/edit\/financials$/);
   await expect(page.getByTestId('step-financial')).toBeVisible();
-  await page.getByLabel('Wages & Salary 2025').fill('90000');
-  await page.getByLabel('Wages & Salary 2026').fill('95000');
+  // A new plan is for this year; the wizard asks for it and the year before.
+  const year = new Date().getFullYear();
+  await page.getByLabel(`Wages & Salary ${year - 1}`).fill('90000');
+  await page.getByLabel(`Wages & Salary ${year}`).fill('95000');
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await page.waitForURL(/\/edit\/goals$/);
   await expect(page.getByTestId('plan-strategy')).toHaveCount(1);

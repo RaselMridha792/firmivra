@@ -2,12 +2,14 @@
 
 import {
   FIRM_ROLE_LABELS,
+  ROLES_MANAGED_BY,
   type FirmUser,
   type MembershipRole,
   type StaffStatusFilter,
 } from '@firmivra/types';
 import {
   Avatar,
+  BulkBar,
   Button,
   Modal,
   SearchField,
@@ -31,9 +33,10 @@ import {
   UsersThree,
   WarningCircle,
 } from '@phosphor-icons/react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, createElement, useState } from 'react';
+import { type ReactNode, createElement, useDeferredValue, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
@@ -41,13 +44,12 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { RowMenu, type RowMenuItem } from '../../../team/_components/row-menu';
 import { ActionModal, type StaffAction } from '../../../team/[id]/_components/staff-actions';
 import { MEMBER_ERRORS } from '../../../team/[id]/_components/staff-parts';
-import {
-  BandCard,
-  NOT_LOADED,
-  SettingsHeader,
-  SettingsKpi,
-} from '../../_components/settings-parts';
+import { BandCard, SettingsHeader, SettingsKpi } from '../../_components/settings-parts';
+import { type BulkAction, BulkDialog } from './bulk-dialog';
+import { AccessModal } from './access-modal';
+import { ChangeRoleModal } from './change-role-modal';
 import { InviteUserModal } from './invite-user-modal';
+import { PermissionsModal } from './permissions-modal';
 import { RolePanel } from './role-panel';
 import { RoleTemplates } from './role-templates';
 
@@ -68,6 +70,7 @@ const ROLE_CHIPS: Record<MembershipRole, string> = {
   BOOKKEEPER: 'bg-warning-soft text-warning',
   TAX_PREPARER: 'bg-info-soft text-action',
   CLIENT_SUPPORT: 'bg-success-soft text-success',
+  BUSINESS_CONSULTANT: 'bg-purple-soft text-purple',
   READ_ONLY: 'bg-disabled text-text',
 };
 
@@ -86,6 +89,31 @@ const day = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
 /** "Today 9:12 AM", "Sep 28, 2026", or "Invited Sep 25, 2026" (the date never breaks). */
+/** A counter that filters the table (Octavia's review): pressed while its filter is on. */
+function KpiFilter({
+  on,
+  label,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={label}
+      onClick={onClick}
+      className={`block h-full rounded-xl ${on ? 'ring-2 ring-action' : ''}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function lastLogin(u: FirmUser): ReactNode {
   if (u.status === 'INVITED' && u.invite) {
     return (
@@ -107,6 +135,9 @@ type Dialog =
   | { kind: 'invite' }
   | { kind: 'action'; action: StaffAction; user: FirmUser }
   | { kind: 'revoke'; user: FirmUser }
+  | { kind: 'permissions'; user: FirmUser }
+  | { kind: 'access'; action: 'unlock' | 'reactivate'; user: FirmUser }
+  | { kind: 'role'; user: FirmUser }
   | { kind: 'pick'; action: 'resetPassword' | 'deactivate' };
 
 /**
@@ -117,11 +148,14 @@ type Dialog =
  */
 export function UsersScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { role: me, firm } = useFirm();
   const [search, setSearch] = useState('');
   const [company, setCompany] = useState('');
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0] ?? 10);
   const [selected, setSelected] = useState<string[]>([]);
+  const [chosen, setChosen] = useState<Map<string, FirmUser>>(() => new Map());
+  const [bulk, setBulk] = useState<BulkAction | null>(null);
   const [role, setRole] = useState<MembershipRole | ''>('');
   const [status, setStatus] = useState<StaffStatusFilter>('all');
   const [page, setPage] = useState(1);
@@ -149,6 +183,28 @@ export function UsersScreen() {
   const n = (v: number | undefined) =>
     summary.isPending ? <Skeleton className="h-8 w-12" /> : (v ?? '—');
   const filtered = Boolean(search.trim() || role || status !== 'all');
+  function clearSelection() {
+    setSelected([]);
+    setChosen(new Map());
+  }
+  /** Rows picked on this page join the ones picked on other pages of the same filters. */
+  const pick = (keys: string[]) => {
+    const next = new Map<string, FirmUser>();
+    for (const k of keys) {
+      const u = chosen.get(k) ?? (list.data?.items ?? []).find((r) => r.id === k);
+      if (u) next.set(k, u);
+    }
+    setSelected([...next.keys()]);
+    setChosen(next);
+  };
+  /** A counter's click: that status alone, with the search and role cleared. */
+  const showOnly = (next: StaffStatusFilter) => {
+    setSearch('');
+    setRole('');
+    setStatus(next);
+    setPage(1);
+    clearSelection();
+  };
 
   const menu = (u: FirmUser): RowMenuItem[] => {
     const act = (action: StaffAction) => () => setDialog({ kind: 'action', action, user: u });
@@ -159,6 +215,19 @@ export function UsersScreen() {
     items.push(
       { label: 'Edit User', onSelect: () => router.push(`/team/${u.id}`) },
       { label: 'Manage Access', onSelect: () => router.push(`/team/${u.id}/security/permissions`) },
+      // Inherit, Allow or Deny per permission, for someone whose access you manage.
+      ...(me && ROLES_MANAGED_BY[me].includes(u.role)
+        ? [
+            {
+              label: 'Individual Permissions',
+              onSelect: () => setDialog({ kind: 'permissions', user: u }),
+            },
+          ]
+        : []),
+      // Only someone whose role you may change (an Admin never changes an Admin or the Owner).
+      ...(me && u.status !== 'DEACTIVATED' && ROLES_MANAGED_BY[me].includes(u.role)
+        ? [{ label: 'Change Role', onSelect: () => setDialog({ kind: 'role', user: u }) }]
+        : []),
     );
     if (u.status === 'INVITED') {
       items.push(
@@ -176,6 +245,11 @@ export function UsersScreen() {
         },
       );
     }
+    if (u.status === 'LOCKED')
+      items.push({
+        label: 'Unlock Account',
+        onSelect: () => setDialog({ kind: 'access', action: 'unlock', user: u }),
+      });
     if (u.status === 'ACTIVE' || u.status === 'LOCKED') {
       items.push(
         { label: 'Reset Password', onSelect: act('resetPassword') },
@@ -185,7 +259,10 @@ export function UsersScreen() {
     }
     items.push(
       u.status === 'DEACTIVATED'
-        ? { label: 'Reactivate User', onSelect: act('reactivate') }
+        ? {
+            label: 'Reactivate User',
+            onSelect: () => setDialog({ kind: 'access', action: 'reactivate', user: u }),
+          }
         : { label: 'Deactivate User', danger: true, onSelect: act('deactivate') },
       { label: 'View Activity', onSelect: () => router.push(`/team/${u.id}/security/activity`) },
     );
@@ -272,39 +349,65 @@ export function UsersScreen() {
         }
       />
 
+      {summary.isError ? (
+        <p
+          role="alert"
+          className="flex flex-wrap items-center gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger"
+          data-testid="users-kpis-error"
+        >
+          The user counts could not load. {errorMessage(summary.error, MEMBER_ERRORS)}
+          <Button variant="outline" onClick={() => void summary.refetch()}>
+            Retry
+          </Button>
+        </p>
+      ) : null}
       <div
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-[1440px]:grid-cols-4"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-[1440px]:grid-cols-4 [&>button]:text-left [&>button>section]:h-full [&>section]:h-full"
         data-testid="users-kpis"
       >
-        <SettingsKpi
-          label="Total Users"
-          icon={UsersThree}
-          tone="blue"
-          value={n(s?.total)}
-          change={s?.addedThisMonth}
-          note={summary.isError ? 'Not loaded' : 'Across all companies'}
-        />
-        <SettingsKpi
-          label="Active Users"
-          icon={User}
-          tone="green"
-          value={n(s?.active)}
-          noteTone="text-success"
-          note={
-            s
-              ? `${s.total ? Math.round((s.active / s.total) * 100) : 0}% active`
-              : summary.isError
-                ? 'Not loaded'
-                : ' '
-          }
-        />
-        <SettingsKpi
-          label="Pending Invitations"
-          icon={EnvelopeSimple}
-          tone="amber"
-          value={n(s?.pendingInvitations)}
-          note={summary.isError ? 'Not loaded' : 'Awaiting response'}
-        />
+        <KpiFilter on={!filtered} label="Show all users" onClick={() => showOnly('all')}>
+          <SettingsKpi
+            label="Total Users"
+            icon={UsersThree}
+            tone="blue"
+            value={n(s?.total)}
+            change={s?.addedThisMonth}
+            note={summary.isError ? 'Could not load' : 'Active, locked and inactive'}
+          />
+        </KpiFilter>
+        <KpiFilter
+          on={status === 'active' && !search && !role}
+          label="Show active users"
+          onClick={() => showOnly('active')}
+        >
+          <SettingsKpi
+            label="Active Users"
+            icon={User}
+            tone="green"
+            value={n(s?.active)}
+            noteTone="text-success"
+            note={
+              s
+                ? `${s.total ? Math.round((s.active / s.total) * 100) : 0}% active`
+                : summary.isError
+                  ? 'Could not load'
+                  : ' '
+            }
+          />
+        </KpiFilter>
+        <KpiFilter
+          on={status === 'invited' && !search && !role}
+          label="Show pending invitations"
+          onClick={() => showOnly('invited')}
+        >
+          <SettingsKpi
+            label="Pending Invitations"
+            icon={EnvelopeSimple}
+            tone="amber"
+            value={n(s?.pendingInvitations)}
+            note={summary.isError ? 'Could not load' : 'Awaiting response'}
+          />
+        </KpiFilter>
         <SettingsKpi
           label="Roles"
           icon={ShieldCheck}
@@ -314,7 +417,7 @@ export function UsersScreen() {
             s?.customRoles
               ? `${s.customRoles} custom roles`
               : summary.isError
-                ? 'Not loaded'
+                ? 'Could not load'
                 : 'Custom roles'
           }
         />
@@ -333,6 +436,7 @@ export function UsersScreen() {
                     onChange={(event) => {
                       setSearch(event.target.value);
                       setPage(1);
+                      clearSelection();
                     }}
                   />
                 </div>
@@ -345,7 +449,10 @@ export function UsersScreen() {
                       { value: firm.name, label: firm.name },
                     ]}
                     value={company}
-                    onChange={(event) => setCompany(event.target.value)}
+                    onChange={(event) => {
+                      setCompany(event.target.value);
+                      clearSelection();
+                    }}
                   />
                 </div>
                 <div className="w-36">
@@ -360,6 +467,7 @@ export function UsersScreen() {
                     onChange={(event) => {
                       setRole(event.target.value as MembershipRole | '');
                       setPage(1);
+                      clearSelection();
                     }}
                   />
                 </div>
@@ -378,6 +486,7 @@ export function UsersScreen() {
                     onChange={(event) => {
                       setStatus(event.target.value as StaffStatusFilter);
                       setPage(1);
+                      clearSelection();
                     }}
                   />
                 </div>
@@ -398,52 +507,94 @@ export function UsersScreen() {
                   {resend.error ? errorMessage(resend.error, MEMBER_ERRORS) : message}
                 </p>
               ) : null}
-              <Table
-                rows={rows}
-                loading={list.isPending}
-                rowKey={(u) => u.id}
-                caption="Users"
-                noun="users"
-                dense
-                tableClassName="[&_td]:px-1.5 [&_th]:px-1.5 [&_thead_th]:font-bold [&_thead_th]:text-heading"
-                columns={columns}
-                selection={{ selected, onChange: setSelected }}
-                rowActions={(u) => (
-                  <RowMenu vertical label={`Actions for ${u.name}`} items={menu(u)} />
-                )}
-                pageSize={pageSize}
-                pageSizes={PAGE_SIZES}
-                onPageSize={(size) => {
-                  setPageSize(size);
-                  setPage(1);
-                }}
-                server={
-                  list.data && {
-                    page: list.data.page,
-                    total: list.data.total,
-                    hasNext: list.data.page * list.data.pageSize < list.data.total,
-                    hasPrevious: list.data.page > 1,
-                    onNext: () => setPage(list.data.page + 1),
-                    onPrevious: () => setPage(list.data.page - 1),
-                    onPage: setPage,
-                    onSort: () => undefined,
+              {selected.length && manages ? (
+                <BulkBar
+                  count={selected.length}
+                  noun={selected.length === 1 ? 'user' : 'users'}
+                  actions={[
+                    {
+                      label: 'Export Selected',
+                      icon: DownloadSimple,
+                      onClick: () => window.location.assign(api.users.exportUrl({ ids: selected })),
+                    },
+                    {
+                      label: 'Resend Invitations',
+                      icon: EnvelopeSimple,
+                      onClick: () => setBulk('resend'),
+                    },
+                    {
+                      label: 'Deactivate Selected',
+                      icon: LockSimple,
+                      danger: true,
+                      onClick: () => setBulk('deactivate'),
+                    },
+                  ]}
+                >
+                  <button
+                    type="button"
+                    className="text-sm text-link hover:underline"
+                    onClick={clearSelection}
+                  >
+                    Clear selection
+                  </button>
+                </BulkBar>
+              ) : null}
+              {list.isError ? (
+                <div
+                  role="alert"
+                  className="flex flex-col items-center gap-3 rounded-lg border border-divider px-4 py-10 text-center"
+                  data-testid="users-error"
+                >
+                  <p className="font-semibold text-heading">Unable to load employees</p>
+                  <p className="text-sm text-muted">{errorMessage(list.error, MEMBER_ERRORS)}</p>
+                  <Button variant="outline" onClick={() => void list.refetch()}>
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <Table
+                  rows={rows}
+                  loading={list.isPending}
+                  rowKey={(u) => u.id}
+                  caption="Users"
+                  noun="users"
+                  dense
+                  tableClassName="[&_td]:px-1.5 [&_th]:px-1.5 [&_thead_th]:font-bold [&_thead_th]:text-heading"
+                  columns={columns}
+                  selection={{ selected, onChange: pick }}
+                  rowActions={(u) => (
+                    <RowMenu vertical label={`Actions for ${u.name}`} items={menu(u)} />
+                  )}
+                  pageSize={pageSize}
+                  pageSizes={PAGE_SIZES}
+                  onPageSize={(size) => {
+                    setPageSize(size);
+                    setPage(1);
+                  }}
+                  server={
+                    list.data && {
+                      page: list.data.page,
+                      total: list.data.total,
+                      hasNext: list.data.page * list.data.pageSize < list.data.total,
+                      hasPrevious: list.data.page > 1,
+                      onNext: () => setPage(list.data.page + 1),
+                      onPrevious: () => setPage(list.data.page - 1),
+                      onPage: setPage,
+                      onSort: () => undefined,
+                    }
                   }
-                }
-                emptyTitle={
-                  list.isError
-                    ? 'Users are not available'
-                    : filtered || company
-                      ? 'No matching users'
-                      : 'No users yet'
-                }
-                emptyText={
-                  list.isError
-                    ? NOT_LOADED
-                    : filtered || company
+                  emptyTitle={
+                    filtered || company
+                      ? 'No employees match your filters'
+                      : 'No employees added yet'
+                  }
+                  emptyText={
+                    filtered || company
                       ? 'Try another search, company, role or status.'
-                      : 'Invite your first user to give them access.'
-                }
-              />
+                      : 'Add employees in Staff Management, then invite them here.'
+                  }
+                />
+              )}
             </div>
           </BandCard>
 
@@ -500,7 +651,51 @@ export function UsersScreen() {
         <ActionModal
           action={dialog.action}
           id={dialog.user.id}
-          name={dialog.user.name}
+          name={`${dialog.user.name} (${dialog.user.email})`}
+          onClose={() => setDialog(null)}
+          onDone={(text) => {
+            setDialog(null);
+            setMessage(text);
+            void queryClient.invalidateQueries({ queryKey: ['users'] });
+          }}
+        />
+      ) : null}
+      {bulk ? (
+        <BulkDialog
+          action={bulk}
+          users={[...chosen.values()]}
+          me={me}
+          onClose={() => setBulk(null)}
+          onFinished={() => {
+            setBulk(null);
+            clearSelection();
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'permissions' ? (
+        <PermissionsModal
+          user={dialog.user}
+          onClose={() => setDialog(null)}
+          onDone={(text) => {
+            setDialog(null);
+            setMessage(text);
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'access' ? (
+        <AccessModal
+          action={dialog.action}
+          user={dialog.user}
+          onClose={() => setDialog(null)}
+          onDone={(text) => {
+            setDialog(null);
+            setMessage(text);
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'role' ? (
+        <ChangeRoleModal
+          user={dialog.user}
           onClose={() => setDialog(null)}
           onDone={(text) => {
             setDialog(null);
@@ -521,13 +716,6 @@ export function UsersScreen() {
       {dialog?.kind === 'pick' ? (
         <PickUserModal
           action={dialog.action}
-          users={(list.data?.items ?? []).filter(
-            (u) =>
-              !u.isYou &&
-              (dialog.action === 'deactivate'
-                ? u.status !== 'DEACTIVATED'
-                : u.status === 'ACTIVE' || u.status === 'LOCKED'),
-          )}
           onClose={() => setDialog(null)}
           onPick={(user) => setDialog({ kind: 'action', action: dialog.action, user })}
         />
@@ -582,33 +770,90 @@ function RevokeModal({
 /** Reset User Passwords and Deactivate User from Quick Actions: choose the user first. */
 function PickUserModal({
   action,
-  users,
   onClose,
   onPick,
 }: {
   action: 'resetPassword' | 'deactivate';
-  users: FirmUser[];
   onClose: () => void;
   onPick: (user: FirmUser) => void;
 }) {
+  const [search, setSearch] = useState('');
+  const term = useDeferredValue(search.trim());
   const [id, setId] = useState('');
-  const user = users.find((u) => u.id === id);
+  // Every user of the firm, not the table's page or filters (Octavia's review, sections 7 and 8).
+  const all = useApiQuery(['users', 'pick', term], () =>
+    api.users.list({ pageSize: 100, ...(term.length >= 2 ? { search: term } : {}) }),
+  );
+  const eligible = (all.data?.items ?? []).filter(
+    (u) =>
+      !u.isYou &&
+      (action === 'deactivate'
+        ? u.status !== 'DEACTIVATED'
+        : u.status === 'ACTIVE' || u.status === 'LOCKED'),
+  );
+  const user = eligible.find((u) => u.id === id);
+  const more = (all.data?.total ?? 0) > (all.data?.items.length ?? 0);
   return (
     <Modal
       open
       title={action === 'resetPassword' ? 'Reset User Password' : 'Deactivate User'}
       onClose={onClose}
     >
-      <div className="flex flex-col gap-4">
-        <Select
-          label="User"
-          options={[
-            { value: '', label: users.length ? 'Choose a user' : 'No users on this page' },
-            ...users.map((u) => ({ value: u.id, label: `${u.name} (${u.email})` })),
-          ]}
-          value={id}
-          onChange={(event) => setId(event.target.value)}
+      <div className="flex flex-col gap-4" data-testid="pick-user">
+        <p className="text-sm text-text">
+          {action === 'resetPassword'
+            ? 'Choose who gets a secure link to set a new password. Active and locked accounts are listed.'
+            : 'Choose whose access ends. Their records stay, and you can reactivate them later.'}
+        </p>
+        <SearchField
+          label="Search users"
+          placeholder="Search by name or email…"
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setId('');
+          }}
         />
+        {all.isError ? (
+          <p role="alert" className="flex flex-wrap items-center gap-2 text-sm text-danger">
+            Users could not load. {errorMessage(all.error, MEMBER_ERRORS)}
+            <Button variant="outline" onClick={() => void all.refetch()}>
+              Retry
+            </Button>
+          </p>
+        ) : all.isPending ? (
+          <p className="text-sm text-muted">Loading users…</p>
+        ) : eligible.length === 0 ? (
+          <p className="rounded-lg bg-canvas px-3 py-2 text-sm text-text">
+            {term ? 'No user matches this search.' : 'No other user can be chosen for this.'}
+          </p>
+        ) : (
+          <ul
+            role="listbox"
+            aria-label="Users"
+            className="flex max-h-64 flex-col overflow-y-auto rounded-lg border border-divider"
+          >
+            {eligible.map((u) => (
+              <li key={u.id} role="option" aria-selected={u.id === id}>
+                <button
+                  type="button"
+                  onClick={() => setId(u.id)}
+                  className={`flex w-full flex-col items-start px-3 py-2 text-left text-sm ${u.id === id ? 'bg-accent-soft' : 'hover:bg-canvas'}`}
+                >
+                  <span className="font-medium text-heading">{u.name}</span>
+                  <span className="text-muted">
+                    {u.email} · {FIRM_ROLE_LABELS[u.role]} · {STATUS_CHIPS[u.status][0]}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {more ? (
+          <p className="text-xs text-muted">
+            The first 100 users are listed. Search to find others.
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3">
           <Button variant="secondary" onClick={onClose}>
             Cancel

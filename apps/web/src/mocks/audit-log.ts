@@ -108,5 +108,15 @@ export function createAuditLogMock(options: { role?: MockFirmRole } = {}): Audit
         nextCursor: start + q.limit < all.length ? String(start + q.limit) : null,
       });
     },
+    // A small CSV of the fixtures (the API builds the real one from the same filters).
+    exportUrl: () =>
+      `data:text/csv;charset=utf-8,${encodeURIComponent(
+        [
+          'Time,Actor,Action,Record type',
+          ...auditFixtures().map((e) =>
+            [e.at, e.actor?.name ?? 'System', e.action, e.entity.type].join(','),
+          ),
+        ].join(String.fromCharCode(10)),
+      )}`,
   };
 }

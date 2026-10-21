@@ -26,6 +26,7 @@ import {
   SaveRolePermissionsRequest,
   SaveStaffDraftRequest,
   SetStaffNoteRequest,
+  SetStaffOverridesRequest,
   SetStaffPermissionsRequest,
   SetStaffTeamMembersRequest,
   StaffAccessInput,
@@ -1087,6 +1088,43 @@ export function createStaffMock(options: Options = {}): StaffClient {
       }
       return { role: m.detail.role, cells: cellsFor(s, m.detail.role, m), updatedAt: now() };
     },
+    // Inherit, Allow or Deny per cell, as the API does: an Allow is kept even when the role has it.
+    setOverrides: async (id, body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const input = parseInput(SetStaffOverridesRequest, body);
+      const m = g.find(id);
+      g.manageable(m);
+      const base = cellsFor(s, m.detail.role);
+      const roleHas = (module: string, capability: string) =>
+        base.find((c) => c.module === module && c.capability === capability)?.granted ?? false;
+      const next = new Map(m.overrides);
+      for (const o of input.overrides) {
+        const k = key(o.module, o.capability);
+        if (o.mode === 'INHERIT') next.delete(k);
+        else next.set(k, o.mode === 'ALLOW');
+      }
+      const has = (module: string, capability: string) =>
+        next.get(key(module, capability)) ?? roleHas(module, capability);
+      for (const mod of new Set(input.overrides.map((o) => o.module)))
+        if (
+          PermissionCapability.options.some((c) => c !== 'VIEW' && has(mod, c)) &&
+          !has(mod, 'VIEW')
+        )
+          throw fail(400, 'PERMISSION_NEEDS_VIEW', 'Give View before the other capabilities');
+      const escalates = input.overrides.some(
+        (o) => o.mode === 'ALLOW' && !roleHas(o.module, o.capability),
+      );
+      if (escalates && !input.acknowledgeEscalation)
+        throw fail(
+          409,
+          'PERMISSION_ESCALATION',
+          'This gives more than the role allows. Confirm to continue.',
+        );
+      m.overrides.clear();
+      for (const [k, v] of next) m.overrides.set(k, v);
+      return { role: m.detail.role, cells: cellsFor(s, m.detail.role, m), updatedAt: now() };
+    },
     copyPermissions: async (id, fromId) => {
       await g.allowed();
       ownerOrAdmin();
@@ -1302,6 +1340,7 @@ const ROLE_DESCRIPTIONS: Record<MembershipRole, string> = {
   TAX_PREPARER:
     'Can prepare and manage tax returns, access client information, and view related documents. Limited access to financial and administrative settings.',
   CLIENT_SUPPORT: 'Answers clients, books appointments and handles messages.',
+  BUSINESS_CONSULTANT: 'Advises their clients: Business Advisory plus the work Staff does.',
   READ_ONLY: 'Can look at clients, appointments and tasks, and change nothing.',
 };
 
@@ -1551,9 +1590,8 @@ export function createRolesMock(options: Options = {}): RolesClient {
   const { s } = g;
   const manage = (r: MembershipRole) => {
     if (g.role !== 'OWNER' && g.role !== 'ADMIN') throw forbidden();
-    if (r === 'OWNER') throw fail(403, 'CANNOT_GRANT', "The owner's permissions cannot be changed");
-    if (!ROLES_MANAGED_BY[g.role].includes(r))
-      throw fail(403, 'CANNOT_GRANT', 'You cannot change this role');
+    if (r === 'OWNER') throw fail(403, 'FORBIDDEN', "The owner's permissions cannot be changed");
+    // Owner and Admin change every other role's grid, the Admin role too (as the API does).
   };
   const view = (r: MembershipRole) => ({
     role: r,
@@ -1587,6 +1625,22 @@ export function createRolesMock(options: Options = {}): RolesClient {
       manage(r);
       const input = parseInput(SaveRolePermissionsRequest, body);
       checkGrants(input.grants);
+      // An Admin cannot close Roles & Permissions to every Admin; the Owner can.
+      if (
+        g.role === 'ADMIN' &&
+        r === 'ADMIN' &&
+        input.grants.some(
+          (gr) =>
+            gr.module === 'STAFF_MANAGEMENT' &&
+            ['VIEW', 'EDIT', 'DELETE'].includes(gr.capability) &&
+            !gr.granted,
+        )
+      )
+        throw fail(
+          409,
+          'ADMIN_LOCKOUT',
+          'Admins would lose Roles & Permissions; only the Owner can take it away',
+        );
       const escalates = input.grants.some(
         (gr) =>
           gr.granted && !(DEFAULT_ROLE_PERMISSIONS[r][gr.module]?.includes(gr.capability) ?? false),
@@ -1644,6 +1698,19 @@ export function createRolesMock(options: Options = {}): RolesClient {
       await g.allowed();
       if (g.role !== 'OWNER' && g.role !== 'ADMIN') throw forbidden();
       parseInput(CreateCustomRoleRequest, body);
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
+    // The mock's custom roles come with the screens (R55); until then, as the API answered.
+    customRole: async () => {
+      await g.allowed();
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
+    updateCustom: async () => {
+      await g.allowed();
+      throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
+    },
+    archiveCustom: async () => {
+      await g.allowed();
       throw fail(501, 'NOT_IMPLEMENTED', 'Custom roles are not available yet');
     },
   };

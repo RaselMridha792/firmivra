@@ -21,6 +21,7 @@ import {
 import { GroupsTabs } from '../../_components/groups-tabs';
 import { NeedHelpCard } from '../../_components/need-help-card';
 import { NOT_LOADED, QuietCard } from '../../_components/quiet-card';
+import { BackToWorkflow } from '../../../settings/workflow/_components/back-to-workflow';
 import { RowMenu } from '../../_components/row-menu';
 import { DepartmentDetails } from './department-details';
 
@@ -34,9 +35,10 @@ type Dialog =
 /**
  * Teams & Departments, Departments tab (teams-and-departments.jpg, docx §13): the counts, the
  * Department List with search and status, and the chosen department's details and teams. Owner
- * and Admin change; a Manager reads (R42 contract). Nothing is deleted.
+ * and Admin change; a Manager reads (R42 contract). Nothing is deleted. Opened from Settings >
+ * Workflow & Automations (`fromWorkflow`), the header also offers the way back there.
  */
-export function DepartmentsScreen() {
+export function DepartmentsScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }) {
   const { role } = useFirm();
   const canChange = role === 'OWNER' || role === 'ADMIN';
   const router = useRouter();
@@ -76,7 +78,7 @@ export function DepartmentsScreen() {
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <GroupsHeader />
+      <GroupsHeader back={fromWorkflow ? <BackToWorkflow /> : undefined} />
       <GroupsKpis />
       <GroupsTabs current="/team/departments">
         <SearchField

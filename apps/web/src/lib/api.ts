@@ -148,6 +148,7 @@ import { createComplianceMock } from '../mocks/compliance';
 import { createPayrollMock } from '../mocks/payroll';
 import { createReportsMock } from '../mocks/reports';
 import { createTaskWorkMock } from '../mocks/tasks-work';
+import { createTaxReturnWorkspaceMock } from '../mocks/tax-return-workspace';
 import { createTaxPlanningMock } from '../mocks/tax-planning';
 import { createAdvisoryMock } from '../mocks/business-advisory';
 import { createCommunicationsMock } from '../mocks/communications';
@@ -242,7 +243,10 @@ export const api = {
       ? createTaxReturnsMock({ role: MOCK_ROLE })
       : createTaxReturnsClient(request),
   /** Tax Returns workspace (R55 contract): overview, a return's workspace, review and e-file. */
-  taxReturnWorkspace: createTaxReturnWorkspaceClient(request),
+  taxReturnWorkspace:
+    dev && mocked('taxReturnWorkspace')
+      ? createTaxReturnWorkspaceMock({ role: MOCK_ROLE, empty: mockedEmpty('taxReturnWorkspace') })
+      : createTaxReturnWorkspaceClient(request),
   /** Begin Online leads (R11): the firm's inbox, convert and decline. */
   leads: dev && mocked('leads') ? createLeadsMock({ role: MOCK_ROLE }) : createLeadsClient(request),
   /** Leads page and Lead Profile (R43 contract): pipeline, follow-ups, activity, convert to client. */
@@ -443,7 +447,7 @@ export const api = {
   auditLog:
     dev && mocked('auditLog')
       ? createAuditLogMock({ role: MOCK_ROLE })
-      : createAuditLogClient(request),
+      : createAuditLogClient(request, options.baseUrl),
   /** Super Admin Audit & Security (R55): the cross-firm event log, alerts, notes and the security policy. The screens call it through audit-security/_components/audit-api.ts (mock: mocks/admin-audit-security.ts). */
   adminAudit: createAdminAuditClient(request),
   /** Super Admin Reports & Analytics (R55): overview, tabs, firm reports, the builder and saved reports. */

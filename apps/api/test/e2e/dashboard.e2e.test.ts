@@ -40,15 +40,20 @@ const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OP
 const inFirm = <T>(k: 'a' | 'b', actor: Person, work: (tx: TxClient) => Promise<T>) =>
   runInScope(db, { kind: 'business', businessId: firms[k].id, actorUserId: actor.id }, work);
 
-async function summary(who: Person, firm: 'a' | 'b', pool: 'STAFF' | 'CLIENT' = 'STAFF') {
+async function summary(
+  who: Person,
+  firm: 'a' | 'b',
+  pool: 'STAFF' | 'CLIENT' = 'STAFF',
+  query = '',
+) {
   const { token } = await app.get(TokenService).signLocal(who.id, pool);
   return request(app.getHttpServer())
-    .get('/api/v1/business/dashboard/summary')
+    .get(`/api/v1/business/dashboard/summary${query}`)
     .set('x-business-id', firms[firm].id)
     .set('authorization', `Bearer ${token}`);
 }
-const read = async (who: Person, firm: 'a' | 'b') => {
-  const res = await summary(who, firm);
+const read = async (who: Person, firm: 'a' | 'b', query = '') => {
+  const res = await summary(who, firm, 'STAFF', query);
   expect(res.status, JSON.stringify(res.body)).toBe(200);
   return DashboardSummary.parse(res.body);
 };
@@ -159,7 +164,7 @@ beforeAll(async () => {
     await tx.task.createMany({
       data: [
         { businessId, clientId: c1, title: 'Fake task tomorrow', dueOn: day(1) },
-        { businessId, clientId: c2, title: 'Fake task today', dueOn: day(0) },
+        { businessId, clientId: c2, title: 'Fake task today', dueOn: day(0), priority: 'HIGH' },
         { businessId, clientId: c2, title: 'Fake task undated' },
       ],
     });
@@ -216,6 +221,7 @@ describe('GET /business/dashboard/summary', () => {
       intake: 0,
       inProgress: 2,
       completed: 1,
+      period: 'THIS_MONTH',
     });
   });
 
@@ -263,6 +269,39 @@ describe('GET /business/dashboard/summary', () => {
     expect(b.tasksDue).toEqual([]);
     expect((await summary(people.ownerB, 'a')).status).toBe(404);
     expect((await summary(people.ownerA, 'b')).status).toBe(404);
+  });
+
+  // R1: the design's selectors, task priority, last year and the tax season.
+  it("counts the pipeline's Completed for the chosen period", async () => {
+    const year = await read(people.ownerA, 'a', '?pipelinePeriod=THIS_YEAR');
+    expect(year.pipeline).toMatchObject({ completed: 1, period: 'THIS_YEAR' });
+    const last = await read(people.ownerA, 'a', '?pipelinePeriod=LAST_MONTH');
+    expect(last.pipeline).toMatchObject({ completed: 0, period: 'LAST_MONTH' });
+    expect((await summary(people.ownerA, 'a', 'STAFF', '?pipelinePeriod=NEXT_YEAR')).status).toBe(
+      400,
+    );
+  });
+
+  it('gives the chosen revenue year and the year before over the same span', async () => {
+    const now = await read(people.ownerA, 'a');
+    // No money before this year: nothing to compare with.
+    expect(now.revenue.previousYearCents).toBeNull();
+    const lastYear = Number(now.today.slice(0, 4)) - 1;
+    const past = await read(people.ownerA, 'a', `?revenueYear=${lastYear}`);
+    expect(past.revenue).toMatchObject({ year: lastYear, totalCents: 0, previousYearCents: null });
+    expect(past.revenue.byMonthCents.every((c) => c === 0)).toBe(true);
+    const future = await summary(people.ownerA, 'a', 'STAFF', `?revenueYear=${lastYear + 2}`);
+    expect(future.status).toBe(400);
+    expect((future.body as { error: { code: string } }).error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it("gives each due task its priority, and no tax season until the firm's settings hold one", async () => {
+    const s = await read(people.ownerA, 'a');
+    expect(s.tasksDue.map((t) => [t.title, t.priority])).toEqual([
+      ['Fake task today', 'HIGH'],
+      ['Fake task tomorrow', 'MEDIUM'],
+    ]);
+    expect(s.taxSeason).toBeNull();
   });
 
   it('refuses a client (403) and audits each view without numbers', async () => {

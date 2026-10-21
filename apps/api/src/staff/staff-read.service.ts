@@ -116,10 +116,16 @@ export class StaffReadService {
     return out;
   }
 
+  /**
+   * `searchRoles`: roles whose name matched the search (Users & Roles searches by role too).
+   * `ids`: only these members (Users & Roles' Export Selected).
+   */
   list(
     tenant: TenantContext,
     userId: string,
     q: Out<typeof StaffListQ>,
+    searchRoles: MembershipRole[] = [],
+    ids?: readonly string[],
   ): Promise<StaffListResponse> {
     return this.inFirm(tenant, async (tx) => {
       const businessId = tenant.businessId;
@@ -127,6 +133,7 @@ export class StaffReadService {
       const st = STATUS[q.status];
       if (st) and.push(st);
       if (q.role) and.push({ role: q.role });
+      if (ids) and.push({ id: { in: [...ids] } });
       if (q.departmentId) and.push({ departments: { some: { departmentId: q.departmentId } } });
       if (q.search)
         and.push({
@@ -134,6 +141,7 @@ export class StaffReadService {
             { user: { name: { contains: q.search, mode: 'insensitive' } } },
             { user: { email: { contains: q.search, mode: 'insensitive' } } },
             { jobTitle: { contains: q.search, mode: 'insensitive' } },
+            ...(searchRoles.length ? [{ role: { in: searchRoles } }] : []),
           ],
         });
       const where: Prisma.MembershipWhereInput = { AND: and };

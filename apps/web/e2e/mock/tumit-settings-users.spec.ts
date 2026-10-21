@@ -26,15 +26,27 @@ test('lists, filters and invites users', async ({ page }) => {
   await expect(table).not.toContainText('Hana Kim');
   await table.getByLabel('Status').selectOption('all');
 
+  // The counters filter the table: Pending Invitations, then back to everyone.
+  await page.getByRole('button', { name: 'Show pending invitations' }).click();
+  await expect(table.getByLabel('Status')).toHaveValue('invited');
+  await expect(table).not.toContainText('Hana Kim');
+  await page.getByRole('button', { name: 'Show all users' }).click();
+  await expect(table.getByLabel('Status')).toHaveValue('all');
+  await expect(table).toContainText('Hana Kim');
+  await table.getByLabel('Search users').fill('no such person');
+  await expect(table).toContainText('No employees match your filters');
+  await table.getByLabel('Search users').fill('');
+
   await page.getByRole('button', { name: 'Invite User' }).first().click();
+  // An existing staff record is invited (no second record): pick it, check the role, send.
   const invite = page.getByRole('dialog', { name: 'Invite User' });
-  await invite.getByRole('button', { name: 'Send Invitation' }).click();
-  await expect(invite.getByText('Enter their name.')).toBeVisible();
-  await invite.getByLabel('Name *').fill('Nora Diaz');
-  await invite.getByLabel('Work Email *').fill('nora.diaz@example.test');
+  await expect(invite.getByRole('button', { name: 'Send Invitation' })).toBeDisabled();
+  await invite.getByLabel('Search employees').fill('whit');
+  await invite.getByRole('option', { name: /Sam Whitley/ }).click();
+  await expect(invite.getByLabel('Role *')).toHaveValue('TAX_PREPARER');
   await invite.getByLabel('Role *').selectOption({ label: 'Bookkeeper' });
   await invite.getByRole('button', { name: 'Send Invitation' }).click();
-  await expect(page.getByTestId('users-result')).toHaveText('Invitation sent to Nora Diaz.');
+  await expect(page.getByTestId('users-result')).toContainText('Invitation sent to Sam Whitley');
 });
 
 test('signs a user out from the row menu and edits a role grid', async ({ page }) => {
@@ -62,4 +74,173 @@ test('signs a user out from the row menu and edits a role grid', async ({ page }
   // A role template starts Create Custom Role from that role.
   await page.getByTestId('role-templates').getByRole('button', { name: 'Bookkeeper' }).click();
   await expect(page).toHaveURL(/\/settings\/users\/roles\/new\?from=BOOKKEEPER$/);
+});
+
+test('Reset User Passwords and Deactivate User find any user, whatever the table shows', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/users`);
+  const table = page.getByTestId('user-management');
+  // The table shows pending invitations only; the picker still lists every eligible user.
+  await table.getByLabel('Status').selectOption('invited');
+  await expect(table).not.toContainText('Hana Kim');
+
+  const quick = page.getByTestId('users-quick-actions');
+  await quick.getByRole('button', { name: 'Reset User Passwords' }).click();
+  const pick = page.getByTestId('pick-user');
+  await expect(pick.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  await expect(pick).not.toContainText('Victor Lane'); // deactivated: no password to reset
+  await pick.getByLabel('Search users').fill('hana');
+  await pick.getByRole('option', { name: /Hana Kim/ }).click();
+  await pick.getByRole('button', { name: 'Continue' }).click();
+  const reset = page.getByRole('dialog', { name: 'Reset Password' });
+  await expect(reset).toContainText('Hana Kim (');
+  await reset.getByRole('button', { name: 'Send Reset Link' }).click();
+  await expect(page.getByTestId('users-result')).toContainText('reset link was emailed');
+
+  // Deactivate: choose, then cancel at the confirmation; nothing changes.
+  await quick.getByRole('button', { name: 'Deactivate User' }).click();
+  await page.getByTestId('pick-user').getByLabel('Search users').fill('marcus');
+  await page
+    .getByTestId('pick-user')
+    .getByRole('option', { name: /Marcus Bell/ })
+    .click();
+  await page.getByTestId('pick-user').getByRole('button', { name: 'Continue' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Deactivate Account' });
+  await expect(confirm).toContainText('Their clients, tasks and history stay');
+  await confirm.getByRole('button', { name: 'Cancel' }).click();
+  await table.getByLabel('Status').selectOption('active');
+  await expect(table).toContainText('Marcus Bell');
+});
+
+test('Unlock and Reactivate from the row: review who it is, then confirm', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/users`);
+  const table = page.getByTestId('user-management');
+
+  await table.getByLabel('Status').selectOption('locked');
+  await table.getByRole('button', { name: 'Actions for Iris Novak' }).click();
+  await page.getByRole('menuitem', { name: 'Unlock Account' }).click();
+  const unlock = page.getByTestId('unlock-user');
+  await expect(unlock).toContainText('Saved role');
+  await expect(unlock).toContainText('Read Only');
+  await expect(unlock).toContainText('does not reset a password');
+  await unlock.getByRole('button', { name: 'Unlock Account' }).click();
+  await expect(page.getByTestId('users-result')).toHaveText('Iris Novak’s account is unlocked.');
+  await table.getByLabel('Status').selectOption('active');
+  await expect(table).toContainText('Iris Novak');
+
+  await table.getByLabel('Status').selectOption('inactive');
+  await table.getByRole('button', { name: 'Actions for Victor Lane' }).click();
+  await page.getByRole('menuitem', { name: 'Reactivate User' }).click();
+  const reactivate = page.getByTestId('reactivate-user');
+  await expect(reactivate).toContainText('Individual overrides');
+  await reactivate.getByRole('button', { name: 'Reactivate' }).click();
+  await expect(page.getByTestId('users-result')).toContainText('Victor Lane');
+  // No longer inactive (the success line above the table names him; the rows do not).
+  await expect(table.getByRole('row', { name: /Victor Lane/ })).toHaveCount(0);
+});
+
+test('Change Role: one person, with the new role previewed and their overrides kept', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/users`);
+  const table = page.getByTestId('user-management');
+  await table.getByRole('button', { name: 'Actions for Hana Kim' }).click();
+  await page.getByRole('menuitem', { name: 'Change Role' }).click();
+  const dialog = page.getByTestId('change-role');
+  await expect(dialog).toContainText('Current role');
+  await expect(dialog).toContainText('Staff');
+  await expect(dialog.getByRole('button', { name: 'Change Role' })).toBeDisabled();
+  await dialog.getByLabel('New role *').selectOption({ label: 'Bookkeeper' });
+  await expect(dialog).toContainText('What Bookkeeper can do in this firm');
+  await expect(dialog).toContainText('Bookkeeping');
+  await expect(dialog).toContainText('Individual overrides');
+  await dialog.getByRole('button', { name: 'Change Role' }).click();
+  await expect(page.getByTestId('users-result')).toHaveText(
+    'Hana Kim is now Bookkeeper (was Staff).',
+  );
+  await table.getByLabel('Search users').fill('hana');
+  await expect(table.getByRole('row', { name: /Hana Kim/ })).toContainText('Bookkeeper');
+});
+
+test('Individual Permissions: Inherit, Allow or Deny per permission, and Reset to Inherit', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/users`);
+  const table = page.getByTestId('user-management');
+  const open = async () => {
+    await table.getByRole('button', { name: 'Actions for Hana Kim' }).click();
+    await page.getByRole('menuitem', { name: 'Individual Permissions' }).click();
+    return page.getByTestId('individual-permissions');
+  };
+  let dialog = await open();
+  await expect(dialog).toContainText('Inherit follows the role');
+  await dialog
+    .getByRole('list', { name: 'Modules' })
+    .getByRole('button', { name: 'Reports' })
+    .click();
+  const cells = dialog.getByTestId('override-cells');
+  await expect(cells).toContainText('Reports');
+  await expect(dialog.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
+  await cells.getByRole('group', { name: 'Reports View' }).getByText('Allow').click();
+  await cells.getByRole('group', { name: 'Reports Export' }).getByText('Allow').click();
+  await dialog.getByRole('button', { name: 'Save Changes' }).click();
+  // More than the Staff role has: it asks first.
+  await expect(dialog).toContainText('more than the Staff role has');
+  await dialog.getByRole('button', { name: 'Save Anyway' }).click();
+  await expect(page.getByTestId('users-result')).toContainText('Hana Kim’s permissions are saved');
+
+  dialog = await open();
+  await expect(dialog.getByRole('list', { name: 'Modules' })).toContainText('Reports2');
+  await dialog.getByRole('button', { name: 'Reset all to Inherit' }).click();
+  await dialog.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByTestId('users-result')).toContainText('Hana Kim’s permissions are saved');
+  dialog = await open();
+  await expect(dialog.getByRole('button', { name: 'Reset all to Inherit' })).toBeDisabled();
+});
+
+test('Bulk actions: selection across pages, who is left out, and a result per person', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/users`);
+  const table = page.getByTestId('user-management');
+  const box = (name: string) =>
+    table.getByRole('row', { name: new RegExp(name) }).getByRole('checkbox');
+  await box('Hana Kim').check();
+  await box('Sam Whitley').check();
+  await expect(table).toContainText('2 users selected');
+  // A filter change clears the selection.
+  await table.getByLabel('Role').selectOption('STAFF');
+  await expect(table).not.toContainText('selected');
+  await table.getByLabel('Role').selectOption('');
+  await box('Hana Kim').check();
+  await box('Sam Whitley').check();
+  await expect(table.getByRole('button', { name: 'Export Selected' })).toBeVisible();
+
+  await table.getByRole('button', { name: 'Resend Invitations' }).click();
+  const resend = page.getByTestId('bulk-resend');
+  await expect(resend).toContainText('Sam Whitley');
+  await expect(resend).toContainText('Hana Kim: Not a pending invitation');
+  await resend.getByRole('button', { name: 'Resend Invitations (1)' }).click();
+  await expect(resend).toContainText('1 done, 0 failed, 1 left out');
+  await resend.getByRole('button', { name: 'Close' }).click();
+  await expect(table).not.toContainText('selected');
+
+  await box('Hana Kim').check();
+  await box('Marcus Bell').check();
+  await table.getByRole('button', { name: 'Deactivate Selected' }).click();
+  const off = page.getByTestId('bulk-deactivate');
+  await expect(off).toContainText('2 people');
+  await off.getByRole('button', { name: 'Deactivate (2)' }).click();
+  await expect(off).toContainText('2 done, 0 failed');
+  await expect(off).toContainText('Hana Kim: Done');
+  await off.getByRole('button', { name: 'Close' }).click();
+  await table.getByLabel('Status').selectOption('inactive');
+  await expect(table).toContainText('Hana Kim');
+  await expect(table).toContainText('Marcus Bell');
 });

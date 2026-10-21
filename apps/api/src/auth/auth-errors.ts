@@ -41,6 +41,22 @@ const HTTP_ERRORS: Record<AuthFlowErrorCode, () => HttpException> = {
 
 export const httpError = (code: AuthFlowErrorCode): HttpException => HTTP_ERRORS[code]();
 
+/**
+ * 429 for a locked account (SIGN_IN_LIMIT.perAccount): the same code and words as any limit, plus
+ * when it may try again (`details.retryAt`, and Retry-After in seconds). Real and unknown emails
+ * lock alike, so this reveals nothing.
+ */
+export const accountLocked = (until: Date): HttpException =>
+  new HttpException(
+    {
+      code: 'RATE_LIMITED',
+      message: 'Too many attempts. Wait a few minutes and try again.',
+      details: { retryAt: until.toISOString() },
+      retryAfter: Math.max(1, Math.ceil((until.getTime() - Date.now()) / 1000)),
+    },
+    HttpStatus.TOO_MANY_REQUESTS,
+  );
+
 /** Runs an identity-provider call and turns its expected failures into API errors. */
 export async function runFlow<T>(call: () => Promise<T>): Promise<T> {
   try {

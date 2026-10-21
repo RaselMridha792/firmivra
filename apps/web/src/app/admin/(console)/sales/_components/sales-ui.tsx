@@ -213,7 +213,7 @@ export function Panel({
       variant="elevated"
       data-testid={testId}
       aria-label={title}
-      className={`flex min-w-0 flex-col !p-4 ${className}`}
+      className={`flex h-full min-w-0 flex-col !p-4 ${className}`}
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex min-w-0 items-center gap-2 text-lg font-semibold text-heading">
@@ -232,16 +232,20 @@ export function ViewAll({
   href,
   onClick,
   label,
+  text = 'View All',
 }: {
   href?: string;
   onClick?: () => void;
-  label: string;
+  /** What "View All" opens, for screen readers; not needed when `text` says it. */
+  label?: string;
+  /** The visible words, "View All" unless the design says otherwise. */
+  text?: string;
 }) {
   const content = (
     <>
-      View All
+      {text}
       <ArrowRight aria-hidden weight="bold" className="size-4" />
-      <span className="sr-only"> {label}</span>
+      {label ? <span className="sr-only"> {label}</span> : null}
     </>
   );
   const className =
@@ -315,6 +319,7 @@ export function SalesKpi({
   onClick,
   pressed,
   testId,
+  fit = false,
 }: {
   icon: Icon;
   tone: SalesTileTone;
@@ -331,13 +336,19 @@ export function SalesKpi({
   onClick?: () => void;
   pressed?: boolean;
   testId?: string;
+  /**
+   * One of a row of six: at 1440 px the card takes the width its words need, on one line each
+   * (the designs' cards differ in width).
+   */
+  fit?: boolean;
 }) {
+  const oneLine = fit ? 'min-[1440px]:whitespace-nowrap' : '';
   const good = trend?.direction === (downIsGood ? 'down' : 'up');
   const Arrow = trend?.direction === 'down' ? ArrowDown : ArrowUp;
   const body = (
     <>
       <span
-        className={`flex size-12 shrink-0 items-center justify-center rounded-xl min-[1440px]:size-11 ${TILES[tone]}`}
+        className={`flex size-12 shrink-0 items-center justify-center rounded-xl min-[1440px]:size-10 ${TILES[tone]}`}
       >
         <Glyph aria-hidden weight="fill" className="size-7 min-[1440px]:size-6" />
       </span>
@@ -359,7 +370,7 @@ export function SalesKpi({
             )}
           </span>
         )}
-        <span className="flex items-center gap-1 text-sm leading-snug text-text">
+        <span className={`flex items-center gap-1 text-sm leading-snug text-text ${oneLine}`}>
           {label}
           {alert ? (
             <span className="inline-flex text-danger" title="Needs attention">
@@ -380,12 +391,11 @@ export function SalesKpi({
             </span>
           </span>
         ) : null}
-        {note ? <span className="text-xs text-muted">{note}</span> : null}
+        {note ? <span className={`text-xs text-muted ${oneLine}`}>{note}</span> : null}
       </span>
     </>
   );
-  const frame =
-    'flex min-w-0 items-center gap-4 rounded-xl bg-surface p-4 text-left shadow-md min-[1440px]:gap-3 min-[1440px]:p-3';
+  const frame = `flex min-w-0 items-start gap-4 rounded-xl bg-surface p-4 text-left shadow-md min-[1440px]:gap-2 min-[1440px]:px-2.5 min-[1440px]:py-3 ${fit ? 'min-[1440px]:flex-auto' : ''}`;
   return onClick ? (
     <button
       type="button"
@@ -465,30 +475,48 @@ export function CompactSelect<T extends string>({
 }
 
 /**
- * A bar on its track, its length a share of `max`. SVG attributes size it, so the length comes
- * from the data without an inline style. `fillClass` is a `fill-*` token class.
+ * A bar, its length a share of `max`, without a track (the designs draw none). SVG attributes
+ * size it, so the length comes from the data without an inline style. `fillClass` is a `fill-*`
+ * token class. With `after`, the number sits just past the bar's end, as on the Sales Center.
  */
 export function Bar({
   value,
   max,
   fillClass,
   className = 'h-3',
+  after,
 }: {
   value: number;
   max: number;
   fillClass: string;
   className?: string;
+  after?: string;
 }) {
-  const share = max > 0 ? Math.max(value > 0 ? 3 : 0, Math.round((value / max) * 100)) : 0;
+  // Room for the number after the longest bar.
+  const scale = after === undefined ? 100 : 86;
+  const share = max > 0 ? Math.max(value > 0 ? 3 : 0, Math.round((value / max) * scale)) : 0;
   return (
-    <svg aria-hidden className={`block w-full ${className}`}>
-      <rect width="100%" height="100%" rx="4" className="fill-table-head" />
-      {share ? <rect width={`${share}%`} height="100%" rx="4" className={fillClass} /> : null}
+    <svg aria-hidden className={`block w-full overflow-visible ${className}`}>
+      {share ? <rect width={`${share}%`} height="100%" rx="3" className={fillClass} /> : null}
+      {after === undefined ? null : (
+        <text
+          x={`${share}%`}
+          dx={share ? 8 : 0}
+          y="50%"
+          dominantBaseline="central"
+          className="fill-heading text-sm font-medium tabular-nums"
+        >
+          {after}
+        </text>
+      )}
     </svg>
   );
 }
 
-/** A labelled bar row: the label, the bar and the number. */
+/**
+ * A labelled bar row: the label, the bar and the number, either in a column on the right or
+ * (`numberAfterBar`) just past the bar's end.
+ */
 export function BarRow({
   label,
   value,
@@ -497,6 +525,8 @@ export function BarRow({
   display,
   onClick,
   labelClass = 'w-2/5',
+  barClass,
+  numberAfterBar = false,
 }: {
   label: string;
   value: number;
@@ -505,16 +535,29 @@ export function BarRow({
   display?: string;
   onClick?: () => void;
   labelClass?: string;
+  barClass?: string;
+  numberAfterBar?: boolean;
 }) {
+  const number = display ?? String(value);
   const content = (
     <>
       <span className={`shrink-0 truncate text-left text-sm text-text ${labelClass}`}>{label}</span>
       <span className="min-w-0 flex-1">
-        <Bar value={value} max={max} fillClass={fillClass} />
+        <Bar
+          value={value}
+          max={max}
+          fillClass={fillClass}
+          className={barClass}
+          after={numberAfterBar ? number : undefined}
+        />
       </span>
-      <span className="w-8 shrink-0 text-right text-sm font-medium text-heading tabular-nums">
-        {display ?? value}
-      </span>
+      {numberAfterBar ? (
+        <span className="sr-only">{number}</span>
+      ) : (
+        <span className="w-8 shrink-0 text-right text-sm font-medium text-heading tabular-nums">
+          {number}
+        </span>
+      )}
     </>
   );
   const row = 'flex w-full items-center gap-3';

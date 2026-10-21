@@ -1,12 +1,15 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { FirmSlug, OkResponse } from '../schemas.js';
 import {
+  BulkClientsRequest,
+  BulkClientsResponse,
   ClientId,
   ClientProfile,
   ClientRecord,
   ClientTaxYear,
   ClientTaxYearHistory,
   ClientTaxYearList,
+  ClientsSummary,
   CreateClientRequest,
   ListClientsQuery,
   ListClientsResponse,
@@ -36,9 +39,23 @@ export const portalMe = (firmSlug: string) => `/portal/${parseInput(FirmSlug, fi
  */
 export function createClientsClient(request: ApiRequest) {
   return {
-    /** One page, newest first; pass `nextCursor` back as `cursor` for the next page. */
+    /**
+     * One page, newest first: pass `nextCursor` back as `cursor`, or ask for a numbered `page`;
+     * `total` counts every match.
+     */
     list: async (query: ListClientsQuery = {}): Promise<ListClientsResponse> =>
       request(ListClientsResponse, `${BASE}${toQuery(parseInput(ListClientsQuery, query))}`),
+    /** The list's KPI cards and tab counts (Staff: their own clients). */
+    summary: async (): Promise<ClientsSummary> => request(ClientsSummary, `${BASE}/summary`),
+    /**
+     * Owner and Admin: assign, archive or restore up to 100 clients; a client that cannot change is
+     * skipped with its code and the rest still change.
+     */
+    bulk: async (body: BulkClientsRequest): Promise<BulkClientsResponse> =>
+      request(BulkClientsResponse, `${BASE}/bulk`, {
+        method: 'POST',
+        body: parseInput(BulkClientsRequest, body),
+      }),
     get: async (id: string): Promise<ClientRecord> => request(ClientRecord, clientPath(id)),
     /** 409 DUPLICATE_EMAIL. Staff: the client is assigned to them. */
     create: async (body: CreateClientRequest): Promise<ClientRecord> =>

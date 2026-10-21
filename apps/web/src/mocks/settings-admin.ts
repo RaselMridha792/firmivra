@@ -298,7 +298,9 @@ export function createUsersMock(options: Options = {}): UsersClient {
     list: async (query = {}) => {
       await allowed(options.role);
       const q = parseInput(UsersQuery, query);
-      const rows = listStaffRows(shared, q).map((r) => ({ ...r, company: COMPANY }));
+      const rows = listStaffRows(shared, q)
+        .filter((r) => !q.ids || q.ids.includes(r.id))
+        .map((r) => ({ ...r, company: COMPANY }));
       const start = (q.page - 1) * q.pageSize;
       return {
         items: rows.slice(start, start + q.pageSize),
@@ -310,13 +312,17 @@ export function createUsersMock(options: Options = {}): UsersClient {
     summary: async () => {
       await allowed(options.role);
       const c = staffCounts(shared);
+      // As the API counts: accepted accounts (active, locked, inactive), invitations apart, and
+      // the firm's eight roles.
+      const accepted = listStaffRows(shared, { status: 'all' }).filter(
+        (r) => r.status !== 'INVITED',
+      ).length;
       return {
-        total: c.total,
+        total: accepted,
         addedThisMonth: c.addedThisMonth,
         active: c.active,
         pendingInvitations: c.invited,
-        roles: c.roles,
-        customRoles: 0,
+        roles: 8,
       };
     },
     exportUrl: () =>

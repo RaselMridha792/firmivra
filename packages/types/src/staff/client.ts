@@ -24,10 +24,12 @@ import {
 import {
   CreateCustomRoleRequest,
   CustomRole,
+  CustomRoleDetail,
   PermissionModuleList,
   RoleList,
   RolePermissions,
   SaveRolePermissionsRequest,
+  UpdateCustomRoleRequest,
 } from './roles.js';
 import {
   ConfirmStaffDocumentUploadRequest,
@@ -37,6 +39,7 @@ import {
   LockStaffRequest,
   SaveStaffDraftRequest,
   SetStaffNoteRequest,
+  SetStaffOverridesRequest,
   SetStaffPermissionsRequest,
   StaffAccessInput,
   StaffActionResult,
@@ -184,6 +187,15 @@ export function createStaffClient(request: ApiRequest, baseUrl = '') {
         `${one(id)}/permissions`,
         put(parseInput(SetStaffPermissionsRequest, body)),
       ),
+    /**
+     * Individual permissions: Inherit, Allow or Deny for the cells sent (the rest unchanged).
+     * 400 PERMISSION_NEEDS_VIEW; 409 PERMISSION_ESCALATION (resend with acknowledgeEscalation).
+     */
+    setOverrides: async (id: string, body: SetStaffOverridesRequest): Promise<StaffPermissions> =>
+      request(StaffPermissions, `${one(id)}/permissions`, {
+        method: 'PATCH',
+        body: parseInput(SetStaffOverridesRequest, body),
+      }),
     /** "Copy Permissions from Another Staff Member": copies `fromId`'s grid onto `id`. */
     copyPermissions: async (id: string, fromId: string): Promise<StaffPermissions> =>
       request(
@@ -334,6 +346,7 @@ export function createDepartmentsClient(request: ApiRequest) {
 export type DepartmentsClient = ReturnType<typeof createDepartmentsClient>;
 
 const role = (r: MembershipRole) => `/business/roles/${parseInput(MembershipRole, r)}/permissions`;
+const custom = (id: string) => `/business/roles/custom/${parseInput(z.uuid(), id)}`;
 
 /** `api.roles`: roles and their permission grid (Create Staff step 2, Settings > Users & Roles). */
 export function createRolesClient(request: ApiRequest) {
@@ -352,13 +365,25 @@ export function createRolesClient(request: ApiRequest) {
       request(RolePermissions, role(r), { method: 'DELETE' }),
     modules: async (): Promise<PermissionModuleList> =>
       request(PermissionModuleList, '/business/permission-modules'),
-    /** Not built yet (needs a custom_roles table): 501 NOT_IMPLEMENTED until then. */
+    /** Save Role: the role and its grid together. 409 PERMISSION_ESCALATION: ask, then resend. */
     createCustom: async (body: CreateCustomRoleRequest): Promise<CustomRole> =>
       request(
         CustomRole,
         '/business/roles/custom',
         post(parseInput(CreateCustomRoleRequest, body)),
       ),
+    /** One custom role with its whole grid (archived ones too). */
+    customRole: async (id: string): Promise<CustomRoleDetail> =>
+      request(CustomRoleDetail, custom(id)),
+    /** Rename, describe, or Edit Permissions. */
+    updateCustom: async (id: string, body: UpdateCustomRoleRequest): Promise<CustomRoleDetail> =>
+      request(CustomRoleDetail, custom(id), {
+        method: 'PATCH',
+        body: parseInput(UpdateCustomRoleRequest, body),
+      }),
+    /** Archive: it can no longer be given. 409 CUSTOM_ROLE_IN_USE while anyone active has it. */
+    archiveCustom: async (id: string): Promise<CustomRole> =>
+      request(CustomRole, `${custom(id)}/archive`, post()),
   };
 }
 export type RolesClient = ReturnType<typeof createRolesClient>;

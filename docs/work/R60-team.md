@@ -606,8 +606,22 @@ messages shown as written); no screen imports the mocks. No contract change.
     "Adding team members is not available yet.", instead of being hidden by `can.add` (false for
     everyone until the route exists); mock mode still follows `can.add`. The mock spec
     (`e2e/mock/tumit-admin-team.spec.ts`) passes, 8 of 8.
+69. **Messages to several people, a department or the whole company** (after #952): the adapter
+    turns the audience into people, and sends each one the same message through Communications
+    (`messages.create`, contact TEAM, one conversation each), by email and by text as chosen.
+    The people are the chosen members, everyone in the chosen departments (`members({
+    departmentId })`, every page), or everyone (`members()`). Those without `allowed.message`
+    count as unavailable, as do channels a person has no address for. At most 100 people a
+    send (`MESSAGE_RECIPIENT_LIMIT`; the answer says to choose fewer). Location and custom-group
+    audiences still answer 422 (no table). In-app, attachments, priority, turning replies off and
+    announcements still answer 422 (no field in Communications). Checked on the local API: a
+    department of three, by email, made one department read and three sends (200 each), and
+    Mailpit received the three emails.
 
 ## Team invitations
+
+This section's notes run from 69 on; the earlier list's own note 69 (messages, above) came
+from #976 on `main`.
 
 Rasel's decisions (Oct 20): R60 builds the admin invite in the Team module, the login goes in the
 ADMIN pool, and platform scope is used for the `users` and `platform_admins` inserts only.

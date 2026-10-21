@@ -1,6 +1,8 @@
 import {
   ApiRequestError,
+  BulkClientsRequest,
   ClientId,
+  type ClientListRow,
   ClientRecord,
   type ClientPortalRole,
   type ClientsClient,
@@ -17,7 +19,9 @@ import {
   UpdateClientRequest,
   UpdateMyProfileRequest,
 } from '@firmivra/types';
+import { mockedEmpty } from '../lib/mock';
 import { taxStatusFixtures } from './tax-statuses';
+import { teamFixtures } from './team';
 
 /**
  * Mock data for `api.clients` and `api.myProfile(slug)` (R10). Synthetic data only. Inputs are
@@ -134,6 +138,73 @@ export function clientFixtures(): readonly ClientRecord[] {
   return fixtures;
 }
 
+/** The firm's active members as an assignee (the team mock's people, plus Sam Staff). */
+const members = () => [
+  mockStaff,
+  ...teamFixtures()
+    .filter((m) => m.status === 'ACTIVE')
+    .map((m) => ({ userId: m.user.id, name: m.user.name })),
+];
+
+let listOnly: readonly ClientRecord[] | undefined;
+
+/**
+ * Six more clients for the Clients list (R1), so a page fills as clients.jpg does: assigned to the
+ * team mock's Owner and Admin, added in earlier months. Only `api.clients` has them; the other
+ * mocks keep using `clientFixtures()`. Built on first use.
+ */
+function listFixtures(): readonly ClientRecord[] {
+  const [owner, admin] = members().slice(1);
+  listOnly ??= [
+    fixture(5, {
+      displayName: 'Morgan Lee',
+      email: 'morgan.lee@example.test',
+      phone: '+16785550142',
+      assignedTo: owner ?? null,
+      portalStatus: 'ACTIVE',
+      createdAt: '2026-09-22T15:00:00.000Z',
+    }),
+    fixture(6, {
+      displayName: 'Northwind Bakery LLC (fake)',
+      accountType: 'BUSINESS',
+      email: 'books@northwind.example.test',
+      phone: '+17705550199',
+      assignedTo: admin ?? null,
+      portalStatus: 'INVITED',
+      createdAt: '2026-09-15T15:00:00.000Z',
+    }),
+    fixture(7, {
+      displayName: 'Casey Rivera',
+      email: 'casey.rivera@example.test',
+      phone: '+14045557754',
+      assignedTo: owner ?? null,
+      createdAt: '2026-09-03T15:00:00.000Z',
+    }),
+    fixture(8, {
+      displayName: 'Harbor Point Dental (fake)',
+      accountType: 'BUSINESS',
+      email: 'office@harborpoint.example.test',
+      phone: '+16785553344',
+      assignedTo: admin ?? null,
+      portalStatus: 'ACTIVE',
+      createdAt: '2026-08-20T15:00:00.000Z',
+    }),
+    fixture(9, {
+      displayName: 'Jordan Blake',
+      email: 'jordan.blake@example.test',
+      phone: '+17705556677',
+      assignedTo: owner ?? null,
+      createdAt: '2026-08-11T15:00:00.000Z',
+    }),
+    fixture(10, {
+      displayName: 'Taylor Quinn',
+      email: 'taylor.quinn@example.test',
+      createdAt: '2026-07-02T15:00:00.000Z',
+    }),
+  ];
+  return listOnly;
+}
+
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
@@ -150,13 +221,147 @@ const listItem = ({ profile: _p, portalLogins: _l, updatedAt: _u, ...item }: Cli
 
 export type MockFirmRole = 'OWNER' | 'ADMIN' | 'STAFF';
 
+// The work around each client (R1): stage, open services, missing documents, balance, last
+// activity and next appointment, as GET /business/clients sends them. Synthetic.
+type ServiceRef = NonNullable<ClientListRow['services']>[number];
+const service = (n: number, name: string, kind: ServiceRef['kind']): ServiceRef => ({
+  id: `0199b6a2-0000-7000-8000-${String(n).padStart(12, '0')}`,
+  name,
+  kind,
+});
+/** Every service the mock firm offers (the list's service tabs, in this order). */
+export const mockClientServices = (): ServiceRef[] => [
+  service(1, 'Personal Tax', 'ANNUAL_TAX'),
+  service(2, 'Business Tax', 'ANNUAL_TAX'),
+  service(3, 'Bookkeeping', 'BOOKKEEPING'),
+  service(4, 'Tax Planning', 'TAX_PLANNING'),
+];
+type Work = Required<
+  Pick<
+    ClientListRow,
+    | 'status'
+    | 'services'
+    | 'missingDocuments'
+    | 'balanceDueCents'
+    | 'lastActivityAt'
+    | 'nextAppointmentAt'
+  >
+>;
+const daysFromNow = (days: number, hour = 10) => {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCHours(hour, 0, 0, 0);
+  return d.toISOString();
+};
+const noWork = (): Work => ({
+  status: 'NEW',
+  services: [],
+  missingDocuments: 0,
+  balanceDueCents: 0,
+  lastActivityAt: null,
+  nextAppointmentAt: null,
+});
+let workTable: Record<number, Work> | undefined;
+/** Built on first use, around today. */
+const work = (): Record<number, Work> => {
+  const [personal, business, books, planning] = mockClientServices() as [
+    ServiceRef,
+    ServiceRef,
+    ServiceRef,
+    ServiceRef,
+  ];
+  workTable ??= {
+    1: {
+      status: 'ACTIVE',
+      services: [personal, planning],
+      missingDocuments: 2,
+      balanceDueCents: 0,
+      lastActivityAt: daysFromNow(0, 9),
+      nextAppointmentAt: daysFromNow(6, 14),
+    },
+    2: {
+      status: 'PENDING_DOCUMENTS',
+      services: [business, books],
+      missingDocuments: 4,
+      balanceDueCents: 29_000,
+      lastActivityAt: daysFromNow(-1, 15),
+      nextAppointmentAt: daysFromNow(3, 10),
+    },
+    3: {
+      status: 'NEW',
+      services: [personal],
+      missingDocuments: 0,
+      balanceDueCents: 15_000,
+      lastActivityAt: daysFromNow(-8, 11),
+      nextAppointmentAt: null,
+    },
+    4: { ...noWork(), status: 'INACTIVE' },
+    5: {
+      status: 'ACTIVE',
+      services: [personal, books],
+      missingDocuments: 0,
+      balanceDueCents: 0,
+      lastActivityAt: daysFromNow(0, 14),
+      nextAppointmentAt: daysFromNow(7, 15),
+    },
+    6: {
+      status: 'ACTIVE',
+      services: [business, books],
+      missingDocuments: 1,
+      balanceDueCents: 0,
+      lastActivityAt: daysFromNow(-1, 13),
+      nextAppointmentAt: daysFromNow(9, 16),
+    },
+    7: {
+      status: 'IN_PROGRESS',
+      services: [personal],
+      missingDocuments: 1,
+      balanceDueCents: 50_000,
+      lastActivityAt: daysFromNow(-9, 12),
+      nextAppointmentAt: null,
+    },
+    8: {
+      status: 'ON_HOLD',
+      services: [business, planning],
+      missingDocuments: 0,
+      balanceDueCents: 0,
+      lastActivityAt: daysFromNow(-12, 15),
+      nextAppointmentAt: daysFromNow(14, 14),
+    },
+    9: {
+      status: 'ACTIVE',
+      services: [personal, planning],
+      missingDocuments: 0,
+      balanceDueCents: 0,
+      lastActivityAt: daysFromNow(-14, 11),
+      nextAppointmentAt: daysFromNow(11, 13),
+    },
+    10: {
+      status: 'INACTIVE',
+      services: [],
+      missingDocuments: 0,
+      balanceDueCents: 0,
+      lastActivityAt: daysFromNow(-40, 10),
+      nextAppointmentAt: null,
+    },
+  };
+  return workTable;
+};
+const workOf = (id: string): Work => structuredClone(work()[Number(id.slice(-12))] ?? noWork());
+
 /**
  * An in-memory `api.clients`. `role: 'STAFF'` is Sam Staff: only clients 1 and 2 (assigned to
- * them) exist for them, and archive, restore and the assignee get 403 FORBIDDEN.
+ * them) exist for them, and archive, restore and the assignee get 403 FORBIDDEN. `empty: true`
+ * (default: NEXT_PUBLIC_API_MOCK_EMPTY=clients) starts with no clients; the services stay.
  */
-export function createClientsMock(options: { role?: MockFirmRole } = {}): ClientsClient {
+export function createClientsMock(
+  options: { role?: MockFirmRole; empty?: boolean } = {},
+): ClientsClient {
   const staffOnly = options.role === 'STAFF';
-  let rows: ClientRecord[] = clientFixtures().map((r) => structuredClone(r));
+  const empty = options.empty ?? mockedEmpty('clients');
+  let rows: ClientRecord[] = empty
+    ? []
+    : [...clientFixtures(), ...listFixtures()].map((r) => structuredClone(r));
   let years: (ClientTaxYear & { clientId: string })[] = [
     {
       clientId: clientId(1),
@@ -188,7 +393,10 @@ export function createClientsMock(options: { role?: MockFirmRole } = {}): Client
       throw fail(409, 'DUPLICATE_EMAIL', 'Another client has this email');
     }
   };
-  const assignee = (userId: string | null) => (userId === mockStaff.userId ? mockStaff : null);
+  const assignee = (userId: string | null) => {
+    const member = members().find((m) => m.userId === userId);
+    return member ? { ...member } : null;
+  };
   const saveProfile = (row: ClientRecord, body: UpdateClientProfileRequest) => {
     const { ssn, ein, address, ...data } = parseInput(UpdateClientProfileRequest, body);
     const defined = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
@@ -223,11 +431,95 @@ export function createClientsMock(options: { role?: MockFirmRole } = {}): Client
           (r) =>
             !term || [r.displayName, r.email, r.phone].some((v) => v?.toLowerCase().includes(term)),
         )
+        .filter((r) => !q.clientStatus || workOf(r.id).status === q.clientStatus)
+        .filter((r) => !q.serviceId || workOf(r.id).services.some((x) => x.id === q.serviceId))
+        .filter((r) => {
+          if (!q.lastActivityFrom && !q.lastActivityTo) return true;
+          const last = workOf(r.id).lastActivityAt?.slice(0, 10);
+          return (
+            !!last &&
+            (!q.lastActivityFrom || last >= q.lastActivityFrom) &&
+            (!q.lastActivityTo || last <= q.lastActivityTo)
+          );
+        })
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
-      const start = q.cursor ? Number(q.cursor) : 0;
+      const start = q.page ? (q.page - 1) * q.limit : q.cursor ? Number(q.cursor) : 0;
       const page = matches.slice(start, start + q.limit);
-      const next = start + q.limit < matches.length ? String(start + q.limit) : null;
-      return { items: page.map(listItem), nextCursor: next };
+      const next = !q.page && start + q.limit < matches.length ? String(start + q.limit) : null;
+      return {
+        items: page.map((r): ClientListRow => ({ ...listItem(r), ...workOf(r.id) })),
+        nextCursor: next,
+        total: matches.length,
+      };
+    },
+    summary: async () => {
+      await pause();
+      const mine = rows.filter(visible);
+      const live = mine.filter((r) => !r.archivedAt);
+      const today = new Date();
+      const month = today.toISOString().slice(0, 7);
+      const lastMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1))
+        .toISOString()
+        .slice(0, 7);
+      const count = (test: (w: Work) => boolean) => live.filter((r) => test(workOf(r.id))).length;
+      const active = count((w) => w.status === 'ACTIVE');
+      return {
+        kpis: {
+          totalClients: {
+            value: live.length,
+            previous: live.filter((r) => r.createdAt.slice(0, 7) < month).length,
+          },
+          newClients: {
+            value: mine.filter((r) => r.createdAt.slice(0, 7) === month).length,
+            previous: mine.filter((r) => r.createdAt.slice(0, 7) === lastMonth).length,
+          },
+          activeClients: { value: active, previous: null },
+          pendingDocuments: { value: count((w) => w.missingDocuments > 0), previous: null },
+          balancesDue: { value: count((w) => w.balanceDueCents > 0), previous: null },
+          inactiveClients: { value: count((w) => w.status === 'INACTIVE'), previous: null },
+        },
+        counts: {
+          all: live.length,
+          active,
+          new: count((w) => w.status === 'NEW'),
+          inactive: count((w) => w.status === 'INACTIVE'),
+          byService: mockClientServices().map((x) => ({
+            ...x,
+            count: count((w) => w.services.some((y) => y.id === x.id)),
+          })),
+        },
+      };
+    },
+    bulk: async (body) => {
+      await pause();
+      const req = parseInput(BulkClientsRequest, body);
+      if (staffOnly) throw forbidden();
+      const ids = [...new Set(req.clientIds)];
+      if (!ids.every((id) => rows.some((r) => r.id === id && visible(r)))) {
+        throw fail(404, 'NOT_FOUND', 'Not found');
+      }
+      // An assignee who is not an active member refuses the whole request, as the API does.
+      if (req.action === 'ASSIGN' && req.assignedUserId && !assignee(req.assignedUserId)) {
+        throw fail(404, 'NOT_FOUND', 'Not found');
+      }
+      const skipped: { clientId: string; code: string }[] = [];
+      let updated = 0;
+      for (const id of ids) {
+        const row = rows.find((r) => r.id === id && visible(r))!;
+        if (req.action === 'ASSIGN') {
+          if (row.archivedAt) {
+            skipped.push({ clientId: id, code: 'CLIENT_ARCHIVED' });
+            continue;
+          }
+          save({ ...row, assignedTo: assignee(req.assignedUserId), updatedAt: now() });
+        } else if (req.action === 'ARCHIVE') {
+          if (!row.archivedAt) save({ ...row, archivedAt: now(), updatedAt: now() });
+        } else {
+          save({ ...row, archivedAt: null, updatedAt: now() });
+        }
+        updated += 1;
+      }
+      return { updated, skipped };
     },
     get: async (id) => {
       await pause();

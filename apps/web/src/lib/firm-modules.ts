@@ -1,5 +1,5 @@
 // Server-safe icons: this file is read by the module page (a server component) and the sidebar.
-import { Envelope, Globe, IdentificationCard, UploadSimple } from '@phosphor-icons/react/ssr';
+import { Envelope, Globe, UploadSimple } from '@phosphor-icons/react/ssr';
 import type { Icon } from '@phosphor-icons/react';
 
 /** A firm workspace module whose page is not built yet. */
@@ -20,7 +20,6 @@ export const FIRM_MODULES: readonly FirmModule[] = [
   { slug: 'document-upload', label: 'Upload Document', icon: UploadSimple },
   { slug: 'document-requests', label: 'Document Requests', icon: Envelope },
   { slug: 'client-portal', label: 'Client Portal', icon: Globe },
-  { slug: 'tax-returns', label: 'Tax Returns', icon: IdentificationCard },
 ];
 
 export function findModule(slug: string): FirmModule | undefined {

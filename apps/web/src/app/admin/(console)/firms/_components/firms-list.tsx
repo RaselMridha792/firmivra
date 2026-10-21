@@ -76,6 +76,8 @@ export function FirmsList() {
     return { ...result, counts };
   });
 
+  const counts = query.data?.counts;
+
   function searchFirms(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     // The API refuses control characters and more than 100 characters (SearchText).
@@ -90,7 +92,7 @@ export function FirmsList() {
 
   return (
     <div className="flex w-full flex-col gap-5">
-      <header className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
+      <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <h1
             data-testid="page-title"
@@ -102,10 +104,10 @@ export function FirmsList() {
             Manage approved firms and their access to the platform.
           </p>
         </div>
-        <form onSubmit={searchFirms} className="flex flex-col gap-3 sm:flex-row 2xl:mt-2">
+        <form onSubmit={searchFirms} className="flex shrink-0 flex-col gap-3 sm:flex-row xl:mt-2">
           <SearchBox
             label="Search firms"
-            className="sm:w-96"
+            className="sm:w-96 xl:w-80 2xl:w-96"
             placeholder="Search firms by name, owner, or email..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -129,6 +131,61 @@ export function FirmsList() {
         </form>
       </header>
 
+      {/* The totals and tabs keep their frames in every state (design-match rule 2). */}
+      <section aria-label="Firm totals" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Active Firms"
+          value={counts?.active ?? null}
+          icon={Building2}
+          tone="success"
+          action={{ label: 'View Firms', onClick: () => show('ACTIVE') }}
+        />
+        <StatCard
+          label="Pending Setup"
+          value={counts?.pendingSetup ?? null}
+          icon={Clock3}
+          tone="warning"
+          action={{ label: 'View Pending', onClick: () => show('PENDING_SETUP') }}
+        />
+        <StatCard
+          label="Inactive Firms"
+          value={counts?.inactive ?? null}
+          icon={X}
+          tone="danger"
+          action={{ label: 'View Inactive', onClick: () => show('INACTIVE') }}
+        />
+        <StatCard
+          label="Total Firms"
+          value={counts?.total ?? null}
+          icon={UsersRound}
+          tone="purple"
+          action={{ label: 'View All', onClick: () => show(undefined) }}
+        />
+      </section>
+
+      <div
+        role="tablist"
+        aria-label="Filter firms by status"
+        className="flex gap-6 overflow-x-auto border-b border-border"
+      >
+        {tabs.map((tab) => {
+          const selected = status === tab.value;
+          return (
+            <button
+              key={tab.label}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => show(tab.value)}
+              className={`-mb-px shrink-0 border-b-2 px-1 py-3 text-sm ${selected ? 'border-action font-semibold text-action' : 'border-transparent text-muted hover:text-heading'}`}
+            >
+              {tab.label}
+              {counts ? ` (${counts[tab.count]})` : ''}
+            </button>
+          );
+        })}
+      </div>
+
       <PageState query={query}>
         {(data) => {
           const first = data.total ? (page - 1) * data.pageSize + 1 : 0;
@@ -136,62 +193,6 @@ export function FirmsList() {
           const pageCount = Math.max(1, Math.ceil(data.total / data.pageSize));
           return (
             <>
-              <section
-                aria-label="Firm totals"
-                className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-              >
-                <StatCard
-                  label="Active Firms"
-                  value={data.counts.active}
-                  icon={Building2}
-                  tone="success"
-                  action={{ label: 'View Firms', onClick: () => show('ACTIVE') }}
-                />
-                <StatCard
-                  label="Pending Setup"
-                  value={data.counts.pendingSetup}
-                  icon={Clock3}
-                  tone="warning"
-                  action={{ label: 'View Pending', onClick: () => show('PENDING_SETUP') }}
-                />
-                <StatCard
-                  label="Inactive Firms"
-                  value={data.counts.inactive}
-                  icon={X}
-                  tone="danger"
-                  action={{ label: 'View Inactive', onClick: () => show('INACTIVE') }}
-                />
-                <StatCard
-                  label="Total Firms"
-                  value={data.counts.total}
-                  icon={UsersRound}
-                  tone="purple"
-                  action={{ label: 'View All', onClick: () => show(undefined) }}
-                />
-              </section>
-
-              <div
-                role="tablist"
-                aria-label="Filter firms by status"
-                className="flex gap-6 overflow-x-auto border-b border-border"
-              >
-                {tabs.map((tab) => {
-                  const selected = status === tab.value;
-                  return (
-                    <button
-                      key={tab.label}
-                      type="button"
-                      role="tab"
-                      aria-selected={selected}
-                      onClick={() => show(tab.value)}
-                      className={`-mb-px shrink-0 border-b-2 px-1 py-3 text-sm ${selected ? 'border-action font-semibold text-action' : 'border-transparent text-muted hover:text-heading'}`}
-                    >
-                      {tab.label} ({data.counts[tab.count]})
-                    </button>
-                  );
-                })}
-              </div>
-
               {data.items.length ? (
                 <>
                   <Card variant="elevated" className="overflow-hidden !p-0">
@@ -253,7 +254,11 @@ export function FirmsList() {
                           { label: 'Plan' },
                           { label: 'Status' },
                           { label: 'Date Approved' },
-                          { label: 'Actions', center: true, className: 'hidden 2xl:table-cell' },
+                          {
+                            label: 'Actions',
+                            center: true,
+                            className: 'hidden min-[85rem]:table-cell',
+                          },
                         ]}
                       >
                         {data.items.map((firm, index) => (
@@ -263,7 +268,7 @@ export function FirmsList() {
                               scope="row"
                               className={`${cellClass} min-w-40 break-words font-semibold text-heading`}
                             >
-                              {/* Below 2xl there is no Actions column: the name opens the firm. */}
+                              {/* Below 1360 px there is no Actions column: the name opens the firm. */}
                               <Link href={`/firms/${firm.id}`} className="hover:text-link">
                                 {firm.name}
                               </Link>
@@ -289,11 +294,13 @@ export function FirmsList() {
                             <td className={`${cellClass} whitespace-nowrap`}>
                               <ApprovedDate value={firm.approvedAt} />
                             </td>
-                            <td className={`${cellClass} hidden text-center 2xl:table-cell`}>
+                            <td
+                              className={`${cellClass} hidden text-center min-[85rem]:table-cell`}
+                            >
                               <Link
                                 aria-label={`Open firm ${firm.name}`}
                                 href={`/firms/${firm.id}`}
-                                className="inline-flex whitespace-nowrap rounded-control bg-platform-navy px-4 py-2.5 font-semibold text-white hover:bg-platform-navy-raised"
+                                className="inline-flex whitespace-nowrap rounded-control bg-platform-navy px-3 py-2 text-sm font-semibold text-white hover:bg-platform-navy-raised 2xl:px-4 2xl:py-2.5"
                               >
                                 Open Firm
                               </Link>

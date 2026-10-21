@@ -81,17 +81,22 @@ export function UpcomingAppointmentsPanel({
           <ul aria-label="Upcoming appointments">
             {items.map((item) => (
               <li key={item.id} className="border-b border-divider last:border-0">
+                {/* Date, time, firm and type on one line, as in the design. */}
                 <Link
                   href={`/sales/opportunities/${item.opportunityId}`}
-                  className="flex items-start gap-3 py-2.5 text-sm text-text hover:text-action"
+                  className="grid grid-cols-[auto_auto_minmax(0,1.3fr)_minmax(0,1fr)] items-start gap-x-3 py-2.5 text-xs text-text hover:text-action"
                 >
-                  {/* The time sits under the date, so it never runs into the firm name. */}
-                  <time dateTime={item.startsAt} className="flex min-w-24 shrink-0 flex-col">
-                    <span className="whitespace-nowrap">{dateText(item.startsAt)}</span>{' '}
+                  <time dateTime={item.startsAt} className="contents">
+                    <span className="whitespace-nowrap">{dateText(item.startsAt)}</span>
                     <span className="whitespace-nowrap">{timeText(item.startsAt)}</span>
                   </time>
-                  <span className="min-w-0 flex-1 truncate">{item.firmName}</span>
-                  <span className="min-w-0 flex-1 truncate text-muted">
+                  <span title={item.firmName} className="min-w-0 truncate">
+                    {item.firmName}
+                  </span>
+                  <span
+                    title={appointmentTypeLabel(item.type)}
+                    className="min-w-0 truncate text-muted"
+                  >
                     {appointmentTypeLabel(item.type)}
                   </span>
                 </Link>
@@ -146,7 +151,7 @@ export function PipelineAnalyticsPanel({
           value={period}
           options={ANALYTICS_PERIODS}
           onChange={setPeriod}
-          className="w-40"
+          className="w-32"
         />
       }
     >
