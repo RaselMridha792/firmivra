@@ -1,6 +1,8 @@
 // End-to-end: R2 step 7 in AUTH_MODE=local. Failed sign-ins (wrong passwords and wrong MFA
 // codes) are audited, and per-email and per-attempt limits count those rows, so every API task
-// shares them. Staff rows go in the platform's log; a client's portal rows in the firm's.
+// shares them. Staff rows go in the platform's log; a client's portal rows in the firm's. On top
+// (Rasel, Oct 21), the account lockout: SIGN_IN_LIMIT.perAccount failures from any network lock
+// the email for SIGN_IN_LIMIT.lockMs, and a successful password reset lifts it.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -9,14 +11,18 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import type { MfaSetupResponse, SignInResult } from '@firmivra/types';
+import { type MfaSetupResponse, type SignInResult, SignInRateLimited } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import {
   AuthFlowError,
   IDENTITY_PROVIDER,
   type IdentityProvider,
 } from '../../src/auth/identity/identity-provider.js';
-import { LOCAL_MFA_CODE, LOCAL_PASSWORD } from '../../src/auth/identity/local-identity.provider.js';
+import {
+  LOCAL_MFA_CODE,
+  LOCAL_PASSWORD,
+  LOCAL_RESET_CODE,
+} from '../../src/auth/identity/local-identity.provider.js';
 import { SIGN_IN_LIMIT } from '../../src/auth/sign-in.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -35,12 +41,19 @@ const person = (key: string): Person => ({
 const staff = {
   locked: person('locked'),
   bystander: person('bystander'),
+  everywhere: person('everywhere'),
+  held: person('held'),
+  lifted: person('lifted'),
+  reset: person('reset'),
   mfa: person('mfa'),
+  mfaLock: person('mfalock'),
   released: person('released'),
   audited: person('audited'),
+  lockAudit: person('lockaudit'),
   network: person('network'),
   ceiling: person('ceiling'),
 };
+const NEW_PASSWORD = 'New-password-2026';
 const firmX = { id: '', slug: `r2-lim-x-${tag}` };
 const firmY = { id: '', slug: `r2-lim-y-${tag}` };
 /** One email, a login at each of two firms: each firm's portal counts its own failures. */
@@ -63,6 +76,27 @@ const post = (path: string, body: object, portal = false) => {
 };
 const staffSignIn = (email: string, password: string) =>
   post('/api/v1/auth/sign-in', { email, password });
+/** A staff sign-in from a chosen viewer IP, for the tests about networks. */
+const signInFrom = (ip: string, email: string, password: string) =>
+  request(app.getHttpServer())
+    .post('/api/v1/auth/sign-in')
+    .set('x-forwarded-for', `${ip}, 10.0.0.5`)
+    .send({ email, password });
+
+/**
+ * A locked account's answer (contract `SignInRateLimited`): 429 RATE_LIMITED with when it may try
+ * again, in the body and as Retry-After. Returns that time.
+ */
+function expectLocked(res: Response): number {
+  expect([res.status, codeOf(res)]).toEqual([429, 'RATE_LIMITED']);
+  const retryAt = Date.parse(SignInRateLimited.parse(res.body).error.details?.retryAt ?? '');
+  expect(retryAt).toBeGreaterThan(Date.now());
+  expect(retryAt).toBeLessThanOrEqual(Date.now() + SIGN_IN_LIMIT.lockMs);
+  const retryAfter = Number(res.headers['retry-after']);
+  expect(retryAfter).toBeGreaterThan(0);
+  expect(retryAfter).toBeLessThanOrEqual(SIGN_IN_LIMIT.lockMs / 1000);
+  return retryAt;
+}
 const portalSignIn = (slug: string, password: string) =>
   post(`/api/v1/portal/${slug}/auth/sign-in`, { email: sharedEmail, password }, true);
 
@@ -134,53 +168,140 @@ afterAll(async () => {
   await app.close();
 });
 
-describe('per-email limit', () => {
-  it('locks an email after SIGN_IN_LIMIT.perEmailNetwork failures, real or unknown, and only that email', async () => {
-    await fail(SIGN_IN_LIMIT.perEmailNetwork, () => staffSignIn(staff.locked.email, WRONG));
-    // Even the right password waits now.
-    const locked = await staffSignIn(staff.locked.email, LOCAL_PASSWORD);
-    expect([locked.status, codeOf(locked)]).toEqual([429, 'RATE_LIMITED']);
+describe('account lockout (Rasel, Oct 21)', () => {
+  it('locks an email after SIGN_IN_LIMIT.perAccount failures, real or unknown, and only that email', async () => {
+    await fail(SIGN_IN_LIMIT.perAccount, () => staffSignIn(staff.locked.email, WRONG));
+    // Even the right password waits now, and the answer says until when.
+    expectLocked(await staffSignIn(staff.locked.email, LOCAL_PASSWORD));
 
     // An unknown email gets exactly the same answers.
     const nobody = `r2-lim-nobody-${tag}@a.test`;
-    await fail(SIGN_IN_LIMIT.perEmailNetwork, () => staffSignIn(nobody, WRONG));
-    const unknown = await staffSignIn(nobody, WRONG);
-    expect([unknown.status, codeOf(unknown)]).toEqual([429, 'RATE_LIMITED']);
+    await fail(SIGN_IN_LIMIT.perAccount, () => staffSignIn(nobody, WRONG));
+    expectLocked(await staffSignIn(nobody, WRONG));
 
     // Nobody else is affected.
     expect((await staffSignIn(staff.bystander.email, LOCAL_PASSWORD)).status).toBe(200);
   });
+
+  // This replaces q20's "another network still signs in": the lock is the account's, so the
+  // person waits on their own network too.
+  it('holds on every network, each failure from its own /24', async () => {
+    const who = staff.everywhere;
+    for (let i = 1; i <= SIGN_IN_LIMIT.perAccount; i += 1) {
+      const res = await signInFrom(`198.34.${i}.1`, who.email, WRONG);
+      expect([res.status, codeOf(res)]).toEqual([401, 'INVALID_CREDENTIALS']);
+    }
+    expectLocked(await signInFrom('198.35.7.1', who.email, LOCAL_PASSWORD));
+
+    // An unknown email: the same answers.
+    const nobody = `r2-lim-every-nobody-${tag}@a.test`;
+    for (let i = 1; i <= SIGN_IN_LIMIT.perAccount; i += 1) {
+      const res = await signInFrom(`198.36.${i}.1`, nobody, WRONG);
+      expect([res.status, codeOf(res)]).toEqual([401, 'INVALID_CREDENTIALS']);
+    }
+    expectLocked(await signInFrom('198.37.1.1', nobody, WRONG));
+  });
+
+  it('holds SIGN_IN_LIMIT.lockMs from the failure that locked it, then lifts', async () => {
+    // A failure can't be dated in the past through the API, so the open attempts are written
+    // directly (the owner may date audit rows), under the email key the API uses. A right
+    // password first gives that key; its attempt is closed as passed, so it does not count.
+    const keyOf = async (who: Person) => {
+      const userAgent = `r2-lim-key-${who.id}`;
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/auth/sign-in')
+        .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
+        .set('user-agent', userAgent)
+        .send({ email: who.email, password: LOCAL_PASSWORD });
+      expect(res.status).toBe(200);
+      const [row] = await asOwner({ kind: 'platform' }, (tx) =>
+        tx.auditLog.findMany({
+          where: { businessId: null, action: 'auth.sign_in_attempt', userAgent },
+          select: { metadata: true },
+        }),
+      );
+      return (row?.metadata as { emailKey: string }).emailKey;
+    };
+    const failedMinutesAgo = (emailKey: string, minutes: number[]) =>
+      asOwner({ kind: 'platform' }, (tx) =>
+        tx.auditLog.createMany({
+          data: minutes.map((m) => ({
+            businessId: null,
+            action: 'auth.sign_in_attempt',
+            entityType: 'login',
+            createdAt: new Date(Date.now() - m * 60_000),
+            metadata: { emailKey, step: 'password', pool: 'STAFF', reservationId: randomUUID() },
+          })),
+        }),
+      );
+
+    // Five failures 11 to 16 minutes ago: the first is past the window, but the lock runs 15
+    // minutes from the fifth, so about 4 minutes are left.
+    await failedMinutesAgo(await keyOf(staff.held), [16, 14, 13, 12, 11]);
+    const retryAt = expectLocked(await staffSignIn(staff.held.email, LOCAL_PASSWORD));
+    expect(Math.abs(retryAt - (Date.now() + 4 * 60_000))).toBeLessThan(30_000);
+
+    // Five failures 16 to 20 minutes ago: that lock ended a minute ago.
+    await failedMinutesAgo(await keyOf(staff.lifted), [20, 19, 18, 17, 16]);
+    expect((await staffSignIn(staff.lifted.email, LOCAL_PASSWORD)).status).toBe(200);
+  });
+
+  it('a successful password reset lifts it; a failed one does not', async () => {
+    const who = staff.reset;
+    await fail(SIGN_IN_LIMIT.perAccount, () => staffSignIn(who.email, WRONG));
+    expectLocked(await staffSignIn(who.email, LOCAL_PASSWORD));
+
+    const badReset = await post('/api/v1/auth/reset-password', {
+      email: who.email,
+      code: '123456',
+      password: NEW_PASSWORD,
+    });
+    expect([badReset.status, codeOf(badReset)]).toEqual([400, 'RESET_CODE_INVALID']);
+    expectLocked(await staffSignIn(who.email, LOCAL_PASSWORD));
+
+    await post('/api/v1/auth/reset-password', {
+      email: who.email,
+      code: LOCAL_RESET_CODE,
+      password: NEW_PASSWORD,
+    }).expect(200);
+    const after = await staffSignIn(who.email, NEW_PASSWORD);
+    expect(after.status).toBe(200);
+    expect((after.body as SignInResult).status).toBe('MFA_SETUP_REQUIRED');
+  });
 });
 
 describe('per email and network (q20)', () => {
-  const signInFrom = (ip: string, email: string, password: string) =>
-    request(app.getHttpServer())
-      .post('/api/v1/auth/sign-in')
-      .set('x-forwarded-for', `${ip}, 10.0.0.5`)
-      .send({ email, password });
-
+  // The network limit stays under the account lockout; it shows when the account limit is higher.
   it('locks one network (its /24) for an email, while another network still signs in', async () => {
-    const who = staff.network;
-    // Failures from addresses across one /24 count together.
-    for (let i = 1; i <= SIGN_IN_LIMIT.perEmailNetwork; i += 1) {
-      const res = await signInFrom(`198.30.1.${i}`, who.email, WRONG);
-      expect([res.status, codeOf(res)]).toEqual([401, 'INVALID_CREDENTIALS']);
-    }
-    const locked = await signInFrom('198.30.1.200', who.email, LOCAL_PASSWORD);
-    expect([locked.status, codeOf(locked)]).toEqual([429, 'RATE_LIMITED']);
-    // The person, from their own network, is not locked out.
-    const elsewhere = await signInFrom('198.31.7.1', who.email, LOCAL_PASSWORD);
-    expect(elsewhere.status).toBe(200);
-    expect((elsewhere.body as SignInResult).status).toBe('MFA_SETUP_REQUIRED');
+    const perAccount = SIGN_IN_LIMIT.perAccount;
+    SIGN_IN_LIMIT.perAccount = 100;
+    try {
+      const who = staff.network;
+      // Failures from addresses across one /24 count together.
+      for (let i = 1; i <= SIGN_IN_LIMIT.perEmailNetwork; i += 1) {
+        const res = await signInFrom(`198.30.1.${i}`, who.email, WRONG);
+        expect([res.status, codeOf(res)]).toEqual([401, 'INVALID_CREDENTIALS']);
+      }
+      const locked = await signInFrom('198.30.1.200', who.email, LOCAL_PASSWORD);
+      expect([locked.status, codeOf(locked)]).toEqual([429, 'RATE_LIMITED']);
+      // A network's limit says no time: only an account lock does.
+      expect(SignInRateLimited.parse(locked.body).error.details).toBeUndefined();
+      // Under the raised account limit, another network still signs in.
+      const elsewhere = await signInFrom('198.31.7.1', who.email, LOCAL_PASSWORD);
+      expect(elsewhere.status).toBe(200);
+      expect((elsewhere.body as SignInResult).status).toBe('MFA_SETUP_REQUIRED');
 
-    // An unknown email: the same answers, network by network.
-    const nobody = `r2-lim-net-nobody-${tag}@a.test`;
-    for (let i = 1; i <= SIGN_IN_LIMIT.perEmailNetwork; i += 1) {
-      const res = await signInFrom(`198.32.1.${i}`, nobody, WRONG);
-      expect([res.status, codeOf(res)]).toEqual([401, 'INVALID_CREDENTIALS']);
+      // An unknown email: the same answers, network by network.
+      const nobody = `r2-lim-net-nobody-${tag}@a.test`;
+      for (let i = 1; i <= SIGN_IN_LIMIT.perEmailNetwork; i += 1) {
+        const res = await signInFrom(`198.32.1.${i}`, nobody, WRONG);
+        expect([res.status, codeOf(res)]).toEqual([401, 'INVALID_CREDENTIALS']);
+      }
+      expect((await signInFrom('198.32.1.99', nobody, WRONG)).status).toBe(429);
+      expect((await signInFrom('198.33.1.1', nobody, WRONG)).status).toBe(401);
+    } finally {
+      SIGN_IN_LIMIT.perAccount = perAccount;
     }
-    expect((await signInFrom('198.32.1.99', nobody, WRONG)).status).toBe(429);
-    expect((await signInFrom('198.33.1.1', nobody, WRONG)).status).toBe(401);
   });
 
   it('past the per-email ceiling every network is slowed, never locked out', async () => {
@@ -220,7 +341,7 @@ describe('per email and network (q20)', () => {
     }
   });
 
-  it('parallel guesses from two networks: each stays within its own limit, no 500', async () => {
+  it('parallel guesses from two networks: no more than the account limit in all, no 500', async () => {
     const email = `r2-lim-net-burst-${tag}@a.test`;
     const burst = (net: string) =>
       Array.from({ length: 20 }, (_, i) => signInFrom(`${net}.${i + 1}`, email, WRONG));
@@ -228,20 +349,16 @@ describe('per email and network (q20)', () => {
       Promise.all(burst('198.50.1')),
       Promise.all(burst('198.50.2')),
     ]);
-    for (const results of [a, b]) {
-      const statuses = results.map((r) => r.status);
-      expect(statuses.filter((s) => s !== 401 && s !== 429)).toEqual([]);
-      expect(statuses.filter((s) => s === 401).length).toBeLessThanOrEqual(
-        SIGN_IN_LIMIT.perEmailNetwork,
-      );
-    }
+    const statuses = [...a, ...b].map((r) => r.status);
+    expect(statuses.filter((s) => s !== 401 && s !== 429)).toEqual([]);
+    expect(statuses.filter((s) => s === 401).length).toBeLessThanOrEqual(SIGN_IN_LIMIT.perAccount);
   });
 });
 
 describe('wrong MFA codes', () => {
-  it('end the attempt after SIGN_IN_LIMIT.perAttempt, and count against the email', async () => {
-    // First sign-in sets up the authenticator (local mode), so later ones ask for a code.
-    const first = await staffSignIn(staff.mfa.email, LOCAL_PASSWORD);
+  /** Sets up the person's authenticator (local mode), then signs in up to the code step. */
+  async function atCodeStep(who: Person): Promise<string> {
+    const first = await staffSignIn(who.email, LOCAL_PASSWORD);
     const setup = await post('/api/v1/auth/mfa/setup', {
       session: (first.body as { session: string }).session,
     });
@@ -249,36 +366,59 @@ describe('wrong MFA codes', () => {
       session: (setup.body as MfaSetupResponse).session,
       code: LOCAL_MFA_CODE,
     }).expect(200);
-
-    const signIn = await staffSignIn(staff.mfa.email, LOCAL_PASSWORD);
+    const signIn = await staffSignIn(who.email, LOCAL_PASSWORD);
     const step = signIn.body as SignInResult;
     if (step.status !== 'MFA_REQUIRED') throw new Error(`unexpected ${step.status}`);
-    for (let i = 0; i < SIGN_IN_LIMIT.perAttempt; i += 1) {
-      const res = await post('/api/v1/auth/mfa', { session: step.session, code: '111111' });
+    return step.session;
+  }
+
+  it('end the attempt after SIGN_IN_LIMIT.perAttempt, and count against the email', async () => {
+    // The attempt's and the network's limits, under a raised account limit.
+    const perAccount = SIGN_IN_LIMIT.perAccount;
+    SIGN_IN_LIMIT.perAccount = 100;
+    try {
+      const session = await atCodeStep(staff.mfa);
+      for (let i = 0; i < SIGN_IN_LIMIT.perAttempt; i += 1) {
+        const res = await post('/api/v1/auth/mfa', { session, code: '111111' });
+        expect([res.status, codeOf(res)]).toEqual([401, 'MFA_CODE_INVALID']);
+      }
+      // The attempt is over, even with the right code: sign in again.
+      const over = await post('/api/v1/auth/mfa', { session, code: LOCAL_MFA_CODE });
+      expect([over.status, codeOf(over)]).toEqual([401, 'CHALLENGE_EXPIRED']);
+
+      // Those wrong codes counted for the email: starting again does not give fresh tries.
+      await fail(SIGN_IN_LIMIT.perEmailNetwork - SIGN_IN_LIMIT.perAttempt, () =>
+        staffSignIn(staff.mfa.email, WRONG),
+      );
+      const locked = await staffSignIn(staff.mfa.email, LOCAL_PASSWORD);
+      expect([locked.status, codeOf(locked)]).toEqual([429, 'RATE_LIMITED']);
+    } finally {
+      SIGN_IN_LIMIT.perAccount = perAccount;
+    }
+  });
+
+  it('count toward the account lock, with wrong passwords (Rasel, Oct 21)', async () => {
+    const who = staff.mfaLock;
+    const session = await atCodeStep(who);
+    const codes = SIGN_IN_LIMIT.perAccount - 2;
+    for (let i = 0; i < codes; i += 1) {
+      const res = await post('/api/v1/auth/mfa', { session, code: '111111' });
       expect([res.status, codeOf(res)]).toEqual([401, 'MFA_CODE_INVALID']);
     }
-    // The attempt is over, even with the right code: sign in again.
-    const over = await post('/api/v1/auth/mfa', { session: step.session, code: LOCAL_MFA_CODE });
-    expect([over.status, codeOf(over)]).toEqual([401, 'CHALLENGE_EXPIRED']);
-
-    // Those wrong codes counted for the email: starting again does not give fresh tries.
-    await fail(SIGN_IN_LIMIT.perEmailNetwork - SIGN_IN_LIMIT.perAttempt, () =>
-      staffSignIn(staff.mfa.email, WRONG),
-    );
-    const locked = await staffSignIn(staff.mfa.email, LOCAL_PASSWORD);
-    expect([locked.status, codeOf(locked)]).toEqual([429, 'RATE_LIMITED']);
+    await fail(2, () => staffSignIn(who.email, WRONG));
+    expectLocked(await staffSignIn(who.email, LOCAL_PASSWORD));
+    // The code step still open waits too, even with the right code.
+    expectLocked(await post('/api/v1/auth/mfa', { session, code: LOCAL_MFA_CODE }));
   });
 });
 
 describe('parallel attempts (reserved before Cognito is asked)', () => {
-  it('never lets more wrong passwords through than the per-email limit, and no 500', async () => {
+  it('never lets more wrong passwords through than the account limit, and no 500', async () => {
     const email = `r2-lim-burst-${tag}@a.test`;
     const results = await Promise.all(Array.from({ length: 30 }, () => staffSignIn(email, WRONG)));
     const statuses = results.map((r) => r.status);
     expect(statuses.filter((s) => s !== 401 && s !== 429)).toEqual([]);
-    expect(statuses.filter((s) => s === 401).length).toBeLessThanOrEqual(
-      SIGN_IN_LIMIT.perEmailNetwork,
-    );
+    expect(statuses.filter((s) => s === 401).length).toBeLessThanOrEqual(SIGN_IN_LIMIT.perAccount);
     // And the limit holds afterwards for the right password too (unknown email: still 429).
     const after = await staffSignIn(email, WRONG);
     expect(after.status === 401 || after.status === 429).toBe(true);
@@ -405,22 +545,63 @@ describe('audit', () => {
     // A keyed hash of the network, never the address, in the metadata.
     expect(JSON.stringify(rows.map((r) => r.metadata))).not.toContain('198.21.0.');
   });
+
+  it('records the lock once, as auth.locked with lockedUntil, and a refused attempt writes nothing', async () => {
+    const userAgent = `r2-lim-lockaudit-${tag}`;
+    const tagged = (password: string) =>
+      request(app.getHttpServer())
+        .post('/api/v1/auth/sign-in')
+        .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
+        .set('user-agent', userAgent)
+        .send({ email: staff.lockAudit.email, password });
+    await fail(SIGN_IN_LIMIT.perAccount, () => tagged(WRONG));
+    const retryAt = expectLocked(await tagged(LOCAL_PASSWORD));
+
+    const rows = await asOwner({ kind: 'platform' }, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: null, userAgent },
+        select: { action: true, actorUserId: true, metadata: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    const locks = rows.filter((r) => r.action === 'auth.locked');
+    expect(locks).toHaveLength(1);
+    expect(locks[0]?.actorUserId).toBeNull();
+    const { emailKey } = rows[0]?.metadata as { emailKey: string };
+    expect(locks[0]?.metadata).toEqual({
+      emailKey,
+      pool: 'STAFF',
+      lockedUntil: new Date(retryAt).toISOString(),
+    });
+    // Five attempts and their failures, the lock, and nothing for the refused sixth.
+    expect(rows.filter((r) => r.action === 'auth.sign_in_attempt')).toHaveLength(
+      SIGN_IN_LIMIT.perAccount,
+    );
+    expect(JSON.stringify(rows)).not.toContain(staff.lockAudit.email);
+  });
 });
 
 describe('client portal', () => {
   it("counts a client's failures in the firm's own log, per firm", async () => {
-    await fail(SIGN_IN_LIMIT.perEmailNetwork, () => portalSignIn(firmX.slug, WRONG));
-    const locked = await portalSignIn(firmX.slug, LOCAL_PASSWORD);
-    expect([locked.status, codeOf(locked)]).toEqual([429, 'RATE_LIMITED']);
+    await fail(SIGN_IN_LIMIT.perAccount, () => portalSignIn(firmX.slug, WRONG));
+    expectLocked(await portalSignIn(firmX.slug, LOCAL_PASSWORD));
 
     // The same email's login at firm Y is a different login, with its own count.
     const atY = await portalSignIn(firmY.slug, LOCAL_PASSWORD);
     expect((atY.body as SignInResult).status).toBe('SIGNED_IN');
 
     const inX = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
-      tx.auditLog.count({ where: { businessId: firmX.id, action: 'auth.sign_in_failed' } }),
+      tx.auditLog.groupBy({
+        by: ['action'],
+        where: { businessId: firmX.id, action: { in: ['auth.sign_in_failed', 'auth.locked'] } },
+        _count: true,
+      }),
     );
-    expect(inX).toBe(SIGN_IN_LIMIT.perEmailNetwork);
+    // The lock is in the firm's log too.
+    expect(Object.fromEntries(inX.map((g) => [g.action, g._count]))).toEqual({
+      'auth.sign_in_failed': SIGN_IN_LIMIT.perAccount,
+      'auth.locked': 1,
+    });
     const inY = await asOwner({ kind: 'business', businessId: firmY.id }, (tx) =>
       tx.auditLog.findMany({
         where: { businessId: firmY.id },
