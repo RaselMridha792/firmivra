@@ -124,11 +124,21 @@ export function runnerOf(
   return null;
 }
 
-/** The plan's locations: included plus purchased; null when the firm has no subscription row. */
+/**
+ * Subscriptions no longer in force: their plan sets no limit (Rasel, Oct 22: cancelled or
+ * suspended; expired is the same, an ended plan).
+ */
+export const ENDED_SUBSCRIPTIONS: readonly string[] = ['CANCELLED', 'SUSPENDED', 'EXPIRED'];
+
+/**
+ * The plan's locations: included plus purchased; null (no limit) when the firm has no
+ * subscription row, or its subscription is cancelled, suspended or expired.
+ */
 export function allowanceOf(
-  sub: { locationsIncluded: number; locationsPurchased: number } | null,
+  sub: { locationsIncluded: number; locationsPurchased: number; status?: string } | null,
 ): number | null {
-  return sub ? Math.max(0, sub.locationsIncluded + sub.locationsPurchased) : null;
+  if (!sub || (sub.status !== undefined && ENDED_SUBSCRIPTIONS.includes(sub.status))) return null;
+  return Math.max(0, sub.locationsIncluded + sub.locationsPurchased);
 }
 
 /** One more ACTIVE location would pass the plan's allowance. */

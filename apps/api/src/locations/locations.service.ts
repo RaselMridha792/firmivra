@@ -104,6 +104,15 @@ export class LocationsService {
 
   // ---------- Checks ----------
 
+  /** Whether the firm has a live primary location. */
+  private async hasMain(tx: TxClient, businessId: string): Promise<boolean> {
+    const main = await tx.firmOffice.findFirst({
+      where: { businessId, isMain: true, archivedAt: null },
+      select: { id: true },
+    });
+    return main !== null;
+  }
+
   /** The manager-to-be: an ACTIVE member of the firm (400 MANAGER_NOT_ELIGIBLE). */
   private async eligible(tx: TxClient, businessId: string, userId: string, path: string) {
     const m = await tx.membership.findFirst({
@@ -302,6 +311,9 @@ export class LocationsService {
       const timeZone = await this.zoneOf(tx, businessId, body.timeZone);
       await this.notDuplicate(tx, businessId, body, null);
       if (body.status === 'ACTIVE') await this.fitsPlan(tx, businessId);
+      // The firm's first ACTIVE location becomes primary by itself (Rasel, Oct 22).
+      const isMain =
+        body.isMain || (body.status === 'ACTIVE' && !(await this.hasMain(tx, businessId)));
       if (body.isMain)
         await tx.firmOffice.updateMany({
           where: { businessId, isMain: true, archivedAt: null },
@@ -313,7 +325,7 @@ export class LocationsService {
           name: body.name,
           kind: body.kind,
           status: body.status,
-          isMain: body.isMain,
+          isMain,
           addressLine1: body.addressLine1 ?? null,
           addressLine2: body.addressLine2 ?? null,
           city: body.city ?? null,
@@ -339,7 +351,7 @@ export class LocationsService {
           officeId: office.id,
           kind: body.kind,
           status: body.status,
-          isMain: body.isMain,
+          isMain,
           services: body.serviceIds.length,
           hours: body.hours.length,
           staff: body.staffUserIds.length,
@@ -434,12 +446,17 @@ export class LocationsService {
       const office = await liveOffice(tx, businessId, id);
       if (office.status === 'ACTIVE') return office.id;
       await this.fitsPlan(tx, businessId);
-      await tx.firmOffice.update({ where: { id: office.id }, data: { status: 'ACTIVE' } });
+      // With no primary location yet, the first one activated becomes it (Rasel, Oct 22).
+      const isMain = !(await this.hasMain(tx, businessId));
+      await tx.firmOffice.update({
+        where: { id: office.id },
+        data: { status: 'ACTIVE', ...(isMain ? { isMain: true } : {}) },
+      });
       await this.audit.logIn(
         tx,
         'firm_office.activated',
         { type: 'firm_office', id: office.id },
-        { officeId: office.id },
+        { officeId: office.id, isMain },
         { businessId },
       );
       return office.id;

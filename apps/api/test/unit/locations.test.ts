@@ -48,6 +48,14 @@ describe('the plan’s allowance and the KPI cards', () => {
     expect(allowanceOf(null)).toBeNull();
   });
 
+  it('sets no limit for a cancelled, suspended or expired subscription (Rasel, Oct 22)', () => {
+    const plan = { locationsIncluded: 1, locationsPurchased: 2 };
+    for (const status of ['TRIAL', 'ACTIVE', 'PAST_DUE', 'NON_RENEWING'])
+      expect(allowanceOf({ ...plan, status })).toBe(3);
+    for (const status of ['CANCELLED', 'SUSPENDED', 'EXPIRED'])
+      expect(allowanceOf({ ...plan, status })).toBeNull();
+  });
+
   it('refuses one more ACTIVE location only past the allowance', () => {
     expect(overAllowance(2, 3)).toBe(false);
     expect(overAllowance(3, 3)).toBe(true);

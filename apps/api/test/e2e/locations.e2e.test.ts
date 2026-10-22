@@ -358,7 +358,8 @@ describe('Add Location and the list', () => {
     expect(p).toMatchObject({
       kind: 'OFFICE',
       status: 'ACTIVE',
-      isMain: false,
+      // The firm's first ACTIVE location becomes primary by itself (Rasel, Oct 22).
+      isMain: true,
       addressLine2: 'Suite 200',
       email: 'office@example.test',
       timeZone: null,
@@ -592,6 +593,19 @@ describe('Edit Location and Manage Staff', () => {
 });
 
 describe('Set as Primary, Activate and the plan’s limit', () => {
+  it('makes the first location activated the primary when the firm has none (Rasel, Oct 22)', async () => {
+    const first = await create(
+      { status: 'INACTIVE', managerUserId: ownerB.id, staffUserIds: [], serviceIds: [] },
+      ownerB,
+      'b',
+    );
+    expect(first.isMain).toBe(false);
+    const on = LocationProfile.parse(
+      ok(await call('post', `/locations/${first.id}/activate`, ownerB, undefined, 'b')),
+    );
+    expect(on).toMatchObject({ status: 'ACTIVE', isMain: true });
+  });
+
   it('moves the primary location, and refuses an inactive one', async () => {
     const one = await create();
     const two = await create();

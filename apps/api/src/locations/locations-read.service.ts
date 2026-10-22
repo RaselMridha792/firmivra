@@ -193,11 +193,11 @@ export async function rowsOf(
   });
 }
 
-/** The plan's allowance of locations (null: no subscription row, so no limit). */
+/** The plan's allowance of locations (null: no subscription in force, so no limit). */
 export async function allowedOf(tx: TxClient, businessId: string): Promise<number | null> {
   const sub = await tx.platformFirmSubscription.findUnique({
     where: { businessId },
-    select: { locationsIncluded: true, locationsPurchased: true },
+    select: { locationsIncluded: true, locationsPurchased: true, status: true },
   });
   return allowanceOf(sub);
 }
