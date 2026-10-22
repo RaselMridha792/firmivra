@@ -58,6 +58,7 @@ import { AutomationsModule } from './automations/automations.module.js';
 import { TaxPlanningModule } from './tax-planning/tax-planning.module.js';
 import { AdvisoryModule } from './advisory/advisory.module.js';
 import { DepartmentsModule } from './departments/departments.module.js';
+import { LocationsModule } from './locations/locations.module.js';
 import { RolesModule } from './roles/roles.module.js';
 import { StaffModule } from './staff/staff.module.js';
 import { CommunicationsModule } from './communications/communications.module.js';
@@ -181,6 +182,7 @@ export class AppModule {
         TaxPlanningModule,
         AdvisoryModule,
         DepartmentsModule,
+        LocationsModule,
         RolesModule,
         StaffModule,
         CommunicationsModule,

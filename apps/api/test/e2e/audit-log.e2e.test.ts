@@ -631,6 +631,74 @@ describe('reading the log is audited', () => {
   });
 });
 
+describe('the export (Octavia: read-only, authorized export)', () => {
+  const exportCsv = async (query: string, who: { email: string } | null, firm: 'a' | 'b' = 'a') => {
+    const req = request(app.getHttpServer())
+      .get(`/api/v1/business/audit-log/export${query}`)
+      .set('x-business-id', firms[firm].id)
+      .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`);
+    return who ? req.set('authorization', `Bearer ${await tokenFor(who.email)}`) : req;
+  };
+  const csvLines = (text: string) =>
+    text
+      .replace(new RegExp(`^${String.fromCharCode(0xfeff)}`), '')
+      .trim()
+      .split(String.fromCharCode(13, 10));
+
+  it('is the filtered log as CSV, as the list shows it, and is itself logged', async () => {
+    const res = await exportCsv('?action=rtest.', people.adminA);
+    expect(res.status, res.text).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    const lines = csvLines(res.text);
+    expect(lines[0]).toBe(
+      'Time,Actor,Actor type,Action,Record type,Record id,IP,Request id,Details',
+    );
+    const listed = await all('?action=rtest.');
+    expect(lines).toHaveLength(listed.length + 1);
+    // Firmivra Support is never named, and no other firm's row is there.
+    expect(res.text).not.toContain('req-firm-b');
+    expect(res.text).not.toContain(USER_AGENT);
+    const db = owner();
+    const logged = await runInScope(db, { kind: 'business', businessId: firms.a.id }, (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { businessId: firms.a.id, action: 'audit_log.exported' },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+    await db.$disconnect();
+    expect(logged.metadata).toMatchObject({
+      action: 'rtest.',
+      count: listed.length,
+      capped: false,
+    });
+  });
+
+  it('is for Owner and Admin only, in their own firm', async () => {
+    for (const who of [people.staffA, people.clientA]) {
+      const res = await exportCsv('', who);
+      expect([res.status, codeOf(res)]).toEqual([403, 'FORBIDDEN']);
+    }
+    expect((await exportCsv('', null)).status).toBe(401);
+    expect((await exportCsv('', people.ownerB, 'a')).status).toBe(404);
+    expect((await exportCsv('?action=Not Valid', people.ownerA)).status).toBe(400);
+  });
+
+  it('no entry can be changed or deleted by the app (its database role only reads and adds)', async () => {
+    const app_ = createPrismaClient(fx.appUrl, TEST_CLIENT_OPTIONS);
+    await expect(
+      runInScope(app_, { kind: 'business', businessId: firms.a.id }, (tx) =>
+        tx.auditLog.updateMany({ where: { businessId: firms.a.id }, data: { action: 'changed' } }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      runInScope(app_, { kind: 'business', businessId: firms.a.id }, (tx) =>
+        tx.auditLog.deleteMany({ where: { businessId: firms.a.id } }),
+      ),
+    ).rejects.toThrow();
+    await app_.$disconnect();
+  });
+});
+
 describe('GET /admin/firms/{businessId}/audit-log', () => {
   const adminCall = async (path: string, who: { email: string }) =>
     request(app.getHttpServer())

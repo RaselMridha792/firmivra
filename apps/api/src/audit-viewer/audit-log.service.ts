@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { AuditLogPage } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
+import { csvRow } from '../bookkeeping/bookkeeping.shared.js';
 import { deriveKey, poolSecrets } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -17,6 +18,9 @@ import {
   toEntry,
   viewedMetadata,
 } from './audit-log.logic.js';
+
+/** The most rows one export holds; a wider export narrows its filters. */
+export const EXPORT_LIMIT = 10_000;
 
 /** HKDF label for the key that signs paging cursors (the readers are staff logins). */
 const CURSOR_KEY_LABEL = 'fv-audit-cursor-v1';
@@ -78,6 +82,76 @@ export class AuditLogViewerService {
     const after =
       q.cursor !== undefined ? decodeCursor(q.cursor, this.cursorKey, scope) : undefined;
     const range = resolveRange(q, new Date());
+    const { rows, known } = await this.read(businessId, q, range, q.limit + 1, after, support);
+
+    const page = rows.slice(0, q.limit);
+    const last = page.at(-1);
+    // After the read, so the page never lists its own row. Later pages are the same read. A
+    // support read is already in both logs: its support.viewed rows are written as the read
+    // begins, in its transaction, so a support read's page 1 lists its own support.viewed.
+    if (after === undefined && !support) {
+      await this.audit.log('audit_log.viewed', { type: 'audit_log' }, viewedMetadata(q, range));
+    }
+    return {
+      items: page.map((row) => toEntry(row, known)),
+      nextCursor: rows.length > q.limit && last ? encodeCursor(last, this.cursorKey, scope) : null,
+    };
+  }
+
+  /**
+   * Export (Octavia's review, Users & Roles section 9): every entry matching the filters as CSV,
+   * newest first, at most EXPORT_LIMIT, with the actor as the viewer shows them (Firmivra Support
+   * never named). Metadata is what each action recorded (ids, never secrets). The export is
+   * itself logged, after the read, with the filters and the count.
+   */
+  async export(reader: AuditLogReader, q: AuditLogFilters): Promise<string> {
+    const range = resolveRange(q, new Date());
+    const { rows, known } = await this.read(reader.businessId, q, range, EXPORT_LIMIT);
+    const lines = [
+      csvRow([
+        'Time',
+        'Actor',
+        'Actor type',
+        'Action',
+        'Record type',
+        'Record id',
+        'IP',
+        'Request id',
+        'Details',
+      ]),
+      ...rows.map((row) => {
+        const e = toEntry(row, known);
+        return csvRow([
+          e.at,
+          e.actor?.name ?? 'System',
+          e.actor?.kind ?? 'SYSTEM',
+          e.action,
+          e.entity.type,
+          e.entity.id,
+          e.ip,
+          e.requestId,
+          Object.keys(e.metadata).length ? JSON.stringify(e.metadata) : null,
+        ]);
+      }),
+    ];
+    await this.audit.log(
+      'audit_log.exported',
+      { type: 'audit_log' },
+      { ...viewedMetadata(q, range), count: rows.length, capped: rows.length === EXPORT_LIMIT },
+    );
+    const crlf = String.fromCharCode(13, 10);
+    return `${lines.join(crlf)}${crlf}`;
+  }
+
+  /** The matching rows (newest first) and the people they name, in the firm's scope. */
+  private async read(
+    businessId: string,
+    q: AuditLogFilters,
+    range: { from: Date; to: Date },
+    take: number,
+    after?: { createdAt: Date; id: string },
+    support?: SupportRead,
+  ) {
     const where: Prisma.AuditLogWhereInput = {
       AND: [
         { businessId },
@@ -99,7 +173,7 @@ export class AuditLogViewerService {
 
     const inScope = <T>(fn: (tx: TxClient) => Promise<T>) =>
       support ? support.read(fn) : this.database.withScope({ kind: 'business', businessId }, fn);
-    const { rows, known } = await inScope(async (tx) => {
+    return inScope(async (tx) => {
       // The person filter finds only the firm's own people: filtering by a Super Admin's (or
       // anyone else's) id must not tell the firm that this id acted here.
       if (
@@ -114,7 +188,7 @@ export class AuditLogViewerService {
       const rows = await tx.auditLog.findMany({
         where,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: q.limit + 1,
+        take,
         select: rowSelect,
       });
       const ids = [
@@ -139,19 +213,6 @@ export class AuditLogViewerService {
       };
       return { rows, known };
     });
-
-    const page = rows.slice(0, q.limit);
-    const last = page.at(-1);
-    // After the read, so the page never lists its own row. Later pages are the same read. A
-    // support read is already in both logs: its support.viewed rows are written as the read
-    // begins, in its transaction, so a support read's page 1 lists its own support.viewed.
-    if (after === undefined && !support) {
-      await this.audit.log('audit_log.viewed', { type: 'audit_log' }, viewedMetadata(q, range));
-    }
-    return {
-      items: page.map((row) => toEntry(row, known)),
-      nextCursor: rows.length > q.limit && last ? encodeCursor(last, this.cursorKey, scope) : null,
-    };
   }
 
   /** A member or client of this firm the log names (row-level security shows only those). */
