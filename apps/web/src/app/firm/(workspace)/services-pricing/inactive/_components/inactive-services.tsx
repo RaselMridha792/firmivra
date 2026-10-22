@@ -39,7 +39,12 @@ import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { useFirm } from '../../../../../../components/firm-context';
-import { CATALOG_ICONS, dayText } from '../../_components/catalog-shared';
+import {
+  CATALOG_ERRORS,
+  CATALOG_ICONS,
+  dayText,
+  rowActivationGap,
+} from '../../_components/catalog-shared';
 
 /** The service's icon tile: its approved icon in its tone, or a cube when it has none. */
 function ServiceMark({ icon }: { icon: string | null }) {
@@ -130,6 +135,7 @@ export function InactiveServices() {
     row: CatalogServiceRow;
     type: 'activate' | 'archive' | 'delete' | 'usage';
   } | null>(null);
+  const gap = action?.type === 'activate' ? rowActivationGap(action.row) : null;
   const summary = useApiQuery(['services-pricing', 'summary'], () => api.servicesPricing.summary());
   const categories = useApiQuery(['services-pricing', 'categories'], () =>
     api.servicesPricing.categories(),
@@ -506,7 +512,7 @@ export function InactiveServices() {
       </section>
       {duplicate.error ? (
         <p role="alert" className="text-sm text-danger">
-          {errorMessage(duplicate.error)}
+          {errorMessage(duplicate.error, CATALOG_ERRORS)}
         </p>
       ) : null}
       <Modal
@@ -520,7 +526,7 @@ export function InactiveServices() {
         footer={
           action && action.type !== 'usage' ? (
             <Button
-              disabled={change.isPending}
+              disabled={change.isPending || (action.type === 'activate' && gap !== null)}
               onClick={() => {
                 if (action.type !== 'usage')
                   change.mutate(
@@ -536,6 +542,22 @@ export function InactiveServices() {
       >
         {action ? (
           <>
+            {gap ? (
+              // S3: say what is missing; the API would refuse the activation anyway.
+              <p
+                role="alert"
+                data-testid="activation-blocked"
+                className="mb-4 rounded-control bg-warning-soft p-3 text-sm text-heading"
+              >
+                {action.row.name} can&apos;t be activated yet: {gap.message.toLowerCase()} first.{' '}
+                <Link
+                  href={`/services-pricing/${action.row.id}/edit`}
+                  className="font-semibold text-link hover:underline"
+                >
+                  Edit {action.row.name}
+                </Link>
+              </p>
+            ) : null}
             <Usage serviceId={action.row.id} />
             {action.type !== 'usage' ? (
               <p className="mt-4 text-sm text-muted">
@@ -547,7 +569,7 @@ export function InactiveServices() {
         ) : null}
         {change.error ? (
           <p role="alert" className="mt-3 text-sm text-danger">
-            {errorMessage(change.error)}
+            {errorMessage(change.error, CATALOG_ERRORS)}
           </p>
         ) : null}
       </Modal>
