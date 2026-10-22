@@ -278,8 +278,9 @@ function seed(empty: boolean): Store {
         stage,
         lastContact:
           contacted === null ? null : { at: ago(contacted), channel: n % 2 ? 'CALL' : 'EMAIL' },
+        // As the API: closing a lead (Converted, Not Qualified, Lost) clears its follow-up.
         nextAction:
-          stage === 'CONVERTED' || stage === 'DECLINED'
+          stage === 'CONVERTED' || stage === 'DECLINED' || stage === 'LOST'
             ? stage === 'DECLINED'
               ? {
                   type: 'CLOSE_LEAD',
