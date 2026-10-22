@@ -203,3 +203,44 @@ When `GET /api/v1/legal/:kind` (stage D4) exists, the legal pages can render the
 - Run Prettier only on the files you changed, never a whole folder.
 - A full parallel spec run times out long intake tests on this laptop: rerun failures alone before blaming the change.
 - `r22-begin-online` (Begin header link count) and `fahad-firm-responsive` (Invoices chart at 320 px) fail on main for reasons outside R56's files.
+
+## Handoff for a fresh R56 (Oct 22)
+
+Rasel's standing order (Oct 21): Octavia's Oct 20 review (`docs/specs/review-2026-10-21/CHANGE-LIST.md`): section D (Services & Pricing) P1 first, then section B (Appointments), and the shared Copy link / embed block. Reproduce each item on main or dev first and say which are already fixed; a missing API or schema piece goes under "Needs from others" and the screen gets its empty state; one PR at a time, design-match items ticked; reply with PR numbers. **Do not build the Firmivra public site** (home, plans, schedule demo, about, contact, help) until its design is in the repo and Rasel hands it over.
+
+**Merged (R56, Oct 20 to 21):** #971, #972, #979, #981 (R0's lock, Rasel's request), #990 (Overview items 2, 7, 8, 9: Company Profile rename, search placeholder, Help & Support panel, account menu, read-only My Profile), #1001 (Sales screens without a design). #984 is a schema request only (Sales data gaps): build nothing.
+
+**Open PRs:**
+- **#1016** `rasel/R56-services-pricing`: Services & Pricing P1 (S1, S2, S3, S4, S10; S11 already worked; S5 included; S13 needs dev access, steps in the PR and under Needs). CI green, waiting for Rasel's merge.
+- **The shared block PR** `rasel/R56-public-link` (this file's handoff rides on it): `PublicLink` contract (`packages/types/src/public-links`: `kind`, `itemId`, `url`, `embedCode`, `state`; `publicItemUrl`, `publicEmbedCode`), the kit's `PublicLinkBlock` (`packages/ui/src/public-link-block.tsx`, stories, test, `docs/ui-kit.md`), and `components/public-link.tsx` (`<PublicLinkSection kind=… link=… />`) with `lib/public-link.ts` for the shared wording. **Tell R60 (Intake Forms I3) and R55 (catalog API, for S12's package link) where it lives** once it merges: each item's API answers `GET /business/<collection>/{id}/public-link` with a `PublicLink`.
+
+**Pushed, PR not opened yet (one PR at a time):** `rasel/R56-appointments` (35b9175e), Appointments P1. Open it after #1016 merges (merge main first). What it does, for the PR text: A2: Edit My Availability now holds Weekly Working Hours (same week as Settings > Availability) and Time Off with one Save, field errors on the exact field, and shows buffers, minimum notice and booking window read-only (the API keeps none per person: 400 "cannot be saved per person yet" was her error); the day panel puts Selected Time at its own time, names the time zone and says when a day has no hours. Cause of her conflict: a member with no saved weekly hours conflicts at every time (the seeded owner has none, as she had on dev). A1 screen: the API's one-method refusal is shown on the Meeting methods field and entries stay. The scheduling mock now refuses what the API refuses. Screenshots in `apps/web/e2e/screenshots/r56-appointments-review/` (live-*, data/empty/offline-availability, phone-availability-375, data-new); tests `e2e/mock/r56-appointments-review.spec.ts` plus `tumit-calendar-availability`, `tumit-calendar-new`, `tumit-availability` (9 pass). Its Needs bullets (R1 meeting-methods API, members without hours, per-person rules schema) are in that branch's copy of this file.
+
+**Parked:** firm Upload Document (Documents Frame 1) on `rasel/R56-unowned-pages` (09856ed8): written and typechecked, spec and screenshots to do. The other unowned pages: Documents Requests, Create Request, request page, Settings, Sharing, and the firm Client Portal module.
+
+**Left in Services & Pricing (section D):**
+- S6 additive line-item pricing ($100.50 + $75 shows $175.50; included mode never double charges), S7 Not Included shown client-side and Internal Notes private, S9 quote-required comparison (no zero total, explicit warning): P2, "Check" items, not reproduced yet.
+- S8 View Full Page for a package (P3, missing).
+- S12 package booking link (P3): needs R55's `GET /business/catalog/packages/{id}/public-link`, a public package page on the portal, and the PR's answer on how a package maps to type, staff, duration, availability, time zone, add-ons and payment or quote.
+- S13 her dev records (after #1016 deploys; steps in #1016). S14 pending tests: record Pass, Fail or Blocked with evidence.
+
+**Left in Appointments (section B):**
+- A1: R1's API (keep every method in `meeting_methods`); the screen is ready on `rasel/R56-appointments`.
+- A3 booking window (P2, `calendar/types/_components/types-screen.tsx:455`): 1, 3, 5 and 7 days fit the API (`maxWindowDays`, days, 1 to 730); 2, 6 and 12 hours do not (contract and `max_advance_days` are in days: contract and schema request, or ask whether she meant Minimum notice). Also the firm's value is often not among the options (730 = no limit, 90 on the seed), so the select shows "14 days ahead" while holding another value: add "No limit" and keep the current value as an option. The two fields are separate state in code; her "overwrite" is most likely that display mismatch.
+- A4 Copy Booking Link and embed per type (P3): `PublicLinkSection kind="APPOINTMENT_TYPE"` in the type settings, plus `GET /business/appointment-types/{id}/public-link`, a public booking page `/{slug}/book/{typeId}` (none exists), and infra framing (below). Check that archived types refuse public booking in the API.
+- A5 Save Client inline in Schedule Appointment (P3; exists only in Business Advisory).
+- A6 Zoom link row (P2): toggle alignment, full-width link field with Copy (`calendar/_components/schedule-form.tsx`).
+- A7 several reminders per type, each with Email, SMS and Portal (P3; the type settings have one "Email reminder 1 day before" checkbox; the contract takes up to 10 `AppointmentReminder`s).
+- A8 client confirmation, A9 intake request tied to the service with completion on the appointment (P3, "Check").
+- A10 type description internal only (P2): check the portal and booking views and client emails.
+- A11 pending tests (draft, reschedule, cancel, complete, no-show, recurring, reminder delivery, confirmation, intake completion, staff status permissions): Pass, Fail or Blocked with evidence.
+
+**Settings > Locations and the Overview rewrite:** R1 owns the Locations backend (contract #1015 and `firm_office_members` #1013 merged; the API is coming). When R1's Locations API merges, build Settings > Locations (list, profile modal, add, edit, three-dot menu) and the Overview's remaining items (1 to 31 in `docs/specs/settings-review-2026-10-20/overview--*.md`; 2, 7, 8, 9 are done in #990), plus location results in the header search. No FirmOffice migration from R56.
+
+**Open decisions (Rasel or Octavia):**
+- Infra: CloudFront's `SECURITY_HEADERS` policy (`infra/src/stacks/app-stack.ts:185`, `:205`) sends `X-Frame-Options: SAMEORIGIN`, so embed code cannot show on a firm's website. The portal's public form, booking and package pages need a policy that allows framing (Rasel only).
+- A3: sub-day booking windows (2, 6, 12 hours) need a contract and schema change. Or did she mean Minimum notice?
+- A2: a default weekly week for members who never saved hours (the firm's business hours?), and whether she wants buffers, notice, window and a start date per person (schema).
+- `r23-clients` spec fails on main (R23's stubs never fire in mock mode): listed under Needs, not R56's to fix.
+
+**Local stack used for reproductions:** database `firmivra_r56` (own copy: `DATABASE_URL` and `DATABASE_URL_APP` overridden; `.env` points at the shared `firmivra`), migrated and seeded; API with `NODE_OPTIONS=--max-old-space-size=6144 pnpm exec nest start` (watch mode runs out of memory) on 4560; web on `app.localhost:3560`; sign in a browser with `POST /api/v1/dev/token` (`owner@lvp.test`). Temporary specs and configs (`e2e/mock/zz-r56-*`, `e2e/zz-r56-live/`, `playwright.r56.config.ts`, `playwright.r56live.config.ts`) are never committed; `playwright.r56.config.ts` takes several unreachable modules in `R56_EXCLUDE` (comma list).
