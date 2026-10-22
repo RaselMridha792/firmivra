@@ -17,8 +17,8 @@ Owned paths: `apps/web/src/app/firm/(workspace)/intake-forms/`, `apps/web/src/mo
 
 | # | Item | State |
 | --- | --- | --- |
-| I1 | Template library shows every form | Built, PR (below) |
-| I2 | Send to client fails | Reproduced; next |
+| I1 | Template library shows every form | PR opened Oct 22 (`rasel/R60-intake-templates`) |
+| I2 | Send to client fails | Built on `rasel/R60-intake-send` (web only); PR after I1 |
 | I3 | Publish validation, link and embed code | Waits on R56's shared Copy link / embed block for the embed part |
 | I4 | Settings Edit links | Reproduced |
 | I5 | Submission Rules shortcut | Reproduced |
@@ -80,6 +80,16 @@ Owned paths: `apps/web/src/app/firm/(workspace)/intake-forms/`, `apps/web/src/mo
   number than the default would serve Begin Online. It should read the service default's live
   version.
 
+## Checks that fail on clean `main` too (not R60's changes)
+
+- `apps/api/test/isolation/tenant-isolation.test.ts`, locally: 4 of 19 fail on clean `main` as on
+  the I1 branch. The two refusal sweeps time out at 30 s; the controls list file and export routes
+  (409 `FILE_BLOCKED` from the local scanner, 200 with s3mock links). CI is the judge.
+- `apps/web/e2e/mock/r22-intake-forms.spec.ts:174` ("the success pages"): two "Schedule an
+  Appointment" links (the portal header's and the page's). The same cause as the Begin Online
+  audit's `r22-begin-online.spec.ts:28`; fixed with the Begin Online work (R60-settings item 5).
+
 ## Progress log
 
 - Oct 21: P1 items reproduced on local `main` (above). I1 built.
+- Oct 22: I1 merged `main`; web and API typecheck 0 errors; PR opened. I2 built on its branch.
