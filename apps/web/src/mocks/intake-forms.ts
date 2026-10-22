@@ -5,6 +5,7 @@ import {
   type AssignedFormRecord,
   type AssignedFormRow,
   AssignedFormsQuery,
+  FORM_CATEGORY_LABELS,
   type FormCategory,
   INTAKE_FORMS,
   type IntakeFormDetail,
@@ -26,6 +27,16 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockIntakeAnswers } from './intake-forms-answers';
+
+/** The categories with a mock service: the six of the built-in forms' service kinds. */
+const MOCK_SERVICE_CATEGORIES: FormCategory[] = [
+  'PERSONAL_TAX',
+  'BUSINESS_TAX',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'TAX_PLANNING',
+  'ADVISORY',
+];
 
 /**
  * Mock data for `api.intakeForms` (R43 contract, the Intake Forms workspace). Synthetic people
@@ -143,11 +154,19 @@ function seed(empty: boolean): Store {
     ['Audit Support Intake Form', 'PERSONAL_TAX', 38, 64, true],
     ['Custom Advisory Intake Form', 'ADVISORY', 31, 52, true],
   ];
+  // One service per category, as each real form belongs to one of the firm's services (Client
+  // Onboarding has no service kind, so its sample form has none).
+  const serviceOf = (category: FormCategory) => {
+    const at = MOCK_SERVICE_CATEGORIES.indexOf(category);
+    return at < 0
+      ? null
+      : { id: uuid('5e00', at + 1), name: `${FORM_CATEGORY_LABELS[category]} service` };
+  };
   const forms: IntakeFormDetail[] = library.map(([name, category, questions, used, custom], i) => ({
     id: uuid('0f00', i + 1),
     name,
     category,
-    service: null,
+    service: serviceOf(category),
     description: `Intake for ${name.replace(' Form', '').toLowerCase()} clients.`,
     isTemplate: true,
     custom,
@@ -734,12 +753,14 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
     },
     librarySummary: async () => {
       await mockDelay();
-      const templates = s.forms.filter((f) => f.isTemplate && f.status !== 'RETIRED');
+      // The same rows as the library's list (every form not archived), as the API counts them.
+      const templates = s.forms.filter((f) => f.status !== 'RETIRED');
       const month = Date.now() - 30 * 24 * HOUR;
       const categories = [...new Set(templates.map((f) => f.category))];
+      const most = Math.max(0, ...templates.map((f) => f.usageCount));
       return {
         total: templates.length,
-        mostUsed: templates.filter((f) => f.usageCount >= 50).length,
+        mostUsed: most > 0 ? templates.filter((f) => f.usageCount === most).length : 0,
         custom: templates.filter((f) => f.custom).length,
         updatedLast30Days: templates.filter((f) => Date.parse(f.updatedAt) >= month).length,
         byCategory: categories.map((category) => ({
@@ -768,11 +789,18 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
             questions: sec.questions.map((q) => ({ ...q, help: q.help ?? null })),
           }))
         : (source?.sections ?? []);
+      // The service chosen (its forms' category), as the API files a form under its service.
+      const service = input.serviceId
+        ? s.forms.find((form) => form.service?.id === input.serviceId)
+        : undefined;
+      if (input.serviceId && !service) {
+        throw fail(404, 'NOT_FOUND', 'Not found');
+      }
       const f: IntakeFormDetail = {
         id: uuid('0f00', s.next++),
         name: input.name,
-        category: input.category,
-        service: null,
+        category: service?.category ?? input.category,
+        service: service?.service ?? null,
         description: input.description ?? null,
         isTemplate: input.isTemplate,
         custom: true,
