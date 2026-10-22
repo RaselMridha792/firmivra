@@ -26,6 +26,8 @@ import {
   loadDraft,
   newKey,
   peekDraft,
+  problemDomId,
+  problemPlace,
   savedDraft,
   toRequest,
   updateDraft,
@@ -62,7 +64,7 @@ const LOAD_ERRORS: Record<string, string> = {
 const SAVE_ERRORS: Record<string, string> = {
   FORM_PUBLISHED: 'This version was published in the meantime. Save again to keep your changes.',
   FORM_INCOMPLETE:
-    'Every choice question needs at least one choice, and the form needs at least one section.',
+    'The form can’t be published yet: every section needs a question, every question a label, and a multiple-choice question at least two choices.',
   NOT_FOUND: GONE,
   FORM_NOT_FOUND: GONE,
   FORBIDDEN: 'Only people who manage intake forms can change them.',
@@ -119,6 +121,87 @@ const OUTLINED =
 
 /** The last card of a column on wide screens: it grows to the bottom of the row. */
 const GROW = 'xl:flex-1';
+
+/**
+ * The problems a save or publish found, each with where it is (Octavia's review, I3: "Check the
+ * highlighted items" with nothing highlighted). On the Form Builder tab each one opens its section
+ * and brings the row into view; on the other tabs it goes to the Form Builder tab.
+ */
+function ProblemList({
+  draft,
+  errors,
+  publishing,
+  onBuilderTab,
+  formId,
+  onShow,
+}: {
+  draft: FormDraft;
+  errors: Record<string, string>;
+  publishing: boolean;
+  onBuilderTab: boolean;
+  formId: string;
+  onShow: (sectionKey: string | null) => void;
+}) {
+  const items = Object.entries(errors).map(([key, message]) => ({
+    key,
+    message,
+    ...problemPlace(draft, key),
+  }));
+  const show = (key: string, sectionKey: string | null) => {
+    onShow(sectionKey);
+    revealProblem(key);
+  };
+  const shown = items.slice(0, MAX_LISTED);
+  return (
+    <span className="flex flex-col gap-1 text-danger" data-testid="builder-problems">
+      <span className="font-semibold">
+        {publishing ? 'Fix these to publish' : 'Fix these to save'} ({items.length}):
+      </span>
+      <span className="flex flex-col">
+        {shown.map((item) => (
+          <span key={item.key}>
+            {onBuilderTab ? (
+              <button
+                type="button"
+                className="text-left underline"
+                onClick={() => show(item.key, item.sectionKey)}
+              >
+                {item.label}
+              </button>
+            ) : (
+              <Link href={`/intake-forms/builder/${formId}`} className="underline">
+                {item.label}
+              </Link>
+            )}
+            : {item.message}
+          </span>
+        ))}
+        {items.length > shown.length ? (
+          <span>and {items.length - shown.length} more, shown on their sections.</span>
+        ) : null}
+      </span>
+    </span>
+  );
+}
+
+/** The most problems the status line lists; the rest show on their sections. */
+const MAX_LISTED = 6;
+
+/**
+ * After the section opens (the next frame): the problem's row, or else the first invalid field,
+ * comes into view and takes focus.
+ */
+function revealProblem(key: string | undefined) {
+  requestAnimationFrame(() => {
+    const row =
+      (key ? document.getElementById(problemDomId(key)) : null) ??
+      document.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (!row.matches('input, select, textarea, button')) row.setAttribute('tabindex', '-1');
+    row.focus({ preventScroll: true });
+  });
+}
 
 /** Form Builder, Preview and Logic & Rules: three tab blocks of links (each tab is a route). */
 function BuilderTabs({ id, tab }: { id: string; tab: BuilderTab }) {
@@ -221,7 +304,15 @@ export function BuilderFrame({
   const run = (mode: SaveMode) => {
     if (!draft || !data || save.isPending) return;
     setChecking(publishes(mode));
-    if (Object.keys(checkDraft(draft, publishes(mode))).length) return;
+    const found = Object.keys(checkDraft(draft, publishes(mode)));
+    if (found.length) {
+      // The first problem's section opens on the next render; then it comes into view.
+      const first = found[0];
+      const place = first ? problemPlace(draft, first) : null;
+      if (place?.sectionKey) setActive(place.sectionKey);
+      if (tab === 'builder') requestAnimationFrame(() => revealProblem(first));
+      return;
+    }
     save.mutate(
       { mode, body: draft },
       {
@@ -395,10 +486,15 @@ export function BuilderFrame({
             </span>
           ) : saveError ? (
             <span className="text-danger">{saveError}</span>
-          ) : problems ? (
-            <span className="text-danger">
-              {errors.form ?? 'Check the highlighted items, then save again.'}
-            </span>
+          ) : problems && draft ? (
+            <ProblemList
+              draft={draft}
+              errors={errors}
+              publishing={checking === true}
+              onBuilderTab={tab === 'builder'}
+              formId={formId}
+              onShow={(sectionKey) => sectionKey && setActive(sectionKey)}
+            />
           ) : held?.notice ? (
             <span className={held.notice.tone === 'danger' ? 'text-danger' : 'text-success'}>
               {held.notice.text}

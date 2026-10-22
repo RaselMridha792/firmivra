@@ -87,13 +87,50 @@ test('an empty Form Name blocks Publish Form with the field error', async ({ pag
   await page.getByRole('button', { name: 'Publish Form' }).click();
   await expect(name).toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByTestId('form-details').getByText('Enter a form name')).toBeVisible();
-  await expect(page.getByTestId('builder-status')).toHaveText(
-    'Check the highlighted items, then save again.',
-  );
+  // Each problem is named with where it is (Octavia's review, I3).
+  const problems = page.getByTestId('builder-problems');
+  await expect(problems).toContainText('Fix these to publish (1):');
+  await expect(problems).toContainText('Form name: Enter a form name');
   await expect(page).toHaveURL(new RegExp(`${TEMPLATE}$`));
 
   // The error goes as soon as the name is back.
   await name.fill('Personal Tax Intake Form');
   await expect(name).not.toHaveAttribute('aria-invalid', 'true');
-  await expect(page.getByTestId('builder-status')).not.toHaveText(/highlighted/);
+  await expect(problems).toHaveCount(0);
+});
+
+// Octavia's review of Oct 20 (I3): Publish said "Check the highlighted items" and highlighted
+// nothing; a problem in a closed section, or one only the API checked, had nowhere to show.
+test('Publish opens a closed section with a problem, names it, and goes to it', async ({
+  page,
+}) => {
+  await page.goto(builder());
+  const address = page.getByTestId('form-section').filter({ hasText: 'Address Information' });
+  await address.locator('button[aria-pressed]').click();
+  // A section break at the end leaves its part of the section with no question (the API refuses).
+  await page.getByRole('button', { name: 'Add Section Break' }).click();
+  await expect(address.getByTestId('form-question')).toHaveCount(4);
+  const expand = address.locator('button[aria-expanded]').first();
+  await expand.click();
+  await expect(expand).toHaveAttribute('aria-expanded', 'false');
+
+  await page.getByRole('button', { name: 'Publish Form' }).click();
+  await expect(expand).toHaveAttribute('aria-expanded', 'true');
+  const breakRow = address.getByTestId('form-question').last();
+  await expect(breakRow).toContainText(
+    'Add a question after this section break, or remove the break',
+  );
+  await expect(breakRow).toHaveAttribute('data-invalid', 'true');
+  const problems = page.getByTestId('builder-problems');
+  await expect(problems).toContainText('Fix these to publish (1):');
+  await expect(problems).toContainText('in Address Information');
+  await problems.getByRole('button').first().click();
+  await expect(breakRow).toBeFocused();
+
+  // A section with no question is named on its own row.
+  await page.getByRole('button', { name: 'Add New Section' }).click();
+  await page.getByRole('button', { name: 'Publish Form' }).click();
+  await expect(problems).toContainText('Fix these to publish (2):');
+  await expect(problems).toContainText('Add a question to this section, or remove the section');
+  await expect(page).toHaveURL(new RegExp(`${TEMPLATE}$`));
 });
