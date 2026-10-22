@@ -13,6 +13,7 @@ import {
   StaffDocument,
   StaffImportPreview,
   StaffImportResult,
+  UPLOAD_LIMITS,
   type UploadTicket,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -20,17 +21,26 @@ import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { StaffDocumentsService } from '../../src/staff/staff-documents.service.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config.js';
-import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import {
+  DOCUMENT_STORAGE,
+  type DocumentStorage,
+  type FileFacts,
+} from '../../src/storage/document-storage.js';
+import { bigPdf, MemoryUploads } from '../memory-uploads.js';
 
 const sha256 = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 
 class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
-  presignUpload(file: { key: string; contentType: string }) {
-    return Promise.resolve({
-      url: `memory:${file.key}`,
-      headers: { 'content-type': file.contentType },
-    });
+  readonly uploads = new MemoryUploads(this.objects);
+  presignUpload(file: FileFacts) {
+    return this.uploads.presign(file);
+  }
+  completeUpload(key: string, uploadId: string, sizeBytes: number) {
+    return this.uploads.complete(key, uploadId, sizeBytes);
+  }
+  abortUpload(key: string, uploadId: string) {
+    return this.uploads.abort(key, uploadId);
   }
   head(key: string, { checksum = false } = {}) {
     const b = this.objects.get(key);
@@ -51,7 +61,7 @@ class MemoryStorage implements DocumentStorage {
     return Promise.resolve(`memory:${file.key}?download`);
   }
   put(ticket: UploadTicket, bytes: Buffer) {
-    this.objects.set(ticket.url.slice('memory:'.length), bytes);
+    this.uploads.send(ticket, bytes);
   }
 }
 const storage = new MemoryStorage();
@@ -375,6 +385,21 @@ describe('staff documents', () => {
           ),
         ).archivedAt,
       ).toBeTruthy();
+  });
+
+  it('takes a file over 16 MB as a multipart upload, and refuses one over 100 MB', async () => {
+    const big = bigPdf();
+    const doc = StaffDocument.parse(ok(await upload(adminA, member.staffA, big), 201));
+    expect(doc.sizeBytes).toBe(big.length);
+    expect(storage.objects.get(await keyOf(doc.id))?.equals(big)).toBe(true);
+    const over = await call('post', `/staff/${member.staffA}/documents/uploads`, adminA, {
+      type: 'W4',
+      fileName: 'Fake.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: UPLOAD_LIMITS.maxBytes + 1,
+      sha256: sha256(PDF),
+    });
+    expectError(over, 400, 'VALIDATION_FAILED');
   });
 
   it('opens an upload token once, for its own member and author only', async () => {

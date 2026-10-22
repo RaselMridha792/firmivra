@@ -92,8 +92,10 @@ export const dayText = (iso: string) =>
 
 /** The API's catalog codes, in the firm's words. */
 export const CATALOG_ERRORS: Record<string, string> = {
-  DUPLICATE_NAME: 'This name is already used. Choose another.',
-  ACTIVATION_INCOMPLETE: 'A required field is missing, so it cannot be activated.',
+  DUPLICATE_NAME:
+    'Another service or package already uses this name, possibly a draft (see Drafts). Choose another name.',
+  ACTIVATION_INCOMPLETE:
+    'Add the name, category, short description and price before activating. Save it as a draft meanwhile.',
   IN_USE: 'It is in use. Deactivate or archive it instead.',
   CATEGORY_INACTIVE: 'That category is inactive. Choose another.',
   PACKAGE_HAS_INACTIVE_SERVICE:
@@ -102,6 +104,53 @@ export const CATALOG_ERRORS: Record<string, string> = {
   PROMOTION_CONFLICT: 'This overlaps another promotion that does not stack, or the code is taken.',
   SAVE_CONFLICT: 'Someone saved this after you opened it. Reload and try again.',
 };
+
+/** A service field activation needs, as the editor names it. */
+export type ActivationField =
+  'name' | 'categoryId' | 'shortDescription' | 'basePriceCents' | 'billingFrequency';
+
+/**
+ * The first thing a service still needs before it can be active, in the API's own order
+ * (catalog-services.service.ts `complete`), or null. Lets a screen say which field is missing
+ * instead of the API's single ACTIVATION_INCOMPLETE code.
+ */
+export function activationGap(s: {
+  name?: string | null;
+  categoryId?: string | null;
+  shortDescription?: string | null;
+  pricingType?: PricingType;
+  basePriceCents?: number | null;
+  billingFrequency?: string | null;
+}): { field: ActivationField; message: string } | null {
+  if (!s.name?.trim()) return { field: 'name', message: 'Add the service name' };
+  if (!s.categoryId) return { field: 'categoryId', message: 'Choose a category' };
+  if (!s.shortDescription?.trim())
+    return { field: 'shortDescription', message: 'Add a short description' };
+  if (
+    s.pricingType !== 'CUSTOM_QUOTE' &&
+    (s.basePriceCents === null || s.basePriceCents === undefined)
+  )
+    return { field: 'basePriceCents', message: 'Add the base price' };
+  if (s.pricingType === 'RECURRING' && (!s.billingFrequency || s.billingFrequency === 'ONE_TIME'))
+    return { field: 'billingFrequency', message: 'Choose how often it bills' };
+  return null;
+}
+
+/** The same check on a list row (its price carries the type, amount and frequency). */
+export const rowActivationGap = (row: {
+  name: string;
+  category: { id: string } | null;
+  shortDescription: string | null;
+  price: { type: PricingType; amountCents: number | null; frequency: string | null };
+}) =>
+  activationGap({
+    name: row.name,
+    categoryId: row.category?.id,
+    shortDescription: row.shortDescription,
+    pricingType: row.price.type,
+    basePriceCents: row.price.amountCents,
+    billingFrequency: row.price.frequency,
+  });
 
 export const Quiet = ({ children }: { children: ReactNode }) => (
   <p className="rounded-lg bg-canvas p-6 text-center text-sm text-muted">{children}</p>

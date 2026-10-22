@@ -49,7 +49,17 @@ const scanConfig: ScanQueueConfig = {
 class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
   presignUpload(file: { key: string; contentType: string }) {
-    return Promise.resolve({ url: `memory:${file.key}`, headers: {} });
+    return Promise.resolve({
+      method: 'PUT' as const,
+      url: `memory:${file.key}`,
+      headers: {},
+    });
+  }
+  completeUpload() {
+    return Promise.resolve('MISSING' as const);
+  }
+  abortUpload() {
+    return Promise.resolve();
   }
   head(key: string, { checksum = false } = {}) {
     const b = this.objects.get(key);

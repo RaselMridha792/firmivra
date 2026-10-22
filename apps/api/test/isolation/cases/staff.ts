@@ -93,6 +93,7 @@ const details = {
 };
 const detailIds = {
   'account.departmentIds': 'staffDepartment',
+  'account.customRoleId': 'customRole',
   'details.supervisorId': 'staffSupervisor',
   'details.primaryTeamId': 'staffTeam',
   'details.backupTeamId': 'staffTeamBackup',
@@ -113,6 +114,7 @@ export const cases: CaseModule['cases'] = {
         departmentIds: [PLACEHOLDER],
         jobTitle: 'Tax Preparer',
         role: 'TAX_PREPARER',
+        customRoleId: PLACEHOLDER,
       },
       details,
       draftId: PLACEHOLDER,
@@ -123,7 +125,11 @@ export const cases: CaseModule['cases'] = {
   [`PATCH ${BASE}/:id`]: {
     params: { id: 'staffMembership' },
     bodyIds: detailIds,
-    body: { version: 'stale', account: { departmentIds: [PLACEHOLDER] }, details },
+    body: {
+      version: 'stale',
+      account: { departmentIds: [PLACEHOLDER], customRoleId: PLACEHOLDER },
+      details,
+    },
     expect: 409,
   },
   [`POST ${BASE}/:id/lock`]: {
@@ -140,6 +146,10 @@ export const cases: CaseModule['cases'] = {
   [`POST ${BASE}/:id/invite/resend`]: { params: { id: 'staffMembership' }, expect: 409 },
   [`POST ${BASE}/:id/invite/revoke`]: { params: { id: 'staffMembership' }, expect: 409 },
   [`PUT ${BASE}/:id/permissions`]: { params: { id: 'staffMembership' }, body: { grants: [] } },
+  [`PATCH ${BASE}/:id/permissions`]: {
+    params: { id: 'staffMembership' },
+    body: { overrides: [{ module: 'REPORTS', capability: 'VIEW', mode: 'INHERIT' }] },
+  },
   [`POST ${BASE}/:id/permissions/copy-from/:fromId`]: {
     params: { id: 'staffMembership', fromId: 'staffSupervisor' },
   },

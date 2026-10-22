@@ -32,13 +32,16 @@ import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import { bigPdf, MemoryUploads, ticketKey } from '../memory-uploads.js';
 import { pdf, sha256 } from '../office-files.js';
 
-/** Storage in memory: `objects.set(key, bytes)` is the browser's PUT. */
+/** Storage in memory: `uploads.send(ticket, bytes)` is the browser's PUT (or its parts). */
 const objects = new Map<string, Buffer>();
+const uploads = new MemoryUploads(objects);
 const storage: DocumentStorage = {
-  presignUpload: (f) =>
-    Promise.resolve({ url: `memory:${f.key}`, headers: { 'content-type': f.contentType } }),
+  presignUpload: (f) => uploads.presign(f),
+  completeUpload: (key, uploadId, sizeBytes) => uploads.complete(key, uploadId, sizeBytes),
+  abortUpload: (key, uploadId) => uploads.abort(key, uploadId),
   head: (key, { checksum = false } = {}) => {
     const b = objects.get(key);
     return Promise.resolve(
@@ -738,7 +741,7 @@ describe('portal: uploads', () => {
   it("puts a file in an open intake's slot, and takes it out again", async () => {
     // The intake of ids.tax is IN_PROGRESS (version 3) after the firm unlocked it.
     const t = UploadTicket.parse(ok(await ticket(ids.intake, 'incomeDocuments')).body);
-    objects.set(t.url.slice('memory:'.length), bytes);
+    uploads.send(t, bytes);
     const file = IntakeUpload.parse(
       ok(
         await portal('post', `/${ids.intake}/uploads/confirm`, people.one, {
@@ -777,6 +780,35 @@ describe('portal: uploads', () => {
     expect(audit).toBe(1);
   });
 
+  it('takes a file over 16 MB as a multipart upload that confirm completes', async () => {
+    const big = bigPdf();
+    const t = UploadTicket.parse(
+      ok(
+        await portal('post', `/${ids.intake}/uploads`, people.one, {
+          slot: 'incomeDocuments',
+          fileName: 'big-income.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: big.length,
+          sha256: sha256(big),
+        }),
+      ).body,
+    );
+    expect(t.method).toBe('MULTIPART');
+    uploads.send(t, big);
+    const file = IntakeUpload.parse(
+      ok(
+        await portal('post', `/${ids.intake}/uploads/confirm`, people.one, {
+          uploadToken: t.uploadToken,
+        }),
+      ).body,
+    );
+    expect(file).toMatchObject({ slot: 'incomeDocuments', sizeBytes: big.length });
+    expect(objects.get(ticketKey(t))?.equals(big)).toBe(true);
+    expect((await portal('delete', `/${ids.intake}/uploads/${file.id}`, people.one)).status).toBe(
+      200,
+    );
+  });
+
   it('refuses a slot that is not an upload field, another client, and a closed service', async () => {
     expect(codeOf(await ticket(ids.intake, 'firstName'))).toBe('VALIDATION_FAILED');
     expect((await ticket(ids.intake, 'incomeDocuments', people.two)).status).toBe(404);
@@ -810,8 +842,8 @@ describe('portal: upload limits, and the general My Documents route', () => {
   /** A ticket for the slot whose file is PUT: its key. */
   const put = async (slot: string) => {
     const t = UploadTicket.parse(ok(await ticket(slot)).body);
-    const key = t.url.slice('memory:'.length);
-    objects.set(key, bytes);
+    const key = ticketKey(t);
+    uploads.send(t, bytes);
     return { token: t.uploadToken, key };
   };
   const confirm = (token: string) =>
@@ -1128,7 +1160,7 @@ describe('portal: submit', () => {
         }),
       ).body,
     );
-    objects.set(t.url.slice('memory:'.length), bytes);
+    uploads.send(t, bytes);
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     let entered!: () => void;

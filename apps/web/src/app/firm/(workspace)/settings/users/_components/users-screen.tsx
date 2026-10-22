@@ -9,6 +9,7 @@ import {
 } from '@firmivra/types';
 import {
   Avatar,
+  BulkBar,
   Button,
   Modal,
   SearchField,
@@ -16,6 +17,7 @@ import {
   Skeleton,
   Table,
   type Column,
+  tileTones,
 } from '@firmivra/ui';
 import {
   DownloadSimple,
@@ -44,9 +46,12 @@ import { RowMenu, type RowMenuItem } from '../../../team/_components/row-menu';
 import { ActionModal, type StaffAction } from '../../../team/[id]/_components/staff-actions';
 import { MEMBER_ERRORS } from '../../../team/[id]/_components/staff-parts';
 import { BandCard, SettingsHeader, SettingsKpi } from '../../_components/settings-parts';
+import { type BulkAction, BulkDialog } from './bulk-dialog';
 import { AccessModal } from './access-modal';
 import { ChangeRoleModal } from './change-role-modal';
 import { InviteUserModal } from './invite-user-modal';
+import { customTone, roleChoices } from './custom-roles';
+import { PermissionsModal } from './permissions-modal';
 import { RolePanel } from './role-panel';
 import { RoleTemplates } from './role-templates';
 
@@ -132,6 +137,7 @@ type Dialog =
   | { kind: 'invite' }
   | { kind: 'action'; action: StaffAction; user: FirmUser }
   | { kind: 'revoke'; user: FirmUser }
+  | { kind: 'permissions'; user: FirmUser }
   | { kind: 'access'; action: 'unlock' | 'reactivate'; user: FirmUser }
   | { kind: 'role'; user: FirmUser }
   | { kind: 'pick'; action: 'resetPassword' | 'deactivate' };
@@ -142,7 +148,7 @@ type Dialog =
  * through `api.staff`), the role grid (`api.roles`), Quick Actions and Role Templates. Owner and
  * Admin only. A firm has one company, so All Companies offers the firm itself.
  */
-export function UsersScreen() {
+export function UsersScreen({ initialRole }: { initialRole?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { role: me, firm } = useFirm();
@@ -150,15 +156,19 @@ export function UsersScreen() {
   const [company, setCompany] = useState('');
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0] ?? 10);
   const [selected, setSelected] = useState<string[]>([]);
-  const [role, setRole] = useState<MembershipRole | ''>('');
+  const [chosen, setChosen] = useState<Map<string, FirmUser>>(() => new Map());
+  const [bulk, setBulk] = useState<BulkAction | null>(null);
+  /** A built-in role, or `custom:<id>` for one of the firm's custom roles. */
+  const [role, setRole] = useState('');
   const [status, setStatus] = useState<StaffStatusFilter>('all');
   const [page, setPage] = useState(1);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [message, setMessage] = useState('');
-  const [picked, setPicked] = useState<MembershipRole | null>(null);
+  const [picked, setPicked] = useState<string | null>(initialRole ?? null);
+  const customRoleId = role.startsWith('custom:') ? role.slice('custom:'.length) : '';
   const query = {
     ...(search.trim() ? { search: search.trim() } : {}),
-    ...(role ? { role } : {}),
+    ...(customRoleId ? { customRoleId } : role ? { role: role as MembershipRole } : {}),
     status,
     page,
     pageSize,
@@ -171,19 +181,36 @@ export function UsersScreen() {
   });
   const s = summary.data;
   const roleItems = roles.data?.items ?? [];
+  const choices = roleChoices(roles.data);
   const selectedRole =
-    roleItems.find((r) => r.role === picked) ?? roleItems.find((r) => !r.locked) ?? roleItems[0];
+    choices.find((c) => c.key === picked) ??
+    choices.find((c) => c.kind === 'role' && !c.summary.locked) ??
+    choices[0];
   const manages = me === 'OWNER' || me === 'ADMIN';
   const n = (v: number | undefined) =>
     summary.isPending ? <Skeleton className="h-8 w-12" /> : (v ?? '—');
   const filtered = Boolean(search.trim() || role || status !== 'all');
+  function clearSelection() {
+    setSelected([]);
+    setChosen(new Map());
+  }
+  /** Rows picked on this page join the ones picked on other pages of the same filters. */
+  const pick = (keys: string[]) => {
+    const next = new Map<string, FirmUser>();
+    for (const k of keys) {
+      const u = chosen.get(k) ?? (list.data?.items ?? []).find((r) => r.id === k);
+      if (u) next.set(k, u);
+    }
+    setSelected([...next.keys()]);
+    setChosen(next);
+  };
   /** A counter's click: that status alone, with the search and role cleared. */
   const showOnly = (next: StaffStatusFilter) => {
     setSearch('');
     setRole('');
     setStatus(next);
     setPage(1);
-    setSelected([]);
+    clearSelection();
   };
 
   const menu = (u: FirmUser): RowMenuItem[] => {
@@ -195,6 +222,15 @@ export function UsersScreen() {
     items.push(
       { label: 'Edit User', onSelect: () => router.push(`/team/${u.id}`) },
       { label: 'Manage Access', onSelect: () => router.push(`/team/${u.id}/security/permissions`) },
+      // Inherit, Allow or Deny per permission, for someone whose access you manage.
+      ...(me && ROLES_MANAGED_BY[me].includes(u.role)
+        ? [
+            {
+              label: 'Individual Permissions',
+              onSelect: () => setDialog({ kind: 'permissions', user: u }),
+            },
+          ]
+        : []),
       // Only someone whose role you may change (an Admin never changes an Admin or the Owner).
       ...(me && u.status !== 'DEACTIVATED' && ROLES_MANAGED_BY[me].includes(u.role)
         ? [{ label: 'Change Role', onSelect: () => setDialog({ kind: 'role', user: u }) }]
@@ -259,7 +295,12 @@ export function UsersScreen() {
       id: 'role',
       label: 'Role',
       cell: (u) => (
-        <span className={`${chip} min-w-24 ${ROLE_CHIPS[u.role]}`}>{FIRM_ROLE_LABELS[u.role]}</span>
+        <span
+          className={`${chip} min-w-24 ${u.customRole ? tileTones[customTone(u.customRole.id)] : ROLE_CHIPS[u.role]}`}
+          title={u.customRole ? `Based on ${FIRM_ROLE_LABELS[u.role]}` : undefined}
+        >
+          {u.customRole?.name ?? FIRM_ROLE_LABELS[u.role]}
+        </span>
       ),
     },
     { id: 'company', label: 'Company', cell: (u) => u.company, className: 'min-w-24' },
@@ -386,7 +427,7 @@ export function UsersScreen() {
           value={n(s?.roles)}
           note={
             s?.customRoles
-              ? `${s.customRoles} custom roles`
+              ? `${s.customRoles} custom role${s.customRoles === 1 ? '' : 's'}`
               : summary.isError
                 ? 'Could not load'
                 : 'Custom roles'
@@ -407,6 +448,7 @@ export function UsersScreen() {
                     onChange={(event) => {
                       setSearch(event.target.value);
                       setPage(1);
+                      clearSelection();
                     }}
                   />
                 </div>
@@ -419,7 +461,10 @@ export function UsersScreen() {
                       { value: firm.name, label: firm.name },
                     ]}
                     value={company}
-                    onChange={(event) => setCompany(event.target.value)}
+                    onChange={(event) => {
+                      setCompany(event.target.value);
+                      clearSelection();
+                    }}
                   />
                 </div>
                 <div className="w-36">
@@ -428,12 +473,13 @@ export function UsersScreen() {
                     hideLabel
                     options={[
                       { value: '', label: 'All Roles' },
-                      ...roleItems.map((r) => ({ value: r.role, label: r.label })),
+                      ...choices.map((c) => ({ value: c.key, label: c.label })),
                     ]}
                     value={role}
                     onChange={(event) => {
-                      setRole(event.target.value as MembershipRole | '');
+                      setRole(event.target.value);
                       setPage(1);
+                      clearSelection();
                     }}
                   />
                 </div>
@@ -452,6 +498,7 @@ export function UsersScreen() {
                     onChange={(event) => {
                       setStatus(event.target.value as StaffStatusFilter);
                       setPage(1);
+                      clearSelection();
                     }}
                   />
                 </div>
@@ -471,6 +518,38 @@ export function UsersScreen() {
                 >
                   {resend.error ? errorMessage(resend.error, MEMBER_ERRORS) : message}
                 </p>
+              ) : null}
+              {selected.length && manages ? (
+                <BulkBar
+                  count={selected.length}
+                  noun={selected.length === 1 ? 'user' : 'users'}
+                  actions={[
+                    {
+                      label: 'Export Selected',
+                      icon: DownloadSimple,
+                      onClick: () => window.location.assign(api.users.exportUrl({ ids: selected })),
+                    },
+                    {
+                      label: 'Resend Invitations',
+                      icon: EnvelopeSimple,
+                      onClick: () => setBulk('resend'),
+                    },
+                    {
+                      label: 'Deactivate Selected',
+                      icon: LockSimple,
+                      danger: true,
+                      onClick: () => setBulk('deactivate'),
+                    },
+                  ]}
+                >
+                  <button
+                    type="button"
+                    className="text-sm text-link hover:underline"
+                    onClick={clearSelection}
+                  >
+                    Clear selection
+                  </button>
+                </BulkBar>
               ) : null}
               {list.isError ? (
                 <div
@@ -494,7 +573,7 @@ export function UsersScreen() {
                   dense
                   tableClassName="[&_td]:px-1.5 [&_th]:px-1.5 [&_thead_th]:font-bold [&_thead_th]:text-heading"
                   columns={columns}
-                  selection={{ selected, onChange: setSelected }}
+                  selection={{ selected, onChange: pick }}
                   rowActions={(u) => (
                     <RowMenu vertical label={`Actions for ${u.name}`} items={menu(u)} />
                   )}
@@ -532,10 +611,14 @@ export function UsersScreen() {
           </BandCard>
 
           <RolePanel
-            key={selectedRole?.role ?? 'none'}
-            roles={roleItems}
+            key={selectedRole?.key ?? 'none'}
+            choices={choices}
             selected={selectedRole}
             onSelect={setPicked}
+            onDone={(text) => {
+              setPicked(null);
+              setMessage(text);
+            }}
           />
         </div>
 
@@ -563,9 +646,10 @@ export function UsersScreen() {
           </BandCard>
           <RoleTemplates
             roles={roles.data ? roleItems : undefined}
+            custom={roles.data?.custom}
             loading={roles.isPending}
             canChange={manages}
-            onUse={(r) => router.push(`/settings/users/roles/new?from=${r}`)}
+            onUse={(r) => router.push(`/settings/users/roles/new?from=${encodeURIComponent(r)}`)}
             onCreate={() => router.push('/settings/users/roles/new')}
           />
         </aside>
@@ -590,6 +674,28 @@ export function UsersScreen() {
             setDialog(null);
             setMessage(text);
             void queryClient.invalidateQueries({ queryKey: ['users'] });
+          }}
+        />
+      ) : null}
+      {bulk ? (
+        <BulkDialog
+          action={bulk}
+          users={[...chosen.values()]}
+          me={me}
+          onClose={() => setBulk(null)}
+          onFinished={() => {
+            setBulk(null);
+            clearSelection();
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'permissions' ? (
+        <PermissionsModal
+          user={dialog.user}
+          onClose={() => setDialog(null)}
+          onDone={(text) => {
+            setDialog(null);
+            setMessage(text);
           }}
         />
       ) : null}

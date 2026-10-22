@@ -22,14 +22,16 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import type { MockFirmRole } from './clients';
+import { mockUploadTicket } from './upload-ticket';
 
 /**
  * Mock data for `api.agreements` (firm), `api.publicAgreements(slug)` (Begin Online) and
  * `api.myIntakeAgreements(slug)` (the portal intake), R14. Synthetic text only: never a firm's
  * real agreement. Same input checks, rules and error codes as the API; the fixtures are parsed
  * with the response schemas, so they cannot drift from the contract. A mock upload needs no
- * storage (its URL starts with `mock:`). The seeded versions' PDFs are CLEAN files, so a new
- * version can reuse one. To show the PDF states on a screen, upload a file whose name contains:
+ * storage (its URLs start with `mock:`; over 16 MB, a multipart ticket). The seeded versions'
+ * PDFs are CLEAN files, so a new version can reuse one. To show the PDF states on a screen,
+ * upload a file whose name contains:
  *   "pending"  the scan never finishes (publish answers 409 FILE_NOT_READY)
  *   "password" confirm answers 409 FILE_PASSWORD_PROTECTED
  *   "notpdf"   confirm answers 409 NOT_A_PDF
@@ -350,13 +352,13 @@ export function createAgreementsMock(
       const input = parseInput(CreateAgreementUploadRequest, body);
       const token = `mock-agreement-upload-${next++}`;
       pending.set(token, input);
-      return {
+      return mockUploadTicket({
         uploadToken: token,
         url: `mock:upload/${token}`,
-        method: 'PUT',
+        sizeBytes: input.sizeBytes,
         headers: { 'content-type': 'application/pdf' },
         expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
-      };
+      });
     },
     confirmUpload: async (body) => {
       await allowed();

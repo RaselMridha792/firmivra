@@ -29,6 +29,26 @@ test('a client uploads a file through the pop-up and sees it being checked', asy
   await expect(row.getByText('Checking…')).toBeVisible();
 });
 
+test('a file over 16 MB goes up in parts, within the 100 MB limit', async ({ page }) => {
+  await page.goto(portal('/lvp/documents'));
+  await page.getByRole('button', { name: 'Upload Documents' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Upload Documents' });
+  await dialog.getByRole('button', { name: /Upload more tax documents/ }).click();
+  await expect(dialog.getByText('up to 100 MB.')).toBeVisible();
+  // 20 MB of synthetic bytes: the mock answers a multipart ticket (two parts, `mock:` URLs), as
+  // the API does above 16 MB, and the helper confirms it like a single PUT.
+  const buffer = Buffer.alloc(20 * 1024 * 1024, ' ');
+  buffer.write('%PDF-1.4 synthetic', 0);
+  await dialog
+    .getByLabel('File')
+    .setInputFiles({ name: 'Synthetic_Large_Scan.pdf', mimeType: 'application/pdf', buffer });
+  await dialog.getByRole('button', { name: 'Upload', exact: true }).click();
+  await expect(dialog).not.toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Synthetic_Large_Scan.pdf was uploaded' }),
+  ).toBeVisible();
+});
+
 test('a wrong file type is refused before anything is sent', async ({ page }) => {
   await page.goto(portal('/lvp/documents'));
   await page.getByRole('button', { name: 'Upload Documents' }).click();

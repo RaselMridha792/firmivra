@@ -191,9 +191,9 @@ describe('esign schemas', () => {
       CreateEsignUploadBody.safeParse({ ...facts, contentType: 'application/msword' }).success,
     ).toBe(false);
     expect(CreateEsignUploadBody.safeParse({ ...facts, fileName: 'a.png' }).success).toBe(false);
-    expect(CreateEsignUploadBody.safeParse({ ...facts, sizeBytes: 11 * 1024 * 1024 }).success).toBe(
-      false,
-    );
+    expect(
+      CreateEsignUploadBody.safeParse({ ...facts, sizeBytes: 101 * 1024 * 1024 }).success,
+    ).toBe(false);
   });
 
   it('checks fields: on the page, signer-only types, sender values, choices', () => {

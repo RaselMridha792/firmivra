@@ -87,7 +87,7 @@ export class DepartmentsService {
   private async inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
     if (
       tenant.role === 'STAFF' &&
-      !(await this.grants.can(tenant.businessId, 'STAFF', 'STAFF_MANAGEMENT', 'VIEW'))
+      !(await this.grants.canTenant(tenant, 'STAFF_MANAGEMENT', 'VIEW'))
     )
       throw new ForbiddenException({
         code: 'FORBIDDEN',

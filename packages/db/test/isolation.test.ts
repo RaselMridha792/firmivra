@@ -559,6 +559,7 @@ describe('no scope set', () => {
     expect(await unscopedApp.customRolePermission.findMany()).toEqual([]);
     expect(await unscopedApp.documentLink.findMany()).toEqual([]);
     expect(await unscopedApp.documentLinkCode.findMany()).toEqual([]);
+    expect(await unscopedApp.firmOfficeMember.findMany()).toEqual([]);
   });
 });
 

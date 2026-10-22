@@ -9,7 +9,9 @@ import type {
   UpdateEsignTemplateBody,
 } from '@firmivra/types';
 import { AuditService } from '../../audit/audit.service.js';
+import { type Keep, readBudget } from '../../storage/read-budget.js';
 import { ESIGN_STORE, type EsignStore } from '../engine/engine.types.js';
+import { filesBusy } from '../requests/esign-uploads.js';
 import { ESIGN_DIRECTORY, type EsignDirectory } from '../requests/esign-directory.js';
 import { type EsignActor, esignRefusal, seesAll } from '../requests/requests.service.js';
 import {
@@ -96,15 +98,27 @@ export class EsignTemplatesService {
     return this.detail(businessId, actor, saved);
   }
 
-  /** The newest version's packet, archived templates' too; the bytes must be the stored hash's. */
-  async packet(businessId: string, actor: EsignActor, id: string): Promise<Uint8Array> {
+  /**
+   * The newest version's packet, archived templates' too; the bytes must be the stored hash's.
+   * They hold their size of the read budget (503 without room); with `keep` (the route that
+   * streams them) until it is given back there.
+   */
+  async packet(
+    businessId: string,
+    actor: EsignActor,
+    id: string,
+    keep?: Keep,
+  ): Promise<Uint8Array> {
     const current = await this.current(businessId, await this.reach(businessId, actor, id));
-    const bytes = await this.store.read(businessId, current.s3Key);
-    if (!bytes || sha256(bytes) !== current.sha256) {
-      this.logger.warn(`Esign template ${id}: the stored packet is not the saved one`); // ids only
-      throw esignRefusal('FILE_BLOCKED');
-    }
-    return bytes;
+    const read = async () => {
+      const bytes = await this.store.read(businessId, current.s3Key);
+      if (!bytes || sha256(bytes) !== current.sha256) {
+        this.logger.warn(`Esign template ${id}: the stored packet is not the saved one`); // ids only
+        throw esignRefusal('FILE_BLOCKED');
+      }
+      return bytes;
+    };
+    return readBudget.hold(current.sizeBytes, filesBusy, read, keep);
   }
 
   /** The template, if the caller may see it; else 404 (another firm's id included). */

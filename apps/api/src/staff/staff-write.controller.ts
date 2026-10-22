@@ -15,6 +15,7 @@ import {
   CreateStaffBody,
   LockStaffBody,
   SetStaffNoteBody,
+  SetStaffOverridesBody,
   SetStaffPermissionsBody,
   StaffActionBody,
   StaffCompensationBody,
@@ -143,6 +144,21 @@ export class StaffWriteController {
       staffActorOf(auth, tenant),
       id,
       body.grants,
+      body.acknowledgeEscalation ?? false,
+    );
+  }
+
+  @Patch(':id/permissions')
+  setOverrides(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(SetStaffOverridesBody)) body: Out<typeof SetStaffOverridesBody>,
+  ): Promise<StaffPermissions> {
+    return this.permissions.overrides(
+      staffActorOf(auth, tenant),
+      id,
+      body.overrides,
       body.acknowledgeEscalation ?? false,
     );
   }

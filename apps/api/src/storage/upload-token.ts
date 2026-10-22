@@ -5,16 +5,31 @@ import { type PoolSecrets, Sealer } from '../auth/sealed.js';
 /** HKDF label for upload-token keys. A new label (v2) ends every open upload. */
 export const UPLOAD_KEY_LABEL = 'fv-document-upload-v1';
 /**
- * An upload is confirmed within 15 minutes of its ticket. The PUT URL itself lasts 4 minutes, but
- * a 10 MB PUT that starts near its end can take up to the browser's 10-minute timeout
+ * A PUT upload is confirmed within 15 minutes of its ticket. The PUT URL itself lasts 4 minutes,
+ * but a PUT that starts near its end can take up to the browser's 10-minute timeout
  * (apps/web/src/lib/upload.ts), and the confirm comes after it.
  */
 export const UPLOAD_TOKEN_SECONDS = 900;
+/**
+ * A multipart upload is confirmed within 70 minutes: its part URLs last an hour
+ * (MULTIPART_URL_SECONDS), and a part that starts near their end has the browser's 10 minutes.
+ */
+export const MULTIPART_TOKEN_SECONDS = 4_200;
+/** The longest any upload ticket lives: how far back anything that counts open tickets looks. */
+export const LONGEST_UPLOAD_SECONDS = MULTIPART_TOKEN_SECONDS;
+
+/** How long the token of an upload lives: a multipart one (it has an upload id) longer. */
+export const uploadTokenSeconds = (uploadId: string | null | undefined): number =>
+  uploadId ? MULTIPART_TOKEN_SECONDS : UPLOAD_TOKEN_SECONDS;
+
+/** Storage's id of a multipart upload, as a token carries it. */
+export const MultipartUploadId = z.string().min(1).max(1024);
 
 /**
- * Everything step 1 decided, sealed into the ticket's `uploadToken` (JWE, A256GCM, 15 minutes):
- * the browser can neither read nor change it, and it opens only on the side (pool) it was made
- * for. Confirm takes the file's owner, place and facts from here, never from the request.
+ * Everything step 1 decided, sealed into the ticket's `uploadToken` (JWE, A256GCM, 15 minutes for
+ * a PUT, 70 for a multipart upload): the browser can neither read nor change it, and it opens
+ * only on the side (pool) it was made for. Confirm takes the file's owner, place and facts from
+ * here, never from the request.
  */
 const UploadClaim = z
   .object({
@@ -38,6 +53,11 @@ const UploadClaim = z
     contentType: UploadContentType,
     sizeBytes: z.number().int().positive(),
     sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    /**
+     * The multipart upload confirm completes; null or absent for a PUT (tokens sealed before
+     * multipart uploads have none).
+     */
+    uploadId: MultipartUploadId.nullable().optional(),
     /**
      * A portal intake's upload slot (R11): the intake (of this engagement, open for changes) and the
      * slot's field key, checked by the caller before the ticket. The document gets both on insert.

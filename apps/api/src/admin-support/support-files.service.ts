@@ -23,9 +23,11 @@ import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
   GET_URL_SECONDS,
+  onlyPut,
   PUT_URL_SECONDS,
 } from '../storage/document-storage.js';
 import { checkFile } from '../storage/file-checks.js';
+import { readBudget } from '../storage/read-budget.js';
 import {
   type RoutedScanResult,
   type ScanResultHandler,
@@ -39,9 +41,6 @@ import { notFound, supportError } from './support-context.js';
 export const SUPPORT_UPLOAD_LABEL = 'fv-support-upload-v1';
 /** As documents: the action that adds the file comes within 15 minutes of the ticket. */
 const UPLOAD_SECONDS = 900;
-/** At most this many stored-file checks at once; one more is 503 (as documents). */
-const CHECKS_AT_ONCE = 4;
-let checking = 0;
 
 const SupportUploadClaim = z.object({
   pool: z.literal('ADMIN'),
@@ -123,13 +122,16 @@ export class SupportFilesService implements ScanResultHandler, OnModuleInit {
     });
     if (!firm) throw notFound('Firm');
     const key = `tenant/${firm.id}/support/${randomUUID()}`;
-    const put = await this.s3(() =>
-      this.storage.presignUpload({
-        key,
-        contentType: body.contentType,
-        sizeBytes: body.sizeBytes,
-        sha256: body.sha256,
-      }),
+    // At most 10 MB (SUPPORT_ATTACHMENT_LIMITS): always one PUT.
+    const put = onlyPut(
+      await this.s3(() =>
+        this.storage.presignUpload({
+          key,
+          contentType: body.contentType,
+          sizeBytes: body.sizeBytes,
+          sha256: body.sha256,
+        }),
+      ),
     );
     const claim: SupportUploadClaim = {
       pool: 'ADMIN',
@@ -328,15 +330,12 @@ export class SupportFilesService implements ScanResultHandler, OnModuleInit {
       stored.contentEncoding !== null
     )
       return 'UPLOAD_MISMATCH';
-    if (checking >= CHECKS_AT_ONCE) throw unavailable();
-    checking++;
-    try {
+    // The bytes hold their size of the read budget (read-budget.ts); without room, 503.
+    return readBudget.hold(claim.sizeBytes, unavailable, async () => {
       const bytes = await this.s3(() => this.storage.read(claim.key));
       if (!bytes) throw refusal('UPLOAD_EXPIRED');
       return checkFile(claim.contentType as UploadContentType, bytes);
-    } finally {
-      checking--;
-    }
+    });
   }
 
   private async s3<T>(fn: () => Promise<T>): Promise<T> {
