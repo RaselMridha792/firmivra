@@ -2,12 +2,23 @@
 
 import type { LeadProfile } from '@firmivra/types';
 import { LEAD_STATUS_LABELS } from '@firmivra/types';
-import { Avatar, Badge, Button, Callout, Card, Stepper } from '@firmivra/ui';
+import {
+  Avatar,
+  Badge,
+  Button,
+  Callout,
+  Card,
+  Checkbox,
+  Input,
+  Radio,
+  Select,
+  Stepper,
+} from '@firmivra/ui';
 import {
   AddressBook,
   Buildings,
   CalendarBlank,
-  Check,
+  CaretDown,
   CheckCircle,
   Clock,
   FileText,
@@ -28,10 +39,11 @@ import {
 import type { UseQueryResult } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { errorCode } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
+import { type ConvertDraft, draftErrors, useConvertDraft } from './convert-draft';
 
 type LeadOptions = NonNullable<Awaited<ReturnType<typeof api.leadPipeline.options>>>;
 
@@ -46,44 +58,57 @@ const STEPS = [
 const CARRY_OVER = [
   {
     id: 'contact',
+    key: 'contactInfo' as const,
     icon: AddressBook,
     tone: 'bg-info-soft text-info',
     label: 'Contact information (name, email, phone, address)',
   },
-  { id: 'notes', icon: Note, tone: 'bg-warning-soft text-gold', label: 'Notes' },
+  {
+    id: 'notes',
+    key: 'notes' as const,
+    icon: Note,
+    tone: 'bg-warning-soft text-gold',
+    label: 'Notes',
+  },
   {
     id: 'communications',
+    key: 'communications' as const,
     icon: Phone,
     tone: 'bg-folder-surface text-heading',
     label: 'Communication history (emails, SMS, calls)',
   },
   {
     id: 'appointments',
+    key: 'appointments' as const,
     icon: CalendarBlank,
     tone: 'bg-info-soft text-info',
     label: 'Appointments',
   },
   {
     id: 'tasks',
+    key: 'tasks' as const,
     icon: ListChecks,
     tone: 'bg-purple-soft text-purple',
     label: 'Tasks / follow-ups',
   },
   {
     id: 'documents',
+    key: 'documents' as const,
     icon: FileText,
     tone: 'bg-danger-soft text-danger',
     label: 'Uploaded documents',
   },
   {
     id: 'intake-forms',
+    key: 'intakeForms' as const,
     icon: FileText,
     tone: 'bg-danger-soft text-danger',
     label: 'Submitted intake forms',
   },
-  { id: 'tags', icon: Tag, tone: 'bg-warning-soft text-gold', label: 'Tags' },
+  { id: 'tags', key: 'tags' as const, icon: Tag, tone: 'bg-warning-soft text-gold', label: 'Tags' },
   {
     id: 'attribution',
+    key: 'attribution' as const,
     icon: LinkSimple,
     tone: 'bg-success-soft text-success',
     label: 'Source / campaign attribution',
@@ -200,29 +225,6 @@ function QuietQueryState<T>({ query, noun }: { query: UseQueryResult<T>; noun: s
     );
   }
   return null;
-}
-
-function ReadonlyField({
-  label,
-  value,
-  placeholder,
-}: {
-  label: string;
-  value: string | null;
-  placeholder?: string;
-}) {
-  return (
-    <label className="flex min-w-0 flex-col gap-1 text-xs text-muted">
-      <span>{label}</span>
-      <input
-        aria-label={label}
-        readOnly
-        value={value ?? ''}
-        placeholder={placeholder}
-        className="h-9 min-w-0 rounded-control border border-border bg-surface px-2.5 text-sm text-text outline-none placeholder:text-muted"
-      />
-    </label>
-  );
 }
 
 function PriorityBadge({ priority }: { priority: LeadProfile['priority'] }) {
@@ -373,35 +375,25 @@ function LeadDetails({
   );
 }
 
-function ChoiceIndicator({ checked, radio = false }: { checked: boolean; radio?: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`flex size-4 shrink-0 items-center justify-center border ${radio ? 'rounded-full' : 'rounded-sm'} ${checked ? 'border-action bg-action text-on-action' : 'border-control-border bg-surface text-transparent'}`}
-    >
-      {checked ? (
-        radio ? (
-          <span className="size-1.5 rounded-full bg-current" />
-        ) : (
-          <Check weight="bold" className="size-3" />
-        )
-      ) : null}
-    </span>
-  );
-}
+type DraftErrors = Partial<Record<keyof ConvertDraft, string>>;
 
 function ClientDetails({
-  lead,
+  draft,
+  update,
+  errors,
   query,
   services,
   highlighted = false,
 }: {
-  lead: LeadProfile | undefined;
+  draft: ConvertDraft | null;
+  update: (patch: Partial<ConvertDraft>) => void;
+  errors: DraftErrors;
   query: UseQueryResult<LeadOptions>;
   services: LeadOptions['services'] | undefined;
   highlighted?: boolean;
 }) {
-  const selectedIds = new Set(lead?.services.map((service) => service.id) ?? []);
+  const off = !draft;
+  const chosen = new Set(draft?.serviceIds ?? []);
   return (
     <Card
       className={highlighted ? 'border-2 border-info-soft p-3' : 'p-3'}
@@ -418,34 +410,69 @@ function ClientDetails({
             Client Type <span className="text-danger">*</span>
           </legend>
           <div className="flex flex-wrap gap-5 text-sm text-text">
-            <span className="inline-flex items-center gap-2">
-              <ChoiceIndicator checked />
-              Individual
-            </span>
-            <span className="inline-flex items-center gap-2">
-              <ChoiceIndicator checked={false} radio />
-              Business
-            </span>
+            <Radio
+              name="client-type"
+              label="Individual"
+              disabled={off}
+              checked={draft?.accountType === 'INDIVIDUAL'}
+              onChange={() => update({ accountType: 'INDIVIDUAL' })}
+            />
+            <Radio
+              name="client-type"
+              label="Business"
+              disabled={off}
+              checked={draft?.accountType === 'BUSINESS'}
+              onChange={() => update({ accountType: 'BUSINESS' })}
+            />
           </div>
         </fieldset>
         <div className="grid gap-3 sm:grid-cols-2">
-          <ReadonlyField
+          <Input
             label="Full Name *"
-            value={lead ? `${lead.firstName} ${lead.lastName}` : null}
-            placeholder="Lead name"
+            maxLength={120}
+            disabled={off}
+            value={draft?.fullName ?? ''}
+            error={errors.fullName}
+            onChange={(event) => update({ fullName: event.target.value })}
           />
-          <ReadonlyField
-            label="Business Name (if applicable)"
-            value={lead?.businessName ?? null}
-            placeholder="—"
+          <Input
+            label={
+              draft?.accountType === 'BUSINESS'
+                ? 'Business Name *'
+                : 'Business Name (if applicable)'
+            }
+            maxLength={160}
+            disabled={off}
+            value={draft?.businessName ?? ''}
+            error={errors.businessName}
+            onChange={(event) => update({ businessName: event.target.value })}
           />
-          <ReadonlyField label="Email *" value={lead?.email ?? null} placeholder="Lead email" />
-          <ReadonlyField label="Phone *" value={lead?.phone ?? null} placeholder="Lead phone" />
+          <Input
+            label="Email *"
+            type="email"
+            maxLength={254}
+            disabled={off}
+            value={draft?.email ?? ''}
+            error={errors.email}
+            onChange={(event) => update({ email: event.target.value })}
+          />
+          <Input
+            label="Phone *"
+            type="tel"
+            maxLength={40}
+            disabled={off}
+            value={draft?.phone ?? ''}
+            error={errors.phone}
+            onChange={(event) => update({ phone: event.target.value })}
+          />
         </div>
-        <ReadonlyField
+        <Input
           label="Address"
-          value={lead?.address ?? null}
           placeholder="Enter address (optional)"
+          maxLength={300}
+          disabled={off}
+          value={draft?.address ?? ''}
+          onChange={(event) => update({ address: event.target.value })}
         />
         <fieldset>
           <legend className="mb-2 text-xs font-medium text-text">
@@ -455,35 +482,106 @@ function ClientDetails({
             <QuietQueryState query={query} noun="service options" />
           ) : services?.length ? (
             <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
-              {services.map((service) => {
-                const checked = selectedIds.has(service.id);
-                return (
-                  <span
-                    key={service.id}
-                    className="flex min-w-0 items-start gap-2 text-xs text-text"
-                  >
-                    <ChoiceIndicator checked={checked} />
-                    <span className="min-w-0">{service.name}</span>
-                  </span>
-                );
-              })}
+              {services.map((service) => (
+                <Checkbox
+                  key={service.id}
+                  label={service.name}
+                  disabled={off}
+                  checked={chosen.has(service.id)}
+                  onChange={(event) =>
+                    update({
+                      serviceIds: event.target.checked
+                        ? [...chosen, service.id]
+                        : [...chosen].filter((s) => s !== service.id),
+                    })
+                  }
+                />
+              ))}
             </div>
           ) : (
             <p className="text-sm text-muted">No services are available.</p>
           )}
+          {errors.serviceIds ? (
+            <p role="alert" className="mt-1 text-xs text-danger">
+              {errors.serviceIds}
+            </p>
+          ) : null}
         </fieldset>
       </div>
     </Card>
   );
 }
 
+/**
+ * Additional Team Members: a select-like button that opens a list of checkboxes (the kit has no
+ * multi-select yet; a local control until it does).
+ */
+function TeamMembersPicker({
+  staff,
+  value,
+  exclude,
+  disabled,
+  onChange,
+}: {
+  staff: LeadOptions['staff'];
+  value: string[];
+  exclude: string;
+  disabled: boolean;
+  onChange: (next: string[]) => void;
+}) {
+  const choices = staff.filter((s) => s.userId !== exclude);
+  const names = choices.filter((s) => value.includes(s.userId)).map((s) => s.name);
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <span id="team-members-label" className="text-sm font-medium text-text">
+        Additional Team Members
+      </span>
+      <details className="group relative min-w-0" data-testid="team-members">
+        <summary
+          aria-labelledby="team-members-label"
+          className={`flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 rounded-control border border-control-border bg-surface px-3 text-sm ${disabled ? 'pointer-events-none text-muted' : 'text-text'}`}
+        >
+          <span className="min-w-0 truncate">
+            {names.length ? names.join(', ') : 'Select team members (optional)'}
+          </span>
+          <CaretDown aria-hidden weight="bold" className="size-4 shrink-0 text-muted" />
+        </summary>
+        <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-control border border-border bg-surface p-2 shadow-card">
+          {choices.length ? (
+            choices.map((s) => (
+              <Checkbox
+                key={s.userId}
+                label={s.name}
+                checked={value.includes(s.userId)}
+                onChange={(event) =>
+                  onChange(
+                    event.target.checked
+                      ? [...value, s.userId]
+                      : value.filter((u) => u !== s.userId),
+                  )
+                }
+              />
+            ))
+          ) : (
+            <p className="text-sm text-muted">No other staff members.</p>
+          )}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function StaffAssignment({
-  lead,
+  draft,
+  update,
+  errors,
   query,
   staff,
   highlighted = false,
 }: {
-  lead: LeadProfile | undefined;
+  draft: ConvertDraft | null;
+  update: (patch: Partial<ConvertDraft>) => void;
+  errors: DraftErrors;
   query: UseQueryResult<LeadOptions>;
   staff: LeadOptions['staff'] | undefined;
   highlighted?: boolean;
@@ -504,15 +602,30 @@ function StaffAssignment({
         </div>
       ) : staff?.length ? (
         <div className="grid gap-3 px-1 sm:grid-cols-2">
-          <ReadonlyField
+          <Select
             label="Primary Staff Member *"
-            value={lead?.assignedTo?.name ?? null}
-            placeholder="Select a staff member"
+            disabled={!draft}
+            value={draft?.primaryStaffUserId ?? ''}
+            error={errors.primaryStaffUserId}
+            onChange={(event) =>
+              update({
+                primaryStaffUserId: event.target.value,
+                additionalStaffUserIds: (draft?.additionalStaffUserIds ?? []).filter(
+                  (u) => u !== event.target.value,
+                ),
+              })
+            }
+            options={[
+              { value: '', label: 'Select a staff member' },
+              ...staff.map((s) => ({ value: s.userId, label: s.name })),
+            ]}
           />
-          <ReadonlyField
-            label="Additional Team Members"
-            value={null}
-            placeholder="Select team members"
+          <TeamMembersPicker
+            staff={staff}
+            value={draft?.additionalStaffUserIds ?? []}
+            exclude={draft?.primaryStaffUserId ?? ''}
+            disabled={!draft}
+            onChange={(additionalStaffUserIds) => update({ additionalStaffUserIds })}
           />
         </div>
       ) : (
@@ -522,7 +635,15 @@ function StaffAssignment({
   );
 }
 
-function LeadConversionRightRail({ highlighted = false }: { highlighted?: boolean }) {
+function LeadConversionRightRail({
+  draft,
+  update,
+  highlighted = false,
+}: {
+  draft: ConvertDraft | null;
+  update: (patch: Partial<ConvertDraft>) => void;
+  highlighted?: boolean;
+}) {
   const cardClassName = `p-3 ${highlighted ? 'border-info-soft' : ''}`;
   return (
     <div
@@ -536,9 +657,19 @@ function LeadConversionRightRail({ highlighted = false }: { highlighted?: boolea
           subtitle="Select the information to move from the lead to the client record."
         />
         <ul className="space-y-1.5 px-1">
-          {CARRY_OVER.map(({ id, icon: Glyph, tone, label }) => (
+          {CARRY_OVER.map(({ id, key, icon: Glyph, tone, label }) => (
             <li key={id} className="flex min-w-0 items-center gap-2 text-xs text-text">
-              <ChoiceIndicator checked />
+              <input
+                type="checkbox"
+                aria-label={label}
+                disabled={!draft}
+                checked={draft?.carryOver[key] ?? true}
+                onChange={(event) =>
+                  draft &&
+                  update({ carryOver: { ...draft.carryOver, [key]: event.target.checked } })
+                }
+                className="size-4 shrink-0 cursor-pointer accent-action"
+              />
               <span
                 className={`flex size-6 shrink-0 items-center justify-center rounded-control ${tone}`}
               >
@@ -551,26 +682,41 @@ function LeadConversionRightRail({ highlighted = false }: { highlighted?: boolea
       </Card>
       <Card className={cardClassName} data-testid="convert-lead-portal-access">
         <SectionTitle icon={UsersThree} title="Client Portal Access" tone="plain" />
-        <div className="space-y-3 px-1 text-sm">
-          <div className="flex items-start gap-2.5 text-text">
-            <ChoiceIndicator checked />
-            <div>
-              <p className="font-medium">Send portal invitation after conversion</p>
-              <p className="mt-0.5 text-xs text-muted">
+        <fieldset className="space-y-3 px-1 text-sm">
+          <legend className="sr-only">Client portal invitation</legend>
+          <label className="flex items-start gap-2.5 text-text">
+            <input
+              type="radio"
+              name="portal-invite"
+              disabled={!draft}
+              checked={draft?.sendPortalInvite ?? true}
+              onChange={() => update({ sendPortalInvite: true })}
+              className="mt-0.5 size-4 shrink-0 cursor-pointer accent-action"
+            />
+            <span>
+              <span className="block font-medium">Send portal invitation after conversion</span>
+              <span className="mt-0.5 block text-xs text-muted">
                 An email invitation will be sent to the client to create their portal account.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2.5 text-text">
-            <ChoiceIndicator checked={false} />
-            <div>
-              <p className="font-medium">Send later</p>
-              <p className="mt-0.5 text-xs text-muted">
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2.5 text-text">
+            <input
+              type="radio"
+              name="portal-invite"
+              disabled={!draft}
+              checked={draft ? !draft.sendPortalInvite : false}
+              onChange={() => update({ sendPortalInvite: false })}
+              className="mt-0.5 size-4 shrink-0 cursor-pointer accent-action"
+            />
+            <span>
+              <span className="block font-medium">Send later</span>
+              <span className="mt-0.5 block text-xs text-muted">
                 Do not send an invitation now. You can send it manually later.
-              </p>
-            </div>
-          </div>
-        </div>
+              </span>
+            </span>
+          </label>
+        </fieldset>
       </Card>
       <Card className={cardClassName} data-testid="convert-lead-after-conversion">
         <SectionTitle icon={CheckCircle} title="After Conversion" tone="plain" iconTone="success" />
@@ -593,7 +739,12 @@ function LeadConversionRightRail({ highlighted = false }: { highlighted?: boolea
 
 type ConvertLeadStep = 'review' | 'details' | 'portal';
 
-/** Shared lead conversion screen for reviewing lead, details, and portal setup steps. */
+/**
+ * Convert to Client, steps 1 to 3 (convert-lead-to-client.jpg; Octavia's Leads review, item 16):
+ * the client's details, services and staff, what to carry over and the portal invitation are all
+ * editable, from the lead's own values, and kept in one draft across the steps (the convert
+ * layout); Review & Confirm sends what was set here. Continue checks the client's details first.
+ */
 export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: ConvertLeadStep }) {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -601,6 +752,23 @@ export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: Con
   const options = useApiQuery(['lead-pipeline', 'options'], () => api.leadPipeline.options());
   const profile = lead.data;
   const optionData = options.data;
+  const { draft, update } = useConvertDraft(profile);
+  const [checked, setChecked] = useState(false);
+  const errors: DraftErrors = checked && draft ? draftErrors(draft) : {};
+  const next =
+    activeStep === 'review'
+      ? `/leads/${id}/convert/details`
+      : activeStep === 'details'
+        ? `/leads/${id}/convert/portal`
+        : `/leads/${id}/convert/review`;
+  const onContinue = () => {
+    // The client's details are checked before they leave the steps that show them.
+    if (activeStep !== 'portal' && draft && Object.keys(draftErrors(draft)).length) {
+      setChecked(true);
+      return;
+    }
+    router.push(next);
+  };
 
   return (
     <div data-testid="convert-lead-page" className="flex min-w-0 flex-col gap-4">
@@ -650,12 +818,21 @@ export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: Con
           data-testid="convert-lead-details-step-column"
         >
           <ClientDetails
-            lead={profile}
+            draft={draft}
+            update={update}
+            errors={errors}
             query={options}
             services={optionData?.services}
             highlighted
           />
-          <StaffAssignment lead={profile} query={options} staff={optionData?.staff} highlighted />
+          <StaffAssignment
+            draft={draft}
+            update={update}
+            errors={errors}
+            query={options}
+            staff={optionData?.staff}
+            highlighted
+          />
         </section>
       ) : (
         <section
@@ -674,15 +851,36 @@ export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: Con
               data-testid="convert-lead-details-step-column"
               className="flex min-w-0 flex-col gap-3"
             >
-              <ClientDetails lead={profile} query={options} services={optionData?.services} />
-              <StaffAssignment lead={profile} query={options} staff={optionData?.staff} />
+              <ClientDetails
+                draft={draft}
+                update={update}
+                errors={errors}
+                query={options}
+                services={optionData?.services}
+              />
+              <StaffAssignment
+                draft={draft}
+                update={update}
+                errors={errors}
+                query={options}
+                staff={optionData?.staff}
+              />
             </div>
           ) : null}
-          <LeadConversionRightRail highlighted={activeStep === 'portal'} />
+          <LeadConversionRightRail
+            draft={draft}
+            update={update}
+            highlighted={activeStep === 'portal'}
+          />
         </section>
       )}
 
       <footer className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
+        {Object.keys(errors).length ? (
+          <p role="alert" className="mr-auto text-sm text-danger">
+            Some client details need fixing before you continue.
+          </p>
+        ) : null}
         <Button
           variant="secondary"
           onClick={() =>
@@ -691,17 +889,7 @@ export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: Con
         >
           {activeStep === 'portal' ? 'Back' : 'Cancel'}
         </Button>
-        <Button
-          onClick={() =>
-            router.push(
-              activeStep === 'review'
-                ? `/leads/${id}/convert/details`
-                : activeStep === 'details'
-                  ? `/leads/${id}/convert/portal`
-                  : `/leads/${id}/convert/review`,
-            )
-          }
-        >
+        <Button disabled={!draft} onClick={onContinue}>
           Review &amp; Continue <span aria-hidden="true">→</span>
         </Button>
       </footer>
