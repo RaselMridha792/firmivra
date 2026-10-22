@@ -518,12 +518,24 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
           delivery: { channel: input.channel, status: 'SENT', to: 'c***@example.test' },
         };
       }
-      const form = findForm(input.formId);
-      if (form.status !== 'PUBLISHED')
-        throw fail(409, 'FORM_PUBLISHED', 'Publish the form before sending it');
+      // The API's refusals, in its order (intake-send.service.ts). The mock knows no services, so
+      // a subject with "noservice" stands for a client with no active service for the form.
+      if (input.channel === 'SMS')
+        throw fail(400, 'SMS_UNAVAILABLE', 'Text messages are not available for intake forms yet');
       const rc = input.recipient;
       if (rc.kind === 'LEAD' && input.channel === 'PORTAL')
-        throw fail(409, 'PORTAL_UNAVAILABLE', 'A lead has no portal access: choose Email or SMS');
+        throw fail(409, 'PORTAL_UNAVAILABLE', 'A lead has no portal access: choose Email');
+      if (rc.kind !== 'CLIENT')
+        throw fail(503, 'LEAD_LINK_UNAVAILABLE', 'Leads need the secure link page');
+      const form = findForm(input.formId);
+      if (form.status !== 'PUBLISHED')
+        throw fail(409, 'FORM_NOT_PUBLISHED', 'Publish this form before sending it');
+      if (input.subject.toLowerCase().includes('noservice'))
+        throw fail(
+          409,
+          'NO_ENGAGEMENT',
+          "This client has no active service for this form's service",
+        );
       if (rc.kind !== 'NEW_CONTACT') {
         const open = s.assigned.find(
           (r) =>
@@ -581,12 +593,15 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       form.usageCount += 1;
       form.lastUsedAt = at;
       s.idempotent.set(input.idempotencyKey, r.id);
+      // "undelivered" in the subject: the form is kept but nothing reached the client, as the API
+      // answers when the client has no portal sign-in for the bell and its email copy.
+      const undelivered = input.subject.toLowerCase().includes('undelivered');
       return {
         form: toRow(r),
         delivery: {
           channel: input.channel,
-          status: 'SENT',
-          to: input.channel === 'SMS' ? '(***) ***-0187' : 'c***@example.test',
+          status: undelivered ? 'FAILED' : 'SENT',
+          to: input.channel === 'PORTAL' ? 'Client portal' : 'c***@example.test',
         },
       };
     },
