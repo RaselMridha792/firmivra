@@ -644,8 +644,7 @@ export class TaxReturnReviewService {
       });
       if (!step) throw notFound();
       if (step.assignedUserId !== userId) {
-        const role = tenant.role as Parameters<PermissionGrantsService['can']>[1];
-        if (!(await this.grants.can(businessId, role, 'TAX_RETURNS', 'APPROVE'))) {
+        if (!(await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE'))) {
           throw new ForbiddenException({
             code: 'FORBIDDEN',
             message: 'This step is for its reviewer or an approver',
@@ -1015,7 +1014,7 @@ export class TaxReturnReviewService {
   ): Promise<TaxReturnExportLink> {
     if (
       tenant.role === 'STAFF' &&
-      !(await this.grants.can(tenant.businessId, 'STAFF', 'TAX_RETURNS', 'EXPORT'))
+      !(await this.grants.canTenant(tenant, 'TAX_RETURNS', 'EXPORT'))
     ) {
       throw new ForbiddenException({
         code: 'FORBIDDEN',

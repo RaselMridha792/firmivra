@@ -171,6 +171,7 @@ describe('Users & Roles', () => {
       active: 4,
       pendingInvitations: 1,
       roles: 9,
+      customRoles: 0,
     });
     const b = UsersSummary.parse(ok(await get('/users/summary', ownerB, 'b')));
     expect([b.total, b.active, b.pendingInvitations]).toEqual([1, 1, 0]);
