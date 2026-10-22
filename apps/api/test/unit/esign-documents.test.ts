@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   EsignDocument,
   type EsignField,
+  ESIGN_MAX_REQUEST_BYTES,
   UPLOAD_LIMITS,
   UploadMultipartTicket,
   UploadPutTicket,
@@ -303,6 +304,26 @@ describe('uploads', () => {
     expect(await refused(confirm(id, three.ticket.uploadToken))).toEqual([409, 'TOO_MANY_PAGES']);
     await confirm(id, (await uploaded(id, bytesOf('pdf:2'))).ticket.uploadToken);
     expect((await requests.get(w.a, owner, id)).pagePlan).toHaveLength(100);
+  });
+
+  it("refuses a file that would take the request's files past 100 MB together (Rasel, Oct 22)", async () => {
+    const id = await draft();
+    const small = bytesOf('pdf:1');
+    await confirm(id, (await uploaded(id, small)).ticket.uploadToken);
+    const facts = (sizeBytes: number) => ({
+      fileName: 'scan.png',
+      contentType: 'image/png' as const,
+      sizeBytes,
+      sha256: sha(small),
+    });
+    const room = ESIGN_MAX_REQUEST_BYTES - small.byteLength;
+    expect(await refused(docs.createUpload(w.a, owner, id, facts(room + 1)))).toEqual([
+      409,
+      'REQUEST_TOO_LARGE',
+    ]);
+    // Up to exactly 100 MB in all is fine (over 16 MB: a multipart upload).
+    const fits = UploadMultipartTicket.parse(await docs.createUpload(w.a, owner, id, facts(room)));
+    expect(fits.method).toBe('MULTIPART');
   });
 
   it('works on DRAFTs the caller reaches only, and resets approvals', async () => {
