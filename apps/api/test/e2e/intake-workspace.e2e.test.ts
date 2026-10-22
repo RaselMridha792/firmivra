@@ -431,7 +431,7 @@ describe('the settings', () => {
           version: first.version,
           general: { defaultExpirationDays: 30, defaultOwnerUserId: adminA.id },
           notifications: { firstReminderAfterDays: 2, finalReminderAfterDays: 5 },
-          security: { acceptedFileTypes: ['PDF', 'DOCX'], maxFileSizeMb: 8 },
+          security: { acceptedFileTypes: ['PDF', 'DOCX'], maxFileSizeMb: 5 },
           clientExperience: { thankYouMessage: 'Thanks!' },
         }),
       ),
@@ -443,6 +443,7 @@ describe('the settings', () => {
       finalReminderAfterDays: 5,
     });
     expect(saved.security.acceptedFileTypes.sort()).toEqual(['DOCX', 'PDF']);
+    expect(saved.security.maxFileSizeMb).toBe(5);
     expect(saved.clientExperience.thankYouMessage).toBe('Thanks!');
     expectError(
       await call('put', '/intake-settings', ownerA, {
@@ -485,6 +486,89 @@ describe('the settings', () => {
       IntakeSettingsChangeList.parse(ok(await call('get', '/intake-settings/changes', ownerA)))
         .items[0]?.label,
     ).toBe('Settings reset to the defaults');
+  });
+
+  it('max file size per file: a change is 2, 5, 10, 50 or 100 MB (I10)', async () => {
+    const start = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
+    expect(start.security.maxFileSizeMb).toBe(10);
+    const refused = await call('put', '/intake-settings', ownerA, {
+      version: start.version,
+      security: { maxFileSizeMb: 25 },
+    });
+    expectError(refused, 400, 'VALIDATION_FAILED');
+    expect((refused.body as { error: { details: unknown } }).error.details).toEqual([
+      { path: 'security.maxFileSizeMb', message: 'Choose 2, 5, 10, 50 or 100 MB' },
+    ]);
+    const fifty = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: start.version,
+          security: { maxFileSizeMb: 50 },
+        }),
+      ),
+    );
+    expect(fifty.security.maxFileSizeMb).toBe(50);
+    expect(
+      IntakeSettings.parse(ok(await call('get', '/intake-settings', adminA))).security
+        .maxFileSizeMb,
+    ).toBe(50);
+  });
+
+  it('a firm that saved 25 MB before keeps it, shown and saved as it is, until it changes it', async () => {
+    // The API took any size from 1 to 100 MB until I10: such a row, written as it allowed.
+    await inFirm('a', (tx) =>
+      tx.intakeSettings.update({ where: { businessId: firms.a }, data: { maxFileSizeMb: 25 } }),
+    );
+    const before = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
+    expect(before.security.maxFileSizeMb).toBe(25);
+    // Other fields save, with the size sent back unchanged or left out.
+    const kept = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: before.version,
+          general: { requireSignature: false },
+          security: { maxFileSizeMb: 25, consentRequired: false },
+        }),
+      ),
+    );
+    expect(kept.general.requireSignature).toBe(false);
+    expect(kept.security).toMatchObject({ maxFileSizeMb: 25, consentRequired: false });
+    const still = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', adminA, {
+          version: kept.version,
+          security: { consentRequired: true },
+        }),
+      ),
+    );
+    expect(still.security).toMatchObject({ maxFileSizeMb: 25, consentRequired: true });
+    // A change still has to be one of the choices; once it is, 25 MB is not taken back.
+    const other = await call('put', '/intake-settings', ownerA, {
+      version: still.version,
+      security: { maxFileSizeMb: 30 },
+    });
+    expectError(other, 400, 'VALIDATION_FAILED');
+    const hundred = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: still.version,
+          security: { maxFileSizeMb: 100 },
+        }),
+      ),
+    );
+    expect(hundred.security.maxFileSizeMb).toBe(100);
+    expectError(
+      await call('put', '/intake-settings', ownerA, {
+        version: hundred.version,
+        security: { maxFileSizeMb: 25 },
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const row = await inFirm('a', (tx) =>
+      tx.intakeSettings.findUniqueOrThrow({ where: { businessId: firms.a } }),
+    );
+    expect(row.maxFileSizeMb).toBe(100);
   });
 
   it('is changed by Owner and Admin only, and a test reminder is not available yet', async () => {

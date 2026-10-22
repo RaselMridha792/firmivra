@@ -173,6 +173,19 @@ async function inFirm<T>(fn: (tx: TxClient) => Promise<T>, actorUserId?: string)
   }
 }
 
+/** Firm A's Max file size per file (Intake Form Settings); null takes its settings row away. */
+const fileSizeLimit = (mb: number | null) =>
+  inFirm(async (tx) => {
+    const where = { businessId: ids.firmA };
+    if (mb === null) await tx.intakeSettings.deleteMany({ where });
+    else
+      await tx.intakeSettings.upsert({
+        where,
+        create: { ...where, maxFileSizeMb: mb },
+        update: { maxFileSizeMb: mb },
+      });
+  });
+
 const ACKS = [
   { key: 'read', label: 'I read it', text: 'Synthetic acknowledgment.', required: true },
 ];
@@ -781,6 +794,8 @@ describe('portal: uploads', () => {
   });
 
   it('takes a file over 16 MB as a multipart upload that confirm completes', async () => {
+    // The firm takes files up to 100 MB (Intake Form Settings; 10 MB until it chooses).
+    await fileSizeLimit(100);
     const big = bigPdf();
     const t = UploadTicket.parse(
       ok(
@@ -825,6 +840,86 @@ describe('portal: uploads', () => {
     const closed = await ticket(ids.closing, 'incomeDocuments');
     expect(closed.status).toBe(409);
     expect(codeOf(closed)).toBe('NO_OPEN_SERVICE');
+  });
+});
+
+describe("portal: uploads within the firm's Max file size per file (I10)", () => {
+  const MB = 1024 * 1024;
+  const ticket = (sizeBytes: number) =>
+    portal('post', `/${ids.intake}/uploads`, people.one, {
+      slot: 'incomeDocuments',
+      fileName: 'statement.pdf',
+      contentType: 'application/pdf',
+      sizeBytes,
+      sha256: sha256(Buffer.from(`synthetic ${sizeBytes}`)),
+    });
+  /** Refused at the ticket, naming the firm's limit, before storage is asked for anything. */
+  const tooLarge = async (sizeBytes: number, mb: number) => {
+    const open = uploads.open.size;
+    const res = await ticket(sizeBytes);
+    expect([res.status, codeOf(res)], JSON.stringify(res.body)).toEqual([400, 'VALIDATION_FAILED']);
+    expect((res.body as { error: { details: unknown } }).error.details).toEqual([
+      { path: 'sizeBytes', message: `Files can be at most ${mb} MB` },
+    ]);
+    expect(uploads.open.size).toBe(open);
+  };
+
+  it('10 MB while the firm has no intake settings', async () => {
+    await fileSizeLimit(null);
+    UploadTicket.parse(ok(await ticket(10 * MB)).body);
+    await tooLarge(11 * MB, 10);
+  });
+
+  it('the size the firm chose: 50 MB takes 49 MB and refuses 51 MB', async () => {
+    await fileSizeLimit(50);
+    const t = UploadTicket.parse(ok(await ticket(49 * MB)).body);
+    expect(t.method).toBe('MULTIPART');
+    await tooLarge(51 * MB, 50);
+  });
+
+  it('a firm that saved 25 MB before I10 keeps it: 24 MB in, 26 MB refused', async () => {
+    await fileSizeLimit(25);
+    UploadTicket.parse(ok(await ticket(24 * MB)).body);
+    await tooLarge(26 * MB, 25);
+  });
+
+  it("100 MB at most: the platform limit stays on top of the firm's", async () => {
+    await fileSizeLimit(100);
+    UploadTicket.parse(ok(await ticket(100 * MB)).body);
+    const over = await ticket(100 * MB + 1);
+    expect([over.status, codeOf(over)]).toEqual([400, 'VALIDATION_FAILED']);
+  });
+
+  it('a ticket keeps the size it was given: a limit lowered since does not refuse its confirm', async () => {
+    await fileSizeLimit(10);
+    const bytes = bigPdf(3 * MB);
+    const t = UploadTicket.parse(
+      ok(
+        await portal('post', `/${ids.intake}/uploads`, people.one, {
+          slot: 'incomeDocuments',
+          fileName: 'statement.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: bytes.length,
+          sha256: sha256(bytes),
+        }),
+      ).body,
+    );
+    uploads.send(t, bytes);
+    await fileSizeLimit(2);
+    const file = IntakeUpload.parse(
+      ok(
+        await portal('post', `/${ids.intake}/uploads/confirm`, people.one, {
+          uploadToken: t.uploadToken,
+        }),
+      ).body,
+    );
+    expect(file.sizeBytes).toBe(bytes.length);
+    // A new ticket for the same file is refused now.
+    await tooLarge(bytes.length, 2);
+    expect((await portal('delete', `/${ids.intake}/uploads/${file.id}`, people.one)).status).toBe(
+      200,
+    );
+    await fileSizeLimit(100);
   });
 });
 
