@@ -6,6 +6,7 @@ import {
   type AdminTeamBulkResult,
   AdminTeamDecisionRequest,
   type AdminTeamFormOptions,
+  type AdminTeamInvitationResult,
   type AdminTeamMember,
   AdminTeamMemberId,
   type AdminTeamMemberPage,
@@ -13,11 +14,14 @@ import {
   AdminTeamMembersQuery,
   type AdminTeamMeta,
   type AdminTeamSummary,
+  CreateAdminTeamMemberRequest,
+  ResendAdminTeamInvitationRequest,
   UpdateAdminTeamMemberRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { Roles } from '../auth/decorators.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { TeamInviteService } from './team-invite.service.js';
 import { TeamReadService } from './team-read.service.js';
 import { TeamWriteService } from './team-write.service.js';
 
@@ -28,11 +32,10 @@ const memberId = pipe(AdminTeamMemberId);
 /**
  * Super Admin Team (R60 on R0's stage A tables; contract `packages/types/src/admin-team`), under
  * /api/v1/admin/team: the signed-in member and the catalog, the KPIs, the directory, one member
- * and their trail, the forms' choices, Edit Team Member, the bulk changes and the department
- * head's decision. Super Admins only today; the hierarchy rules apply from the caller's own
- * org-chart row. Fixed paths come before `:id`. Add Team Member (`POST /members`) and Resend
- * Invitation (`POST /members/invitations`) are not registered: they create or need ADMIN-pool
- * logins, which wait for R2's admin-invite service (docs/work/R60-team.md).
+ * and their trail, the forms' choices, Add Team Member, Edit Team Member, the bulk changes,
+ * Resend Invitation and the department head's decision. Super Admins only today; the hierarchy
+ * rules apply from the caller's own org-chart row. Fixed paths (`/members/bulk`,
+ * `/members/invitations`) come before `:id` (docs/work/R60-team.md).
  */
 @Controller('admin/team')
 @Roles('SUPER_ADMIN')
@@ -40,6 +43,7 @@ export class AdminTeamController {
   constructor(
     private readonly reads: TeamReadService,
     private readonly writes: TeamWriteService,
+    private readonly invites: TeamInviteService,
   ) {}
 
   @Get('meta')
@@ -64,12 +68,28 @@ export class AdminTeamController {
     return this.reads.members(q);
   }
 
+  @Post('members')
+  create(
+    @Body(pipe(CreateAdminTeamMemberRequest)) body: Out<typeof CreateAdminTeamMemberRequest>,
+  ): Promise<AdminTeamMemberResult> {
+    return this.invites.create(body);
+  }
+
   @Post('members/bulk')
   @HttpCode(200)
   bulk(
     @Body(pipe(AdminTeamBulkRequest)) body: Out<typeof AdminTeamBulkRequest>,
   ): Promise<AdminTeamBulkResult> {
     return this.writes.bulk(body);
+  }
+
+  @Post('members/invitations')
+  @HttpCode(200)
+  resend(
+    @Body(pipe(ResendAdminTeamInvitationRequest))
+    body: Out<typeof ResendAdminTeamInvitationRequest>,
+  ): Promise<AdminTeamInvitationResult> {
+    return this.invites.resend(body);
   }
 
   @Get('members/:id')

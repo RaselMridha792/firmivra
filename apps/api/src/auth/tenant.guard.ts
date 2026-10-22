@@ -114,9 +114,12 @@ export class TenantGuard implements CanActivate {
     if (auth.pool === 'STAFF') {
       const m = await firm.membership.findFirst({
         where: { userId: auth.userId, status: 'ACTIVE' },
-        select: { role: true },
+        select: { role: true, customRoleId: true },
       });
-      return m ? { businessId, role: m.role, kind: 'staff' } : undefined;
+      if (!m) return undefined;
+      return m.customRoleId
+        ? { businessId, role: m.role, kind: 'staff', customRoleId: m.customRoleId }
+        : { businessId, role: m.role, kind: 'staff' };
     }
     if (auth.pool === 'CLIENT') {
       const c = await firm.clientAccount.findFirst({

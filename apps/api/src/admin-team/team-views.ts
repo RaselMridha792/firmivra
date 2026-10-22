@@ -66,8 +66,7 @@ export function canDecide(ctx: TeamContext, target: Person): boolean {
 export function capabilities(ctx: TeamContext): AdminTeamCapabilities {
   const a = ctx.actor;
   return {
-    // Add Team Member waits for R2's admin-invite service: no route creates a login yet.
-    add: false,
+    add: holds(a, ADMIN_TEAM_KEYS.CREATE),
     edit: holds(a, ADMIN_TEAM_KEYS.EDIT),
     changeRole: holds(a, ADMIN_TEAM_KEYS.CHANGE_ROLE),
     changeDepartment: holds(a, ADMIN_TEAM_KEYS.ASSIGN_DEPARTMENT),
@@ -84,16 +83,16 @@ export function memberActions(ctx: TeamContext, target: Person): AdminTeamMember
   const ok = reach(a, ctx.chart, target) === 'OK';
   const waiting = target.status === 'PENDING_DEPARTMENT_HEAD_APPROVAL';
   return {
-    // Yourself: name and phone only, which this API cannot save yet (users rows, R0's Needs).
-    edit: ok && holds(a, ADMIN_TEAM_KEYS.EDIT),
+    // Yourself: your name and phone only (every other flag stays false: you never reach yourself).
+    edit: target.id === a.id || (ok && holds(a, ADMIN_TEAM_KEYS.EDIT)),
     changeRole: ok && !waiting && holds(a, ADMIN_TEAM_KEYS.CHANGE_ROLE),
     changeDepartment: ok && !waiting && holds(a, ADMIN_TEAM_KEYS.ASSIGN_DEPARTMENT),
     changeStatus:
       ok && holds(a, ADMIN_TEAM_KEYS.DEACTIVATE) && statusTargets(target.status).length > 0,
     customizePermissions: ok && holds(a, ADMIN_TEAM_KEYS.CHANGE_PERMISSIONS),
     approve: canDecide(ctx, target),
-    // Resend Invitation waits for R2's admin-invite service (no route yet).
-    resendInvitation: false,
+    resendInvitation:
+      ok && target.status === 'PENDING_INVITATION' && holds(a, ADMIN_TEAM_KEYS.CREATE),
     message: target.id !== a.id && target.status !== 'DEACTIVATED',
   };
 }

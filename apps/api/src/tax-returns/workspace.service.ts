@@ -618,8 +618,7 @@ export class TaxReturnWorkspaceService {
           });
         }
         if ((to === 'READY_TO_FILE' || to === 'CLOSED') && r.reviewerUserId !== userId) {
-          const role = tenant.role as Parameters<PermissionGrantsService['can']>[1];
-          if (!(await this.grants.can(businessId, role, 'TAX_RETURNS', 'APPROVE'))) {
+          if (!(await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE'))) {
             throw new ForbiddenException({
               code: 'FORBIDDEN',
               message: 'Ready to file and closing are for the reviewer or an approver',
