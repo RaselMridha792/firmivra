@@ -54,9 +54,10 @@ test('the name and More > View open that lead’s Overview, in any status', asyn
 
 test('an overdue follow-up is red, and Mark Not Qualified keeps the lead', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(lead(6));
-  await expect(page.getByTestId('lead-name')).toHaveText('Kendra Gill');
-  const next = page.getByTestId('card-lead-details').getByText(/^Overdue: Call/);
+  // Grace Pruitt: a new lead whose email follow-up is a day past due.
+  await page.goto(lead(12));
+  await expect(page.getByTestId('lead-name')).toHaveText('Grace Pruitt');
+  const next = page.getByTestId('card-lead-details').getByText(/^Overdue: Email/);
   await expect(next).toHaveClass(/text-danger/);
   await expect(page.getByTestId('figure-next-follow-up')).toContainText('Overdue');
 
