@@ -7,7 +7,16 @@ import type {
   LeadSource,
   LeadPipelineStatus,
 } from '@firmivra/types';
-import { BulkBar, Button, Checkbox, FilterBar, FilterGroup, KpiCard, Select } from '@firmivra/ui';
+import {
+  BulkBar,
+  Button,
+  Checkbox,
+  FilterBar,
+  FilterChip,
+  FilterGroup,
+  KpiCard,
+  Select,
+} from '@firmivra/ui';
 import {
   ArrowsClockwise,
   Clock,
@@ -214,7 +223,7 @@ function LeadFilters({
         <Checkbox
           label="Overdue only"
           checked={filters.overdue}
-          onChange={(event) => onFilter({ overdue: event.target.checked, stage: '' })}
+          onChange={(event) => onFilter({ overdue: event.target.checked })}
         />
       </FilterGroup>
     </>
@@ -248,9 +257,7 @@ function LeadFilters({
           label="All Lead Statuses"
           hideLabel
           value={filters.stage}
-          onChange={(event) =>
-            onFilter({ stage: event.target.value as LeadPipelineStatus | '', overdue: false })
-          }
+          onChange={(event) => onFilter({ stage: event.target.value as LeadPipelineStatus | '' })}
           options={[{ value: '', label: 'All Lead Statuses' }, ...STAGES]}
         />
       </div>
@@ -383,6 +390,16 @@ export function LeadsScreen() {
           />
         )}
       </PageState>
+      {filters.overdue ? (
+        // The Overdue Follow-Ups card's filter, visible on the page (Octavia's review, item 2);
+        // it combines with any status, which it never changes.
+        <div aria-label="Active filters" className="-mt-2 flex flex-wrap gap-2">
+          <FilterChip
+            label="Overdue Follow-Ups"
+            onRemove={() => changeFilters({ overdue: false })}
+          />
+        </div>
+      ) : null}
 
       <PageState query={leads}>
         {(data) => {
