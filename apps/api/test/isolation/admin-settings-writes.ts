@@ -4,7 +4,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import type { UploadTicket } from '@firmivra/types';
+import type { UploadPutTicket } from '@firmivra/types';
 import { supportStorage, type SupportWrite, type WriteHelpers } from './admin-support-writes.js';
 
 type Fixtures = { users: { admin: { id: string; email: string } }; firmA: { id: string } };
@@ -212,7 +212,7 @@ export function settingsWrites(fx: Fixtures): Record<string, SettingsWrite> {
       sizeBytes: PNG.length,
       sha256: sha256(PNG),
     });
-    const ticket = res.body as UploadTicket;
+    const ticket = res.body as UploadPutTicket;
     supportStorage.put(ticket, PNG);
     return ticket.uploadToken;
   };

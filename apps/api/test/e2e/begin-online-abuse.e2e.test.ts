@@ -12,7 +12,7 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { BeginDraft, INTAKE_LIMITS } from '@firmivra/types';
+import { BeginDraft, INTAKE_LIMITS, UPLOAD_LIMITS } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { BEGIN_ONLINE_THROTTLE } from '../../src/begin-online/begin-online.controller.js';
 import { DRAFT_START_LIMITS } from '../../src/begin-online/begin-online.service.js';
@@ -23,15 +23,27 @@ import { configureApp, JSON_BODY_LIMIT_BYTES } from '../../src/configure-app.js'
 import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
-import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import {
+  DOCUMENT_STORAGE,
+  type DocumentStorage,
+  type FileFacts,
+} from '../../src/storage/document-storage.js';
 import { signatureFor } from '../intake-signing.js';
 import { pdf, sha256 } from '../office-files.js';
+import { MemoryUploads } from '../memory-uploads.js';
 
 /** Storage in memory: `put(ticket, bytes)` is the browser's PUT. */
 class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
-  presignUpload(file: { key: string; contentType: string }) {
-    return Promise.resolve({ url: `memory:${file.key}`, headers: {} });
+  readonly uploads = new MemoryUploads(this.objects);
+  presignUpload(file: FileFacts) {
+    return this.uploads.presign(file);
+  }
+  completeUpload(key: string, uploadId: string, sizeBytes: number) {
+    return this.uploads.complete(key, uploadId, sizeBytes);
+  }
+  abortUpload(key: string, uploadId: string) {
+    return this.uploads.abort(key, uploadId);
   }
   head(key: string) {
     const b = this.objects.get(key);
@@ -565,9 +577,9 @@ describe('Begin Online caps', () => {
     expect(files).toBe(max);
   });
 
-  it('a ticket refuses an empty, negative, fractional or over 10 MB size (400)', async () => {
+  it('a ticket refuses an empty, negative, fractional or over 100 MB size (400)', async () => {
     const { v } = await startDraft('a');
-    for (const sizeBytes of [0, -1, 1.5, 10 * 1024 * 1024 + 1]) {
+    for (const sizeBytes of [0, -1, 1.5, UPLOAD_LIMITS.maxBytes + 1]) {
       const res = await v.post(`${D}/uploads`, file(pdf(), 'governmentId', { sizeBytes }));
       expect([res.status, codeOf(res)]).toEqual([400, 'VALIDATION_FAILED']);
     }

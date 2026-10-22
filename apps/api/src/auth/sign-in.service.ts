@@ -8,7 +8,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
-import { httpError, runFlow } from './auth-errors.js';
+import { accountLocked, httpError, runFlow } from './auth-errors.js';
 import { ChallengeSessions } from './challenge-session.js';
 import {
   AuthFlowError,
@@ -61,10 +61,19 @@ type LimitCheck = {
   soft?: boolean;
 };
 /**
- * Rasel's q20 (Oct 8): failures lock per email and network, so a stranger elsewhere can't lock a
- * real person out; a higher per-email ceiling over every network only slows and alerts.
+ * Rasel's q20 (Oct 8): failures lock per email and network, and a higher per-email ceiling over
+ * every network only slows and alerts. On top of them (Rasel, Oct 21), the account lockout: a few
+ * failures from anywhere lock the email for a while, real and unknown emails alike.
  */
 export const SIGN_IN_LIMIT = {
+  /**
+   * Failures for one email (per firm on a portal) from every network in the window, wrong
+   * passwords and wrong MFA codes alike, then the email is locked for `lockMs` from the last of
+   * them: 429 RATE_LIMITED with `details.retryAt` and Retry-After. A successful password reset for
+   * the email lifts the lock.
+   */
+  perAccount: 5,
+  lockMs: 15 * 60_000,
   /**
    * Failures for one email (per firm on a portal) from one network (/24 or /48) in the window,
    * then 429 RATE_LIMITED from that network only.
@@ -108,6 +117,54 @@ function openAttempts(businessId: string | null, actions: Actions, check: LimitC
       GROUP BY coalesce(metadata ->> 'reservationId', metadata ->> 'token')
       HAVING bool_and(action = ${attempt})
     ) open)`;
+}
+/**
+ * When one email's account lock ends, as SQL (NULL when it is not locked): its open sign-in
+ * attempts (failed or in flight; passwords and MFA codes, from every network) since its last
+ * successful password reset, and of those the latest that is at least the `perAccount`th within
+ * the window, plus `lockMs`. So the lock holds `lockMs` from the failure that made it, and a reset
+ * lifts it.
+ */
+function accountLockedUntil(businessId: string | null, emailKey: string) {
+  const inScope = businessId
+    ? Prisma.sql`business_id = ${businessId}::uuid`
+    : Prisma.sql`business_id IS NULL`;
+  const [attempt, passed, released, resetPassed] = [
+    SIGN_IN.attempt,
+    SIGN_IN.passed,
+    SIGN_IN.released,
+    RESET.passed,
+  ].map(literal);
+  const { perAccount, windowMs, lockMs } = SIGN_IN_LIMIT;
+  const since = Prisma.sql`now() - ${windowMs + lockMs}::int * interval '1 millisecond'`;
+  return Prisma.sql`(
+    SELECT max(started) + ${lockMs}::int * interval '1 millisecond' FROM (
+      SELECT started, count(*) OVER (ORDER BY started RANGE BETWEEN ${milliseconds(windowMs)}
+        PRECEDING AND CURRENT ROW) AS n
+      FROM (
+        SELECT min(created_at) AS started FROM audit_logs
+        WHERE ${inScope}
+          AND created_at > ${since}
+          AND created_at > coalesce((
+            SELECT max(created_at) FROM audit_logs
+            WHERE ${inScope}
+              AND created_at > ${since}
+              AND action = ${resetPassed}
+              AND ${KEY_SQL.emailKey} = ${emailKey}
+          ), '-infinity')
+          AND action IN (${attempt}, ${passed}, ${released})
+          AND ${KEY_SQL.emailKey} = ${emailKey}
+        GROUP BY coalesce(metadata ->> 'reservationId', metadata ->> 'token')
+        HAVING bool_and(action = ${attempt})
+      ) open
+    ) counted
+    WHERE n >= ${perAccount}
+      AND started + ${lockMs}::int * interval '1 millisecond' > now())`;
+}
+/** A window frame's offset is a literal interval: a parameter there is not portable. */
+function milliseconds(ms: number): Prisma.Sql {
+  if (!Number.isInteger(ms) || ms <= 0) throw new Error(`Not a duration: ${ms}`);
+  return Prisma.raw(`interval '${ms} milliseconds'`);
 }
 /**
  * The key and the actions are SQL literals, never parameters: R0's partial indexes on
@@ -181,10 +238,10 @@ export class SignInService {
   }
 
   /**
-   * Checks the password. An email at SIGN_IN_LIMIT.perEmailNetwork failures (and attempts in
-   * flight) from this network in the window is 429 before Cognito is asked, whether or not it has
-   * an account; past the per-email ceiling it is slowed. Each attempt is reserved first and each
-   * wrong password audited.
+   * Checks the password. A locked email (SIGN_IN_LIMIT.perAccount) and an email at
+   * SIGN_IN_LIMIT.perEmailNetwork failures (and attempts in flight) from this network in the
+   * window are 429 before Cognito is asked, whether or not it has an account; past the per-email
+   * ceiling it is slowed. Each attempt is reserved first and each wrong password audited.
    */
   async signIn(place: SignInPlace, email: string, password: string): Promise<SignInOutcome> {
     const emailKey = this.emailKey(place, email);
@@ -192,9 +249,10 @@ export class SignInService {
     const reservationId = await this.reserve(
       place,
       SIGN_IN,
-      [`fv-sign-in:${emailKey}:${netKey}`],
+      [`fv-sign-in:${emailKey}`, `fv-sign-in:${emailKey}:${netKey}`],
       this.perEmail(emailKey, netKey),
       { emailKey, netKey, step: 'password' },
+      emailKey,
     );
     const user = await this.findUser(place, email);
     let step: AuthStep;
@@ -227,8 +285,8 @@ export class SignInService {
 
   /**
    * The authenticator code (or the first code of a new authenticator). A wrong code counts against
-   * the attempt (SIGN_IN_LIMIT.perAttempt, then sign in again) and against the email, so starting
-   * again never gives a fresh set of tries.
+   * the attempt (SIGN_IN_LIMIT.perAttempt, then sign in again) and against the email, its account
+   * lock included, so starting again never gives a fresh set of tries.
    */
   async mfa(place: SignInPlace, session: string, code: string): Promise<SignInOutcome> {
     const { pool } = place;
@@ -247,10 +305,11 @@ export class SignInService {
     const netKey = this.netKey(place);
     if (c.emailKey) checks.push(...this.perEmail(c.emailKey, netKey));
     // The attempt's own lock, whatever network the code comes from, so codes sent from many
-    // networks at once can't race SIGN_IN_LIMIT.perAttempt; and the email's lock on this network.
+    // networks at once can't race SIGN_IN_LIMIT.perAttempt; the email's lock over every network,
+    // so they can't race its account lock either; and the email's lock on this network.
     const lockKeys = [
       ...(c.attemptId ? [`fv-sign-in-attempt:${c.attemptId}`] : []),
-      ...(c.emailKey ? [`fv-sign-in:${c.emailKey}:${netKey}`] : []),
+      ...(c.emailKey ? [`fv-sign-in:${c.emailKey}`, `fv-sign-in:${c.emailKey}:${netKey}`] : []),
     ];
     const ids = {
       ...(c.emailKey ? { emailKey: c.emailKey } : {}),
@@ -258,7 +317,14 @@ export class SignInService {
     };
     // A challenge sealed before step 7 carries neither; it expires within minutes.
     const reservationId = lockKeys.length
-      ? await this.reserve(place, SIGN_IN, lockKeys, checks, { ...ids, netKey, step: 'mfa' })
+      ? await this.reserve(
+          place,
+          SIGN_IN,
+          lockKeys,
+          checks,
+          { ...ids, netKey, step: 'mfa' },
+          c.emailKey,
+        )
       : undefined;
     let tokens: SessionTokens;
     try {
@@ -438,11 +504,12 @@ export class SignInService {
    * (recorded, with no "passed" row: failed, or still in flight) must stay under its limit; then
    * this attempt is recorded. So parallel guesses can't all pass a count taken before any of them
    * failed. A busy key is refused like the limit (never waited for: a waiting lock holds a pooled
-   * connection; try-locks never wait, so taking several can't deadlock). The transaction is three
-   * short statements: the try-locks (all or none), one count for every
-   * check (`openAttempts`), the insert. Rows go where `log` writes them: the firm's log on a
-   * portal, the platform's otherwise. Returns the attempt's reservation id, which the row that
-   * closes it carries.
+   * connection; try-locks never wait, so taking several can't deadlock). With `account` (an email
+   * key), a locked account is refused first, with when it may try again; its callers hold that
+   * email's lock over every network. The transaction is three short statements: the try-locks (all
+   * or none), one count for every check (`openAttempts`, `accountLockedUntil`), the insert. Rows
+   * go where `log` writes them: the firm's log on a portal, the platform's otherwise. Returns the
+   * attempt's reservation id, which the row that closes it carries.
    */
   private async reserve(
     place: Pick<SignInPlace, 'pool' | 'businessId'>,
@@ -450,6 +517,7 @@ export class SignInService {
     lockKeys: string[],
     checks: LimitCheck[],
     metadata: Record<string, unknown>,
+    account?: string,
   ): Promise<string> {
     const reservationId = randomUUID();
     const businessId = place.businessId ?? null;
@@ -464,8 +532,12 @@ export class SignInService {
         FROM unnest(${lockKeys}::text[]) k`;
       if (locked?.ok !== true) return httpError('RATE_LIMITED');
       const counts = checks.map((check) => openAttempts(businessId, actions, check));
-      const [counted] = await tx.$queryRaw<{ open: number[] }[]>`
-        SELECT ARRAY[${Prisma.join(counts)}]::int[] AS open`;
+      const until = account
+        ? accountLockedUntil(businessId, account)
+        : Prisma.sql`NULL::timestamptz`;
+      const [counted] = await tx.$queryRaw<{ open: number[]; until: Date | null }[]>`
+        SELECT ARRAY[${Prisma.join(counts)}]::int[] AS open, ${until} AS until`;
+      if (counted?.until) return accountLocked(counted.until);
       const isOver = (check: LimitCheck, i: number) => (counted?.open[i] ?? 0) >= check.limit;
       const over = checks.find((check, i) => !check.soft && isOver(check, i));
       if (over) return over.refuse();
@@ -558,7 +630,13 @@ export class SignInService {
     }
   }
 
-  private failed(
+  /**
+   * A wrong password or MFA code is audited. When it locks the email's account
+   * (SIGN_IN_LIMIT.perAccount), `auth.locked` records until when; attempts are refused while the
+   * lock holds, so only ones already in flight can write a second row for it. The lock is
+   * `reserve`'s count, not this row, so a failure here is only logged.
+   */
+  private async failed(
     place: Pick<SignInPlace, 'pool' | 'businessId'>,
     metadata: {
       emailKey?: string;
@@ -567,7 +645,29 @@ export class SignInService {
       reservationId?: string;
     },
   ): Promise<void> {
-    return this.log(place, SIGN_IN_FAILED, { type: 'login' }, { ...metadata, pool: place.pool });
+    await this.log(place, SIGN_IN_FAILED, { type: 'login' }, { ...metadata, pool: place.pool });
+    const { emailKey } = metadata;
+    if (!emailKey) return;
+    try {
+      const scope = place.businessId
+        ? ({ kind: 'business', businessId: place.businessId } as const)
+        : ({ kind: 'platform' } as const);
+      const [lock] = await this.db.withScope(
+        scope,
+        (tx) => tx.$queryRaw<{ until: Date | null }[]>`
+          SELECT ${accountLockedUntil(place.businessId ?? null, emailKey)} AS until`,
+      );
+      if (lock?.until) {
+        await this.log(
+          place,
+          'auth.locked',
+          { type: 'login' },
+          { emailKey, pool: place.pool, lockedUntil: lock.until.toISOString() },
+        );
+      }
+    } catch (e) {
+      this.logger.warn(`Could not record an account lock (${errorName(e)})`);
+    }
   }
 
   private succeeded(place: Pick<SignInPlace, 'pool' | 'businessId'>, userId: string) {

@@ -43,6 +43,7 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
+  onlyPut,
   PUT_URL_SECONDS,
 } from '../storage/document-storage.js';
 import {
@@ -740,12 +741,14 @@ export class CommBroadcastsService {
   ): Promise<AdminCommMediaTicket> {
     const id = randomUUID();
     const key = mediaKey(id, b.fileName);
-    const ticket = await this.storage.presignUpload({
+    const presigned = await this.storage.presignUpload({
       key,
       contentType: b.contentType,
       sizeBytes: b.sizeBytes,
       sha256: b.sha256,
     });
+    // A small file (its own limit is at most 10 MB): always one PUT.
+    const ticket = onlyPut(presigned);
     return this.admin.transaction(async (tx) => {
       const row = await tx.commMedia.create({
         data: {

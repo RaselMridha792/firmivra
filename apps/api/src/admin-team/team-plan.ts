@@ -10,17 +10,19 @@ import {
   type AdminTeamSkipReason,
   type AdminTeamStatus,
   adminTeamNameParts,
+  type CreateAdminTeamMemberRequest,
+  type ResendAdminTeamInvitationRequest,
   type UpdateAdminTeamMemberRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import {
   buildContext,
   heldRoleId,
-  invalid,
   type MemberRow,
   refuse,
   type TeamContext,
 } from './team-context.js';
+import type { InviteChannels } from './team-invitation.js';
 import {
   assignableScopes,
   departmentAllowed,
@@ -37,15 +39,18 @@ import {
 } from './team-rules.js';
 import { canDecide, visiblePerson } from './team-views.js';
 
-// What an edit, a bulk change or the department head's decision would do to one member, decided
-// from the context alone (docs/work/R60-team.md, "Team API"): the hierarchy checks in their
-// order, the row as it will be, the overrides relative to its role and one audit entry per kind
-// of change (ids and codes only). The services write the plan in the same admin transaction.
+// What Add Team Member, an edit, a bulk change, a resend or the department head's decision would
+// do, decided from the context alone (docs/work/R60-team.md, "Team API" and "Team invitations"):
+// the hierarchy checks in their order, the row as it will be, the overrides relative to its role
+// and one audit entry per kind of change (ids and codes only). The services write the plan in
+// the same admin transaction.
 
 type Out<S extends z.ZodType> = z.output<S>;
 export type UpdateBody = Out<typeof UpdateAdminTeamMemberRequest>;
 export type BulkAction = Out<typeof AdminTeamBulkRequest>['action'];
 export type DecisionBody = Out<typeof AdminTeamDecisionRequest>;
+export type CreateBody = Out<typeof CreateAdminTeamMemberRequest>;
+export type ResendBody = Out<typeof ResendAdminTeamInvitationRequest>;
 
 /** The fields of one member a change sets (as Edit Team Member or a bulk action sends them). */
 export interface Change {
@@ -63,6 +68,12 @@ export interface AuditEvent {
   metadata: Record<string, unknown>;
 }
 
+/** A changed name ("First Last", as the API reads it back) or phone (E.164, or null: none). */
+export interface ProfileChange {
+  name?: string;
+  phone?: string | null;
+}
+
 export interface Plan {
   id: string;
   before: MemberRow;
@@ -70,42 +81,77 @@ export interface Plan {
   after: MemberRow;
   overridesChanged: boolean;
   events: AuditEvent[];
+  /** Edit Team Member only: the name and phone saved on the person's login (`users`). */
+  profile?: ProfileChange;
 }
 
 /** A plan (null: nothing to change), or the contract code that refuses it. */
 export type Planned = { plan: Plan | null } | { refused: AdminTeamErrorCode };
 
-export const NAME_LOCKED =
-  'Names and phone numbers of team members cannot be changed here yet. Ask the person to update them.';
-
 const normalName = (name: string) => name.trim().replace(/\s+/g, ' ');
 
 /**
- * Edit Team Member's name and phone and `expectedUpdatedAt`. Names and phones live on the login
- * (`users`), which admin scope may read but not change (R0's users policies), so a value that
- * differs is 400 on its field until R0 lets admin scope write them; the same value is no change.
+ * Edit Team Member's version, name and phone: 409 CONFLICT when the row changed since
+ * `expectedUpdatedAt`; then the name ("First Last", the one field the login holds) and phone that
+ * differ from the login's, or null when neither does ("Mary Ann" / "Smith" for "Mary Ann Smith"
+ * is the same name). Yourself: always (name and phone are all you may change on your own row).
+ * Anyone else: someone you reach (403 PEER_PROTECTED, DEPARTMENT_NOT_ALLOWED), with `team.edit`
+ * (403 FORBIDDEN).
  */
-export function checkProfile(ctx: TeamContext, id: string, body: UpdateBody): void {
+export function planProfile(ctx: TeamContext, id: string, body: UpdateBody): ProfileChange | null {
   const m = ctx.members.get(id)!;
   const user = ctx.users.get(id)!;
   if (body.expectedUpdatedAt !== undefined) {
     if (Date.parse(body.expectedUpdatedAt) !== m.updatedAt.getTime()) throw refuse('CONFLICT');
   }
-  const parts = adminTeamNameParts(user.name);
+  const change: ProfileChange = {};
   if (body.firstName !== undefined || body.lastName !== undefined) {
+    const parts = adminTeamNameParts(user.name);
     const next = normalName(
       `${body.firstName ?? parts.firstName} ${body.lastName ?? parts.lastName}`,
     );
-    if (next !== normalName(user.name))
-      throw invalid(
-        body.firstName !== undefined && body.firstName !== parts.firstName
-          ? 'firstName'
-          : 'lastName',
-        NAME_LOCKED,
-      );
+    if (next !== normalName(user.name)) change.name = next;
   }
   if (body.phone !== undefined && (body.phone ?? null) !== (user.phone ?? null))
-    throw invalid('phone', NAME_LOCKED);
+    change.phone = body.phone ?? null;
+  if (change.name === undefined && change.phone === undefined) return null;
+  if (id !== ctx.actor.id) {
+    const r = reach(ctx.actor, ctx.chart, ctx.chart.people.get(id)!);
+    if (r !== 'OK') throw refuse(r === 'SELF' ? 'SELF_CHANGE' : r);
+    if (!holds(ctx.actor, KEYS.EDIT)) throw refuse('FORBIDDEN');
+  }
+  return change;
+}
+
+/**
+ * The edit's plan with the name and phone added: the login's columns, the member row's version
+ * moved on (so `expectedUpdatedAt` covers them, and a Pending Invitation link made before is
+ * void), and a `platform_member.profile_updated` entry with the field names only, never the
+ * values.
+ */
+export function withProfile(
+  ctx: TeamContext,
+  id: string,
+  plan: Plan | null,
+  profile: ProfileChange,
+): Plan {
+  const m = ctx.members.get(id)!;
+  const base: Plan = plan ?? {
+    id,
+    before: m,
+    after: { ...m, updatedAt: new Date(ctx.now) },
+    overridesChanged: false,
+    events: [],
+  };
+  const fields = [
+    ...(profile.name !== undefined ? ['name'] : []),
+    ...(profile.phone !== undefined ? ['phone'] : []),
+  ];
+  return {
+    ...base,
+    profile,
+    events: [{ action: ACTIONS.PROFILE_UPDATED, metadata: { fields } }, ...base.events],
+  };
 }
 
 /**
@@ -429,7 +475,8 @@ export function planBulk(
  * The department's Chief Officer (or the CEO) decides a VP / Director hire HR entered. APPROVE:
  * the intended role or another VP / Director role in its department, then Pending Invitation
  * (a new role loads its template and default scope and drops a supervisor no longer valid).
- * REJECT: Inactive. The invitation itself waits for R2's admin-invite service: nothing is sent.
+ * REJECT: Inactive. The invitation (APPROVE's `invite`) is made and sent by the service once the
+ * decision is written (TeamInviteService).
  */
 export function planDecision(ctx: TeamContext, id: string, body: DecisionBody): Plan {
   const person = visiblePerson(ctx, id);
@@ -488,8 +535,8 @@ export function planDecision(ctx: TeamContext, id: string, body: DecisionBody): 
         from,
         to: 'PENDING_INVITATION',
         invite: { email: body.invite.email, sms: body.invite.sms },
-        // R2's admin-invite service sends it once it exists (docs/work/R60-team.md, Needs).
-        invitationSent: false,
+        // A link is made (its own `.invited` entry) when either channel is chosen.
+        invitationSent: body.invite.email || body.invite.sms,
       },
     },
   ];
@@ -522,4 +569,165 @@ export function planDecision(ctx: TeamContext, id: string, body: DecisionBody): 
     overridesChanged: roleChanged,
     events,
   };
+}
+
+/** What Add Team Member writes once checked: the login's details and the org-chart row. */
+export interface CreatePlan {
+  /** Lower case (the contract's `Email`). */
+  email: string;
+  /** "First Last", the one name field the login holds. */
+  name: string;
+  phone: string | null;
+  row: {
+    roleId: string;
+    departmentId: string;
+    reportsToId: string | null;
+    scope: AdminTeamScope;
+    scopeIds: string[];
+    status: 'PENDING_INVITATION' | 'PENDING_DEPARTMENT_HEAD_APPROVAL';
+    /** The VP / Director role a hire waits for (the same as `roleId`), or null. */
+    intendedRoleId: string | null;
+  };
+  /** What differs from the role's template: ALLOW for an extra key, DENY for one taken away. */
+  overrides: { key: string; state: 'ALLOW' | 'DENY' }[];
+  /** `platform_member.created`, ids and codes only. */
+  created: AuditEvent;
+  /** Who the invitation goes to; null sends none (a hire waiting for the department head, or neither chosen). */
+  invite: InviteChannels | null;
+}
+
+/**
+ * Add Team Member, checked in order: `team.create` (403 FORBIDDEN), a role of the chosen open
+ * department (422 ROLE_NOT_IN_DEPARTMENT), custom scope ids that exist (422
+ * CUSTOM_SCOPE_INVALID), `team.change_permissions` for a scope or keys beyond the role's (403
+ * FORBIDDEN), the department (403 DEPARTMENT_NOT_ALLOWED), the role's gate (403 ROLE_CEILING;
+ * HR's VP / Director hires wait for the department head), the scope and permission ceilings (403
+ * SCOPE_CEILING, 422 UNKNOWN_PERMISSION, 403 PERMISSION_CEILING), a supervisor the caller sees
+ * (422 SUPERVISOR_INVALID), and last the email (409 EMAIL_TAKEN for a Super Admin or anyone with
+ * an org-chart row). Only ADMIN-pool logins are in the context: a staff or client login with the
+ * same email is someone else in another pool, never looked at. An ADMIN-pool login with no
+ * org-chart row (a create that failed half-way) is not taken: the service reuses it.
+ */
+export function planCreate(ctx: TeamContext, body: CreateBody): CreatePlan {
+  const actor = ctx.actor;
+  if (!holds(actor, KEYS.CREATE)) throw refuse('FORBIDDEN');
+  const role = ctx.roles.get(body.roleId);
+  const department = ctx.departments.get(body.departmentId);
+  if (!role || !department?.isActive || role.departmentId !== department.id)
+    throw refuse('ROLE_NOT_IN_DEPARTMENT');
+
+  const scope = body.scope ?? role.defaultScope;
+  const custom = body.customScope;
+  if (
+    custom &&
+    (custom.departmentIds.some((d) => !ctx.departments.has(d)) ||
+      custom.memberIds.some((u) => !ctx.members.has(u)))
+  )
+    throw refuse('CUSTOM_SCOPE_INVALID');
+  const scopeIds =
+    scope === 'CUSTOM' && custom ? [...custom.departmentIds, ...custom.memberIds] : [];
+  const scopeGiven = scope !== role.defaultScope || scopeIds.length > 0;
+  const keys = new Set(body.permissions ?? role.template);
+  const keysGiven = body.permissions !== undefined && !sameKeys(keys, role.template);
+  if ((scopeGiven || keysGiven) && !holds(actor, KEYS.CHANGE_PERMISSIONS))
+    throw refuse('FORBIDDEN');
+
+  if (!departmentAllowed(actor, department.id)) throw refuse('DEPARTMENT_NOT_ALLOWED');
+  const gate = roleGate(actor, role);
+  if (gate === 'no') throw refuse('ROLE_CEILING');
+  if (
+    scopeGiven &&
+    (scope === 'CUSTOM'
+      ? !actor.unrestricted
+      : scope !== role.defaultScope && !assignableScopes(actor).includes(scope))
+  )
+    throw refuse('SCOPE_CEILING');
+  if (keysGiven) {
+    const known = new Set([...ctx.catalogKeys, ...role.template]);
+    if ([...keys].some((k) => !known.has(k))) throw refuse('UNKNOWN_PERMISSION');
+    if (
+      !actor.unrestricted &&
+      [...keys].some((k) => !role.template.includes(k) && !actor.keys.has(k))
+    )
+      throw refuse('PERMISSION_CEILING');
+  }
+  const reportsToId = body.reportsToId ?? null;
+  if (
+    reportsToId !== null &&
+    (!visiblePerson(ctx, reportsToId) ||
+      !supervisorValid(ctx.chart, reportsToId, role, null, ctx.executiveDepartmentId))
+  )
+    throw refuse('SUPERVISOR_INVALID');
+
+  const login = ctx.rows.users.find((u) => u.email === body.email);
+  if (
+    login &&
+    (ctx.rows.members.some((m) => m.userId === login.id) ||
+      ctx.rows.admins.some((a) => a.userId === login.id && a.role === 'SUPER_ADMIN'))
+  )
+    throw refuse('EMAIL_TAKEN');
+
+  const status = gate === 'approval' ? 'PENDING_DEPARTMENT_HEAD_APPROVAL' : 'PENDING_INVITATION';
+  const diff = keyDiff(role.template, keys);
+  return {
+    email: body.email,
+    name: normalName(`${body.firstName} ${body.lastName}`),
+    phone: body.phone ?? null,
+    row: {
+      roleId: role.id,
+      departmentId: department.id,
+      reportsToId,
+      scope,
+      scopeIds,
+      status,
+      intendedRoleId: status === 'PENDING_DEPARTMENT_HEAD_APPROVAL' ? role.id : null,
+    },
+    overrides: keysGiven ? overridesFor(role.template, keys) : [],
+    created: {
+      action: ACTIONS.CREATED,
+      metadata: {
+        roleId: role.id,
+        departmentId: department.id,
+        reportsToId,
+        scope,
+        ...(scopeIds.length ? { scopeIds } : {}),
+        status,
+        ...(keysGiven ? diff : {}),
+      },
+    },
+    invite:
+      status === 'PENDING_INVITATION' && (body.invite.email || body.invite.sms)
+        ? { email: body.invite.email, sms: body.invite.sms && Boolean(body.phone) }
+        : null,
+  };
+}
+
+/**
+ * Resend Invitation: who gets a new link. The request needs `team.create` (403 FORBIDDEN); each
+ * person is then skipped with a reason (NOT_FOUND outside the directory, without a name; SELF;
+ * OUT_OF_REACH; NOT_PENDING_INVITATION). Everyone else gets it by email, and by text when asked
+ * and they have a phone (people without one still get the email). The daily caps are the
+ * service's (RATE_LIMITED), counted in the database.
+ */
+export function planResend(
+  ctx: TeamContext,
+  ids: readonly string[],
+): { targets: string[]; skipped: AdminTeamSkipped[] } {
+  if (!holds(ctx.actor, KEYS.CREATE)) throw refuse('FORBIDDEN');
+  const targets: string[] = [];
+  const skipped: AdminTeamSkipped[] = [];
+  for (const id of ids) {
+    const person = visiblePerson(ctx, id);
+    if (!person) {
+      skipped.push({ id, name: null, reason: 'NOT_FOUND' });
+      continue;
+    }
+    const skip = (reason: AdminTeamSkipReason) =>
+      skipped.push({ id, name: ctx.nameOf(id), reason });
+    const r = reach(ctx.actor, ctx.chart, person);
+    if (r !== 'OK') skip(r === 'SELF' ? 'SELF' : 'OUT_OF_REACH');
+    else if (person.status !== 'PENDING_INVITATION') skip('NOT_PENDING_INVITATION');
+    else targets.push(id);
+  }
+  return { targets, skipped };
 }

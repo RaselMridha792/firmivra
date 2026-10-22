@@ -43,6 +43,7 @@ test('fills the details, queues a document and submits the account', async ({ pa
   await page.getByLabel('Pay Frequency').selectOption({ label: 'Twice a month' });
 
   // A document waits in the table and uploads once the account exists.
+  await expect(page.getByText('Max size: 100 MB per file')).toBeVisible();
   await page.locator('input[type=file]').setInputFiles({
     name: 'Jasmine_Roberts_W4.pdf',
     mimeType: 'application/pdf',

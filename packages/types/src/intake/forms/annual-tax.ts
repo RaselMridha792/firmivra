@@ -375,7 +375,7 @@ export const ANNUAL_TAX_FORM: IntakeFormDefinition = {
           f.info(
             'uploadRules',
             'Important',
-            'Upload clear, legible files. You can upload multiple files for each item (upload as many as needed). Maximum file size: 10 MB per file. Make sure each document is labeled correctly. All required documents must be uploaded or marked as "I don\'t have this document" with an explanation.',
+            'Upload clear, legible files. You can upload multiple files for each item (upload as many as needed). Maximum file size: 100 MB per file. Make sure each document is labeled correctly. All required documents must be uploaded or marked as "I don\'t have this document" with an explanation.',
           ),
         ]),
         section(

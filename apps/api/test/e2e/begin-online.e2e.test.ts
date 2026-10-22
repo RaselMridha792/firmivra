@@ -24,6 +24,8 @@ import {
   intakeFields,
   intakeStepFields,
   SavedIntakeStep,
+  UPLOAD_LIMITS,
+  UploadTicket,
 } from '@firmivra/types';
 import {
   beginOnlineCookie,
@@ -37,19 +39,28 @@ import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
-import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import {
+  DOCUMENT_STORAGE,
+  type DocumentStorage,
+  type FileFacts,
+} from '../../src/storage/document-storage.js';
 import { REFUSALS_SINCE_MS } from '../../src/storage/uploads.service.js';
 import { firmWideVersion, publishFirmWideAgreement, signatureFor } from '../intake-signing.js';
 import { pdf, sha256 } from '../office-files.js';
+import { bigPdf, MemoryUploads, ticketKey } from '../memory-uploads.js';
 
 /** Storage in memory: `put(ticket, bytes)` is the browser's PUT. */
 class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
-  presignUpload(file: { key: string; contentType: string }) {
-    return Promise.resolve({
-      url: `memory:${file.key}`,
-      headers: { 'content-type': file.contentType },
-    });
+  readonly uploads = new MemoryUploads(this.objects);
+  presignUpload(file: FileFacts) {
+    return this.uploads.presign(file);
+  }
+  completeUpload(key: string, uploadId: string, sizeBytes: number) {
+    return this.uploads.complete(key, uploadId, sizeBytes);
+  }
+  abortUpload(key: string, uploadId: string) {
+    return this.uploads.abort(key, uploadId);
   }
   head(key: string) {
     const b = this.objects.get(key);
@@ -825,6 +836,31 @@ describe('Begin Online uploads', () => {
     expect(BeginDraft.parse((await v.get(D)).body).uploads).toEqual([]);
   });
 
+  it('takes a file over 16 MB as a multipart upload that confirm completes; a missing part is 409', async () => {
+    const v = visitor(firms.a.slug);
+    await start(v);
+    const bytes = bigPdf();
+    const res = await v.post(`${D}/uploads`, file(bytes));
+    expect(res.status).toBe(200);
+    const ticket = UploadTicket.parse(res.body);
+    if (ticket.method !== 'MULTIPART') throw new Error('expected a multipart ticket');
+    expect(ticketKey(ticket)).toMatch(new RegExp(`^tenant/${firms.a.id}/leads/`));
+    storage.uploads.send(ticket, bytes);
+    const confirmed = await v.post(`${D}/uploads/confirm`, { uploadToken: ticket.uploadToken });
+    expect(confirmed.status).toBe(200);
+    expect(IntakeUpload.parse(confirmed.body)).toMatchObject({ slot: 'governmentId' });
+    expect(storage.objects.get(ticketKey(ticket))?.equals(bytes)).toBe(true);
+
+    const short = UploadTicket.parse(
+      (await v.post(`${D}/uploads`, file(bytes, 'incomeDocuments'))).body,
+    );
+    if (short.method !== 'MULTIPART') throw new Error('expected a multipart ticket');
+    storage.uploads.putPart(short.parts[0]!.url, bytes.subarray(0, short.partSizeBytes));
+    const refused = await v.post(`${D}/uploads/confirm`, { uploadToken: short.uploadToken });
+    expect([refused.status, codeOf(refused)]).toEqual([409, 'UPLOAD_MISMATCH']);
+    expect(storage.uploads.open.size).toBe(0);
+  });
+
   it("a ticket belongs to its draft: after a new start in this browser it's 410 UPLOAD_EXPIRED", async () => {
     const v = visitor(firms.a.slug);
     await start(v);
@@ -972,7 +1008,7 @@ describe('Begin Online uploads', () => {
     for (const body of [
       file(bytes, 'firstName'),
       file(bytes, 'noSuchSlot'),
-      file(bytes, 'governmentId', { sizeBytes: 10 * 1024 * 1024 + 1 }),
+      file(bytes, 'governmentId', { sizeBytes: UPLOAD_LIMITS.maxBytes + 1 }),
       file(bytes, 'governmentId', { fileName: 'id-card.exe' }),
       file(bytes, 'governmentId', { contentType: 'text/html', fileName: 'x.html' }),
     ]) {

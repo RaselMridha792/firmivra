@@ -909,6 +909,8 @@ model Business {
   platformFirmMetrics       PlatformFirmMetricsDaily[]       @relation("PlatformFirmMetricsDaily")
   platformLegalAcceptances  PlatformLegalAcceptance[]
 
+  firmOfficeMembers FirmOfficeMember[]
+
   @@map("businesses")
 }
 
@@ -1120,6 +1122,9 @@ model Membership {
   appointmentSeriesCreated  AppointmentSeries[]       @relation("SeriesCreatedBy")
   /// R0 stage B2: support tickets about this member.
   supportTickets            SupportTicket[]           @relation("SupportTicketContact")
+
+  // R1 (Oct 21): the locations this member is assigned to.
+  officesAssigned FirmOfficeMember[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -11007,6 +11012,8 @@ model FirmOffice {
   hours            FirmOfficeHours[]
   scheduledActions FirmOfficeAction[]
 
+  members FirmOfficeMember[]
+
   @@unique([businessId, id])
   @@index([businessId, managerUserId])
   @@map("firm_offices")
@@ -13947,4 +13954,24 @@ model DocumentLinkCode {
 
   @@index([businessId, linkId, createdAt])
   @@map("document_link_codes")
+}
+
+/// R1 (Oct 21, Rasel): who works at a location (Assigned Staff, the per-location staff count,
+/// Staff Management's "Assigned Locations"). A member may be at several locations; the manager is
+/// `firm_offices.manager_user_id` and needs no row here. Rows are added and removed (no history:
+/// the audit log has it).
+model FirmOfficeMember {
+  businessId String   @map("business_id") @db.Uuid
+  officeId   String   @map("office_id") @db.Uuid
+  /// The member (memberships.user_id, as firm_offices.manager_user_id).
+  userId     String   @map("user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business Business   @relation(fields: [businessId], references: [id])
+  office   FirmOffice @relation(fields: [businessId, officeId], references: [businessId, id], onDelete: Restrict)
+  member   Membership @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@id([officeId, userId])
+  @@index([businessId, userId])
+  @@map("firm_office_members")
 }

@@ -353,9 +353,9 @@ export const TEMPLATE_ATTACHMENT_TYPES = [
 export const TEMPLATE_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 
 /**
- * Step 1 of an attachment upload: POST .../{id}/attachments/uploads. The answer is the same
- * UploadTicket documents use (PUT the file, then confirm with the token). 400 for a type or size
- * outside the rule above.
+ * Step 1 of an attachment upload: POST .../{id}/attachments/uploads. The answer is the documents'
+ * UploadPutTicket (PUT the file, then confirm with the token): at most 10 MB, so always one PUT.
+ * 400 for a type or size outside the rule above.
  */
 export const StartTemplateAttachmentRequest = z.strictObject({
   fileName: text(255),

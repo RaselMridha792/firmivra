@@ -3,6 +3,10 @@ import { Email } from '../auth/schemas.js';
 import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
 import { IntakeFormStatus, IntakeStatus } from '../db-enums.js';
+import { UPLOAD_LIMITS } from '../documents/schemas.js';
+
+/** The most a firm may set as its intake files' size limit: the documents' limit, in MB. */
+export const INTAKE_MAX_FILE_SIZE_MB = UPLOAD_LIMITS.maxBytes / (1024 * 1024);
 
 // Intake Forms workspace (R43 contract, for Arfan's screens): the dashboard (KPIs, status tabs,
 // table, status chart, templates sidebar), Frame 1 the form builder, Frame 2 Send Intake Form,
@@ -559,7 +563,7 @@ export const UpdateIntakeSettingsRequest = z.strictObject({
       acceptedFileTypes: z
         .array(z.enum(['PDF', 'JPG', 'PNG', 'HEIC', 'DOC', 'DOCX', 'XLS', 'XLSX', 'CSV']))
         .min(1),
-      maxFileSizeMb: z.number().int().min(1).max(25),
+      maxFileSizeMb: z.number().int().min(1).max(INTAKE_MAX_FILE_SIZE_MB),
       consentRequired: z.boolean(),
     })
     .partial()

@@ -1,5 +1,6 @@
 import {
   ApiRequestError,
+  INTAKE_MAX_FILE_SIZE_MB,
   type IntakeSettings,
   type PortalInfo,
   UpdateIntakeSettingsRequest,
@@ -182,8 +183,8 @@ export const EXPIRATION_DAYS = [7, 14, 21, 30, 45, 60, 90];
 export const FIRST_REMINDER_DAYS = [1, 2, 3, 5, 7, 10, 14];
 export const FINAL_REMINDER_DAYS = [3, 5, 7, 10, 14, 21, 30];
 export const ALERT_HOURS = [12, 24, 48, 72];
-/** Firmivra stores files up to 10 MB (the API refuses more). */
-export const MAX_FILE_SIZES = [2, 5, 10];
+/** Firmivra stores files up to 100 MB (INTAKE_MAX_FILE_SIZE_MB; the API refuses more). */
+export const MAX_FILE_SIZES = [2, 5, 10, 25, 50, 100].filter((mb) => mb <= INTAKE_MAX_FILE_SIZE_MB);
 
 /** The on/off settings, as saved; the Active Settings card counts the ones that are on. */
 export function switches(s: IntakeSettings): boolean[] {

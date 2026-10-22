@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { SearchText, text } from '../clients/text.js';
 import { ScanStatus, SupportTicketSource, SupportTicketStatus } from '../db-enums.js';
-import { UPLOAD_LIMITS, UploadContentType } from '../documents/schemas.js';
+import { megabytes, UPLOAD_LIMITS, UploadContentType } from '../documents/schemas.js';
 
 // Super Admin Support (R0 stage B2, `support_*` tables; contract note
 // docs/work/R0-stage-b2-support.md; notes on this contract in docs/work/R60-backend.md).
@@ -217,9 +217,12 @@ export const SupportTicketTab = z.enum([
 ]);
 export type SupportTicketTab = z.infer<typeof SupportTicketTab>;
 
-/** Files on tickets: the documents' five checked types, at most 10 MB, at most 10 at a time. */
+/**
+ * Files on tickets: the documents' five checked types, at most 10 MB (their own limit, not the
+ * documents' 100 MB: always one PUT), at most 10 at a time.
+ */
 export const SUPPORT_ATTACHMENT_LIMITS = {
-  maxBytes: UPLOAD_LIMITS.maxBytes,
+  maxBytes: 10 * 1024 * 1024,
   maxFiles: 10,
   typeNames: UPLOAD_LIMITS.typeNames,
   types: UPLOAD_LIMITS.types,
@@ -613,7 +616,14 @@ export const CreateSupportUploadRequest = z.strictObject({
   firmId: Id,
   fileName: text(200),
   contentType: UploadContentType,
-  sizeBytes: z.number().int().positive().max(SUPPORT_ATTACHMENT_LIMITS.maxBytes, 'Max size: 10 MB'),
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(
+      SUPPORT_ATTACHMENT_LIMITS.maxBytes,
+      `Max size: ${megabytes(SUPPORT_ATTACHMENT_LIMITS.maxBytes)}`,
+    ),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
 });
 export type CreateSupportUploadRequest = z.input<typeof CreateSupportUploadRequest>;

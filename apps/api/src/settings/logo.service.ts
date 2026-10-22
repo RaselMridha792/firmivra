@@ -17,6 +17,7 @@ import { notFound, refusal, storageUnavailable } from '../storage/document-recor
 import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
+  onlyPut,
   PUT_URL_SECONDS,
   statusOf,
 } from '../storage/document-storage.js';
@@ -73,7 +74,9 @@ export class LogoService {
       ...body,
       variant: body.variant ?? 'dark',
     };
-    const put = await this.s3('presign PUT', () => this.storage.presignUpload(claim));
+    const presigned = await this.s3('presign PUT', () => this.storage.presignUpload(claim));
+    // A small file (its own limit is at most 10 MB): always one PUT.
+    const put = onlyPut(presigned);
     const ticket: UploadTicket = {
       uploadToken: await this.tokens.seal(claim, UPLOAD_TOKEN_SECONDS),
       url: put.url,

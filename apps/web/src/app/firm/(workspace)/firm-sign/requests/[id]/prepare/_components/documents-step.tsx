@@ -128,6 +128,7 @@ function Upload({ r }: { r: EsignRequestDetail }) {
         await uploadFile(file, {
           start: (facts) => api.esign.createUpload(r.id, facts),
           finish: (uploadToken) => api.esign.confirmUpload(r.id, { uploadToken }),
+          maxBytes: UPLOAD_LIMITS.maxBytes,
           onProgress: (p) => setBusy(`Uploading ${file.name}: ${p}%`),
         });
         // Each file shows (and starts its virus check) as soon as it is in.
