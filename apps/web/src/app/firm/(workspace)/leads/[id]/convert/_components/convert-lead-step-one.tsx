@@ -743,7 +743,8 @@ type ConvertLeadStep = 'review' | 'details' | 'portal';
  * Convert to Client, steps 1 to 3 (convert-lead-to-client.jpg; Octavia's Leads review, item 16):
  * the client's details, services and staff, what to carry over and the portal invitation are all
  * editable, from the lead's own values, and kept in one draft across the steps (the convert
- * layout); Review & Confirm sends what was set here. Continue checks the client's details first.
+ * layout); Review & Confirm sends what was set here. Leaving Client Details & Services checks
+ * them first.
  */
 export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: ConvertLeadStep }) {
   const { id } = useParams<{ id: string }>();
@@ -762,8 +763,8 @@ export function ConvertLeadStepOne({ activeStep = 'review' }: { activeStep?: Con
         ? `/leads/${id}/convert/portal`
         : `/leads/${id}/convert/review`;
   const onContinue = () => {
-    // The client's details are checked before they leave the steps that show them.
-    if (activeStep !== 'portal' && draft && Object.keys(draftErrors(draft)).length) {
+    // Client Details & Services is where they are completed: checked before it is left.
+    if (activeStep === 'details' && draft && Object.keys(draftErrors(draft)).length) {
       setChecked(true);
       return;
     }
