@@ -57,28 +57,38 @@ function ownerOptions(members: Member[], current: Member | null) {
   ];
 }
 
-export function GeneralCard({
-  draft,
-  set,
-  errors,
-  state,
-  readOnly,
-  onEdit,
-  members,
-  savedOwner,
-}: CardProps & { members: Member[]; savedOwner: Member | null }) {
-  const g = draft?.general;
-  const w = 'w-32';
+/** What a category's fields need, in its card or in its editing panel (the same draft). */
+export type FieldsProps = Pick<CardProps, 'draft' | 'set' | 'errors' | 'readOnly'>;
+type OwnerProps = { members: Member[]; savedOwner: Member | null };
+
+export function GeneralCard(props: CardProps & OwnerProps) {
   return (
     <SettingsCard
       section="general"
       title="General Settings"
       icon={GearSix}
-      state={state}
+      state={props.state}
       rows={5}
-      onEdit={onEdit}
+      onEdit={props.onEdit}
       editLabel="Edit General Settings"
     >
+      <GeneralFields {...props} />
+    </SettingsCard>
+  );
+}
+
+export function GeneralFields({
+  draft,
+  set,
+  errors,
+  readOnly,
+  members,
+  savedOwner,
+}: FieldsProps & OwnerProps) {
+  const g = draft?.general;
+  const w = 'w-32';
+  return (
+    <>
       {g ? (
         <>
           <SelectRow
@@ -125,22 +135,30 @@ export function GeneralCard({
           />
         </>
       ) : null}
-    </SettingsCard>
+    </>
   );
 }
 
-export function ClientExperienceCard({ draft, set, errors, state, readOnly, onEdit }: CardProps) {
-  const c = draft?.clientExperience;
+export function ClientExperienceCard(props: CardProps) {
   return (
     <SettingsCard
       section="client"
       title="Client Experience"
       icon={User}
-      state={state}
+      state={props.state}
       rows={5}
-      onEdit={onEdit}
+      onEdit={props.onEdit}
       editLabel="Edit Client Experience"
     >
+      <ClientExperienceFields {...props} />
+    </SettingsCard>
+  );
+}
+
+export function ClientExperienceFields({ draft, set, errors, readOnly }: FieldsProps) {
+  const c = draft?.clientExperience;
+  return (
+    <>
       {c ? (
         <>
           <ToggleRow
@@ -187,23 +205,31 @@ export function ClientExperienceCard({ draft, set, errors, state, readOnly, onEd
           />
         </>
       ) : null}
-    </SettingsCard>
+    </>
   );
 }
 
-export function NotificationsCard({ draft, set, errors, state, readOnly, onEdit }: CardProps) {
-  const n = draft?.notifications;
-  const w = 'w-40';
+export function NotificationsCard(props: CardProps) {
   return (
     <SettingsCard
       section="notifications"
       title="Notifications & Reminders"
       icon={Bell}
-      state={state}
+      state={props.state}
       rows={5}
-      onEdit={onEdit}
+      onEdit={props.onEdit}
       editLabel="Edit Notifications & Reminders"
     >
+      <NotificationsFields {...props} />
+    </SettingsCard>
+  );
+}
+
+export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProps) {
+  const n = draft?.notifications;
+  const w = 'w-40';
+  return (
+    <>
       {n ? (
         <>
           <ToggleRow
@@ -261,31 +287,37 @@ export function NotificationsCard({ draft, set, errors, state, readOnly, onEdit 
           />
         </>
       ) : null}
-    </SettingsCard>
+    </>
   );
 }
 
-export function AutomationCard({
-  draft,
-  set,
-  errors,
-  state,
-  readOnly,
-  onEdit,
-  members,
-  savedOwner,
-}: CardProps & { members: Member[]; savedOwner: Member | null }) {
-  const a = draft?.automation;
+export function AutomationCard(props: CardProps & OwnerProps) {
   return (
     <SettingsCard
       section="automation"
       title="Automation Rules"
       icon={Lightning}
-      state={state}
+      state={props.state}
       rows={4}
-      onEdit={onEdit}
+      onEdit={props.onEdit}
       editLabel="Edit Automation Rules"
     >
+      <AutomationFields {...props} />
+    </SettingsCard>
+  );
+}
+
+export function AutomationFields({
+  draft,
+  set,
+  errors,
+  readOnly,
+  members,
+  savedOwner,
+}: FieldsProps & OwnerProps) {
+  const a = draft?.automation;
+  return (
+    <>
       {a ? (
         <>
           <ToggleRow
@@ -320,7 +352,7 @@ export function AutomationCard({
           />
         </>
       ) : null}
-    </SettingsCard>
+    </>
   );
 }
 
@@ -393,18 +425,26 @@ function FileTypesRow({
   );
 }
 
-export function SecurityCard({ draft, set, errors, state, readOnly, onEdit }: CardProps) {
-  const s = draft?.security;
+export function SecurityCard(props: CardProps) {
   return (
     <SettingsCard
       section="security"
       title="Security & Compliance"
       icon={ShieldCheck}
-      state={state}
+      state={props.state}
       rows={4}
-      onEdit={onEdit}
+      onEdit={props.onEdit}
       editLabel="Edit Security & Compliance"
     >
+      <SecurityFields {...props} />
+    </SettingsCard>
+  );
+}
+
+export function SecurityFields({ draft, set, errors, readOnly }: FieldsProps) {
+  const s = draft?.security;
+  return (
+    <>
       {s ? (
         <>
           <ToggleRow
@@ -441,7 +481,67 @@ export function SecurityCard({ draft, set, errors, state, readOnly, onEdit }: Ca
           />
         </>
       ) : null}
-    </SettingsCard>
+    </>
+  );
+}
+
+/**
+ * Submission Rules (Octavia's review, I5): what decides whether a client can submit and what
+ * happens after, in one place. The switches are the same settings as General and Security (one
+ * settings record); the lines under them are the rules the API applies to every form.
+ */
+export function SubmissionRulesFields({ draft, set, errors, readOnly }: FieldsProps) {
+  const g = draft?.general;
+  const s = draft?.security;
+  if (!g || !s) return null;
+  return (
+    <>
+      <ToggleRow
+        label="Require e-signature"
+        width="w-20"
+        checked={g.requireSignature}
+        disabled={readOnly}
+        onChange={(on) => set('general', { requireSignature: on })}
+      />
+      <ToggleRow
+        label="Consent checkbox required"
+        width="w-20"
+        checked={s.consentRequired}
+        disabled={readOnly}
+        onChange={(on) => set('security', { consentRequired: on })}
+      />
+      <ToggleRow
+        label="Allow save and resume"
+        width="w-20"
+        checked={g.allowSaveAndResume}
+        disabled={readOnly}
+        onChange={(on) => set('general', { allowSaveAndResume: on })}
+      />
+      <SelectRow
+        label="Default form expiration"
+        width="w-32"
+        value={g.defaultExpirationDays === null ? '' : String(g.defaultExpirationDays)}
+        options={[
+          ...(g.defaultExpirationDays === null ? [{ value: '', label: 'Choose…' }] : []),
+          ...dayOptions(withCurrent(EXPIRATION_DAYS, g.defaultExpirationDays)),
+        ]}
+        disabled={readOnly}
+        error={errors['general.defaultExpirationDays']}
+        onChange={(v) => set('general', { defaultExpirationDays: v ? Number(v) : null })}
+      />
+      <ul
+        className="mt-2 flex list-disc flex-col gap-1 pl-5 text-sm text-text"
+        data-testid="submission-rules"
+      >
+        <li>A client can’t submit until every required question they can see is answered.</li>
+        <li>After a client submits, the answers are locked for them.</li>
+        <li>
+          An Owner or Admin can reopen a submitted form: with a note it asks the client for a
+          correction, without one it simply unlocks it.
+        </li>
+        <li>An expired form takes no more answers.</li>
+      </ul>
+    </>
   );
 }
 
