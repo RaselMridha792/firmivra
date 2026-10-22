@@ -113,8 +113,9 @@ export function PermissionsModal({
     <Modal open title="Individual Permissions" onClose={onClose}>
       <div className="flex flex-col gap-4" data-testid="individual-permissions">
         <p className="text-sm text-text">
-          {user.name} ({user.email}) is <strong>{FIRM_ROLE_LABELS[user.role]}</strong>. Inherit
-          follows the role in this firm; Allow and Deny are theirs alone and win over the role.
+          {user.name} ({user.email}) is{' '}
+          <strong>{user.customRole?.name ?? FIRM_ROLE_LABELS[user.role]}</strong>. Inherit follows
+          the role in this firm; Allow and Deny are theirs alone and win over the role.
         </p>
         {failed ? (
           <p role="alert" className="flex flex-wrap items-center gap-3 text-sm text-danger">
@@ -218,8 +219,8 @@ export function PermissionsModal({
         )}
         {asking ? (
           <p role="alert" className="rounded-lg bg-warning-soft px-3 py-2 text-sm text-text">
-            This gives {user.name} more than the {FIRM_ROLE_LABELS[user.role]} role has. Save
-            anyway?
+            This gives {user.name} more than the{' '}
+            {user.customRole?.name ?? FIRM_ROLE_LABELS[user.role]} role has. Save anyway?
           </p>
         ) : null}
         {error ? (
