@@ -206,6 +206,19 @@ async function addFile(leadId: string, slot: string, firm = firms.a) {
   return key;
 }
 
+/** Firm A's Max file size per file (Intake Form Settings); null takes its settings row away. */
+const fileSizeLimit = (mb: number | null) =>
+  asOwner(firms.a.id, async (tx) => {
+    const where = { businessId: firms.a.id };
+    if (mb === null) await tx.intakeSettings.deleteMany({ where });
+    else
+      await tx.intakeSettings.upsert({
+        where,
+        create: { ...where, maxFileSizeMb: mb },
+        update: { maxFileSizeMb: mb },
+      });
+  });
+
 beforeAll(async () => {
   process.env['KMS_MODE'] ??= 'local';
   process.env['LOCAL_KMS_KEY'] ??= randomBytes(32).toString('base64');
@@ -837,6 +850,8 @@ describe('Begin Online uploads', () => {
   });
 
   it('takes a file over 16 MB as a multipart upload that confirm completes; a missing part is 409', async () => {
+    // The firm takes files up to 100 MB (Intake Form Settings; 10 MB until it chooses).
+    await fileSizeLimit(100);
     const v = visitor(firms.a.slug);
     await start(v);
     const bytes = bigPdf();
@@ -1045,6 +1060,74 @@ describe('Begin Online uploads', () => {
     await expireDraft(firms.a.id, leadId);
     expect(codeOf(await v.post(`${D}/uploads`, file(pdf())))).toBe('DRAFT_EXPIRED');
     expect(codeOf(await v.get(`${D}/uploads`))).toBe('DRAFT_EXPIRED');
+  });
+});
+
+describe("Begin Online uploads within the firm's Max file size per file (I10)", () => {
+  const MB = 1024 * 1024;
+  const sized = (sizeBytes: number) => ({
+    slot: 'incomeDocuments',
+    fileName: 'statement.pdf',
+    contentType: 'application/pdf',
+    sizeBytes,
+    sha256: sha256(Buffer.from(`synthetic ${sizeBytes}`)),
+  });
+  /** Refused at the ticket, naming the firm's limit, before storage is asked for anything. */
+  const tooLarge = async (v: Visitor, sizeBytes: number, mb: number) => {
+    const open = storage.uploads.open.size;
+    const res = await v.post(`${D}/uploads`, sized(sizeBytes));
+    expect([res.status, codeOf(res)], JSON.stringify(res.body)).toEqual([400, 'VALIDATION_FAILED']);
+    expect((res.body as { error: { details: unknown } }).error.details).toEqual([
+      { path: 'sizeBytes', message: `Files can be at most ${mb} MB` },
+    ]);
+    expect(storage.uploads.open.size).toBe(open);
+  };
+  const draftOnFirmA = async () => {
+    const v = visitor(firms.a.slug);
+    await start(v);
+    return v;
+  };
+
+  it('10 MB while the firm has no intake settings', async () => {
+    await fileSizeLimit(null);
+    const v = await draftOnFirmA();
+    expect((await v.post(`${D}/uploads`, sized(10 * MB))).status).toBe(200);
+    await tooLarge(v, 11 * MB, 10);
+  });
+
+  it('the size the firm chose: 50 MB takes 49 MB and refuses 51 MB', async () => {
+    await fileSizeLimit(50);
+    const v = await draftOnFirmA();
+    const t = UploadTicket.parse((await v.post(`${D}/uploads`, sized(49 * MB))).body);
+    expect(t.method).toBe('MULTIPART');
+    await tooLarge(v, 51 * MB, 50);
+  });
+
+  it('a firm that saved 25 MB before I10 keeps it: 24 MB in, 26 MB refused', async () => {
+    await fileSizeLimit(25);
+    const v = await draftOnFirmA();
+    expect((await v.post(`${D}/uploads`, sized(24 * MB))).status).toBe(200);
+    await tooLarge(v, 26 * MB, 25);
+  });
+
+  it('a ticket keeps the size it was given: a limit lowered since does not refuse its confirm', async () => {
+    await fileSizeLimit(10);
+    const v = await draftOnFirmA();
+    const bytes = bigPdf(3 * MB);
+    const ticket = await v.post(`${D}/uploads`, {
+      ...sized(bytes.length),
+      sha256: sha256(bytes),
+    });
+    expect(ticket.status).toBe(200);
+    storage.put(ticket.body as { url: string }, bytes);
+    await fileSizeLimit(2);
+    const confirmed = await v.post(`${D}/uploads/confirm`, {
+      uploadToken: ticket.body.uploadToken,
+    });
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    expect(IntakeUpload.parse(confirmed.body).sizeBytes).toBe(bytes.length);
+    await tooLarge(v, bytes.length, 2);
+    await fileSizeLimit(100);
   });
 });
 

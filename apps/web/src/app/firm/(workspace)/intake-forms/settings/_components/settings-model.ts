@@ -1,6 +1,6 @@
 import {
   ApiRequestError,
-  INTAKE_MAX_FILE_SIZE_MB,
+  INTAKE_FILE_SIZE_CHOICES,
   type IntakeSettings,
   type PortalInfo,
   UpdateIntakeSettingsRequest,
@@ -183,8 +183,16 @@ export const EXPIRATION_DAYS = [7, 14, 21, 30, 45, 60, 90];
 export const FIRST_REMINDER_DAYS = [1, 2, 3, 5, 7, 10, 14];
 export const FINAL_REMINDER_DAYS = [3, 5, 7, 10, 14, 21, 30];
 export const ALERT_HOURS = [12, 24, 48, 72];
-/** Firmivra stores files up to 100 MB (INTAKE_MAX_FILE_SIZE_MB; the API refuses more). */
-export const MAX_FILE_SIZES = [2, 5, 10, 25, 50, 100].filter((mb) => mb <= INTAKE_MAX_FILE_SIZE_MB);
+/**
+ * Max file size per file, in MB: INTAKE_FILE_SIZE_CHOICES (Octavia's I10), plus the firm's saved
+ * size when it is not one of them (a 25 MB saved before), so the select shows it as it is and the
+ * firm can go back to it before saving. Once the firm saves another size, the old one is no longer
+ * offered (the API refuses it as a change). `editing` is the draft's size, always kept so the
+ * select never shows a wrong one (a draft from settings saved since elsewhere).
+ */
+export function fileSizeOptions(saved: number | null, editing: number | null = null): number[] {
+  return withCurrent(withCurrent(INTAKE_FILE_SIZE_CHOICES, saved), editing);
+}
 
 /** The on/off settings, as saved; the Active Settings card counts the ones that are on. */
 export function switches(s: IntakeSettings): boolean[] {

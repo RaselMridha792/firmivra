@@ -6,6 +6,7 @@ import {
   type AssignedFormRow,
   AssignedFormsQuery,
   type FormCategory,
+  INTAKE_FILE_SIZE_CHOICES,
   INTAKE_FORMS,
   type IntakeFormDetail,
   type IntakeFormsClient,
@@ -117,7 +118,7 @@ function defaultSettings(): IntakeSettings {
     security: {
       encryptedUploads: true,
       acceptedFileTypes: ['PDF', 'JPG', 'PNG'],
-      maxFileSizeMb: 20,
+      maxFileSizeMb: 10,
       consentRequired: true,
     },
     updatedAt: null,
@@ -890,6 +891,15 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       if (input.version !== s.settings.version)
         throw fail(409, 'SAVE_CONFLICT', 'Someone saved the settings first');
       const st = s.settings;
+      // As the API: a new size is one of the choices; the saved one stays valid as it is.
+      const size = input.security?.maxFileSizeMb;
+      const choices: readonly number[] = INTAKE_FILE_SIZE_CHOICES;
+      if (size !== undefined && size !== st.security.maxFileSizeMb && !choices.includes(size)) {
+        const message = 'Choose 2, 5, 10, 50 or 100 MB';
+        throw new ApiRequestError(400, 'VALIDATION_FAILED', message, undefined, undefined, [
+          { path: 'security.maxFileSizeMb', message },
+        ]);
+      }
       const pick = <T extends object>(o: T | undefined) =>
         Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined));
       const { defaultOwnerUserId, ...general } = input.general ?? {};
