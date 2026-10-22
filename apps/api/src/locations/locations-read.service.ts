@@ -256,6 +256,7 @@ export class LocationsReadService {
       businessId: tenant.businessId,
       userId,
       role: tenant.role,
+      customRoleId: tenant.kind === 'staff' ? (tenant.customRoleId ?? null) : null,
     });
   }
 

@@ -62,6 +62,13 @@ export interface GridReader {
     module: PermissionModule,
     capability: PermissionCapability,
   ): Promise<boolean | undefined>;
+  /** A custom role's cell (its whole grid stands in for the role's); undefined if it lacks it. */
+  customCell(
+    businessId: string,
+    customRoleId: string,
+    module: PermissionModule,
+    capability: PermissionCapability,
+  ): Promise<boolean | undefined>;
   can(
     businessId: string,
     role: MembershipRole,
@@ -72,18 +79,28 @@ export interface GridReader {
 
 /**
  * The "Super Administrator" of the Locations guide (Rasel, Oct 21, as for MFA in R60): the Owner,
- * and an Admin with MANAGE on SETTINGS. An Admin's own cell (member_permissions, Staff Management)
- * decides first, then the firm's change to the Admin role (role_permissions, Users & Roles), then
- * the default grid (every cell for Admin). No other role, whatever its grid says.
+ * and an Admin with MANAGE on SETTINGS, in the guard's order (auth/roles.guard.ts): the Admin's
+ * own cell (member_permissions, Staff Management) first, then their custom role's grid when they
+ * have one (#1010), then the firm's change to the Admin role (role_permissions, Users & Roles),
+ * then the default grid (every cell for Admin). No other role, whatever its grid says.
  */
 export async function isSuperAdministrator(
   grants: GridReader,
-  viewer: { businessId: string; userId: string; role: string },
+  viewer: { businessId: string; userId: string; role: string; customRoleId?: string | null },
 ): Promise<boolean> {
   if (viewer.role === 'OWNER') return true;
   if (viewer.role !== 'ADMIN') return false;
   const own = await grants.memberCell(viewer.businessId, viewer.userId, 'SETTINGS', 'MANAGE');
   if (own !== undefined) return own;
+  if (viewer.customRoleId) {
+    const custom = await grants.customCell(
+      viewer.businessId,
+      viewer.customRoleId,
+      'SETTINGS',
+      'MANAGE',
+    );
+    if (custom !== undefined) return custom;
+  }
   return grants.can(viewer.businessId, 'ADMIN', 'SETTINGS', 'MANAGE');
 }
 

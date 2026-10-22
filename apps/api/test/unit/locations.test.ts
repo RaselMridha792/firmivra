@@ -133,13 +133,21 @@ describe('decide: what a due scheduled change does', () => {
 });
 
 describe('isSuperAdministrator', () => {
-  const grid = (member: boolean | undefined, admin: boolean): GridReader & { asked: string[] } => {
+  const grid = (
+    member: boolean | undefined,
+    admin: boolean,
+    custom?: boolean,
+  ): GridReader & { asked: string[] } => {
     const asked: string[] = [];
     return {
       asked,
       memberCell: (_b, _u, module, capability) => {
         asked.push(`member:${module}:${capability}`);
         return Promise.resolve(member);
+      },
+      customCell: (_b, _c, module, capability) => {
+        asked.push(`custom:${module}:${capability}`);
+        return Promise.resolve(custom);
       },
       can: (_b, role, module, capability) => {
         asked.push(`${role}:${module}:${capability}`);
@@ -164,6 +172,17 @@ describe('isSuperAdministrator', () => {
     expect(await isSuperAdministrator(role, viewer('ADMIN'))).toBe(false);
     expect(role.asked).toEqual(['member:SETTINGS:MANAGE', 'ADMIN:SETTINGS:MANAGE']);
     expect(await isSuperAdministrator(grid(undefined, true), viewer('ADMIN'))).toBe(true);
+  });
+
+  it('asks an Admin’s custom role after their own cell and before the Admin grid (#1010)', async () => {
+    const withRole = { ...viewer('ADMIN'), customRoleId: OWN };
+    const refused = grid(undefined, true, false);
+    expect(await isSuperAdministrator(refused, withRole)).toBe(false);
+    expect(refused.asked).toEqual(['member:SETTINGS:MANAGE', 'custom:SETTINGS:MANAGE']);
+    expect(await isSuperAdministrator(grid(undefined, false, true), withRole)).toBe(true);
+    // A custom role without the cell falls back to the Admin grid; the member's own cell wins.
+    expect(await isSuperAdministrator(grid(undefined, true, undefined), withRole)).toBe(true);
+    expect(await isSuperAdministrator(grid(false, true, true), withRole)).toBe(false);
   });
 });
 
