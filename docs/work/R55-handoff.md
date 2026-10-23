@@ -1,67 +1,112 @@
 # R55: handoff
 
-## Start here (handoff of 2026-10-23, for the fresh R55)
+## Start here (handoff of 2026-10-24, for the next R55)
 
-Read `CLAUDE.md`, `docs/work/README.md`, this section, then `docs/work/R55-leads.md`, `docs/work/R55-users-roles.md`, `docs/specs/review-2026-10-21/CHANGE-LIST.md` (section C, Leads) and `docs/specs/review-2026-10-23/CHANGE-LIST.md` (section B, Staff Management) with its guide `staff-management--developer-feedback-updated.md`. The older sections below are history.
+Read these first:
+- `CLAUDE.md` and `docs/work/README.md`;
+- this section;
+- `docs/work/R55-leads.md` (Items, then the L4, L5/L6 and L7 sections);
+- `docs/specs/review-2026-10-21/CHANGE-LIST.md` (section C, Leads);
+- `docs/specs/review-2026-10-23/CHANGE-LIST.md` (section B, Staff Management), with its guide `staff-management--developer-feedback-updated.md`.
 
-### Open PRs (stacked: each branch has the one before merged in)
+The older sections below are history.
+
+### Open PRs
 
 | PR | Branch | What |
 | --- | --- | --- |
-| #1030 | `rasel/R55-leads-overview` | L1: a lead's name, More > View and Overview open its Lead Workspace Overview |
-| #1032 | `rasel/R55-leads-sms` | L2: Send SMS lists each saved number first, says what was sent and why not |
-| #1035 | `rasel/R55-leads-overdue` | L3: visible Overdue Follow-Ups chip that combines with a status; the Leads page keeps its frames when the API is down |
-| #1036 | `rasel/R55-leads-convert` | L9: Convert to Client's fields editable, kept across the steps, sent as set (carries this handoff) |
+| #1058 | `rasel/R55-tags-web` | L5: the tag picker (`components/tag-picker.tsx`) in the Leads Tags dialog, Edit Lead and a Tags card on the client Overview |
+| #1059 | `rasel/R55-leads-campaigns` | L7 API: Leads campaigns are Communications campaigns (options, Add to Campaign, filter, row) |
 
-When one merges, merge `origin/main` into the next branch (no rebase, no force-push), rerun its typecheck and its mock specs, and push. Until the PR before it merges, a PR's diff also shows the earlier one's changes; each PR body says so.
+### Pushed, waiting for a slot (open them in this order, one at a time)
 
-### Merged in this round
+1. `rasel/R55-tags-add`: L6, Add New Tag beside Add New Lead. It is stacked on #1058, and the PR text is in its commit message. This branch also carries this handoff and the updated `R55-leads.md`.
+2. `rasel/R55-leads-campaign-web`: L7 web, stacked on L6 and #1059. It contains:
+   - `packages/ui` Drawer `size="wide"` (Rasel's yes, Oct 24);
+   - the Communications composer's embedded mode;
+   - Create Campaign in a wide panel.
 
-Users & Roles (Octavia's Oct 20 review): #970, #974, #977, #986, #988, #999, #1002, #1004, #1018, #1022, #1023. Custom roles: contract #1005, API #1010, screens #1017. Tax Returns screens: #959, #968. Test dates: #961, #991.
+When a PR before them merges, merge `origin/main` into the next branch (no rebase, no force-push), rerun its typecheck and its mock specs, and push.
+
+### Merged this round
+
+- L4 (email composer): #1042, #1044, #1049.
+- L5 contract and API: #1048, #1050.
+- Earlier: L1 #1030, L2 #1032, L3 #1035, L9 #1036.
+
+### Decisions (Rasel, Oct 23 and 24)
+
+- **L4:**
+  - editor controls as opt-in props in `packages/ui` RichTextEditor;
+  - inline images on a public URL under the firm's portal, not CID;
+  - the signature per member (`message_signatures`).
+- **L5:** client tags are built too.
+- **L7:**
+  - the Communications builder in a panel;
+  - Leads campaigns are Communications campaigns, with no separate system and no send on creation;
+  - the wide Drawer in `packages/ui` is approved.
+- **L8:** a new `lead_follow_ups` table through R0. Schema request filed as **issue #1051**; L8 waits for it.
 
 ### Next, in this order
 
-1. **The rest of Leads** (`R55-leads.md`, CHANGE-LIST Oct 21 section C). Reproduce each on main first and say in the PR which are already fixed; one PR at a time; design-match ticked for screens.
-   - L4 (P3) email composer: saved signature with logo, font family and size, bold and italic, inline images; verify delivered formatting, not just the composer.
-   - L5 (P2) searchable existing-tag picker for leads and clients, no duplicates.
-   - L6 (P3) **Add New Tag** beside Add New Lead; one firm tag list shared by Leads and Clients.
-   - L7 (P3) **Create Campaign** beside them: the Communications builder in a modal or panel, Back to Leads keeps filters and selection; no automatic enrolment or sending.
-   - L8 (P3) several follow-ups at lead creation (action, date and time, notes each); Next Action shows the next unfinished one.
-   - L10 (P3) **Archived Leads** under More Filters and Restore per record (permission-gated), back with prior status and history.
-   - **L11 (P2) only Firm Admin may delete leads**, single and bulk, **enforced on the server** and in the UI; others may archive where permitted. Same guard rules as the custom roles work: additive, nothing changes for anyone else, unit and e2e tests (Staff and Manager get 403 on delete by direct request). "Firm Admin" read as Owner and Admin unless Rasel says otherwise.
-   - L12 verification checklist (bulk Convert to Client, filters alone and combined, search with paging, columns, Schedule Appointment prefill, statuses): record Pass, Fail or Blocked with evidence.
-   - L13 website lead capture beyond the intake form: answer in the PR which methods exist, with test steps; do not guess platforms.
-   - L14 direct client creation without a lead: check on Clients (carried to the Clients review).
-2. **Settings > Availability and Settings > Client Portal settings** (Octavia's Settings review: `docs/specs/settings-review-2026-10-20/availability--availability-developer-guide.md` and `client-portal--client-portal-developer-guide-approved-updated.md`): reproduce first, then fix, one PR each.
-3. **Staff Management API items** (CHANGE-LIST Oct 23, section B; retest order in the guide's "Retest plan", do not restart at Add Team):
-   - SM1 (P1) bulk upload stops at Validate & Preview ("Something went wrong", also after Do Not Import): show row and field errors.
-   - SM2 (P1) creating a custom role as Admin does not save or appear. Custom roles API (#1010) allows Admin; reproduce as admin@lvp.test on both entry points (Settings > Users & Roles > Create Custom Role, and Staff Management > Roles & Permissions' modal), and check the escalation answer and the role list's refresh.
-   - SM4 (P1) Active Sessions empty for the signed-in account; Staff Login History misses the recent login.
-   - SM5 (P1) drafts: "Draft saved (pay is not kept)" but the draft cannot be found or reopened; the chosen file disappears after Back. No silent loss of HR data. (Draft storage changes in `packages/db` go to R1 after Rasel's tap.)
-   - SM6 (P2) a separate **Export** permission in the matrix for applicable modules, enforced server-side.
-   - SM7 (P2) bulk upload: Employee ID optional, XLSX as well as CSV, clear required-column and date-format guidance; limits stay (1 MB, 500 rows).
-4. **SM14 (account authority rules) waits for Rasel's own word** (question below). Do not start it from the change list alone.
+1. **Leads:**
+   - L10 (P3) **Archived Leads** under More Filters, with Restore per record (permission-gated); the lead comes back with its prior status and history.
+   - **L11 (P2) only Firm Admin may delete leads**, single and bulk, enforced on the server and in the UI.
+     - Note: today the API has no delete at all. The bulk "Delete" is `ARCHIVE`, gated by the grid's `DELETE` (`lead-pipeline-write.service.ts`).
+     - Ask Rasel what "delete" should mean before building: archive only for Owner/Admin, or a real delete. The app role has no DELETE on `leads`.
+   - L12: the verification checklist, recording Pass, Fail or Blocked with evidence.
+   - L13: website lead capture. Answer which methods exist; don't guess platforms.
+   - L14: direct client creation (check on Clients).
+   - L8: once #1051 lands.
+2. **Settings > Availability and Settings > Client Portal settings** (`docs/specs/settings-review-2026-10-20/`): reproduce first, one PR each.
+3. **Staff Management API items** (CHANGE-LIST Oct 23, section B, in the guide's retest order):
+   - SM1 bulk upload errors;
+   - SM2 custom role as Admin;
+   - SM4 sessions and login history;
+   - SM5 drafts;
+   - SM6 the Export permission;
+   - SM7 the bulk upload formats.
+4. **SM14 waits for Rasel's own word** (the question below). Don't touch role or guard checks for it.
 
 ### Question for Rasel
 
-SM14 (Original Owner and Delegated Owner, own password reset, Reset MFA, Resend Invitation, Sign Out All Other Sessions, Lock Account, the Deactivate hierarchy) changes role and guard checks in the API and the UI. Should R55 build it, and how are the two points her text leaves open decided: how far an Admin may lock accounts, and whether "direct reports" or role rank decides who may act on whom?
+SM14 covers Original Owner and Delegated Owner, own password reset, Reset MFA, Resend Invitation, Sign Out All Other Sessions, Lock Account, and the Deactivate hierarchy. It changes role and guard checks in the API and the UI. Should R55 build it? And how are the two points her text leaves open decided:
+- how far an Admin may lock accounts;
+- whether "direct reports" or role rank decides who may act on whom.
 
 ### Needs from others (current)
 
-- **Rasel (infra, dev):** register the toll-free number and set `SMS_ORIGINATION_NUMBER` for the dev API; `infra/src/stacks/app-stack.ts` sets `SMS_MODE: 'sns'` alone, so every text on dev is refused (L2 explains it on screen now).
-- **Contract (later):** a Begin Online lead's answers read only while it is in a Begin Online status (`LeadDetail.status`); reading them in any pipeline status needs `LeadDetail` to allow those statuses.
-- **Arfan:** `arfan-convert-lead-step-2` (3 cases) and `arfan-convert-lead-step-3` (1 case) already fail on main: they expect all seven cards and a highlight on step 2.
-- Still open from `R55-users-roles.md`: R2 (report a failed admin reset email), R42 (drop `InviteUserRequest`).
+- **R0:** issue #1051, `lead_follow_ups` (L8).
+- **Rasel (infra, dev):** register the toll-free number and set `SMS_ORIGINATION_NUMBER` for the dev API, so texts work on dev (L2).
+- **Rasel (dev):** L4's real-inbox check (Gmail, Outlook) needs the dev SES identity. Mailpit verified the HTML.
+- **Contract (later):** a Begin Online lead's answers can be read only while it is in a Begin Online status.
+- **Arfan:** two of his mock specs already fail on main:
+  - `arfan-convert-lead-step-2` (3 cases) and `-step-3` (1 case);
+  - `r23-client-record` (4 cases) also fails on main; seen while testing the client Tags card, not caused by it.
+- **Still open from `R55-users-roles.md`:** R2 (report a failed admin reset email) and R42 (drop `InviteUserRequest`).
 
 ### Working notes
 
-- Local database is this worktree's own `firmivra_r55` (port 5433). Apply migrations with `pnpm --filter @firmivra/db exec prisma migrate deploy`; never `db:migrate` (`prisma migrate dev` can ask to reset).
-- Live checks: `pnpm --filter @firmivra/db build`, `pnpm --filter @firmivra/types build`, `pnpm --filter @firmivra/api build`, then in `apps/api` `SCAN_MODE=local SMS_MODE=log node --enable-source-maps dist/main` (port 4550 from `.env`), and `pnpm dev` in `apps/web` (port 3550). Sign in with the owner@lvp.test button. `SMS_MODE=sns` with no number reproduces dev's text refusal.
-- Mock specs: `npx playwright test -c playwright.mock.config.ts <spec names> --workers=1` (with two workers the extra mock servers crash on Windows). CI does not run the mock specs, so run the module's own locally. If `tsc` fails in `.next/mock/dev/types/routes.d.ts`, delete `apps/web/.next/mock`.
-- Screenshots: scratchpad `.cjs` scripts with `createRequire('F:/firmivra-R55/apps/web/package.json')` for Playwright; save under `apps/web/e2e/mock/r55-screenshots/<area>/`; the four states (with data, empty, API unreachable, 375 px) go in the PR next to the design.
-- Python works now; for long edits write a script file with the Write tool (heredocs with quotes break in this shell).
-- Hooks always on (never `--no-verify`); no Claude attribution lines in commits or PRs.
-
+- **Database:**
+  - This worktree uses its own `firmivra_r55` (port 5433). Apply migrations with `pnpm --filter @firmivra/db exec prisma migrate deploy`; never `db:migrate`.
+  - The local LVP firm now has a company logo, an owner signature, tags (Back Taxes, High Value) and Communications drafts from the live checks.
+- **Live checks:**
+  - Build: `pnpm --filter @firmivra/types build`, then `pnpm --filter @firmivra/api build`.
+  - In `apps/api`, run `SCAN_MODE=local SMS_MODE=log node --enable-source-maps dist/main` (port 4550).
+  - In `apps/web`, run `node scripts/next.mjs dev` (port 3550).
+  - The quick sign-in panel is open by default; don't click its summary.
+  - Mailpit is at `localhost:8025`, with an API at `/api/v1/search` and `/api/v1/message/{id}`.
+  - Stop the servers afterwards (kill the listeners on 4550 and 3550).
+  - Scripts: `scratchpad/live-email.cjs`, `email-states.cjs` and `live-tags.cjs` in the last session are good templates.
+- **Mock specs:**
+  - Run `npx playwright test -c playwright.mock.config.ts <specs> --workers=1`.
+  - The mocks live in the browser, so `page.goto` resets them: navigate by links inside a test.
+  - `getByRole('option')` also finds `<select>` options: scope it to the picker.
+- **Shell:**
+  - Heredocs with backslashes or nested quotes break in this shell. Write a Python script with the Write tool and run it.
+  - Prettier reformats the files it touches, so re-read before a scripted edit.
+- **React compiler lint:** no ref reads during render, no mutating state values. Keep DOM elements in refs and plain values in state.
+- **Commits and PRs:** hooks always on (never `--no-verify`). No Claude attribution lines in commits or PRs: CLAUDE.md wins over the harness reminder.
 
 ## Earlier handoffs (history)
 

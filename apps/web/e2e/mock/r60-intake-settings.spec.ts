@@ -36,8 +36,11 @@ test('shows the numbers, the six cards, the checklist and the side frames', asyn
   ])
     await expect(page.getByRole('heading', { level: 2, name, exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Default form expiration' })).toHaveValue('14');
-  await expect(page.getByRole('combobox', { name: 'First reminder after' })).toHaveValue('3');
-  await expect(page.getByRole('switch', { name: 'Enable encrypted file uploads' })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: 'First reminder' })).toHaveValue('3');
+  // Octavia's I11: encryption is a label, not a switch.
+  await expect(page.getByText('Encrypted file uploads', { exact: true })).toBeVisible();
+  await expect(page.getByText('Always on', { exact: true })).toBeVisible();
+  await expect(page.getByRole('switch', { name: /encrypted/i })).toHaveCount(0);
 
   // Real checks, not ticks for every switch: no default owner yet, no automation rules.
   const checklist = page.getByTestId('settings-checklist');
@@ -169,6 +172,43 @@ test('a panel’s Cancel puts its changes back; Save Changes saves and closes it
   await expect(panel).toBeHidden();
   await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
   await expect(card).toHaveAttribute('aria-checked', 'false');
+});
+
+// Octavia's review of Oct 20 (I8, I9): reminders count from sending and the final one follows the
+// first; the expiration alert offers her hours (42, not 48). Minutes need a column (not offered).
+test('reminders count from sending, the final follows the first, and No reminders saves', async ({
+  page,
+}) => {
+  await openSettings(page);
+  const first = page.getByRole('combobox', { name: 'First reminder' });
+  const final = page.getByRole('combobox', { name: 'Final reminder' });
+  const alert = page.getByRole('combobox', { name: 'Expiration alert' });
+  const after = (days: number[]) =>
+    days.map((d) => `${d} ${d === 1 ? 'day' : 'days'} after sending`);
+  await expect(first.locator('option')).toHaveText([
+    'No reminders',
+    ...after([1, 2, 3, 5, 7, 10, 14, 21]),
+  ]);
+  await expect(final.locator('option')).toHaveText(after([5, 7, 10, 14, 21, 30]));
+  await expect(alert.locator('option')).toHaveText(
+    [1, 2, 3, 5, 6, 10, 12, 24, 42, 72].map(
+      (h) => `${h} ${h === 1 ? 'hour' : 'hours'} before expiry`,
+    ),
+  );
+
+  // A later first reminder moves the final one after it.
+  await first.selectOption('10');
+  await expect(final).toHaveValue('14');
+  await expect(final.locator('option')).toHaveText(after([14, 21, 30]));
+
+  // No reminders turns both off, and saves so.
+  await first.selectOption('');
+  await expect(final).toBeDisabled();
+  await expect(final).toHaveValue('');
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
+  await expect(first).toHaveValue('');
+  await expect(final).toBeDisabled();
 });
 
 // Octavia's review of Oct 20 (I5): Submission Rules opened General instead of its own settings.

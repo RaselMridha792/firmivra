@@ -15,8 +15,36 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
 - [x] L2 (P1): the composer (row, selected leads, the lead's page) lists each recipient's saved number or address before sending, leaves out a lead with no phone (Send is off when nobody has one), and after sending says how many went and why the others did not; `SMS_UNAVAILABLE` reads "Text messages are not set up for this firm yet, so nothing was sent". Texts on dev still need the number (Needs, Rasel). Delivery to a real phone is untested until then.
 - [x] L3 (P1): the card turns on a visible "Overdue Follow-Ups" chip (remove to clear; More Filters keeps its checkbox), and the filter now combines with a status instead of clearing it. The API already counts only open leads' past-due, unfinished follow-ups (closing a lead clears its follow-up); the mock now does the same. With the API unreachable the Leads page keeps every frame (the cards show a dash, the filters stay, the table says why with Try again) instead of one error panel per section.
 - [x] L9 (P1): Convert to Client's steps are editable (client type, full and business name, email, phone, address, services, primary and additional staff, what to carry over, the portal invitation), from the lead's values, kept across the steps in one draft (the convert layout), checked when Client Details & Services is left, and Review & Confirm shows and sends exactly that. Live: a converted lead became a Business client with the edited name, phone, address and staff, no invitation (Send later), and the lead stayed, Converted. Arfan's mock specs `arfan-convert-lead-step-2` (3 cases) and `-step-3` (1 case) already fail on main (they expect every card and a highlight on step 2); not changed here.
-- [ ] L4 to L8, L10 to L14: after the P1s.
+- [x] L4 (P3): the email composer, with fonts, sizes, images and a saved signature with the logo. Contract #1042, API #1044 and web #1049 are merged.
+- [x] L5 (P2): the tag picker for leads and clients. Contract #1048 and API #1050 are merged; the web PR is #1058.
+- [x] L6 (P3): Add New Tag. Branch `rasel/R55-tags-add`, stacked on #1058; open its PR when a slot frees.
+- [ ] L7 (P3): Create Campaign. The API PR is #1059. The web is on branch `rasel/R55-leads-campaign-web`, stacked on L6 and #1059.
+- [ ] L8 (P3): several follow-ups. It waits for the schema request, issue #1051 (`lead_follow_ups`, R0).
+- [ ] L10 to L14: next, in order.
 
+## L4: the email composer (Oct 23)
+
+- **Reproduced on main:** the lead email was plain text from start to finish (a textarea, `body` escaped into one paragraph). `message_signatures` existed but nothing read or wrote it, and nothing could store an email image.
+- **Decided (Rasel, Oct 23):**
+  - font, size and image controls go into `packages/ui`'s RichTextEditor as opt-in props;
+  - inline images use a public URL under the firm's portal, not CID attachments, so there's no transport or infra change;
+  - the signature is per member;
+  - L4 comes before the P2s.
+- **Contract #1042, API #1044** (stacked on #1042):
+  - the HTML cleaner `notify/email-html.ts`;
+  - `GET`/`PUT /business/me/message-signature`;
+  - `POST /business/leads/messages/images` and `/confirm`;
+  - the public `GET /portal/{slug}/email-images/{id}.{ext}`;
+  - `html` on Send Email.
+- **Web** (`rasel/R55-leads-email-web`, stacked on #1044):
+  - Font and Size menus, bold and italic, image upload, then click the image to set its width (24 to 600 px), place it left, centre or right, or remove it; no link button;
+  - the saved signature sits under a new email and can be created, edited, given the firm's logo, or inserted again;
+  - `body` is the plain form of the same message.
+- **Live, Oct 23 (local API, web, Mailpit, owner@lvp.test):**
+  - the delivered email kept Georgia 20 px bold, italic, the image centred at 200 px (loaded from its public address) and the signature with the LVP logo;
+  - the text part had each line;
+  - the activity says "Email sent: <subject>".
+  - Screenshots: `apps/web/e2e/mock/r55-screenshots/leads/email-*.png`.
 ## L5 and L6: tags (Oct 24)
 
 - **Reproduced on main:**
@@ -40,6 +68,22 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
   - live: a name in another case is the same tag, and the counts follow.
 - **Web, L6** (`rasel/R55-tags-add`, stacked on L5): Add New Tag beside Add New Lead (Owner and Admin) adds to the one list and shows where each tag is used.
 - `r23-client-record` (4 cases) already fails on main without these changes; not changed here.
+
+## L7: campaigns (Oct 24)
+
+- **Reproduced on main:** Leads campaigns were a stub, with no column or table. Options left them out, `campaignId` was refused, the bulk action skipped every lead, and the filter matched nothing.
+- **Decided (Rasel, Oct 24):**
+  - the Communications builder in a panel, with Leads' campaigns wired to Communications;
+  - a wide `Drawer` (`size="wide"`) in `packages/ui`.
+- **API #1059:**
+  - A lead's campaign is a Communications email or text campaign. The lead is in it when it is in the audience (`communication_audience_entries`, kind LEAD).
+  - Two new public methods on `CommunicationsService`, `campaignRefs` and `addLeadsToAudience`, keep Communications' own rules (write permission, visibility, editable, reach).
+  - Nothing is sent.
+- **Web** (`rasel/R55-leads-campaign-web`):
+  - Create Campaign sits between Add New Tag and Add New Lead.
+  - Email or Text starts a draft, and the composer opens in its embedded mode in a wide panel.
+  - Closing the panel keeps the filters and selection.
+  - Mock spec `r55-create-campaign` (2).
 
 ## Decisions
 

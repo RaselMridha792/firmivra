@@ -828,7 +828,11 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     },
     addAttachment: async (id, body) => {
       await mockDelay();
-      return copy(attach(find(id), body));
+      // As the API: attaching changes the task's version.
+      const t = find(id);
+      const row = attach(t, body);
+      touch(t);
+      return copy(row);
     },
     updateAttachment: async (id, attachmentId, body) => {
       await mockDelay();
