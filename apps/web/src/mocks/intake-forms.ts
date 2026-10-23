@@ -5,11 +5,13 @@ import {
   type AssignedFormRecord,
   type AssignedFormRow,
   AssignedFormsQuery,
+  beginOnlinePageUrl,
   FORM_CATEGORY_LABELS,
   type FormCategory,
   INTAKE_FILE_SIZE_CHOICES,
   INTAKE_FORMS,
   type IntakeFormDetail,
+  type IntakeFormKey,
   type IntakeFormsClient,
   IntakeFormsQuery,
   type IntakeSettings,
@@ -17,6 +19,7 @@ import {
   type IntakeView,
   type MemberRef,
   parseInput,
+  publicEmbedCode,
   RequestIntakeCorrectionRequest,
   ResetIntakeSettingsRequest,
   SaveIntakeFormRequest,
@@ -29,23 +32,27 @@ import {
 import { mockDelay } from '../lib/mock';
 import { mockIntakeAnswers } from './intake-forms-answers';
 
-/** The categories with a mock service: the six of the built-in forms' service kinds. */
-const MOCK_SERVICE_CATEGORIES: FormCategory[] = [
-  'PERSONAL_TAX',
-  'BUSINESS_TAX',
-  'BOOKKEEPING',
-  'PAYROLL',
-  'TAX_PLANNING',
-  'ADVISORY',
-];
+/** The categories with a mock service, and the service kind (one of the built-in forms' six). */
+const KIND_OF_CATEGORY: Partial<Record<FormCategory, IntakeFormKey>> = {
+  PERSONAL_TAX: 'ANNUAL_TAX',
+  BUSINESS_TAX: 'QUARTERLY_TAX',
+  BOOKKEEPING: 'BOOKKEEPING',
+  PAYROLL: 'PAYROLL',
+  TAX_PLANNING: 'TAX_PLANNING',
+  ADVISORY: 'BUSINESS_DEVELOPMENT',
+};
+/** The mock firm offers every service on Begin Online but this one (a HIDDEN link). */
+const MOCK_NOT_ON_BEGIN_ONLINE: IntakeFormKey = 'BUSINESS_DEVELOPMENT';
+const PORTAL = process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? 'http://portal.localhost:3000';
 
 /**
  * Mock data for `api.intakeForms` (R43 contract, the Intake Forms workspace). Synthetic people
  * only. One store behind the dashboard, the builder, the library and settings, so a form sent
  * from Send Intake Form shows in the table and its record. Same input checks and codes as the
- * API: sending a form the recipient already has open is 409 FORM_ALREADY_OPEN; a published form
- * cannot be saved (409 FORM_PUBLISHED); publishing a form with an empty choice question is 400
- * FORM_INCOMPLETE; PORTAL to a lead is 409 PORTAL_UNAVAILABLE. Staff see only their own forms
+ * API: sending a form the recipient already has open is 409 FORM_ALREADY_OPEN; saving a published
+ * form makes its next draft version (the published one stays live); publishing a form with an empty choice question is 400
+ * FORM_INCOMPLETE; PORTAL to a lead is 409 PORTAL_UNAVAILABLE; only a service's main form (its
+ * first template here) has a public link, its Begin Online page. Staff see only their own forms
  * and cannot change settings. `empty: true` (NEXT_PUBLIC_API_MOCK_EMPTY=intakeForms) starts with
  * no sent forms and only the starter templates.
  */
@@ -76,6 +83,8 @@ interface Store {
   settings: IntakeSettings;
   changes: { id: string; at: string; label: string; by: string | null }[];
   idempotent: Map<string, string>;
+  /** The forms with a published version: a new draft version over it keeps it live (as the API). */
+  live: Set<string>;
   next: number;
 }
 
@@ -158,7 +167,7 @@ function seed(empty: boolean): Store {
   // One service per category, as each real form belongs to one of the firm's services (Client
   // Onboarding has no service kind, so its sample form has none).
   const serviceOf = (category: FormCategory) => {
-    const at = MOCK_SERVICE_CATEGORIES.indexOf(category);
+    const at = Object.keys(KIND_OF_CATEGORY).indexOf(category);
     return at < 0
       ? null
       : { id: uuid('5e00', at + 1), name: `${FORM_CATEGORY_LABELS[category]} service` };
@@ -354,6 +363,7 @@ function seed(empty: boolean): Store {
           },
         ],
     idempotent: new Map(),
+    live: new Set(forms.map((f) => f.id)),
     next: 100,
   };
 }
@@ -740,7 +750,11 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       await mockDelay();
       const q = parseInput(IntakeFormsQuery, query);
       const search = q.search?.toLowerCase() ?? '';
+      // As the API's list: a form with a published version shows it, even under a new draft.
+      const shown = (f: IntakeFormDetail) =>
+        f.status === 'DRAFT' && s.live.has(f.id) ? { ...f, status: 'PUBLISHED' as const } : f;
       const rows = s.forms
+        .map(shown)
         .filter((f) => q.templates === 'all' || String(f.isTemplate) === q.templates)
         .filter((f) => !q.category || f.category === q.category)
         .filter((f) => !q.status || f.status === q.status)
@@ -851,8 +865,13 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       managers();
       const input = parseInput(SaveIntakeFormRequest, body);
       const f = findForm(id);
-      if (f.status === 'PUBLISHED')
-        throw fail(409, 'FORM_PUBLISHED', 'A published form cannot be edited: duplicate it');
+      if (f.status === 'RETIRED') throw fail(409, 'INVALID_STATUS', 'This form is archived');
+      // As the API: a published version stays as it is; the changes are the next draft version.
+      if (f.status === 'PUBLISHED') {
+        f.version += 1;
+        f.status = 'DRAFT';
+        f.publishedAt = null;
+      }
       f.name = input.name;
       f.category = input.category;
       f.description = input.description ?? null;
@@ -891,6 +910,7 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       if (f.sections.length === 0) throw fail(400, 'FORM_INCOMPLETE', 'Add at least one section');
       f.status = 'PUBLISHED';
       f.publishedAt = new Date().toISOString();
+      s.live.add(f.id);
       return copy(f);
     },
     duplicateForm: async (id, asTemplate = false) => {
@@ -918,7 +938,24 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       managers();
       const f = findForm(id);
       f.status = 'RETIRED';
+      s.live.delete(f.id);
       return copy(f);
+    },
+    publicLink: async (id) => {
+      await mockDelay();
+      const f = findForm(id);
+      const kind = KIND_OF_CATEGORY[f.category];
+      const open = (x: IntakeFormDetail) => x.isTemplate && x.status !== 'RETIRED';
+      const main = s.forms.find((x) => open(x) && x.service && x.service.id === f.service?.id);
+      if (!kind || main !== f) throw fail(404, 'NOT_FOUND', 'Not found');
+      const url = beginOnlinePageUrl(PORTAL, 'lvp', kind);
+      return {
+        kind: 'INTAKE_FORM',
+        itemId: f.id,
+        url,
+        embedCode: publicEmbedCode(url, f.name),
+        state: !s.live.has(f.id) ? 'DRAFT' : kind === MOCK_NOT_ON_BEGIN_ONLINE ? 'HIDDEN' : 'LIVE',
+      };
     },
 
     settings: async () => {

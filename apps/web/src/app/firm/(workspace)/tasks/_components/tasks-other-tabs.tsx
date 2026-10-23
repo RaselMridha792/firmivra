@@ -2,12 +2,21 @@
 
 import type { TaskSeriesRow, TaskTemplate } from '@firmivra/types';
 import { Badge, Toast } from '@firmivra/ui';
-import { Archive, ArrowCounterClockwise, Copy, Pause, Play, Stop } from '@phosphor-icons/react';
+import {
+  ArrowCounterClockwise,
+  PencilSimple,
+  Pause,
+  Play,
+  Plus,
+  Stop,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { RowMenu } from '../../team/_components/row-menu';
 import { PRIORITY_LABEL, TASKS_KEY, TASK_ERRORS, dayText, shortName } from './task-shared';
 
 const btn =
@@ -146,9 +155,17 @@ export function RecurringTab() {
   );
 }
 
-/** Task Templates: reusable tasks; Use starts a new task from one. */
-export function TemplatesTab() {
+/**
+ * Task Templates: reusable tasks. Use starts a new task from one (a snapshot); Owner and Admin
+ * also Create Task Template and Edit the source (Octavia's C3). Duplicate and Archive sit in the
+ * row's "⋯" menu, as the design's task table has its row actions; Restore on an archived one.
+ * `saved`: the template the editor just saved, named in a confirmation.
+ */
+export function TemplatesTab({ saved }: { saved?: string | undefined }) {
+  const { role } = useFirm();
+  const manages = role === 'OWNER' || role === 'ADMIN';
   const [status, setStatus] = useState<'active' | 'archived'>('active');
+  const [savedSeen, setSavedSeen] = useState(false);
   const list = useApiQuery([...TASKS_KEY, 'templates', status], () =>
     api.taskWork.templates({ status }),
   );
@@ -165,25 +182,45 @@ export function TemplatesTab() {
     : list.isError
       ? 'Templates are not available right now.'
       : status === 'active'
-        ? 'No templates yet. Use "Save as Template" on a task to make one.'
+        ? manages
+          ? 'No templates yet. Create one, or use Save as Template on a task.'
+          : 'No templates yet. An Owner or an Admin creates them.'
         : 'No archived templates.';
+  const savedRow = saved && !savedSeen ? rows.find((t) => t.id === saved) : undefined;
   return (
     <div className="flex min-w-0 flex-col gap-3" data-testid="templates-tab">
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
+      ) : savedRow ? (
+        <Toast
+          message={`${savedRow.name} saved. Use starts a task from it.`}
+          tone="success"
+          onDismiss={() => setSavedSeen(true)}
+        />
       ) : null}
-      <div role="group" aria-label="Template status" className="flex gap-2">
-        {(['active', 'archived'] as const).map((s) => (
-          <button
-            key={s}
-            type="button"
-            aria-pressed={status === s}
-            onClick={() => setStatus(s)}
-            className={`min-h-9 rounded-pill px-4 text-sm font-medium ${status === s ? 'bg-navigation text-on-action' : 'bg-table-head text-text hover:bg-folder-surface'}`}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div role="group" aria-label="Template status" className="flex gap-2">
+          {(['active', 'archived'] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              aria-pressed={status === s}
+              onClick={() => setStatus(s)}
+              className={`min-h-9 rounded-pill px-4 text-sm font-medium ${status === s ? 'bg-navigation text-on-action' : 'bg-table-head text-text hover:bg-folder-surface'}`}
+            >
+              {s === 'active' ? 'Active' : 'Archived'}
+            </button>
+          ))}
+        </div>
+        {manages ? (
+          <Link
+            href="/tasks/templates/new"
+            data-testid="create-template"
+            className="inline-flex min-h-10 items-center gap-2 rounded-control bg-action px-4 text-sm font-medium text-on-action hover:bg-action-hover"
           >
-            {s === 'active' ? 'Active' : 'Archived'}
-          </button>
-        ))}
+            <Plus aria-hidden weight="bold" className="size-4" /> Create Task Template
+          </Link>
+        ) : null}
       </div>
       {rows.length === 0 ? (
         <p className={quiet}>{state}</p>
@@ -209,8 +246,10 @@ export function TemplatesTab() {
                   </td>
                   <td className="px-3 py-2 text-text">{t.type?.name ?? '—'}</td>
                   <td className="px-3 py-2 text-text">{PRIORITY_LABEL[t.priority]}</td>
-                  <td className="px-3 py-2 text-text">{t.checklist.length} items</td>
                   <td className="px-3 py-2 text-text">
+                    {t.checklist.length} item{t.checklist.length === 1 ? '' : 's'}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap text-text">
                     {t.dueOffsetDays === null ? '—' : `${t.dueOffsetDays} days after`}
                   </td>
                   <td className="px-3 py-2">
@@ -223,32 +262,34 @@ export function TemplatesTab() {
                           >
                             Use<span className="sr-only"> {t.name}</span>
                           </Link>
-                          <button
-                            type="button"
-                            className={btn}
-                            onClick={() =>
-                              duplicate.mutate(t.id, {
-                                onSuccess: done('Template duplicated.'),
-                                onError: fail,
-                              })
-                            }
-                          >
-                            <Copy aria-hidden weight="fill" className="size-4" /> Duplicate
-                            <span className="sr-only"> {t.name}</span>
-                          </button>
-                          <button
-                            type="button"
-                            className={`${btn} text-danger`}
-                            onClick={() =>
-                              archive.mutate(t.id, {
-                                onSuccess: done(`${t.name} archived.`),
-                                onError: fail,
-                              })
-                            }
-                          >
-                            <Archive aria-hidden weight="fill" className="size-4" /> Archive
-                            <span className="sr-only"> {t.name}</span>
-                          </button>
+                          {manages ? (
+                            <Link href={`/tasks/templates/${t.id}/edit`} className={btn}>
+                              <PencilSimple aria-hidden weight="fill" className="size-4" /> Edit
+                              <span className="sr-only"> {t.name}</span>
+                            </Link>
+                          ) : null}
+                          <RowMenu
+                            label={`More actions for ${t.name}`}
+                            items={[
+                              {
+                                label: 'Duplicate',
+                                onSelect: () =>
+                                  duplicate.mutate(t.id, {
+                                    onSuccess: done('Template duplicated.'),
+                                    onError: fail,
+                                  }),
+                              },
+                              {
+                                label: 'Archive',
+                                danger: true,
+                                onSelect: () =>
+                                  archive.mutate(t.id, {
+                                    onSuccess: done(`${t.name} archived.`),
+                                    onError: fail,
+                                  }),
+                              },
+                            ]}
+                          />
                         </>
                       ) : (
                         <button

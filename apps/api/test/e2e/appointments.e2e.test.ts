@@ -2357,3 +2357,231 @@ describe('#108 review', () => {
     );
   });
 });
+
+describe('meeting methods (A1)', () => {
+  const detailsOf = (res: Response) =>
+    (res.body as { error?: { details?: { path: string; message: string }[] } }).error?.details;
+  const notOffered = [
+    {
+      path: 'locationKind',
+      message: 'This appointment type is not offered that way. Choose another method.',
+    },
+  ];
+  const stored = (id: string) =>
+    asOwner(ids.firmA, (tx) =>
+      tx.appointmentType.findUniqueOrThrow({
+        where: { id },
+        select: { locationKind: true, meetingMethods: true },
+      }),
+    );
+
+  it('creates with two or three methods in order, the first being the location kind', async () => {
+    const two = await createType({
+      name: `Two ways ${run}`,
+      durationMinutes: 30,
+      methods: ['PHONE', 'VIDEO'],
+    });
+    expect([two.locationKind, two.methods]).toEqual(['PHONE', ['PHONE', 'VIDEO']]);
+    const three = await createType(
+      {
+        name: `Three ways ${run}`,
+        durationMinutes: 30,
+        locationKind: 'IN_PERSON',
+        methods: ['IN_PERSON', 'VIDEO', 'PHONE'],
+      },
+      people.adminA,
+    );
+    expect(await stored(three.id)).toEqual({
+      locationKind: 'IN_PERSON',
+      meetingMethods: ['IN_PERSON', 'VIDEO', 'PHONE'],
+    });
+    // A type with one method, as before.
+    expect(consult.methods).toEqual(['VIDEO']);
+    const list = exact(AppointmentTypeList, await call('get', '/appointment-types', people.staffA));
+    const byId = new Map(list.items.map((t) => [t.id, t.methods]));
+    expect([byId.get(two.id), byId.get(three.id), byId.get(review.id)]).toEqual([
+      ['PHONE', 'VIDEO'],
+      ['IN_PERSON', 'VIDEO', 'PHONE'],
+      ['IN_PERSON'],
+    ]);
+    const audit = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { businessId: ids.firmA, action: 'appointment_type.created', entityId: two.id },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit.metadata).toEqual({ fields: ['durationMinutes', 'methods', 'name'] });
+  });
+
+  it('updates the methods; the location kind alone moves to the front and keeps the others', async () => {
+    const t = await createType({ name: `Changing ways ${run}`, durationMinutes: 30 });
+    const patch = async (body: object) =>
+      exact(
+        AppointmentType,
+        await call('patch', `/appointment-types/${t.id}`, people.ownerA, body),
+      );
+    expect(await patch({ methods: ['VIDEO', 'IN_PERSON', 'PHONE'] })).toMatchObject({
+      locationKind: 'VIDEO',
+      methods: ['VIDEO', 'IN_PERSON', 'PHONE'],
+    });
+    expect(await patch({ locationKind: 'PHONE' })).toMatchObject({
+      locationKind: 'PHONE',
+      methods: ['PHONE', 'VIDEO', 'IN_PERSON'],
+    });
+    expect(await patch({ methods: ['IN_PERSON'] })).toMatchObject({
+      locationKind: 'IN_PERSON',
+      methods: ['IN_PERSON'],
+    });
+    // A location kind the type did not offer becomes its first method.
+    expect(await patch({ locationKind: 'VIDEO' })).toMatchObject({
+      locationKind: 'VIDEO',
+      methods: ['VIDEO', 'IN_PERSON'],
+    });
+    expect(await patch({ locationKind: 'PHONE', methods: ['PHONE', 'VIDEO'] })).toMatchObject({
+      locationKind: 'PHONE',
+      methods: ['PHONE', 'VIDEO'],
+    });
+    // The same methods again change nothing.
+    expect((await patch({ methods: ['PHONE', 'VIDEO'] })).methods).toEqual(['PHONE', 'VIDEO']);
+    expect(await stored(t.id)).toEqual({
+      locationKind: 'PHONE',
+      meetingMethods: ['PHONE', 'VIDEO'],
+    });
+    const audit = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, action: 'appointment_type.updated', entityId: t.id },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { metadata: true },
+      }),
+    );
+    expect(audit.map((a) => a.metadata)).toEqual([
+      { fields: ['methods'] },
+      { fields: ['locationKind'] },
+      { fields: ['methods'] },
+      { fields: ['locationKind'] },
+      { fields: ['locationKind', 'methods'] },
+    ]);
+  });
+
+  it('refuses a repeat, a fourth, Other or a location kind that is not the first, at the exact field', async () => {
+    const t = await createType({
+      name: `Kept ways ${run}`,
+      durationMinutes: 30,
+      methods: ['VIDEO', 'PHONE'],
+    });
+    const cases: [string, string, object, { path: string; message: string }[]][] = [
+      [
+        'post',
+        '/appointment-types',
+        { name: `Repeat ${run}`, durationMinutes: 30, methods: ['VIDEO', 'VIDEO'] },
+        [{ path: 'methods.1', message: 'This meeting method is already chosen' }],
+      ],
+      [
+        'patch',
+        `/appointment-types/${t.id}`,
+        { methods: ['PHONE', 'VIDEO', 'IN_PERSON', 'PHONE'] },
+        [{ path: 'methods.3', message: 'Choose at most 3 meeting methods' }],
+      ],
+      [
+        'patch',
+        `/appointment-types/${t.id}`,
+        { methods: ['OTHER'] },
+        [{ path: 'methods.0', message: 'Choose in person, phone or video' }],
+      ],
+      [
+        'patch',
+        `/appointment-types/${t.id}`,
+        { methods: [] },
+        [{ path: 'methods', message: 'Choose at least one meeting method' }],
+      ],
+      [
+        'patch',
+        `/appointment-types/${t.id}`,
+        { locationKind: 'IN_PERSON', methods: ['PHONE', 'IN_PERSON'] },
+        [{ path: 'locationKind', message: 'The location kind is the first meeting method' }],
+      ],
+    ];
+    for (const [method, path, body, details] of cases) {
+      const res = await call(method as 'post' | 'patch', path, people.ownerA, body);
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(detailsOf(res), JSON.stringify(body)).toEqual(details);
+    }
+    expect(await stored(t.id)).toEqual({
+      locationKind: 'VIDEO',
+      meetingMethods: ['VIDEO', 'PHONE'],
+    });
+  });
+
+  it('books in one of the type’s methods (its first by default), kept as the location kind', async () => {
+    const t = await createType({
+      name: `Book ways ${run}`,
+      durationMinutes: 30,
+      methods: ['PHONE', 'IN_PERSON'],
+    });
+    const base = { clientId: ids.c3, staffUserId: people.adminA.id, typeId: t.id };
+    for (const who of [people.ownerA, people.staffA]) {
+      const res = await call('post', '/appointments', who, {
+        ...base,
+        clientId: ids.c1,
+        startsAt: at(41, '09:00'),
+        locationKind: 'VIDEO',
+      });
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(detailsOf(res)).toEqual(notOffered);
+    }
+    const first = await book({ ...base, startsAt: at(41, '10:00') });
+    expect(first.locationKind).toBe('PHONE');
+    const chosen = await book({ ...base, startsAt: at(41, '11:00'), locationKind: 'IN_PERSON' });
+    expect(chosen.locationKind).toBe('IN_PERSON');
+    const rows = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findMany({
+        where: { businessId: ids.firmA, typeId: t.id },
+        select: { id: true, locationKind: true },
+        orderBy: { startsAt: 'asc' },
+      }),
+    );
+    expect(rows.map((r) => [r.id, r.locationKind])).toEqual([
+      [first.id, 'PHONE'],
+      [chosen.id, 'IN_PERSON'],
+    ]);
+  });
+
+  it('changes an appointment’s method only to one its type offers; a type change keeps appointments', async () => {
+    const t = await createType({
+      name: `Edit ways ${run}`,
+      durationMinutes: 30,
+      methods: ['VIDEO', 'PHONE'],
+    });
+    const a = await book({
+      clientId: ids.c3,
+      staffUserId: people.adminA.id,
+      typeId: t.id,
+      startsAt: at(42, '10:00'),
+      locationKind: 'PHONE',
+    });
+    const edit = (body: object) => call('patch', `/appointments/${a.id}`, people.ownerA, body);
+    const refused = await edit({ locationKind: 'IN_PERSON' });
+    expectError(refused, 400, 'VALIDATION_FAILED');
+    expect(detailsOf(refused)).toEqual(notOffered);
+    expect(exact(Appointment, await edit({ locationKind: 'VIDEO' })).locationKind).toBe('VIDEO');
+    expect(exact(Appointment, await edit({ locationKind: 'PHONE' })).locationKind).toBe('PHONE');
+    // The type stops offering phone: the appointment keeps it, and its details still change.
+    exact(
+      AppointmentType,
+      await call('patch', `/appointment-types/${t.id}`, people.ownerA, { methods: ['VIDEO'] }),
+    );
+    expect((await detail(a.id)).locationKind).toBe('PHONE');
+    const details = exact(Appointment, await edit({ locationDetails: '555-0100 (fake)' }));
+    expect([details.locationKind, details.locationDetails]).toEqual(['PHONE', '555-0100 (fake)']);
+    // A new time keeps it too.
+    const moved = exact(
+      Appointment,
+      await call('post', `/appointments/${a.id}/reschedule`, people.ownerA, {
+        startsAt: at(42, '11:00'),
+      }),
+    );
+    expect(moved.locationKind).toBe('PHONE');
+    const back = await edit({ locationKind: 'IN_PERSON' });
+    expectError(back, 400, 'VALIDATION_FAILED');
+  });
+});

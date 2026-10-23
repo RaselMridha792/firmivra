@@ -443,6 +443,86 @@ describe('create and read a task', () => {
   });
 });
 
+// Octavia's Tasks review (Oct 21), C1 and C2: a task saves without a type or a template, and
+// each save makes one task. The bodies are what Create Task sends.
+describe('saving from Create Task', () => {
+  const form = (title: string) => ({
+    clientId: clients.c1,
+    title,
+    details: 'Synthetic task for the review retest.',
+    dueOn: '2027-03-02',
+    assignedUserId: people.staffA.id,
+    typeId: null,
+    priority: 'HIGH',
+    progress: 'NOT_STARTED',
+    serviceId: null,
+    startOn: null,
+    allDay: true,
+    dueTime: null,
+    clientVisible: false,
+    internalNotes: '',
+    blockedReason: '',
+    additionalAssigneeIds: [],
+    dependsOnTaskId: null,
+    reminders: [],
+    checklist: [],
+  });
+  const found = async (title: string) =>
+    TaskOverviewPage.parse(
+      ok(
+        await call(
+          'get',
+          `/tasks/overview?view=all&pageSize=100&search=${encodeURIComponent(title)}`,
+          people.ownerA,
+        ),
+      ),
+    ).items.map((t) => t.id);
+
+  it('saves without a type or a template, reads back the same, and makes one task', async () => {
+    const title = mark('No type or template');
+    const made = await create(form(title));
+    expect(made).toMatchObject({
+      title,
+      type: null,
+      priority: 'HIGH',
+      progress: 'NOT_STARTED',
+      dueOn: '2027-03-02',
+      assignedTo: { userId: people.staffA.id },
+    });
+    expect(await get(made.id)).toEqual(made);
+    expect(await found(title)).toEqual([made.id]);
+
+    // Edit saves into the same task.
+    const renamed = await patch(made.id, { version: made.version, title: `${title} v2` });
+    expect(renamed.id).toBe(made.id);
+    expect(await found(title)).toEqual([made.id]);
+  });
+
+  it('saves from a template once, with its defaults', async () => {
+    const tpl = ok(
+      await call('post', '/task-templates', people.ownerA, {
+        name: mark('Review template'),
+        priority: 'LOW',
+        checklist: [{ label: 'Collect the statements', required: true }],
+      }),
+      201,
+    ) as { id: string };
+    const title = mark('From a template');
+    const made = await create({
+      ...form(title),
+      templateId: tpl.id,
+      priority: 'LOW',
+      checklist: [{ label: 'Collect the statements', required: true }],
+    });
+    expect(made).toMatchObject({ title, type: null, priority: 'LOW' });
+    expect(made.checklistItems.map((c) => [c.label, c.required])).toEqual([
+      ['Collect the statements', true],
+    ]);
+    expect(await get(made.id)).toEqual(made);
+    expect(await found(title)).toEqual([made.id]);
+  });
+});
+
 describe('change a task', () => {
   it('changes only what is sent, clears with null, and guards a stale save', async () => {
     const t = await create({

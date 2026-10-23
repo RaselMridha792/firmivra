@@ -100,6 +100,8 @@ export const cases: CaseModule['cases'] = {
     },
   },
   'GET /api/v1/business/intake-forms/:id': { params: { id: 'intakeTemplate' } },
+  // A main form's public link (I3): firm B's id is 404 like any other form's.
+  'GET /api/v1/business/intake-forms/:id/public-link': { params: { id: 'intakeTemplate' } },
 
   // The builder.
   'POST /api/v1/business/intake-forms': {

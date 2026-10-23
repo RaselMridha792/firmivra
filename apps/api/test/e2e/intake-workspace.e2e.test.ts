@@ -11,6 +11,7 @@ import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   AssignedFormPage,
+  beginOnlinePageUrl,
   IntakeDashboardSummary,
   IntakeFormDetail,
   IntakeFormLibrarySummary,
@@ -19,6 +20,8 @@ import {
   IntakeSettingsChangeList,
   INTAKE_FORMS,
   INTAKE_MAX_FILE_SIZE_MB,
+  publicEmbedCode,
+  PublicLink,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -42,6 +45,8 @@ type Who = (typeof people)[keyof typeof people];
 const firms = {} as Record<'a' | 'b', string>;
 
 let app: INestApplication;
+/** The portal site from config, as the public links use it. */
+let portal = '';
 const tokens = new Map<string, string>();
 let viewers = 0;
 const viewer = () => `198.63.${100 + Math.floor(++viewers / 250)}.${viewers % 250}, 10.0.0.5`;
@@ -222,6 +227,7 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
+  portal = env.PORTAL_BASE_URL;
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
     .overrideProvider(NOTIFY_SERVICE)
     .useValue({
@@ -706,8 +712,128 @@ describe('the settings', () => {
   });
 });
 
+describe('the public link (I3)', () => {
+  const fixture = (key: 'template' | 'service') => {
+    const id = ids[key];
+    if (!id) throw new Error(`the ${key} fixture is missing`);
+    return id;
+  };
+  const linkOf = async (id: string, who: Who = ownerA) =>
+    PublicLink.parse(ok(await call('get', `/intake-forms/${id}/public-link`, who)));
+  const setService = (
+    id: string,
+    data: { beginOnline?: boolean; status?: 'ACTIVE' | 'INACTIVE'; archivedAt?: Date | null },
+  ) => inFirm('a', (tx) => tx.service.update({ where: { id }, data, select: { id: true } }));
+  /** A service with one form; the database makes its default template. */
+  const serviceWithForm = (
+    kind: 'ANNUAL_TAX' | 'BOOKKEEPING' | 'TAX_PLANNING' | 'OTHER',
+    status: 'PUBLISHED' | 'DRAFT',
+    beginOnline = false,
+  ) =>
+    inFirm('a', async (tx) => {
+      const service = await tx.service.create({
+        data: { businessId: firms.a, kind, name: `${kind} ${run}`, status: 'ACTIVE', beginOnline },
+        select: { id: true },
+      });
+      const form = await tx.intakeForm.create({
+        data: {
+          businessId: firms.a,
+          serviceId: service.id,
+          version: 1,
+          title: `${kind} Intake`,
+          definition: (INTAKE_FORMS[kind === 'OTHER' ? 'ANNUAL_TAX' : kind] ?? {}) as object,
+          status,
+          publishedAt: status === 'PUBLISHED' ? new Date() : null,
+        },
+        select: { templateId: true },
+      });
+      return { service: service.id, template: form.templateId as string };
+    });
+
+  it("is the main form's Begin Online page, and its state follows the service", async () => {
+    const url = beginOnlinePageUrl(portal, `r55i-a-${run}`, 'ANNUAL_TAX');
+    // Not on Begin Online (the service is made with it off).
+    const hidden = await linkOf(fixture('template'));
+    expect(hidden).toEqual({
+      kind: 'INTAKE_FORM',
+      itemId: fixture('template'),
+      url,
+      embedCode: publicEmbedCode(url, 'Annual Tax Intake'),
+      state: 'HIDDEN',
+    });
+    expect(url).toMatch(/\/begin\/annual-tax$/);
+    // Every member who can open the form reads it; nothing is written.
+    expect(await linkOf(fixture('template'), staffA)).toEqual(hidden);
+
+    await setService(fixture('service'), { beginOnline: true });
+    expect((await linkOf(fixture('template'))).state).toBe('LIVE');
+    await setService(fixture('service'), { status: 'INACTIVE' });
+    expect((await linkOf(fixture('template'))).state).toBe('INACTIVE');
+    await setService(fixture('service'), { status: 'ACTIVE', archivedAt: new Date() });
+    expect((await linkOf(fixture('template'))).state).toBe('ARCHIVED');
+    await setService(fixture('service'), { beginOnline: false, archivedAt: null });
+    expect((await linkOf(fixture('template'))).state).toBe('HIDDEN');
+
+    // A main form with no published version yet.
+    const draft = await serviceWithForm('TAX_PLANNING', 'DRAFT', true);
+    const planning = await linkOf(draft.template);
+    expect(planning).toMatchObject({
+      state: 'DRAFT',
+      url: expect.stringMatching(/\/begin\/tax-planning$/),
+    });
+  });
+
+  it('is only for a main form whose page is its own', async () => {
+    // Another form of the same service: no page of its own.
+    const copy = IntakeFormDetail.parse(
+      ok(await call('post', `/intake-forms/${ids.template}/duplicate`, ownerA, {}), 201),
+    );
+    expectError(
+      await call('get', `/intake-forms/${copy.id}/public-link`, ownerA),
+      404,
+      'NOT_FOUND',
+    );
+    // A service of no Begin Online kind.
+    const other = await serviceWithForm('OTHER', 'PUBLISHED');
+    expectError(
+      await call('get', `/intake-forms/${other.template}/public-link`, ownerA),
+      404,
+      'NOT_FOUND',
+    );
+    // Archived, a form is no longer its service's main form.
+    const books = await serviceWithForm('BOOKKEEPING', 'PUBLISHED');
+    expect((await linkOf(books.template)).state).toBe('HIDDEN');
+    ok(await call('post', `/intake-forms/${books.template}/archive`, ownerA, {}));
+    expectError(
+      await call('get', `/intake-forms/${books.template}/public-link`, ownerA),
+      404,
+      'NOT_FOUND',
+    );
+    // The kind's page belongs to another service of the firm: only that one has the link.
+    const second = await serviceWithForm('ANNUAL_TAX', 'PUBLISHED', true);
+    expect((await linkOf(second.template)).state).toBe('LIVE');
+    expectError(
+      await call('get', `/intake-forms/${ids.template}/public-link`, ownerA),
+      404,
+      'NOT_FOUND',
+    );
+    await setService(second.service, { archivedAt: new Date() });
+    expect((await linkOf(fixture('template'))).state).toBe('HIDDEN');
+    expectError(
+      await call('get', `/intake-forms/${randomUUID()}/public-link`, ownerA),
+      404,
+      'NOT_FOUND',
+    );
+  });
+});
+
 describe('another firm', () => {
   it('sees none of it', async () => {
+    expectError(
+      await call('get', `/intake-forms/${ids.template}/public-link`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
     expect(
       AssignedFormPage.parse(ok(await call('get', '/intakes', ownerB, undefined, 'b'))).total,
     ).toBe(0);
