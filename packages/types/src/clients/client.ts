@@ -1,5 +1,6 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { FirmSlug, OkResponse } from '../schemas.js';
+import { ClientTags, SetClientTagsRequest } from '../tags/schemas.js';
 import {
   BulkClientsRequest,
   BulkClientsResponse,
@@ -57,6 +58,14 @@ export function createClientsClient(request: ApiRequest) {
         body: parseInput(BulkClientsRequest, body),
       }),
     get: async (id: string): Promise<ClientRecord> => request(ClientRecord, clientPath(id)),
+    /** The client's tags (tags/schemas.ts), by name. */
+    tags: async (id: string): Promise<ClientTags> => request(ClientTags, `${clientPath(id)}/tags`),
+    /** Replace the client's tags. 400 UNKNOWN_TAG: a new name, for a member other than Owner or Admin. */
+    setTags: async (id: string, body: SetClientTagsRequest): Promise<ClientTags> =>
+      request(ClientTags, `${clientPath(id)}/tags`, {
+        method: 'PUT',
+        body: parseInput(SetClientTagsRequest, body),
+      }),
     /** 409 DUPLICATE_EMAIL. Staff: the client is assigned to them. */
     create: async (body: CreateClientRequest): Promise<ClientRecord> =>
       request(ClientRecord, BASE, { method: 'POST', body: parseInput(CreateClientRequest, body) }),

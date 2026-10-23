@@ -3,12 +3,14 @@
 import { LeadMessageRequest as LeadMessageSchema, type LeadMessageRequest } from '@firmivra/types';
 import { Button, Input, Modal, Textarea } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
+import { EmailMessageField } from './lead-email-field';
 import { LEAD_PIPELINE_KEY } from './lead-shared';
-import { MESSAGE_ERRORS, type MessageRecipient, sendSummary } from './lead-message';
+import { htmlToText, MESSAGE_ERRORS, type MessageRecipient, sendSummary } from './lead-message';
 
 export { type MessageRecipient, recipientOf } from './lead-message';
 
@@ -23,14 +25,24 @@ interface LeadMessageDialogProps {
  * Shared single-lead and bulk email/SMS composer (Octavia's Leads review, item 9): it shows who
  * the message goes to, at the saved number or address, before anything is sent, and leaves out a
  * lead with no saved phone for a text. After sending it says how many went and why the others did
- * not, and the refusal when texts are not set up for the firm, in plain words.
+ * not, and the refusal when texts are not set up for the firm, in plain words. An email is
+ * formatted (item 8): fonts, sizes, images and the member's signature (lead-email-field.tsx), sent
+ * as HTML with its plain form as `body`.
  */
 export function LeadMessageDialog({ open, recipients, channel, onClose }: LeadMessageDialogProps) {
   const ids = recipients.map((r) => r.id);
-  const { register, handleSubmit, formState } = useForm<LeadMessageRequest>({
+  const { register, handleSubmit, formState, setValue } = useForm<LeadMessageRequest>({
     resolver: zodResolver(LeadMessageSchema),
     defaultValues: { ids, channel, subject: '', body: '' },
   });
+  // The formatted email and its plain form, as the editor changes (never for a text).
+  const setEmail = useCallback(
+    (html: string) => {
+      setValue('html', html);
+      setValue('body', htmlToText(html));
+    },
+    [setValue],
+  );
   const send = useApiMutation((body: LeadMessageRequest) => api.leadPipeline.message(body), {
     invalidate: LEAD_PIPELINE_KEY,
   });
@@ -105,14 +117,25 @@ export function LeadMessageDialog({ open, recipients, channel, onClose }: LeadMe
         ) : (
           <>
             {sms ? null : <Input label="Subject" maxLength={200} {...register('subject')} />}
-            <Textarea
-              label="Message"
-              required
-              rows={5}
-              maxLength={5000}
-              error={formState.errors.body?.message}
-              {...register('body')}
-            />
+            {sms ? (
+              <Textarea
+                label="Message"
+                required
+                rows={5}
+                maxLength={5000}
+                error={formState.errors.body?.message}
+                {...register('body')}
+              />
+            ) : (
+              <EmailMessageField
+                onChange={setEmail}
+                error={
+                  formState.errors.body?.type === 'too_small'
+                    ? 'Write a message'
+                    : (formState.errors.body?.message ?? formState.errors.html?.message)
+                }
+              />
+            )}
             {reachable.length === 0 ? (
               <p className="text-sm text-muted">
                 None of these leads has a saved phone number. Add one on the lead, or send an email.
