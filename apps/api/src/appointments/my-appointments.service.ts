@@ -40,6 +40,7 @@ import {
 } from './calendar-data.js';
 import { lockAppointment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
 import { errors, isSlotConflict, isStaffConflict } from './errors.js';
+import { typeMethods } from './scheduling-map.js';
 import {
   detailsAfterStaffChange,
   linkOf,
@@ -91,7 +92,8 @@ export function toMine(row: AppointmentRow, now: number): MyAppointment {
  * packages/types/src/appointments). The client comes from the session (TenantGuard's client
  * account), never from the URL. Clients book client-bookable types at free times; the staff
  * member is their assigned one when free, else the free member with the fewest appointments
- * that day. They reschedule or cancel until the type's cutoff (24 hours until R0 adds
+ * that day. They meet in one of the type's meeting methods (A1; its first unless they choose
+ * another). They reschedule or cancel until the type's cutoff (24 hours until R0 adds
  * appointment_types.cancel_cutoff_hours), then 409 CHANGE_WINDOW_CLOSED.
  */
 @Injectable()
@@ -207,14 +209,27 @@ export class MyAppointmentsService {
     return rows.map((r) => toMine(r, now.getTime()));
   }
 
-  /** The firm's client-bookable types that are not archived. */
+  /** The firm's client-bookable types that are not archived, with their meeting methods. */
   async types(businessId: string): Promise<BookableType[]> {
     const rows = await this.database.forBusiness(businessId).appointmentType.findMany({
       where: { businessId, clientBookable: true, archivedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-      select: { id: true, name: true, durationMinutes: true, locationKind: true },
+      select: {
+        id: true,
+        name: true,
+        durationMinutes: true,
+        locationKind: true,
+        meetingMethods: true,
+      },
     });
-    return rows.map((r) => ({ ...r, cancelCutoffHours: DEFAULT_CUTOFF_HOURS }));
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      durationMinutes: r.durationMinutes,
+      locationKind: r.locationKind,
+      methods: typeMethods(r),
+      cancelCutoffHours: DEFAULT_CUTOFF_HOURS,
+    }));
   }
 
   /**
@@ -273,19 +288,21 @@ export class MyAppointmentsService {
       // Only types the client can book (as `types()`); anything else is 404.
       const type = await tx.appointmentType.findFirst({
         where: { businessId, id: body.typeId, clientBookable: true, archivedAt: null },
-        select: { id: true, durationMinutes: true, locationKind: true },
+        select: { id: true, durationMinutes: true, locationKind: true, meetingMethods: true },
       });
       if (!type) throw errors.notFound();
       if (me.archivedAt) throw errors.clientArchivedPortal();
+      // One of the type's meeting methods (A1); its first when the client chose none.
+      const methods = typeMethods(type);
+      const locationKind = body.locationKind ?? methods[0] ?? type.locationKind;
+      if (!methods.includes(locationKind)) throw errors.methodNotOffered('locationKind');
       const start = Date.parse(body.startsAt);
       const slot = { start, end: start + type.durationMinutes * MINUTE };
       endsInCalendar(slot.end);
       const staff = await this.choose(tx, businessId, me, slot, retry);
-      // A VIDEO type gets the chosen staff member's link (R14).
+      // A VIDEO meeting gets the chosen staff member's link (R14).
       const locationDetails =
-        type.locationKind === 'VIDEO'
-          ? await linkOf(this.links, tx, businessId, staff.userId)
-          : null;
+        locationKind === 'VIDEO' ? await linkOf(this.links, tx, businessId, staff.userId) : null;
       await lockForBooking(tx, businessId, staff.userId, me.clientId);
       const created = await tx.appointment.create({
         data: {
@@ -295,7 +312,7 @@ export class MyAppointmentsService {
           typeId: type.id,
           startsAt: new Date(slot.start),
           endsAt: new Date(slot.end),
-          locationKind: type.locationKind,
+          locationKind,
           locationDetails,
           bookedByClient: true,
         },

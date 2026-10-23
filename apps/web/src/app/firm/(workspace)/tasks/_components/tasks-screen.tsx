@@ -14,15 +14,18 @@ import {
   Plus,
   Repeat,
   FileText,
+  Tag,
   Warning,
   ArrowsClockwise,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useDeferredValue, useEffect, useRef, useState } from 'react';
+import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { useClients, useMembers, useTypes } from './task-data';
 import { PriorityPill, StatusPill, TASKS_KEY, dueText } from './task-shared';
+import type { TaskView } from './task-views';
 import { RecurringTab, TemplatesTab } from './tasks-other-tabs';
 import {
   MySummary,
@@ -34,7 +37,7 @@ import {
 import { TaskTable } from './task-table';
 import { BackToWorkflow } from '../../settings/workflow/_components/back-to-workflow';
 
-type Tab = 'mine' | 'all' | 'client' | 'project' | 'recurring' | 'templates' | 'completed';
+type Tab = TaskView;
 const TABS: { id: Tab; label: string }[] = [
   { id: 'mine', label: 'My Tasks' },
   { id: 'all', label: 'All Tasks' },
@@ -46,8 +49,11 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 type KpiFilter = 'pending' | 'progress' | 'overdue' | 'completed' | undefined;
 
-/** The Add Task button with its menu: Add Task, Add Recurring Task, Use a Template. */
-function AddMenu({ onTemplates }: { onTemplates: () => void }) {
+/**
+ * The Add Task button with its menu: Add Task, Add Recurring Task, Use a Template, and for Owner
+ * and Admin Manage Task Types (Octavia's C1: the setup path for the Task Type field).
+ */
+function AddMenu({ onTemplates, manages }: { onTemplates: () => void; manages: boolean }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -106,6 +112,11 @@ function AddMenu({ onTemplates }: { onTemplates: () => void }) {
           >
             <FileText aria-hidden weight="fill" className="size-4" /> Use a Template
           </button>
+          {manages ? (
+            <Link role="menuitem" href="/tasks/types" className={item}>
+              <Tag aria-hidden weight="fill" className="size-4" /> Manage Task Types
+            </Link>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -116,8 +127,18 @@ function AddMenu({ onTemplates }: { onTemplates: () => void }) {
  * /tasks: the overview. KPI cards, seven views, the table, and the right-hand summary widgets.
  * Opened from Settings > Workflow & Automations (`fromWorkflow`), the way back sits by the breadcrumb.
  */
-export function TasksScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }) {
-  const [tab, setTab] = useState<Tab>('mine');
+export function TasksScreen({
+  fromWorkflow = false,
+  view = 'mine',
+  savedTemplate,
+}: {
+  fromWorkflow?: boolean;
+  view?: TaskView;
+  savedTemplate?: string;
+}) {
+  const { role } = useFirm();
+  const manages = role === 'OWNER' || role === 'ADMIN';
+  const [tab, setTab] = useState<Tab>(view);
   const [kpi, setKpi] = useState<KpiFilter>();
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState({
@@ -251,12 +272,13 @@ export function TasksScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }
             <FileText aria-hidden weight="fill" className="size-4" /> Task Templates
           </button>
           <Link
-            href="/modules/automations"
+            href="/automations?category=TASKS&from=tasks"
+            data-testid="tasks-automations"
             className="inline-flex min-h-11 items-center gap-2 rounded-control border border-action bg-surface px-4 text-sm font-medium text-action hover:bg-accent-soft"
           >
             <Lightning aria-hidden weight="fill" className="size-4" /> Automations
           </Link>
-          <AddMenu onTemplates={() => choose('templates')} />
+          <AddMenu onTemplates={() => choose('templates')} manages={manages} />
         </div>
       </header>
 
@@ -290,7 +312,7 @@ export function TasksScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }
           </nav>
 
           {tab === 'recurring' ? <RecurringTab /> : null}
-          {tab === 'templates' ? <TemplatesTab /> : null}
+          {tab === 'templates' ? <TemplatesTab saved={savedTemplate} /> : null}
           {showTable || tab === 'client' || tab === 'project' ? (
             <>
               <form

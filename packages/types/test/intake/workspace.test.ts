@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  beginOnlinePageUrl,
   createIntakeFormsClient,
   createRequest,
   INTAKE_FILE_SIZE_CHOICES,
   INTAKE_MAX_FILE_SIZE_MB,
+  IntakeFormKey,
+  publicEmbedCode,
   SaveIntakeFormRequest,
   SendIntakeFormRequest,
   UpdateIntakeSettingsRequest,
@@ -81,6 +84,44 @@ describe('api.intakeForms', () => {
     // A saved 25 MB is sent back as it is; the API decides which sizes a change may take.
     for (const mb of [...INTAKE_FILE_SIZE_CHOICES, 25]) expect(save(mb)).toBe(true);
     for (const mb of [0, 2.5, INTAKE_MAX_FILE_SIZE_MB + 1]) expect(save(mb)).toBe(false);
+  });
+
+  it("reads a main form's public link: its Begin Online page and embed code (I3)", async () => {
+    const url = beginOnlinePageUrl('https://portal.firmivra.com', 'lvp', 'ANNUAL_TAX');
+    const link = {
+      kind: 'INTAKE_FORM',
+      itemId: id,
+      url,
+      embedCode: publicEmbedCode(url, 'Personal Tax Intake Form'),
+      state: 'LIVE',
+    };
+    const { fn, calls } = fakeFetch(200, link);
+    expect(await client(fn).publicLink(id)).toEqual(link);
+    expect(calls[0]?.url).toBe(`/api/v1/business/intake-forms/${id}/public-link`);
+    await expect(client(fn).publicLink('../summary')).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+    });
+  });
+
+  it("builds each service's Begin Online page on the configured portal host", () => {
+    expect(beginOnlinePageUrl('https://portal.firmivra.com', 'lvp', 'ANNUAL_TAX')).toBe(
+      'https://portal.firmivra.com/lvp/begin/annual-tax',
+    );
+    expect(
+      beginOnlinePageUrl('http://portal.localhost:3000//', 'lvp', 'BUSINESS_DEVELOPMENT'),
+    ).toBe('http://portal.localhost:3000/lvp/begin/business-development');
+    expect(beginOnlinePageUrl('https://p.example', 'a/b', 'QUARTERLY_TAX')).toBe(
+      'https://p.example/a%2Fb/begin/quarterly-tax',
+    );
+    const paths = IntakeFormKey.options.map((k) => beginOnlinePageUrl('https://p.example', 'x', k));
+    expect(paths.map((p) => p.split('/begin/')[1]).sort()).toEqual([
+      'annual-tax',
+      'bookkeeping',
+      'business-development',
+      'payroll',
+      'quarterly-tax',
+      'tax-planning',
+    ]);
   });
 
   it('marks reviewed through R11 complete and reads R11 answers', async () => {
