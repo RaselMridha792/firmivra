@@ -2,7 +2,7 @@
 
 import { ServiceAddOns } from './service-addons';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { CreateCatalogServiceRequest, type CatalogService } from '@firmivra/types';
+import { ApiRequestError, CreateCatalogServiceRequest, type CatalogService } from '@firmivra/types';
 import {
   Button,
   IconButton,
@@ -14,6 +14,7 @@ import {
   Toggle,
 } from '@firmivra/ui';
 import { Gear, Info, Plus, Trash, ArrowUp, ArrowDown } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
@@ -25,7 +26,8 @@ import {
 } from 'react-hook-form';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
-import { errorMessage } from '../../../../../../lib/errors';
+import { errorCode, errorMessage } from '../../../../../../lib/errors';
+import { activationGap, CATALOG_ERRORS } from '../../_components/catalog-shared';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { CatalogHeader, ClientPreview, IconPicker, money, Panel, TextList } from './service-parts';
 
@@ -144,6 +146,33 @@ export function ServiceEditor({
           reset(body);
           router.push('/services-pricing');
         },
+        onError: (error) => {
+          const code = errorCode(error);
+          if (code === 'DUPLICATE_NAME') {
+            form.setError(
+              'name',
+              {
+                message:
+                  'Another service or package already uses this name, possibly a draft (see Drafts). Choose another name.',
+              },
+              { shouldFocus: true },
+            );
+          } else if (code === 'ACTIVATION_INCOMPLETE') {
+            const gap = activationGap(body);
+            if (gap) form.setError(gap.field, { message: gap.message }, { shouldFocus: true });
+          } else if (code === 'CATEGORY_INACTIVE') {
+            form.setError(
+              'categoryId',
+              { message: 'That category is inactive. Choose an active one.' },
+              { shouldFocus: true },
+            );
+          } else if (error instanceof ApiRequestError && error.details?.length) {
+            for (const detail of error.details) {
+              const field = detail.path.split('.')[0] as FieldPath<Values>;
+              if (field in body) form.setError(field, { message: detail.message });
+            }
+          }
+        },
       }),
     )();
   };
@@ -204,6 +233,17 @@ export function ServiceEditor({
                     }
                     data-testid="service-category"
                   />
+                  {categories.data && !categories.data.some((c) => c.status === 'ACTIVE') ? (
+                    <p data-testid="no-categories" className="text-sm text-muted sm:col-span-2">
+                      No active categories yet, so the list is empty.{' '}
+                      <Link
+                        href="/services-pricing/categories"
+                        className="font-medium text-link hover:underline"
+                      >
+                        Add New Category
+                      </Link>
+                    </p>
+                  ) : null}
                   <div>
                     <Textarea
                       label="Short Description *"
@@ -502,7 +542,7 @@ export function ServiceEditor({
           </Panel>
           {save.error ? (
             <p role="alert" data-testid="save-error" className="text-sm text-danger">
-              {errorMessage(save.error)}
+              {errorMessage(save.error, CATALOG_ERRORS)}
             </p>
           ) : null}
           {Object.keys(errors).length ? (

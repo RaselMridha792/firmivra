@@ -21,6 +21,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { CustomRolesService } from './custom-roles.service.js';
 import { PermissionGrantsService } from './permission-grants.service.js';
 import { CAPABILITY_INFO, MODULE_INFO, ROLE_DESCRIPTIONS } from './roles-catalog.js';
 import type { SaveRoleBody } from './roles-input.js';
@@ -48,6 +49,7 @@ export class RolesService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly grants: PermissionGrantsService,
     private readonly audit: AuditService,
+    private readonly custom: CustomRolesService,
   ) {}
 
   /**
@@ -65,7 +67,7 @@ export class RolesService {
       { kind: 'business', businessId: tenant.businessId },
       async (tx) => {
         const businessId = tenant.businessId;
-        const [counts, custom] = await Promise.all([
+        const [counts, changes, own] = await Promise.all([
           tx.membership.groupBy({
             by: ['role'],
             where: { businessId, status: { not: 'DEACTIVATED' } },
@@ -76,9 +78,10 @@ export class RolesService {
             where: { businessId },
             _count: { _all: true },
           }),
+          this.custom.live(tx, businessId),
         ]);
         const n = new Map(counts.map((c) => [c.role, c._count._all]));
-        const changed = new Set(custom.map((c) => c.role));
+        const changed = new Set(changes.map((c) => c.role));
         return {
           items: FIRM_ROLES.map((role) => ({
             role,
@@ -88,6 +91,7 @@ export class RolesService {
             customized: changed.has(role),
             locked: role === 'OWNER',
           })),
+          custom: own,
         };
       },
     );

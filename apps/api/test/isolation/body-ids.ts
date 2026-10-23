@@ -29,6 +29,7 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   },
   ...[
     'data.account.departmentIds',
+    'data.account.customRoleId',
     'data.details.supervisorId',
     'data.details.employeeId',
     'data.details.primaryTeamId',

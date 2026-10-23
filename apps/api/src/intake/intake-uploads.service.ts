@@ -21,6 +21,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { UploadsService } from '../storage/uploads.service.js';
 import { refusal } from '../storage/document-records.js';
+import { checkIntakeFileSize } from './intake-file-size.js';
 import { readDefinition } from './intake-forms.js';
 import { requireChangeable, toIntakeUpload, uploadSelect } from './intakes.service.js';
 
@@ -63,16 +64,19 @@ export class IntakeUploadsService {
 
   /**
    * Step 1: then 409 NO_OPEN_SERVICE when the intake's engagement isn't ACTIVE, 400 for a slot
-   * that isn't an upload field, 409 TOO_MANY_FILES.
+   * that isn't an upload field, 409 TOO_MANY_FILES, and 400 VALIDATION_FAILED at `sizeBytes` for
+   * a file over the firm's limit (Intake Form Settings, 10 MB until the firm sets one).
    */
   async createUpload(
     who: IntakeUploader,
     intakeId: string,
     body: UploadBody,
   ): Promise<UploadTicket> {
-    const target = await this.inFirm(who.businessId, (tx) =>
-      this.checkSlot(tx, who, intakeId, body.slot),
-    );
+    const target = await this.inFirm(who.businessId, async (tx) => {
+      const slot = await this.checkSlot(tx, who, intakeId, body.slot);
+      await checkIntakeFileSize(tx, who.businessId, body.sizeBytes);
+      return slot;
+    });
     return this.uploads.ticket({
       pool: 'CLIENT',
       businessId: who.businessId,
@@ -98,6 +102,8 @@ export class IntakeUploadsService {
    * transaction that adds the file after the intake row's FOR NO KEY UPDATE lock, so confirms at
    * once never pass `maxFiles` or INTAKE_LIMITS.maxFiles. Another client's intake is 404, and a
    * login that isn't the PRIMARY one 403, before the token is looked at. Answers the new file.
+   * The size was checked against the firm's limit at the ticket and is sealed in it: a limit
+   * lowered since does not refuse an upload already started.
    */
   async confirmUpload(
     who: IntakeUploader,

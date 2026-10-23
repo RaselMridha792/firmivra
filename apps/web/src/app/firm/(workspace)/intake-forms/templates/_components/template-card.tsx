@@ -11,7 +11,7 @@ import {
   User,
 } from '@phosphor-icons/react';
 import type { IntakeFormListItem } from '@firmivra/types';
-import { Avatar, Button, Card, Skeleton } from '@firmivra/ui';
+import { Avatar, Badge, Button, Card, Skeleton } from '@firmivra/ui';
 import { CategoryChip, CategoryTile, shortDate, shortName } from './template-look';
 import { TemplateMenu } from './template-menu';
 
@@ -28,10 +28,14 @@ export interface TemplateActions {
 // The card's three buttons are smaller than the kit's default button (design: about 30 px high).
 const small = 'min-h-8! gap-1! px-2! py-1! text-xs! whitespace-nowrap';
 
+/** A draft is sent only once it is published (the API answers FORM_NOT_PUBLISHED). */
+const PUBLISH_FIRST = 'Publish this template before sending it: open Edit, then Publish.';
+
 /**
  * One template card of form-templates-dashboard.jpg: the category's round tile, name, question
- * count, category chip and the "⋮" menu; the description; Last updated, Used and the owner; then
- * Preview, Edit and Use Template.
+ * count, category chip (and Draft, for a template not yet published) and the "⋮" menu; the
+ * description; Last updated, Used (forms sent with it, not copies) and the owner; then Preview,
+ * Edit and Use Template.
  */
 export function TemplateCard({
   template,
@@ -41,6 +45,7 @@ export function TemplateCard({
   actions: TemplateActions;
 }) {
   const { onPreview, onEdit, onUse, onDuplicate, onArchive, busy } = actions;
+  const draft = template.status === 'DRAFT';
   return (
     <Card
       variant="elevated"
@@ -54,7 +59,10 @@ export function TemplateCard({
           <p className="text-sm text-muted">
             {template.questionCount} {template.questionCount === 1 ? 'question' : 'questions'}
           </p>
-          <CategoryChip category={template.category} />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <CategoryChip category={template.category} />
+            {draft ? <Badge tone="warning">Draft</Badge> : null}
+          </div>
         </div>
         <TemplateMenu
           label={`Actions for ${template.name}`}
@@ -67,7 +75,12 @@ export function TemplateCard({
               onSelect: () => onDuplicate(template),
               disabled: busy,
             },
-            { label: 'Send to a client', icon: PaperPlaneTilt, onSelect: () => onUse(template) },
+            {
+              label: 'Send to a client',
+              icon: PaperPlaneTilt,
+              onSelect: () => onUse(template),
+              disabled: draft,
+            },
             {
               label: 'Archive',
               icon: Archive,
@@ -129,11 +142,17 @@ export function TemplateCard({
           <PencilSimple aria-hidden weight="fill" className="size-4 text-action" />
           Edit
         </Button>
-        <Button className={`${small} grow`} onClick={() => onUse(template)}>
+        <Button
+          className={`${small} grow`}
+          disabled={draft}
+          title={draft ? PUBLISH_FIRST : undefined}
+          onClick={() => onUse(template)}
+        >
           <PaperPlaneTilt aria-hidden weight="fill" className="size-4" />
           Use Template
         </Button>
       </div>
+      {draft ? <p className="mt-2 text-xs text-muted">{PUBLISH_FIRST}</p> : null}
     </Card>
   );
 }

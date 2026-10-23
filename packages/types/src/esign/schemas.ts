@@ -62,6 +62,11 @@ const ServiceRef = z.object({ id: z.uuid(), title: z.string() });
 
 /** The most pages a request (all its files together) may have. */
 export const ESIGN_MAX_PAGES = 100;
+/**
+ * The most bytes a request's files may come to together (Rasel, Oct 22): 100 MB, as much as one
+ * file may be (UPLOAD_LIMITS.maxBytes). 409 REQUEST_TOO_LARGE past it.
+ */
+export const ESIGN_MAX_REQUEST_BYTES = 100 * 1024 * 1024;
 /** The most recipients and fields a request may have. */
 export const ESIGN_MAX_RECIPIENTS = 20;
 export const ESIGN_MAX_FIELDS = 500;

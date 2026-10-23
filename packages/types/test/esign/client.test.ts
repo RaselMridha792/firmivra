@@ -7,6 +7,7 @@ import {
   CreateEsignUploadBody,
   ESIGN_COUNTERS,
   ESIGN_ERRORS,
+  ESIGN_MAX_REQUEST_BYTES,
   ESIGN_MERGE_LABELS,
   ESIGN_STATUS_LABELS,
   EsignErrorCode,
@@ -194,6 +195,15 @@ describe('esign schemas', () => {
     expect(
       CreateEsignUploadBody.safeParse({ ...facts, sizeBytes: 101 * 1024 * 1024 }).success,
     ).toBe(false);
+    // 100 MB a file, exactly (Rasel, Oct 22); a request's files together are capped by the API.
+    expect(
+      CreateEsignUploadBody.safeParse({ ...facts, sizeBytes: 100 * 1024 * 1024 }).success,
+    ).toBe(true);
+    expect(
+      CreateEsignUploadBody.safeParse({ ...facts, sizeBytes: 100 * 1024 * 1024 + 1 }).success,
+    ).toBe(false);
+    expect(ESIGN_MAX_REQUEST_BYTES).toBe(100 * 1024 * 1024);
+    expect(ESIGN_ERRORS.REQUEST_TOO_LARGE).toMatch(/100 MB in all/);
   });
 
   it('checks fields: on the page, signer-only types, sender values, choices', () => {

@@ -327,6 +327,7 @@ describe('config', () => {
 // member's own cell of the route; none means the role decides exactly as before.
 class GridProbe {
   @Access('TAX_RETURNS') @Roles('OWNER', 'ADMIN', 'STAFF') view() {}
+  @Access('PAYROLL') @Roles('OWNER', 'ADMIN', 'STAFF') payroll() {}
   @Roles('OWNER', 'ADMIN', 'STAFF') noModule() {}
 }
 const gridCtx = (method: keyof GridProbe, req: Req): ExecutionContext =>
@@ -424,5 +425,67 @@ describe('RolesGuard and the Admin role grid', () => {
     await expect(other.guard.canActivate(gridCtx('view', as('OWNER')))).resolves.toBe(true);
     await expect(other.guard.canActivate(gridCtx('view', as('STAFF')))).resolves.toBe(true);
     expect(other.grants.changes).not.toHaveBeenCalled();
+  });
+});
+
+describe('RolesGuard and a custom role', () => {
+  // Settings > Users & Roles (R55): a custom role's grid stands in for its role's; the member's
+  // own change still wins.
+  const guardWith = (
+    custom: boolean | undefined,
+    { own, roleCanIt = false }: { own?: boolean; roleCanIt?: boolean } = {},
+  ) => {
+    const grants = {
+      memberCell: vi.fn().mockResolvedValue(own),
+      customCell: vi.fn().mockResolvedValue(custom),
+      can: vi.fn().mockResolvedValue(roleCanIt),
+      changes: vi.fn().mockResolvedValue(new Map([['TAX_RETURNS:VIEW', false]])),
+    };
+    return { guard: new RolesGuard(reflector, fakeDb({}), grants as never), grants };
+  };
+  const as = (role: string, customRoleId: string | null = 'c1') => ({
+    auth: { userId: 'u1' },
+    tenant: { kind: 'staff', role, businessId: FIRM, ...(customRoleId ? { customRoleId } : {}) },
+  });
+
+  it("lets a grid role in, or keeps it out, by its custom role's grid", async () => {
+    const yes = guardWith(true);
+    await expect(yes.guard.canActivate(gridCtx('view', as('BOOKKEEPER')))).resolves.toBe(true);
+    expect(yes.grants.customCell).toHaveBeenCalledWith(FIRM, 'c1', 'TAX_RETURNS', 'VIEW');
+    expect(yes.grants.can).not.toHaveBeenCalled();
+    const no = guardWith(false, { roleCanIt: true });
+    await expect(no.guard.canActivate(gridCtx('view', as('BOOKKEEPER')))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it("takes a Staff or Admin route away only where the role's default gives it", async () => {
+    const { guard, grants } = guardWith(false);
+    await expect(guard.canActivate(gridCtx('view', as('STAFF')))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    await expect(guard.canActivate(gridCtx('view', as('ADMIN')))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    // Staff has no Payroll by default, yet passes by @Roles: so does its custom role.
+    await expect(guard.canActivate(gridCtx('payroll', as('STAFF')))).resolves.toBe(true);
+    expect(grants.changes).not.toHaveBeenCalled();
+  });
+
+  it("stands in for the Admin role's grid, and the member's own change still wins", async () => {
+    // The firm took Tax Returns view from the Admin role; this Admin's custom role gives it.
+    const admin = guardWith(true);
+    await expect(admin.guard.canActivate(gridCtx('view', as('ADMIN')))).resolves.toBe(true);
+    expect(admin.grants.changes).not.toHaveBeenCalled();
+    const own = guardWith(false, { own: true });
+    await expect(own.guard.canActivate(gridCtx('view', as('STAFF')))).resolves.toBe(true);
+    await expect(own.guard.canActivate(gridCtx('view', as('BOOKKEEPER')))).resolves.toBe(true);
+  });
+
+  it('never asks without a custom role', async () => {
+    const { guard, grants } = guardWith(false, { roleCanIt: true });
+    await expect(guard.canActivate(gridCtx('view', as('STAFF', null)))).resolves.toBe(true);
+    await expect(guard.canActivate(gridCtx('view', as('MANAGER', null)))).resolves.toBe(true);
+    expect(grants.customCell).not.toHaveBeenCalled();
   });
 });
