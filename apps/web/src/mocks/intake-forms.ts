@@ -556,30 +556,28 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
           'NO_ENGAGEMENT',
           "This client has no active service for this form's service",
         );
-      if (rc.kind !== 'NEW_CONTACT') {
-        const open = s.assigned.find(
-          (r) =>
-            r.recipient.id === rc.id &&
-            r.form.id === form.id &&
-            ['SENT', 'IN_PROGRESS'].includes(r.status),
+      const open = s.assigned.find(
+        (r) =>
+          r.recipient.id === rc.id &&
+          r.form.id === form.id &&
+          ['SENT', 'IN_PROGRESS'].includes(r.status),
+      );
+      if (open)
+        throw fail(
+          409,
+          'FORM_ALREADY_OPEN',
+          'This recipient already has this form open: resend it instead',
         );
-        if (open)
-          throw fail(
-            409,
-            'FORM_ALREADY_OPEN',
-            'This recipient already has this form open: resend it instead',
-          );
-      }
       const n = s.next++;
       const at = new Date().toISOString();
-      const name = rc.kind === 'NEW_CONTACT' ? rc.name : 'Selected recipient';
+      // Only a client gets this far (as with the API).
       const r: AssignedFormRecord = {
         id: uuid('0a00', n),
         recipient: {
-          kind: rc.kind === 'LEAD' ? 'LEAD' : 'CLIENT',
-          id: rc.kind === 'NEW_CONTACT' ? uuid('1c00', n) : rc.id,
-          name,
-          email: rc.kind === 'NEW_CONTACT' ? rc.email : null,
+          kind: 'CLIENT',
+          id: rc.id,
+          name: 'Selected recipient',
+          email: null,
           phone: null,
         },
         form: { id: form.id, name: form.name },
