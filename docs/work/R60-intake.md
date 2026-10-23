@@ -148,6 +148,23 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
 - **Intake reminders (R6 or Rasel to name):** there is no intake reminder job and no intake
   reminder email template. The test reminder (#1033) uses the firm's message email
   (`lead.message-email`), which joins paragraphs; the job and a template of its own come together.
+- **Settings areas (handoff item 4): plan, waiting for Rasel's answers.** From
+  `docs/specs/settings-review-2026-10-20/CHANGE-LIST.md` P3 and her Company Profile guide:
+  1. *Request Change* (legal name, EIN, licensing; never edited directly). Proposal: the modal
+     raises a Super Admin support ticket (the database already lets a firm raise one:
+     `support_tickets_firm_raise`, source PORTAL), with the current and proposed values and the
+     reason; the card shows its status from the ticket. Needs a "Company details" category (R0
+     seed) and a firm route (R60). There are no licensing columns: a written item (R0). Go?
+  2. *Company Profile layout:* her guide shows logo, colours, theme and login as summaries with
+     "Go to Branding"; today their editors sit on /settings/profile. Moving them changes the
+     Branding page (R28 and R56's). Who moves them?
+  3. *Copyable links:* the portal, each main intake form (#1039's link), appointment types (A4)
+     and packages (S12) once R56 builds those two.
+  4. *Notifications:* employee email always on, enforced on the server, with existing Off
+     settings migrated to On (an R0 data migration); SMS only after a verified mobile number.
+  5. *Billing and Payments:* Upgrade, Downgrade, plan and usage details, payment methods,
+     invoices with PDF, the downgrade guard; Payments' Manage Connection, readiness, Square and
+     PayPal cards, payout settings. Large and Stripe-bound: which session?
 - **Decisions she left open (do not guess):** Submitted vs Completed, due date vs expiration, staff
   Edit vs Request Revision, import template file types, the auto-create client trigger.
 - **Begin Online (seen, not changed):** `newestForm` picks the highest version number of any
