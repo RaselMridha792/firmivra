@@ -75,7 +75,15 @@ export const DropdownMenu: Story = {
   ),
 };
 
-function Overlay({ children, kind }: { children: ReactNode; kind: 'modal' | 'drawer' }) {
+function Overlay({
+  children,
+  kind,
+  size,
+}: {
+  children: ReactNode;
+  kind: 'modal' | 'drawer';
+  size?: 'md' | 'wide';
+}) {
   const [open, setOpen] = useState(false);
   const footer = (
     <>
@@ -98,7 +106,9 @@ function Overlay({ children, kind }: { children: ReactNode; kind: 'modal' | 'dra
       {kind === 'modal' ? (
         <Modal {...props}>{children}</Modal>
       ) : (
-        <Drawer {...props}>{children}</Drawer>
+        <Drawer {...props} size={size}>
+          {children}
+        </Drawer>
       )}
     </>
   );
@@ -107,3 +117,11 @@ export const ModalWithFooter: Story = {
   render: () => <Overlay kind="modal">1,154 recipients</Overlay>,
 };
 export const SidePanel: Story = { render: () => <Overlay kind="drawer">1,154 recipients</Overlay> };
+/** A whole builder in a panel (Create Campaign on Leads). */
+export const WideSidePanel: Story = {
+  render: () => (
+    <Overlay kind="drawer" size="wide">
+      The Communications builder
+    </Overlay>
+  ),
+};
