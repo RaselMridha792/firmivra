@@ -125,7 +125,11 @@ enum TaskKind {
   NAME_CHANGE
 }
 
+/// DRAFT (Save as Draft): not live yet, so no count, view, reminder or automation sees it; it
+/// may have no client, and then only its creator sees it. A draft only becomes OPEN (published),
+/// and no task goes back to DRAFT.
 enum TaskStatus {
+  DRAFT
   OPEN
   DONE
   CANCELLED
@@ -3149,7 +3153,8 @@ model EngagementStatusHistory {
 model Task {
   id              String     @id @default(uuid(7)) @db.Uuid
   businessId      String     @map("business_id") @db.Uuid
-  clientId        String     @map("client_id") @db.Uuid
+  /// Set on every task but a DRAFT (SQL only: tasks_client_unless_draft).
+  clientId        String?    @map("client_id") @db.Uuid
   engagementId    String?    @map("engagement_id") @db.Uuid
   title           String
   details         String?
@@ -3187,7 +3192,7 @@ model Task {
   /// The template the task was made from; with deadlineId at most one task per pair (SQL only).
   templateId        String?      @map("template_id") @db.Uuid
 
-  client             Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  client             Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement         Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   assignedMember     Membership?         @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
   type               TaskType?           @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)

@@ -81,7 +81,8 @@ export type EngagementStatus = z.infer<typeof EngagementStatus>;
 export const TaskKind = z.enum(['GENERAL', 'NAME_CHANGE']);
 export type TaskKind = z.infer<typeof TaskKind>;
 
-export const TaskStatus = z.enum(['OPEN', 'DONE', 'CANCELLED']);
+/** DRAFT (Save as Draft): not live yet, so no count, view, reminder or automation sees it; it may have no client, and then only its creator sees it. A draft only becomes OPEN (published), and no task goes back to DRAFT. */
+export const TaskStatus = z.enum(['DRAFT', 'OPEN', 'DONE', 'CANCELLED']);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
 /** Where an OPEN task stands (the Tasks screens' Not Started, Pending, In Progress, Waiting, Blocked). status stays the lifecycle: DONE shows as Completed, and overdue is never stored but derived from an incomplete task past its due date (R38). */
