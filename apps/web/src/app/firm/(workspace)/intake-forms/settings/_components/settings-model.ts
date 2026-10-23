@@ -153,7 +153,7 @@ export function validate(draft: Draft, body: UpdateIntakeSettingsRequest): Field
   if (
     n.firstReminderAfterDays !== null &&
     n.finalReminderAfterDays !== null &&
-    n.finalReminderAfterDays < n.firstReminderAfterDays
+    n.finalReminderAfterDays <= n.firstReminderAfterDays
   )
     errors['notifications.finalReminderAfterDays'] = 'The final reminder comes after the first';
   if (draft.security.acceptedFileTypes.length === 0)
@@ -180,9 +180,18 @@ export function withCurrent(values: readonly number[], current: number | null): 
   return [...new Set(all)].sort((a, b) => a - b);
 }
 export const EXPIRATION_DAYS = [7, 14, 21, 30, 45, 60, 90];
-export const FIRST_REMINDER_DAYS = [1, 2, 3, 5, 7, 10, 14];
-export const FINAL_REMINDER_DAYS = [3, 5, 7, 10, 14, 21, 30];
-export const ALERT_HOURS = [12, 24, 48, 72];
+/**
+ * Days after sending, in both reminder lists (Octavia's I8: 1 and 2 days added). Her minutes and
+ * hours need a column (`first_reminder_days` is whole days): a written item, not built.
+ */
+export const REMINDER_DAYS = [1, 2, 3, 5, 7, 10, 14, 21, 30];
+/**
+ * Hours before expiry (Octavia's I9): 72, 42, 24 and 12 as she saw them (42, not 48), and 10, 6,
+ * 5, 3, 2 and 1. Her 30 minutes needs a column (`expiry_alert_hours` is whole hours).
+ */
+export const ALERT_HOURS = [1, 2, 3, 5, 6, 10, 12, 24, 42, 72];
+/** The first of the reminder days after `days`: the final reminder comes strictly after the first. */
+export const nextReminderDay = (days: number) => REMINDER_DAYS.find((d) => d > days) ?? null;
 /**
  * Max file size per file, in MB: INTAKE_FILE_SIZE_CHOICES (Octavia's I10), plus the firm's saved
  * size when it is not one of them (a 25 MB saved before), so the select shows it as it is and the
