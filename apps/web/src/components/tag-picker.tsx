@@ -86,7 +86,11 @@ export function TagPicker({
       // The highlighted choice, or the firm's tag with exactly this name.
       pick(choices[at] ?? (exact ? { kind: 'tag', name: typed } : undefined));
     } else if (event.key === 'Escape') {
-      if (open) event.stopPropagation();
+      // An open list closes first; a dialog around the picker closes on the next Escape.
+      if (shown) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
       setOpen(false);
     } else if (event.key === 'Backspace' && !text && value.length > 0) {
       onChange(value.slice(0, -1));

@@ -86,7 +86,7 @@ export function ClientTagsCard({ client }: { client: ClientRecord }) {
           }}
         >
           <TagPicker
-            label="Tags"
+            label="Choose tags"
             value={draft}
             onChange={setDraft}
             options={(firmTags.data?.items ?? []).map((t) => t.name)}
