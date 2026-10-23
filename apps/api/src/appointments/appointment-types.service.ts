@@ -12,6 +12,7 @@ import { DATABASE } from '../database/database.module.js';
 import { DEFAULT_CUTOFF_HOURS } from './calendar.js';
 import { retryWhenBusy, tryLock, typeNamesLockKey } from './calendar-locks.js';
 import { errors, isUniqueViolation } from './errors.js';
+import { sameMethods, typeMethods } from './scheduling-map.js';
 
 type ListQuery = z.output<typeof AppointmentTypesQuery>;
 type CreateBody = z.output<typeof CreateAppointmentTypeRequest>;
@@ -22,6 +23,7 @@ const typeSelect = {
   name: true,
   durationMinutes: true,
   locationKind: true,
+  meetingMethods: true,
   clientBookable: true,
   sortOrder: true,
   archivedAt: true,
@@ -29,9 +31,11 @@ const typeSelect = {
 
 type TypeRow = Prisma.AppointmentTypeGetPayload<{ select: typeof typeSelect }>;
 
-export function toAppointmentType(row: TypeRow): AppointmentType {
+export function toAppointmentType(stored: TypeRow): AppointmentType {
+  const { meetingMethods: _stored, ...row } = stored;
   return {
     ...row,
+    methods: typeMethods(stored),
     // appointment_types.cancel_cutoff_hours is requested from R0; until then, the default.
     cancelCutoffHours: DEFAULT_CUTOFF_HOURS,
     archivedAt: row.archivedAt?.toISOString() ?? null,
@@ -41,7 +45,8 @@ export function toAppointmentType(row: TypeRow): AppointmentType {
 /**
  * The kinds of appointment the firm offers (contract in packages/types/src/appointments). Every
  * member reads; Owner and Admin change (the routes say so). Names are unique per firm, ignoring
- * case. Changes are audited with field names only.
+ * case. A type offers 1 to 3 meeting methods (A1), kept in step with its location kind by the
+ * database: the first method is the location kind. Changes are audited with field names only.
  */
 @Injectable()
 export class AppointmentTypesService {
@@ -83,7 +88,9 @@ export class AppointmentTypesService {
           businessId,
           name: body.name,
           durationMinutes: body.durationMinutes,
+          // In step (the contract made the first method the location kind).
           locationKind: body.locationKind,
+          meetingMethods: body.methods,
           clientBookable: body.clientBookable,
           sortOrder: body.sortOrder ?? next,
         },
@@ -102,7 +109,7 @@ export class AppointmentTypesService {
     if (body.cancelCutoffHours !== undefined && body.cancelCutoffHours !== DEFAULT_CUTOFF_HOURS) {
       throw errors.cutoffNotSupported();
     }
-    const { cancelCutoffHours: _cutoff, ...changes } = body;
+    const { cancelCutoffHours: _cutoff, methods, ...changes } = body;
     const data = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined));
     const { row, changed } = await this.write(businessId, async (tx) => {
       const current = await this.find(tx, businessId, id, true);
@@ -110,10 +117,20 @@ export class AppointmentTypesService {
         await this.uniqueName(tx, businessId, body.name, id);
       }
       // Only what really changes: a PATCH that changes nothing writes no row and no audit.
-      const changes = Object.fromEntries(
+      const changes: Prisma.AppointmentTypeUncheckedUpdateInput = Object.fromEntries(
         Object.entries(data).filter(([k, v]) => current[k as keyof TypeRow] !== v),
       );
-      const fields = Object.keys(changes).sort();
+      const fields = Object.keys(changes);
+      // New methods replace the old ones and their first is the location kind (the contract
+      // refused a different locationKind beside them). The location kind alone becomes the first
+      // method and keeps the others: the database does that.
+      const first = methods?.[0];
+      if (methods && first && !sameMethods(methods, typeMethods(current))) {
+        changes.meetingMethods = methods;
+        changes.locationKind = first;
+        fields.push('methods');
+      }
+      fields.sort();
       if (fields.length === 0) return { row: current, changed: fields };
       const updated = await tx.appointmentType.update({
         where: { id },

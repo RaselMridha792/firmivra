@@ -318,6 +318,18 @@ export const IntakeFormLibrarySummary = z.object({
 });
 export type IntakeFormLibrarySummary = z.infer<typeof IntakeFormLibrarySummary>;
 
+// ---------- Public link (Octavia's I3; Rasel, Oct 22) ----------
+// GET /business/intake-forms/{id}/public-link answers a `PublicLink` (public-links/schemas.ts):
+// the link and embed code a firm puts behind a button on its own website. Only a service's main
+// form has one: its default template (`isTemplate`) of a service of one of the six Begin Online
+// kinds. The link is that service's Begin Online page, `{PORTAL_BASE_URL}/{firmSlug}/begin/{path}`
+// (`beginOnlinePageUrl`), not a page of its own, and the embed code is `publicEmbedCode` of it.
+// Every other form or template answers 404 NOT_FOUND, and so does a main form whose kind's page
+// belongs to another of the firm's services (one Begin Online service per kind). `state`, the
+// first that applies: ARCHIVED when the service is archived, DRAFT when no version is published,
+// INACTIVE when the service is not active, HIDDEN when it is not on Begin Online, else LIVE.
+// Every member who can open the form can read its link; reading it changes nothing.
+
 // ---------- Send Intake Form ----------
 
 export const FormDeliveryChannel = z.enum(['EMAIL', 'SMS', 'PORTAL']);

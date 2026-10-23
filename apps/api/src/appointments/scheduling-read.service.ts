@@ -23,8 +23,10 @@ import {
   decodeCursor,
   displayStatusWhere,
   encodeCursor,
+  methodOf,
   monthOf,
   monthSpan,
+  typeMethods,
 } from './scheduling-map.js';
 
 type SummaryQ = z.output<typeof AppointmentsSummaryQuery>;
@@ -198,7 +200,15 @@ export class SchedulingReadService {
       const types = await tx.appointmentType.findMany({
         where: { businessId, archivedAt: null },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-        select: { id: true, name: true, durationMinutes: true, color: true, serviceId: true },
+        select: {
+          id: true,
+          name: true,
+          durationMinutes: true,
+          color: true,
+          serviceId: true,
+          locationKind: true,
+          meetingMethods: true,
+        },
       });
       const services = await tx.service.findMany({
         where: { businessId, archivedAt: null, status: 'ACTIVE' },
@@ -239,6 +249,7 @@ export class SchedulingReadService {
           durationMinutes: t.durationMinutes,
           color: colorHex(t.color),
           serviceId: t.serviceId,
+          methods: typeMethods(t).map(methodOf),
         })),
         services,
         staff: await activeMembers(tx, businessId),

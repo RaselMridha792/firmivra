@@ -27,6 +27,14 @@ import {
   SetFollowUpRequest,
   UpdateLeadRequest,
 } from './pipeline.js';
+import {
+  ConfirmEmailImageUploadRequest,
+  CreateEmailImageUploadRequest,
+  EmailImage,
+  MessageSignature,
+  SaveMessageSignatureRequest,
+} from './email.js';
+import { UploadPutTicket } from '../documents/schemas.js';
 
 const LEADS = '/business/leads';
 const one = (id: string) => `${LEADS}/${parseInput(LeadRecordId, id)}`;
@@ -64,6 +72,29 @@ export function createLeadPipelineClient(request: ApiRequest) {
     /** Send Email / Send SMS to one or more leads (logged on each). */
     message: async (body: LeadMessageRequest): Promise<LeadBulkResult> =>
       request(LeadBulkResult, `${LEADS}/messages`, post(parseInput(LeadMessageRequest, body))),
+    /** The signed-in member's saved email signature (leads/email.ts), and the firm's logo address. */
+    signature: async (): Promise<MessageSignature> =>
+      request(MessageSignature, '/business/me/message-signature'),
+    /** Save (or replace) the member's signature. 400 SIGNATURE_TOO_LONG, SIGNATURE_EMPTY. */
+    saveSignature: async (body: SaveMessageSignatureRequest): Promise<MessageSignature> =>
+      request(MessageSignature, '/business/me/message-signature', {
+        method: 'PUT',
+        body: parseInput(SaveMessageSignatureRequest, body),
+      }),
+    /** Step 1 of an inline image: where to PUT it (apps/web/src/lib/upload.ts does the rest). */
+    createEmailImageUpload: async (body: CreateEmailImageUploadRequest): Promise<UploadPutTicket> =>
+      request(
+        UploadPutTicket,
+        `${LEADS}/messages/images`,
+        post(parseInput(CreateEmailImageUploadRequest, body)),
+      ),
+    /** Step 3: the image is checked, then served at its public `url`. */
+    confirmEmailImageUpload: async (body: ConfirmEmailImageUploadRequest): Promise<EmailImage> =>
+      request(
+        EmailImage,
+        `${LEADS}/messages/images/confirm`,
+        post(parseInput(ConfirmEmailImageUploadRequest, body)),
+      ),
 
     setFollowUp: async (id: string, body: SetFollowUpRequest): Promise<LeadProfile> =>
       request(LeadProfile, `${one(id)}/follow-up`, {

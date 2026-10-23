@@ -37,6 +37,7 @@ import {
 } from './calendar-data.js';
 import { lockAppointment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
 import { errors, isSlotConflict } from './errors.js';
+import { typeMethods } from './scheduling-map.js';
 import {
   detailsAfterStaffChange,
   linkOf,
@@ -57,8 +58,11 @@ const iso = (ms: number) => new Date(ms).toISOString();
  * change every appointment. Staff see in full their own and their assigned clients'
  * appointments, every other one as Busy, and get 404 for anything else about those; they book
  * only for clients assigned to them. Firm users change appointments at any time (no client
- * cutoff). The database refuses double booking and blocked time (409 SLOT_TAKEN). Reads and
- * changes are audited; the changes are the appointment's history.
+ * cutoff). The database refuses double booking and blocked time (409 SLOT_TAKEN). An
+ * appointment of a type meets in one of the type's meeting methods (A1): booking it or changing
+ * its method takes one of them (400 at `locationKind`), and a method the type stopped offering
+ * stays until it is changed. Reads and changes are audited; the changes are the appointment's
+ * history.
  */
 /**
  * A start inside the calendar's years can still end after them (late on 2100-12-31): the end is
@@ -250,7 +254,13 @@ export class AppointmentsService {
       const type = body.typeId
         ? await tx.appointmentType.findFirst({
             where: { businessId, id: body.typeId },
-            select: { id: true, durationMinutes: true, locationKind: true, archivedAt: true },
+            select: {
+              id: true,
+              durationMinutes: true,
+              locationKind: true,
+              meetingMethods: true,
+              archivedAt: true,
+            },
           })
         : null;
       if (body.typeId && !type) throw errors.notFound();
@@ -267,7 +277,12 @@ export class AppointmentsService {
       const minutes = body.durationMinutes ?? type?.durationMinutes ?? 0;
       const startsAt = new Date(body.startsAt);
       endsInCalendar(startsAt.getTime() + minutes * MINUTE);
-      const locationKind = body.locationKind ?? type?.locationKind ?? 'VIDEO';
+      // With a type: one of its meeting methods, its first when none is chosen (A1).
+      const methods = type ? typeMethods(type) : null;
+      const locationKind = body.locationKind ?? methods?.[0] ?? 'VIDEO';
+      if (methods && !methods.includes(locationKind)) {
+        throw errors.methodNotOffered('locationKind');
+      }
       // A VIDEO appointment booked without details gets the staff member's link (R14).
       const locationDetails =
         body.locationDetails ??
@@ -360,6 +375,16 @@ export class AppointmentsService {
     const { before, after } = await this.write(businessId, async (tx) => {
       const current = await this.openForChange(tx, businessId, actor, id);
       const locationKind = body.locationKind ?? current.locationKind;
+      // A new method is one its type offers (A1); the one it has may stay.
+      if (locationKind !== current.locationKind && current.typeId) {
+        const type = await tx.appointmentType.findFirst({
+          where: { businessId, id: current.typeId },
+          select: { locationKind: true, meetingMethods: true },
+        });
+        if (type && !typeMethods(type).includes(locationKind)) {
+          throw errors.methodNotOffered('locationKind');
+        }
+      }
       // Details left out: VIDEO gets the staff member's link; another kind keeps its details
       // unless the kind changes. Sent: null (or '') clears.
       let locationDetails = body.locationDetails ?? null;
