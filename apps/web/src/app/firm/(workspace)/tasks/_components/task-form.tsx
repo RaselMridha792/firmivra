@@ -9,23 +9,24 @@ import type {
   UpdateTaskDetailRequest,
 } from '@firmivra/types';
 import { Button, Checkbox, Modal, Textarea, Toast, Toggle } from '@firmivra/ui';
-import {
-  ArrowDown,
-  ArrowLeft,
-  ArrowUp,
-  CloudArrowUp,
-  FloppyDisk,
-  Plus,
-  Trash,
-  X,
-} from '@phosphor-icons/react';
+import { ArrowLeft, CloudArrowUp, FloppyDisk, Plus, X } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { useClients, useMembers } from './task-data';
+import {
+  ChecklistItems,
+  type Item,
+  Label,
+  type Reminder,
+  ReminderList,
+  Section,
+  Selectbox,
+  field,
+} from './task-form-parts';
 import { TaskTypeSelect, useTypeChoice } from './task-type-field';
 import {
   PRIORITY_LABEL,
@@ -35,114 +36,6 @@ import {
   dayText,
   timeText,
 } from './task-shared';
-
-const field =
-  'min-h-10 w-full min-w-0 rounded-control border border-border bg-surface px-3 text-sm text-text placeholder:text-muted focus:outline-2 focus:outline-accent-500 disabled:bg-canvas disabled:text-muted';
-
-function Selectbox({
-  value,
-  onChange,
-  options,
-  id,
-  label,
-  disabled,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-  id?: string;
-  label: string;
-  disabled?: boolean;
-}) {
-  return (
-    <select
-      id={id}
-      aria-label={label}
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
-      className={field}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function Section({
-  step,
-  title,
-  subtitle,
-  aside,
-  children,
-  testId,
-}: {
-  step?: number;
-  title: string;
-  subtitle?: string;
-  aside?: ReactNode;
-  children: ReactNode;
-  testId?: string;
-}) {
-  return (
-    <section className="min-w-0 rounded-xl bg-surface p-4 shadow-md" data-testid={testId}>
-      <header className="mb-3 flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          {step ? (
-            <span
-              aria-hidden
-              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-action text-sm font-bold text-on-action"
-            >
-              {step}
-            </span>
-          ) : null}
-          <div>
-            <h2 className="font-display text-lg font-bold text-heading">{title}</h2>
-            {subtitle ? <p className="text-sm text-muted">{subtitle}</p> : null}
-          </div>
-        </div>
-        {aside}
-      </header>
-      {children}
-    </section>
-  );
-}
-
-const Label = ({
-  text,
-  required,
-  children,
-  htmlFor,
-}: {
-  text: string;
-  required?: boolean;
-  children: ReactNode;
-  htmlFor?: string;
-}) => (
-  <div className="flex min-w-0 flex-col gap-1">
-    <label htmlFor={htmlFor} className="text-sm font-medium text-text">
-      {text}
-      {required ? <span className="text-danger"> *</span> : null}
-    </label>
-    {children}
-  </div>
-);
-
-interface Item {
-  key: string;
-  id?: string;
-  label: string;
-  required: boolean;
-  done: boolean;
-}
-interface Reminder {
-  key: string;
-  daysBefore: number;
-}
-const DAYS = [0, 1, 2, 3, 7, 14, 30];
 
 const TIMES = Array.from({ length: 48 }, (_, i) => {
   const m = i * 30;
@@ -194,8 +87,13 @@ function Form({
   const [details, setDetails] = useState(task?.details ?? template?.description ?? '');
   const [clientId, setClientId] = useState(task?.client.id ?? '');
   const [engagementId, setEngagementId] = useState(task?.engagementId ?? '');
-  const [serviceId, setServiceId] = useState(task?.service?.id ?? '');
-  const [assignee, setAssignee] = useState(task?.assignedUserId ?? '');
+  const [serviceId, setServiceId] = useState(task?.service?.id ?? template?.service?.id ?? '');
+  const [assignee, setAssignee] = useState(
+    task?.assignedUserId ??
+      (template?.assignmentRule === 'SPECIFIC_USER' ? (template.assignedTo?.userId ?? '') : ''),
+  );
+  // A template that assigns the client's team leaves the person to the API when none is chosen.
+  const byTeam = !task && template?.assignmentRule === 'CLIENT_TEAM';
   const [extra, setExtra] = useState<string[]>(
     task?.additionalAssignees.map((a) => a.userId) ?? [],
   );
@@ -217,9 +115,10 @@ function Form({
   const [visible, setVisible] = useState(
     task?.clientVisible ?? template?.clientVisibleDefault ?? false,
   );
-  const [remind, setRemind] = useState((task?.reminders.length ?? 0) > 0);
+  const startReminders = task?.reminders ?? template?.reminders ?? [];
+  const [remind, setRemind] = useState(startReminders.length > 0);
   const [reminders, setReminders] = useState<Reminder[]>(
-    (task?.reminders ?? []).map((r, i) => ({ key: `r${i}`, daysBefore: r.daysBefore })),
+    startReminders.map((r, i) => ({ key: `r${i}`, daysBefore: r.daysBefore })),
   );
   const [depends, setDepends] = useState(!!task?.dependsOn);
   const [dependsOn, setDependsOn] = useState(task?.dependsOn?.id ?? '');
@@ -334,7 +233,7 @@ function Form({
     if (!title.trim()) e['title'] = 'Enter the task name';
     if (typeChoice.problem) e['type'] = typeChoice.problem;
     if (!clientId) e['client'] = 'Choose a client';
-    if (!assignee) e['assignee'] = 'Choose who it is assigned to';
+    if (!assignee && !byTeam) e['assignee'] = 'Choose who it is assigned to';
     if (!dueOn) e['due'] = 'Choose a due date';
     if (startOn && dueOn && startOn > dueOn) e['due'] = 'The due date is before the start';
     setErrors(e);
@@ -373,20 +272,15 @@ function Form({
     ],
     [
       'Assigned To',
-      members.find((m) => m.userId === assignee)?.name ?? task?.assignedTo?.name ?? '—',
+      members.find((m) => m.userId === assignee)?.name ??
+        task?.assignedTo?.name ??
+        (byTeam ? "The client's team" : '—'),
     ],
     ['Due Date', dueOn ? `${dayText(dueOn)}${allDay ? '' : ` at ${timeText(dueTime)}`}` : '—'],
     ['Priority', PRIORITY_LABEL[priority]],
     ['Status', PROGRESS_LABEL[progress]],
     ['Client Visible', visible ? 'Yes' : 'No'],
   ];
-  const move = (i: number, step: -1 | 1) => {
-    const j = i + step;
-    if (j < 0 || j >= items.length) return;
-    const next = [...items];
-    [next[i], next[j]] = [next[j] as Item, next[i] as Item];
-    setItems(next);
-  };
   const err = (k: string) =>
     errors[k] ? (
       <p role="alert" className="text-xs text-danger">
@@ -552,14 +446,14 @@ function Form({
             testId="form-assign"
           >
             <div className="grid gap-4 md:grid-cols-3">
-              <Label text="Assigned To" required htmlFor="tf-assignee">
+              <Label text="Assigned To" required={!byTeam} htmlFor="tf-assignee">
                 <Selectbox
                   id="tf-assignee"
                   label="Assigned to"
                   value={assignee}
                   onChange={setAssignee}
                   options={[
-                    { value: '', label: 'Select team member' },
+                    { value: '', label: byTeam ? "The client's team" : 'Select team member' },
                     ...(task?.assignedTo &&
                     !members.some((m) => m.userId === task.assignedTo?.userId)
                       ? [{ value: task.assignedTo.userId, label: task.assignedTo.name }]
@@ -568,6 +462,11 @@ function Form({
                   ]}
                 />
                 {err('assignee')}
+                {byTeam && !assignee ? (
+                  <p className="text-xs text-muted">
+                    The template gives it to the client&apos;s team. Choose a person to override.
+                  </p>
+                ) : null}
               </Label>
               <fieldset className="flex min-w-0 flex-col gap-1">
                 <legend className="text-sm font-medium text-text">Additional Assignees</legend>
@@ -708,79 +607,7 @@ function Form({
               </button>
             }
           >
-            {items.length === 0 ? (
-              <p className="rounded-lg bg-canvas p-4 text-center text-sm text-muted">
-                No checklist items yet.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-2" data-testid="form-checklist-items">
-                {items.map((it, i) => (
-                  <li key={it.key} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      aria-label={`Item ${i + 1} done`}
-                      checked={it.done}
-                      disabled
-                      className="size-5 shrink-0"
-                    />
-                    <input
-                      aria-label={`Checklist item ${i + 1}`}
-                      className={field}
-                      value={it.label}
-                      maxLength={300}
-                      onChange={(e) =>
-                        setItems(
-                          items.map((x) =>
-                            x.key === it.key ? { ...x, label: e.target.value } : x,
-                          ),
-                        )
-                      }
-                    />
-                    <label className="flex shrink-0 items-center gap-1 text-xs text-text">
-                      <input
-                        type="checkbox"
-                        checked={it.required}
-                        onChange={(e) =>
-                          setItems(
-                            items.map((x) =>
-                              x.key === it.key ? { ...x, required: e.target.checked } : x,
-                            ),
-                          )
-                        }
-                        className="size-4"
-                      />
-                      Required
-                    </label>
-                    <button
-                      type="button"
-                      aria-label={`Move item ${i + 1} up`}
-                      disabled={i === 0}
-                      onClick={() => move(i, -1)}
-                      className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-divider disabled:opacity-40"
-                    >
-                      <ArrowUp aria-hidden weight="bold" className="size-3" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Move item ${i + 1} down`}
-                      disabled={i === items.length - 1}
-                      onClick={() => move(i, 1)}
-                      className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-divider disabled:opacity-40"
-                    >
-                      <ArrowDown aria-hidden weight="bold" className="size-3" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Delete item ${i + 1}`}
-                      onClick={() => setItems(items.filter((x) => x.key !== it.key))}
-                      className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-divider text-danger"
-                    >
-                      <Trash aria-hidden weight="fill" className="size-4" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ChecklistItems items={items} onChange={setItems} showDone />
           </Section>
 
           <Section
@@ -853,54 +680,7 @@ function Form({
                   setReminders([{ key: 'r0', daysBefore: 1 }]);
               }}
             />
-            {remind ? (
-              <ul className="mt-2 flex flex-col gap-2">
-                {reminders.map((r, i) => (
-                  <li key={r.key} className="flex items-center gap-2">
-                    <select
-                      aria-label={`Reminder ${i + 1}`}
-                      className={field}
-                      value={r.daysBefore}
-                      onChange={(e) =>
-                        setReminders(
-                          reminders.map((x) =>
-                            x.key === r.key ? { ...x, daysBefore: Number(e.target.value) } : x,
-                          ),
-                        )
-                      }
-                    >
-                      {DAYS.map((d) => (
-                        <option key={d} value={d}>
-                          {d === 0 ? 'Same day' : `${d} day${d === 1 ? '' : 's'} before`}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      aria-label={`Remove reminder ${i + 1}`}
-                      onClick={() => setReminders(reminders.filter((x) => x.key !== r.key))}
-                      className="text-muted hover:text-danger"
-                    >
-                      <X aria-hidden weight="bold" className="size-4" />
-                    </button>
-                  </li>
-                ))}
-                <li>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setReminders([
-                        ...reminders,
-                        { key: `r${reminders.length}-${Date.now()}`, daysBefore: 1 },
-                      ])
-                    }
-                    className="inline-flex items-center gap-1 text-sm font-medium text-link"
-                  >
-                    <Plus aria-hidden weight="bold" className="size-4" /> Add Reminder
-                  </button>
-                </li>
-              </ul>
-            ) : null}
+            {remind ? <ReminderList reminders={reminders} onChange={setReminders} /> : null}
           </Section>
           <Section title="Dependencies" testId="form-depends">
             <Checkbox

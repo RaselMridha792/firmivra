@@ -25,6 +25,7 @@ import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { useClients, useMembers, useTypes } from './task-data';
 import { PriorityPill, StatusPill, TASKS_KEY, dueText } from './task-shared';
+import type { TaskView } from './task-views';
 import { RecurringTab, TemplatesTab } from './tasks-other-tabs';
 import {
   MySummary,
@@ -36,7 +37,7 @@ import {
 import { TaskTable } from './task-table';
 import { BackToWorkflow } from '../../settings/workflow/_components/back-to-workflow';
 
-type Tab = 'mine' | 'all' | 'client' | 'project' | 'recurring' | 'templates' | 'completed';
+type Tab = TaskView;
 const TABS: { id: Tab; label: string }[] = [
   { id: 'mine', label: 'My Tasks' },
   { id: 'all', label: 'All Tasks' },
@@ -126,10 +127,18 @@ function AddMenu({ onTemplates, manages }: { onTemplates: () => void; manages: b
  * /tasks: the overview. KPI cards, seven views, the table, and the right-hand summary widgets.
  * Opened from Settings > Workflow & Automations (`fromWorkflow`), the way back sits by the breadcrumb.
  */
-export function TasksScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }) {
+export function TasksScreen({
+  fromWorkflow = false,
+  view = 'mine',
+  savedTemplate,
+}: {
+  fromWorkflow?: boolean;
+  view?: TaskView;
+  savedTemplate?: string;
+}) {
   const { role } = useFirm();
   const manages = role === 'OWNER' || role === 'ADMIN';
-  const [tab, setTab] = useState<Tab>('mine');
+  const [tab, setTab] = useState<Tab>(view);
   const [kpi, setKpi] = useState<KpiFilter>();
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState({
@@ -303,7 +312,7 @@ export function TasksScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }
           </nav>
 
           {tab === 'recurring' ? <RecurringTab /> : null}
-          {tab === 'templates' ? <TemplatesTab /> : null}
+          {tab === 'templates' ? <TemplatesTab saved={savedTemplate} /> : null}
           {showTable || tab === 'client' || tab === 'project' ? (
             <>
               <form
