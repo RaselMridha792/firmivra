@@ -192,3 +192,135 @@ test('C9 Automations opens the Automations module on the Tasks category, with a 
   await page.getByTestId('back-to-tasks').click();
   await expect(page).toHaveURL(/\/tasks$/);
 });
+
+test('C3 Create Task Template in the library, Use it, Edit its source; the task made keeps its start', async ({
+  page,
+}) => {
+  await page.goto(`${base}?view=templates`);
+  await expect(page.getByRole('tab', { name: 'Task Templates' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await page.getByTestId('create-template').click();
+  await expect(page.getByRole('heading', { name: 'Create Task Template' })).toBeVisible();
+
+  // Required name, a taken name on the field, entries kept.
+  await page.getByTestId('template-save').click();
+  await expect(page.getByText('Enter the template name')).toBeVisible();
+  await page.getByLabel('Template Name *').fill('new client onboarding');
+  await page.getByTestId('template-save').click();
+  await expect(page.getByTestId('template-basic').getByRole('alert')).toContainText(
+    'Another template already has this name',
+  );
+  await expect(page.getByLabel('Template Name *')).toHaveValue('new client onboarding');
+
+  await page.getByLabel('Template Name *').fill('Quarterly payroll review');
+  await page.locator('#tt-type').selectOption({ label: 'Bookkeeping' });
+  await page.getByLabel('Priority').selectOption('HIGH');
+  await page.getByLabel('Due Date (days after the task is made)').fill('10');
+  await page.getByLabel('Assign to').selectOption('SPECIFIC_USER');
+  await page.locator('#tt-assignee').selectOption({ index: 1 });
+  const member = (await page.locator('#tt-assignee').locator('option:checked').textContent()) ?? '';
+  await page.getByLabel('Visible to client by default').check();
+  await page.getByRole('button', { name: 'Add Checklist Item' }).click();
+  await page.getByLabel('Checklist item 1').fill('Collect payroll registers');
+  await page.getByRole('checkbox', { name: 'Required' }).check();
+  await page.getByLabel('Enable reminders').check();
+  await expect(page.getByTestId('template-summary')).toContainText(
+    '10 days after the task is made',
+  );
+  await page.getByTestId('template-save').click();
+
+  // Back in the library, named.
+  await expect(page).toHaveURL(/\/tasks\?view=templates&saved=[0-9a-f-]{36}$/);
+  await expect(
+    page.getByText('Quarterly payroll review saved. Use starts a task from it.'),
+  ).toBeVisible();
+  const row = page
+    .getByTestId('template-rows')
+    .getByRole('row', { name: /Quarterly payroll review/ });
+  await expect(row).toContainText('High');
+  await expect(row).toContainText('1 item');
+
+  // Use: the new task starts with every default.
+  await row.getByRole('link', { name: /^Use/ }).click();
+  await expect(page.getByRole('heading', { name: 'Create Task' })).toBeVisible();
+  await expect(page.getByLabel('Checklist item 1')).toHaveValue('Collect payroll registers');
+  await expect(page.getByLabel('Priority', { exact: true })).toHaveValue('HIGH');
+  await expect(page.locator('#tf-type option:checked')).toHaveText('Bookkeeping');
+  await expect(page.getByLabel('Assigned to').locator('option:checked')).toHaveText(member);
+  await expect(page.getByLabel('Visible to client (optional)')).toBeChecked();
+  await expect(page.getByLabel('Reminder 1', { exact: true })).toHaveValue('1');
+  await expect(page.locator('#tf-due')).not.toHaveValue('');
+  await page.getByLabel('Task Name *').fill('Q1 payroll review for Jamie');
+  await page.getByLabel('Client', { exact: true }).selectOption({ index: 1 });
+  await page.getByTestId('task-save').click();
+  await expect(page.getByTestId('task-title')).toHaveText('Q1 payroll review for Jamie');
+  const made = page.url();
+
+  // Edit the source: a new default, one more step.
+  await page.getByRole('link', { name: 'Back to Tasks' }).click();
+  await page.getByRole('tab', { name: 'Task Templates' }).click();
+  await row.getByRole('link', { name: /^Edit/ }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Task Template' })).toBeVisible();
+  await expect(page.getByLabel('Template Name *')).toHaveValue('Quarterly payroll review');
+  await expect(page.getByLabel('Checklist item 1')).toHaveValue('Collect payroll registers');
+  await page.getByLabel('Priority').selectOption('LOW');
+  await page.getByRole('button', { name: 'Add Checklist Item' }).click();
+  await page.getByLabel('Checklist item 2').fill('Check the quarterly filings');
+  await page.getByTestId('template-save').click();
+  await expect(row).toContainText('Low');
+  await expect(row).toContainText('2 items');
+
+  // Reopened, the source has the change; Use starts with it.
+  await row.getByRole('link', { name: /^Edit/ }).click();
+  await expect(page.getByLabel('Checklist item 2')).toHaveValue('Check the quarterly filings');
+  await page.getByRole('link', { name: 'Use Template' }).click();
+  await expect(page.getByLabel('Priority', { exact: true })).toHaveValue('LOW');
+  await expect(page.getByLabel('Checklist item 2')).toHaveValue('Check the quarterly filings');
+
+  // The task made before keeps what it started with.
+  await page.getByRole('link', { name: 'Back to Tasks' }).click();
+  await page.getByRole('tab', { name: 'All Tasks' }).click();
+  await page.getByLabel('Search tasks').fill('Q1 payroll review');
+  await page.getByTestId('task-table').getByTestId('task-link').first().click();
+  await expect(page).toHaveURL(made);
+  await expect(page.getByTestId('detail-checklist')).toContainText('Collect payroll registers');
+  await expect(page.getByTestId('detail-checklist')).not.toContainText(
+    'Check the quarterly filings',
+  );
+});
+
+test('C3 a template from a task (Save as Template) still works, and /tasks/templates opens the library', async ({
+  page,
+}) => {
+  await page.goto(`${base}/templates`);
+  await expect(page).toHaveURL(/\/tasks\?view=templates$/);
+  await expect(page.getByTestId('templates-tab')).toBeVisible();
+  await page.getByRole('link', { name: 'Add Task', exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: 'Create Task' })).toBeVisible();
+  await page.getByRole('button', { name: 'Save as Template' }).click();
+  await page.getByLabel('Template name').fill('From the form');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Template' }).click();
+  await expect(page.getByText('Template saved.')).toBeVisible();
+});
+
+test('Templates: Duplicate and Archive from the row menu, Restore from Archived', async ({
+  page,
+}) => {
+  await page.goto(`${base}?view=templates`);
+  const rows = page.getByTestId('template-rows').getByRole('row');
+  await expect(rows.first()).toBeVisible();
+  await page.getByRole('button', { name: 'More actions for Bank Account Setup' }).click();
+  await page.getByRole('menuitem', { name: 'Duplicate' }).click();
+  await expect(page.getByText('Template duplicated.')).toBeVisible();
+  await expect(
+    page.getByTestId('template-name').filter({ hasText: 'Bank Account Setup (Copy)' }),
+  ).toHaveCount(1);
+  await page.getByRole('button', { name: 'More actions for Bank Account Setup (Copy)' }).click();
+  await page.getByRole('menuitem', { name: 'Archive' }).click();
+  await expect(page.getByText('Bank Account Setup (Copy) archived.')).toBeVisible();
+  await page.getByRole('button', { name: 'Archived', exact: true }).click();
+  await page.getByRole('button', { name: /^Restore Bank Account Setup \(Copy\)/ }).click();
+  await expect(page.getByText('Bank Account Setup (Copy) restored.')).toBeVisible();
+});
