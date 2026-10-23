@@ -25,7 +25,8 @@ import { useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import { useClients, useMembers, useTypes } from './task-data';
+import { useClients, useMembers } from './task-data';
+import { TaskTypeSelect, useTypeChoice } from './task-type-field';
 import {
   PRIORITY_LABEL,
   PROGRESS_LABEL,
@@ -187,7 +188,6 @@ function Form({
   const router = useRouter();
   const editing = !!task;
   const { members } = useMembers();
-  const { types } = useTypes();
   const { clients } = useClients();
   const [title, setTitle] = useState(task?.title ?? '');
   const [typeId, setTypeId] = useState(task?.type?.id ?? template?.type?.id ?? '');
@@ -260,6 +260,8 @@ function Form({
     api.taskWork.overview({ view: 'all', pageSize: 100 }),
   );
 
+  const typeChoice = useTypeChoice(typeId, task?.type);
+
   const checklistBody = items
     .filter((i) => i.label.trim())
     .map((i) => ({ ...(i.id ? { id: i.id } : {}), label: i.label.trim(), required: i.required }));
@@ -272,7 +274,7 @@ function Form({
       }))
     : [];
   const common = () => ({
-    typeId: typeId || null,
+    typeId: typeChoice.value || null,
     priority,
     progress,
     serviceId: serviceId || null,
@@ -319,7 +321,7 @@ function Form({
       api.taskWork.createTemplate({
         name: tplName.trim(),
         description: details,
-        typeId: typeId || null,
+        typeId: typeChoice.value || null,
         priority,
         checklist: checklistBody.map((c) => ({ label: c.label, required: c.required })),
         clientVisibleDefault: visible,
@@ -330,7 +332,7 @@ function Form({
   function validate() {
     const e: Record<string, string> = {};
     if (!title.trim()) e['title'] = 'Enter the task name';
-    if (!typeId) e['type'] = 'Choose a task type';
+    if (typeChoice.problem) e['type'] = typeChoice.problem;
     if (!clientId) e['client'] = 'Choose a client';
     if (!assignee) e['assignee'] = 'Choose who it is assigned to';
     if (!dueOn) e['due'] = 'Choose a due date';
@@ -450,18 +452,22 @@ function Form({
                 />
                 {err('title')}
               </Label>
-              <Label text="Task Type" required htmlFor="tf-type">
-                <Selectbox
+              <Label text="Task Type" required={typeChoice.required} htmlFor="tf-type">
+                <TaskTypeSelect
                   id="tf-type"
-                  label="Task type"
-                  value={typeId}
+                  className={field}
+                  choice={typeChoice}
                   onChange={setTypeId}
-                  options={[
-                    { value: '', label: 'Select task type' },
-                    ...types.map((t) => ({ value: t.id, label: t.name })),
-                  ]}
+                  onAdded={(_, text) => {
+                    setErrors((e) => {
+                      const next = { ...e };
+                      delete next['type'];
+                      return next;
+                    });
+                    setMessage({ text, tone: 'success' });
+                  }}
+                  error={err('type')}
                 />
-                {err('type')}
               </Label>
               <div className="md:col-span-2">
                 <Textarea

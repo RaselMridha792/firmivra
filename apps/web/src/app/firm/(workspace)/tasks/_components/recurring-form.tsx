@@ -18,7 +18,8 @@ import { useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import { useClients, useMembers, useTypes } from './task-data';
+import { useClients, useMembers } from './task-data';
+import { TaskTypeSelect, useTypeChoice } from './task-type-field';
 import { PRIORITY_LABEL, TASKS_KEY, TASK_ERRORS, dayText } from './task-shared';
 
 const field =
@@ -95,11 +96,11 @@ type Unit = 'DAY' | 'WEEK' | 'MONTH' | 'QUARTER' | 'YEAR';
 export function RecurringFormScreen() {
   const router = useRouter();
   const { members } = useMembers();
-  const { types } = useTypes();
   const { clients } = useClients();
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const [title, setTitle] = useState('');
   const [typeId, setTypeId] = useState('');
+  const typeChoice = useTypeChoice(typeId);
   const [details, setDetails] = useState('');
   const [clientId, setClientId] = useState('');
   const [engagementId, setEngagementId] = useState('');
@@ -177,7 +178,7 @@ export function RecurringFormScreen() {
       details,
       ...(engagementId ? { engagementId } : {}),
       serviceId: serviceId || null,
-      typeId: typeId || null,
+      typeId: typeChoice.value || null,
       ...(setPriority ? { priority } : {}),
       assignmentRule: byTeam ? 'CLIENT_TEAM' : 'SPECIFIC_USER',
       ...(byTeam ? {} : { assignedUserId: assignee }),
@@ -196,7 +197,7 @@ export function RecurringFormScreen() {
       api.taskWork.createTemplate({
         name: tplName.trim(),
         description: details,
-        typeId: typeId || null,
+        typeId: typeChoice.value || null,
         priority,
         checklist,
         recurrence,
@@ -206,7 +207,7 @@ export function RecurringFormScreen() {
   function submit() {
     const e: Record<string, string> = {};
     if (!title.trim()) e['title'] = 'Enter the task name';
-    if (!typeId) e['type'] = 'Choose a task type';
+    if (typeChoice.problem) e['type'] = typeChoice.problem;
     if (!clientId) e['client'] = 'Choose a client';
     if (!byTeam && !assignee) e['assignee'] = 'Choose who it is assigned to';
     if (!startOn) e['start'] = 'Choose the start date';
@@ -273,21 +274,22 @@ export function RecurringFormScreen() {
                 />
                 {err('title')}
               </Lbl>
-              <Lbl text="Task Type" required htmlFor="rf-type">
-                <select
+              <Lbl text="Task Type" required={typeChoice.required} htmlFor="rf-type">
+                <TaskTypeSelect
                   id="rf-type"
                   className={field}
-                  value={typeId}
-                  onChange={(e) => setTypeId(e.target.value)}
-                >
-                  <option value="">Select task type</option>
-                  {types.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-                {err('type')}
+                  choice={typeChoice}
+                  onChange={setTypeId}
+                  onAdded={(_, text) => {
+                    setErrors((e) => {
+                      const next = { ...e };
+                      delete next['type'];
+                      return next;
+                    });
+                    setMessage({ text, tone: 'success' });
+                  }}
+                  error={err('type')}
+                />
               </Lbl>
               <div className="md:col-span-2">
                 <Textarea
