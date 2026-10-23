@@ -64,3 +64,11 @@ Import from `@firmivra/ui` like the rest. Each one has stories under "Firm Backe
 | `CalendarGrid`   | `view` (`week`, `month`, `mini`), `date`, `events` (`id`, `start`, `end`, `title`, `subtitle`, `tone`), `today`, `selected`, `startHour`, `endHour`, `weekStartsOn`, `onPrev`, `onNext`, `onEventClick`, `onSlotClick`, `onDateClick` | Appointments: the week grid, the small month beside it, the month view; empty hours prefill a new appointment                     |
 
 Pure helpers that go with them (and are unit tested): `donutArcs`, `percentOf`, `plainTextLength`, `HTTPS_LINK`, `normalizeHex`, `checkFiles`, `buildOrgTree`, `toggleCell`, `setRowAll`, `weekDays`, `monthWeeks`, `placeDayEvents`, `sameDay`. New tokens: `amber-surface` (Settings' amber cards) and `chart-green`, `chart-blue`, `chart-yellow`, `chart-grey`, `chart-red` (the status donut), each measured from the design.
+
+## Public links (R56)
+
+| Component         | Props in one line                                                                                                                       | When to use                                                                                                                              |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `PublicLinkBlock` | `url`, `embedCode` (null: `emptyText` instead), `title`, `copyLinkLabel`, `copyEmbedLabel`, `notice` (item takes no new use), `copy` | The shared "Copy link / Copy embed code" block of an intake form, an appointment type or a service package (Octavia's review, Oct 20) |
+
+In apps/web, use it through `components/public-link.tsx` (`<PublicLinkSection kind="APPOINTMENT_TYPE" link={…} />`): it takes the item's `PublicLink` (`packages/types/src/public-links`: `kind`, `itemId`, `url`, `embedCode`, `state`) and says the same thing for all three items. Each item's API answers `GET /business/<its collection>/{id}/public-link` and builds the link with `publicItemUrl` and `publicEmbedCode`.

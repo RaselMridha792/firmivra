@@ -23,6 +23,12 @@ export const EnvSchema = z
      * SMS; the phone number is still saved, unverified. `required`: email, then the SMS code.
      */
     SIGNUP_PHONE_VERIFICATION: z.enum(['optional', 'required']).default('optional'),
+    /**
+     * Settings > Locations' scheduled changes (locations/location-actions.job.ts): `on` runs the
+     * job in this task (one task at a time, by lock), `off` never. Unset: on, except under the
+     * test runner (tests start a run by hand).
+     */
+    LOCATION_JOBS: z.enum(['on', 'off']).optional(),
     COGNITO_REGION: z.string().default('us-east-1'),
     COGNITO_STAFF_USER_POOL_ID: optional,
     COGNITO_STAFF_CLIENT_ID: optional,

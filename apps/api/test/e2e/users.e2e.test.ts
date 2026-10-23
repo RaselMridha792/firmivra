@@ -20,6 +20,7 @@ const person = (key: string) => ({ id: randomUUID(), email: `r55u-${key}-${run}@
 const people = {
   ownerA: person('owner-a'),
   adminA: person('admin-a'),
+  admin2A: person('admin2-a'),
   staffA: person('staff-a'),
   managerA: person('manager-a'),
   invitedA: person('invited-a'),
@@ -72,6 +73,19 @@ async function get(path: string, who: Who | undefined, firm: 'a' | 'b' = 'a'): P
   if (who) req = req.set('authorization', `Bearer ${await tokenFor(who.email)}`);
   return req;
 }
+async function send(
+  method: 'post' | 'patch',
+  path: string,
+  who: Who,
+  body: object,
+): Promise<Response> {
+  return request(app.getHttpServer())
+    [method](`/api/v1/business${path}`)
+    .set('x-business-id', firms.a)
+    .set('x-forwarded-for', viewer())
+    .set('authorization', `Bearer ${await tokenFor(who.email)}`)
+    .send(body);
+}
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 const ok = (res: Response) => {
   expect(res.status, JSON.stringify(res.body)).toBe(200);
@@ -105,6 +119,7 @@ beforeAll(async () => {
   for (const [firm, key, role, status] of [
     ['a', 'ownerA', 'OWNER', 'ACTIVE'],
     ['a', 'adminA', 'ADMIN', 'ACTIVE'],
+    ['a', 'admin2A', 'ADMIN', 'ACTIVE'],
     ['a', 'staffA', 'STAFF', 'ACTIVE'],
     ['a', 'managerA', 'MANAGER', 'ACTIVE'],
     ['a', 'invitedA', 'STAFF', 'INVITED'],
@@ -153,7 +168,7 @@ afterAll(async () => {
 describe('Users & Roles', () => {
   it("lists the firm's people with the company, and searches by role too", async () => {
     const list = FirmUserList.parse(ok(await get('/users?pageSize=100', ownerA)));
-    expect(list.total).toBe(7);
+    expect(list.total).toBe(8);
     expect(new Set(list.items.map((u) => u.company))).toEqual(new Set([`Firm r55u-a-${run}`]));
     expect(list.items.find((u) => u.id === member.invitedA)?.invite?.sentAt).toBeTruthy();
     const search = FirmUserList.parse(ok(await get('/users?search=manag', adminA)));
@@ -161,14 +176,14 @@ describe('Users & Roles', () => {
     const pending = FirmUserList.parse(ok(await get('/users?status=invited', ownerA)));
     expect(pending.items.map((u) => u.id)).toEqual([member.invitedA]);
     const page2 = FirmUserList.parse(ok(await get('/users?pageSize=5&page=2', ownerA)));
-    expect([page2.total, page2.items.length]).toEqual([7, 2]);
+    expect([page2.total, page2.items.length]).toEqual([8, 3]);
   });
 
   it('counts accepted accounts apart from pending invitations', async () => {
     expect(UsersSummary.parse(ok(await get('/users/summary', ownerA)))).toEqual({
-      total: 6,
-      addedThisMonth: 6,
-      active: 4,
+      total: 7,
+      addedThisMonth: 7,
+      active: 5,
       pendingInvitations: 1,
       roles: 9,
       customRoles: 0,
@@ -184,7 +199,7 @@ describe('Users & Roles', () => {
     const text = res.text.replace(new RegExp(`^${String.fromCharCode(0xfeff)}`), '');
     const lines = text.trim().split('\r\n');
     expect(lines[0]).toBe('Name,Email,Role,Company,Status,MFA,Last login,Invited');
-    expect(lines).toHaveLength(8);
+    expect(lines).toHaveLength(9);
     expect(text).toContain('Bookkeeper');
     expect(text).toContain('Pending');
     expect(text).not.toContain(token);
@@ -225,5 +240,41 @@ describe('Users & Roles', () => {
     const b = FirmUserList.parse(ok(await get('/users?pageSize=100', ownerB, 'b')));
     expect(b.items.map((u) => u.id)).toEqual([member.ownerB]);
     expect([403, 404]).toContain((await get('/users', ownerA, 'b')).status);
+  });
+
+  it('never leaves the firm without its Owner, nor lets anyone remove themselves', async () => {
+    // The firm keeps an active Owner always (the database refuses otherwise), nobody manages an
+    // Owner, only an Owner manages Admins, and nobody changes their own access: so the person
+    // acting, an active Owner or Admin, always remains. Octavia's review, T12 and T15.
+    const { admin2A } = people;
+    const version = async (id: string) =>
+      (ok(await get(`/staff/${id}`, ownerA)) as { version: string }).version;
+    const tries = async (who: Who, id: string) => [
+      (await send('post', `/staff/${id}/deactivate`, who, { confirm: true })).status,
+      (await send('post', `/staff/${id}/lock`, who, { reason: 'Test', confirm: true })).status,
+      (
+        await send('patch', `/staff/${id}`, who, {
+          version: await version(id),
+          account: { role: 'STAFF' },
+        })
+      ).status,
+    ];
+    // An Admin touches neither the Owner nor another Admin.
+    expect(await tries(adminA, member.ownerA)).toEqual([403, 403, 403]);
+    expect(await tries(adminA, member.admin2A)).toEqual([403, 403, 403]);
+    // Nobody removes themselves: not the Owner, not an Admin.
+    expect(await tries(ownerA, member.ownerA)).toEqual([409, 409, 409]);
+    expect(await tries(admin2A, member.admin2A)).toEqual([409, 409, 409]);
+    // The Owner may remove the Admins; the firm still has its active Owner.
+    expect(
+      (await send('post', `/staff/${member.admin2A}/deactivate`, ownerA, { confirm: true })).status,
+    ).toBe(200);
+    expect(
+      (await send('post', `/staff/${member.adminA}/deactivate`, ownerA, { confirm: true })).status,
+    ).toBe(200);
+    const owners = FirmUserList.parse(ok(await get('/users?role=OWNER&status=active', ownerA)));
+    expect(owners.items.map((u) => u.id)).toEqual([member.ownerA]);
+    ok(await send('post', `/staff/${member.adminA}/reactivate`, ownerA, {}));
+    ok(await send('post', `/staff/${member.admin2A}/reactivate`, ownerA, {}));
   });
 });

@@ -1,4 +1,4 @@
-import { Controller, Get, Module, Param, Query } from '@nestjs/common';
+import { Controller, Get, Header, Module, Param, Query, StreamableFile } from '@nestjs/common';
 import { AuditLogQuery, type AuditLogPage } from '@firmivra/types';
 import { z } from 'zod';
 import { CurrentAuth, CurrentTenant, FIRM_MANAGERS, Roles } from '../auth/decorators.js';
@@ -24,6 +24,24 @@ export class AuditLogController {
     @Query(new ZodValidationPipe(AuditLogQuery)) query: z.output<typeof AuditLogQuery>,
   ): Promise<AuditLogPage> {
     return this.viewer.list({ businessId: tenant.businessId, userId: auth.userId }, query);
+  }
+
+  /** The filtered log as CSV (at most 10,000 rows, newest first), itself audited. */
+  @Get('export')
+  @Header('Content-Disposition', 'attachment; filename="audit-log.csv"')
+  async export(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(AuditLogQuery)) query: z.output<typeof AuditLogQuery>,
+  ): Promise<StreamableFile> {
+    const text = await this.viewer.export(
+      { businessId: tenant.businessId, userId: auth.userId },
+      query,
+    );
+    // The byte order mark, so spreadsheets read the names right.
+    return new StreamableFile(Buffer.from(`${String.fromCharCode(0xfeff)}${text}`, 'utf8'), {
+      type: 'text/csv; charset=utf-8',
+    });
   }
 }
 

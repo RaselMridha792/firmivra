@@ -1,12 +1,11 @@
 'use client';
 
-import type {
-  MembershipRole,
-  PermissionCapability,
-  PermissionGrant,
-  PermissionModule,
-  PermissionModuleList,
-  RoleSummary,
+import {
+  FIRM_ROLE_LABELS,
+  type PermissionCapability,
+  type PermissionGrant,
+  type PermissionModule,
+  type PermissionModuleList,
 } from '@firmivra/types';
 import {
   Button,
@@ -17,14 +16,19 @@ import {
   Select,
   Skeleton,
 } from '@firmivra/ui';
-import { ArrowCounterClockwise, Info } from '@phosphor-icons/react';
+import { Archive, ArrowCounterClockwise, Info } from '@phosphor-icons/react';
+import { useRouter } from 'next/navigation';
 import { createElement, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
-import { MODULE_LOOKS, NEEDS_VIEW, ROLE_ERRORS } from '../../../team/roles/_components/role-parts';
+import { MODULE_LOOKS, NEEDS_VIEW } from '../../../team/roles/_components/role-parts';
 import { BandCard, NOT_LOADED } from '../../_components/settings-parts';
+import { CUSTOM_ROLE_ERRORS, readGrid, type RoleChoice, saveGrid } from './custom-roles';
+
+/** The Role selector's "Other": not a role, it opens Create Custom Role. */
+const OTHER = 'other';
 
 /** The design's six columns; Admin is the contract's MANAGE (Delete follows the role). */
 export const COLUMNS: [PermissionCapability, string][] = [
@@ -61,41 +65,57 @@ function toGrants(
  * Role Permissions, Module Permissions and Permission Details (users-and-role.jpg, guide §5, §8):
  * the same role grid as Staff Management's Roles & Permissions (`api.roles`), with the design's
  * six columns; the module row you click shows in Permission Details. Saving more than the role's
- * default asks first (409 PERMISSION_ESCALATION).
+ * default asks first (409 PERMISSION_ESCALATION). The firm's custom roles are in the selector too:
+ * Save Changes is their Edit Permissions, and Archive Role takes one out (Octavia's review,
+ * section 4); Other opens Create Custom Role.
  */
 export function RolePanel({
-  roles,
+  choices,
   selected,
   onSelect,
+  onDone,
 }: {
-  roles: RoleSummary[];
-  selected: RoleSummary | undefined;
-  onSelect: (role: MembershipRole) => void;
+  choices: RoleChoice[];
+  selected: RoleChoice | undefined;
+  onSelect: (key: string) => void;
+  /** A message for the page once the selected role is gone (archived). */
+  onDone: (message: string) => void;
 }) {
   const { role: me } = useFirm();
+  const router = useRouter();
   const modules = useApiQuery(['roles', 'modules'], () => api.roles.modules());
-  const grid = useApiQuery(['roles', 'permissions', selected?.role ?? 'none'], () =>
-    selected ? api.roles.permissions(selected.role) : Promise.resolve(null),
+  const grid = useApiQuery(['roles', 'permissions', selected?.key ?? 'none'], () =>
+    selected ? readGrid(selected) : Promise.resolve(null),
   );
   const [draft, setDraft] = useState<PermissionValue | null>(null);
   const [asking, setAsking] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [detail, setDetail] = useState<PermissionModule | ''>('');
   const [done, setDone] = useState('');
   const base = grid.data ? toValue(grid.data.cells) : {};
   const value = draft ?? base;
-  const canChange = Boolean(selected) && !selected?.locked && (me === 'OWNER' || me === 'ADMIN');
+  const manager = me === 'OWNER' || me === 'ADMIN';
+  const locked = selected?.kind === 'role' && selected.summary.locked;
+  const canChange = Boolean(selected) && !locked && manager;
   const save = useApiMutation(
     (ack: boolean) =>
       selected && modules.data
-        ? api.roles.savePermissions(selected.role, {
-            grants: toGrants(value, base, modules.data),
-            acknowledgeEscalation: ack,
-          })
+        ? saveGrid(selected, toGrants(value, base, modules.data), ack)
         : Promise.reject(new Error('Nothing to save')),
     { invalidate: ['roles'] },
   );
   const reset = useApiMutation(
-    () => (selected ? api.roles.resetPermissions(selected.role) : Promise.resolve(null)),
+    () =>
+      selected?.kind === 'role'
+        ? api.roles.resetPermissions(selected.summary.role)
+        : Promise.resolve(null),
+    { invalidate: ['roles'] },
+  );
+  const archive = useApiMutation(
+    () =>
+      selected?.kind === 'custom'
+        ? api.roles.archiveCustom(selected.custom.id)
+        : Promise.reject(new Error('Not a custom role')),
     { invalidate: ['roles'] },
   );
   const submit = (ack: boolean) =>
@@ -130,12 +150,19 @@ export function RolePanel({
           {selected ? (
             <Select
               label="Role"
-              options={roles.map((r) => ({ value: r.role, label: r.label }))}
-              value={selected.role}
+              options={[
+                ...choices.map((c) => ({ value: c.key, label: c.label })),
+                ...(manager ? [{ value: OTHER, label: 'Other (create a custom role)' }] : []),
+              ]}
+              value={selected.key}
               onChange={(event) => {
+                if (event.target.value === OTHER) {
+                  router.push('/settings/users/roles/new');
+                  return;
+                }
                 setDraft(null);
                 setDone('');
-                onSelect(event.target.value as MembershipRole);
+                onSelect(event.target.value);
               }}
             />
           ) : (
@@ -154,25 +181,45 @@ export function RolePanel({
           >
             Save Changes
           </Button>
-          <button
-            type="button"
-            disabled={!canChange || reset.isPending}
-            onClick={() =>
-              reset.mutate(undefined, {
-                onSuccess: () => {
-                  setDraft(null);
-                  setDone('Back to the default permissions.');
-                },
-              })
-            }
-            className="inline-flex min-h-9 items-center gap-1.5 self-end text-sm text-action hover:underline disabled:cursor-not-allowed disabled:text-muted disabled:no-underline"
-          >
-            <ArrowCounterClockwise aria-hidden weight="bold" className="size-4" />
-            Reset to Default
-          </button>
+          {selected?.kind === 'custom' ? (
+            <>
+              <p className="text-xs text-muted" data-testid="custom-role-info">
+                Custom role based on {FIRM_ROLE_LABELS[selected.custom.basedOn]} ·{' '}
+                {selected.custom.memberCount}{' '}
+                {selected.custom.memberCount === 1 ? 'person' : 'people'}
+                {selected.custom.description ? ` · ${selected.custom.description}` : ''}
+              </p>
+              <button
+                type="button"
+                disabled={!canChange || archive.isPending}
+                onClick={() => setArchiving(true)}
+                className="inline-flex min-h-9 items-center gap-1.5 self-end text-sm text-danger hover:underline disabled:cursor-not-allowed disabled:text-muted disabled:no-underline"
+              >
+                <Archive aria-hidden weight="bold" className="size-4" />
+                Archive Role
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={!canChange || reset.isPending}
+              onClick={() =>
+                reset.mutate(undefined, {
+                  onSuccess: () => {
+                    setDraft(null);
+                    setDone('Back to the default permissions.');
+                  },
+                })
+              }
+              className="inline-flex min-h-9 items-center gap-1.5 self-end text-sm text-action hover:underline disabled:cursor-not-allowed disabled:text-muted disabled:no-underline"
+            >
+              <ArrowCounterClockwise aria-hidden weight="bold" className="size-4" />
+              Reset to Default
+            </button>
+          )}
           {error || reset.error ? (
             <p role="alert" className="text-sm text-danger">
-              {errorMessage(error ?? reset.error, ROLE_ERRORS)}
+              {errorMessage(error ?? reset.error, CUSTOM_ROLE_ERRORS)}
             </p>
           ) : done ? (
             <p role="status" data-testid="role-saved" className="text-sm text-success">
@@ -181,7 +228,7 @@ export function RolePanel({
           ) : draft ? (
             <p className="text-sm text-muted">Unsaved changes</p>
           ) : null}
-          {selected?.locked ? (
+          {locked ? (
             <p className="text-xs text-muted">The Owner role always has every permission.</p>
           ) : null}
         </div>
@@ -264,16 +311,50 @@ export function RolePanel({
         </div>
       </BandCard>
 
+      {archiving && selected?.kind === 'custom' ? (
+        <Modal open title={`Archive ${selected.custom.name}?`} onClose={() => setArchiving(false)}>
+          <div className="flex flex-col gap-4" data-testid="archive-role">
+            <p className="text-sm text-text">
+              It can no longer be given, and it leaves the role lists. Its history stays in the
+              audit log. A role someone still has cannot be archived: give them another role first.
+            </p>
+            {archive.error ? (
+              <p role="alert" className="text-sm text-danger">
+                {errorMessage(archive.error, CUSTOM_ROLE_ERRORS)}
+              </p>
+            ) : null}
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => setArchiving(false)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={archive.isPending}
+                onClick={() =>
+                  archive.mutate(undefined, {
+                    onSuccess: () => onDone(`${selected.custom.name} archived.`),
+                  })
+                }
+              >
+                Archive Role
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
       {asking ? (
         <Modal
           open
-          title={`Give ${selected?.label ?? 'this role'} more than its default?`}
+          title={`Give ${selected?.label ?? 'this role'} more than ${selected?.kind === 'custom' ? 'the role it starts from' : 'its default'}?`}
           onClose={() => setAsking(false)}
         >
           <div className="flex flex-col gap-4">
             <p className="text-sm text-muted">
-              Some boxes you ticked are not in this role&apos;s default permissions. Everyone with
-              the role gets them on their next page load.
+              Some boxes you ticked are not in{' '}
+              {selected?.kind === 'custom'
+                ? `${FIRM_ROLE_LABELS[selected.custom.basedOn]}'s permissions in this firm`
+                : "this role's default permissions"}
+              . Everyone with the role gets them on their next page load.
             </p>
             <div className="flex justify-end gap-3">
               <Button variant="secondary" onClick={() => setAsking(false)}>

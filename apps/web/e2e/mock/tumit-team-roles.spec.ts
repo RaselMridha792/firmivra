@@ -68,16 +68,27 @@ test('View is needed for the rest, Clear All waits for Save, and Owner cannot ch
   await expect(page.getByRole('button', { name: 'Save Changes' })).toHaveCount(0);
 });
 
-test('Create Custom Role checks its fields and says it is not available yet', async ({ page }) => {
+test('Create Custom Role checks its fields, then Set Permissions creates it', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(url);
   await page.getByRole('button', { name: 'Create Custom Role' }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('button', { name: 'Create Role' }).click();
+  await dialog.getByRole('button', { name: 'Next: Set Permissions' }).click();
   await expect(dialog.getByText('Enter a name.')).toBeVisible();
   await expect(dialog.getByText('Choose the role it starts from.')).toBeVisible();
   await dialog.getByLabel('Role Name *').fill('Seasonal Preparer');
   await dialog.getByLabel('Start From *').selectOption({ label: 'Tax Preparer' });
-  await dialog.getByRole('button', { name: 'Create Role' }).click();
-  await expect(dialog.getByRole('alert')).toHaveText('Custom roles are not available yet.');
+  await dialog.getByRole('button', { name: 'Next: Set Permissions' }).click();
+  const grid = page.getByTestId('set-permissions');
+  await expect(grid.getByRole('checkbox', { name: 'Tax Returns: View' })).toBeChecked();
+  await grid.getByRole('checkbox', { name: 'Tax Returns: Create' }).uncheck();
+  await grid.getByRole('button', { name: 'Save Role' }).click();
+  // The new role is chosen, with its own grid, and can be edited like any other.
+  await expect(page.getByLabel('Select a Role *')).toHaveValue(/^custom:/);
+  await expect(page.getByTestId('role-description')).toContainText('Seasonal Preparer');
+  await expect(page.getByRole('checkbox', { name: 'Tax Returns: Create' })).not.toBeChecked();
+  await page.getByRole('checkbox', { name: 'Tax Returns: Create' }).check();
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByTestId('unsaved')).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: 'Tax Returns: Create' })).toBeChecked();
 });

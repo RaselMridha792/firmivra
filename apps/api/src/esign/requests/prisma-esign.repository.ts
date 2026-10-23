@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   ESIGN_MAX_PAGES,
+  ESIGN_MAX_REQUEST_BYTES,
   type EsignAccessRole,
   type EsignDefaults,
   type EsignField,
@@ -222,6 +223,14 @@ export class PrismaEsignRepository implements EsignRepository {
   async findRequest(businessId: string, id: string): Promise<EsignRequestRecord | null> {
     const row = await this.db(businessId).esignRequest.findFirst({ where: { id } });
     return row && toRequest(row);
+  }
+
+  async documentBytes(businessId: string, id: string): Promise<number> {
+    const sum = await this.db(businessId).esignDocument.aggregate({
+      where: { requestId: id },
+      _sum: { sizeBytes: true },
+    });
+    return sum._sum.sizeBytes ?? 0;
   }
 
   async parts(businessId: string, id: string): Promise<EsignRequestParts> {
@@ -469,15 +478,24 @@ export class PrismaEsignRepository implements EsignRepository {
     businessId: string,
     id: string,
     document: NewEsignDocument,
-  ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES'> {
-    const added = await refusable<EsignDocumentRecord | null, 'TOO_MANY_PAGES'>(() =>
+  ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES' | 'REQUEST_TOO_LARGE'> {
+    const added = await refusable<
+      EsignDocumentRecord | null,
+      'TOO_MANY_PAGES' | 'REQUEST_TOO_LARGE'
+    >(() =>
       this.draftWrite(businessId, id, null, async (tx) => {
         const row = await tx.esignRequest.findUniqueOrThrow({
           where: { id },
-          select: { pagePlan: true, documents: { select: { position: true } } },
+          select: {
+            pagePlan: true,
+            documents: { select: { position: true, sizeBytes: true } },
+          },
         });
         const plan = row.pagePlan as unknown as EsignPage[];
         if (plan.length + document.pageCount > ESIGN_MAX_PAGES) throw new Refused('TOO_MANY_PAGES');
+        // Under the request's lock (draftWrite): the files so far, plus this one.
+        const bytes = row.documents.reduce((sum, d) => sum + d.sizeBytes, document.sizeBytes);
+        if (bytes > ESIGN_MAX_REQUEST_BYTES) throw new Refused('REQUEST_TOO_LARGE');
         // After the last file: a removed file's position is never reused.
         const position = Math.max(-1, ...row.documents.map((d) => d.position)) + 1;
         const created = await tx.esignDocument.create({

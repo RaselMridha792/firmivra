@@ -28,6 +28,8 @@ import {
   PortalBrandingController,
 } from './branding.controller.js';
 import { FirmLogoController, LOGO_PROVIDERS, PortalLogoController } from './logo.controller.js';
+import { SettingsOverviewController } from './settings-overview.controller.js';
+import { SettingsOverviewService } from './settings-overview.service.js';
 import { SettingsService } from './settings.service.js';
 
 const kindPipe = new ZodValidationPipe(LegalKind);
@@ -116,11 +118,12 @@ export class SettingsController {
   imports: [FieldEncryptionModule, PortalInfoModule],
   controllers: [
     SettingsController,
+    SettingsOverviewController,
     FirmLogoController,
     PortalLogoController,
     BrandingController,
     PortalBrandingController,
   ],
-  providers: [SettingsService, ...LOGO_PROVIDERS, ...BRANDING_PROVIDERS],
+  providers: [SettingsService, SettingsOverviewService, ...LOGO_PROVIDERS, ...BRANDING_PROVIDERS],
 })
 export class SettingsModule {}

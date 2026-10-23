@@ -92,3 +92,4 @@ export { DocumentRequestStatus } from './schemas.js';
 // RecurrenceFrequency adds NONE and CUSTOM, which the contract's own schemas keep using.
 export { RecurrenceFrequency, ReminderChannel, SidebarPosition, SidebarStyle } from './schemas.js';
 export * from './bookkeeping/index.js';
+export * from './public-links/index.js';

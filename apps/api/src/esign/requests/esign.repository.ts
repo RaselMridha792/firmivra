@@ -328,13 +328,17 @@ export interface EsignRepository {
   ): Promise<EsignPendingUpload | null>;
   /**
    * Adds the file at the next position and its pages, unturned, to the end of the page plan.
-   * TOO_MANY_PAGES (nothing added) when the plan would pass ESIGN_MAX_PAGES.
+   * TOO_MANY_PAGES (nothing added) when the plan would pass ESIGN_MAX_PAGES; REQUEST_TOO_LARGE
+   * when the request's files would pass ESIGN_MAX_REQUEST_BYTES together (checked in the same
+   * transaction, so two uploads at once can't both slip through).
    */
   addDocument(
     businessId: string,
     id: string,
     document: NewEsignDocument,
-  ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES'>;
+  ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES' | 'REQUEST_TOO_LARGE'>;
+  /** The bytes the request's files come to together (0 without files). */
+  documentBytes(businessId: string, id: string): Promise<number>;
   /**
    * Deletes the file and replaces the page plan and the fields (those pages' removed), and
    * returns the request as written. Like the saves above, null unless lastActivityAt is still
