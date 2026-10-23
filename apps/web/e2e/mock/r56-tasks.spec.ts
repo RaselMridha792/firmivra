@@ -129,7 +129,7 @@ test('Recurring: previews the next five dates, saves, then skips one', async ({ 
 
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
-  for (const path of ['', '/new', `/${FIRST}`, `/${FIRST}/edit`, '/recurring/new']) {
+  for (const path of ['', '/new', `/${FIRST}`, `/${FIRST}/edit`, '/recurring/new', '/types']) {
     await page.goto(`${base}${path}`);
     await expect(
       page.locator('[data-testid^="task"], [data-testid^="recurring"]').first(),

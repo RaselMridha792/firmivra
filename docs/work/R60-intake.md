@@ -19,19 +19,37 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
-### Open PRs (one at a time, each after the previous one merged or had CI green)
+### State (Oct 23, second session): open PRs and branches waiting
+
+#1028, #1031, #1033 and #1034 merged on Oct 23. Open, in merge order (each had CI green):
 
 | PR | Branch | What |
 | --- | --- | --- |
+| #1038 | `rasel/R60-intake-link-contract` | I3 link, contract: `beginOnlinePageUrl`, the route's doc, `publicLink(id)`, the mock (contract, not counted) |
+| #1039 | `rasel/R60-intake-link-api` | I3 link, API: `GET /business/intake-forms/{id}/public-link`, e2e and the isolation case (stacked on #1038) |
+| #1045 | `rasel/R60-intake-link-web` | I3 link, screen: Form Link after Publish, More menu and card menu; a published form's edits stay on it; Publish takes stored grids and State lists (stacked on #1039) |
+| #1047 | `rasel/R60-settings-checks` | Docs: the Settings confirm checks (`R60-settings-checks.md`), item 4's questions, this handoff (docs, not counted) |
 | #1028 | `rasel/R60-intake-send` | I2: Send says why a send can't reach someone, and where to fix it (merged Oct 23) |
 | #1031 | `rasel/R60-intake-publish` | I3 (validation): Publish names each problem and goes to it (merged Oct 23) |
 | #1033 | `rasel/R60-intake-settings-p1` | I4 to I6: Edit panels, Submission Rules panel, a real test reminder (merged Oct 23) |
 
-After a PR merges, merge `origin/main` into the next branch before more work on it.
+Pushed, no PR yet (two non-contract PRs are open). Open each when a slot frees, after merging
+`origin/main` into it:
+
+| Branch | What | Before its PR |
+| --- | --- | --- |
+| `rasel/R60-intake-settings-p2` | I8 (days, "after sending", the final after the first, No reminders saved as off), I9 (1 to 72 hours, 42 not 48), I11 (Always on). API and web | Body ready in the second session's scratchpad (`pr-settings-p2.md`, path below); sheet committed |
+| `rasel/R60-staff-drafts` | SM5: Drafts in the directory's status filter (Continue, Delete); a chosen file stays after Back; the saved note says pay and files are not in a draft | Shoot its sheet on the real API (directory Drafts with data, empty, unreachable; 375 px), then write the body |
+
+The second session's scratchpad: `C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/ce1f72c0-0ecd-4c6c-8bc9-104d6f2a219d/scratchpad/`
+(`shots-link.cjs`, `shots-settings2.cjs`, `compose.cjs`, `spec-*.json`, the PR bodies `pr-*.md`).
+
+Mock specs pass on each: `r60-intake-link` 2, `tumit-intake-builder` and `tumit-intake-templates`;
+`r60-intake-settings` 11; `r60-staff-drafts` 2 and the `tumit-team*` specs 12.
 
 ### Next, in this order
 
-1. **I3, the rest: link and embed code.** Rasel decided (Oct 22): only each service's main form
+1. **(In PR: #1038, #1039, #1045.) I3, the rest: link and embed code.** Rasel decided (Oct 22): only each service's main form
    (its default template, `service_default`, of a Begin Online service of the six kinds) gets a
    public link and embed code, pointing to its existing page `{PORTAL_BASE_URL}/{slug}/begin/{path}`
    (paths: annual-tax, quarterly-tax, bookkeeping, payroll, tax-planning, business-development;
@@ -43,7 +61,7 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
    `state`: LIVE when published and the service is active and on Begin Online; else DRAFT,
    INACTIVE, ARCHIVED or HIDDEN. Check whether the Begin Online pages honour `?embed=1` (the
    block's iframe adds it); if not, say so in the PR and in Needs (R17's portal layout).
-2. **Intake Forms I7 to I12** (CHANGE-LIST section A). Check main first:
+2. **(Built: `rasel/R60-intake-settings-p2`, with an "I7 to I12" table in its copy of this file.) Intake Forms I7 to I12** (CHANGE-LIST section A). Check main first:
    - I7 Notify additional emails (Notifications & Reminders), editable and saved: needs a column?
      (`intake_settings` has none today: a written item to R0/R1, not built).
    - I8 First and Final reminder options in minutes and hours too: the columns are whole days
@@ -55,13 +73,13 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
    - I13 live tests: record Pass, Fail or Blocked with evidence in a PR.
    Her open decisions stay open (Submitted vs Completed, due date vs expiration, staff Edit vs
    Request Revision, import file types, auto-create client trigger): list them, do not guess.
-3. **Settings Confirm Checks** (`docs/specs/review-2026-10-21/settings--confirm-checks-supplement.md`,
+3. **(In PR: #1047.) Settings Confirm Checks** (`docs/specs/review-2026-10-21/settings--confirm-checks-supplement.md`,
    CHANGE-LIST section E): verification, not features. For each check R60 owns (Overview, ownership
    transfer and branding with R56, Security and Data with R1, Preferences consistency) return Built,
    Partially built or Not built, the page, the test result, the evidence and what remains. The
    tab-to-page mapping (check 10) is one table in that PR.
-4. **Settings areas:** Company Profile "Request Change", Notifications, Billing and Payments.
-5. **Staff Management screens** from Octavia's new review
+4. **(Waiting for Rasel: the plan and questions are under Needs.) Settings areas:** Company Profile "Request Change", Notifications, Billing and Payments.
+5. **(SM5 built: `rasel/R60-staff-drafts`. SM3 is blocked: see Needs.) Staff Management screens** from Octavia's new review
    (`docs/specs/review-2026-10-23/CHANGE-LIST.md`, section B): SM3 (wrong routes: Offices & Job
    Titles, New Accounts & Security), SM5 (drafts not found; the file lost after Back), SM8 (work
    schedules, maximum workload), SM9 (summary cards and one directory view), SM10 (date, time and
@@ -148,6 +166,35 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
 - **Intake reminders (R6 or Rasel to name):** there is no intake reminder job and no intake
   reminder email template. The test reminder (#1033) uses the firm's message email
   (`lead.message-email`), which joins paragraphs; the job and a template of its own come together.
+- **Settings areas (handoff item 4): plan, waiting for Rasel's answers.** From
+  `docs/specs/settings-review-2026-10-20/CHANGE-LIST.md` P3 and her Company Profile guide:
+  1. *Request Change* (legal name, EIN, licensing; never edited directly). Proposal: the modal
+     raises a Super Admin support ticket (the database already lets a firm raise one:
+     `support_tickets_firm_raise`, source PORTAL), with the current and proposed values and the
+     reason; the card shows its status from the ticket. Needs a "Company details" category (R0
+     seed) and a firm route (R60). There are no licensing columns: a written item (R0). Go?
+  2. *Company Profile layout:* her guide shows logo, colours, theme and login as summaries with
+     "Go to Branding"; today their editors sit on /settings/profile. Moving them changes the
+     Branding page (R28 and R56's). Who moves them?
+  3. *Copyable links:* the portal, each main intake form (#1039's link), appointment types (A4)
+     and packages (S12) once R56 builds those two.
+  4. *Notifications:* employee email always on, enforced on the server, with existing Off
+     settings migrated to On (an R0 data migration); SMS only after a verified mobile number.
+  5. *Billing and Payments:* Upgrade, Downgrade, plan and usage details, payment methods,
+     invoices with PDF, the downgrade guard; Payments' Manage Connection, readiness, Square and
+     PayPal cards, payout settings. Large and Stripe-bound: which session?
+- **Staff Management SM3 is blocked (handoff item 5):** each wrong route needs a destination that
+  does not exist. Offices & Job Titles needs R1's Locations API and a saved job-titles table (R0;
+  job titles live on each staff record today). New Accounts & Security needs a firm-wide staff
+  security policy, which nothing stores (R0). The Reports shortcut needs a Staff and Team report
+  in Reports (its owner to name). Until then the cards stay as they are.
+- **SM5, two questions for Rasel:** she asks to "clarify or correct" that pay is not kept in a
+  staff draft (R55 left it out on purpose: keep it out with the clear note `rasel/R60-staff-drafts`
+  adds, or store it encrypted?); per-file Save of a draft's attachments needs storage for draft
+  files (API, maybe R0). The chosen files now stay only while the tab is open.
+- **Sign Out All Sessions ends no real session** (Settings checks, check 6): it marks
+  `staff_sessions` rows that sign-in never writes. Users & Roles is R55's: a Cognito global sign-out,
+  as Reset MFA does.
 - **The embed code cannot work on a firm's website yet (I3, seen Oct 23).** Three blocks, none in
   R60's paths: (1) **R1:** the portal's CloudFront behaviours use the managed `SECURITY_HEADERS`
   policy (`infra/src/stacks/app-stack.ts:185,205`), which sends `X-Frame-Options: SAMEORIGIN`, so a
@@ -188,6 +235,9 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
 - Oct 22: #1019 (I1) merged. I2, I3 (validation) and I4 to I6 built, with sheets.
 - Oct 23: #1028 (I2), #1031 (I3) and #1033 (I4 to I6) opened, each after the one before had CI
   green. Handoff written (above).
+- Oct 23: Settings confirm checks (handoff item 3) answered in `docs/work/R60-settings-checks.md`:
+  checks 1, 3, 4, 5, 6, 7, 10 (the tab-to-page table) and 11, each with status, page, test result
+  and what remains. Most urgent: Sign Out All Sessions ends no real session (check 6).
 - Oct 23 (fresh session): #1028, #1031, #1033 and #1034 merged. I3 link contract: a main form's
   `GET /business/intake-forms/{id}/public-link` answers `PublicLink` with its Begin Online page
   (`beginOnlinePageUrl`), the client's `publicLink(id)` and the mock. The embed blocks found (Needs).
