@@ -1,6 +1,6 @@
 'use client';
 
-import type { Promotion, SavePromotionRequest } from '@firmivra/types';
+import { ApiRequestError, type Promotion, type SavePromotionRequest } from '@firmivra/types';
 import { Badge, Button, Checkbox, Input, Modal, Select, Toast } from '@firmivra/ui';
 import { PencilSimple, Plus, Prohibit, Tag } from '@phosphor-icons/react';
 import { useState } from 'react';
@@ -171,6 +171,31 @@ export function PromotionsScreen() {
   );
 }
 
+type PromoField = 'name' | 'value' | 'targets' | 'startsOn' | 'endsOn' | 'code';
+const TARGET_NOUN: Record<Promotion['appliesTo'], string> = {
+  ALL: 'service',
+  CATEGORIES: 'category',
+  SERVICES: 'service',
+  PACKAGES: 'package',
+};
+const FIELD_ORDER: PromoField[] = ['name', 'value', 'targets', 'startsOn', 'endsOn', 'code'];
+const FIELD_LABEL: Record<PromoField, string> = {
+  name: 'Promotion name',
+  value: 'Discount',
+  targets: 'Applies to',
+  startsOn: 'Starts on',
+  endsOn: 'Ends on',
+  code: 'Promo code',
+};
+const API_FIELD: Record<string, PromoField> = {
+  name: 'name',
+  value: 'value',
+  targetIds: 'targets',
+  startsOn: 'startsOn',
+  endsOn: 'endsOn',
+  promoCode: 'code',
+};
+
 function PromotionDialog({
   promotion,
   onClose,
@@ -192,6 +217,7 @@ function PromotionDialog({
   );
   const [code, setCode] = useState(promotion?.promoCode ?? '');
   const [stackable, setStackable] = useState(promotion?.stackable ?? false);
+  const [issues, setIssues] = useState<Partial<Record<PromoField, string>>>({});
   const categories = useApiQuery([...PROMOS, 'targets', 'categories'], () =>
     api.servicesPricing.categories(),
   );
@@ -230,8 +256,38 @@ function PromotionDialog({
         : api.servicesPricing.createPromotion(body(activate)),
     { invalidate: [...CATALOG_KEY] },
   );
-  const valid = name.trim() && number > 0;
-  const submit = (activate: boolean) =>
+  /** Every wrong field with its rule (the API checks the same rules again). */
+  function check(): Partial<Record<PromoField, string>> {
+    const found: Partial<Record<PromoField, string>> = {};
+    if (!name.trim()) found.name = 'Enter a name.';
+    if (value.trim() === '' || !Number.isFinite(number)) found.value = 'Enter the discount.';
+    else if (number <= 0)
+      found.value = 'Use a value above 0. Negative or zero discounts are not allowed.';
+    else if (type === 'PERCENTAGE' && number > 100)
+      found.value = 'A percentage discount is 1 to 100%.';
+    else if (!/^\d+(\.\d{1,2})?$/.test(value.trim()))
+      found.value = 'Use at most two decimal places.';
+    if (appliesTo !== 'ALL' && targets.length === 0)
+      found.targets = `Choose at least one ${TARGET_NOUN[appliesTo]}.`;
+    if (startsOn && endsOn && startsOn > endsOn)
+      found.endsOn = 'The end date must be on or after the start date.';
+    const promo = code.trim();
+    if (promo && !/^[A-Z0-9-]{3,30}$/.test(promo))
+      found.code = 'Use 3 to 30 capital letters, digits or hyphens.';
+    return found;
+  }
+  function show(found: Partial<Record<PromoField, string>>) {
+    setIssues(found);
+    const first = FIELD_ORDER.find((field) => found[field]);
+    if (first) document.getElementById(`promo-${first}`)?.focus();
+  }
+  const submit = (activate: boolean) => {
+    const found = check();
+    if (Object.keys(found).length) {
+      show(found);
+      return;
+    }
+    setIssues({});
     save.mutate(activate, {
       onSuccess: () =>
         onDone(
@@ -241,7 +297,19 @@ function PromotionDialog({
               ? 'Promotion saved.'
               : 'Draft saved.',
         ),
+      // The API's own field details, if it still refuses something.
+      onError: (error) => {
+        if (!(error instanceof ApiRequestError) || !error.details?.length) return;
+        const found: Partial<Record<PromoField, string>> = {};
+        for (const detail of error.details) {
+          const field = API_FIELD[detail.path.split('.')[0] ?? ''];
+          if (field) found[field] = detail.message;
+        }
+        if (Object.keys(found).length) show(found);
+      },
     });
+  };
+  const wrong = FIELD_ORDER.filter((field) => issues[field]);
   return (
     <Modal
       open
@@ -252,24 +320,32 @@ function PromotionDialog({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            variant="secondary"
-            disabled={!valid || save.isPending}
-            onClick={() => submit(false)}
-          >
+          <Button variant="secondary" disabled={save.isPending} onClick={() => submit(false)}>
             {promotion ? 'Save' : 'Save as Draft'}
           </Button>
-          <Button disabled={!valid || save.isPending} onClick={() => submit(true)}>
+          <Button disabled={save.isPending} onClick={() => submit(true)}>
             Save &amp; Activate
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-3">
+        {wrong.length ? (
+          <div
+            role="alert"
+            data-testid="promotion-errors"
+            className="rounded-control bg-danger-soft p-3 text-sm text-heading"
+          >
+            Fix {wrong.length === 1 ? 'this field' : `these ${wrong.length} fields`} before saving:{' '}
+            {wrong.map((field) => FIELD_LABEL[field]).join(', ')}.
+          </div>
+        ) : null}
         <Input
+          id="promo-name"
           label="Promotion name"
           value={name}
           maxLength={120}
+          error={issues.name}
           onChange={(event) => setName(event.target.value)}
         />
         <div className="grid gap-3 sm:grid-cols-2">
@@ -282,14 +358,25 @@ function PromotionDialog({
               { value: 'FIXED', label: 'Fixed amount' },
             ]}
           />
-          <Input
-            label={type === 'PERCENTAGE' ? 'Percent off' : 'Dollars off'}
-            type="number"
-            min={0}
-            step="0.01"
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-          />
+          <div className="flex flex-col gap-1">
+            <Input
+              id="promo-value"
+              label={type === 'PERCENTAGE' ? 'Percent off' : 'Dollars off'}
+              type="number"
+              min={0}
+              max={type === 'PERCENTAGE' ? 100 : undefined}
+              step="0.01"
+              value={value}
+              error={issues.value}
+              aria-describedby="promo-value-rule"
+              onChange={(event) => setValue(event.target.value)}
+            />
+            <p id="promo-value-rule" className="text-xs text-muted">
+              {type === 'PERCENTAGE'
+                ? '1 to 100%. Negative values are not allowed.'
+                : 'Above $0. Negative values are not allowed.'}
+            </p>
+          </div>
         </div>
         <Select
           label="Applies to"
@@ -301,7 +388,12 @@ function PromotionDialog({
           options={Object.entries(APPLIES).map(([v, label]) => ({ value: v, label }))}
         />
         {appliesTo !== 'ALL' ? (
-          <fieldset className="max-h-40 overflow-y-auto rounded-lg border border-divider p-3">
+          <fieldset
+            id="promo-targets"
+            tabIndex={-1}
+            aria-describedby={issues.targets ? 'promo-targets-error' : undefined}
+            className={`max-h-40 overflow-y-auto rounded-lg border p-3 ${issues.targets ? 'border-danger' : 'border-divider'}`}
+          >
             <legend className="px-1 text-sm font-medium text-text">
               Choose what it applies to
             </legend>
@@ -323,20 +415,31 @@ function PromotionDialog({
             )}
           </fieldset>
         ) : null}
+        {issues.targets ? (
+          <p id="promo-targets-error" className="-mt-2 text-sm font-medium text-danger">
+            {issues.targets}
+          </p>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <Input
+            id="promo-startsOn"
             label="Starts on (optional)"
             type="date"
             value={startsOn}
+            error={issues.startsOn}
             onChange={(event) => setStartsOn(event.target.value)}
           />
           <Input
+            id="promo-endsOn"
             label="Ends on (optional)"
             type="date"
             value={endsOn}
+            min={startsOn || undefined}
+            error={issues.endsOn}
             onChange={(event) => setEndsOn(event.target.value)}
           />
         </div>
+        <p className="-mt-2 text-xs text-muted">The end date is on or after the start date.</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Select
             label="Client eligibility"
@@ -345,9 +448,11 @@ function PromotionDialog({
             options={Object.entries(ELIGIBILITY).map(([v, label]) => ({ value: v, label }))}
           />
           <Input
+            id="promo-code"
             label="Promo code (optional)"
             value={code}
             maxLength={30}
+            error={issues.code}
             onChange={(event) => setCode(event.target.value.toUpperCase())}
           />
         </div>

@@ -2,6 +2,7 @@
 
 import {
   Archive,
+  ArrowCounterClockwise,
   BookOpen,
   Briefcase,
   Buildings,
@@ -40,17 +41,43 @@ import {
   type TableSort,
 } from '@firmivra/ui';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { CATALOG_ERRORS, rowActivationGap, STATUS_LABEL, STATUS_TONE } from './catalog-shared';
 
 const CATALOG_KEY = ['services-pricing'] as const;
 const PAGE_SIZE = 8;
 type SortKey = NonNullable<CatalogServicesQuery['sort']>;
 type ServiceAction = 'activate' | 'deactivate' | 'archive';
+
+/**
+ * Which services the list shows (Octavia's review S2, S4): drafts and archived services were
+ * reachable nowhere. Inactive Services keeps its own tab.
+ */
+type ServiceView = 'active' | 'draft' | 'archived' | 'all';
+const VIEWS: { id: ServiceView; label: string }[] = [
+  { id: 'active', label: 'Active' },
+  { id: 'draft', label: 'Drafts' },
+  { id: 'archived', label: 'Archived' },
+  { id: 'all', label: 'All' },
+];
+const EMPTY: Record<ServiceView, { title: string; text: string }> = {
+  active: {
+    title: 'No active services yet',
+    text: 'Add your first service to start building your catalog.',
+  },
+  draft: {
+    title: 'No drafts',
+    text: 'Save as Draft keeps an unfinished service here until it is ready to activate.',
+  },
+  archived: { title: 'Nothing archived', text: 'Archived services stay here and can be restored.' },
+  all: { title: 'No services yet', text: 'Add your first service to start building your catalog.' },
+};
+const isView = (value: string | null): value is ServiceView => VIEWS.some((v) => v.id === value);
 
 const serviceIcons: Record<string, { glyph: Icon; tone: string }> = {
   user: { glyph: User, tone: 'bg-danger-soft text-danger' },
@@ -196,13 +223,15 @@ function updatedDate(value: string) {
 function ServiceMetrics({
   summary,
 }: {
-  summary: {
-    total: number;
-    active: number;
-    inactive: number;
-    categories: number;
-    activePromotions: number;
-  };
+  summary:
+    | {
+        total: number;
+        active: number;
+        inactive: number;
+        categories: number;
+        activePromotions: number;
+      }
+    | undefined;
 }) {
   return (
     <section
@@ -218,7 +247,9 @@ function ServiceMetrics({
             <Glyph aria-hidden weight="fill" className="size-6" />
           </span>
           <div className="min-w-0">
-            <p className="text-2xl leading-none font-bold text-heading">{summary[key]}</p>
+            <p className="text-2xl leading-none font-bold text-heading">
+              {summary ? summary[key] : <span aria-label="Not available">—</span>}
+            </p>
             <p className="mt-1 text-sm text-muted">{label}</p>
           </div>
         </div>
@@ -292,6 +323,11 @@ function ServiceUsageDialog({
 
 export function ServicesPricingScreen() {
   const router = useRouter();
+  const params = useSearchParams();
+  const asked = params.get('view');
+  const [view, setView] = useState<ServiceView>(() => (isView(asked) ? asked : 'active'));
+  /** A service that cannot be activated yet, and what it still needs. */
+  const [blocked, setBlocked] = useState<{ row: CatalogServiceRow; need: string } | null>(null);
   const [searchText, setSearchText] = useState('');
   const search = useDeferredValue(searchText.trim());
   const [categoryId, setCategoryId] = useState('');
@@ -307,7 +343,7 @@ export function ServicesPricingScreen() {
     api.servicesPricing.categories(),
   );
   const query: CatalogServicesQuery = {
-    status: 'active',
+    status: view,
     search: search || undefined,
     categoryId: categoryId || undefined,
     sort: sort.id as SortKey,
@@ -318,18 +354,6 @@ export function ServicesPricingScreen() {
   const services = useApiQuery([...CATALOG_KEY, 'services', query], () =>
     api.servicesPricing.services(query),
   );
-  const loadError =
-    summary.isError && summary.data === undefined
-      ? summary.error
-      : categories.isError && categories.data === undefined
-        ? categories.error
-        : services.isError && services.data === undefined
-          ? services.error
-          : undefined;
-
-  function retryPageData() {
-    void Promise.all([summary.refetch(), categories.refetch(), services.refetch()]);
-  }
 
   const serviceAction = useApiMutation(
     ({ id, action }: { id: string; action: ServiceAction }) => {
@@ -391,11 +415,7 @@ export function ServicesPricingScreen() {
       label: 'Status',
       sortable: true,
       className: 'min-w-28',
-      cell: (row) => (
-        <Badge tone={row.status === 'ACTIVE' ? 'success' : 'neutral'}>
-          {row.status === 'ACTIVE' ? 'Active' : row.status.toLowerCase()}
-        </Badge>
-      ),
+      cell: (row) => <Badge tone={STATUS_TONE[row.status]}>{STATUS_LABEL[row.status]}</Badge>,
     },
     {
       id: 'updated',
@@ -418,13 +438,28 @@ export function ServicesPricingScreen() {
     setSelected([]);
   }
 
-  function handleServiceAction(id: string, action: ServiceAction) {
+  function handleServiceAction(row: CatalogServiceRow, action: ServiceAction) {
     setNotice('');
+    setBlocked(null);
+    // S3: say what is missing instead of sending a request the API refuses.
+    const gap = action === 'activate' ? rowActivationGap(row) : null;
+    if (gap) {
+      setBlocked({ row, need: gap.message });
+      return;
+    }
     serviceAction.mutate(
-      { id, action },
+      { id: row.id, action },
       {
         onSuccess: () =>
-          setNotice(action === 'archive' ? 'Service archived.' : `Service ${action}d.`),
+          setNotice(
+            action === 'archive'
+              ? `${row.name} archived. It stays under Archived.`
+              : row.status === 'ARCHIVED'
+                ? `${row.name} restored to Inactive Services.`
+                : action === 'activate'
+                  ? `${row.name} activated.`
+                  : `${row.name} deactivated.`,
+          ),
       },
     );
   }
@@ -455,30 +490,63 @@ export function ServicesPricingScreen() {
         onSelect: () => router.push(`/services-pricing/${row.id}/edit`),
       },
       { label: 'View Usage', icon: Cube, onSelect: () => setUsageTarget(row) },
-      {
-        label: 'Deactivate',
-        icon: Clock,
-        onSelect: () => handleServiceAction(row.id, 'deactivate'),
-      },
-      {
-        label: 'Archive',
-        icon: Archive,
-        onSelect: () => handleServiceAction(row.id, 'archive'),
-        danger: true,
-      },
+      ...(row.status === 'ACTIVE'
+        ? [
+            {
+              label: 'Deactivate',
+              icon: Clock,
+              onSelect: () => handleServiceAction(row, 'deactivate'),
+            },
+          ]
+        : row.status === 'ARCHIVED'
+          ? [
+              {
+                label: 'Restore',
+                icon: ArrowCounterClockwise,
+                onSelect: () => handleServiceAction(row, 'deactivate'),
+              },
+            ]
+          : [
+              {
+                label: 'Activate',
+                icon: CheckCircle,
+                onSelect: () => handleServiceAction(row, 'activate'),
+              },
+            ]),
+      ...(row.status === 'ARCHIVED'
+        ? []
+        : [
+            {
+              label: 'Archive',
+              icon: Archive,
+              onSelect: () => handleServiceAction(row, 'archive'),
+              danger: true,
+            },
+          ]),
       { label: 'Delete', icon: Trash, onSelect: () => setDeleteTarget(row), danger: true },
     ];
 
     return (
       <div className="flex items-center justify-end gap-3">
-        <button
-          type="button"
-          className="inline-flex min-h-10 min-w-24 items-center justify-center gap-2 rounded-lg bg-info-soft px-4 text-sm font-semibold text-action hover:bg-info-soft"
-          onClick={() => router.push(`/services-pricing/${row.id}/edit`)}
-        >
-          <PencilSimple aria-hidden weight="fill" className="size-4" />
-          Edit
-        </button>
+        {row.status === 'ARCHIVED' ? (
+          <button
+            type="button"
+            className="inline-flex min-h-10 min-w-24 items-center justify-center gap-2 rounded-lg bg-info-soft px-4 text-sm font-semibold text-action hover:bg-info-soft"
+            onClick={() => handleServiceAction(row, 'deactivate')}
+          >
+            <ArrowCounterClockwise aria-hidden weight="bold" className="size-4" />
+            Restore
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="inline-flex min-h-10 min-w-24 items-center justify-center gap-2 rounded-lg bg-info-soft px-4 text-sm font-semibold text-action hover:bg-info-soft"
+            onClick={() => router.push(`/services-pricing/${row.id}/edit`)}
+          >
+            <PencilSimple aria-hidden weight="fill" className="size-4" />
+            {row.status === 'DRAFT' ? 'Resume' : 'Edit'}
+          </button>
+        )}
         <button
           type="button"
           aria-label={`Duplicate ${row.name}`}
@@ -580,94 +648,130 @@ export function ServicesPricingScreen() {
             role="alert"
             className="rounded-card border border-danger bg-danger-soft p-3 text-sm text-danger"
           >
-            {errorMessage(serviceAction.error ?? duplicate.error ?? remove.error)}
+            {errorMessage(serviceAction.error ?? duplicate.error ?? remove.error, CATALOG_ERRORS)}
           </div>
         ) : null}
         {notice ? <Toast message={notice} onDismiss={() => setNotice('')} /> : null}
-
-        {loadError ? (
+        {blocked ? (
           <div
             role="alert"
-            className="flex flex-col items-start justify-between gap-4 rounded-card border border-border bg-surface p-5 shadow-card sm:flex-row sm:items-center"
+            data-testid="activation-blocked"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-warning bg-warning-soft p-3 text-sm text-heading"
           >
-            <div>
-              <p className="font-semibold text-heading">
-                Services &amp; Pricing couldn&apos;t load.
-              </p>
-              <p className="mt-1 text-sm text-muted">{errorMessage(loadError)}</p>
-            </div>
-            <Button variant="secondary" onClick={retryPageData}>
-              Try again
-            </Button>
+            <span>
+              {blocked.row.name} can&apos;t be activated yet: {blocked.need.toLowerCase()} first.
+            </span>
+            <Link
+              href={`/services-pricing/${blocked.row.id}/edit`}
+              className="font-semibold text-link hover:underline"
+            >
+              Edit {blocked.row.name}
+            </Link>
           </div>
-        ) : (
-          <>
-            <PageState query={summary}>{(data) => <ServiceMetrics summary={data} />}</PageState>
+        ) : null}
 
-            <div className="overflow-hidden rounded-card border border-border bg-surface">
-              <PageState query={services} isEmpty={() => false}>
-                {(data) => (
-                  <Table
-                    rows={data.items}
-                    columns={columns}
-                    rowKey={(row) => row.id}
-                    caption="Active services"
-                    dense
-                    loading={services.isFetching && !services.isPending}
-                    tableClassName="min-w-max [&_thead_th]:text-sm"
-                    emptyTitle={
-                      search || categoryId ? 'No matching services' : 'No active services yet'
-                    }
-                    emptyText={
-                      search || categoryId
-                        ? 'Try a different search or category filter.'
-                        : 'Add your first service to start building your catalog.'
-                    }
-                    emptyAction={
-                      !search && !categoryId ? (
-                        <Button onClick={() => router.push('/services-pricing/new')}>
-                          <Plus aria-hidden weight="bold" className="size-4" />
-                          Add New Service
-                        </Button>
-                      ) : undefined
-                    }
-                    server={{
-                      page: data.page,
-                      hasNext: data.page * data.pageSize < data.total,
-                      hasPrevious: data.page > 1,
-                      total: data.total,
-                      sort,
-                      onPage: changePage,
-                      onNext: () => changePage(page + 1),
-                      onPrevious: () => changePage(Math.max(1, page - 1)),
-                      onSort: (next) => {
-                        setSort(next);
-                        setPage(1);
-                      },
-                    }}
-                    showPagination={false}
-                    selection={{
-                      selected,
-                      onChange: setSelected,
-                    }}
-                    rowActions={rowActions}
-                    noun="services"
-                  />
-                )}
-              </PageState>
-              {services.data && services.data.total > 0 ? (
-                <div className="border-t border-divider p-4">
-                  <Pagination
-                    page={services.data.page}
-                    pageCount={Math.max(1, Math.ceil(services.data.total / services.data.pageSize))}
-                    onPage={changePage}
-                    summary={`Showing ${services.data.total === 0 ? 0 : (services.data.page - 1) * services.data.pageSize + 1}–${Math.min(services.data.page * services.data.pageSize, services.data.total)} of ${services.data.total} services`}
-                  />
-                </div>
-              ) : null}
-            </div>
-          </>
-        )}
+        <>
+          <ServiceMetrics summary={summary.data} />
+
+          <div
+            role="group"
+            aria-label="Show services"
+            data-testid="service-views"
+            className="flex flex-wrap gap-2"
+          >
+            {VIEWS.map((item) => {
+              const count =
+                item.id === 'active'
+                  ? summary.data?.active
+                  : item.id === 'draft'
+                    ? summary.data?.draft
+                    : undefined;
+              const on = view === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => {
+                    setView(item.id);
+                    setPage(1);
+                    setSelected([]);
+                    setBlocked(null);
+                  }}
+                  className={`inline-flex min-h-9 items-center gap-1.5 rounded-pill border px-3 text-sm font-medium ${on ? 'border-action bg-info-soft text-action' : 'border-border bg-surface text-text hover:bg-canvas'}`}
+                >
+                  {item.label}
+                  {count === undefined ? null : (
+                    <span className={`tabular-nums ${on ? 'text-action' : 'text-muted'}`}>
+                      ({count})
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="overflow-hidden rounded-card border border-border bg-surface">
+            <PageState query={services} isEmpty={() => false}>
+              {(data) => (
+                <Table
+                  rows={data.items}
+                  columns={columns}
+                  rowKey={(row) => row.id}
+                  caption={`${VIEWS.find((v) => v.id === view)?.label ?? 'Active'} services`}
+                  dense
+                  loading={services.isFetching && !services.isPending}
+                  tableClassName="min-w-max [&_thead_th]:text-sm"
+                  emptyTitle={search || categoryId ? 'No matching services' : EMPTY[view].title}
+                  emptyText={
+                    search || categoryId
+                      ? 'Try a different search or category filter.'
+                      : EMPTY[view].text
+                  }
+                  emptyAction={
+                    !search && !categoryId && (view === 'active' || view === 'all') ? (
+                      <Button onClick={() => router.push('/services-pricing/new')}>
+                        <Plus aria-hidden weight="bold" className="size-4" />
+                        Add New Service
+                      </Button>
+                    ) : undefined
+                  }
+                  server={{
+                    page: data.page,
+                    hasNext: data.page * data.pageSize < data.total,
+                    hasPrevious: data.page > 1,
+                    total: data.total,
+                    sort,
+                    onPage: changePage,
+                    onNext: () => changePage(page + 1),
+                    onPrevious: () => changePage(Math.max(1, page - 1)),
+                    onSort: (next) => {
+                      setSort(next);
+                      setPage(1);
+                    },
+                  }}
+                  showPagination={false}
+                  selection={{
+                    selected,
+                    onChange: setSelected,
+                  }}
+                  rowActions={rowActions}
+                  noun="services"
+                />
+              )}
+            </PageState>
+            {services.data && services.data.total > 0 ? (
+              <div className="border-t border-divider p-4">
+                <Pagination
+                  page={services.data.page}
+                  pageCount={Math.max(1, Math.ceil(services.data.total / services.data.pageSize))}
+                  onPage={changePage}
+                  summary={`Showing ${services.data.total === 0 ? 0 : (services.data.page - 1) * services.data.pageSize + 1}–${Math.min(services.data.page * services.data.pageSize, services.data.total)} of ${services.data.total} services`}
+                />
+              </div>
+            ) : null}
+          </div>
+        </>
       </div>
 
       {usageTarget ? (

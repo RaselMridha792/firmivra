@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  FIRM_ROLE_LABELS,
   type MembershipRole,
   type PermissionCell,
   type PermissionGrant,
@@ -20,11 +21,21 @@ import {
   Textarea,
 } from '@firmivra/ui';
 import { LockSimple, ShieldCheck } from '@phosphor-icons/react';
+import { useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import {
+  CUSTOM_ROLE_ERRORS,
+  customKey,
+  readGrid,
+  type RoleChoice,
+  roleChoices,
+  saveGrid,
+  SetPermissionsModal,
+} from '../../../settings/users/_components/custom-roles';
 import { NeedHelpCard } from '../../_components/need-help-card';
 import { NOT_LOADED, QuietCard } from '../../_components/quiet-card';
 import { CAPABILITY_ORDER, MODULE_LOOKS, NEEDS_VIEW, ROLE_ERRORS } from './role-parts';
@@ -58,26 +69,33 @@ const date = (iso: string) => new Date(iso).toLocaleDateString('en-US', { dateSt
  * shared with Settings > Users & Roles. Choose a role, see its description and members, and change
  * its Module Permissions with the kit's PermissionMatrix (create-staff-2.jpg) and Role Templates
  * (users-and-role.jpg). Owner and Admin change the roles they manage (ROLES_MANAGED_BY); the
- * Owner's grid never changes; a Manager reads. Saving more than a role's default asks first.
+ * Owner's grid never changes; a Manager reads. Saving more than a role's default asks first. The
+ * firm's custom roles are in the selector too (Owner and Admin edit their grid), and Create
+ * Custom Role goes on to Set Permissions (Octavia's review, section 4).
  */
 export function RolesScreen() {
   const roles = useApiQuery([...ROLES, 'list'], () => api.roles.list());
   const modules = useApiQuery([...ROLES, 'modules'], () => api.roles.modules());
-  const [picked, setPicked] = useState<MembershipRole | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
   const items = roles.data?.items ?? [];
-  const selected = items.find((r) => r.role === picked) ?? items.find((r) => !r.locked) ?? items[0];
+  const choices = roleChoices(roles.data);
+  const selected =
+    choices.find((c) => c.key === picked) ??
+    choices.find((c) => c.kind === 'role' && !c.summary.locked) ??
+    choices[0];
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <RolesHeader />
       {selected ? (
         // A new role starts clean: the key drops the unsaved boxes of the role before.
         <RoleWorkspace
-          key={selected.role}
+          key={selected.key}
           roles={items}
+          choices={choices}
           selected={selected}
           modules={modules.data}
           modulesFailed={modules.isError}
-          onSelect={(r) => setPicked(r.role)}
+          onSelect={setPicked}
         />
       ) : (
         <RolesFrames loading={roles.isPending} failed={roles.isError} />
@@ -86,39 +104,56 @@ export function RolesScreen() {
   );
 }
 
+/** A custom role as the side cards show a role: its name, description and people. */
+const summaryOf = (choice: RoleChoice): RoleSummary =>
+  choice.kind === 'role'
+    ? choice.summary
+    : {
+        role: choice.custom.basedOn,
+        label: choice.custom.name,
+        description:
+          choice.custom.description ??
+          `A custom role that starts from ${FIRM_ROLE_LABELS[choice.custom.basedOn]}.`,
+        memberCount: choice.custom.memberCount,
+        customized: false,
+        locked: false,
+      };
+
 /** The chosen role: its grid with unsaved changes, Save, the presets and the side cards. */
 function RoleWorkspace({
   roles,
-  selected,
+  choices,
+  selected: choice,
   modules,
   modulesFailed,
   onSelect,
 }: {
   roles: RoleSummary[];
-  selected: RoleSummary;
+  choices: RoleChoice[];
+  selected: RoleChoice;
   modules: PermissionModuleList | undefined;
   modulesFailed: boolean;
-  onSelect: (role: RoleSummary) => void;
+  onSelect: (key: string) => void;
 }) {
   const { role: me } = useFirm();
-  const grid = useApiQuery([...ROLES, 'permissions', selected.role], () =>
-    api.roles.permissions(selected.role),
-  );
+  const selected = summaryOf(choice);
+  const grid = useApiQuery([...ROLES, 'permissions', choice.key], () => readGrid(choice));
   const [draft, setDraft] = useState<PermissionValue | null>(null);
   const [dialog, setDialog] = useState<'clear' | 'escalation' | 'custom' | null>(null);
   const save = useApiMutation(
     (body: { grants: PermissionGrant[]; ack?: boolean }) =>
-      api.roles.savePermissions(selected.role, {
-        grants: body.grants,
-        acknowledgeEscalation: body.ack,
-      }),
+      saveGrid(choice, body.grants, body.ack ?? false),
     { invalidate: ROLES },
   );
   const reset = useApiMutation(() => api.roles.resetPermissions(selected.role), {
     invalidate: ROLES,
   });
   const manages = me ? ROLES_MANAGED_BY[me] : [];
-  const canChange = !selected.locked && manages.includes(selected.role);
+  // A custom role's grid is the Owner's and Admins' to change (its people keep their role).
+  const canChange =
+    choice.kind === 'custom'
+      ? me === 'OWNER' || me === 'ADMIN'
+      : !selected.locked && manages.includes(selected.role);
   const value = draft ?? (grid.data ? toValue(grid.data.cells) : {});
   const changed = draft !== null;
   const submit = (ack?: boolean) => {
@@ -167,12 +202,9 @@ function RoleWorkspace({
           <div className="max-w-sm">
             <Select
               label="Select a Role *"
-              options={roles.map((r) => ({ value: r.role, label: r.label }))}
-              value={selected.role}
-              onChange={(event) => {
-                const next = roles.find((r) => r.role === event.target.value);
-                if (next) onSelect(next);
-              }}
+              options={choices.map((c) => ({ value: c.key, label: c.label }))}
+              value={choice.key}
+              onChange={(event) => onSelect(event.target.value)}
             />
             <p className="mt-1 text-xs text-muted">
               Roles provide a set of default permissions. You can customize them below.
@@ -239,7 +271,7 @@ function RoleWorkspace({
           )}
           {saveError ? (
             <p role="alert" className="mt-3 text-sm text-danger">
-              {errorMessage(saveError, ROLE_ERRORS)}
+              {errorMessage(saveError, CUSTOM_ROLE_ERRORS)}
             </p>
           ) : null}
           {canChange ? (
@@ -287,9 +319,9 @@ function RoleWorkspace({
         ) : null}
         <RoleTemplates
           roles={roles}
-          selected={selected.role}
+          selected={choice.key}
           canChange={me === 'OWNER' || me === 'ADMIN'}
-          onSelect={onSelect}
+          onSelect={(r) => onSelect(r.role)}
           onCreate={() => setDialog('custom')}
         />
         <PermissionNotes modules={modules} />
@@ -345,7 +377,11 @@ function RoleWorkspace({
         </Modal>
       ) : null}
       {dialog === 'custom' ? (
-        <CustomRoleModal roles={roles} onClose={() => setDialog(null)} />
+        <CustomRoleModal
+          roles={roles}
+          onClose={() => setDialog(null)}
+          onCreated={(id) => onSelect(customKey(id))}
+        />
       ) : null}
     </div>
   );
@@ -401,19 +437,31 @@ function RolesFrames({ loading, failed }: { loading: boolean; failed: boolean })
 }
 
 /**
- * Create Custom Role: name, description and the role it starts from. The API answers 501
- * NOT_IMPLEMENTED until custom roles have a table (R42 contract), and the modal says so.
+ * Create Custom Role: name, description and the role it starts from; Next opens Set Permissions
+ * with that role's grid, and Save Role there creates the role and its grid together. Back keeps
+ * what was typed; Cancel leaves nothing behind.
  */
-function CustomRoleModal({ roles, onClose }: { roles: RoleSummary[]; onClose: () => void }) {
+function CustomRoleModal({
+  roles,
+  onClose,
+  onCreated,
+}: {
+  roles: RoleSummary[];
+  onClose: () => void;
+  onCreated: (id: string) => void;
+}) {
+  const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [basedOn, setBasedOn] = useState('');
   const [errors, setErrors] = useState<{ name?: string; basedOn?: string }>({});
-  const create = useApiMutation(
-    (body: Parameters<typeof api.roles.createCustom>[0]) => api.roles.createCustom(body),
-    { invalidate: ROLES },
+  const [setting, setSetting] = useState(false);
+  const base = basedOn as Exclude<MembershipRole, 'OWNER'>;
+  const start = useApiQuery([...ROLES, 'permissions', basedOn || 'none'], () =>
+    basedOn ? api.roles.permissions(base) : Promise.resolve(null),
   );
   const bases = roles.filter((r) => r.role !== 'OWNER');
+  const taken = CUSTOM_ROLE_ERRORS['ROLE_NAME_TAKEN'] ?? 'Choose another name.';
   function submit(event: FormEvent) {
     event.preventDefault();
     const next = {
@@ -422,15 +470,40 @@ function CustomRoleModal({ roles, onClose }: { roles: RoleSummary[]; onClose: ()
     };
     setErrors(next);
     if (next.name || next.basedOn) return;
-    create.mutate(
-      {
-        name: name.trim(),
-        description: description.trim() || undefined,
-        basedOn: basedOn as Exclude<MembershipRole, 'OWNER'>,
-      },
-      { onSuccess: onClose },
-    );
+    setSetting(true);
   }
+  if (setting)
+    return (
+      <SetPermissionsModal
+        name={name.trim()}
+        template={FIRM_ROLE_LABELS[base]}
+        start={start.isError ? null : (start.data ?? undefined)}
+        onSave={async (grants, ack) => {
+          try {
+            return await api.roles.createCustom({
+              name: name.trim(),
+              description: description.trim() || undefined,
+              basedOn: base,
+              grants,
+              acknowledgeEscalation: ack,
+            });
+          } catch (e) {
+            // A taken name goes back to the name field.
+            if (errorCode(e) === 'ROLE_NAME_TAKEN') {
+              setErrors({ name: taken });
+              setSetting(false);
+            }
+            throw e;
+          }
+        }}
+        onBack={() => setSetting(false)}
+        onSaved={(role) => {
+          void queryClient.invalidateQueries({ queryKey: ['roles'] });
+          void queryClient.invalidateQueries({ queryKey: ['staff', 'options'] });
+          onCreated(role.id);
+        }}
+      />
+    );
   return (
     <Modal open title="Create Custom Role" onClose={onClose}>
       <form noValidate onSubmit={submit} className="flex flex-col gap-4">
@@ -458,18 +531,11 @@ function CustomRoleModal({ roles, onClose }: { roles: RoleSummary[]; onClose: ()
           error={errors.basedOn}
           onChange={(event) => setBasedOn(event.target.value)}
         />
-        {create.error ? (
-          <p role="alert" className="text-sm text-danger">
-            {errorMessage(create.error, ROLE_ERRORS)}
-          </p>
-        ) : null}
         <div className="flex justify-end gap-3">
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={create.isPending}>
-            Create Role
-          </Button>
+          <Button type="submit">Next: Set Permissions</Button>
         </div>
       </form>
     </Modal>

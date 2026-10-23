@@ -8,6 +8,14 @@ import { UPLOAD_LIMITS } from '../documents/schemas.js';
 /** The most a firm may set as its intake files' size limit: the documents' limit, in MB. */
 export const INTAKE_MAX_FILE_SIZE_MB = UPLOAD_LIMITS.maxBytes / (1024 * 1024);
 
+/**
+ * Max file size per file, in MB, as Intake Form Settings offers it (Octavia's I10, review of Oct
+ * 21: keep 2, 5 and 10 MB, add 50 and 100 MB). A firm that saved another size before (the API took
+ * any size from 1 to 100 MB, so 25 MB) keeps it, enforced, until it changes the setting: the API
+ * takes a save that leaves the size as it is, and refuses a change to a size not listed here.
+ */
+export const INTAKE_FILE_SIZE_CHOICES = [2, 5, 10, 50, 100] as const;
+
 // Intake Forms workspace (R43 contract, for Arfan's screens): the dashboard (KPIs, status tabs,
 // table, status chart, templates sidebar), Frame 1 the form builder, Frame 2 Send Intake Form,
 // Frame 3 the form detail / submission review, Frame 4 the template library and Frame 5 the
@@ -507,6 +515,11 @@ export const IntakeSettings = z.object({
     /** Always true: files are always stored encrypted (shown, not a switch). */
     encryptedUploads: z.literal(true),
     acceptedFileTypes: z.array(z.string()),
+    /**
+     * The firm's largest intake file, in MB: portal intakes and Begin Online refuse a bigger one
+     * at the upload ticket (400 VALIDATION_FAILED at `sizeBytes`). It may be a size no longer
+     * offered (a 25 MB saved before INTAKE_FILE_SIZE_CHOICES): show it as it is.
+     */
     maxFileSizeMb: z.number().int(),
     consentRequired: z.boolean(),
   }),
@@ -563,6 +576,11 @@ export const UpdateIntakeSettingsRequest = z.strictObject({
       acceptedFileTypes: z
         .array(z.enum(['PDF', 'JPG', 'PNG', 'HEIC', 'DOC', 'DOCX', 'XLS', 'XLSX', 'CSV']))
         .min(1),
+      /**
+       * One of INTAKE_FILE_SIZE_CHOICES, or the size the firm already has (so a saved 25 MB can
+       * be sent back unchanged). The API decides, since it depends on the saved value: any other
+       * size is 400 VALIDATION_FAILED at `security.maxFileSizeMb` ("Choose 2, 5, 10, 50 or 100 MB").
+       */
       maxFileSizeMb: z.number().int().min(1).max(INTAKE_MAX_FILE_SIZE_MB),
       consentRequired: z.boolean(),
     })

@@ -502,7 +502,10 @@ export function SettingsScreen() {
                   members={members}
                   savedOwner={saved?.automation.defaultFollowUpOwner ?? null}
                 />
-                <SecurityCard {...cardProps} />
+                <SecurityCard
+                  {...cardProps}
+                  savedFileSizeMb={saved?.security.maxFileSizeMb ?? null}
+                />
                 <BrandingCard
                   {...cardProps}
                   firmName={firm.name}

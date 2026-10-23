@@ -55,6 +55,7 @@ export {
 export { IconCircle, type IconCircleProps } from './icon-circle';
 export { LinkCard, type LinkCardProps, type LinkCardSurface } from './link-card';
 export { Callout, type CalloutProps, type CalloutSurface } from './callout';
+export { PublicLinkBlock, type PublicLinkBlockProps } from './public-link-block';
 export { ChecklistCard, type ChecklistCardProps, type ChecklistItem } from './checklist-card';
 export {
   DonutChart,
