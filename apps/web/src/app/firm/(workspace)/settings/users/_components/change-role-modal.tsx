@@ -13,8 +13,10 @@ import { useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
+import { CUSTOM_ROLE_ERRORS, customKey } from './custom-roles';
 
 const CHANGE_ERRORS: Record<string, string> = {
+  ...CUSTOM_ROLE_ERRORS,
   CANNOT_GRANT: 'You cannot give this role, or change this person’s role.',
   SAVE_CONFLICT: 'This person’s record changed meanwhile. Close this and try again.',
   FORBIDDEN: 'Only an Owner or an Admin can change roles.',
@@ -34,8 +36,10 @@ const CAPABILITY_LABEL: Record<PermissionCapability, string> = {
 /**
  * Change Role (Octavia's review, section 11): one person's role, from their row. Shows who they
  * are and their current role, previews the new role's permissions in this firm and lists the
- * person's own overrides, which stay and keep winning over the role. Saves through Edit Staff's
- * route (audited with the old and new role); their access follows on their next request.
+ * person's own overrides, which stay and keep winning over the role. The firm's custom roles the
+ * signed-in person may give are offered too (`account.customRoleId`, which brings the role it is
+ * based on). Saves through Edit Staff's route (audited with the old and new role); their access
+ * follows on their next request.
  */
 export function ChangeRoleModal({
   user,
@@ -49,12 +53,20 @@ export function ChangeRoleModal({
   const queryClient = useQueryClient();
   const options = useApiQuery(['staff', 'options'], () => api.staff.options());
   const roles = (options.data?.roles ?? []).filter((r) => r.role !== 'OWNER');
-  const [role, setRole] = useState<MembershipRole | ''>('');
+  const customs = options.data?.customRoles ?? [];
+  /** A built-in role, or `custom:<id>`. */
+  const [role, setRole] = useState('');
+  const custom = customs.find((c) => customKey(c.id) === role);
+  const builtIn = custom ? undefined : (role as MembershipRole | '');
+  const current = user.customRole ? customKey(user.customRole.id) : user.role;
+  const currentLabel = user.customRole?.name ?? FIRM_ROLE_LABELS[user.role];
+  const newLabel = custom?.name ?? (builtIn ? FIRM_ROLE_LABELS[builtIn] : '');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const preview = useApiQuery(['roles', 'permissions', role || 'none'], () =>
-    role ? api.roles.permissions(role) : Promise.resolve(null),
-  );
+  const preview = useApiQuery(['roles', 'permissions', role || 'none'], async () => {
+    if (custom) return { cells: (await api.roles.customRole(custom.id)).cells };
+    return builtIn ? api.roles.permissions(builtIn) : null;
+  });
   const own = useApiQuery(['staff', user.id, 'permissions'], () => api.staff.permissions(user.id));
   const modules = useApiQuery(['roles', 'modules'], () => api.roles.modules());
   const moduleName = (m: PermissionModule) =>
@@ -71,10 +83,17 @@ export function ChangeRoleModal({
     setError(undefined);
     try {
       const record = await api.staff.get(user.id);
-      await api.staff.update(user.id, { version: record.version, account: { role } });
+      await api.staff.update(user.id, {
+        version: record.version,
+        // A built-in role takes a custom role away, even the one it was based on.
+        account: custom
+          ? { customRoleId: custom.id }
+          : { role: builtIn || user.role, customRoleId: null },
+      });
       await queryClient.invalidateQueries({ queryKey: ['users'] });
       await queryClient.invalidateQueries({ queryKey: ['staff'] });
-      onDone(`${user.name} is now ${FIRM_ROLE_LABELS[role]} (was ${FIRM_ROLE_LABELS[user.role]}).`);
+      await queryClient.invalidateQueries({ queryKey: ['roles'] });
+      onDone(`${user.name} is now ${newLabel} (was ${currentLabel}).`);
     } catch (e) {
       setError(errorMessage(e, CHANGE_ERRORS));
       setBusy(false);
@@ -92,24 +111,25 @@ export function ChangeRoleModal({
           <dt className="text-muted">Company</dt>
           <dd className="text-heading">{user.company}</dd>
           <dt className="text-muted">Current role</dt>
-          <dd className="text-heading">{FIRM_ROLE_LABELS[user.role]}</dd>
+          <dd className="text-heading">{currentLabel}</dd>
         </dl>
         <Select
           label="New role *"
           value={role}
-          onChange={(event) => setRole(event.target.value as MembershipRole | '')}
+          onChange={(event) => setRole(event.target.value)}
           options={[
             { value: '', label: options.isPending ? 'Loading roles…' : 'Choose a role' },
             ...roles
-              .filter((r) => r.role !== user.role)
+              .filter((r) => r.role !== current)
               .map((r) => ({ value: r.role, label: r.label })),
+            ...customs
+              .filter((c) => customKey(c.id) !== current)
+              .map((c) => ({ value: customKey(c.id), label: `${c.name} (custom)` })),
           ]}
         />
         {role ? (
           <section aria-label="New role's permissions" className="flex flex-col gap-1 text-sm">
-            <h3 className="font-semibold text-heading">
-              What {FIRM_ROLE_LABELS[role]} can do in this firm
-            </h3>
+            <h3 className="font-semibold text-heading">What {newLabel} can do in this firm</h3>
             {preview.isError ? (
               <p className="text-danger">{errorMessage(preview.error, CHANGE_ERRORS)}</p>
             ) : preview.isPending ? (

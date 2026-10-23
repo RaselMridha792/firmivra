@@ -5,6 +5,7 @@ import {
   type BrandingSettings,
   ConfirmBrandAssetUploadRequest,
   CreateBrandAssetUploadRequest,
+  FIRM_ROLES,
   InviteUserRequest,
   parseInput,
   ResetBrandingRequest,
@@ -15,7 +16,7 @@ import {
   type UsersClient,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
-import { addInvitedMember, listStaffRows, staffCounts } from './staff-management';
+import { addInvitedMember, listStaffRows, liveCustomRoles, staffCounts } from './staff-management';
 
 /**
  * Mock data for `api.settingsOverview`, `api.branding` and `api.users` (R42 contract, Settings).
@@ -313,7 +314,7 @@ export function createUsersMock(options: Options = {}): UsersClient {
       await allowed(options.role);
       const c = staffCounts(shared);
       // As the API counts: accepted accounts (active, locked, inactive), invitations apart, and
-      // the firm's eight roles.
+      // the built-in roles plus the live custom ones.
       const accepted = listStaffRows(shared, { status: 'all' }).filter(
         (r) => r.status !== 'INVITED',
       ).length;
@@ -322,7 +323,8 @@ export function createUsersMock(options: Options = {}): UsersClient {
         addedThisMonth: c.addedThisMonth,
         active: c.active,
         pendingInvitations: c.invited,
-        roles: 8,
+        roles: FIRM_ROLES.length + liveCustomRoles(shared),
+        customRoles: liveCustomRoles(shared),
       };
     },
     exportUrl: () =>

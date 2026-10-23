@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   createIntakeFormsClient,
   createRequest,
+  INTAKE_FILE_SIZE_CHOICES,
+  INTAKE_MAX_FILE_SIZE_MB,
   SaveIntakeFormRequest,
   SendIntakeFormRequest,
   UpdateIntakeSettingsRequest,
@@ -69,6 +71,16 @@ describe('api.intakeForms', () => {
     expect(UpdateIntakeSettingsRequest.safeParse(off).success).toBe(false);
     const size = { version: 'v1', security: { maxFileSizeMb: 20 } };
     expect(UpdateIntakeSettingsRequest.safeParse(size).success).toBe(true);
+  });
+
+  it("offers 2, 5, 10, 50 and 100 MB per file (I10); the contract still takes a firm's older size", () => {
+    expect(INTAKE_FILE_SIZE_CHOICES).toEqual([2, 5, 10, 50, 100]);
+    expect(Math.max(...INTAKE_FILE_SIZE_CHOICES)).toBe(INTAKE_MAX_FILE_SIZE_MB);
+    const save = (maxFileSizeMb: number) =>
+      UpdateIntakeSettingsRequest.safeParse({ version: 'v1', security: { maxFileSizeMb } }).success;
+    // A saved 25 MB is sent back as it is; the API decides which sizes a change may take.
+    for (const mb of [...INTAKE_FILE_SIZE_CHOICES, 25]) expect(save(mb)).toBe(true);
+    for (const mb of [0, 2.5, INTAKE_MAX_FILE_SIZE_MB + 1]) expect(save(mb)).toBe(false);
   });
 
   it('marks reviewed through R11 complete and reads R11 answers', async () => {

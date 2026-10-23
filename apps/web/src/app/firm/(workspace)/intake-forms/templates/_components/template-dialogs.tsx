@@ -1,10 +1,100 @@
 'use client';
 
-import type { IntakeFormListItem } from '@firmivra/types';
+import { FORM_CATEGORY_LABELS, type FormCategory, type IntakeFormListItem } from '@firmivra/types';
 import { Button, Modal, Select, Skeleton } from '@firmivra/ui';
 import type { UseQueryResult } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useState } from 'react';
 import { LoadFailed, Quiet } from './template-look';
+
+/** A service a new template can be for, with the category its forms show under. */
+export interface NewTemplateService {
+  id: string;
+  name: string;
+  category: FormCategory;
+}
+
+/**
+ * Create Template asks which service the template is for: every form belongs to one of the
+ * firm's services (the API refuses a form without one). The services are the ones the library's
+ * forms are for, so each has its built-in form; the open category's service is chosen when it is
+ * the only one. Mounted only while open.
+ */
+export function CreateTemplateDialog({
+  library,
+  category,
+  busy,
+  onClose,
+  onCreate,
+}: {
+  library: UseQueryResult<IntakeFormListItem[]>;
+  category: FormCategory | null;
+  busy: boolean;
+  onClose: () => void;
+  onCreate: (service: NewTemplateService) => void;
+}) {
+  const services = [
+    ...new Map(
+      (library.data ?? [])
+        .filter((form) => form.service && form.status !== 'RETIRED')
+        .map((form) => [
+          form.service!.id,
+          { id: form.service!.id, name: form.service!.name, category: form.category },
+        ]),
+    ).values(),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+  const inCategory = services.filter((service) => service.category === category);
+  const [id, setId] = useState(inCategory.length === 1 ? (inCategory[0]?.id ?? '') : '');
+  const chosen = services.find((service) => service.id === id);
+  return (
+    <Modal
+      open
+      title="Create Template"
+      subtitle="Choose the service this template is for. It starts as a blank draft."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={!chosen || busy} onClick={() => chosen && onCreate(chosen)}>
+            Create Template
+          </Button>
+        </>
+      }
+    >
+      {library.isPending ? (
+        <div aria-busy="true" className="flex flex-col gap-2">
+          <span className="sr-only">Loading services…</span>
+          <Skeleton className="w-1/3" />
+          <Skeleton className="h-11!" />
+        </div>
+      ) : library.isError && !library.data ? (
+        <LoadFailed error={library.error} onRetry={() => void library.refetch()} />
+      ) : services.length === 0 ? (
+        <Quiet>
+          Your firm has no service with an intake form yet.{' '}
+          <Link href="/services-pricing" className="font-medium text-link underline">
+            Add one in Services &amp; Pricing
+          </Link>
+        </Quiet>
+      ) : (
+        <Select
+          label="Service"
+          value={id}
+          onChange={(event) => setId(event.target.value)}
+          options={[
+            { value: '', label: 'Choose a service' },
+            ...services.map((service) => ({
+              value: service.id,
+              label: `${service.name} (${FORM_CATEGORY_LABELS[service.category]})`,
+            })),
+          ]}
+        />
+      )}
+    </Modal>
+  );
+}
 
 /**
  * Import Template is in the design, but the guide (Frame 4) leaves its file types and field

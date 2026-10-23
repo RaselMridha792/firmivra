@@ -5,6 +5,7 @@ import { Global, Module } from '@nestjs/common';
 import { DATABASE } from '../../src/database/database.module.js';
 import {
   ESIGN_MAX_PAGES,
+  ESIGN_MAX_REQUEST_BYTES,
   type EsignAccessRole,
   type EsignDefaults,
   type EsignField,
@@ -435,9 +436,11 @@ export class InMemoryEsignRepository implements EsignRepository {
     businessId: string,
     id: string,
     document: NewEsignDocument,
-  ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES'> {
+  ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES' | 'REQUEST_TOO_LARGE'> {
     const pages = this.rows.of(businessId).get(id)?.parts.pagePlan.length ?? 0;
     if (pages + document.pageCount > ESIGN_MAX_PAGES) return 'TOO_MANY_PAGES';
+    if ((await this.documentBytes(businessId, id)) + document.sizeBytes > ESIGN_MAX_REQUEST_BYTES)
+      return 'REQUEST_TOO_LARGE';
     let added: EsignDocumentRecord | undefined;
     const ok = await this.write(businessId, id, (row) => {
       added = { ...structuredClone(document), position: row.parts.documents.length };
@@ -447,6 +450,11 @@ export class InMemoryEsignRepository implements EsignRepository {
       }
     });
     return ok && added ? structuredClone(added) : 'NOT_DRAFT';
+  }
+
+  documentBytes(businessId: string, id: string) {
+    const docs = this.rows.of(businessId).get(id)?.parts.documents ?? [];
+    return Promise.resolve(docs.reduce((sum, d) => sum + d.sizeBytes, 0));
   }
 
   removeDocument(
