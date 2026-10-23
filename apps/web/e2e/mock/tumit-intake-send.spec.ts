@@ -68,15 +68,12 @@ test('the summary follows every choice', async ({ page }) => {
   const summary = page.getByTestId('send-summary');
   await expect(summary).toContainText('Not selected');
 
-  await page.getByRole('radio', { name: 'Lead', exact: true }).click();
-  await page.getByRole('button', { name: /^Lead/ }).click();
-  await page.getByRole('option', { name: /Avery Sample/ }).click();
-  await expect(summaryRow(page, 'Recipient')).toContainText('Avery Sample');
-  await expect(summaryRow(page, 'Delivery Method')).toContainText('Email (avery@example.test)');
-  // A lead has no portal access: that route stays visible but can't be chosen.
-  await expect(page.getByRole('radio', { name: /^Client Portal/ })).toBeDisabled();
-  await page.getByRole('radio', { name: /^SMS/ }).check();
-  await expect(summaryRow(page, 'Delivery Method')).toContainText('SMS (');
+  await page.getByRole('button', { name: /^Client/ }).click();
+  await page.getByRole('option', { name: /Jamie Sample/ }).click();
+  await expect(summaryRow(page, 'Recipient')).toContainText('Jamie Sample');
+  await expect(summaryRow(page, 'Delivery Method')).toContainText('Email (');
+  await page.getByRole('radio', { name: /^Client Portal/ }).check();
+  await expect(summaryRow(page, 'Delivery Method')).toContainText('Client Portal');
   await expect(page.getByText('Send me a copy of the email')).toHaveCount(0);
 
   await page.getByLabel('Due Date (optional)', { exact: true }).fill('2030-12-01');
@@ -92,6 +89,71 @@ test('the summary follows every choice', async ({ page }) => {
   await expect(summaryRow(page, 'Reminders')).toContainText('Off');
   await page.getByRole('switch', { name: 'Allow client to save and continue' }).click();
   await expect(summaryRow(page, 'Client Can Save')).toContainText('No');
+});
+
+// Octavia's review of Oct 20 (I2): the routes follow what the API can deliver, and a dead end is
+// explained before Send, with where to fix it.
+test('a lead, or a client with no portal sign-in, gets no route and the reason', async ({
+  page,
+}) => {
+  await open(page, `/intake-forms/send?formId=${PERSONAL_TAX}`);
+  const delivery = page.getByTestId('send-delivery');
+  // SMS has no sender for intake forms yet, for anyone.
+  await expect(page.getByRole('radio', { name: /^SMS/ })).toBeDisabled();
+  await expect(delivery).toContainText('Not available for intake forms yet');
+
+  await page.getByRole('radio', { name: 'Lead', exact: true }).click();
+  await page.getByRole('button', { name: /^Lead/ }).click();
+  await page.getByRole('option', { name: /Avery Sample/ }).click();
+  for (const route of [/^Email/, /^SMS/, /^Client Portal/])
+    await expect(page.getByRole('radio', { name: route })).toBeDisabled();
+  await expect(delivery).toContainText('Not available for leads yet');
+  await expect(page.getByTestId('send-no-route')).toContainText('Forms can’t be sent to leads yet');
+
+  await page.getByRole('radio', { name: 'Client', exact: true }).click();
+  await page.getByRole('button', { name: /^Client/ }).click();
+  await page.getByRole('option', { name: /Riley Example/ }).click();
+  await expect(page.getByRole('radio', { name: /^Email/ })).toBeDisabled();
+  await expect(delivery).toContainText('Needs a portal sign-in first');
+  const reason = page.getByTestId('send-no-route');
+  await expect(reason).toContainText('Riley Example has no client portal sign-in yet');
+  await expect(reason.getByRole('link', { name: 'Open Riley Example' })).toHaveAttribute(
+    'href',
+    /^\/clients\/[0-9a-f-]{36}$/,
+  );
+  await expect(reason.getByRole('link', { name: 'Open Sign-ups' })).toHaveAttribute(
+    'href',
+    '/sign-ups',
+  );
+  await expect(page.getByText('Not Ready Yet')).toBeVisible();
+});
+
+test('a refused send says why, with where to fix it; a failed delivery says why', async ({
+  page,
+}) => {
+  await open(page, `/intake-forms/send?formId=${PERSONAL_TAX}`);
+  await page.getByRole('button', { name: /^Client/ }).click();
+  await page.getByRole('option', { name: /Jamie Sample/ }).click();
+  const subject = page.getByRole('textbox', { name: /^Subject/ });
+  // The mock's stand-in for a client with no active service for the form.
+  await subject.fill('Your form noservice');
+  await page.getByRole('button', { name: 'Send Form' }).click();
+  const alert = page.getByRole('alert').filter({ hasText: 'no active service' });
+  await expect(alert).toContainText(
+    "This client has no active service for this form's service. Add the service to the client, then send.",
+  );
+  await expect(alert.getByRole('link', { name: 'Open Jamie Sample' })).toHaveAttribute(
+    'href',
+    /^\/clients\/[0-9a-f-]{36}$/,
+  );
+  await expect(page.getByText('Something went wrong')).toHaveCount(0);
+
+  // The mock's stand-in for a send that reached no one.
+  await subject.fill('Your form undelivered');
+  await page.getByRole('button', { name: 'Send Form' }).click();
+  const result = page.getByTestId('send-result');
+  await expect(result).toContainText('Delivery Failed');
+  await expect(result).toContainText('A form reaches a client through their client portal sign-in');
 });
 
 test('Send Form without a recipient or form marks the fields', async ({ page }) => {
