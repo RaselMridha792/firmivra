@@ -1,6 +1,6 @@
 'use client';
 
-import type { AutomationRuleRow, AutomationRulesQuery } from '@firmivra/types';
+import type { AutomationModule, AutomationRuleRow, AutomationRulesQuery } from '@firmivra/types';
 import { type Column, KpiCard, Select, Table, Toast, Toggle } from '@firmivra/ui';
 import {
   ArrowLeft,
@@ -57,13 +57,23 @@ const STEPS = [
 /**
  * /automations: the command center: KPIs, categories, the rules table, templates and quick actions.
  * Opened from Settings > Workflow & Automations (`fromWorkflow`), the way back sits by the breadcrumb.
+ * Opened from Tasks (`fromTasks`, with `category` TASKS), it starts on that category and offers
+ * Back to Tasks.
  */
-export function AutomationsScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }) {
+export function AutomationsScreen({
+  fromWorkflow = false,
+  fromTasks = false,
+  category: initialCategory,
+}: {
+  fromWorkflow?: boolean;
+  fromTasks?: boolean;
+  category?: AutomationModule;
+}) {
   const router = useRouter();
   const [tab, setTab] = useState<TabId>('overview');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
-  const [category, setCategory] = useState('');
+  const [category, setCategory] = useState<string>(initialCategory ?? '');
   const [page, setPage] = useState(1);
   const [dialog, setDialog] = useState<'settings' | 'import' | 'duplicate'>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
@@ -100,7 +110,10 @@ export function AutomationsScreen({ fromWorkflow = false }: { fromWorkflow?: boo
   const o = overview.data;
   const counts = new Map<string, number>();
   for (const r of all.data?.items ?? []) counts.set(r.category, (counts.get(r.category) ?? 0) + 1);
-  const modules = (catalog.data?.modules ?? []).filter((m) => counts.has(m.module));
+  // The picked category stays listed with 0 rules, so a page opened on it shows where it is.
+  const modules = (catalog.data?.modules ?? []).filter(
+    (m) => counts.has(m.module) || m.module === category,
+  );
   const canManage = o?.canManage ?? true;
 
   const kpi = (
@@ -219,6 +232,16 @@ export function AutomationsScreen({ fromWorkflow = false }: { fromWorkflow?: boo
           </span>
           <span className="font-semibold text-heading">Automation</span>
         </nav>
+        {fromTasks ? (
+          <Link
+            href="/tasks"
+            className="inline-flex min-h-9 w-fit items-center gap-2 text-sm font-semibold text-link hover:underline"
+            data-testid="back-to-tasks"
+          >
+            <ArrowLeft aria-hidden weight="bold" className="size-4" />
+            Back to Tasks
+          </Link>
+        ) : null}
         {fromWorkflow ? <BackToWorkflow /> : null}
       </div>
       <header className="flex flex-wrap items-center justify-between gap-4">

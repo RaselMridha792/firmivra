@@ -104,10 +104,11 @@ export function WorkflowScreen() {
         >
           <p className="text-sm text-text">
             Work is assigned to a person on each task, return and appointment. Team leads and
-            departments are set in Staff Management.
+            departments are set in Staff Management. Task types sort the work into categories.
           </p>
           <div className="flex flex-wrap gap-3">
             <CardLink href={fromWorkflow('/tasks')}>Open Tasks</CardLink>
+            <CardLink href={fromWorkflow('/tasks/types')}>Task Types</CardLink>
             <CardLink href={fromWorkflow('/team/departments')}>Teams &amp; Departments</CardLink>
           </div>
         </SettingsCard>
