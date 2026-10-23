@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { MESSAGE_ERRORS, recipientOf, sendSummary } from './lead-message';
+import {
+  htmlToText,
+  MESSAGE_ERRORS,
+  recipientOf,
+  sendSummary,
+  withSignature,
+} from './lead-message';
 
 // Octavia's Leads review, item 9: the composer says what happened, never "Something went wrong".
 const lead = (id: string, phone: string | null) =>
@@ -22,5 +28,36 @@ describe('sendSummary', () => {
   it('names the lead and says plainly when texts are not set up', () => {
     expect(lead('x', null).name).toBe('Fake Lead x');
     expect(MESSAGE_ERRORS['SMS_UNAVAILABLE']).toMatch(/not set up for this firm yet/);
+  });
+});
+
+// Item 8 (L4): a formatted email also goes out as plain text, counted toward 5000 characters.
+describe('htmlToText', () => {
+  it('keeps one line per paragraph, break and list item, and reads entities', () => {
+    expect(
+      htmlToText(
+        '<p><b>Hello</b> Robin,</p><div>Line<br>break</div><ul><li>one</li><li>two</li></ul><p>Tom &amp; Jerry &lt;3&nbsp;&#8364;</p>',
+      ),
+    ).toBe('Hello Robin,\nLine\nbreak\n- one\n- two\n\nTom & Jerry <3 €');
+  });
+
+  it('drops images, zero-width marks and empty paragraphs', () => {
+    expect(htmlToText('<p><img src="x.png"></p><p><br></p><p><br></p><p><br></p><p>​Hi</p>')).toBe(
+      'Hi',
+    );
+    expect(htmlToText('<p><img src="x.png"></p>')).toBe('');
+  });
+
+  it('ends a line of text that runs straight into a block', () => {
+    expect(htmlToText('Owner Sample<div>LVP Accounting &amp; Taxes</div>')).toBe(
+      'Owner Sample\nLVP Accounting & Taxes',
+    );
+  });
+});
+
+describe('withSignature', () => {
+  it('adds the signature after a blank line, or nothing', () => {
+    expect(withSignature('<p>Hi</p>', '<p>Pat</p>')).toBe('<p>Hi</p><p><br></p><p>Pat</p>');
+    expect(withSignature('<p>Hi</p>', null)).toBe('<p>Hi</p>');
   });
 });

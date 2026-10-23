@@ -49,3 +49,28 @@ export const LongText: Story = {
   },
   render: (args) => <Editor {...args} />,
 };
+
+const PICTURE =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120"><rect width="100%" height="100%" fill="#6b7f99"/></svg>',
+  );
+
+/** The lead email composer: fonts, sizes, and an image that can be resized and placed (click it). */
+export const Email: Story = {
+  args: {
+    label: 'Message',
+    required: true,
+    noLinks: true,
+    fonts: [
+      { label: 'Arial', stack: 'Arial, Helvetica, sans-serif' },
+      { label: 'Georgia', stack: 'Georgia, serif' },
+    ],
+    fontSizes: [12, 14, 16, 20, 28],
+    imageSizing: { minWidth: 24, maxWidth: 600 },
+    onInsertImage: () => Promise.resolve(PICTURE),
+    onChange: () => {},
+    value: `<p>Hello Robin,</p><p><span style="font-family: Georgia, serif; font-size: 20px;">Thanks for getting in touch.</span></p><p style="text-align: center;"><img src="${PICTURE}" alt="" style="width: 240px;"></p>`,
+  },
+  render: (args) => <Editor {...args} />,
+};
