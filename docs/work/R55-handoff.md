@@ -11,7 +11,7 @@ Read `CLAUDE.md`, `docs/work/README.md`, this section, then `docs/work/R55-leads
 | #1030 | `rasel/R55-leads-overview` | L1: a lead's name, More > View and Overview open its Lead Workspace Overview |
 | #1032 | `rasel/R55-leads-sms` | L2: Send SMS lists each saved number first, says what was sent and why not |
 | #1035 | `rasel/R55-leads-overdue` | L3: visible Overdue Follow-Ups chip that combines with a status; the Leads page keeps its frames when the API is down |
-| the L9 PR | `rasel/R55-leads-convert` | L9: Convert to Client's fields editable, kept across the steps, sent as set (carries this handoff) |
+| #1036 | `rasel/R55-leads-convert` | L9: Convert to Client's fields editable, kept across the steps, sent as set (carries this handoff) |
 
 When one merges, merge `origin/main` into the next branch (no rebase, no force-push), rerun its typecheck and its mock specs, and push. Until the PR before it merges, a PR's diff also shows the earlier one's changes; each PR body says so.
 
