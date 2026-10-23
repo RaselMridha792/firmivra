@@ -16,6 +16,7 @@ import {
   type ContactInput,
   ContactSearchQuery,
   type AppointmentContact,
+  type MeetingMethod,
   type MemberRef,
   parseInput,
   SaveAppointmentDraftRequest,
@@ -264,6 +265,12 @@ function seed(empty: boolean): Store {
     next: 100,
   };
 }
+
+/**
+ * What a type offers until its configuration says otherwise. One method, as the types screen
+ * (#1029) still expects; the API takes 1 to 3 since A1, and the mock follows when that screen does.
+ */
+const DEFAULT_METHODS: MeetingMethod[] = ['IN_PERSON'];
 
 /** The firm's buffers, notice and window, which Edit My Availability shows and cannot change. */
 const FIRM_RULES = {
@@ -529,7 +536,11 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       await mockDelay();
       return {
         timezone: TZ,
-        types: TYPES(),
+        // Each type's meeting methods (A1), from its configuration.
+        types: TYPES().map((t) => ({
+          ...t,
+          methods: s.typeConfigs.get(t.id)?.methods ?? DEFAULT_METHODS,
+        })),
         services: SERVICES(),
         staff: staffList,
         offices: [
@@ -920,7 +931,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           description: null,
           serviceId: null,
           eligibleStaffUserIds: [],
-          methods: ['IN_PERSON'],
+          methods: DEFAULT_METHODS,
           officeIds: [],
           bufferBeforeMinutes: 0,
           bufferAfterMinutes: 15,
@@ -951,7 +962,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         description: null,
         serviceId: null,
         eligibleStaffUserIds: [],
-        methods: ['IN_PERSON'] as AppointmentTypeConfig['methods'],
+        methods: DEFAULT_METHODS,
         officeIds: [],
         bufferBeforeMinutes: 0,
         bufferAfterMinutes: 0,

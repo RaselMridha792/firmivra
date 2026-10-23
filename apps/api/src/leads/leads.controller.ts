@@ -12,9 +12,13 @@ import {
   ListLeadsQuery,
 } from '@firmivra/types';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { poolSecrets } from '../auth/sealed.js';
+import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { loadDocumentsConfig, type DocumentsConfig } from '../storage/config.js';
 import {
   createS3Client,
@@ -22,6 +26,12 @@ import {
   S3DocumentStorage,
 } from '../storage/document-storage.js';
 import { LeadConvertService } from './lead-convert.service.js';
+import {
+  LeadEmailImagesController,
+  MessageSignatureController,
+  PortalEmailImagesController,
+} from './lead-email.controller.js';
+import { EmailImageTokens, LeadEmailService } from './lead-email.service.js';
 import { LeadMessagesService } from './lead-messages.service.js';
 import { LeadPipelineController } from './lead-pipeline.controller.js';
 import { LeadPipelineTabsController } from './lead-pipeline-tabs.controller.js';
@@ -111,9 +121,24 @@ export class LeadsController {
 }
 
 @Module({
-  // The pipeline controller first: its static paths must match before LeadsController's `:id`.
-  controllers: [LeadPipelineController, LeadPipelineTabsController, LeadsController],
+  imports: [PortalInfoModule],
+  // The pipeline and email controllers first: their static paths must match before
+  // LeadsController's `:id`.
+  controllers: [
+    LeadEmailImagesController,
+    MessageSignatureController,
+    PortalEmailImagesController,
+    LeadPipelineController,
+    LeadPipelineTabsController,
+    LeadsController,
+  ],
   providers: [
+    LeadEmailService,
+    {
+      provide: EmailImageTokens,
+      inject: [ENV],
+      useFactory: (env: Env) => new EmailImageTokens(poolSecrets(env)),
+    },
     LeadsService,
     LeadConvertService,
     LeadPipelineService,

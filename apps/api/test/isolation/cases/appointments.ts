@@ -15,6 +15,8 @@ export const records: CaseModule['records'] = {
           name: `Fake meeting ${randomUUID().slice(0, 8)}`,
           durationMinutes: 30,
           clientBookable: true,
+          // Every meeting method (A1), video first: the cases book and edit in each of them.
+          meetingMethods: ['VIDEO', 'IN_PERSON', 'PHONE'],
         },
       });
       return row.id;
@@ -111,7 +113,7 @@ export const cases: CaseModule['cases'] = {
   'PUT /api/v1/business/appointment-types/:id/config': {
     params: { id: 'appointmentType' },
     bodyIds: { serviceId: 'service' },
-    body: { description: 'Fake description' },
+    body: { description: 'Fake description', methods: ['PHONE', 'VIDEO'] },
   },
   'GET /api/v1/business/appointments/:id/record': { params: { id: 'appointment' } },
   'POST /api/v1/business/appointments/:id/confirm': { params: { id: 'appointment' } },
@@ -156,7 +158,7 @@ export const cases: CaseModule['cases'] = {
       typeId: 'appointmentType',
       engagementId: 'engagement',
     },
-    body: { startsAt: at3pm(12) },
+    body: { startsAt: at3pm(12), locationKind: 'PHONE' },
   },
   'POST /api/v1/business/appointments/:id/reschedule': {
     params: { id: 'appointment' },
@@ -170,7 +172,7 @@ export const cases: CaseModule['cases'] = {
   },
   'PATCH /api/v1/business/appointment-types/:id': {
     params: { id: 'appointmentType' },
-    body: { name: 'Fake renamed type' },
+    body: { name: 'Fake renamed type', methods: ['IN_PERSON', 'VIDEO'] },
   },
   'POST /api/v1/business/appointment-types/:id/archive': { params: { id: 'appointmentType' } },
   'POST /api/v1/business/appointment-types/:id/restore': { params: { id: 'appointmentType' } },
@@ -183,7 +185,7 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/portal/:firmSlug/me/appointments': {
     params: {},
     bodyIds: { typeId: 'appointmentType' },
-    body: { startsAt: at3pm(12) },
+    body: { startsAt: at3pm(12), locationKind: 'PHONE' },
     expect: 409,
   },
   'POST /api/v1/portal/:firmSlug/me/appointments/:id/cancel': { params: { id: 'appointment' } },

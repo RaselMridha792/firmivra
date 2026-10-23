@@ -41,7 +41,8 @@ import { mockStaff } from './clients';
  * dated around today so Overdue, Upcoming and the calendar are always full. It checks input with
  * the contract's schemas and answers its codes: DUPLICATE_NAME, REQUIRED_ITEMS_OPEN,
  * DEPENDENCY_OPEN, TASK_CLOSED, OCCURRENCE_CLOSED, SERIES_NOT_ACTIVE, INVALID_RECURRENCE.
- * `empty: true` (NEXT_PUBLIC_API_MOCK_EMPTY=taskWork) starts with no tasks, templates or series.
+ * `empty: true` (NEXT_PUBLIC_API_MOCK_EMPTY=taskWork) starts with no tasks, templates, series or
+ * task types, as a firm that never set any up.
  */
 type MockRole = 'OWNER' | 'ADMIN' | 'STAFF';
 interface Options {
@@ -132,7 +133,7 @@ function seed(empty: boolean): Store {
     'Compliance',
     'Onboarding',
   ].map((name, i) => ({ id: uuid('0e10', i + 1), name, sortOrder: i, archivedAt: null }));
-  if (empty) return { tasks: [], types, templates: [], series: [], next: 100 };
+  if (empty) return { tasks: [], types: [], templates: [], series: [], next: 100 };
   const d = today();
   const ty = (i: number) => ({ id: types[i]!.id, name: types[i]!.name });
   const items: [
@@ -501,6 +502,17 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     if (!x) throw fail(404, 'NOT_FOUND', 'Not found');
     return x;
   };
+  // The mock has no catalog: a template's service keeps its id under a neutral name.
+  const templateService = (id: string | null | undefined) =>
+    id ? { id, name: 'Selected service' } : null;
+  const templateReminders = (list: { daysBefore: number }[] | undefined) =>
+    (list ?? []).map((r) => ({
+      id: null,
+      daysBefore: r.daysBefore,
+      timeOfDay: null,
+      inApp: true,
+      channels: [] as ('EMAIL' | 'SMS')[],
+    }));
   const template = (id: string) => {
     const x = s.templates.find((y) => y.id === id);
     if (!x) throw fail(404, 'NOT_FOUND', 'Not found');
@@ -870,6 +882,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     },
     restoreType: async (id) => {
       await mockDelay();
+      manage();
       const t = s.types.find((x) => x.id === id);
       if (!t) throw fail(404, 'NOT_FOUND', 'Not found');
       t.archivedAt = null;
@@ -893,6 +906,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     },
     createTemplate: async (body) => {
       await mockDelay();
+      manage();
       const b = parseInput(CreateTaskTemplateRequest, body);
       dupName(b.name, s.templates);
       const t: TaskTemplate = {
@@ -900,7 +914,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         name: b.name,
         description: b.description ?? null,
         type: b.typeId ? type(b.typeId) : null,
-        service: null,
+        service: templateService(b.serviceId),
         priority: b.priority ?? 'MEDIUM',
         assignmentRule: b.assignmentRule ?? 'UNASSIGNED',
         assignedTo: memberOf(b.assignedUserId),
@@ -910,7 +924,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
           label: c.label,
           required: c.required ?? false,
         })),
-        reminders: [],
+        reminders: templateReminders(b.reminders),
         recurrence: null,
         archivedAt: null,
         createdBy: me,
@@ -922,6 +936,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     },
     updateTemplate: async (id, body) => {
       await mockDelay();
+      manage();
       const b = parseInput(UpdateTaskTemplateRequest, body);
       const t = template(id);
       if (b.version !== t.version) throw fail(409, 'SAVE_CONFLICT', 'Someone saved this first');
@@ -931,6 +946,18 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       }
       if (b.description !== undefined) t.description = b.description ?? null;
       if (b.priority) t.priority = b.priority;
+      if (b.typeId !== undefined && b.typeId !== t.type?.id) t.type = type(b.typeId);
+      if (b.serviceId !== undefined) t.service = templateService(b.serviceId);
+      if (b.assignmentRule) t.assignmentRule = b.assignmentRule;
+      t.assignedTo =
+        t.assignmentRule === 'SPECIFIC_USER'
+          ? memberOf(b.assignedUserId ?? t.assignedTo?.userId)
+          : null;
+      if (b.dueOffsetDays !== undefined) t.dueOffsetDays = b.dueOffsetDays;
+      if (b.clientVisibleDefault !== undefined) t.clientVisibleDefault = b.clientVisibleDefault;
+      if (b.checklist)
+        t.checklist = b.checklist.map((c) => ({ label: c.label, required: c.required ?? false }));
+      if (b.reminders) t.reminders = templateReminders(b.reminders);
       t.updatedAt = nowIso();
       t.version = `v${Number(t.version.slice(1)) + 1}`;
       return copy(t);

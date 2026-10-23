@@ -193,3 +193,11 @@ export const cases: CaseModule['cases'] = {
     },
   },
 };
+
+// The lead email's images (L4). The firm routes (`messages/images`, `/confirm`, and the member's
+// own `me/message-signature`) name no record; firm B never confirms, reads or is served firm A's
+// in test/e2e/lead-email.e2e.test.ts.
+export const excluded: CaseModule['excluded'] = {
+  'GET /api/v1/portal/:firmSlug/email-images/:file':
+    "Public: an image a member put in a lead email (a random id); one firm's slug only ever reaches that firm's files",
+};

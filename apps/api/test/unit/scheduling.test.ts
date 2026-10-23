@@ -1,5 +1,6 @@
 // Unit tests for R58's pure pieces: the status and colour mappings, reminder offsets, agenda
 // cursors, recurrence, the conflict check and the request schemas of the scheduling contract.
+import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import {
   type ConflictData,
@@ -15,13 +16,24 @@ import {
   displayStatus,
   encodeCursor,
   locationKindOf,
+  locationKindsOf,
   monthSpan,
   reminderFromOffset,
   reminderOffset,
+  sameMethods,
+  typeMethods,
 } from '../../src/appointments/scheduling-map.js';
 import { subtract } from '../../src/appointments/scheduling-availability.service.js';
 import { expandRecurrence } from '../../src/appointments/scheduling-recurrence.js';
-import { AgendaQ, DetailsBody, ScheduleBody } from '../../src/appointments/scheduling.input.js';
+import {
+  AgendaQ,
+  DetailsBody,
+  ScheduleBody,
+  TypeConfigBody,
+} from '../../src/appointments/scheduling.input.js';
+import { CreateTypeBody, UpdateTypeBody } from '../../src/appointments/appointments.input.js';
+import { errors } from '../../src/appointments/errors.js';
+import { ZodValidationPipe } from '../../src/common/zod-validation.pipe.js';
 import { zonedInstant } from '../../src/appointments/calendar.js';
 
 const TZ = 'Asia/Kolkata';
@@ -56,6 +68,74 @@ describe('colours and methods', () => {
   it('has no database kind for Other', () => {
     expect(locationKindOf('VIDEO')).toBe('VIDEO');
     expect(locationKindOf('OTHER')).toBeNull();
+  });
+});
+
+describe('meeting methods of a type (A1)', () => {
+  it("reads a type's methods in order, or its location kind when none are stored", () => {
+    expect(typeMethods({ locationKind: 'PHONE', meetingMethods: ['PHONE', 'VIDEO'] })).toEqual([
+      'PHONE',
+      'VIDEO',
+    ]);
+    expect(typeMethods({ locationKind: 'IN_PERSON', meetingMethods: [] })).toEqual(['IN_PERSON']);
+  });
+
+  it('turns the form methods into stored kinds, keeping the order; Other has none', () => {
+    expect(locationKindsOf(['IN_PERSON', 'VIDEO'])).toEqual(['IN_PERSON', 'VIDEO']);
+    expect(locationKindsOf(['VIDEO', 'OTHER'])).toBeNull();
+    expect(sameMethods(['VIDEO', 'PHONE'], ['VIDEO', 'PHONE'])).toBe(true);
+    expect(sameMethods(['VIDEO', 'PHONE'], ['PHONE', 'VIDEO'])).toBe(false);
+    expect(sameMethods(['VIDEO'], ['VIDEO', 'PHONE'])).toBe(false);
+  });
+
+  /** The 400's details as the API sends them (ZodValidationPipe). */
+  const details = (schema: ConstructorParameters<typeof ZodValidationPipe>[0], body: object) => {
+    try {
+      new ZodValidationPipe(schema).transform(body);
+    } catch (e) {
+      expect(e).toBeInstanceOf(BadRequestException);
+      const res = (e as BadRequestException).getResponse() as {
+        code: string;
+        details: { path: string; message: string }[];
+      };
+      expect(res.code).toBe('VALIDATION_FAILED');
+      return res.details;
+    }
+    throw new Error('expected a 400');
+  };
+
+  it('names the offending method at methods.N in the 400, on create, update and configuration', () => {
+    const type = { name: 'Fake consult', durationMinutes: 30 };
+    expect(details(CreateTypeBody, { ...type, methods: ['VIDEO', 'VIDEO'] })).toEqual([
+      { path: 'methods.1', message: 'This meeting method is already chosen' },
+    ]);
+    expect(details(UpdateTypeBody, { methods: ['PHONE', 'VIDEO', 'IN_PERSON', 'PHONE'] })).toEqual([
+      { path: 'methods.3', message: 'Choose at most 3 meeting methods' },
+    ]);
+    expect(details(TypeConfigBody, { methods: ['PHONE', 'OTHER'] })).toEqual([
+      { path: 'methods.1', message: 'Choose in person, phone or video' },
+    ]);
+    expect(details(TypeConfigBody, { methods: [] })).toEqual([
+      { path: 'methods', message: 'Choose at least one meeting method' },
+    ]);
+    expect(
+      details(CreateTypeBody, { ...type, locationKind: 'PHONE', methods: ['VIDEO', 'PHONE'] }),
+    ).toEqual([{ path: 'locationKind', message: 'The location kind is the first meeting method' }]);
+  });
+
+  it('answers a method the type does not offer as 400 naming the field', () => {
+    const e = errors.methodNotOffered('method');
+    expect(e.getStatus()).toBe(400);
+    expect(e.getResponse()).toEqual({
+      code: 'VALIDATION_FAILED',
+      message: 'This appointment type is not offered that way. Choose another method.',
+      details: [
+        {
+          path: 'method',
+          message: 'This appointment type is not offered that way. Choose another method.',
+        },
+      ],
+    });
   });
 });
 

@@ -98,7 +98,10 @@ test('shows the complete conversion review and responsive layout with mock data'
   await expectFrames(page);
   await expect(page.getByText('Avery Lawson', { exact: true }).first()).toBeVisible();
   await expect(page.getByLabel('Full Name *')).toHaveValue('Avery Lawson');
-  await expect(page.getByLabel('Primary Staff Member *')).toHaveValue('Morgan Avery');
+  // An editable picker now (Octavia's review, item 16): the lead's staff member is chosen.
+  await expect(page.getByLabel('Primary Staff Member *').locator('option:checked')).toHaveText(
+    'Morgan Avery',
+  );
   await captureReview(page, 'convert-lead-data-1440.png');
 
   await page.getByRole('button', { name: 'Review & Continue' }).click();

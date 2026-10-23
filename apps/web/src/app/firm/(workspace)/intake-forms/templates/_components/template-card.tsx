@@ -6,12 +6,14 @@ import {
   ChartBar,
   Copy,
   Eye,
+  LinkSimple,
   PaperPlaneTilt,
   PencilSimple,
   User,
 } from '@phosphor-icons/react';
 import type { IntakeFormListItem } from '@firmivra/types';
 import { Avatar, Badge, Button, Card, Skeleton } from '@firmivra/ui';
+import { isMainForm } from '../../_components/form-link-dialog';
 import { CategoryChip, CategoryTile, shortDate, shortName } from './template-look';
 import { TemplateMenu } from './template-menu';
 
@@ -21,6 +23,8 @@ export interface TemplateActions {
   onUse: (template: IntakeFormListItem) => void;
   onDuplicate: (template: IntakeFormListItem) => void;
   onArchive: (template: IntakeFormListItem) => void;
+  /** Form Link: the main form's public link and embed code (I3). */
+  onLink: (template: IntakeFormListItem) => void;
   /** A duplicate or archive is on its way: those two wait. */
   busy?: boolean;
 }
@@ -44,7 +48,7 @@ export function TemplateCard({
   template: IntakeFormListItem;
   actions: TemplateActions;
 }) {
-  const { onPreview, onEdit, onUse, onDuplicate, onArchive, busy } = actions;
+  const { onPreview, onEdit, onUse, onDuplicate, onArchive, onLink, busy } = actions;
   const draft = template.status === 'DRAFT';
   return (
     <Card
@@ -81,6 +85,9 @@ export function TemplateCard({
               onSelect: () => onUse(template),
               disabled: draft,
             },
+            ...(isMainForm(template)
+              ? [{ label: 'Form Link', icon: LinkSimple, onSelect: () => onLink(template) }]
+              : []),
             {
               label: 'Archive',
               icon: Archive,
