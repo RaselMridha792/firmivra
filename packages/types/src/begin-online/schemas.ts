@@ -13,6 +13,7 @@ import { INTAKE_SIGNING_ERRORS, IntakeSigningErrorCode } from '../agreements/sch
 import {
   INTAKE_NUMBERS_UNAVAILABLE,
   INTAKE_TOO_MANY_NUMBERS,
+  IntakeFileSizeMb,
   IntakeUpload,
   refuseFullNumbers,
 } from '../intake/schemas.js';
@@ -169,6 +170,11 @@ export const BeginOnlineForm = z.object({
    * its start).
    */
   taxYear: z.number().int(),
+  /**
+   * The firm's largest file per upload, in MB (`IntakeFileSizeMb`: Intake Form Settings, 10 until
+   * the firm sets one). The draft carries it too: its upload fields say it and check a file first.
+   */
+  maxFileSizeMb: IntakeFileSizeMb,
 });
 export type BeginOnlineForm = z.infer<typeof BeginOnlineForm>;
 

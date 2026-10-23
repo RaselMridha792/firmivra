@@ -13,6 +13,7 @@ import {
   createBeginOnlineClient,
   createRequest,
   INTAKE_FORMS,
+  INTAKE_MAX_FILE_SIZE_MB,
   IntakeFormKey,
   resumeTokenFromHash,
   StartBeginDraftRequest,
@@ -64,6 +65,7 @@ const draft = {
   title: 'Annual Tax Intake Form',
   definition: ANNUAL_TAX_FORM,
   taxYear: 2026,
+  maxFileSizeMb: 10,
   contact: { firstName: 'Avery', lastName: 'Example', email: 'avery@lvp.test', phone: null },
   answers: { firstName: 'Avery', lastName: 'Example', email: 'avery@lvp.test' },
   uploads: [],
@@ -202,6 +204,17 @@ describe('api.beginOnline(firmSlug)', () => {
         phone: '',
       }),
     ).toEqual({ firstName: 'A', lastName: 'B', email: 'a@lvp.test', phone: null });
+  });
+
+  it("carries the firm's file size limit, a whole 1 to 100 MB, on the form and the draft", () => {
+    expect(BeginDraft.parse({ ...draft, maxFileSizeMb: 50 }).maxFileSizeMb).toBe(50);
+    expect(BeginOnlineForm.parse({ ...draft, maxFileSizeMb: 25 }).maxFileSizeMb).toBe(25);
+    const { maxFileSizeMb: _, ...without } = draft;
+    expect(BeginDraft.safeParse(without).success).toBe(false);
+    expect(BeginOnlineForm.safeParse(without).success).toBe(false);
+    for (const mb of [0, 2.5, INTAKE_MAX_FILE_SIZE_MB + 1]) {
+      expect(BeginDraft.safeParse({ ...draft, maxFileSizeMb: mb }).success).toBe(false);
+    }
   });
 
   it('reads the token from the link fragment only when it is a whole token', () => {

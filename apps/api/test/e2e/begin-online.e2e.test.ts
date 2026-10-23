@@ -1129,6 +1129,21 @@ describe("Begin Online uploads within the firm's Max file size per file (I10)", 
     await tooLarge(v, bytes.length, 2);
     await fileSizeLimit(100);
   });
+
+  it("the form and the draft say the firm's own limit, so the upload fields show it first", async () => {
+    const form = async (slug = firms.a.slug) =>
+      BeginOnlineForm.parse((await visitor(slug).get('/forms/annual-tax')).body).maxFileSizeMb;
+    await fileSizeLimit(null);
+    expect(await form()).toBe(10);
+    const v = visitor(firms.a.slug);
+    expect((await start(v)).draft.maxFileSizeMb).toBe(10);
+    await fileSizeLimit(50);
+    expect(await form()).toBe(50);
+    expect(BeginDraft.parse((await v.get(D)).body).maxFileSizeMb).toBe(50);
+    // Firm B has no settings of its own: firm A's size is never its.
+    expect(await form(firms.b.slug)).toBe(10);
+    await fileSizeLimit(100);
+  });
 });
 
 describe('Begin Online: an expired draft (R0 refuses new data)', () => {
