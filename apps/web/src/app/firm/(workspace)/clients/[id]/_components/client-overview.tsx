@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { dateText, formatPhone } from '../../_components/client-parts';
+import { ClientTagsCard } from './client-tags';
 import { useClientRecord } from './use-client-record';
 
 const CONTACT: Record<ContactMethod, string> = {
@@ -156,7 +157,10 @@ function FirmDetails({ client }: { client: ClientRecord }) {
   );
 }
 
-/** Overview: profile (SSN and EIN as the last 4 only), contact, portal logins and firm details. */
+/**
+ * Overview: profile (SSN and EIN as the last 4 only), contact, portal logins, firm details and the
+ * client's tags.
+ */
 export function ClientOverview() {
   const { id } = useParams<{ id: string }>();
   const record = useClientRecord(id);
@@ -168,6 +172,7 @@ export function ClientOverview() {
           <Contact client={client} />
           <Portal client={client} />
           <FirmDetails client={client} />
+          <ClientTagsCard client={client} />
         </div>
       )}
     </PageState>
