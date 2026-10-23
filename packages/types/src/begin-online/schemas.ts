@@ -136,6 +136,20 @@ export function beginOnlineFormOfPath(path: string): IntakeFormKey | null {
   return found ? (found[0] as IntakeFormKey) : null;
 }
 
+/**
+ * A service's Begin Online page, `{PORTAL_BASE_URL}/{firmSlug}/begin/{path}`, on the portal host
+ * from config (never the request's Host). It is also the public link of the service's main form
+ * (Intake Forms I3: `GET /business/intake-forms/{id}/public-link`).
+ */
+export function beginOnlinePageUrl(
+  portalBaseUrl: string,
+  firmSlug: string,
+  form: IntakeFormKey,
+): string {
+  const base = portalBaseUrl.replace(/\/+$/, '');
+  return `${base}/${encodeURIComponent(firmSlug)}/begin/${BEGIN_ONLINE_SERVICES[form].path}`;
+}
+
 export const BEGIN_ONLINE_LIMITS = {
   /** A save, an upload or the start renews a draft to this many days from then... */
   draftDays: 30,

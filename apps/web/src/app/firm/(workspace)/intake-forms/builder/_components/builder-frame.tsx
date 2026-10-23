@@ -41,6 +41,7 @@ import {
   INTAKE_FORMS,
   NOT_LOADED,
 } from './builder-parts';
+import { FormLinkDialog, isMainForm } from '../../_components/form-link-dialog';
 import { FormDetailsCard } from './form-details';
 import { MoreMenu } from './more-menu';
 import { AddQuestionsCard, FormSettingsCard } from './question-palette';
@@ -73,16 +74,18 @@ const SAVE_ERRORS: Record<string, string> = {
 type SaveMode = 'draft' | 'publish' | 'template' | 'send';
 const publishes = (mode: SaveMode) => mode === 'publish' || mode === 'send';
 
-/** The line under the title after a save that went through. */
-function doneText(mode: SaveMode, moved: boolean, template: boolean) {
+/** The line under the title after a save that went through (`fromPublished`: a new version). */
+function doneText(mode: SaveMode, fromPublished: boolean, template: boolean) {
   if (mode === 'draft') {
-    return moved ? 'Saved as a new draft. The published form is unchanged.' : 'Draft saved.';
+    return fromPublished
+      ? 'Saved as a new draft. The published form is unchanged.'
+      : 'Draft saved.';
   }
   if (mode === 'template') {
     return template ? 'Template saved.' : 'Saved. A template copy is in Form Templates.';
   }
   if (mode === 'send') return 'Form published. Opening Send Intake Form…';
-  return moved
+  return fromPublished
     ? 'Published as a new version. Forms already sent keep the earlier one.'
     : 'Form published. It can now be sent.';
 }
@@ -256,6 +259,7 @@ export function BuilderFrame({
   // Saved, and on the way to the new copy or to Send: the notice shows and nothing is clickable.
   const [leaving, setLeaving] = useState<{ from: string; notice: DraftNotice } | null>(null);
   const moving = leaving?.from === formId ? leaving.notice : null;
+  const [linking, setLinking] = useState(false);
 
   const data = form.data;
   const draft = held?.draft ?? null;
@@ -271,11 +275,13 @@ export function BuilderFrame({
   const save = useApiMutation(
     async ({ mode, body }: { mode: SaveMode; body: FormDraft }): Promise<SaveResult> => {
       if (!data) throw new Error('The form has not loaded');
-      // A published or retired version is frozen: the changes go to a new draft copy.
+      // A published version is frozen: the API saves the changes as the form's next draft
+      // version, and the published one stays live (sent forms keep theirs). So the main form
+      // stays its service's main form, with the same link. An archived form's go to a copy.
       const target =
-        data.status === 'DRAFT'
-          ? data
-          : await api.intakeForms.duplicateForm(data.id, body.isTemplate);
+        data.status === 'RETIRED'
+          ? await api.intakeForms.duplicateForm(data.id, body.isTemplate)
+          : data;
       let saved: IntakeFormDetail;
       try {
         saved = await api.intakeForms.saveForm(target.id, toRequest(body));
@@ -324,7 +330,7 @@ export function BuilderFrame({
           const edited = stored ? (now && now !== draft ? now : null) : (now ?? draft);
           const why = failed ? errorMessage(failed, SAVE_ERRORS) : '';
           const text = !failed
-            ? doneText(mode, moved, saved.isTemplate)
+            ? doneText(mode, data.status !== 'DRAFT', saved.isTemplate)
             : !stored
               ? `A draft copy was made, but your changes are not in it yet. ${why}`
               : publishes(mode)
@@ -337,6 +343,8 @@ export function BuilderFrame({
           if (sending || moved) setLeaving({ from: formId, notice });
           if (sending) router.push(`/intake-forms/send?formId=${saved.id}`);
           else if (moved) router.replace(`/intake-forms/builder/${saved.id}${tabPath(tab)}`);
+          // Published: the main form's link and embed code, to copy (Octavia's I3).
+          else if (mode === 'publish' && !failed && isMainForm(saved)) setLinking(true);
         },
         onError: (error) => {
           // Published elsewhere in the meantime: reload it, so the next save makes a copy.
@@ -393,7 +401,9 @@ export function BuilderFrame({
   );
   const isTemplate = draft?.isTemplate ?? data?.isTemplate ?? false;
   const published = Boolean(data && data.status !== 'DRAFT');
-  const title = published
+  // A draft over a published version is still an edit: only a published form gets version 2 on.
+  const editing = published || (data?.version ?? 1) > 1;
+  const title = editing
     ? isTemplate
       ? 'Edit Form Template'
       : 'Edit Intake Form'
@@ -472,6 +482,9 @@ export function BuilderFrame({
                     onSelect: () => run('template'),
                   },
                   { label: 'Save & Send', disabled: !state || busy, onSelect: () => run('send') },
+                  ...(data && isMainForm(data)
+                    ? [{ label: 'Form Link', onSelect: () => setLinking(true) }]
+                    : []),
                 ]}
               />
             </div>
@@ -544,6 +557,13 @@ export function BuilderFrame({
           )}
         </div>
       </div>
+      {linking && data ? (
+        <FormLinkDialog
+          formId={formId}
+          name={draft?.name || data.name}
+          onClose={() => setLinking(false)}
+        />
+      ) : null}
     </div>
   );
 }

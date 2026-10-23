@@ -3,7 +3,10 @@ import {
   ApiRequestError,
   AppointmentErrorCode,
   AppointmentList,
+  AppointmentType,
+  BookableType,
   BookAppointmentRequest,
+  BookMyAppointmentRequest,
   CancelAppointmentRequest,
   CreateAppointmentTypeRequest,
   CreateBlockedTimeRequest,
@@ -12,8 +15,12 @@ import {
   createAvailabilityClient,
   createMyAppointmentsClient,
   createRequest,
+  MAX_MEETING_METHODS,
+  meetingMethodProblems,
   SetWorkingHoursRequest,
   SlotsQuery,
+  TypeMeetingMethods,
+  UpdateAppointmentTypeRequest,
 } from '../../src/index.js';
 
 function fakeFetch(status: number, body: unknown) {
@@ -225,5 +232,99 @@ describe('appointment schemas (R12 contract follow-ups)', () => {
       }).success;
     expect(block(366)).toBe(true);
     expect(block(367)).toBe(false);
+  });
+});
+
+describe('meeting methods of an appointment type (A1)', () => {
+  /** Each issue's path, as the API's 400 details name them. */
+  const issues = (r: { success: boolean; error?: { issues: { path: PropertyKey[] }[] } }) =>
+    (r.error?.issues ?? []).map((i) => i.path.join('.'));
+  const type = { name: 'Consult', durationMinutes: 30 };
+
+  it('names each problem at its place: past the third, not a kind, or chosen twice', () => {
+    expect(MAX_MEETING_METHODS).toBe(3);
+    expect(meetingMethodProblems(['VIDEO', 'PHONE', 'IN_PERSON'])).toEqual([]);
+    expect(meetingMethodProblems(['VIDEO', 'VIDEO'])).toEqual([
+      { index: 1, message: 'This meeting method is already chosen' },
+    ]);
+    expect(meetingMethodProblems(['OTHER', 'PHONE'])).toEqual([
+      { index: 0, message: 'Choose in person, phone or video' },
+    ]);
+    expect(meetingMethodProblems(['VIDEO', 'PHONE', 'IN_PERSON', 'PHONE', 'VIDEO'])).toEqual([
+      { index: 3, message: 'Choose at most 3 meeting methods' },
+      { index: 4, message: 'Choose at most 3 meeting methods' },
+    ]);
+  });
+
+  it('keeps the order chosen and refuses none, repeats, unknown ones and a fourth at methods.N', () => {
+    expect(TypeMeetingMethods.parse(['PHONE', 'IN_PERSON'])).toEqual(['PHONE', 'IN_PERSON']);
+    expect(issues(TypeMeetingMethods.safeParse([]))).toEqual(['']);
+    const body = (methods: unknown) =>
+      issues(CreateAppointmentTypeRequest.safeParse({ ...type, methods }));
+    expect(body(['VIDEO', 'PHONE', 'VIDEO'])).toEqual(['methods.2']);
+    expect(body(['VIDEO', 'OTHER'])).toEqual(['methods.1']);
+    expect(body(['VIDEO', 'ZOOM'])).toEqual(['methods.1']);
+    expect(body(['VIDEO', 'PHONE', 'IN_PERSON', 'PHONE'])).toEqual(['methods.3']);
+    expect(issues(UpdateAppointmentTypeRequest.safeParse({ methods: ['PHONE', 'PHONE'] }))).toEqual(
+      ['methods.1'],
+    );
+  });
+
+  it('creates with the first method as the location kind; both must agree when both are sent', () => {
+    expect(CreateAppointmentTypeRequest.parse(type)).toMatchObject({
+      locationKind: 'VIDEO',
+      methods: ['VIDEO'],
+    });
+    expect(CreateAppointmentTypeRequest.parse({ ...type, locationKind: 'PHONE' })).toMatchObject({
+      locationKind: 'PHONE',
+      methods: ['PHONE'],
+    });
+    expect(
+      CreateAppointmentTypeRequest.parse({ ...type, methods: ['IN_PERSON', 'VIDEO'] }),
+    ).toMatchObject({ locationKind: 'IN_PERSON', methods: ['IN_PERSON', 'VIDEO'] });
+    expect(
+      CreateAppointmentTypeRequest.parse({
+        ...type,
+        locationKind: 'IN_PERSON',
+        methods: ['IN_PERSON', 'VIDEO'],
+      }),
+    ).toMatchObject({ locationKind: 'IN_PERSON' });
+    expect(
+      issues(
+        CreateAppointmentTypeRequest.safeParse({
+          ...type,
+          locationKind: 'VIDEO',
+          methods: ['IN_PERSON', 'VIDEO'],
+        }),
+      ),
+    ).toEqual(['locationKind']);
+    expect(
+      issues(UpdateAppointmentTypeRequest.safeParse({ locationKind: 'PHONE', methods: ['VIDEO'] })),
+    ).toEqual(['locationKind']);
+  });
+
+  it('reads the methods on types and bookable types, and lets a client choose one', () => {
+    const typeId = '0199b6a2-0000-7000-8000-000000000001';
+    const read = {
+      id: typeId,
+      name: 'Tax consultation',
+      durationMinutes: 30,
+      locationKind: 'PHONE',
+      methods: ['PHONE', 'VIDEO'],
+      cancelCutoffHours: 24,
+    };
+    expect(BookableType.parse(read).methods).toEqual(['PHONE', 'VIDEO']);
+    expect(
+      AppointmentType.parse({ ...read, clientBookable: true, sortOrder: 0, archivedAt: null })
+        .methods,
+    ).toEqual(['PHONE', 'VIDEO']);
+    const book = { typeId, startsAt: at };
+    expect(BookMyAppointmentRequest.parse(book)).toEqual(book);
+    expect(BookMyAppointmentRequest.parse({ ...book, locationKind: 'VIDEO' })).toMatchObject({
+      locationKind: 'VIDEO',
+    });
+    expect(BookMyAppointmentRequest.safeParse({ ...book, locationKind: 'OTHER' }).success).toBe(
+      false,
+    );
   });
 });

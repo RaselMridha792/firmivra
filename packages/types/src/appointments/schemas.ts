@@ -67,6 +67,54 @@ export const TimeOfDay = z
   .regex(/^([01]\d|2[0-3]):(00|15|30|45)$/, 'Use HH:MM in 15-minute steps');
 export const LocationKind = z.enum(['IN_PERSON', 'PHONE', 'VIDEO']);
 export type LocationKind = z.infer<typeof LocationKind>;
+
+/** An appointment type offers at most this many meeting methods (A1). */
+export const MAX_MEETING_METHODS = 3;
+
+/** One thing wrong with a list of meeting methods, at its place in the list. */
+export interface MeetingMethodProblem {
+  index: number;
+  message: string;
+}
+
+/**
+ * What is wrong with an appointment type's meeting methods (A1), each at its place in the list so
+ * a form can mark that choice and keep the others: one past the third, a method an appointment
+ * cannot have (only in person, phone and video), or one chosen twice. Empty when they are fine.
+ */
+export function meetingMethodProblems(methods: readonly string[]): MeetingMethodProblem[] {
+  const kinds: readonly string[] = LocationKind.options;
+  const problems: MeetingMethodProblem[] = [];
+  methods.forEach((method, index) => {
+    const message =
+      index >= MAX_MEETING_METHODS
+        ? `Choose at most ${MAX_MEETING_METHODS} meeting methods`
+        : !kinds.includes(method)
+          ? 'Choose in person, phone or video'
+          : methods.indexOf(method) < index
+            ? 'This meeting method is already chosen'
+            : null;
+    if (message) problems.push({ index, message });
+  });
+  return problems;
+}
+
+/** meetingMethodProblems as issues at each item, so a 400 names `methods.1`. */
+export function checkMeetingMethods(methods: readonly string[], ctx: z.RefinementCtx): void {
+  for (const problem of meetingMethodProblems(methods)) {
+    ctx.addIssue({ code: 'custom', path: [problem.index], message: problem.message });
+  }
+}
+
+/**
+ * An appointment type's meeting methods (A1): 1 to 3, no repeats, in the order chosen; the first
+ * is the type's `locationKind`. Each problem is named at its item (`methods.1`).
+ */
+export const TypeMeetingMethods = z
+  .array(z.enum(LocationKind.options, 'Choose in person, phone or video'))
+  .min(1, 'Choose at least one meeting method')
+  .superRefine(checkMeetingMethods);
+
 /** SCHEDULED until it happens. CANCELLED, COMPLETED and NO_SHOW are final. */
 export const AppointmentStatus = z.enum(['SCHEDULED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']);
 export type AppointmentStatus = z.infer<typeof AppointmentStatus>;
@@ -95,12 +143,22 @@ const within = (days: number) => (q: { from: string; to: string }) => {
 };
 
 // ---------- Appointment types (firm) ----------
-/** A kind of appointment the firm offers: "Tax consultation", 30 minutes, video. */
+/**
+ * A kind of appointment the firm offers: "Tax consultation", 30 minutes, video or phone.
+ * Meeting methods (A1): a type offers 1 to 3 (in person, phone, video), in the firm's order; the
+ * first is its `locationKind`, the default when an appointment is booked. Every booking and every
+ * change of an appointment's method or type takes one of them (400 VALIDATION_FAILED naming the
+ * field otherwise). Changing a type's methods never changes its existing appointments: each keeps
+ * its own method until it is changed.
+ */
 export const AppointmentType = z.object({
   id: z.uuid(),
   name: z.string(),
   durationMinutes: z.number().int(),
+  /** The first of `methods`. */
   locationKind: LocationKind,
+  /** The meeting methods it offers, in order (1 to 3). */
+  methods: z.array(LocationKind),
   /** Clients see and book only these. */
   clientBookable: z.boolean(),
   /** Clients reschedule or cancel until this many hours before; 0 = until the start. */
@@ -120,28 +178,59 @@ export const AppointmentTypesQuery = z.strictObject({
 });
 export type AppointmentTypesQuery = z.input<typeof AppointmentTypesQuery>;
 
-/** Owner and Admin. A duplicate name is 409 DUPLICATE_NAME. */
-export const CreateAppointmentTypeRequest = z.strictObject({
-  name: text(80),
-  durationMinutes: Duration,
-  locationKind: LocationKind.default('VIDEO'),
-  clientBookable: z.boolean().default(false),
-  cancelCutoffHours: CutoffHours.default(24),
-  sortOrder: SortOrder.optional(),
-});
+/** With both `locationKind` and `methods`, the location kind is the first method. */
+const locationIsFirstMethod = (
+  b: { locationKind?: LocationKind | undefined; methods?: readonly LocationKind[] | undefined },
+  ctx: z.RefinementCtx,
+): void => {
+  if (b.locationKind !== undefined && b.methods !== undefined && b.methods[0] !== b.locationKind) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['locationKind'],
+      message: 'The location kind is the first meeting method',
+    });
+  }
+};
+
+/**
+ * Owner and Admin. A duplicate name is 409 DUPLICATE_NAME. `methods` (A1) are the meeting methods
+ * it offers; `locationKind` alone offers that one. Both may be sent when `locationKind` is the
+ * first method. Parsed, both are set: VIDEO when neither is sent.
+ */
+export const CreateAppointmentTypeRequest = z
+  .strictObject({
+    name: text(80),
+    durationMinutes: Duration,
+    locationKind: LocationKind.optional(),
+    methods: TypeMeetingMethods.optional(),
+    clientBookable: z.boolean().default(false),
+    cancelCutoffHours: CutoffHours.default(24),
+    sortOrder: SortOrder.optional(),
+  })
+  .superRefine(locationIsFirstMethod)
+  .transform(({ locationKind, methods, ...rest }) => {
+    const first = locationKind ?? methods?.[0] ?? 'VIDEO';
+    return { ...rest, locationKind: first, methods: methods ?? [first] };
+  });
 export type CreateAppointmentTypeRequest = z.input<typeof CreateAppointmentTypeRequest>;
 
-/** Owner and Admin; send only what changes. Existing appointments keep their times. */
+/**
+ * Owner and Admin; send only what changes. Existing appointments keep their times and methods.
+ * `methods` (A1) replaces the meeting methods, and the first becomes `locationKind`; sending only
+ * `locationKind` makes it the first method and keeps the others.
+ */
 export const UpdateAppointmentTypeRequest = z
   .strictObject({
     name: text(80).optional(),
     durationMinutes: Duration.optional(),
     locationKind: LocationKind.optional(),
+    methods: TypeMeetingMethods.optional(),
     clientBookable: z.boolean().optional(),
     cancelCutoffHours: CutoffHours.optional(),
     sortOrder: SortOrder.optional(),
   })
-  .refine(nonEmpty, 'Change at least one field');
+  .refine(nonEmpty, 'Change at least one field')
+  .superRefine(locationIsFirstMethod);
 export type UpdateAppointmentTypeRequest = z.input<typeof UpdateAppointmentTypeRequest>;
 
 // ---------- Availability (firm) ----------
@@ -381,8 +470,9 @@ export type SlotsQuery = z.input<typeof SlotsQuery>;
 /**
  * POST /business/appointments: firm users book for a client, at any time that is free (working
  * hours are a guide for them, not a rule). Staff book only for clients assigned to them (404
- * otherwise), with any staff member. With a type, its duration and location kind are the default;
- * without one, give the duration.
+ * otherwise), with any staff member. With a type, its duration and first meeting method are the
+ * default, and `locationKind` must be one of its methods (400 VALIDATION_FAILED at
+ * `locationKind`); without one, give the duration.
  */
 export const BookAppointmentRequest = z
   .strictObject({
@@ -415,8 +505,10 @@ export type CancelAppointmentRequest = z.input<typeof CancelAppointmentRequest>;
  * PATCH /business/appointments/{id}: changes where it happens; send at least one field. Staff:
  * only appointments they see in full (404 otherwise); a final one is 409 APPOINTMENT_CLOSED. When
  * the result is VIDEO and `locationDetails` is left out, the staff member's link is filled in;
- * null or '' clears it. Nothing changed writes nothing; otherwise the client gets the changed
- * notice (with no link in it).
+ * null or '' clears it. A new `locationKind` must be one of the type's meeting methods (400
+ * VALIDATION_FAILED at `locationKind`); one the type stopped offering stays until it changes.
+ * Nothing changed writes nothing; otherwise the client gets the changed notice (with no link in
+ * it).
  */
 export const UpdateAppointmentRequest = z
   .strictObject({
@@ -459,7 +551,10 @@ export const BookableType = z.object({
   id: z.uuid(),
   name: z.string(),
   durationMinutes: z.number().int(),
+  /** The first of `methods`. */
   locationKind: LocationKind,
+  /** The meeting methods the client chooses from, in the firm's order (A1). */
+  methods: z.array(LocationKind),
   cancelCutoffHours: z.number().int(),
 });
 export type BookableType = z.infer<typeof BookableType>;
@@ -488,10 +583,15 @@ export const MySlotsQuery = z
   .refine(within(31), 'Use a range of at most 31 days');
 export type MySlotsQuery = z.input<typeof MySlotsQuery>;
 
-/** Book one of `slots()`; a slot someone took meanwhile is 409 SLOT_TAKEN (pick another). */
+/**
+ * Book one of `slots()`; a slot someone took meanwhile is 409 SLOT_TAKEN (pick another).
+ * `locationKind` is one of the type's meeting methods (400 VALIDATION_FAILED at `locationKind`
+ * otherwise); left out, its first.
+ */
 export const BookMyAppointmentRequest = z.strictObject({
   typeId: AppointmentTypeId,
   startsAt: DateTime,
+  locationKind: LocationKind.optional(),
 });
 export type BookMyAppointmentRequest = z.input<typeof BookMyAppointmentRequest>;
 

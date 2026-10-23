@@ -5,6 +5,7 @@ import {
   createSchedulingClient,
   ScheduleAppointmentRequest,
   SendRemindersRequest,
+  SetAppointmentTypeConfigRequest,
   UpdateAppointmentDetailsRequest,
 } from '../../src/index.js';
 
@@ -109,5 +110,24 @@ describe('api.scheduling', () => {
     expect(calls[0]?.url).toBe(
       `/api/v1/business/availability/day?staffUserId=${staff}&date=2026-10-15`,
     );
+  });
+});
+
+describe('appointment type configuration: meeting methods (A1)', () => {
+  const paths = (body: object) =>
+    (SetAppointmentTypeConfigRequest.safeParse(body).error?.issues ?? []).map((i) =>
+      i.path.join('.'),
+    );
+
+  it('takes 1 to 3 methods in order and names each problem at methods.N', () => {
+    expect(SetAppointmentTypeConfigRequest.parse({ methods: ['PHONE', 'VIDEO'] })).toEqual({
+      methods: ['PHONE', 'VIDEO'],
+    });
+    expect(paths({ methods: ['VIDEO', 'PHONE', 'IN_PERSON'] })).toEqual([]);
+    expect(paths({ methods: [] })).toEqual(['methods']);
+    expect(paths({ methods: ['VIDEO', 'VIDEO'] })).toEqual(['methods.1']);
+    // OTHER is a form choice no appointment type can keep yet.
+    expect(paths({ methods: ['PHONE', 'OTHER'] })).toEqual(['methods.1']);
+    expect(paths({ methods: ['VIDEO', 'PHONE', 'IN_PERSON', 'OTHER'] })).toEqual(['methods.3']);
   });
 });

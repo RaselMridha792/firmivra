@@ -12,6 +12,7 @@ import {
   type AvailabilityClient,
   type BlockedTime,
   BlockedTimesQuery,
+  type LocationKind,
   BookAppointmentRequest,
   BookMyAppointmentRequest,
   type CalendarAppointment,
@@ -114,7 +115,19 @@ const errors = {
     fail(409, 'CUTOFF_NOT_SUPPORTED', 'For now every appointment type has a 24-hour cutoff'),
   blocks: () => fail(409, 'BLOCKS_APPOINTMENT', 'An appointment is scheduled in this time'),
   duplicate: () => fail(409, 'DUPLICATE_NAME', 'An appointment type with this name exists'),
+  /** As the API (A1): 400 naming the field, for a method the type does not offer. */
+  methodNotOffered: (path: string) => {
+    const message = 'This appointment type is not offered that way. Choose another method.';
+    return new ApiRequestError(400, 'VALIDATION_FAILED', message, undefined, undefined, [
+      { path, message },
+    ]);
+  },
 };
+
+/** As the API (A1): a type's own meeting methods, else a method the booking chose is refused. */
+function requireOffered(t: AppointmentType | undefined, kind: LocationKind, path: string): void {
+  if (t && !t.methods.includes(kind)) throw errors.methodNotOffered(path);
+}
 
 type Store = {
   types: AppointmentType[];
@@ -146,9 +159,11 @@ function seed(): Store {
       sortOrder: n - 1,
       archivedAt: null,
       ...fields,
+      // The first method is the location kind, as the database keeps them.
+      methods: fields.methods ?? [fields.locationKind ?? 'VIDEO'],
     });
   const types = [
-    type(1, { name: 'Tax consultation' }),
+    type(1, { name: 'Tax consultation', methods: ['VIDEO', 'PHONE'] }),
     type(2, {
       name: 'Bookkeeping review',
       durationMinutes: 60,
@@ -418,7 +433,15 @@ export function createAppointmentTypesMock(
       ) {
         throw errors.duplicate();
       }
-      Object.assign(t, input);
+      const { methods, ...rest } = input;
+      Object.assign(t, rest);
+      // As the database: new methods replace the old and their first is the location kind; the
+      // location kind alone becomes the first method and keeps the others.
+      if (methods?.[0]) Object.assign(t, { methods, locationKind: methods[0] });
+      else if (input.locationKind) {
+        const first = input.locationKind;
+        t.methods = [first, ...t.methods.filter((m) => m !== first)];
+      }
       return copy(t);
     },
     archive: async (typeId) => {
@@ -633,7 +656,8 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       if (t?.archivedAt) throw errors.typeArchived();
       const endsAt = plus(input.startsAt, input.durationMinutes ?? t?.durationMinutes ?? 30);
       assertFree(s, { startsAt: input.startsAt, endsAt }, staff.userId, input.clientId);
-      const kind = input.locationKind ?? t?.locationKind ?? 'VIDEO';
+      const kind = input.locationKind ?? t?.methods[0] ?? 'VIDEO';
+      requireOffered(t, kind, 'locationKind');
       const created: Appointment = {
         id: id('3', s.next++),
         client: { id: booked.id, displayName: booked.displayName },
@@ -688,6 +712,13 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       const a = find(appointmentId);
       open(a);
       const kind = input.locationKind ?? a.locationKind;
+      if (kind !== a.locationKind) {
+        requireOffered(
+          db().types.find((t) => t.id === a.type?.id),
+          kind,
+          'locationKind',
+        );
+      }
       // Left out: VIDEO gets the staff member's link; another kind keeps its details unless the
       // kind changes. Sent: null or '' clears.
       const details =
@@ -799,13 +830,16 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
       return copy(
         db()
           .types.filter((t) => t.clientBookable && !t.archivedAt)
-          .map(({ id: typeId, name, durationMinutes, locationKind, cancelCutoffHours }) => ({
-            id: typeId,
-            name,
-            durationMinutes,
-            locationKind,
-            cancelCutoffHours,
-          })),
+          .map(
+            ({ id: typeId, name, durationMinutes, locationKind, methods, cancelCutoffHours }) => ({
+              id: typeId,
+              name,
+              durationMinutes,
+              locationKind,
+              methods,
+              cancelCutoffHours,
+            }),
+          ),
       );
     },
     slots: async (query) => {
@@ -828,6 +862,8 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
       const input = parseInput(BookMyAppointmentRequest, body);
       const s = db();
       const t = bookable(input.typeId);
+      const kind = input.locationKind ?? t.methods[0] ?? t.locationKind;
+      requireOffered(t, kind, 'locationKind');
       const staff = pick(t.durationMinutes, input.startsAt);
       const startsAt = new Date(input.startsAt).toISOString();
       const range = { startsAt, endsAt: plus(startsAt, t.durationMinutes) };
@@ -840,9 +876,9 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
         engagementId: null,
         ...range,
         status: 'SCHEDULED',
-        locationKind: t.locationKind,
-        // The chosen staff member's link for a VIDEO type, as the API.
-        locationDetails: t.locationKind === 'VIDEO' ? linkOf(s, staff.userId) : null,
+        locationKind: kind,
+        // The chosen staff member's link for a VIDEO meeting, as the API.
+        locationDetails: kind === 'VIDEO' ? linkOf(s, staff.userId) : null,
         bookedByClient: true,
         rescheduleCount: 0,
         cancelledAt: null,
