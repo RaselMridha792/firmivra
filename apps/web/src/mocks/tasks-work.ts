@@ -8,7 +8,9 @@ import {
   CreateTaskTemplateRequest,
   type MemberRef,
   parseInput,
+  PublishTaskDraftRequest,
   ReorderChecklistRequest,
+  SaveTaskDraftRequest,
   SaveTaskAsTemplateRequest,
   SaveTaskTypeRequest,
   SeriesPreviewRequest,
@@ -18,6 +20,9 @@ import {
   type TaskAttachment,
   TaskCalendarQuery,
   type TaskDetail,
+  type TaskDraft,
+  TaskDraftQuery,
+  type TaskDraftRow,
   type TaskOccurrence,
   TaskOccurrencesQuery,
   TaskOverviewQuery,
@@ -29,6 +34,7 @@ import {
   type TaskWorkClient,
   UpdateTaskAttachmentRequest,
   UpdateTaskDetailRequest,
+  UpdateTaskDraftRequest,
   UpdateTaskSeriesRequest,
   UpdateTaskTemplateRequest,
 } from '@firmivra/types';
@@ -71,8 +77,15 @@ const CLIENTS = [
 const KEVIN: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000001', name: 'Kevin Martin' };
 const ALICIA: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000002', name: 'Alicia Park' };
 
+/** A draft is kept as the task it will become, with its client apart (a draft may have none). */
+interface StoredDraft {
+  t: TaskDetail;
+  client: TaskDraft['client'];
+}
+
 interface Store {
   tasks: TaskDetail[];
+  drafts: StoredDraft[];
   types: TaskType[];
   templates: TaskTemplate[];
   series: { detail: TaskSeriesDetail; occurrences: TaskOccurrence[] }[];
@@ -133,7 +146,7 @@ function seed(empty: boolean): Store {
     'Compliance',
     'Onboarding',
   ].map((name, i) => ({ id: uuid('0e10', i + 1), name, sortOrder: i, archivedAt: null }));
-  if (empty) return { tasks: [], types: [], templates: [], series: [], next: 100 };
+  if (empty) return { tasks: [], drafts: [], types: [], templates: [], series: [], next: 100 };
   const d = today();
   const ty = (i: number) => ({ id: types[i]!.id, name: types[i]!.name });
   const items: [
@@ -246,7 +259,43 @@ function seed(empty: boolean): Store {
     updatedAt: nowIso(),
     version: 'v1',
   }));
-  const store: Store = { tasks: [...tasks, ...done], types, templates, series: [], next: 100 };
+  const drafts: StoredDraft[] = [
+    {
+      client: CLIENTS[0]!,
+      t: rowFields({
+        id: uuid('0a30', 1),
+        title: 'Collect 2025 1099 forms',
+        client: CLIENTS[0]!,
+        type: ty(2),
+        priority: 'HIGH',
+        dueOn: plus(d, 12),
+      }),
+    },
+    {
+      client: null,
+      t: rowFields({ id: uuid('0a30', 2), title: 'Plan the Q1 onboarding call' }),
+    },
+    {
+      client: CLIENTS[1]!,
+      t: rowFields({
+        id: uuid('0a30', 3),
+        title: 'Follow up on missing receipts',
+        client: CLIENTS[1]!,
+        type: ty(1),
+        assignedTo: mockStaff,
+        assignedUserId: mockStaff.userId,
+        createdBy: mockStaff,
+      }),
+    },
+  ];
+  const store: Store = {
+    tasks: [...tasks, ...done],
+    drafts,
+    types,
+    templates,
+    series: [],
+    next: 100,
+  };
   store.series.push(makeSeries(store, 1, 'Quarterly Bookkeeping Review', CLIENTS[2]!, 3, 'MONTH'));
   store.series.push(makeSeries(store, 2, 'Weekly Payroll Check', CLIENTS[3]!, 1, 'WEEK'));
   return store;
@@ -497,6 +546,104 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     t.attachments.push(row);
     return row;
   };
+  // ----- Drafts -----
+  const draftOf = ({ t, client }: StoredDraft): TaskDraft => ({
+    id: t.id,
+    title: t.title,
+    client,
+    type: t.type,
+    service: t.service,
+    priority: t.priority,
+    dueOn: t.dueOn,
+    assignedTo: t.assignedTo,
+    createdBy: t.createdBy,
+    missing: client ? [] : ['clientId'],
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    status: 'DRAFT',
+    details: t.details,
+    engagement: t.engagement,
+    progress: t.progress,
+    startOn: t.startOn,
+    dueTime: t.dueTime,
+    allDay: t.allDay,
+    clientVisible: t.clientVisible,
+    internalNotes: t.internalNotes,
+    blockedReason: t.blockedReason,
+    assignedUserId: t.assignedUserId,
+    additionalAssignees: t.additionalAssignees,
+    checklistItems: t.checklistItems,
+    reminders: t.reminders,
+    attachments: t.attachments,
+    dependsOn: t.dependsOn,
+    templateId: t.templateId,
+    version: t.version,
+  });
+  const draftRow = (x: TaskDraft): TaskDraftRow => ({
+    id: x.id,
+    title: x.title,
+    client: x.client,
+    type: x.type,
+    service: x.service,
+    priority: x.priority,
+    dueOn: x.dueOn,
+    assignedTo: x.assignedTo,
+    createdBy: x.createdBy,
+    missing: x.missing,
+    createdAt: x.createdAt,
+    updatedAt: x.updatedAt,
+  });
+  /** Its creator always; others by the tasks' reach, and never a draft without a client. */
+  const seesDraft = (x: StoredDraft) =>
+    x.t.createdBy?.userId === me.userId || (x.client !== null && sees(x.t));
+  const findDraft = (id: string) => {
+    const x = s.drafts.find((y) => y.t.id === id);
+    if (!x || !seesDraft(x)) throw fail(404, 'NOT_FOUND', 'Not found');
+    return x;
+  };
+  const clientRef = (id: string) =>
+    CLIENTS.find((c) => c.id === id) ?? { id, displayName: 'Selected client' };
+  /** A draft's fields as sent: nothing that publishing checks is checked here. */
+  const applyDraft = (x: StoredDraft, b: Record<string, unknown>) => {
+    const has = (k: string) => b[k] !== undefined;
+    if (has('clientId')) {
+      const next = b['clientId'] === null ? null : clientRef(b['clientId'] as string);
+      if (next?.id !== x.client?.id) {
+        x.client = next;
+        if (!has('engagementId')) {
+          x.t.engagementId = null;
+          x.t.engagement = null;
+        }
+        if (!has('attachments')) x.t.attachments = [];
+      }
+      if (next) x.t.client = next;
+    }
+    if (has('engagementId')) {
+      const id = b['engagementId'] as string | null;
+      if (id && !x.client) throw fail(400, 'VALIDATION_FAILED', 'Choose the client first');
+      x.t.engagementId = id;
+      x.t.engagement = id ? { id, title: 'Project' } : null;
+    }
+    const { typeId, reminders, attachments, ...rest } = b;
+    applyFields(x.t, rest);
+    if (typeId !== undefined) {
+      const found = typeId ? s.types.find((y) => y.id === typeId) : undefined;
+      if (typeId && !found) throw fail(404, 'NOT_FOUND', 'Task type not found');
+      x.t.type = found ? { id: found.id, name: found.name } : null;
+    }
+    if (reminders !== undefined) {
+      const due = x.t.dueOn;
+      x.t.dueOn = due ?? today();
+      applyFields(x.t, { reminders });
+      x.t.dueOn = due;
+    }
+    if (attachments !== undefined) {
+      if ((attachments as unknown[]).length && !x.client)
+        throw fail(400, 'VALIDATION_FAILED', 'Choose the client first');
+      x.t.attachments = [];
+      for (const a of attachments as AddTaskAttachmentRequest[]) attach(x.t, a);
+    }
+  };
   const series = (id: string) => {
     const x = s.series.find((y) => y.detail.id === id);
     if (!x) throw fail(404, 'NOT_FOUND', 'Not found');
@@ -695,6 +842,119 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       applyFields(t, b);
       if (b.status) t.status = b.status;
       return copy(touch(t));
+    },
+    drafts: async (query = {}) => {
+      await mockDelay();
+      const q = parseInput(TaskDraftQuery, query);
+      const needle = q.search?.toLowerCase();
+      const list = s.drafts
+        .filter(seesDraft)
+        .filter(
+          (x) =>
+            (!q.clientId || x.client?.id === q.clientId) &&
+            (!q.typeId || x.t.type?.id === q.typeId) &&
+            (!q.priority || x.t.priority === q.priority) &&
+            (!q.assignedUserId || x.t.assignedUserId === q.assignedUserId) &&
+            (!q.mine || x.t.createdBy?.userId === me.userId) &&
+            (!needle ||
+              [x.t.title, x.client?.displayName, x.t.type?.name, x.t.service?.name].some((v) =>
+                v?.toLowerCase().includes(needle),
+              )),
+        )
+        .map(draftOf);
+      const rank: Record<string, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, URGENT: 3 };
+      const key = (x: TaskDraft): string | number =>
+        q.sort === 'title'
+          ? x.title.toLowerCase()
+          : q.sort === 'due'
+            ? (x.dueOn ?? '9999-12-31')
+            : q.sort === 'priority'
+              ? (rank[x.priority] ?? 0)
+              : q.sort === 'client'
+                ? (x.client?.displayName.toLowerCase() ?? '')
+                : x.updatedAt;
+      list.sort((a, b) => {
+        const [ka, kb] = [key(a), key(b)];
+        const cmp = ka < kb ? -1 : ka > kb ? 1 : 0;
+        return q.direction === 'asc' ? cmp : -cmp;
+      });
+      const from = (q.page - 1) * q.pageSize;
+      return {
+        items: list.slice(from, from + q.pageSize).map(draftRow),
+        total: list.length,
+        page: q.page,
+        pageSize: q.pageSize,
+      };
+    },
+    draft: async (id) => {
+      await mockDelay();
+      return copy(draftOf(findDraft(id)));
+    },
+    saveDraft: async (body) => {
+      await mockDelay();
+      const b = parseInput(SaveTaskDraftRequest, body);
+      const tpl = b.templateId ? template(b.templateId) : undefined;
+      const x: StoredDraft = {
+        client: null,
+        t: rowFields({
+          id: uuid('0a30', s.next++),
+          title: b.title,
+          assignedTo: me,
+          assignedUserId: me.userId,
+          createdBy: me,
+          templateId: b.templateId ?? null,
+          priority: tpl?.priority ?? 'MEDIUM',
+        }),
+      };
+      applyDraft(x, {
+        ...b,
+        typeId: b.typeId ?? tpl?.type?.id ?? null,
+        checklist:
+          b.checklist ?? tpl?.checklist.map((c) => ({ label: c.label, required: c.required })),
+      });
+      s.drafts.unshift(x);
+      return copy(draftOf(x));
+    },
+    updateDraft: async (id, body) => {
+      await mockDelay();
+      const b = parseInput(UpdateTaskDraftRequest, body);
+      const x = findDraft(id);
+      if (b.version && b.version !== x.t.version)
+        throw fail(409, 'SAVE_CONFLICT', 'Someone saved this draft after you opened it');
+      applyDraft(x, b);
+      touch(x.t);
+      return copy(draftOf(x));
+    },
+    publishDraft: async (id, body = {}) => {
+      await mockDelay();
+      const b = parseInput(PublishTaskDraftRequest, body);
+      const x = findDraft(id);
+      if (b.version && b.version !== x.t.version)
+        throw fail(409, 'SAVE_CONFLICT', 'Someone saved this draft after you opened it');
+      applyDraft(x, b);
+      if (!x.client)
+        throw new ApiRequestError(
+          400,
+          'VALIDATION_FAILED',
+          'The request is not valid',
+          undefined,
+          undefined,
+          [{ path: 'clientId', message: 'Choose a client' }],
+        );
+      type(x.t.type?.id);
+      if (x.t.reminders.length && !x.t.dueOn)
+        throw fail(400, 'INVALID_REMINDER', 'A reminder needs a due date');
+      s.drafts = s.drafts.filter((y) => y !== x);
+      x.t.client = x.client;
+      x.t.status = 'OPEN';
+      s.tasks.unshift(x.t);
+      return copy(touch(x.t));
+    },
+    discardDraft: async (id) => {
+      const x = findDraft(id);
+      await mockDelay();
+      s.drafts = s.drafts.filter((y) => y !== x);
+      return { ok: true };
     },
     complete: async (id) => {
       await mockDelay();
