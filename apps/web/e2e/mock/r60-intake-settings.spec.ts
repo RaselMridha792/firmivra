@@ -114,12 +114,76 @@ test('Reset Defaults asks first', async ({ page }) => {
   await expect(page.getByTestId('recent-changes')).toContainText('Settings reset to defaults');
 });
 
-test('Test Reminder Email shows its toast', async ({ page }) => {
+test('Test Reminder Email says where it went, and that nothing changed', async ({ page }) => {
   await openSettings(page);
   await page.getByRole('button', { name: 'Test Reminder Email' }).click();
   await expect(
-    page.getByRole('status').filter({ hasText: 'A test reminder email was sent to you.' }),
+    page.getByRole('status').filter({
+      hasText: /A test reminder email was sent to \S+@\S+\. No client was contacted/,
+    }),
   ).toBeVisible();
+  await expect(page.getByText('not available yet')).toHaveCount(0);
+});
+
+// Octavia's review of Oct 20 (I4): each overview Edit opens its own editing panel.
+test('each Edit opens its category’s panel, and Branding opens Settings', async ({ page }) => {
+  await openSettings(page);
+  for (const [edit, title] of [
+    ['Edit General Settings', 'Edit General Settings'],
+    ['Edit Client Experience', 'Edit Client Experience'],
+    ['Edit Notifications & Reminders', 'Edit Notifications & Reminders'],
+    ['Edit Automation Rules', 'Edit Automation Rules'],
+    ['Edit Security & Compliance', 'Edit Security & Compliance'],
+  ] as const) {
+    await page.getByRole('button', { name: edit, exact: true }).click();
+    const panel = page.getByRole('dialog', { name: title });
+    await expect(panel).toBeVisible();
+    await panel.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(panel).toBeHidden();
+  }
+  await expect(page.getByRole('link', { name: 'Edit branding in Settings' })).toHaveAttribute(
+    'href',
+    '/settings/branding',
+  );
+});
+
+test('a panel’s Cancel puts its changes back; Save Changes saves and closes it', async ({
+  page,
+}) => {
+  await openSettings(page);
+  const card = page.getByRole('switch', { name: 'Notify assigned staff member' });
+  await expect(card).toHaveAttribute('aria-checked', 'true');
+
+  await page.getByRole('button', { name: 'Edit Notifications & Reminders', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Edit Notifications & Reminders' });
+  await panel.getByRole('switch', { name: 'Notify assigned staff member' }).click();
+  await expect(page.getByTestId('unsaved')).toBeVisible();
+  await panel.getByRole('button', { name: 'Cancel' }).click();
+  await expect(panel).toBeHidden();
+  await expect(card).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('unsaved')).toBeHidden();
+
+  await page.getByRole('button', { name: 'Edit Notifications & Reminders', exact: true }).click();
+  await panel.getByRole('switch', { name: 'Notify assigned staff member' }).click();
+  await panel.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(panel).toBeHidden();
+  await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
+  await expect(card).toHaveAttribute('aria-checked', 'false');
+});
+
+// Octavia's review of Oct 20 (I5): Submission Rules opened General instead of its own settings.
+test('Submission Rules opens its own settings and rules', async ({ page }) => {
+  await openSettings(page);
+  await page.getByRole('button', { name: 'Submission Rules', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Submission Rules' });
+  await expect(panel).toBeVisible();
+  for (const name of ['Require e-signature', 'Consent checkbox required', 'Allow save and resume'])
+    await expect(panel.getByRole('switch', { name })).toBeVisible();
+  await expect(panel.getByRole('combobox', { name: 'Default form expiration' })).toHaveValue('14');
+  await expect(panel.getByTestId('submission-rules')).toContainText(
+    'After a client submits, the answers are locked for them.',
+  );
+  await expect(page.getByText('Go to General Settings')).toHaveCount(0);
 });
 
 test('Preview Client View shows the sample form without sending', async ({ page }) => {

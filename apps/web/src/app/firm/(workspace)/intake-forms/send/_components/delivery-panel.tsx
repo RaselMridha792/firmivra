@@ -3,9 +3,10 @@
 import { EnvelopeSimple, Graph, type Icon, Phone } from '@phosphor-icons/react';
 import type { FormDeliveryChannel } from '@firmivra/types';
 import { tileTones, type TileTone } from '@firmivra/ui';
+import Link from 'next/link';
 import { useId } from 'react';
 import { FieldError, Panel } from './panel';
-import { CHANNEL_LABELS, channelState, type Recipient } from './send-model';
+import { CHANNEL_LABELS, channelState, noRouteReason, type Recipient } from './send-model';
 
 const OPTIONS: { channel: FormDeliveryChannel; icon: Icon; tone: TileTone }[] = [
   { channel: 'EMAIL', icon: EnvelopeSimple, tone: 'blue' },
@@ -70,6 +71,34 @@ export function DeliveryPanel({
         </div>
       </fieldset>
       <FieldError id={errorId}>{error}</FieldError>
+      <NoRoute recipient={recipient} />
     </Panel>
+  );
+}
+
+/** When no route can reach the recipient: why, and where to fix it (Octavia's review, I2). */
+function NoRoute({ recipient }: { recipient: Recipient | undefined }) {
+  const reason = noRouteReason(recipient);
+  if (!recipient || !reason) return null;
+  return (
+    <div className="mt-2 flex flex-col gap-1 text-sm text-warning" data-testid="send-no-route">
+      <p>{reason}</p>
+      {recipient.kind === 'CLIENT' ? (
+        <p className="flex flex-wrap gap-x-4 font-medium">
+          <Link href={`/clients/${recipient.id}`} className="text-link underline">
+            Open {recipient.name}
+          </Link>
+          <Link href="/sign-ups" className="text-link underline">
+            Open Sign-ups
+          </Link>
+        </p>
+      ) : (
+        <p className="font-medium">
+          <Link href={`/leads/${recipient.id}`} className="text-link underline">
+            Open {recipient.name}
+          </Link>
+        </p>
+      )}
+    </div>
   );
 }

@@ -11,11 +11,13 @@ import {
   INTAKE_SIGNING_ERRORS,
   INTAKE_CARDS,
   INTAKE_ERRORS,
+  INTAKE_MAX_FILE_SIZE_MB,
   INTAKE_STATUS_LABELS,
   INTAKE_UPLOAD_STATUS,
   IntakeErrorCode,
   IntakeSigningErrorCode,
   IntakeStatus,
+  intakeFileSizeProblem,
   intakeUploadCounts,
   MyIntake,
   ScanStatus,
@@ -79,6 +81,7 @@ const intake = {
     businesses: [{ id: 'b1', legalName: 'Example LLC', ein: { last4: '6789' } }],
   },
   uploads: [],
+  maxFileSizeMb: 10,
   savedSteps: ['personal'],
   signature: null,
   canEdit: true,
@@ -172,6 +175,26 @@ describe('api.myIntakes(firmSlug)', () => {
     expect(parses({ dependents: '123-45-6789' })).toBe(false);
     expect(parses({ oldSsn: '123-45-6789' })).toBe(false);
     expect(parses({ dependents: [{ id: 'r1', taxId: '123456789' }] })).toBe(false);
+  });
+
+  it("carries the firm's file size limit, a whole 1 to 100 MB", () => {
+    expect(MyIntake.parse({ ...intake, maxFileSizeMb: 50 }).maxFileSizeMb).toBe(50);
+    const { maxFileSizeMb: _, ...without } = intake;
+    expect(MyIntake.safeParse(without).success).toBe(false);
+    for (const mb of [0, 2.5, INTAKE_MAX_FILE_SIZE_MB + 1]) {
+      expect(MyIntake.safeParse({ ...intake, maxFileSizeMb: mb }).success).toBe(false);
+    }
+  });
+
+  it("names a file over the firm's limit in the upload ticket's words, held to 100 MB", () => {
+    const MB = 1024 * 1024;
+    expect(intakeFileSizeProblem(10 * MB, 10)).toBeNull();
+    expect(intakeFileSizeProblem(10 * MB + 1, 10)).toBe('Files can be at most 10 MB');
+    expect(intakeFileSizeProblem(3 * MB, 2)).toBe('Files can be at most 2 MB');
+    expect(intakeFileSizeProblem(50 * MB, 50)).toBeNull();
+    expect(intakeFileSizeProblem(101 * MB, 500)).toBe(
+      `Files can be at most ${String(INTAKE_MAX_FILE_SIZE_MB)} MB`,
+    );
   });
 
   it('checks the numbers by the form: an EIN of Bookkeeping, as its definition says', () => {

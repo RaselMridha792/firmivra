@@ -32,6 +32,13 @@ export type FieldKey =
   'recipient' | 'formId' | 'channel' | 'subject' | 'message' | 'dueOn' | 'expiresOn';
 export type FieldErrors = Partial<Record<FieldKey, string>>;
 
+/** The line under Send Form, with where to fix the problem when there is a place for it. */
+export interface SendNotice {
+  text: string;
+  tone: 'success' | 'error';
+  link?: { href: string; label: string };
+}
+
 export const MESSAGE_MAX = 500;
 
 export const CHANNEL_LABELS: Record<FormDeliveryChannel, string> = {
@@ -46,27 +53,44 @@ export interface ChannelState {
   detail: string;
 }
 
-/** Whether the chosen recipient can receive the form this way, and the address shown. */
+/**
+ * Whether the chosen recipient can receive the form this way, and the address shown, as the API
+ * delivers today (Octavia's review, I2): a form reaches a client through their client portal
+ * sign-in, by the portal alone or with its email copy; leads need the secure link page and text
+ * messages have no sender for intake forms yet, so those are refused before Send, not after.
+ */
 export function channelState(
   recipient: Recipient | undefined,
   channel: FormDeliveryChannel,
 ): ChannelState {
+  if (channel === 'SMS') return { available: false, detail: 'Not available for intake forms yet' };
   if (channel === 'PORTAL') {
     if (!recipient) return { available: true, detail: 'Send via client portal' };
     return recipient.portal
       ? { available: true, detail: 'Send via client portal' }
       : { available: false, detail: 'No portal access' };
   }
-  if (channel === 'SMS') {
-    if (!recipient) return { available: true, detail: 'Mobile number' };
-    return recipient.phone
-      ? { available: true, detail: recipient.phone }
-      : { available: false, detail: 'No mobile number' };
-  }
   if (!recipient) return { available: true, detail: 'Email address' };
-  return recipient.email
+  if (recipient.kind === 'LEAD') return { available: false, detail: 'Not available for leads yet' };
+  if (!recipient.email) return { available: false, detail: 'No email on file' };
+  return recipient.portal
     ? { available: true, detail: recipient.email }
-    : { available: false, detail: 'No email on file' };
+    : { available: false, detail: 'Needs a portal sign-in first' };
+}
+
+/**
+ * Why nothing can reach this recipient, and what to do, when no route is available; undefined
+ * while one is. Shown under the routes so the dead end is explained before Send.
+ */
+export function noRouteReason(recipient: Recipient | undefined): string | undefined {
+  if (!recipient) return undefined;
+  const any = (['EMAIL', 'SMS', 'PORTAL'] as const).some(
+    (c) => channelState(recipient, c).available,
+  );
+  if (any) return undefined;
+  if (recipient.kind === 'LEAD')
+    return 'Forms can’t be sent to leads yet: they need a secure link page that isn’t available. Send it once the lead is a client with a portal sign-in.';
+  return `${recipient.name} has no client portal sign-in yet, so an intake form can’t reach them. They can sign up on your portal, and you approve it under Sign-ups; then send the form.`;
 }
 
 /** The channel to keep after choosing a recipient: the current one if it works, else the first that does. */
@@ -96,7 +120,7 @@ export function routeLine(recipient: Recipient | undefined, channel: FormDeliver
     return `${who} will receive a text message with a secure link to access and complete the form.`;
   if (channel === 'PORTAL')
     return `${who} will find the form in their client portal and complete it after signing in.`;
-  return `${who} will receive an email with a secure link to access and complete the form.`;
+  return `${who} will receive an email that takes them to their client portal, where they sign in and complete the form.`;
 }
 
 export const defaultSubject = (formName: string | undefined) =>

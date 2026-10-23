@@ -35,6 +35,7 @@ import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
 import { requireFirmWideAgreement } from './intake-agreement.js';
+import { intakeFileSizeMb } from './intake-file-size.js';
 import { publishedForm, readDefinition } from './intake-forms.js';
 import { maskStoredNumbers, sealIntakeNumbers } from './intake-numbers.js';
 import type { IntakeSigner } from './intake-signing.js';
@@ -340,6 +341,7 @@ export class IntakesService {
       taxYear: engagement.taxYear ?? new Date().getUTCFullYear(),
       answers: await maskStoredNumbers(definition, answersOf(current?.answers)),
       uploads: uploads.map(toIntakeUpload),
+      maxFileSizeMb: await intakeFileSizeMb(tx, businessId),
       savedSteps: definition.steps.map((s) => s.key).filter((k) => saved.has(k)),
       signature:
         signedVersion?.signerName && signedVersion.signedAt
