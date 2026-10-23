@@ -174,6 +174,9 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
 - `apps/api/test/isolation/tenant-isolation.test.ts`, locally: 4 of 19 fail on clean `main` as on
   the I1 branch. The two refusal sweeps time out at 30 s; the controls list file and export routes
   (409 `FILE_BLOCKED` from the local scanner, 200 with s3mock links). CI is the judge.
+- `apps/web/e2e/mock/r17-intake.spec.ts:8` (the portal's intake cards): expects 6 cards, gets 7
+  (Oct 23). It covers the client portal's intake page and its `mocks/intake.ts`; R60's branches
+  change neither.
 - `apps/web/e2e/mock/r22-intake-forms.spec.ts:174` ("the success pages"): two "Schedule an
   Appointment" links (the portal header's and the page's). The same cause as the Begin Online
   audit's `r22-begin-online.spec.ts:28`; fixed with the Begin Online work (R60-settings item 5).
@@ -191,3 +194,11 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
 - Oct 23: #1038 (I3 link contract) opened. I3 link API: `IntakeLibraryService.publicLink`, the
   route, and 2 e2e tests (every state; 404 for another form, OTHER, an archived form, a page owned
   by another service, firm B); intake workspace e2e 16 of 16, API `tsc` 0 errors.
+- Oct 23: #1039 (I3 link API) opened, stacked on #1038. I3 link screen built: Form Link (a dialog
+  with R56's block) after Publish on a main form, in the builder's More menu and on the main
+  form's card menu. Two builder fixes it needed: saving a published form now saves its next
+  version on the same form (the API's rule) instead of a separate copy, which was never the main
+  form; and Publish no longer refuses a saved form's grids, groups and State lists (a #1031 check
+  that took them for empty breaks and choice-less dropdowns). LVP's Annual Tax published as v2
+  on the real API, Begin Online serving its 72 fields. Web `tsc` 0 errors; mock specs 14 of 14
+  (link, builder, templates); builder-draft unit 3 of 3.
