@@ -16,6 +16,7 @@ import { type PoolSecrets, poolSecrets, Sealer } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
+import { checkIntakeFileSize } from '../intake/intake-file-size.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
 import { refusal, storageUnavailable } from '../storage/document-records.js';
 import {
@@ -85,7 +86,8 @@ const tooMany = draftErrors.tooManyFiles;
  * A draft's files (R11 step 3), in R5's three steps with R5's storage and file checks: a ticket
  * for an upload slot of the draft's form (`tenant/{businessId}/leads/{leadId}/{uuid}`), the
  * browser's PUT, then confirm, which checks the stored bytes and saves a lead_uploads row. Only
- * while the lead is a live draft (the database refuses files for any other lead). A ticket belongs
+ * while the lead is a live draft (the database refuses files for any other lead), and only files
+ * within the firm's limit (Intake Form Settings, 10 MB until it sets one). A ticket belongs
  * to the draft (lead) that asked for it: confirm checks the token's lead is this browser's draft
  * for the service, so once a start or a resume replaced it, the ticket is 410 UPLOAD_EXPIRED. A
  * ticket not yet confirmed or refused takes a place in its slot and the draft until it expires
@@ -129,6 +131,11 @@ export class DraftUploadsService {
       throw draftErrors.invalid([issue]);
     }
     const businessId = draft.firm.id;
+    // The firm's own limit (Intake Form Settings), before storage is asked for anything. The size
+    // is sealed in the ticket: confirm checks the stored file against it, not the setting again.
+    await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+      checkIntakeFileSize(tx, businessId, body.sizeBytes),
+    );
     const claim: LeadUploadClaim = {
       pool: 'CLIENT',
       businessId,

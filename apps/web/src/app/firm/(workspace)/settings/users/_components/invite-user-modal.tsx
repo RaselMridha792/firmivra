@@ -8,6 +8,7 @@ import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
+import { customKey } from './custom-roles';
 
 const INVITE_ERRORS: Record<string, string> = {
   CANNOT_GRANT: 'You cannot give this role. Choose another role or ask the Owner.',
@@ -47,24 +48,32 @@ export function InviteUserModal({
     }),
   );
   const [picked, setPicked] = useState<StaffListItem>();
-  const [role, setRole] = useState<MembershipRole | ''>('');
+  /** A built-in role, or `custom:<id>` for one of the firm's custom roles. */
+  const [role, setRole] = useState('');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const roles = (options.data?.roles ?? []).filter((r) => r.role !== 'OWNER');
+  const customs = options.data?.customRoles ?? [];
   const people = candidates.data?.items ?? [];
-  const chosenRole = role || picked?.role || '';
-  const description = roles.find((r) => r.role === chosenRole)?.description;
+  const current = picked?.customRole ? customKey(picked.customRole.id) : (picked?.role ?? '');
+  const chosen = role || current;
+  const custom = customs.find((c) => customKey(c.id) === chosen);
+  const description = custom
+    ? (custom.description ?? `Starts from ${FIRM_ROLE_LABELS[custom.basedOn]}.`)
+    : roles.find((r) => r.role === chosen)?.description;
 
   const send = async () => {
-    if (!picked || !chosenRole) return;
+    if (!picked || !chosen) return;
     setBusy(true);
     setError(undefined);
     try {
-      if (chosenRole !== picked.role) {
+      if (chosen !== current) {
         const record = await api.staff.get(picked.id);
         await api.staff.update(picked.id, {
           version: record.version,
-          account: { role: chosenRole },
+          account: custom
+            ? { customRoleId: custom.id }
+            : { role: chosen as MembershipRole, customRoleId: null },
         });
       }
       await api.staff.resendInvite(picked.id);
@@ -158,9 +167,12 @@ export function InviteUserModal({
             </dl>
             <Select
               label="Role *"
-              options={roles.map((r) => ({ value: r.role, label: r.label }))}
-              value={chosenRole}
-              onChange={(event) => setRole(event.target.value as MembershipRole)}
+              options={[
+                ...roles.map((r) => ({ value: r.role, label: r.label })),
+                ...customs.map((c) => ({ value: customKey(c.id), label: `${c.name} (custom)` })),
+              ]}
+              value={chosen}
+              onChange={(event) => setRole(event.target.value)}
             />
             {description ? <p className="text-xs text-muted">{description}</p> : null}
             {picked.invite ? (
@@ -184,7 +196,7 @@ export function InviteUserModal({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={!picked || !chosenRole || busy}>
+          <Button type="submit" disabled={!picked || !chosen || busy}>
             {busy ? 'Sending…' : 'Send Invitation'}
           </Button>
         </div>

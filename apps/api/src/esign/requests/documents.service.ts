@@ -11,6 +11,7 @@ import type { z } from 'zod';
 import {
   type CreateEsignUploadBody,
   ESIGN_ERRORS,
+  ESIGN_MAX_REQUEST_BYTES,
   ESIGN_UPLOAD_TYPES,
   type EsignContentType,
   type EsignDocument,
@@ -114,9 +115,12 @@ export class EsignDocumentsService {
     body: z.output<typeof CreateEsignUploadBody>,
   ): Promise<UploadTicket> {
     await this.requests.draft(businessId, actor, id);
+    const { contentType, sizeBytes } = body;
+    // 100 MB a file (the contract) and 100 MB for the request's files together (Rasel, Oct 22):
+    // refused before the upload starts; addDocument checks again when the file is added.
+    await this.fits(businessId, id, sizeBytes);
     const documentId = randomUUID();
     const key = this.store.keyFor(businessId, id, `source/${documentId}`);
-    const { contentType, sizeBytes } = body;
     const presigned = await this.store.presignUpload(businessId, key, {
       contentType,
       sizeBytes,
@@ -232,6 +236,8 @@ export class EsignDocumentsService {
     if (!isEsignType(contentType)) throw esignRefusal('FILE_TYPE_NOT_ALLOWED');
     if (source.scanStatus === 'PENDING') throw esignRefusal('SCAN_PENDING');
     if (source.scanStatus !== 'CLEAN') throw esignRefusal('FILE_BLOCKED');
+    // Before reading it: the request's files together stay within 100 MB.
+    await this.fits(businessId, id, source.sizeBytes);
     const documentId = randomUUID();
     const key = this.store.keyFor(businessId, id, `source/${documentId}`);
     return readBudget.hold(budgetFor(source), filesBusy, async () => {
@@ -380,6 +386,7 @@ export class EsignDocumentsService {
     });
     if (added === 'NOT_DRAFT') throw esignRefusal('INVALID_STATE');
     if (added === 'TOO_MANY_PAGES') throw esignRefusal('TOO_MANY_PAGES');
+    if (added === 'REQUEST_TOO_LARGE') throw esignRefusal('REQUEST_TOO_LARGE');
     // The file is on the draft once addDocument commits; a retry would be 410 UPLOAD_EXPIRED.
     await this.auditOrLog(id, 'esign.document_added', {
       documentId: added.id,
@@ -387,6 +394,13 @@ export class EsignDocumentsService {
       pageCount,
     });
     return toDocument(added);
+  }
+
+  /** 409 REQUEST_TOO_LARGE when one more file of `sizeBytes` would pass the request's 100 MB. */
+  private async fits(businessId: string, id: string, sizeBytes: number): Promise<void> {
+    if ((await this.repo.documentBytes(businessId, id)) + sizeBytes > ESIGN_MAX_REQUEST_BYTES) {
+      throw esignRefusal('REQUEST_TOO_LARGE');
+    }
   }
 
   /** An audit entry after a write that has committed: a failure is logged (ids only), not thrown. */

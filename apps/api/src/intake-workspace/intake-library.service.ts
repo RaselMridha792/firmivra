@@ -1,11 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type {
-  IntakeFormDetail,
-  IntakeFormLibrarySummary,
-  IntakeFormList,
-  IntakeFormListItem,
-  FormCategory,
+import {
+  type IntakeFormDetail,
+  type IntakeFormLibrarySummary,
+  type IntakeFormList,
+  type IntakeFormListItem,
+  type FormCategory,
+  INTAKE_FORMS,
+  IntakeFormKey,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import type { TenantContext } from '../common/request-context.js';
@@ -93,7 +95,48 @@ export class IntakeLibraryService {
     };
   }
 
+  /**
+   * Every live service of one of the six Begin Online kinds has its form in the library
+   * (Octavia's review of Oct 20, I1): a service that never had a template gets the built-in form
+   * as its published version 1, made by Firmivra, as Begin Online's first start does. The database
+   * trigger (`intake_forms_template`) makes the service's default template under a per-service
+   * lock, and a parallel request inserts nothing (a version is unique per template). A service
+   * whose templates were archived keeps them archived.
+   */
+  private async ensureBuiltIns(tenant: TenantContext): Promise<void> {
+    const businessId = tenant.businessId;
+    await this.inFirm(tenant, async (tx) => {
+      const services = await tx.service.findMany({
+        where: {
+          businessId,
+          archivedAt: null,
+          kind: { in: IntakeFormKey.options },
+          intakeTemplates: { none: {} },
+        },
+        select: { id: true, kind: true },
+      });
+      const data = services.flatMap((service) => {
+        const builtIn = INTAKE_FORMS[service.kind as IntakeFormKey];
+        if (!builtIn) return [];
+        const definition = { ...builtIn, version: 1 };
+        return [
+          {
+            businessId,
+            serviceId: service.id,
+            version: 1,
+            title: definition.title,
+            definition: definition as unknown as Prisma.InputJsonValue,
+            status: 'PUBLISHED' as const,
+            publishedAt: new Date(),
+          },
+        ];
+      });
+      if (data.length) await tx.intakeForm.createMany({ data, skipDuplicates: true });
+    });
+  }
+
   async list(tenant: TenantContext, q: Out<typeof FormsQ>): Promise<IntakeFormList> {
+    await this.ensureBuiltIns(tenant);
     return this.inFirm(tenant, async (tx) => {
       const businessId = tenant.businessId;
       const rows = await tx.intakeTemplate.findMany({
