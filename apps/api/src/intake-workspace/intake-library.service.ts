@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
+  beginOnlinePageUrl,
   type IntakeFormDetail,
   type IntakeFormLibrarySummary,
   type IntakeFormList,
@@ -8,9 +9,14 @@ import {
   type FormCategory,
   INTAKE_FORMS,
   IntakeFormKey,
+  publicEmbedCode,
+  type PublicLink,
+  type PublicLinkState,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import type { TenantContext } from '../common/request-context.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { memberNames, memberRef, notFound } from '../workspaces/common.js';
 import type { FormsQ } from './workspace-input.js';
@@ -45,7 +51,10 @@ const ownerOf = (t: Template) => t.createdByUserId ?? t.forms[0]?.createdByUserI
  */
 @Injectable()
 export class IntakeLibraryService {
-  constructor(@Inject(DATABASE) private readonly database: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly database: Database,
+    @Inject(ENV) private readonly env: Env,
+  ) {}
 
   private inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
     return this.database.withScope({ kind: 'business', businessId: tenant.businessId }, fn);
@@ -242,4 +251,64 @@ export class IntakeLibraryService {
       };
     });
   }
+
+  /**
+   * A main form's public link (Octavia's I3; Rasel, Oct 22): its service's Begin Online page and
+   * the embed code of it. Only a service's default template of the six kinds has one, and only
+   * while its kind's page is its own (one Begin Online service per kind); anything else is 404.
+   */
+  async publicLink(tenant: TenantContext, id: string): Promise<PublicLink> {
+    return this.inFirm(tenant, async (tx) => {
+      const businessId = tenant.businessId;
+      const t = await tx.intakeTemplate.findFirst({
+        where: { businessId, id, serviceDefault: true, archivedAt: null },
+        include: {
+          service: {
+            select: {
+              id: true,
+              name: true,
+              kind: true,
+              status: true,
+              beginOnline: true,
+              archivedAt: true,
+            },
+          },
+          forms: { select: { title: true, status: true }, orderBy: { version: 'desc' } },
+        },
+      });
+      const kind = IntakeFormKey.safeParse(t?.service.kind);
+      if (!t || !kind.success) throw notFound();
+      const pageOwner = await tx.service.findFirst({
+        where: { businessId, kind: kind.data, beginOnline: true, archivedAt: null },
+        select: { id: true },
+      });
+      if (pageOwner && pageOwner.id !== t.service.id) throw notFound();
+      const firm = await tx.business.findUniqueOrThrow({
+        where: { id: businessId },
+        select: { slug: true },
+      });
+      const live = t.forms.find((f) => f.status === 'PUBLISHED');
+      const url = beginOnlinePageUrl(this.env.PORTAL_BASE_URL, firm.slug, kind.data);
+      const title = (live ?? t.forms[0])?.title ?? t.service.name;
+      return {
+        kind: 'INTAKE_FORM',
+        itemId: t.id,
+        url,
+        embedCode: publicEmbedCode(url, title),
+        state: linkState(t.service, live !== undefined),
+      };
+    });
+  }
+}
+
+/** The main form's link state: the first that applies, in the contract's order. */
+function linkState(
+  service: { status: string; beginOnline: boolean; archivedAt: Date | null },
+  published: boolean,
+): PublicLinkState {
+  if (service.archivedAt) return 'ARCHIVED';
+  if (!published) return 'DRAFT';
+  if (service.status !== 'ACTIVE') return 'INACTIVE';
+  if (!service.beginOnline) return 'HIDDEN';
+  return 'LIVE';
 }

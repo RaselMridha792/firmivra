@@ -40,6 +40,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { FormLinkDialog } from '../../_components/form-link-dialog';
 import { TemplateCard, TemplateCardSkeleton, type TemplateActions } from './template-card';
 import {
   ArchiveTemplateDialog,
@@ -133,6 +134,7 @@ export function TemplatesScreen() {
   const [draft, setDraft] = useState<Filters>(NO_FILTERS);
   const [preview, setPreview] = useState<IntakeFormListItem | null>(null);
   const [archiving, setArchiving] = useState<IntakeFormListItem | null>(null);
+  const [linking, setLinking] = useState<IntakeFormListItem | null>(null);
   const [choosing, setChoosing] = useState<'preview' | 'duplicate' | null>(null);
   const [importing, setImporting] = useState(false);
   const [notice, setNotice] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
@@ -231,6 +233,7 @@ export function TemplatesScreen() {
       router.push(`/intake-forms/send?formId=${encodeURIComponent(template.id)}`),
     onDuplicate: duplicateTemplate,
     onArchive: setArchiving,
+    onLink: setLinking,
     busy: duplicate.isPending || archive.isPending,
   };
 
@@ -490,6 +493,9 @@ export function TemplatesScreen() {
             else duplicateTemplate(template);
           }}
         />
+      ) : null}
+      {linking ? (
+        <FormLinkDialog formId={linking.id} name={linking.name} onClose={() => setLinking(null)} />
       ) : null}
       <ArchiveTemplateDialog
         template={archiving}

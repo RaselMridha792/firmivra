@@ -58,9 +58,15 @@ export interface NotifyTemplates {
   'message.received': IgnoredFirmName & { name: string; link: string };
   /**
    * Send Email from the Leads page: the member's own subject and text to a lead (no account, so
-   * no preferences). `body` is the text the member typed: it goes out, and nowhere else.
+   * no preferences). `body` is the text the member typed: it goes out, and nowhere else. `html`
+   * is the same message formatted (email-html.ts), cleaned by the sender and again here.
    */
-  'lead.message-email': IgnoredFirmName & { name: string; subject: string | null; body: string };
+  'lead.message-email': IgnoredFirmName & {
+    name: string;
+    subject: string | null;
+    body: string;
+    html?: string | null;
+  };
   /** Send SMS from the Leads page: the member's own text. */
   'lead.message-sms': IgnoredFirmName & { body: string };
 
