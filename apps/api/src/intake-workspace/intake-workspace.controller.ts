@@ -6,6 +6,7 @@ import type {
   IntakeSettings,
   IntakeSettingsChangeList,
   OkResponse,
+  PublicLink,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import {
@@ -73,6 +74,15 @@ export class IntakeFormsController {
     @Param('id', formIdPipe) id: string,
   ): Promise<IntakeFormDetail> {
     return this.library.detail(tenant, id);
+  }
+
+  /** A main form's link and embed code (its Begin Online page); 404 for any other form. */
+  @Get(':id/public-link')
+  publicLink(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', formIdPipe) id: string,
+  ): Promise<PublicLink> {
+    return this.library.publicLink(tenant, id);
   }
 
   @Put(':id')

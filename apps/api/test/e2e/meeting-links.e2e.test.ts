@@ -243,7 +243,13 @@ beforeAll(async () => {
 
   const type = async (body: object) =>
     exact(AppointmentType, await call('post', '/appointment-types', people.ownerA, body), 201);
-  video = await type({ name: `Video ${run}`, durationMinutes: 30, clientBookable: true });
+  // Video first; in person too, so Edit location may move its appointments there (A1).
+  video = await type({
+    name: `Video ${run}`,
+    durationMinutes: 30,
+    clientBookable: true,
+    methods: ['VIDEO', 'IN_PERSON'],
+  });
   inPerson = await type({ name: `Office ${run}`, durationMinutes: 30, locationKind: 'IN_PERSON' });
   // staffA works 09:00-12:00; staffA2 09:00-12:00 and 13:00-14:00 (firm time), every day.
   for (const [who, ranges] of [

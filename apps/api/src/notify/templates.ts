@@ -1,4 +1,5 @@
 import { type Branding, FIRMIVRA_BRANDING, hexColor } from './branding.js';
+import { cleanEmailHtml, emailHtmlHasContent, firmImages } from './email-html.js';
 import {
   ALWAYS_SENT,
   ESIGN_STAFF_EVENTS,
@@ -60,7 +61,9 @@ type Block =
   | { kind: 'code'; code: string }
   | { kind: 'quote'; label: string; text: string }
   | { kind: 'facts'; rows: [label: string, value: string][] }
-  | { kind: 'button'; label: string; url: string };
+  | { kind: 'button'; label: string; url: string }
+  /** Formatted text a member wrote (email-html.ts, cleaned again here), with its plain form. */
+  | { kind: 'html'; html: string; text: string };
 
 type Content = { channel: 'email'; subject: string; blocks: Block[] } | RenderedSms;
 
@@ -539,13 +542,21 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
-  'lead.message-email': (d, b) => {
+  'lead.message-email': (d, b, o) => {
     const subject = field(d, 'subject');
     const shown = typeof subject === 'string' ? oneLine(subject) : '';
+    const body = requiredText(d, 'body');
+    const given = field(d, 'html');
+    // Only images on the sites' own portal addresses; the sender checked they are this firm's.
+    const images = (src: string) => (o.linkOrigins ?? []).some((origin) => firmImages(origin)(src));
+    const formatted = typeof given === 'string' ? cleanEmailHtml(given, images) : '';
     return {
       channel: 'email',
       subject: shown ? capped(shown, 200) : `A message from ${b.name}`,
-      blocks: [hello(d), text(requiredText(d, 'body'))],
+      blocks: [
+        hello(d),
+        emailHtmlHasContent(formatted) ? { kind: 'html', html: formatted, text: body } : text(body),
+      ],
     };
   },
 
@@ -802,6 +813,8 @@ function plainText(blocks: Block[], brand: string, foot: string[]): string {
         return block.rows.map(([label, value]) => `${label}: ${value}`).join('\n');
       case 'button':
         return `${block.label}:\n${block.url}`;
+      case 'html':
+        return block.text;
     }
   });
   return [brand, ...parts, `--\n${foot.join('\n')}`].join('\n\n') + '\n';
@@ -849,6 +862,8 @@ function htmlBody(blocks: Block[], b: Branding): string {
             `<a href="${href}" style="color:${linkColour};word-break:break-all;">${href}</a></p>`
           );
         }
+        case 'html':
+          return `<div style="${p}">${block.html}</div>`;
       }
     })
     .join('\n');

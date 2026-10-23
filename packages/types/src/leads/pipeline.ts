@@ -10,6 +10,7 @@ import {
   LeadSource,
   LeadStatus,
 } from '../db-enums.js';
+import { EMAIL_HTML_MAX } from './email.js';
 
 // Leads workspace (R43 contract, for Arfan's screens): the Leads page (KPIs, filters, bulk
 // actions, the table), Add New Lead, the Lead Profile with its tabs, follow-ups and the
@@ -276,13 +277,23 @@ export type LeadBulkResult = z.infer<typeof LeadBulkResult>;
 /**
  * Send Email / Send SMS (one lead or the bulk bar): the message is sent through Communications
  * (to build) and logged on each lead. SMS needs the firm's SMS sender.
+ *
+ * An email may also carry `html` (leads/email.ts): the formatted message, with `body` the same
+ * message as plain text (at most 5000 characters). The API cleans the HTML to the composer's
+ * rules and sends both parts; without `html` the email is `body` as today.
  */
-export const LeadMessageRequest = z.strictObject({
-  ids: z.array(z.uuid()).min(1).max(200),
-  channel: z.enum(['EMAIL', 'SMS']),
-  subject: clearable(text(200)),
-  body: text(5000, 'many'),
-});
+export const LeadMessageRequest = z
+  .strictObject({
+    ids: z.array(z.uuid()).min(1).max(200),
+    channel: z.enum(['EMAIL', 'SMS']),
+    subject: clearable(text(200)),
+    body: text(5000, 'many'),
+    html: z.string().trim().min(1).max(EMAIL_HTML_MAX).optional(),
+  })
+  .refine((m) => m.html === undefined || m.channel === 'EMAIL', {
+    path: ['html'],
+    message: 'Only an email can be formatted',
+  });
 export type LeadMessageRequest = z.input<typeof LeadMessageRequest>;
 
 // ---------- Activity, notes, profile ----------

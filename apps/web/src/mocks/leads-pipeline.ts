@@ -2,8 +2,11 @@ import {
   AddLeadNoteRequest,
   ApiRequestError,
   CompleteFollowUpRequest,
+  ConfirmEmailImageUploadRequest,
+  CreateEmailImageUploadRequest,
   ConvertLeadToClientRequest,
   CreateLeadRequest,
+  EMAIL_SIGNATURE_MAX,
   type LeadActivity,
   LeadActivityQuery,
   type LeadAppointment,
@@ -19,8 +22,10 @@ import {
   type LeadTask,
   LogLeadActivityRequest,
   type MemberRef,
+  type MessageSignature,
   type NextActionType,
   parseInput,
+  SaveMessageSignatureRequest,
   SetFollowUpRequest,
   UpdateLeadRequest,
 } from '@firmivra/types';
@@ -456,6 +461,14 @@ const toRow = (l: Lead): LeadRow => {
   };
 };
 
+/** Placeholder pictures for the email composer's mock (the firm's logo, an uploaded image). */
+const svg = (w: number, h: number, fill: string, label: string) =>
+  `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="${fill}"/><text x="50%" y="55%" font-family="Arial" font-size="${Math.round(h / 3)}" fill="#fff" text-anchor="middle">${label}</text></svg>`,
+  )}`;
+const mockLogo = () => svg(160, 48, '#1f3a5f', 'LVP');
+const mockPicture = () => svg(320, 180, '#6b7f99', 'Image');
+
 /** `api.leadPipeline` in mock mode. */
 export function createLeadPipelineMock(options: Options = {}): LeadPipelineClient {
   const role = options.role ?? 'OWNER';
@@ -468,6 +481,9 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
    * both in one table). Kept apart from the list so the Leads page's counts stay as seeded.
    */
   const beginOnline = new Map<string, Lead>();
+  let signature: MessageSignature = { html: null, updatedAt: null, logoUrl: mockLogo() };
+  const uploads = new Map<string, CreateEmailImageUploadRequest>();
+  let images = 0;
   const fromBeginOnline = (id: string): Lead | undefined => {
     const known = beginOnline.get(id);
     if (known) return known;
@@ -771,6 +787,45 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         changed += 1;
       }
       return { changed, skipped: input.ids.length - changed };
+    },
+
+    signature: async () => {
+      await mockDelay();
+      return { ...signature };
+    },
+    saveSignature: async (body) => {
+      await mockDelay();
+      const { html } = parseInput(SaveMessageSignatureRequest, body);
+      if (html.length > EMAIL_SIGNATURE_MAX)
+        throw fail(400, 'SIGNATURE_TOO_LONG', 'Shorten the signature to save it');
+      signature = { ...signature, html, updatedAt: new Date().toISOString() };
+      return { ...signature };
+    },
+    createEmailImageUpload: async (body) => {
+      await mockDelay();
+      const input = parseInput(CreateEmailImageUploadRequest, body);
+      images += 1;
+      uploads.set(`mock-email-image-${images}`, input);
+      return {
+        uploadToken: `mock-email-image-${images}`,
+        url: `mock:upload/email-image-${images}`,
+        method: 'PUT',
+        headers: { 'content-type': input.contentType },
+        expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+      };
+    },
+    confirmEmailImageUpload: async (body) => {
+      await mockDelay();
+      const { uploadToken } = parseInput(ConfirmEmailImageUploadRequest, body);
+      const pending = uploads.get(uploadToken);
+      if (!pending) throw fail(410, 'UPLOAD_EXPIRED', 'Upload the image again');
+      uploads.delete(uploadToken);
+      return {
+        id: `00000000-0000-4000-8000-${String(images).padStart(12, '0')}`,
+        url: mockPicture(),
+        contentType: pending.contentType,
+        sizeBytes: pending.sizeBytes,
+      };
     },
 
     setFollowUp: async (id, body) => {

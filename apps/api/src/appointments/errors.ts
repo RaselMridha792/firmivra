@@ -15,6 +15,13 @@ const conflict = (
   details?: unknown,
 ) => new ConflictException({ code, message, ...(details === undefined ? {} : { details }) });
 
+/**
+ * 400 naming the field, as ZodValidationPipe does (`details: [{ path, message }]`), so the form
+ * can mark it and keep the other values.
+ */
+const invalidField = (path: string, message: string) =>
+  new BadRequestException({ code: 'VALIDATION_FAILED', message, details: [{ path, message }] });
+
 /** The errors of the appointment routes (codes in packages/types/src/appointments). */
 export const errors = {
   notFound: () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' }),
@@ -56,6 +63,10 @@ export const errors = {
     }),
   /** 400 for something the form can send but the database cannot keep yet (see the PR's gaps). */
   unsupported: (message: string) => new BadRequestException({ code: 'VALIDATION_FAILED', message }),
+  invalidField,
+  /** 400 at `path`: a booking or change in a meeting method its type does not offer (A1). */
+  methodNotOffered: (path: string) =>
+    invalidField(path, 'This appointment type is not offered that way. Choose another method.'),
   /** R10's code: nothing new is booked for an archived client (restore the client first). */
   clientArchived: () => conflict('CLIENT_ARCHIVED', 'Restore the client first'),
   /** The same in the portal, worded for the client. */

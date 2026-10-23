@@ -8,6 +8,7 @@ import type { NotifyConfig } from '../notify/config.js';
 import { NOTIFY_CONFIG } from '../notify/notify.module.js';
 import { NotifyDeliveryError } from '../notify/notify.service.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
+import { LeadEmailService } from './lead-email.service.js';
 import { invalid, type PipelineActor, reach, toE164, visibleLead } from './pipeline.shared.js';
 
 type Body = z.output<typeof LeadMessageRequest>;
@@ -28,6 +29,7 @@ export class LeadMessagesService {
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
     @Inject(NOTIFY_CONFIG) private readonly config: NotifyConfig,
     private readonly audit: AuditService,
+    private readonly email: LeadEmailService,
   ) {}
 
   async send(businessId: string, actor: PipelineActor, body: Body): Promise<LeadBulkResult> {
@@ -44,6 +46,11 @@ export class LeadMessagesService {
       select: { id: true, firstName: true, email: true, phone: true },
     });
     const targets = leads.map((l) => ({ ...l, to: sms ? toE164(l.phone) : l.email }));
+    // A formatted email, cleaned to the composer's rules with this firm's images only (L4).
+    const html =
+      !sms && body.html !== undefined
+        ? await this.email.cleanForSending(businessId, body.html)
+        : null;
     if (sms && leads.length > 0 && targets.every((t) => t.to === null)) {
       throw invalid('These leads have no phone number', 'SMS_UNAVAILABLE');
     }
@@ -65,7 +72,7 @@ export class LeadMessagesService {
                 template: 'lead.message-email',
                 to: t.to,
                 businessId,
-                data: { name: t.firstName, subject: body.subject ?? null, body: body.body },
+                data: { name: t.firstName, subject: body.subject ?? null, body: body.body, html },
               });
             }
             sent.push(t.id);
