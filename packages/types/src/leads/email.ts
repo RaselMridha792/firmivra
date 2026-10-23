@@ -66,7 +66,6 @@ export type SaveMessageSignatureRequest = z.input<typeof SaveMessageSignatureReq
 export const LeadEmailErrorCode = z.enum([
   'SIGNATURE_TOO_LONG',
   'SIGNATURE_EMPTY',
-  'UNSUPPORTED_FILE_TYPE',
   'UPLOAD_MISMATCH',
   'UPLOAD_EXPIRED',
 ]);
@@ -74,7 +73,7 @@ export type LeadEmailErrorCode = z.infer<typeof LeadEmailErrorCode>;
 
 /**
  * Step 1 of an inline image: POST /business/leads/messages/images answers an UploadPutTicket
- * (documents/schemas.ts). 400 UNSUPPORTED_FILE_TYPE for another type.
+ * (documents/schemas.ts). Another type or a larger file is 400 VALIDATION_FAILED.
  */
 export const CreateEmailImageUploadRequest = z.strictObject({
   contentType: z.enum(EMAIL_IMAGE_LIMITS.contentTypes),
