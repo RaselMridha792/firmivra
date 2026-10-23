@@ -40,6 +40,7 @@ import { NO_LOOK } from './intake-layout';
 import { formLook } from './looks';
 import {
   allAnswers,
+  checkFirmFileSize,
   clearHidden,
   issueKey,
   screenValues,
@@ -710,7 +711,11 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
     fill,
     actions: {
       uploads,
+      maxFileSizeMb: draft.maxFileSizeMb,
       upload: async (slot: string, file: File) => {
+        // The firm's own limit first, in the upload ticket's words ("Files can be at most 10
+        // MB"); the platform's 100 MB stays the outer bound.
+        checkFirmFileSize(file, draft.maxFileSizeMb);
         const saved = await uploadFile(file, {
           start: (facts) => client.createUpload(form, { slot, ...facts }),
           finish: (uploadToken) => client.confirmUpload(form, { uploadToken }),

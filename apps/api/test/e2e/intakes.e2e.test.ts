@@ -921,6 +921,15 @@ describe("portal: uploads within the firm's Max file size per file (I10)", () =>
     );
     await fileSizeLimit(100);
   });
+
+  it("the intake says the firm's own limit, so its upload fields show it first", async () => {
+    const limit = async () => mine(await portal('get', `/${ids.intake}`, people.one)).maxFileSizeMb;
+    await fileSizeLimit(null);
+    expect(await limit()).toBe(10);
+    await fileSizeLimit(50);
+    expect(await limit()).toBe(50);
+    await fileSizeLimit(100);
+  });
 });
 
 describe('portal: upload limits, and the general My Documents route', () => {

@@ -138,7 +138,12 @@ describe('refunds', () => {
     const more = await refund(invoiceId, paymentId, 1);
     expect([more.status, codeOf(more)]).toEqual([409, 'NOT_REFUNDABLE']);
     const audit = await t.inScope(t.ids.firmA, (tx) =>
-      tx.auditLog.findMany({ where: { entityId: paymentId }, select: { action: true } }),
+      // In the order written: without an order Postgres may return the rows in any order.
+      tx.auditLog.findMany({
+        where: { entityId: paymentId },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { action: true },
+      }),
     );
     expect(audit.map((a) => a.action).filter((a) => a.startsWith('payment.refund'))).toEqual([
       'payment.refund_requested',
