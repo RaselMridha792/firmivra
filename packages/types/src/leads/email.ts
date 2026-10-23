@@ -5,7 +5,7 @@ import { z } from 'zod';
 // saved signature that may carry the firm's email logo, and the recipient gets the same
 // formatting. The API cleans the HTML to exactly these rules; anything else is removed, never
 // sent. Images are served from a public address (as any emailed image is) under the firm's
-// portal: `{PORTAL_BASE_URL}/api/v1/portal/{firmSlug}/email-images/{id}`.
+// portal: `{PORTAL_BASE_URL}/api/v1/portal/{firmSlug}/email-images/{id}.{png|jpg|gif}`.
 
 const DateTime = z.iso.datetime({ offset: true });
 
@@ -21,7 +21,7 @@ export const EMAIL_FONTS = [
 ] as const;
 export type EmailFont = (typeof EMAIL_FONTS)[number];
 
-/** The font sizes the composer offers, in pixels. 14 is the email's default. */
+/** The font sizes the composer offers, in pixels. 16 is the email's default. */
 export const EMAIL_FONT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32] as const;
 
 /** Inline image rules: the upload, and the width an image may be placed at (the email is 600 px wide). */
