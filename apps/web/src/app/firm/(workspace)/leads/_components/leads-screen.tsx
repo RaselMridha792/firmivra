@@ -7,7 +7,16 @@ import type {
   LeadSource,
   LeadPipelineStatus,
 } from '@firmivra/types';
-import { BulkBar, Button, Checkbox, FilterBar, FilterGroup, KpiCard, Select } from '@firmivra/ui';
+import {
+  BulkBar,
+  Button,
+  Checkbox,
+  FilterBar,
+  FilterChip,
+  FilterGroup,
+  KpiCard,
+  Select,
+} from '@firmivra/ui';
 import {
   ArrowsClockwise,
   Clock,
@@ -22,9 +31,10 @@ import {
   ChatCircleDots,
   EnvelopeSimple,
 } from '@phosphor-icons/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
+import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { LeadBulkDialog, type LeadBulkDialogState } from './lead-bulk-dialog';
 import { LeadAppointmentDialog } from './lead-appointment-dialog';
@@ -49,6 +59,9 @@ interface LeadFilters {
   overdue: boolean;
 }
 
+/** The dropdowns' choices before (or without) GET /business/leads/options: the "All …" entries. */
+const NO_OPTIONS = { services: [], staff: [], campaigns: [], tags: [] };
+
 const EMPTY_FILTERS: LeadFilters = {
   source: '',
   serviceId: '',
@@ -67,7 +80,8 @@ function LeadsSummary({
   filters,
   onFilter,
 }: {
-  summary: Awaited<ReturnType<typeof api.leadPipeline.summary>>;
+  /** Undefined while loading or when the counts could not load: each card shows a dash. */
+  summary: Awaited<ReturnType<typeof api.leadPipeline.summary>> | undefined;
   filters: LeadFilters;
   onFilter: (patch: Partial<LeadFilters>) => void;
 }) {
@@ -75,7 +89,7 @@ function LeadsSummary({
     {
       key: 'total',
       label: 'Total Leads',
-      metric: summary.total,
+      metric: summary?.total,
       icon: Users,
       tone: 'blue' as const,
       active: !filters.stage && !filters.overdue,
@@ -85,7 +99,7 @@ function LeadsSummary({
     {
       key: 'new',
       label: 'New Leads',
-      metric: summary.new,
+      metric: summary?.new,
       icon: UserPlus,
       tone: 'amber' as const,
       active: filters.stage === 'SUBMITTED',
@@ -95,7 +109,7 @@ function LeadsSummary({
     {
       key: 'follow-up',
       label: 'In Follow-Up',
-      metric: summary.inFollowUp,
+      metric: summary?.inFollowUp,
       icon: Clock,
       tone: 'purple' as const,
       active: filters.stage === 'IN_FOLLOW_UP',
@@ -105,7 +119,7 @@ function LeadsSummary({
     {
       key: 'converted',
       label: 'Converted to Clients',
-      metric: summary.converted,
+      metric: summary?.converted,
       icon: Handshake,
       tone: 'green' as const,
       active: filters.stage === 'CONVERTED',
@@ -115,7 +129,7 @@ function LeadsSummary({
     {
       key: 'not-qualified',
       label: 'Not Qualified',
-      metric: summary.notQualified,
+      metric: summary?.notQualified,
       icon: XCircle,
       tone: 'red' as const,
       active: filters.stage === 'DECLINED',
@@ -125,7 +139,7 @@ function LeadsSummary({
     {
       key: 'overdue',
       label: 'Overdue Follow-Ups',
-      metric: summary.overdueFollowUps,
+      metric: summary?.overdueFollowUps,
       icon: ClockCountdown,
       tone: 'red' as const,
       active: filters.overdue,
@@ -150,9 +164,9 @@ function LeadsSummary({
           <KpiCard
             icon={card.icon}
             tone={card.tone}
-            value={card.metric.value.toLocaleString('en-US')}
+            value={card.metric ? card.metric.value.toLocaleString('en-US') : '—'}
             label={card.label}
-            trend={summaryTrend(card.metric, card.decreasesAreGood)}
+            trend={card.metric ? summaryTrend(card.metric, card.decreasesAreGood) : undefined}
             note="vs last month"
           />
         </button>
@@ -214,7 +228,7 @@ function LeadFilters({
         <Checkbox
           label="Overdue only"
           checked={filters.overdue}
-          onChange={(event) => onFilter({ overdue: event.target.checked, stage: '' })}
+          onChange={(event) => onFilter({ overdue: event.target.checked })}
         />
       </FilterGroup>
     </>
@@ -248,9 +262,7 @@ function LeadFilters({
           label="All Lead Statuses"
           hideLabel
           value={filters.stage}
-          onChange={(event) =>
-            onFilter({ stage: event.target.value as LeadPipelineStatus | '', overdue: false })
-          }
+          onChange={(event) => onFilter({ stage: event.target.value as LeadPipelineStatus | '' })}
           options={[{ value: '', label: 'All Lead Statuses' }, ...STAGES]}
         />
       </div>
@@ -309,14 +321,24 @@ export function LeadsScreen() {
   const leads = useApiQuery([...LEAD_PIPELINE_KEY, 'list', query], () =>
     api.leadPipeline.list(query),
   );
-  // Every row shown, so a selection kept across pages still knows each lead's number and email.
-  const seenRef = useRef(new Map<string, LeadRow>());
-  useEffect(() => {
-    for (const row of leads.data?.items ?? []) seenRef.current.set(row.id, row);
-  }, [leads.data]);
+  // Each selected row as it was picked, so a selection kept across pages still knows each lead's
+  // number and email for the composer.
+  const [chosen, setChosen] = useState<Map<string, LeadRow>>(() => new Map());
+  const select = (ids: string[]) => {
+    const rows = leads.data?.items ?? [];
+    setChosen((before) => {
+      const next = new Map<string, LeadRow>();
+      for (const id of ids) {
+        const row = before.get(id) ?? rows.find((r) => r.id === id);
+        if (row) next.set(id, row);
+      }
+      return next;
+    });
+    setSelected(ids);
+  };
   const recipientsOf = (ids: string[]) =>
     ids.flatMap((id) => {
-      const row = seenRef.current.get(id) ?? leads.data?.items.find((r) => r.id === id);
+      const row = chosen.get(id);
       return row ? [recipientOf(row)] : [];
     });
   const logCall = useApiMutation(
@@ -351,6 +373,134 @@ export function LeadsScreen() {
   };
 
   const sourceTitle = 'Capture. Nurture. Convert.';
+  /** The bulk bar and the table for one page of leads (or an empty page with the reason). */
+  const renderLeads = (data: NonNullable<typeof leads.data>) => {
+    const rowIds = data.items.map((lead) => lead.id);
+    const allSelected = rowIds.length > 0 && rowIds.every((id) => selected.includes(id));
+    const bulkActions = [
+      {
+        label: 'Send Email',
+        icon: EnvelopeSimple,
+        onClick: () =>
+          setMessage({ recipients: recipientsOf(selected), channel: 'EMAIL' as const }),
+      },
+      {
+        label: 'Send SMS',
+        icon: ChatCircleDots,
+        onClick: () => setMessage({ recipients: recipientsOf(selected), channel: 'SMS' as const }),
+      },
+      { label: 'Assign Staff', icon: UserPlus, onClick: () => openBulk('ASSIGN') },
+      { label: 'Change Status', icon: ArrowsClockwise, onClick: () => openBulk('STAGE') },
+      { label: 'Add to Campaign', icon: EnvelopeSimple, onClick: () => openBulk('CAMPAIGN') },
+      { label: 'Add Tags', icon: Tag, onClick: () => openBulk('TAGS') },
+      { label: 'Delete', icon: Trash, danger: true, onClick: () => openBulk('ARCHIVE') },
+    ];
+    const updateSelection = (checked: boolean) =>
+      select(
+        checked
+          ? [...new Set([...selected, ...rowIds])]
+          : selected.filter((id) => !rowIds.includes(id)),
+      );
+    const setCheckboxIndeterminate = (box: HTMLInputElement | null) => {
+      if (box) box.indeterminate = !allSelected && rowIds.some((id) => selected.includes(id));
+    };
+    return (
+      <>
+        <div className="hidden flex-wrap items-center gap-2 xl:flex">
+          <label className="inline-flex size-9 items-center justify-center rounded-lg border border-divider bg-surface">
+            <input
+              type="checkbox"
+              aria-label="Select all leads on this page"
+              className="size-4 cursor-pointer rounded-sm"
+              checked={allSelected}
+              ref={setCheckboxIndeterminate}
+              onChange={(event) => updateSelection(event.target.checked)}
+            />
+          </label>
+          <BulkBar count={selected.length} noun="leads" actions={bulkActions} />
+        </div>
+        <div className="min-w-0 xl:hidden">
+          <div className="flex items-center gap-2">
+            <label className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-divider bg-surface">
+              <input
+                type="checkbox"
+                aria-label="Select all leads on this page"
+                className="size-4 cursor-pointer rounded-sm"
+                checked={allSelected}
+                ref={setCheckboxIndeterminate}
+                onChange={(event) => updateSelection(event.target.checked)}
+              />
+            </label>
+            <p aria-live="polite" className="text-sm font-semibold text-heading">
+              {selected.length} leads selected
+            </p>
+          </div>
+          <div
+            role="toolbar"
+            aria-label="Bulk actions"
+            className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-3"
+          >
+            {bulkActions.map(({ label, icon: Icon, onClick, danger }) => (
+              <Button
+                key={label}
+                variant="secondary"
+                disabled={!selected.length}
+                onClick={onClick}
+                className={`!min-h-9 !w-full !justify-start !px-3 !py-2 text-left whitespace-normal disabled:cursor-not-allowed disabled:opacity-60 ${danger ? '!border-danger-soft !text-danger' : '!border-divider !text-text'}`}
+              >
+                <Icon
+                  aria-hidden
+                  weight="fill"
+                  className={`size-4 shrink-0 ${danger ? '' : 'text-action'}`}
+                />
+                <span className="min-w-0">{label}</span>
+              </Button>
+            ))}
+          </div>
+        </div>
+        <LeadsTable
+          rows={data.items}
+          total={data.total}
+          page={data.page}
+          pageSize={pageSize}
+          selected={selected}
+          onPage={(next) => setPage(next)}
+          onPageSize={(size) => {
+            setPageSize(size);
+            setPage(1);
+            setSelected([]);
+          }}
+          onSelectionChange={select}
+          onCall={(lead) => {
+            if (!lead.phone) return;
+            void logCall
+              .mutateAsync({ id: lead.id })
+              .catch(() => undefined)
+              .then(() => window.location.assign(`tel:${lead.phone}`));
+          }}
+          onMessage={(lead, channel) => setMessage({ recipients: [recipientOf(lead)], channel })}
+          onRowAction={onRowAction}
+          empty={
+            leads.isError
+              ? {
+                  title: 'The leads are not available right now.',
+                  text: errorMessage(leads.error),
+                }
+              : undefined
+          }
+        />
+        {leads.isError ? (
+          <Button variant="secondary" className="w-fit" onClick={() => void leads.refetch()}>
+            Try again
+          </Button>
+        ) : null}
+      </>
+    );
+  };
+  // A list that cannot be reached keeps the table's frame with the reason inside it; a refusal
+  // (permission, firm setup, an open in-person signing) is still PageState's whole-page answer.
+  const unreachable = leads.isError && !leads.data && errorCode(leads.error) === undefined;
+
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -369,136 +519,35 @@ export function LeadsScreen() {
         </Button>
       </header>
 
-      <PageState query={summary}>
-        {(data) => <LeadsSummary summary={data} filters={filters} onFilter={changeFilters} />}
-      </PageState>
-
-      <PageState query={options}>
-        {(data) => (
-          <LeadFilters
-            filters={filters}
-            options={data}
-            onFilter={changeFilters}
-            onReset={resetFilters}
+      {/* Every widget keeps its frame when its data cannot load (design rule 2). */}
+      <LeadsSummary summary={summary.data} filters={filters} onFilter={changeFilters} />
+      {summary.isError ? (
+        <p role="status" className="-mt-2 text-sm text-muted">
+          The counts are not available right now.
+        </p>
+      ) : null}
+      <LeadFilters
+        filters={filters}
+        options={options.data ?? NO_OPTIONS}
+        onFilter={changeFilters}
+        onReset={resetFilters}
+      />
+      {filters.overdue ? (
+        // The Overdue Follow-Ups card's filter, visible on the page (Octavia's review, item 2);
+        // it combines with any status, which it never changes.
+        <div aria-label="Active filters" className="-mt-2 flex flex-wrap gap-2">
+          <FilterChip
+            label="Overdue Follow-Ups"
+            onRemove={() => changeFilters({ overdue: false })}
           />
-        )}
-      </PageState>
+        </div>
+      ) : null}
 
-      <PageState query={leads}>
-        {(data) => {
-          const rowIds = data.items.map((lead) => lead.id);
-          const allSelected = rowIds.length > 0 && rowIds.every((id) => selected.includes(id));
-          const bulkActions = [
-            {
-              label: 'Send Email',
-              icon: EnvelopeSimple,
-              onClick: () =>
-                setMessage({ recipients: recipientsOf(selected), channel: 'EMAIL' as const }),
-            },
-            {
-              label: 'Send SMS',
-              icon: ChatCircleDots,
-              onClick: () =>
-                setMessage({ recipients: recipientsOf(selected), channel: 'SMS' as const }),
-            },
-            { label: 'Assign Staff', icon: UserPlus, onClick: () => openBulk('ASSIGN') },
-            { label: 'Change Status', icon: ArrowsClockwise, onClick: () => openBulk('STAGE') },
-            { label: 'Add to Campaign', icon: EnvelopeSimple, onClick: () => openBulk('CAMPAIGN') },
-            { label: 'Add Tags', icon: Tag, onClick: () => openBulk('TAGS') },
-            { label: 'Delete', icon: Trash, danger: true, onClick: () => openBulk('ARCHIVE') },
-          ];
-          const updateSelection = (checked: boolean) =>
-            setSelected((current) =>
-              checked
-                ? [...new Set([...current, ...rowIds])]
-                : current.filter((id) => !rowIds.includes(id)),
-            );
-          const setCheckboxIndeterminate = (box: HTMLInputElement | null) => {
-            if (box) box.indeterminate = !allSelected && rowIds.some((id) => selected.includes(id));
-          };
-          return (
-            <>
-              <div className="hidden flex-wrap items-center gap-2 xl:flex">
-                <label className="inline-flex size-9 items-center justify-center rounded-lg border border-divider bg-surface">
-                  <input
-                    type="checkbox"
-                    aria-label="Select all leads on this page"
-                    className="size-4 cursor-pointer rounded-sm"
-                    checked={allSelected}
-                    ref={setCheckboxIndeterminate}
-                    onChange={(event) => updateSelection(event.target.checked)}
-                  />
-                </label>
-                <BulkBar count={selected.length} noun="leads" actions={bulkActions} />
-              </div>
-              <div className="min-w-0 xl:hidden">
-                <div className="flex items-center gap-2">
-                  <label className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-divider bg-surface">
-                    <input
-                      type="checkbox"
-                      aria-label="Select all leads on this page"
-                      className="size-4 cursor-pointer rounded-sm"
-                      checked={allSelected}
-                      ref={setCheckboxIndeterminate}
-                      onChange={(event) => updateSelection(event.target.checked)}
-                    />
-                  </label>
-                  <p aria-live="polite" className="text-sm font-semibold text-heading">
-                    {selected.length} leads selected
-                  </p>
-                </div>
-                <div
-                  role="toolbar"
-                  aria-label="Bulk actions"
-                  className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-3"
-                >
-                  {bulkActions.map(({ label, icon: Icon, onClick, danger }) => (
-                    <Button
-                      key={label}
-                      variant="secondary"
-                      disabled={!selected.length}
-                      onClick={onClick}
-                      className={`!min-h-9 !w-full !justify-start !px-3 !py-2 text-left whitespace-normal disabled:cursor-not-allowed disabled:opacity-60 ${danger ? '!border-danger-soft !text-danger' : '!border-divider !text-text'}`}
-                    >
-                      <Icon
-                        aria-hidden
-                        weight="fill"
-                        className={`size-4 shrink-0 ${danger ? '' : 'text-action'}`}
-                      />
-                      <span className="min-w-0">{label}</span>
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <LeadsTable
-                rows={data.items}
-                total={data.total}
-                page={data.page}
-                pageSize={pageSize}
-                selected={selected}
-                onPage={(next) => setPage(next)}
-                onPageSize={(size) => {
-                  setPageSize(size);
-                  setPage(1);
-                  setSelected([]);
-                }}
-                onSelectionChange={setSelected}
-                onCall={(lead) => {
-                  if (!lead.phone) return;
-                  void logCall
-                    .mutateAsync({ id: lead.id })
-                    .catch(() => undefined)
-                    .then(() => window.location.assign(`tel:${lead.phone}`));
-                }}
-                onMessage={(lead, channel) =>
-                  setMessage({ recipients: [recipientOf(lead)], channel })
-                }
-                onRowAction={onRowAction}
-              />
-            </>
-          );
-        }}
-      </PageState>
+      {unreachable ? (
+        renderLeads({ items: [], total: 0, page, pageSize })
+      ) : (
+        <PageState query={leads}>{renderLeads}</PageState>
+      )}
 
       <LeadsActionLegend />
       {createOpen ? (
