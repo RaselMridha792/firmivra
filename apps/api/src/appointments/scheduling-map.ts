@@ -84,12 +84,39 @@ export function displayStatusWhere(status: AppointmentDisplayStatus): Prisma.App
 
 // ---------- Meeting method ----------
 
-export const methodOf = (kind: 'IN_PERSON' | 'PHONE' | 'VIDEO'): MeetingMethod => kind;
+/** What the database keeps as a location kind (appointments) and meeting method (types). */
+export type StoredKind = 'IN_PERSON' | 'PHONE' | 'VIDEO';
+
+export const methodOf = (kind: StoredKind): MeetingMethod => kind;
 
 /** The database's location kind for a method; OTHER has none yet (needs a schema change). */
-export function locationKindOf(method: MeetingMethod): 'IN_PERSON' | 'PHONE' | 'VIDEO' | null {
+export function locationKindOf(method: MeetingMethod): StoredKind | null {
   return method === 'OTHER' ? null : method;
 }
+
+/**
+ * The stored kinds of a type's methods as the contract checked them (A1), in order; null when one
+ * cannot be kept (OTHER), which the contract already refuses.
+ */
+export function locationKindsOf(methods: readonly MeetingMethod[]): StoredKind[] | null {
+  const kinds = methods.map(locationKindOf);
+  return kinds.every((k): k is StoredKind => k !== null) ? kinds : null;
+}
+
+/**
+ * A type's meeting methods, in order (A1). The database keeps 1 to 3 with the first its location
+ * kind; a row read before the methods were filled in offers its location kind.
+ */
+export function typeMethods(row: {
+  locationKind: StoredKind;
+  meetingMethods: readonly StoredKind[];
+}): StoredKind[] {
+  return row.meetingMethods.length > 0 ? [...row.meetingMethods] : [row.locationKind];
+}
+
+/** Whether two lists of methods are the same, in the same order. */
+export const sameMethods = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((m, i) => m === b[i]);
 
 // ---------- Reminders ----------
 
