@@ -99,7 +99,7 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
 | I4 | Settings Edit links | #1033 open (with I5, I6) |
 | I5 | Submission Rules shortcut | #1033 open |
 | I6 | Test Reminder Email | #1033 open (a real test email; locally in Mailpit) |
-| I7 to I12 | Settings additions | Next (handoff item 2); I10 was built by R1 in #1025 |
+| I7 to I12 | Settings additions | I8 (days, wording, order), I9 (hours), I11 and No reminders: `rasel/R60-intake-settings-p2`; I10 verified (R1); I7, I8 minutes and hours, I9 30 minutes and I12 need columns (above) |
 | I13 | Live tests | After I1 to I6 |
 
 ## What was reproduced (local `main`, Oct 21, LVP's Owner)
@@ -139,8 +139,25 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
   shows "Draft", and Use Template waits for it to be published. Create Template asks for the
   service. A built-in form whose category has no form says so, with a link to Services & Pricing.
 
+## I7 to I12 (checked on `main`, Oct 23)
+
+| # | On `main` | This slice (`rasel/R60-intake-settings-p2`) | Needs a column (written item) |
+| --- | --- | --- | --- |
+| I7 Notify additional emails | Not there; `intake_settings` has no column | Nothing | A list of extra recipient emails (R0), and the notifier to send to them (R6) |
+| I8 First and Final reminder | Days only (first 1 to 14, final 3 to 30); "No reminder" saved 3 or 7 days anyway (the API mapped null to the default) | Both lists 1, 2, 3, 5, 7, 10, 14, 21, 30 days, "after sending"; the final only after the first (the database's `final > first`; the API took equal days, then failed at the database); "No reminders" saves `reminders_enabled` off (each new send's default) and reads back as none | Her 5, 10, 15, 30 minutes and 1, 2, 3, 6, 12 hours: `first_reminder_days` and `final_reminder_days` are whole days. A first reminder without a final one has no column either |
+| I9 Expiration alert | 12, 24, 48, 72 hours; "No alert" saved 24 | 1, 2, 3, 5, 6, 10, 12, 24, 42, 72 hours before expiry (42, not 48; a saved 48 still shows); no "No alert" (the API refuses null) | 30 minutes (`expiry_alert_hours` is whole hours), and "no alert" (not null) |
+| I10 50 and 100 MB | Built by R1 (#1025, #1037): every Begin Online and portal upload checks the firm's size at the ticket (`intake/intake-file-size.ts`); `begin-online.e2e.test.ts` proves 50 MB (49 in, 51 refused), a saved 25 MB, multipart over 16 MB | Verified only | None |
+| I11 Encryption | A switch locked on | The read-only "Encrypted file uploads: Always on" | None (encryption itself is the S3 and KMS walls) |
+| I12 Data retention period | Not there | Nothing | A years column (R0); the start event, what it covers and what happens at the end are for Rasel and Octavia first. Choosing a period deletes nothing |
+
+None of the reminders or the alert is sent yet: there is no intake reminder job (Needs, below).
+
 ## Needs from others
 
+- **R0 (I7, I8, I9, I12 columns), for Rasel to queue:** extra notification emails; reminder
+  offsets in minutes (or an interval) for the first and final reminder; the expiration alert in
+  minutes, and "no alert"; a retention period in years. Details in "I7 to I12" above. Nothing was
+  built for them.
 - **R1 (I10):** done in #1025 (2, 5, 10, 50 or 100 MB, enforced in uploads). R60 verifies only.
 - **R56 (I3):** done in #1020 (`PublicLink`, `PublicLinkBlock`); R60 builds I3's link next.
 - **Secure link page (I2):** a form for a lead or a new contact needs the secure link page
@@ -171,3 +188,7 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
 - Oct 22: #1019 (I1) merged. I2, I3 (validation) and I4 to I6 built, with sheets.
 - Oct 23: #1028 (I2), #1031 (I3) and #1033 (I4 to I6) opened, each after the one before had CI
   green. Handoff written (above).
+- Oct 23: I7 to I12 checked on `main` (table above). Built on `rasel/R60-intake-settings-p2`
+  (local, waiting for a PR slot): I8 days and wording, the final after the first, No reminders
+  saved as off; I9 hours (42, not 48); I11 Always on. API `tsc` and web `tsc` 0 errors; intake
+  workspace e2e 15 of 15; `r60-intake-settings` mock spec 11 of 11; sheet shot on the real API.

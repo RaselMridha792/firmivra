@@ -487,6 +487,62 @@ describe('the settings', () => {
     expect((await next({})).status).toBe(200);
   });
 
+  it('No reminders saves as off, and reads as none; the final reminder follows the first (I8, I9)', async () => {
+    const at = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
+    const put = (version: string, notifications: object) =>
+      call('put', '/intake-settings', ownerA, { version, notifications });
+    const off = IntakeSettings.parse(
+      ok(await put(at.version, { firstReminderAfterDays: null, finalReminderAfterDays: null })),
+    );
+    expect(off.notifications).toMatchObject({
+      firstReminderAfterDays: null,
+      finalReminderAfterDays: null,
+    });
+    const row = () =>
+      inFirm('a', (tx) =>
+        tx.intakeSettings.findUniqueOrThrow({
+          where: { businessId: firms.a },
+          select: { remindersEnabled: true, firstReminderDays: true, finalReminderDays: true },
+        }),
+      );
+    // Off for new sends; the days stay for when reminders are turned on again.
+    expect(await row()).toEqual({
+      remindersEnabled: false,
+      firstReminderDays: 2,
+      finalReminderDays: 5,
+    });
+    const on = IntakeSettings.parse(
+      ok(await put(off.version, { firstReminderAfterDays: 1, finalReminderAfterDays: 2 })),
+    );
+    expect(on.notifications).toMatchObject({
+      firstReminderAfterDays: 1,
+      finalReminderAfterDays: 2,
+    });
+    expect((await row()).remindersEnabled).toBe(true);
+    // A final reminder on the first's day, no final reminder while they are on, and no alert are
+    // refused at their fields (no column holds the last two).
+    for (const [body, path] of [
+      [
+        { firstReminderAfterDays: 3, finalReminderAfterDays: 3 },
+        'notifications.finalReminderAfterDays',
+      ],
+      [{ finalReminderAfterDays: null }, 'notifications.finalReminderAfterDays'],
+      [{ expirationAlertHours: null }, 'notifications.expirationAlertHours'],
+    ] as const) {
+      const res = await put(on.version, body);
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(JSON.stringify(res.body)).toContain(path);
+    }
+    // The hours Octavia asked for fit the column (1 to 168): 1 hour and 42 hours.
+    for (const hours of [1, 42]) {
+      const now = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
+      expect(
+        IntakeSettings.parse(ok(await put(now.version, { expirationAlertHours: hours })))
+          .notifications.expirationAlertHours,
+      ).toBe(hours);
+    }
+  });
+
   it('lists the recent changes without their values, and resets to the defaults', async () => {
     const changes = IntakeSettingsChangeList.parse(
       ok(await call('get', '/intake-settings/changes', adminA)),

@@ -216,6 +216,19 @@ export function ToggleRow({
   );
 }
 
+/** A setting that cannot change, shown as its value ("Always on"), not as a switch. */
+export function FixedRow({ label, value, width }: { label: string; value: string; width: string }) {
+  return (
+    <Row
+      label={label}
+      width={width}
+      control={
+        <span className="text-sm font-semibold whitespace-nowrap text-heading">{value}</span>
+      }
+    />
+  );
+}
+
 /** A compact kit Select with its label on the left; its error shows under it. */
 export function SelectRow({
   label,
