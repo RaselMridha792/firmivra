@@ -171,3 +171,6 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
 - Oct 22: #1019 (I1) merged. I2, I3 (validation) and I4 to I6 built, with sheets.
 - Oct 23: #1028 (I2), #1031 (I3) and #1033 (I4 to I6) opened, each after the one before had CI
   green. Handoff written (above).
+- Oct 23: Settings confirm checks (handoff item 3) answered in `docs/work/R60-settings-checks.md`:
+  checks 1, 3, 4, 5, 6, 7, 10 (the tab-to-page table) and 11, each with status, page, test result
+  and what remains. Most urgent: Sign Out All Sessions ends no real session (check 6).
