@@ -369,6 +369,7 @@ describe('bookable types', () => {
         name: consult.name,
         durationMinutes: 30,
         locationKind: 'VIDEO',
+        methods: ['VIDEO'],
         cancelCutoffHours: 24,
       },
       {
@@ -376,6 +377,7 @@ describe('bookable types', () => {
         name: long.name,
         durationMinutes: 60,
         locationKind: 'PHONE',
+        methods: ['PHONE'],
         cancelCutoffHours: 24,
       },
     ]);
@@ -924,5 +926,98 @@ describe('#108 review, on the portal', () => {
     }
     const retried = await book(people.clientB, consult.id, at(21, '09:00'));
     expect((await firmDetail(retried.id)).history.map((e) => e.action)).toEqual(['BOOKED']);
+  });
+});
+
+describe('meeting methods (A1), on the portal', () => {
+  const detailsOf = (res: Response) =>
+    (res.body as { error?: { details?: { path: string; message: string }[] } }).error?.details;
+  const notOffered = [
+    {
+      path: 'locationKind',
+      message: 'This appointment type is not offered that way. Choose another method.',
+    },
+  ];
+  let ways: AppointmentType;
+  const setMethods = async (methods: string[]) => {
+    const res = await firm('put', `/appointment-types/${ways.id}/config`, { methods });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+  };
+  const bookable = async () =>
+    exact(BookableTypeList, await portal('get', '/types', people.clientA)).items.find(
+      (t) => t.id === ways.id,
+    );
+  const bookWith = (who: Who, startsAt: string, locationKind?: string) =>
+    portal('post', '', who, {
+      typeId: ways.id,
+      startsAt,
+      ...(locationKind ? { locationKind } : {}),
+    });
+
+  beforeAll(async () => {
+    ways = exact(
+      AppointmentType,
+      await firm('post', '/appointment-types', {
+        name: `Phone or office ${run}`,
+        durationMinutes: 30,
+        clientBookable: true,
+        methods: ['PHONE', 'IN_PERSON', 'VIDEO'],
+      }),
+      201,
+    );
+  });
+
+  it('lists every method of a bookable type, in the firm’s order', async () => {
+    expect(await bookable()).toEqual({
+      id: ways.id,
+      name: ways.name,
+      durationMinutes: 30,
+      locationKind: 'PHONE',
+      methods: ['PHONE', 'IN_PERSON', 'VIDEO'],
+      cancelCutoffHours: 24,
+    });
+    await setMethods(['VIDEO', 'PHONE']);
+    expect(await bookable()).toMatchObject({ locationKind: 'VIDEO', methods: ['VIDEO', 'PHONE'] });
+  });
+
+  it('books in the method the client chooses, else the first; one the type does not offer is 400', async () => {
+    await setMethods(['VIDEO', 'PHONE']);
+    const refused = await bookWith(people.clientA, at(25, '09:00'), 'IN_PERSON');
+    expectError(refused, 400, 'VALIDATION_FAILED');
+    expect(detailsOf(refused)).toEqual(notOffered);
+    const first = exact(MyAppointment, await bookWith(people.clientA, at(25, '09:00')), 201);
+    expect(first.locationKind).toBe('VIDEO');
+    const phone = exact(
+      MyAppointment,
+      await bookWith(people.clientA, at(25, '10:00'), 'PHONE'),
+      201,
+    );
+    expect([phone.locationKind, phone.locationDetails]).toEqual(['PHONE', null]);
+    expect((await firmDetail(phone.id)).locationKind).toBe('PHONE');
+    const rows = await asOwner(ids.firmP, (tx) =>
+      tx.appointment.findMany({
+        where: { businessId: ids.firmP, typeId: ways.id, clientId: ids.cA },
+        orderBy: { startsAt: 'asc' },
+        select: { id: true, locationKind: true },
+      }),
+    );
+    expect(rows).toEqual([
+      { id: first.id, locationKind: 'VIDEO' },
+      { id: phone.id, locationKind: 'PHONE' },
+    ]);
+  });
+
+  it('keeps a booked method when the type stops offering it; the client still moves it', async () => {
+    await setMethods(['VIDEO', 'PHONE']);
+    const a = exact(MyAppointment, await bookWith(people.clientB, at(26, '09:00'), 'PHONE'), 201);
+    await setMethods(['VIDEO']);
+    const moved = exact(
+      MyAppointment,
+      await portal('post', `/${a.id}/reschedule`, people.clientB, { startsAt: at(26, '10:00') }),
+    );
+    expect([moved.locationKind, moved.startsAt]).toEqual(['PHONE', at(26, '10:00')]);
+    const refused = await bookWith(people.clientB, at(27, '09:00'), 'PHONE');
+    expectError(refused, 400, 'VALIDATION_FAILED');
+    expect(detailsOf(refused)).toEqual(notOffered);
   });
 });

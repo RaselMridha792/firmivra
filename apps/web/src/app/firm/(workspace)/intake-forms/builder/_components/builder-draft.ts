@@ -17,6 +17,13 @@ export interface DraftQuestion {
   required: boolean;
   options: string[];
   showIf?: { questionKey: string; equals: string | boolean | number };
+  /**
+   * A field of the saved form that the builder shows but cannot edit, and the API keeps as it is
+   * (form-builder.ts): a grid or repeating group, shown as a section break (the API turns a break
+   * added here into a new section, so a saved form never comes back with one), or a list the
+   * form engine fills, shown as a dropdown with no choices (State). Publish takes it as it is.
+   */
+  stored?: true;
 }
 
 export interface DraftSection {
@@ -84,6 +91,9 @@ export function fromDetail(form: IntakeFormDetail): FormDraft {
         required: q.required,
         options: q.options ?? [],
         ...(q.showIf ? { showIf: q.showIf } : {}),
+        ...(q.type === 'SECTION_BREAK' || (CHOICE_TYPES.includes(q.type) && !q.options?.length)
+          ? { stored: true as const }
+          : {}),
       })),
     })),
     settings: {
@@ -178,14 +188,16 @@ export function checkDraft(d: FormDraft, publishing: boolean): Record<string, st
     for (const s of d.sections) {
       for (const q of s.questions) {
         const choices = q.options.filter((o) => o.trim()).length;
+        if (q.stored && choices === 0) continue;
         if (q.type === 'MULTIPLE_CHOICE' && choices < 2) {
           found[`question:${q.key}`] ??= 'Add at least two choices';
         } else if (CHOICE_TYPES.includes(q.type) && choices < 1) {
           found[`question:${q.key}`] ??= 'Add at least one choice';
         }
       }
-      // The API splits a section at each section break; the last part needs a question.
-      const lastBreak = s.questions.findLastIndex((q) => q.type === 'SECTION_BREAK');
+      // The API splits a section at each section break added here; the last part needs a
+      // question. A stored break is a grid or repeating group: it is content, not a split.
+      const lastBreak = s.questions.findLastIndex((q) => q.type === 'SECTION_BREAK' && !q.stored);
       const after = s.questions.slice(lastBreak + 1);
       if (!after.length) {
         const breakQuestion = s.questions[lastBreak];

@@ -29,6 +29,8 @@ import {
   locationKindOf,
   MAX_REMINDER_OFFSET,
   reminderOffset,
+  type StoredKind,
+  typeMethods,
   versionOf,
 } from './scheduling-map.js';
 import { expandRecurrence } from './scheduling-recurrence.js';
@@ -46,6 +48,18 @@ const HOUR = 60 * MINUTE;
 const inactiveOffice = () =>
   errors.unsupported('This location is inactive. Choose an active location.');
 
+/** The form's method as a location kind; OTHER cannot be kept yet (400 at `method`). */
+function kindOf(method: Schedule['method']): StoredKind {
+  const kind = locationKindOf(method);
+  if (!kind) {
+    throw errors.invalidField(
+      'method',
+      'The "Other" meeting method is not available yet. Choose another.',
+    );
+  }
+  return kind;
+}
+
 const placed = (a: { startsAt: Date; endsAt: Date; staffUserId: string }) => ({
   startsAt: a.startsAt,
   endsAt: a.endsAt,
@@ -60,6 +74,8 @@ const placed = (a: { startsAt: Date; endsAt: Date; staffUserId: string }) => ({
  * conflicts (a staff member, client or room already booked, blocked time) are always 409
  * SCHEDULING_CONFLICT; working hours and buffers can be overridden with a reason by Owner and
  * Admin (audited). The database refuses double booking whatever the check saw (409 SLOT_TAKEN).
+ * The method is one of the type's meeting methods (A1) when booking and when the method or type
+ * changes (400 at `method`); an appointment keeps a method its type stopped offering otherwise.
  * Audit rows hold ids, times and field names only: never names, notes, instructions or links.
  */
 @Injectable()
@@ -174,16 +190,16 @@ export class SchedulingWriteService {
         bufferBeforeMinutes: true,
         bufferAfterMinutes: true,
         serviceId: true,
+        locationKind: true,
+        meetingMethods: true,
       },
     });
     if (!type) throw errors.notFound();
     if (type.archivedAt) throw errors.typeArchived();
     const serviceId = body.serviceId === undefined ? type.serviceId : body.serviceId;
     if (serviceId) await this.requireService(tx, businessId, serviceId);
-    const kind = locationKindOf(body.method);
-    if (!kind) {
-      throw errors.unsupported('The "Other" meeting method is not available yet. Choose another.');
-    }
+    const kind = kindOf(body.method);
+    if (!typeMethods(type).includes(kind)) throw errors.methodNotOffered('method');
     this.requireSupported(body.related, body.recurrence);
     const timeZone = await this.zoneFor(tx, businessId, body.timezone);
     const first = { start: Date.parse(body.startsAt), end: Date.parse(body.endsAt) };
@@ -350,7 +366,10 @@ export class SchedulingWriteService {
         before: current.bufferBeforeMinutes,
         after: current.bufferAfterMinutes,
       };
-      if (body.typeId !== undefined && body.typeId !== current.typeId) {
+      // The type's meeting methods, when the type or the method changes (A1).
+      let offered: StoredKind[] | null = null;
+      const typeChanged = body.typeId !== undefined && body.typeId !== current.typeId;
+      if (typeChanged) {
         const type = await tx.appointmentType.findFirst({
           where: { businessId, id: body.typeId },
           select: {
@@ -358,10 +377,13 @@ export class SchedulingWriteService {
             archivedAt: true,
             bufferBeforeMinutes: true,
             bufferAfterMinutes: true,
+            locationKind: true,
+            meetingMethods: true,
           },
         });
         if (!type) throw errors.notFound();
         if (type.archivedAt) throw errors.typeArchived();
+        offered = typeMethods(type);
         buffers = { before: type.bufferBeforeMinutes, after: type.bufferAfterMinutes };
         set('type', 'typeId', type.id, false);
         set('buffers', 'bufferBeforeMinutes', buffers.before, false);
@@ -389,13 +411,16 @@ export class SchedulingWriteService {
         set('timezone', 'timeZone', zone, zone === current.timeZone);
       }
 
-      const kind = body.method ? locationKindOf(body.method) : current.locationKind;
-      if (!kind) {
-        throw errors.unsupported(
-          'The "Other" meeting method is not available yet. Choose another.',
-        );
-      }
+      const kind = body.method ? kindOf(body.method) : current.locationKind;
       const kindChanged = kind !== current.locationKind;
+      if (kindChanged && !typeChanged && current.typeId) {
+        const type = await tx.appointmentType.findFirst({
+          where: { businessId, id: current.typeId },
+          select: { locationKind: true, meetingMethods: true },
+        });
+        offered = type ? typeMethods(type) : null;
+      }
+      if (offered && !offered.includes(kind)) throw errors.methodNotOffered('method');
       set('method', 'locationKind', kind, !kindChanged);
 
       // The office and room only belong to an in-person appointment (the database checks it).

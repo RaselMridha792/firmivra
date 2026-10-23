@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
+import { PublicLink } from '../public-links/schemas.js';
 import { OkResponse } from '../schemas.js';
 import { IntakeView, RequestIntakeCorrectionRequest } from './intakes.js';
 import { IntakeId } from './schemas.js';
@@ -132,6 +133,9 @@ export function createIntakeFormsClient(request: ApiRequest) {
       request(IntakeFormDetail, `${form(id)}/duplicate`, post({ asTemplate })),
     archiveForm: async (id: string): Promise<IntakeFormDetail> =>
       request(IntakeFormDetail, `${form(id)}/archive`, post()),
+    /** The main form's link and embed code: its Begin Online page. 404 for any other form. */
+    publicLink: async (id: string): Promise<PublicLink> =>
+      request(PublicLink, `${form(id)}/public-link`),
 
     // Settings
     settings: async (): Promise<IntakeSettings> => request(IntakeSettings, SETTINGS),
