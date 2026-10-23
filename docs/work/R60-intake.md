@@ -188,3 +188,6 @@ After a PR merges, merge `origin/main` into the next branch before more work on 
 - Oct 23 (fresh session): #1028, #1031, #1033 and #1034 merged. I3 link contract: a main form's
   `GET /business/intake-forms/{id}/public-link` answers `PublicLink` with its Begin Online page
   (`beginOnlinePageUrl`), the client's `publicLink(id)` and the mock. The embed blocks found (Needs).
+- Oct 23: #1038 (I3 link contract) opened. I3 link API: `IntakeLibraryService.publicLink`, the
+  route, and 2 e2e tests (every state; 404 for another form, OTHER, an archived form, a page owned
+  by another service, firm B); intake workspace e2e 16 of 16, API `tsc` 0 errors.
