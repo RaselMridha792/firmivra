@@ -34,8 +34,8 @@ this file.
 | #1031 | `rasel/R60-intake-publish` | I3 (validation): Publish names each problem and goes to it (merged Oct 23) |
 | #1033 | `rasel/R60-intake-settings-p1` | I4 to I6: Edit panels, Submission Rules panel, a real test reminder (merged Oct 23) |
 
-Pushed, no PR yet (two non-contract PRs are open). Open each when a slot frees, after merging
-`origin/main` into it:
+Opened on Oct 24, one at a time: `rasel/R60-intake-settings-p2` as #1054 (merged) and
+`rasel/R60-staff-drafts` as #1056. Their notes, kept for the record:
 
 | Branch | What | Before its PR |
 | --- | --- | --- |
@@ -79,7 +79,8 @@ Mock specs pass on each: `r60-intake-link` 2, `tumit-intake-builder` and `tumit-
    transfer and branding with R56, Security and Data with R1, Preferences consistency) return Built,
    Partially built or Not built, the page, the test result, the evidence and what remains. The
    tab-to-page mapping (check 10) is one table in that PR.
-4. **(Waiting for Rasel: the plan and questions are under Needs.) Settings areas:** Company Profile "Request Change", Notifications, Billing and Payments.
+4. **(Rasel's defaults, Oct 24, under Needs: Request Change through the support-request flow,
+   then Notifications, then Billing and Payments.) Settings areas:** Company Profile "Request Change", Notifications, Billing and Payments.
 5. **(SM5 built: `rasel/R60-staff-drafts`. SM3 is blocked: see Needs.) Staff Management screens** from Octavia's new review
    (`docs/specs/review-2026-10-23/CHANGE-LIST.md`, section B): SM3 (wrong routes: Offices & Job
    Titles, New Accounts & Security), SM5 (drafts not found; the file lost after Back), SM8 (work
