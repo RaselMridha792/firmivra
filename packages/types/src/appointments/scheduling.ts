@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
 import { HttpsUrl } from '../content/schemas.js';
-import { AppointmentEvent, TimeOfDay } from './schemas.js';
+import { AppointmentEvent, checkMeetingMethods, TimeOfDay } from './schemas.js';
 
 // Appointments workspace (R42 contract, for Tumit's screens): the overview's KPIs, the Calendar /
 // List / Today views with search, the full Schedule Appointment form (Create New and Edit
@@ -33,7 +33,10 @@ export const AppointmentDisplayStatus = z.enum([
 ]);
 export type AppointmentDisplayStatus = z.infer<typeof AppointmentDisplayStatus>;
 
-/** In Person, Phone, Zoom / Video, Other. OTHER is new (database enum has the first three). */
+/**
+ * In Person, Phone, Zoom / Video, Other. OTHER is new (the database enum has the first three): no
+ * appointment or appointment type takes it yet (400 VALIDATION_FAILED).
+ */
 export const MeetingMethod = z.enum(['IN_PERSON', 'PHONE', 'VIDEO', 'OTHER']);
 export type MeetingMethod = z.infer<typeof MeetingMethod>;
 
@@ -239,6 +242,7 @@ const scheduleFields = {
   /** IANA name; the firm's when left out. */
   timezone: z.string().max(100).optional(),
   allDay: z.boolean(),
+  /** One of the type's meeting methods (400 VALIDATION_FAILED at `method` otherwise). */
   method: MeetingMethod,
   officeId: z.uuid().nullable().optional(),
   roomId: z.uuid().nullable().optional(),
@@ -353,6 +357,8 @@ export const SchedulingOptions = z.object({
       durationMinutes: z.number().int(),
       color: z.string().nullable(),
       serviceId: z.uuid().nullable(),
+      /** The meeting methods the type offers, in order (A1): the form's Method choices. */
+      methods: z.array(MeetingMethod),
     }),
   ),
   services: z.array(NamedItem),
@@ -518,6 +524,7 @@ export const AppointmentTypeConfig = z.object({
   serviceId: z.uuid().nullable(),
   /** Empty: anyone. */
   eligibleStaffUserIds: z.array(z.uuid()),
+  /** The meeting methods the type offers, in order (A1, 1 to 3); the first is its location kind. */
   methods: z.array(MeetingMethod),
   officeIds: z.array(z.uuid()),
   bufferBeforeMinutes: z.number().int(),
@@ -535,7 +542,16 @@ export const SetAppointmentTypeConfigRequest = z.strictObject({
   description: clearable(text(500, 'many')),
   serviceId: z.uuid().nullable().optional(),
   eligibleStaffUserIds: z.array(z.uuid()).max(200).optional(),
-  methods: z.array(MeetingMethod).min(1).optional(),
+  /**
+   * A1: 1 to 3 of in person, phone and video, no repeats, in the order shown; the first becomes
+   * the type's location kind. Each problem is named at its item (`methods.1`). Existing
+   * appointments keep their methods.
+   */
+  methods: z
+    .array(MeetingMethod)
+    .min(1, 'Choose at least one meeting method')
+    .superRefine(checkMeetingMethods)
+    .optional(),
   officeIds: z.array(z.uuid()).max(50).optional(),
   bufferBeforeMinutes: z.number().int().min(0).max(120).optional(),
   bufferAfterMinutes: z.number().int().min(0).max(120).optional(),

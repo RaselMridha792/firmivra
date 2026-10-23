@@ -16,6 +16,7 @@ import {
   type ContactInput,
   ContactSearchQuery,
   type AppointmentContact,
+  type MeetingMethod,
   type MemberRef,
   parseInput,
   SaveAppointmentDraftRequest,
@@ -264,6 +265,9 @@ function seed(empty: boolean): Store {
     next: 100,
   };
 }
+
+/** What a type offers until its configuration says otherwise (as the mock's configuration). */
+const ALL_METHODS: MeetingMethod[] = ['IN_PERSON', 'PHONE', 'VIDEO'];
 
 function TYPES() {
   return [
@@ -521,7 +525,11 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       await mockDelay();
       return {
         timezone: TZ,
-        types: TYPES(),
+        // Each type's meeting methods (A1), from its configuration.
+        types: TYPES().map((t) => ({
+          ...t,
+          methods: s.typeConfigs.get(t.id)?.methods ?? ALL_METHODS,
+        })),
         services: SERVICES(),
         staff: staffList,
         offices: [
@@ -912,7 +920,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           description: null,
           serviceId: null,
           eligibleStaffUserIds: [],
-          methods: ['IN_PERSON', 'PHONE', 'VIDEO'],
+          methods: ALL_METHODS,
           officeIds: [],
           bufferBeforeMinutes: 0,
           bufferAfterMinutes: 15,
@@ -936,7 +944,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         description: null,
         serviceId: null,
         eligibleStaffUserIds: [],
-        methods: ['IN_PERSON', 'PHONE', 'VIDEO'] as AppointmentTypeConfig['methods'],
+        methods: ALL_METHODS,
         officeIds: [],
         bufferBeforeMinutes: 0,
         bufferAfterMinutes: 0,
