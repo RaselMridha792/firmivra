@@ -124,6 +124,10 @@ const toItem = ({
   ...item
 }: LeadDetail): LeadListItem => item;
 
+/** A Begin Online lead by id (the pipeline mock's profile of it: the API keeps both in one table). */
+export const beginOnlineFixture = (leadId: string): LeadDetail | undefined =>
+  fixtures().find((l) => l.id === leadId);
+
 export function createLeadsMock(options: { role?: MockFirmRole } = {}): LeadsClient {
   const leads = fixtures();
   const staff = options.role === 'STAFF';

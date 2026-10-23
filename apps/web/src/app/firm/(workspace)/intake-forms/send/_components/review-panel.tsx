@@ -22,6 +22,7 @@ import {
   formatDay,
   routeLine,
   type SendChoices,
+  type SendNotice,
 } from './send-model';
 
 const ROUTE_ICONS = { EMAIL: EnvelopeSimple, SMS: ChatText, PORTAL: Graph };
@@ -95,13 +96,18 @@ function SentResult({
         <p>
           {sent
             ? `${form.form.name} now shows in Intake Forms as Not Started.`
-            : 'The form was saved but not delivered. Open it to resend.'}
+            : `The form was saved, but nothing reached ${form.recipient.name}. A form reaches a client through their client portal sign-in: check their portal access, then open the form to resend it.`}
         </p>
       </Note>
       <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium">
         <Link href={`/intake-forms/${form.id}`} className="text-link underline">
           View sent form
         </Link>
+        {!sent && form.recipient.kind === 'CLIENT' ? (
+          <Link href={`/clients/${form.recipient.id}`} className="text-link underline">
+            Open {form.recipient.name}
+          </Link>
+        ) : null}
         <Link href="/intake-forms" className="text-link underline">
           Back to Intake Forms
         </Link>
@@ -140,7 +146,7 @@ export function ReviewPanel({
   onDraft: () => void;
   sending: boolean;
   drafting: boolean;
-  notice: { text: string; tone: 'success' | 'error' } | undefined;
+  notice: SendNotice | undefined;
   result: SendIntakeFormResult | undefined;
   onAnother: () => void;
 }) {
@@ -217,6 +223,14 @@ export function ReviewPanel({
               className={`text-sm ${notice.tone === 'error' ? 'text-danger' : 'text-success'}`}
             >
               {notice.text}
+              {notice.link ? (
+                <>
+                  {' '}
+                  <Link href={notice.link.href} className="font-medium text-link underline">
+                    {notice.link.label}
+                  </Link>
+                </>
+              ) : null}
             </p>
           ) : null}
           <div className="flex flex-col gap-3">

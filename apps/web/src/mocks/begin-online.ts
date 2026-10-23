@@ -31,6 +31,7 @@ import {
   createMockSlotUploads,
   fileView,
   keptFiles,
+  MOCK_INTAKE_FILE_SIZE_MB,
   mockForm,
   type MockSlotFile,
   mockSubmitBlock,
@@ -66,6 +67,9 @@ import { mockBusiness } from './me';
  *     limit, at step 1 and again at step 3 (409 TOO_MANY_FILES). The ticket URL starts with
  *     `mock:`, so `uploadFile()` skips the PUT. A ticket belongs to the draft that asked for it:
  *     once a start or a resume has replaced this browser's draft, it answers 410 UPLOAD_EXPIRED.
+ *     The firm's limit per file is 10 MB (MOCK_INTAKE_FILE_SIZE_MB, the API's default; the form's
+ *     and the draft's `maxFileSizeMb`): a larger file's ticket answers 400 VALIDATION_FAILED at
+ *     `sizeBytes`, "Files can be at most 10 MB".
  *   - `forms` lists the services in the page's order (BEGIN_ONLINE_FORM_ORDER); `start` fills
  *     the form's contact fields with `beginOnlinePrefill`, as the API does.
  *   - A save (or a submit's answers) with a new SSN or EIN ending in 0503 (MOCK_KEY_DOWN_LAST4
@@ -268,6 +272,7 @@ export function createBeginOnlineMock(
       title: definition.title,
       definition,
       taxYear: d.taxYear,
+      maxFileSizeMb: MOCK_INTAKE_FILE_SIZE_MB,
       contact: d.contact,
       answers: maskIntakeAnswers(definition, d.answers),
       uploads: d.files.map(fileView),
@@ -304,6 +309,7 @@ export function createBeginOnlineMock(
         title: definition.title,
         definition,
         taxYear: taxYear(),
+        maxFileSizeMb: MOCK_INTAKE_FILE_SIZE_MB,
       });
     },
     start: async (form, body) => {

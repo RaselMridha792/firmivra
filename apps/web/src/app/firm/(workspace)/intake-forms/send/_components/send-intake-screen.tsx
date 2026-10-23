@@ -2,6 +2,7 @@
 
 import { CaretRight } from '@phosphor-icons/react';
 import {
+  ApiRequestError,
   type FormDeliveryChannel,
   type SaveSendDraftRequest,
   SendIntakeFormRequest,
@@ -13,7 +14,7 @@ import { useRef, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { useMe } from '../../../../../../components/signed-in';
 import { api } from '../../../../../../lib/api';
-import { errorMessage } from '../../../../../../lib/errors';
+import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { DeliveryPanel } from './delivery-panel';
 import { FormPanel } from './form-panel';
@@ -31,6 +32,7 @@ import {
   type Recipient,
   type Schedule,
   type SendChoices,
+  type SendNotice,
   sendBody,
   today,
   usableChannel,
@@ -41,15 +43,44 @@ import {
 const INTAKE_KEY = ['intake-forms'];
 const FORMS_KEY = ['intake-forms', 'send', 'forms'];
 
-/** The API's codes for Send Form, in the words the screen shows. */
+/**
+ * The API's codes for Send Form, in the words the screen shows (Octavia's review, I2: a code with
+ * no words here showed "Something went wrong. Try again in a moment.").
+ */
 const SEND_ERRORS: Record<string, string> = {
   FORM_ALREADY_OPEN:
     'This recipient already has this form open. Open it from Intake Forms to resend it instead.',
-  PORTAL_UNAVAILABLE: 'This recipient has no client portal access. Choose Email or SMS.',
+  NO_ENGAGEMENT:
+    "This client has no active service for this form's service. Add the service to the client, then send.",
+  PORTAL_UNAVAILABLE:
+    'This client has no client portal sign-in yet, so the form can’t reach them. They can sign up on your portal, and you approve it under Sign-ups.',
+  LEAD_LINK_UNAVAILABLE:
+    'Forms can’t be sent to leads or new contacts yet. Send it once the lead is a client with a portal sign-in.',
   SMS_UNAVAILABLE:
-    "Text messages can't be sent to this recipient right now. Choose Email or Client Portal.",
-  FORM_PUBLISHED: 'This form is not published yet. Publish it before sending.',
+    'Text messages are not available for intake forms yet. Choose Email or Client Portal.',
+  FORM_NOT_PUBLISHED: 'This form is not published yet. Publish it in Form Templates, then send.',
+  VALIDATION_FAILED: 'Some details need fixing. Check the highlighted fields.',
 };
+
+/** Where to fix a refused send, when there is one place for it. */
+function fixLink(code: string | undefined, recipient: Recipient): SendNotice['link'] {
+  if (recipient.kind !== 'CLIENT') return undefined;
+  if (code === 'NO_ENGAGEMENT')
+    return { href: `/clients/${recipient.id}`, label: `Open ${recipient.name}` };
+  if (code === 'PORTAL_UNAVAILABLE') return { href: '/sign-ups', label: 'Open Sign-ups' };
+  return undefined;
+}
+
+/** The request's field errors from a 400 (`details`: path and message), by the screen's fields. */
+function fieldErrorsOf(error: unknown): FieldErrors {
+  const found: FieldErrors = {};
+  if (!(error instanceof ApiRequestError)) return found;
+  for (const detail of error.details ?? []) {
+    const field = detail.path.split('.')[0];
+    if (isFieldKey(field) && !found[field]) found[field] = detail.message;
+  }
+  return found;
+}
 
 const FIELD_KEYS: readonly string[] = [
   'recipient',
@@ -107,7 +138,7 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
   const [kind, setKind] = useState<Recipient['kind']>('CLIENT');
   const [state, setState] = useState<State>(() => start(initialFormId));
   const [errors, setErrors] = useState<FieldErrors>({});
-  const [notice, setNotice] = useState<{ text: string; tone: 'success' | 'error' }>();
+  const [notice, setNotice] = useState<SendNotice>();
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [draftId, setDraftId] = useState<string>();
   const [result, setResult] = useState<SendIntakeFormResult>();
@@ -183,7 +214,13 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
         // fetch rejects with a TypeError when the API can't be reached: the send may have
         // happened, so the same request keeps its key and the API answers it only once.
         attemptRef.current = { key, body: fingerprint, retry: error instanceof TypeError };
-        setNotice({ text: errorMessage(error, SEND_ERRORS), tone: 'error' });
+        const fields = fieldErrorsOf(error);
+        if (Object.keys(fields).length) setErrors(fields);
+        setNotice({
+          text: errorMessage(error, SEND_ERRORS),
+          tone: 'error',
+          link: fixLink(errorCode(error), recipient),
+        });
       },
     });
   }

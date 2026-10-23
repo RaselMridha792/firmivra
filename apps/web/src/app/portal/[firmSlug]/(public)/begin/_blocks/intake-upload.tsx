@@ -6,7 +6,6 @@ import {
   DOCUMENT_ERRORS,
   type IntakeUpload,
   type IntakeUploadField,
-  megabytes,
   PORTAL_BLOCKED_TEXT,
   UPLOAD_LIMITS,
 } from '@firmivra/types';
@@ -23,6 +22,7 @@ import {
 import { useId, useState } from 'react';
 import { errorMessage } from '../../../../../../lib/errors';
 import type { Fill } from './intake-fields';
+import { firmFileSize, issueKey, type ScreenUpload } from './intake-values';
 
 /**
  * Why a file was refused: the firm's size limit in its own words ("Files can be at most 50 MB",
@@ -33,18 +33,19 @@ function uploadProblem(e: unknown): string {
     e instanceof ApiRequestError ? e.details?.find((d) => d.path === 'sizeBytes') : undefined;
   return size?.message ?? errorMessage(e, { ...DOCUMENT_ERRORS, ...BEGIN_ONLINE_ERRORS });
 }
-import { issueKey, type ScreenUpload } from './intake-values';
 
-/** What an upload slot needs from the draft: its files and the two actions. */
+/**
+ * What an upload slot needs from the draft: its files, the firm's largest file per upload (the
+ * draft's `maxFileSizeMb`, which `upload` checks before sending) and the two actions.
+ */
 export interface UploadActions {
   uploads: readonly IntakeUpload[];
+  maxFileSizeMb: number;
   upload: (slot: string, file: File) => Promise<unknown>;
   remove: (uploadId: string) => Promise<unknown>;
 }
 
 const ACCEPT = Object.values(UPLOAD_LIMITS.types).flat().join(',');
-/** The largest file, in words ("100 MB"). */
-const MAX_SIZE = megabytes(UPLOAD_LIMITS.maxBytes);
 const STATUS_TEXT: Record<IntakeUpload['status'], string> = {
   CHECKING: 'Checking',
   READY: 'Uploaded',
@@ -93,6 +94,8 @@ export function UploadInput({
   const [failure, setFailure] = useState('');
   const [dragging, setDragging] = useState(false);
   const files = actions.uploads.filter((u) => u.slot === field.key);
+  // The firm's own limit ("10 MB"), not the platform's 100 MB.
+  const maxSize = firmFileSize(actions.maxFileSizeMb);
   const label = `${fill(field.label)}${field.required ? ' *' : ''}`;
   // A missing reason and a missing file are both reported on the field itself.
   const issue = errors[issueKey([field.key])];
@@ -217,7 +220,7 @@ export function UploadInput({
       <div className={`grid gap-3 ${field.examples?.length && !tile ? 'md:grid-cols-2' : ''}`}>
         {/* The whole zone opens the file chooser; the file input inside stays keyboard-reachable. */}
         <label
-          title={`${UPLOAD_LIMITS.typeNames}, up to ${MAX_SIZE} each`}
+          title={`${UPLOAD_LIMITS.typeNames}, up to ${maxSize} each`}
           onDragOver={(event) => {
             event.preventDefault();
             setDragging(true);
@@ -237,7 +240,7 @@ export function UploadInput({
                 <span className="font-semibold text-info">Click to upload</span> or drag and drop
               </span>
               <span className="text-text">
-                {UPLOAD_LIMITS.typeNames} (Max {MAX_SIZE})
+                {UPLOAD_LIMITS.typeNames} (Max {maxSize})
               </span>
             </>
           ) : chooser ? (
@@ -267,7 +270,7 @@ export function UploadInput({
               <span>or drag and drop{tile ? '' : ' files here'}</span>
               <span>(Upload as many as needed)</span>
               <span className="sr-only">
-                {UPLOAD_LIMITS.typeNames}, up to {MAX_SIZE} each
+                {UPLOAD_LIMITS.typeNames}, up to {maxSize} each
               </span>
             </>
           )}

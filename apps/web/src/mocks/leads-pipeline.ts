@@ -25,6 +25,7 @@ import {
   UpdateLeadRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { beginOnlineFixture } from './leads';
 
 /**
  * Mock data for `api.leadPipeline` (R43 contract, the Leads page and Lead Profile). Synthetic
@@ -277,8 +278,9 @@ function seed(empty: boolean): Store {
         stage,
         lastContact:
           contacted === null ? null : { at: ago(contacted), channel: n % 2 ? 'CALL' : 'EMAIL' },
+        // As the API: closing a lead (Converted, Not Qualified, Lost) clears its follow-up.
         nextAction:
-          stage === 'CONVERTED' || stage === 'DECLINED'
+          stage === 'CONVERTED' || stage === 'DECLINED' || stage === 'LOST'
             ? stage === 'DECLINED'
               ? {
                   type: 'CLOSE_LEAD',
@@ -460,8 +462,67 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
   const me = role === 'STAFF' ? staff(3, 'Daniel Okafor') : staff(1, 'Morgan Avery');
   const visible = (l: Lead) =>
     !l.profile.archivedAt && (role !== 'STAFF' || l.profile.assignedTo?.userId === me.userId);
+  /**
+   * The Begin Online mock's leads, as the pipeline reads them when one is opened (the API keeps
+   * both in one table). Kept apart from the list so the Leads page's counts stay as seeded.
+   */
+  const beginOnline = new Map<string, Lead>();
+  const fromBeginOnline = (id: string): Lead | undefined => {
+    const known = beginOnline.get(id);
+    if (known) return known;
+    const b = beginOnlineFixture(id);
+    if (!b) return undefined;
+    const l: Lead = {
+      profile: {
+        id: b.id,
+        number: `LD-1${id.slice(-4)}`,
+        firstName: b.firstName,
+        lastName: b.lastName,
+        businessName: null,
+        email: b.email,
+        phone: b.phone,
+        avatarUrl: null,
+        source: 'BEGIN_ONLINE',
+        sourceDetail: 'Begin Online',
+        campaign: null,
+        services: [{ id: b.service.id, name: b.service.name }],
+        priority: 'WARM',
+        stage: b.status,
+        lastContact: null,
+        nextAction: null,
+        assignedTo: null,
+        preferredContact: ['EMAIL'],
+        tags: [],
+        createdAt: b.createdAt,
+        address: null,
+        dateOfBirth: null,
+        bestTimeToContact: null,
+        recentActivity: [],
+        upcomingAppointments: [],
+        openTasks: [],
+        client: null,
+        beginOnline: true,
+        archivedAt: null,
+        version: 'v1',
+      },
+      notes: [],
+      activity: [
+        {
+          id: uuid('0f00', 9000 + Number(id.slice(-4))),
+          at: b.submittedAt,
+          kind: 'FORM_SUBMITTED',
+          label: `Begin Online form submitted: ${b.service.name}`,
+          by: null,
+        },
+      ],
+      tasks: [],
+      appointments: [],
+    };
+    beginOnline.set(id, l);
+    return l;
+  };
   const find = (id: string) => {
-    const l = s.leads.find((x) => x.profile.id === id);
+    const l = s.leads.find((x) => x.profile.id === id) ?? fromBeginOnline(id);
     if (!l || !visible(l)) throw fail(404, 'NOT_FOUND', 'Not found');
     return l;
   };

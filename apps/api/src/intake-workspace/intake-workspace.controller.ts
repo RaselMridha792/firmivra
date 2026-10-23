@@ -159,7 +159,10 @@ export class IntakeSettingsController {
   @Post('test-reminder')
   @HttpCode(200)
   @Roles(...FIRM_MANAGERS)
-  testReminder(@CurrentTenant() tenant: TenantContext): OkResponse {
-    return this.settings.testReminder(tenant);
+  testReminder(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<OkResponse> {
+    return this.settings.testReminder(tenant, auth.userId);
   }
 }

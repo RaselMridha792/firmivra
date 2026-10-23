@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import type { TxClient } from '@firmivra/db';
-import { INTAKE_MAX_FILE_SIZE_MB } from '@firmivra/types';
+import { INTAKE_MAX_FILE_SIZE_MB, intakeFileSizeProblem } from '@firmivra/types';
 
 /**
  * The size limit of a firm that has no intake settings yet: the table's default
@@ -11,7 +11,8 @@ export const INTAKE_DEFAULT_FILE_SIZE_MB = 10;
 /**
  * The firm's largest intake file, in MB (Intake Form Settings > Max file size per file, Octavia's
  * I10): its saved size, or the default while it has no settings row. Never past the platform's
- * own limit (UPLOAD_LIMITS.maxBytes, which the contract checks first). In the firm's scope.
+ * own limit (UPLOAD_LIMITS.maxBytes, which the contract checks first). In the firm's scope. The
+ * upload screens get it too (`maxFileSizeMb` of MyIntake, BeginOnlineForm and BeginDraft).
  */
 export async function intakeFileSizeMb(tx: TxClient, businessId: string): Promise<number> {
   const row = await tx.intakeSettings.findUnique({
@@ -33,12 +34,12 @@ export async function checkIntakeFileSize(
   businessId: string,
   sizeBytes: number,
 ): Promise<void> {
-  const mb = await intakeFileSizeMb(tx, businessId);
-  if (sizeBytes > mb * 1024 * 1024) {
+  const problem = intakeFileSizeProblem(sizeBytes, await intakeFileSizeMb(tx, businessId));
+  if (problem) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
       message: 'The request is not valid',
-      details: [{ path: 'sizeBytes', message: `Files can be at most ${mb} MB` }],
+      details: [{ path: 'sizeBytes', message: problem }],
     });
   }
 }

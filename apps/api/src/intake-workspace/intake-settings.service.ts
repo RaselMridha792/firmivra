@@ -17,6 +17,8 @@ import { AuditService } from '../audit/audit.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { INTAKE_DEFAULT_FILE_SIZE_MB } from '../intake/intake-file-size.js';
+import { NotifyDeliveryError } from '../notify/notify.service.js';
+import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { memberNames, memberRef } from '../workspaces/common.js';
 import type { ResetSettingsBody, UpdateSettingsBody } from './workspace-input.js';
 import { codeOfMime, FILE_TYPE_CODES, forbidden, iso } from './workspace.common.js';
@@ -47,6 +49,7 @@ export class IntakeSettingsService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
   ) {}
 
   private inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -352,12 +355,51 @@ export class IntakeSettingsService {
     });
   }
 
-  /** A test reminder needs the email sender for ad hoc messages, which does not exist yet. */
-  testReminder(tenant: TenantContext): OkResponse {
+  /**
+   * Test Reminder Email (Octavia's review, I6): the reminder a client gets, marked as a test, to
+   * the member who asked, at their own address only. Nothing else changes: no form, recipient,
+   * reminder or setting. It carries no client data (CLAUDE.md rule 4), only the firm's timing.
+   * Sent with the firm's own message email until intake reminders have their own template.
+   */
+  async testReminder(tenant: TenantContext, userId: string): Promise<OkResponse> {
     this.requireAdmin(tenant);
-    throw new ServiceUnavailableException({
-      code: 'TEST_REMINDER_UNAVAILABLE',
-      message: 'Test reminders are not available yet',
-    });
+    const businessId = tenant.businessId;
+    const { member, settings } = await this.inFirm(tenant, async (tx) => ({
+      member: await tx.membership.findFirst({
+        where: { businessId, userId, status: 'ACTIVE' },
+        select: { user: { select: { name: true, email: true } } },
+      }),
+      settings: await this.row(tx, businessId),
+    }));
+    if (!member?.user.email) throw forbidden();
+    const days = (n: number) => `${n} ${n === 1 ? 'day' : 'days'}`;
+    const timing = settings.remindersEnabled
+      ? `Your firm sends the first reminder ${days(settings.firstReminderDays)} after a form is sent, and the final one ${days(settings.finalReminderDays)} after, until the form is submitted.`
+      : 'Reminders are off for new forms, so clients get none until they are turned on.';
+    try {
+      await this.notify.send({
+        template: 'lead.message-email',
+        to: member.user.email,
+        businessId,
+        data: {
+          name: member.user.name.split(/\s+/)[0] ?? member.user.name,
+          subject: '[Test] Reminder: your intake form is waiting',
+          body: [
+            'This is a test of the reminder your clients get while an intake form is waiting. No client was contacted, and no form, reminder or setting changed.',
+            'What a client reads: "This is a reminder that your intake form is waiting. Sign in to your client portal to finish it. Thank you."',
+            timing,
+          ].join('\n\n'),
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof NotifyDeliveryError)) throw error;
+      throw new ServiceUnavailableException({
+        code: 'TEST_REMINDER_FAILED',
+        message: 'The test email could not be sent right now',
+      });
+    }
+    // Not an `intake_settings.` action: Recent Changes lists those, and a test changes nothing.
+    await this.audit.log('intake_reminder.test_sent', { type: 'intake_settings', id: businessId });
+    return { ok: true };
   }
 }

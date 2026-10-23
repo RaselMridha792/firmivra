@@ -9,6 +9,7 @@ import { IntakeStatus, type ScanStatus } from '../db-enums.js';
 import { CreateMyUploadRequest, fileNameFitsType, UPLOAD_LIMITS } from '../documents/schemas.js';
 import { IntakeAnswers, IntakeAnswersInput, intakeNumbersMasked } from './answers.js';
 import { INTAKE_LIMITS, IntakeFormDefinition, IntakeFormKey, IntakeKey } from './definition.js';
+import { INTAKE_MAX_FILE_SIZE_MB } from './workspace.js';
 
 // Intake forms in the portal (R11): the signed-in client's Intake Forms tab. The firm sends an
 // intake (one form for one of the client's services); the client fills it in with autosave,
@@ -121,6 +122,26 @@ export type IntakeUpload = z.infer<typeof IntakeUpload>;
 export const IntakeUploadList = z.object({
   items: z.array(IntakeUpload).max(INTAKE_LIMITS.maxFiles),
 });
+
+/**
+ * The firm's largest intake file, in MB (Intake Form Settings > Max file size per file, Octavia's
+ * I10): its saved size, or 10 MB while it has none, never past the documents' 100 MB
+ * (INTAKE_MAX_FILE_SIZE_MB). The portal's intake and Begin Online's form and draft carry it, so
+ * their upload fields say it ("up to 10 MB each") and refuse a larger file before sending it
+ * (`intakeFileSizeProblem`); the upload ticket refuses one too (400 VALIDATION_FAILED at
+ * `sizeBytes`).
+ */
+export const IntakeFileSizeMb = z.number().int().min(1).max(INTAKE_MAX_FILE_SIZE_MB);
+
+/**
+ * A file over the firm's limit (`IntakeFileSizeMb`): the words the upload ticket refuses it with
+ * ("Files can be at most 10 MB", its `sizeBytes` detail); null when it fits. The limit is held to
+ * INTAKE_MAX_FILE_SIZE_MB, as the API holds it.
+ */
+export function intakeFileSizeProblem(sizeBytes: number, maxFileSizeMb: number): string | null {
+  const mb = Math.min(maxFileSizeMb, INTAKE_MAX_FILE_SIZE_MB);
+  return sizeBytes > mb * 1024 * 1024 ? `Files can be at most ${mb} MB` : null;
+}
 
 /**
  * What the person sees for each scan status (as R5's My Documents): INFECTED and FAILED are both
@@ -264,6 +285,8 @@ export const MyIntake = MyIntakeListItem.extend({
   taxYear: z.number().int(),
   answers: IntakeAnswers,
   uploads: z.array(IntakeUpload).max(INTAKE_LIMITS.maxFiles),
+  /** The firm's largest file per upload, in MB (`IntakeFileSizeMb`; 10 until the firm sets one). */
+  maxFileSizeMb: IntakeFileSizeMb,
   /**
    * Steps saved at least once (intake_submissions.saved_steps; the stepper's ticks; resume at the
    * first one missing).
