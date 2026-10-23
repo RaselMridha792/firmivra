@@ -9,7 +9,6 @@ import {
   FloppyDisk,
   Plus,
   Repeat,
-  Trash,
   X,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
@@ -19,7 +18,9 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { useClients, useMembers } from './task-data';
+import { ChecklistItems, type Item } from './task-form-parts';
 import { TaskTypeSelect, useTypeChoice } from './task-type-field';
+import { UnsavedDialog, useUnsavedGuard } from './unsaved-guard';
 import { PRIORITY_LABEL, TASKS_KEY, TASK_ERRORS, dayText } from './task-shared';
 
 const field =
@@ -85,11 +86,6 @@ const Lbl = ({
   </div>
 );
 
-interface Item {
-  key: string;
-  label: string;
-  required: boolean;
-}
 type Unit = 'DAY' | 'WEEK' | 'MONTH' | 'QUARTER' | 'YEAR';
 
 /** /tasks/recurring/new: Set Up Recurring Task. */
@@ -127,6 +123,9 @@ export function RecurringFormScreen() {
   const [reminders, setReminders] = useState([1]);
   const [notifyClient, setNotifyClient] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
+  // Octavia's C8: each task the series makes starts with its own copy of this checklist (the API
+  // snapshots it), so ticking a step on one occurrence never ticks it on another.
+  const [applyChecklist, setApplyChecklist] = useState(true);
   const [nextKey, setNextKey] = useState(0);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -171,6 +170,37 @@ export function RecurringFormScreen() {
     .filter((i) => i.label.trim())
     .map((i) => ({ label: i.label.trim(), required: i.required }));
   const options = { invalidate: [...TASKS_KEY] };
+  const guard = useUnsavedGuard({
+    title,
+    typeId,
+    details,
+    clientId,
+    engagementId,
+    serviceId,
+    assignee,
+    extra,
+    interval,
+    unit,
+    startOn,
+    endMode,
+    endAfter,
+    endOn,
+    repeatOn,
+    nth,
+    weekday,
+    weekdays,
+    holidays,
+    atStart,
+    byTeam,
+    taxCalendar,
+    setPriority,
+    priority,
+    remind,
+    reminders,
+    notifyClient,
+    applyChecklist,
+    items: items.map((i) => [i.label, i.required]),
+  });
   const save = useApiMutation(() => {
     const body: CreateTaskSeriesRequest = {
       clientId,
@@ -185,7 +215,7 @@ export function RecurringFormScreen() {
       extraAssigneeIds: extra,
       createAtPeriodStart: atStart,
       linkTaxCalendar: taxCalendar,
-      checklist,
+      checklist: applyChecklist ? checklist : [],
       reminders: remind ? reminders.map((d) => ({ daysBefore: d })) : [],
       ...(notifyClient ? { clientVisible: true, notifyClient: true } : {}),
       recurrence,
@@ -218,7 +248,10 @@ export function RecurringFormScreen() {
       return;
     }
     save.mutate(undefined, {
-      onSuccess: (s) => router.push(`/tasks/recurring/${s.id}`),
+      onSuccess: (s) => {
+        guard.allow();
+        router.push(`/tasks/recurring/${s.id}`);
+      },
       onError: (er) => setMessage({ text: errorMessage(er, TASK_ERRORS), tone: 'error' }),
     });
   }
@@ -255,6 +288,7 @@ export function RecurringFormScreen() {
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
+      <UnsavedDialog guard={guard} onSave={submit} saving={save.isPending} />
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-4">
           <Section
@@ -603,7 +637,10 @@ export function RecurringFormScreen() {
                   className="inline-flex items-center gap-1"
                   onClick={() => {
                     setNextKey(nextKey + 1);
-                    setItems([...items, { key: `n${nextKey}`, label: '', required: false }]);
+                    setItems([
+                      ...items,
+                      { key: `n${nextKey}`, label: '', required: false, done: false },
+                    ]);
                   }}
                 >
                   <Plus aria-hidden weight="bold" className="size-4" /> Add Item
@@ -618,54 +655,7 @@ export function RecurringFormScreen() {
               </div>
             }
           >
-            {items.length === 0 ? (
-              <p className="rounded-lg bg-canvas p-4 text-center text-sm text-muted">
-                No checklist items yet.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {items.map((it, i) => (
-                  <li key={it.key} className="flex items-center gap-2">
-                    <input
-                      aria-label={`Checklist item ${i + 1}`}
-                      className={field}
-                      value={it.label}
-                      maxLength={300}
-                      onChange={(e) =>
-                        setItems(
-                          items.map((x) =>
-                            x.key === it.key ? { ...x, label: e.target.value } : x,
-                          ),
-                        )
-                      }
-                    />
-                    <label className="flex shrink-0 items-center gap-1 text-xs text-text">
-                      <input
-                        type="checkbox"
-                        className="size-4"
-                        checked={it.required}
-                        onChange={(e) =>
-                          setItems(
-                            items.map((x) =>
-                              x.key === it.key ? { ...x, required: e.target.checked } : x,
-                            ),
-                          )
-                        }
-                      />{' '}
-                      Required
-                    </label>
-                    <button
-                      type="button"
-                      aria-label={`Delete item ${i + 1}`}
-                      onClick={() => setItems(items.filter((x) => x.key !== it.key))}
-                      className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-divider text-danger"
-                    >
-                      <Trash aria-hidden weight="fill" className="size-4" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ChecklistItems items={items} onChange={setItems} showDone={false} />
           </Section>
           <Section
             title="Attachments (Optional)"
@@ -766,10 +756,17 @@ export function RecurringFormScreen() {
               ) : null}
               <Checkbox
                 label="Apply the same checklist to all occurrences"
-                checked
-                disabled
-                onChange={() => undefined}
+                checked={applyChecklist && checklist.length > 0}
+                disabled={checklist.length === 0}
+                onChange={(e) => setApplyChecklist(e.target.checked)}
               />
+              <p className="ml-8 text-xs text-muted" data-testid="rec-checklist-note">
+                {checklist.length === 0
+                  ? 'Add a checklist item to apply it to every occurrence.'
+                  : applyChecklist
+                    ? 'Each occurrence gets its own copy: ticking a step on one task does not tick it on the others.'
+                    : 'Occurrences start without a checklist.'}
+              </p>
             </div>
           </Section>
           <Section title="Notifications & Reminders" testId="rec-reminders">
@@ -847,7 +844,7 @@ export function RecurringFormScreen() {
         </aside>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button variant="secondary" onClick={() => router.push('/tasks')}>
+        <Button variant="secondary" onClick={() => guard.leave('/tasks')}>
           Cancel
         </Button>
         <div className="flex flex-wrap items-center gap-3">
@@ -890,6 +887,7 @@ export function RecurringFormScreen() {
                           key: `${t.id}-${i}-${items.length}`,
                           label: c.label,
                           required: c.required,
+                          done: false,
                         })),
                       ]);
                       setPicking(false);
