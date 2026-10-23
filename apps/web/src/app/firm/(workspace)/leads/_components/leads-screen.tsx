@@ -22,7 +22,7 @@ import {
   ChatCircleDots,
   EnvelopeSimple,
 } from '@phosphor-icons/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -31,7 +31,7 @@ import { LeadAppointmentDialog } from './lead-appointment-dialog';
 import { LeadsActionLegend } from './leads-action-legend';
 import { LeadCreateDialog } from './lead-create-dialog';
 import { LeadEditDialog } from './lead-edit-dialog';
-import { LeadMessageDialog } from './lead-message-dialog';
+import { LeadMessageDialog, type MessageRecipient, recipientOf } from './lead-message-dialog';
 import { LeadsDateFilter } from './leads-date-filter';
 import { LEAD_PIPELINE_KEY, PRIORITIES, SOURCES, STAGES, summaryTrend } from './lead-shared';
 import { LeadsTable, type LeadRowAction } from './leads-table';
@@ -280,7 +280,10 @@ export function LeadsScreen() {
   const [pageSize, setPageSize] = useState(8);
   const [selected, setSelected] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
-  const [message, setMessage] = useState<{ ids: string[]; channel: 'EMAIL' | 'SMS' } | null>(null);
+  const [message, setMessage] = useState<{
+    recipients: MessageRecipient[];
+    channel: 'EMAIL' | 'SMS';
+  } | null>(null);
   const [bulkDialog, setBulkDialog] = useState<LeadBulkDialogState>(null);
   const [editingLead, setEditingLead] = useState<LeadRow | null>(null);
   const [appointmentLead, setAppointmentLead] = useState<LeadRow | null>(null);
@@ -306,6 +309,16 @@ export function LeadsScreen() {
   const leads = useApiQuery([...LEAD_PIPELINE_KEY, 'list', query], () =>
     api.leadPipeline.list(query),
   );
+  // Every row shown, so a selection kept across pages still knows each lead's number and email.
+  const seenRef = useRef(new Map<string, LeadRow>());
+  useEffect(() => {
+    for (const row of leads.data?.items ?? []) seenRef.current.set(row.id, row);
+  }, [leads.data]);
+  const recipientsOf = (ids: string[]) =>
+    ids.flatMap((id) => {
+      const row = seenRef.current.get(id) ?? leads.data?.items.find((r) => r.id === id);
+      return row ? [recipientOf(row)] : [];
+    });
   const logCall = useApiMutation(
     ({ id }: { id: string }) =>
       api.leadPipeline.logActivity(id, { kind: 'CALL', summary: 'Called lead' }),
@@ -379,12 +392,14 @@ export function LeadsScreen() {
             {
               label: 'Send Email',
               icon: EnvelopeSimple,
-              onClick: () => setMessage({ ids: selected, channel: 'EMAIL' as const }),
+              onClick: () =>
+                setMessage({ recipients: recipientsOf(selected), channel: 'EMAIL' as const }),
             },
             {
               label: 'Send SMS',
               icon: ChatCircleDots,
-              onClick: () => setMessage({ ids: selected, channel: 'SMS' as const }),
+              onClick: () =>
+                setMessage({ recipients: recipientsOf(selected), channel: 'SMS' as const }),
             },
             { label: 'Assign Staff', icon: UserPlus, onClick: () => openBulk('ASSIGN') },
             { label: 'Change Status', icon: ArrowsClockwise, onClick: () => openBulk('STAGE') },
@@ -475,7 +490,9 @@ export function LeadsScreen() {
                     .catch(() => undefined)
                     .then(() => window.location.assign(`tel:${lead.phone}`));
                 }}
-                onMessage={(lead, channel) => setMessage({ ids: [lead.id], channel })}
+                onMessage={(lead, channel) =>
+                  setMessage({ recipients: [recipientOf(lead)], channel })
+                }
                 onRowAction={onRowAction}
               />
             </>
@@ -490,7 +507,7 @@ export function LeadsScreen() {
       {message ? (
         <LeadMessageDialog
           open
-          ids={message.ids}
+          recipients={message.recipients}
           channel={message.channel}
           onClose={() => setMessage(null)}
         />
