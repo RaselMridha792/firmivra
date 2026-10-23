@@ -31,7 +31,7 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { LeadAppointmentDialog } from '../../_components/lead-appointment-dialog';
 import { LeadEditDialog } from '../../_components/lead-edit-dialog';
-import { LeadMessageDialog } from '../../_components/lead-message-dialog';
+import { LeadMessageDialog, recipientOf } from '../../_components/lead-message-dialog';
 import {
   LEAD_PIPELINE_KEY,
   PRIORITY_LABELS,
@@ -302,18 +302,14 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
         </nav>
         {children}
       </div>
-      <LeadMessageDialog
-        open={dialog === 'email'}
-        ids={[id]}
-        channel="EMAIL"
-        onClose={() => setDialog(null)}
-      />
-      <LeadMessageDialog
-        open={dialog === 'sms'}
-        ids={[id]}
-        channel="SMS"
-        onClose={() => setDialog(null)}
-      />
+      {lead && (dialog === 'email' || dialog === 'sms') ? (
+        <LeadMessageDialog
+          open
+          recipients={[recipientOf(lead)]}
+          channel={dialog === 'email' ? 'EMAIL' : 'SMS'}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
       {dialog === 'appointment' && lead ? (
         <LeadAppointmentDialog lead={lead} onClose={() => setDialog(null)} />
       ) : null}

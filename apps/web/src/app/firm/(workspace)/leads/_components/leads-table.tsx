@@ -33,6 +33,8 @@ export type LeadRowAction = 'APPOINTMENT' | 'ASSIGN' | 'ARCHIVE' | 'EDIT' | 'STA
 
 interface LeadsTableProps {
   rows: LeadRow[];
+  /** Instead of "No leads match these filters" (the list could not load: say why). */
+  empty?: { title: string; text: string } | undefined;
   total: number;
   page: number;
   pageSize: number;
@@ -208,6 +210,7 @@ const columns: Column<LeadRow>[] = [
 
 export function LeadsTable({
   rows,
+  empty,
   total,
   page,
   pageSize,
@@ -247,8 +250,8 @@ export function LeadsTable({
           onSort: () => undefined,
         }}
         selection={{ selected, onChange: onSelectionChange }}
-        emptyTitle="No leads match these filters"
-        emptyText="Try another search or clear a filter to see more leads."
+        emptyTitle={empty?.title ?? 'No leads match these filters'}
+        emptyText={empty?.text ?? 'Try another search or clear a filter to see more leads.'}
         rowActions={(lead) => (
           <>
             <IconButton

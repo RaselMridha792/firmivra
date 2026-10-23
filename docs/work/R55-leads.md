@@ -12,8 +12,8 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
 ## Items
 
 - [x] L1 (P1): `/leads/{id}` is the Lead Workspace's Overview (individual-lead-profile-lead-workspace.jpg): Contact Information, Lead Details, Next Follow-Up / Lead Score / Interested In, Recent Activity, Upcoming Appointments, Next Action / Follow-Up, Open Tasks, Quick Actions; a Begin Online lead also shows its request with the review actions. Web only.
-- [ ] L2 (P1): Send SMS shows each recipient's saved number (and who has none) before sending, says why texts cannot go ("not set up for this firm yet"), and reports sent and not sent per lead. Needs Rasel for dev (below).
-- [ ] L3 (P1): a visible Overdue Follow-Ups filter when the card is clicked; future and completed follow-ups never counted (test).
+- [x] L2 (P1): the composer (row, selected leads, the lead's page) lists each recipient's saved number or address before sending, leaves out a lead with no phone (Send is off when nobody has one), and after sending says how many went and why the others did not; `SMS_UNAVAILABLE` reads "Text messages are not set up for this firm yet, so nothing was sent". Texts on dev still need the number (Needs, Rasel). Delivery to a real phone is untested until then.
+- [x] L3 (P1): the card turns on a visible "Overdue Follow-Ups" chip (remove to clear; More Filters keeps its checkbox), and the filter now combines with a status instead of clearing it. The API already counts only open leads' past-due, unfinished follow-ups (closing a lead clears its follow-up); the mock now does the same. With the API unreachable the Leads page keeps every frame (the cards show a dash, the filters stay, the table says why with Try again) instead of one error panel per section.
 - [ ] L9 (P1): Convert to Client fields editable before completion; carry-forward checked.
 - [ ] L4 to L8, L10 to L14: after the P1s.
 
