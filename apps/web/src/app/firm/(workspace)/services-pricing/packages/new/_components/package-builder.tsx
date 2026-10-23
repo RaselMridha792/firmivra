@@ -21,7 +21,7 @@ import {
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
-import { money } from '../../../_components/catalog-shared';
+import { CATALOG_ERRORS, money } from '../../../_components/catalog-shared';
 import {
   PackageIcon,
   PackagePreview,
@@ -483,7 +483,7 @@ export function PackageBuilder() {
           </Panel>
           {save.error ? (
             <p role="alert" className="text-sm text-danger">
-              {errorMessage(save.error)}
+              {errorMessage(save.error, CATALOG_ERRORS)}
             </p>
           ) : null}
           {Object.keys(errors).length ? (

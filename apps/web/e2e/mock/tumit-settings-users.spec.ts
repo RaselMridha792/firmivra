@@ -166,6 +166,52 @@ test('Change Role: one person, with the new role previewed and their overrides k
   await expect(table.getByRole('row', { name: /Hana Kim/ })).toContainText('Bookkeeper');
 });
 
+test('Custom roles: give one with Change Role, filter by it, and archive only when unused', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/users/roles/new?from=STAFF`);
+  await page.getByLabel('Role Name *').fill('Front Desk');
+  await page.getByRole('button', { name: 'Next: Set Permissions' }).click();
+  await page.getByTestId('set-permissions').getByRole('button', { name: 'Save Role' }).click();
+  await expect(page).toHaveURL(/\/settings\/users\?role=custom/);
+
+  const table = page.getByTestId('user-management');
+  await table.getByRole('button', { name: /Actions for Hana Kim/ }).click();
+  await page.getByRole('menuitem', { name: 'Change Role' }).click();
+  const change = page.getByTestId('change-role');
+  await change.getByLabel('New role *').selectOption({ label: 'Front Desk (custom)' });
+  await expect(change).toContainText('What Front Desk can do in this firm');
+  await change.getByRole('button', { name: 'Change Role' }).click();
+  await expect(page.getByTestId('users-result')).toHaveText(
+    'Hana Kim is now Front Desk (was Staff).',
+  );
+  await expect(table.getByRole('row', { name: /Hana Kim/ })).toContainText('Front Desk');
+  await table.getByLabel('Role').selectOption({ label: 'Front Desk (custom)' });
+  await expect(table.getByRole('row')).toHaveCount(2);
+
+  // Someone has it: Archive says so; once nobody does, it goes.
+  const panel = page.getByTestId('role-permissions');
+  await panel.getByRole('button', { name: 'Archive Role' }).click();
+  const archive = page.getByTestId('archive-role');
+  await archive.getByRole('button', { name: 'Archive Role' }).click();
+  await expect(archive.getByRole('alert')).toContainText('People still have this role');
+  await archive.getByRole('button', { name: 'Cancel' }).click();
+  await table.getByLabel('Role').selectOption('');
+  await table.getByRole('button', { name: /Actions for Hana Kim/ }).click();
+  await page.getByRole('menuitem', { name: 'Change Role' }).click();
+  await change.getByLabel('New role *').selectOption({ label: 'Staff' });
+  await change.getByRole('button', { name: 'Change Role' }).click();
+  await expect(page.getByTestId('users-result')).toHaveText(
+    'Hana Kim is now Staff (was Front Desk).',
+  );
+  await panel.getByLabel('Role').selectOption({ label: 'Front Desk (custom)' });
+  await panel.getByRole('button', { name: 'Archive Role' }).click();
+  await archive.getByRole('button', { name: 'Archive Role' }).click();
+  await expect(page.getByTestId('users-result')).toHaveText('Front Desk archived.');
+  await expect(panel.getByLabel('Role').getByRole('option', { name: /Front Desk/ })).toHaveCount(0);
+});
+
 test('Individual Permissions: Inherit, Allow or Deny per permission, and Reset to Inherit', async ({
   page,
 }) => {

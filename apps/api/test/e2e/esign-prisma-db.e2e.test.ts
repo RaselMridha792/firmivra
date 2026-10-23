@@ -1,6 +1,8 @@
 // The shared Prisma helpers of Firm Sign (esign-prisma.ts) against PostgreSQL: the request lock
 // and lastActivityAt check, recipients removed, kept and added in order, and field values sealed
 // with the firm key and read back. Synthetic data only.
+import { randomUUID } from 'node:crypto';
+import { ESIGN_MAX_REQUEST_BYTES } from '@firmivra/types';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { EsignFieldValues } from '../../src/esign/requests/esign-prisma.js';
 import {
@@ -22,6 +24,29 @@ afterAll(async () => {
 });
 
 describe('Firm Sign Prisma helpers on PostgreSQL', () => {
+  it("adds no file past 100 MB for the request's files together, under the request's lock (Rasel, Oct 22)", async () => {
+    const d = await readyDraft(w, w.a, 'Fake letter, size cap');
+    const [first] = (await repo.parts(w.a.id, d.id)).documents;
+    const { position: _, ...file } = first!;
+    // The same file again under a new id and key, claimed at `sizeBytes`: the repository's check
+    // is what two uploads confirmed at once would both meet.
+    const copy = (sizeBytes: number) => {
+      const id = randomUUID();
+      return {
+        ...file,
+        id,
+        s3Key: file.s3Key.replace(file.id, id),
+        sizeBytes,
+        createdAt: new Date(),
+      };
+    };
+    const room = ESIGN_MAX_REQUEST_BYTES - file.sizeBytes;
+    expect(await repo.addDocument(w.a.id, d.id, copy(room + 1))).toBe('REQUEST_TOO_LARGE');
+    expect(await repo.documentBytes(w.a.id, d.id)).toBe(file.sizeBytes);
+    expect(await repo.addDocument(w.a.id, d.id, copy(room))).toMatchObject({ sizeBytes: room });
+    expect(await repo.documentBytes(w.a.id, d.id)).toBe(ESIGN_MAX_REQUEST_BYTES);
+  });
+
   it('a write with a stale readAt changes nothing; a fresh one moves lastActivityAt on', async () => {
     const d = await readyDraft(w, w.a, 'Fake letter, stale write');
     const before = (await repo.findRequest(w.a.id, d.id))!;

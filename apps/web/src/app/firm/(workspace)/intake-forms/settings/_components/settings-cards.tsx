@@ -22,8 +22,8 @@ import {
   type FileType,
   FINAL_REMINDER_DAYS,
   FIRST_REMINDER_DAYS,
+  fileSizeOptions,
   type Group,
-  MAX_FILE_SIZES,
   type SectionId,
   withCurrent,
 } from './settings-model';
@@ -393,7 +393,15 @@ function FileTypesRow({
   );
 }
 
-export function SecurityCard({ draft, set, errors, state, readOnly, onEdit }: CardProps) {
+export function SecurityCard({
+  draft,
+  set,
+  errors,
+  state,
+  readOnly,
+  onEdit,
+  savedFileSizeMb,
+}: CardProps & { savedFileSizeMb: number | null }) {
   const s = draft?.security;
   return (
     <SettingsCard
@@ -424,7 +432,7 @@ export function SecurityCard({ draft, set, errors, state, readOnly, onEdit }: Ca
             label="Max file size per file"
             width="w-40"
             value={String(s.maxFileSizeMb)}
-            options={withCurrent(MAX_FILE_SIZES, s.maxFileSizeMb).map((mb) => ({
+            options={fileSizeOptions(savedFileSizeMb, s.maxFileSizeMb).map((mb) => ({
               value: String(mb),
               label: `${mb} MB`,
             }))}

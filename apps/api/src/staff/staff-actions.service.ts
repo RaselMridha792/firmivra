@@ -18,7 +18,43 @@ import {
 } from './staff.common.js';
 
 /** The member changed between our read and our write: read again and decide once more. */
-class MemberChanged extends Error {}
+export class MemberChanged extends Error {}
+
+/**
+ * Deactivate's work inside the caller's transaction (Staff Management, and Settings > Locations'
+ * Deactivate Manager): ends access to this firm only, keeps the record, cancels an open invite,
+ * signs the sessions out and audits `membership.deactivated`. The caller checked who may do it
+ * (assertManages) and that `target` is not DEACTIVATED. Lock order as TeamService's: the
+ * per-person invite lock, the invites, then the membership. MemberChanged when the member changed
+ * since `target` was read. Returns the sessions signed out.
+ */
+export async function deactivateMemberIn(
+  tx: TxClient,
+  audit: AuditService,
+  businessId: string,
+  target: Pick<Target, 'id' | 'userId' | 'role' | 'status'>,
+  reasonGiven: boolean,
+): Promise<number> {
+  await lockStaffInvites(tx, businessId, target.userId);
+  await tx.invite.updateMany({
+    where: { businessId, membershipId: target.id, acceptedAt: null, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  const { count } = await tx.membership.updateMany({
+    where: { businessId, id: target.id, status: target.status, role: target.role },
+    data: { status: 'DEACTIVATED' },
+  });
+  if (count !== 1) throw new MemberChanged();
+  const sessionsRevoked = await revokeSessions(tx, businessId, target.id);
+  await audit.logIn(
+    tx,
+    'membership.deactivated',
+    { type: 'membership', id: target.id },
+    { role: target.role, reasonGiven, sessionsRevoked },
+    { businessId },
+  );
+  return sessionsRevoked;
+}
 
 const result = (
   status: StaffActionResult['status'],
@@ -150,19 +186,12 @@ export class StaffActionsService {
       const target = await this.find(tx, businessId, id);
       assertManages(actor, target);
       if (target.status === 'DEACTIVATED') return result('DEACTIVATED');
-      await lockStaffInvites(tx, businessId, target.userId);
-      await tx.invite.updateMany({
-        where: { businessId, membershipId: id, acceptedAt: null, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-      await this.move(tx, businessId, target, 'DEACTIVATED');
-      const sessionsRevoked = await revokeSessions(tx, businessId, id);
-      await this.audit.logIn(
+      const sessionsRevoked = await deactivateMemberIn(
         tx,
-        'membership.deactivated',
-        { type: 'membership', id },
-        { role: target.role, reasonGiven, sessionsRevoked },
-        { businessId },
+        this.audit,
+        businessId,
+        target,
+        reasonGiven,
       );
       return result('DEACTIVATED', sessionsRevoked);
     });

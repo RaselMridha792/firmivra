@@ -2,7 +2,14 @@
 
 import type { ServicePackage } from '@firmivra/types';
 import { Badge, Toast } from '@firmivra/ui';
-import { ArrowLeft, Copy, PencilSimple, Power, Warning } from '@phosphor-icons/react';
+import {
+  ArrowCounterClockwise,
+  ArrowLeft,
+  Copy,
+  PencilSimple,
+  Power,
+  Warning,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -126,6 +133,26 @@ export function PackageDetailScreen({ id }: { id: string }) {
                 <Power aria-hidden weight="fill" className="size-4" />
                 {p.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
               </button>
+              {p.status === 'ARCHIVED' ? (
+                // Octavia's review S4: an archived package comes back as Inactive, history kept.
+                <button
+                  type="button"
+                  className={btn}
+                  onClick={() =>
+                    deactivate.mutate(undefined, {
+                      onSuccess: () =>
+                        setMessage({
+                          text: 'Package restored to Inactive. Activate it when it is ready to sell.',
+                          tone: 'success',
+                        }),
+                      onError: fail,
+                    })
+                  }
+                >
+                  <ArrowCounterClockwise aria-hidden weight="bold" className="size-4" />
+                  Restore
+                </button>
+              ) : null}
             </>
           ) : null}
         </div>

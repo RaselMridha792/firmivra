@@ -65,6 +65,55 @@ test('Preview shows the sections without sending, and Use Template opens Send', 
   await expect(page).toHaveURL(/\/intake-forms\/send\?formId=[0-9a-f-]{36}$/);
 });
 
+// Octavia's review of Oct 20 (I1): a duplicate stays in the library as a draft, counted in the
+// numbers, and a draft is published before it is sent.
+test('a duplicate stays in the library as a draft and in the numbers', async ({ page }) => {
+  await openLibrary(page);
+  const card = page.getByTestId('template-card').filter({ hasText: 'Payroll Setup Form' });
+  await card.getByRole('button', { name: 'Actions for Payroll Setup Form' }).click();
+  await page.getByRole('menuitem', { name: 'Duplicate' }).click();
+  await expect(
+    page.getByText('"Payroll Setup Form (Copy)" was added as a draft template.'),
+  ).toBeVisible();
+  await expect(page.getByTestId('template-card')).toHaveCount(9);
+  await expect(page.getByTestId('kpi-total')).toContainText('9');
+  const copy = page.getByTestId('template-card').filter({ hasText: 'Payroll Setup Form (Copy)' });
+  await expect(copy).toContainText('Draft');
+  await expect(copy.getByRole('button', { name: 'Use Template' })).toBeDisabled();
+  await expect(copy).toContainText('Publish this template before sending it');
+});
+
+test('Create Template asks for the service, then opens the builder', async ({ page }) => {
+  await openLibrary(page);
+  await page.getByRole('tab', { name: 'Payroll' }).click();
+  await page.getByRole('button', { name: 'Create Template' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Create Template' });
+  await expect(dialog.getByLabel('Service')).toHaveValue(/[0-9a-f-]{36}/);
+  await expect(dialog.getByLabel('Service')).toContainText('Payroll service (Payroll)');
+  await dialog.getByRole('button', { name: 'Create Template' }).click();
+  await expect(page).toHaveURL(/\/intake-forms\/builder\/[0-9a-f-]{36}$/, { timeout: 60_000 });
+});
+
+test('says which built-in form is missing when its category has none', async ({ page }) => {
+  await openLibrary(page);
+  await expect(page.getByTestId('missing-service-forms')).toHaveCount(0);
+  const card = page.getByTestId('template-card').filter({ hasText: 'Payroll Setup Form' });
+  await card.getByRole('button', { name: 'Actions for Payroll Setup Form' }).click();
+  await page.getByRole('menuitem', { name: 'Archive' }).click();
+  await page
+    .getByRole('dialog', { name: 'Archive template?' })
+    .getByRole('button', { name: 'Archive Template' })
+    .click();
+  await expect(page.getByTestId('missing-service-forms')).toContainText(
+    'The built-in Payroll form appears here once your firm offers that service.',
+  );
+  await expect(
+    page
+      .getByTestId('missing-service-forms')
+      .getByRole('link', { name: 'Open Services & Pricing' }),
+  ).toHaveAttribute('href', '/services-pricing');
+});
+
 test('no sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   await openLibrary(page);
