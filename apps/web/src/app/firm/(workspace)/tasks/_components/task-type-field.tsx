@@ -40,13 +40,16 @@ export function useTypeChoice(
   ];
   const value = !query.isSuccess || options.some((o) => o.value === typeId) ? typeId : '';
   const required = options.length > 0;
+  // A list that failed once counts as failed while it is retried: it never holds up a save.
+  const failed = query.isError || (query.isPending && query.failureCount > 0);
+  const loading = query.isPending && !failed;
   return {
     options,
     value,
     required,
-    state: query.isPending ? 'loading' : query.isError ? 'error' : required ? 'some' : 'none',
+    state: loading ? 'loading' : failed ? 'error' : required ? 'some' : 'none',
     manages: role === 'OWNER' || role === 'ADMIN',
-    problem: query.isPending
+    problem: loading
       ? 'Task types are still loading. Try again in a moment.'
       : required && !value
         ? 'Choose a task type'
