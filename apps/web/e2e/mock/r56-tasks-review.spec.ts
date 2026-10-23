@@ -400,3 +400,151 @@ test('C6 Create Task: Browse Files and drop; wrong type and over 10 MB are named
   await expect(page.getByTestId('task-title')).toHaveText('Collect the W-2s and the 1099s');
   await expect(page.getByTestId('detail-attachments').getByRole('listitem')).toHaveCount(3);
 });
+
+test('C4 Client: search by part of a name, choose, clear, search for another', async ({ page }) => {
+  await page.goto(`${base}/new`);
+  const client = page.getByLabel('Client', { exact: true });
+  const search = page.getByTestId('client-search');
+  await search.fill('jam');
+  await expect(client.locator('option', { hasText: 'Jamie Sample' })).toHaveCount(1);
+  await expect(client.locator('option', { hasText: 'Riley Example' })).toHaveCount(0);
+  await client.selectOption({ label: 'Jamie Sample' });
+  await expect(page.getByTestId('form-summary')).toContainText('Jamie Sample');
+  await client.selectOption('');
+  await expect(page.getByTestId('form-summary')).not.toContainText('Jamie Sample');
+  await search.fill('riley');
+  await expect(client.locator('option', { hasText: 'Riley Example' })).toHaveCount(1);
+  await client.selectOption({ label: 'Riley Example' });
+  // A choice keeps its name when the search changes.
+  await search.fill('zzzz-no-such-client');
+  await expect(client.locator('option').first()).toHaveText('No clients match');
+  await expect(client.locator('option:checked')).toHaveText('Riley Example');
+});
+
+test('C5 Related To: the chosen client open engagements; a client change clears it', async ({
+  page,
+}) => {
+  await page.goto(`${base}/new`);
+  const related = page.getByLabel('Related to');
+  await expect(related).toBeDisabled();
+  await page.getByLabel('Client', { exact: true }).selectOption({ label: 'Jamie Sample' });
+  await expect(related.locator('option', { hasText: 'Bookkeeping (Growth) (open)' })).toHaveCount(
+    1,
+  );
+  await expect(related.locator('option', { hasText: '2024 Personal Tax' })).toHaveCount(0);
+  await related.selectOption({ label: 'Bookkeeping (Growth) (open)' });
+  await expect(page.getByTestId('form-summary')).toContainText('Bookkeeping (Growth)');
+  await page.getByLabel('Client', { exact: true }).selectOption({ label: 'Riley Example' });
+  await expect(related).toHaveValue('');
+  await expect(related.locator('option').first()).toHaveText('No open engagement for this client');
+  await expect(page.getByTestId('form-summary')).not.toContainText('Bookkeeping (Growth)');
+});
+
+test('C7 All Day sits with Due Time; the rule and the summary follow it', async ({ page }) => {
+  await page.goto(`${base}/new`);
+  const allDay = page.getByLabel('All Day');
+  const time = page.locator('#tf-time');
+  await expect(allDay).toBeChecked();
+  await expect(page.getByTestId('due-rule')).toContainText(
+    'All day: due by the end of the due date.',
+  );
+  await page.locator('#tf-due').fill('2027-03-02');
+  await expect(time).toBeDisabled();
+  await expect(page.getByTestId('form-summary')).toContainText('Mar 2, 2027');
+  await allDay.uncheck();
+  await expect(time).toBeEnabled();
+  await time.selectOption('14:30');
+  await expect(page.getByTestId('due-rule')).toContainText('Due at that time on the due date.');
+  await expect(page.getByTestId('due-rule')).toContainText('time zone');
+  await expect(page.getByTestId('form-summary')).toContainText('Mar 2, 2027 at 2:30 PM');
+});
+
+test('C8 Apply the same checklist: usable once there is a step; each occurrence gets a copy', async ({
+  page,
+}) => {
+  await page.goto(`${base}/recurring/new`);
+  const apply = page.getByLabel('Apply the same checklist to all occurrences');
+  const note = page.getByTestId('rec-checklist-note');
+  await expect(apply).toBeDisabled();
+  await expect(note).toHaveText('Add a checklist item to apply it to every occurrence.');
+  await page.getByRole('button', { name: 'Add Item' }).click();
+  await page.getByLabel('Checklist item 1').fill('Reconcile the bank feed');
+  await page.getByRole('checkbox', { name: 'Required' }).check();
+  await expect(apply).toBeEnabled();
+  await expect(apply).toBeChecked();
+  await expect(note).toContainText('Each occurrence gets its own copy');
+  await apply.uncheck();
+  await expect(note).toHaveText('Occurrences start without a checklist.');
+  await apply.check();
+  await page.getByLabel('Task Name *').fill('Monthly bank review');
+  await page.getByLabel('Task Type *').selectOption({ label: 'Bookkeeping' });
+  await page.getByLabel('Client *').selectOption({ index: 1 });
+  await page.getByLabel('Assign To *').selectOption({ index: 1 });
+  await page.getByTestId('series-save').click();
+  await expect(page).toHaveURL(/\/tasks\/recurring\/[0-9a-f-]{36}$/);
+});
+
+test('C10 Unsaved changes: Keep Editing, Discard, and Save from Cancel and Back', async ({
+  page,
+}) => {
+  await page.goto(`${base}/new`);
+  const dialog = page.getByRole('dialog', { name: 'Unsaved changes' });
+  // Nothing typed: Cancel leaves at once.
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page).toHaveURL(/\/tasks$/);
+  await page.getByRole('link', { name: 'Add Task', exact: true }).first().click();
+  await page.getByLabel('Task Name *').fill('Call about the extension');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeVisible();
+  await page.getByTestId('unsaved-keep').click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel('Task Name *')).toHaveValue('Call about the extension');
+  // A link (Back to Tasks) asks too; Save with missing fields stays and says what to fix.
+  await page.getByRole('link', { name: 'Back to Tasks' }).click();
+  await expect(dialog).toBeVisible();
+  await page.getByTestId('unsaved-save').click();
+  await expect(page.getByText('Choose a client', { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/tasks\/new$/);
+  // Discard leaves without saving.
+  await page.getByRole('link', { name: 'Back to Tasks' }).click();
+  await page.getByTestId('unsaved-discard').click();
+  await expect(page).toHaveURL(/\/tasks$/);
+  await page.getByRole('tab', { name: 'All Tasks' }).click();
+  await page.getByLabel('Search tasks').fill('Call about the extension');
+  await expect(page.getByTestId('task-table').getByTestId('task-link')).toHaveCount(0);
+
+  // The template editor asks the same.
+  await page.getByRole('tab', { name: 'Task Templates' }).click();
+  await page.getByTestId('create-template').click();
+  await page.getByLabel('Template Name *').fill('Unsaved template');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeVisible();
+  await page.getByTestId('unsaved-discard').click();
+  await expect(page).toHaveURL(/\/tasks\?view=templates$/);
+});
+
+test('C11 Duplicate a checklist item: a separate copy below it, kept in order on save', async ({
+  page,
+}) => {
+  await page.goto(`${base}/new`);
+  await fillRequired(page, 'Prepare the payroll filing');
+  await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
+  await page.getByRole('button', { name: 'Add Checklist Item' }).click();
+  await page.getByLabel('Checklist item 1').fill('Collect the timesheets');
+  await page.getByRole('button', { name: 'Add Checklist Item' }).click();
+  await page.getByLabel('Checklist item 2').fill('File the return');
+  await page.getByRole('button', { name: 'Duplicate item 1' }).click();
+  await expect(page.getByLabel('Checklist item 2')).toHaveValue('Collect the timesheets');
+  await expect(page.getByLabel('Checklist item 3')).toHaveValue('File the return');
+  await page.getByLabel('Checklist item 2').fill('Collect the contractor invoices');
+  await expect(page.getByLabel('Checklist item 1')).toHaveValue('Collect the timesheets');
+  await page.getByRole('button', { name: 'Move item 3 up' }).click();
+  await expect(page.getByLabel('Checklist item 2')).toHaveValue('File the return');
+  await page.getByRole('button', { name: 'Delete item 2' }).click();
+  await expect(page.getByLabel('Checklist item 2')).toHaveValue('Collect the contractor invoices');
+  await page.getByTestId('task-save').click();
+  const list = page.getByTestId('detail-checklist');
+  await expect(list).toContainText('Collect the timesheets');
+  await expect(list).toContainText('Collect the contractor invoices');
+  await expect(list).not.toContainText('File the return');
+});

@@ -12,7 +12,7 @@ import { Button, Checkbox, Modal, Textarea, Toast, Toggle } from '@firmivra/ui';
 import { ArrowLeft, FloppyDisk, Plus, X } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -22,7 +22,7 @@ import {
   type QueuedFile,
   useTaskFiles,
 } from './task-attachments';
-import { useClients, useMembers } from './task-data';
+import { useMembers } from './task-data';
 import {
   ChecklistItems,
   type Item,
@@ -34,6 +34,7 @@ import {
   field,
 } from './task-form-parts';
 import { TaskTypeSelect, useTypeChoice } from './task-type-field';
+import { UnsavedDialog, useUnsavedGuard } from './unsaved-guard';
 import {
   PRIORITY_LABEL,
   PROGRESS_LABEL,
@@ -87,11 +88,27 @@ function Form({
   const router = useRouter();
   const editing = !!task;
   const { members } = useMembers();
-  const { clients } = useClients();
   const [title, setTitle] = useState(task?.title ?? '');
   const [typeId, setTypeId] = useState(task?.type?.id ?? template?.type?.id ?? '');
   const [details, setDetails] = useState(task?.details ?? template?.description ?? '');
   const [clientId, setClientId] = useState(task?.client.id ?? '');
+  // Octavia's C4: clients are found by name on the server: the firm's own, and for Staff only
+  // their assigned ones, so a restricted client is never listed or counted.
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientTerm, setClientTerm] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setClientTerm(clientSearch.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [clientSearch]);
+  const clientList = useApiQuery([...TASKS_KEY, 'clients', clientTerm], () =>
+    api.clients.list({ limit: 25, ...(clientTerm ? { search: clientTerm } : {}) }),
+  );
+  const listed = (clientList.data?.items ?? []).map((c) => ({
+    id: c.id,
+    displayName: c.displayName,
+  }));
+  // The names of clients chosen from earlier searches, so the choice keeps its label.
+  const [clientNames, setClientNames] = useState<Record<string, string>>({});
   const [engagementId, setEngagementId] = useState(task?.engagementId ?? '');
   const [serviceId, setServiceId] = useState(task?.service?.id ?? template?.service?.id ?? '');
   const [assignee, setAssignee] = useState(
@@ -167,6 +184,22 @@ function Form({
 
   const typeChoice = useTypeChoice(typeId, task?.type);
 
+  // Octavia's C5: Related To is one of the chosen client's engagements (open or not started), not
+  // a second Service list; a task keeps the one it has. Other record types need a contract.
+  const relatedOptions = [
+    ...(editing && task?.engagement
+      ? [{ value: task.engagement.id, label: task.engagement.title }]
+      : []),
+    ...(engagements.data ?? [])
+      .filter(
+        (x) => x.id !== task?.engagement?.id && (x.status === 'ACTIVE' || x.status === 'PENDING'),
+      )
+      .map((x) => ({
+        value: x.id,
+        label: `${x.title} (${x.status === 'ACTIVE' ? 'open' : 'not started'})`,
+      })),
+  ];
+
   // Attachments (C6): files go to the client's documents under one of the client's open
   // services: the Related To project when it is open, else the first open one.
   const files = useTaskFiles();
@@ -175,7 +208,10 @@ function Form({
   const openServices = (engagements.data ?? []).filter((x) => x.status === 'ACTIVE');
   const fileService = openServices.find((x) => x.id === engagementId) ?? openServices[0];
   const clientName =
-    clients.find((c) => c.id === clientId)?.displayName ?? task?.client.displayName ?? '';
+    listed.find((c) => c.id === clientId)?.displayName ??
+    clientNames[clientId] ??
+    task?.client.displayName ??
+    '';
   const filesBlocked = !clientId
     ? "Choose the client first: files are saved to the client's documents."
     : engagements.isPending
@@ -256,6 +292,32 @@ function Form({
     reminders: remindersBody,
   });
 
+  const guard = useUnsavedGuard({
+    title,
+    typeId,
+    details,
+    clientId,
+    engagementId,
+    serviceId,
+    assignee,
+    extra,
+    priority,
+    startOn,
+    dueOn,
+    dueTime,
+    allDay,
+    progress,
+    blockedReason,
+    visible,
+    remind,
+    reminders: reminders.map((r) => r.daysBefore),
+    depends,
+    dependsOn,
+    notes,
+    items: items.map((i) => [i.label, i.required]),
+    files: files.queue.map((f) => f.key),
+  });
+
   const options = { invalidate: [...TASKS_KEY] };
   const save = useApiMutation(async (another: boolean) => {
     if (task) {
@@ -332,7 +394,11 @@ function Form({
           router.replace('/tasks/new');
           setTitle('');
           files.setQueue([]);
-        } else router.push(`/tasks/${saved.id}`);
+          guard.rebase();
+        } else {
+          guard.allow();
+          router.push(`/tasks/${saved.id}`);
+        }
       },
       onError: (e) =>
         setMessage({
@@ -346,10 +412,7 @@ function Form({
   }
 
   const summary: [string, string][] = [
-    [
-      'Client',
-      clients.find((c) => c.id === clientId)?.displayName ?? task?.client.displayName ?? '—',
-    ],
+    ['Client', clientName || '—'],
     [
       'Related To',
       engagements.data?.find((x) => x.id === engagementId)?.title ?? task?.engagement?.title ?? '—',
@@ -472,23 +535,42 @@ function Form({
           >
             <div className="grid gap-4 md:grid-cols-3">
               <Label text="Client" required htmlFor="tf-client">
+                {editing ? null : (
+                  <input
+                    type="search"
+                    aria-label="Search clients by name"
+                    placeholder="Search clients by name…"
+                    className={field}
+                    maxLength={100}
+                    value={clientSearch}
+                    onChange={(e) => setClientSearch(e.target.value)}
+                    data-testid="client-search"
+                  />
+                )}
                 <Selectbox
                   id="tf-client"
                   label="Client"
                   value={clientId}
                   disabled={editing}
                   onChange={(v) => {
+                    const c = listed.find((x) => x.id === v);
+                    if (c) setClientNames((n) => ({ ...n, [c.id]: c.displayName }));
                     setClientId(v);
                     setEngagementId('');
                   }}
                   options={[
-                    { value: '', label: 'Select client' },
-                    ...(editing && task
-                      ? [{ value: task.client.id, label: task.client.displayName }]
+                    {
+                      value: '',
+                      label: clientList.isError
+                        ? 'Clients are not available'
+                        : clientTerm && listed.length === 0
+                          ? 'No clients match'
+                          : 'Select client',
+                    },
+                    ...(clientId && !listed.some((c) => c.id === clientId) && clientName
+                      ? [{ value: clientId, label: clientName }]
                       : []),
-                    ...clients
-                      .filter((c) => c.id !== task?.client.id)
-                      .map((c) => ({ value: c.id, label: c.displayName })),
+                    ...(editing ? [] : listed).map((c) => ({ value: c.id, label: c.displayName })),
                   ]}
                 />
                 {err('client')}
@@ -501,13 +583,21 @@ function Form({
                   disabled={!clientId || editing}
                   onChange={setEngagementId}
                   options={[
-                    { value: '', label: clientId ? 'No project' : 'Choose a client first' },
-                    ...(editing && task?.engagement
-                      ? [{ value: task.engagement.id, label: task.engagement.title }]
-                      : []),
-                    ...(engagements.data ?? []).map((x) => ({ value: x.id, label: x.title })),
+                    {
+                      value: '',
+                      label: !clientId
+                        ? 'Choose a client first'
+                        : relatedOptions.length
+                          ? 'No engagement'
+                          : 'No open engagement for this client',
+                    },
+                    ...relatedOptions,
                   ]}
                 />
+                <p className="text-xs text-muted">
+                  The client&apos;s engagement this work belongs to. The service is chosen
+                  separately.
+                </p>
               </Label>
               <Label text="Service (if applicable)" htmlFor="tf-service">
                 <Selectbox
@@ -634,7 +724,18 @@ function Form({
                 />
                 {err('due')}
               </Label>
-              <Label text="Due Time" htmlFor="tf-time">
+              {/* Octavia's C7: All Day sits with the due time it replaces. */}
+              <div className="flex min-w-0 flex-col gap-1">
+                <div className="flex items-center justify-between gap-2">
+                  <label htmlFor="tf-time" className="text-sm font-medium text-text">
+                    Due Time
+                  </label>
+                  <Checkbox
+                    label="All Day"
+                    checked={allDay}
+                    onChange={(e) => setAllDay(e.target.checked)}
+                  />
+                </div>
                 <select
                   id="tf-time"
                   className={field}
@@ -648,20 +749,21 @@ function Form({
                     </option>
                   ))}
                 </select>
-              </Label>
+              </div>
             </div>
+            <p className="mt-2 text-xs text-muted" data-testid="due-rule">
+              {allDay
+                ? 'All day: due by the end of the due date.'
+                : 'Due at that time on the due date.'}{' '}
+              Dates and times are in your firm&apos;s time zone; an open task is overdue after that.
+            </p>
             <div className="mt-3 flex flex-wrap items-center gap-6">
-              <Checkbox
-                label="All Day"
-                checked={allDay}
-                onChange={(e) => setAllDay(e.target.checked)}
-              />
               <div className="flex items-center gap-3 text-sm text-heading">
                 <div className="flex items-center gap-3">
                   <Toggle
                     label="Recurring Task"
                     checked={false}
-                    onChange={() => router.push('/tasks/recurring/new')}
+                    onChange={() => guard.leave('/tasks/recurring/new')}
                   />
                   <span>
                     <span className="block font-medium">Recurring Task</span>
@@ -804,7 +906,7 @@ function Form({
         <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="secondary"
-            onClick={() => router.push(task ? `/tasks/${task.id}` : '/tasks')}
+            onClick={() => guard.leave(task ? `/tasks/${task.id}` : '/tasks')}
           >
             Cancel
           </Button>
@@ -849,7 +951,10 @@ function Form({
                 <li key={t.id}>
                   <button
                     type="button"
-                    onClick={() => router.push(`/tasks/new?template=${t.id}`)}
+                    onClick={() => {
+                      setPicking(false);
+                      guard.leave(`/tasks/new?template=${t.id}`);
+                    }}
                     className="flex w-full flex-col py-2 text-left hover:bg-canvas"
                   >
                     <span className="text-sm font-semibold text-heading">{t.name}</span>
@@ -861,6 +966,7 @@ function Form({
           )}
         </Modal>
       ) : null}
+      <UnsavedDialog guard={guard} onSave={() => submit(false)} saving={save.isPending} />
       {tpl ? (
         <Modal
           open

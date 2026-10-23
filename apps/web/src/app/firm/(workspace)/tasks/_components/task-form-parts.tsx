@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowDown, ArrowUp, Plus, Trash, X } from '@phosphor-icons/react';
+import { ArrowDown, ArrowUp, Copy, Plus, Trash, X } from '@phosphor-icons/react';
 import type { ReactNode } from 'react';
 
 /** The parts Create / Edit Task and the template editor share. */
@@ -113,8 +113,9 @@ export interface Reminder {
 export const DAYS = [0, 1, 2, 3, 7, 14, 30];
 
 /**
- * The checklist rows: edit the text, mark Required, move up or down, delete. A task shows each
- * item's done box (read only here; it is ticked on the task); a template has none.
+ * The checklist rows: edit the text, mark Required, move up or down, duplicate (Octavia's C11: a
+ * separate copy, not done, just below), delete. A task shows each item's done box (read only
+ * here; it is ticked on the task); a template and a series have none.
  */
 export function ChecklistItems({
   items,
@@ -131,6 +132,16 @@ export function ChecklistItems({
     const next = [...items];
     [next[i], next[j]] = [next[j] as Item, next[i] as Item];
     onChange(next);
+  };
+  const duplicate = (i: number) => {
+    const it = items[i] as Item;
+    const copy: Item = {
+      key: `${it.key}-copy-${Date.now()}`,
+      label: it.label,
+      required: it.required,
+      done: false,
+    };
+    onChange([...items.slice(0, i + 1), copy, ...items.slice(i + 1)]);
   };
   if (items.length === 0)
     return (
@@ -190,6 +201,14 @@ export function ChecklistItems({
             className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-divider disabled:opacity-40"
           >
             <ArrowDown aria-hidden weight="bold" className="size-3" />
+          </button>
+          <button
+            type="button"
+            aria-label={`Duplicate item ${i + 1}`}
+            onClick={() => duplicate(i)}
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-divider text-action"
+          >
+            <Copy aria-hidden weight="fill" className="size-4" />
           </button>
           <button
             type="button"
