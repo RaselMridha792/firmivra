@@ -29,6 +29,9 @@ this file.
 | #1039 | `rasel/R60-intake-link-api` | I3 link, API: `GET /business/intake-forms/{id}/public-link`, e2e and the isolation case (stacked on #1038) |
 | #1045 | `rasel/R60-intake-link-web` | I3 link, screen: Form Link after Publish, More menu and card menu; a published form's edits stay on it; Publish takes stored grids and State lists (stacked on #1039) |
 | #1047 | `rasel/R60-settings-checks` | Docs: the Settings confirm checks (`R60-settings-checks.md`), item 4's questions, this handoff (docs, not counted) |
+| #1028 | `rasel/R60-intake-send` | I2: Send says why a send can't reach someone, and where to fix it (merged Oct 23) |
+| #1031 | `rasel/R60-intake-publish` | I3 (validation): Publish names each problem and goes to it (merged Oct 23) |
+| #1033 | `rasel/R60-intake-settings-p1` | I4 to I6: Edit panels, Submission Rules panel, a real test reminder (merged Oct 23) |
 
 Pushed, no PR yet (two non-contract PRs are open). Open each when a slot frees, after merging
 `origin/main` into it:
@@ -109,11 +112,11 @@ Mock specs pass on each: `r60-intake-link` 2, `tumit-intake-builder` and `tumit-
 | # | Item | State |
 | --- | --- | --- |
 | I1 | Template library shows every form | Merged (#1019) |
-| I2 | Send to client fails | #1028 open (web only) |
-| I3 | Publish validation, link and embed code | Validation: #1031 open. Link and embed code: next (handoff item 1) |
-| I4 | Settings Edit links | #1033 open (with I5, I6) |
-| I5 | Submission Rules shortcut | #1033 open |
-| I6 | Test Reminder Email | #1033 open (a real test email; locally in Mailpit) |
+| I2 | Send to client fails | Merged (#1028, web only) |
+| I3 | Publish validation, link and embed code | Validation: merged (#1031). Link and embed code: contract `rasel/R60-intake-link-contract`, then API and screen |
+| I4 | Settings Edit links | Merged (#1033, with I5, I6) |
+| I5 | Submission Rules shortcut | Merged (#1033) |
+| I6 | Test Reminder Email | Merged (#1033; a real test email; locally in Mailpit) |
 | I7 to I12 | Settings additions | Next (handoff item 2); I10 was built by R1 in #1025 |
 | I13 | Live tests | After I1 to I6 |
 
@@ -192,6 +195,20 @@ Mock specs pass on each: `r60-intake-link` 2, `tumit-intake-builder` and `tumit-
 - **Sign Out All Sessions ends no real session** (Settings checks, check 6): it marks
   `staff_sessions` rows that sign-in never writes. Users & Roles is R55's: a Cognito global sign-out,
   as Reset MFA does.
+- **The embed code cannot work on a firm's website yet (I3, seen Oct 23).** Three blocks, none in
+  R60's paths: (1) **R1:** the portal's CloudFront behaviours use the managed `SECURITY_HEADERS`
+  policy (`infra/src/stacks/app-stack.ts:185,205`), which sends `X-Frame-Options: SAMEORIGIN`, so a
+  browser refuses to draw the page in another site's iframe; the Begin Online pages need a policy
+  that allows framing (`frame-ancestors`). (2) **R15 or Rasel (a security decision):** the draft
+  cookie is `SameSite=Strict` (`apps/api/src/begin-online/drafts.ts:94`); inside a third-party
+  iframe the browser does not send it, so a visitor cannot start or save a draft there.
+  `SameSite=None; Partitioned` would be needed, and some browsers block third-party cookies even
+  then. (3) **R17:** no portal page reads `?embed=1` (the embed code adds it), so the portal header
+  and footer show inside the frame. The link itself works.
+- **Begin Online ignores the service's status (R15):** `serviceFor`
+  (`apps/api/src/begin-online/begin-online.service.ts`) checks only `beginOnline` and not archived,
+  so a service set Inactive or Draft in Services & Pricing still takes Begin Online submissions.
+  The public link says INACTIVE then (Rasel's rule); `serviceFor` should also require ACTIVE.
 - **Decisions she left open (do not guess):** Submitted vs Completed, due date vs expiration, staff
   Edit vs Request Revision, import template file types, the auto-create client trigger.
 - **Begin Online (seen, not changed):** `newestForm` picks the highest version number of any
@@ -218,3 +235,6 @@ Mock specs pass on each: `r60-intake-link` 2, `tumit-intake-builder` and `tumit-
 - Oct 23: Settings confirm checks (handoff item 3) answered in `docs/work/R60-settings-checks.md`:
   checks 1, 3, 4, 5, 6, 7, 10 (the tab-to-page table) and 11, each with status, page, test result
   and what remains. Most urgent: Sign Out All Sessions ends no real session (check 6).
+- Oct 23 (fresh session): #1028, #1031, #1033 and #1034 merged. I3 link contract: a main form's
+  `GET /business/intake-forms/{id}/public-link` answers `PublicLink` with its Begin Online page
+  (`beginOnlinePageUrl`), the client's `publicLink(id)` and the mock. The embed blocks found (Needs).
