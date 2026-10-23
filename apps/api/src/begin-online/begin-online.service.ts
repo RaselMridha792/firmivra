@@ -31,6 +31,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
+import { intakeFileSizeMb } from '../intake/intake-file-size.js';
 import { maskStoredNumbers, sealIntakeNumbers } from '../intake/intake-numbers.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
 import {
@@ -167,7 +168,15 @@ export class BeginOnlineService {
       title: newest.definition.title,
       definition: newest.definition,
       taxYear: currentTaxYear(),
+      maxFileSizeMb: await this.fileSizeMb(firm.id),
     };
+  }
+
+  /** The firm's largest file per upload (Intake Form Settings), for the form's upload fields. */
+  private fileSizeMb(businessId: string): Promise<number> {
+    return this.database.withScope({ kind: 'business', businessId }, (tx) =>
+      intakeFileSizeMb(tx, businessId),
+    );
   }
 
   /** Starts this browser's draft for the service (replacing an earlier one in this browser). */
@@ -500,6 +509,7 @@ export class BeginOnlineService {
       title: draft.definition.title,
       definition: draft.definition,
       taxYear: draft.taxYear,
+      maxFileSizeMb: await this.fileSizeMb(draft.firm.id),
       contact: draft.contact,
       answers: await maskStoredNumbers(draft.definition, draft.submission.answers),
       uploads: draft.uploads.map(intakeUpload),

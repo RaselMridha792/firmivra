@@ -20,6 +20,7 @@ import {
   LAYOUT_TYPES,
   answerable,
   newKey,
+  problemDomId,
   withoutRulesOn,
 } from './builder-draft';
 import type { BuilderState } from './builder-parts';
@@ -125,6 +126,17 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
       setOpen((now) => new Set([...now, ...grown.map((s) => s.key)]));
     }
   }
+  // A section with a problem on one of its questions opens, so the problem shows where it is
+  // (Octavia's review, I3: a closed section hid it). Adjusted while rendering, as above.
+  const flagged = sections
+    .filter((s) => s.questions.some((q) => errors[`question:${q.key}`]))
+    .map((s) => s.key)
+    .join(' ');
+  const [shown, setShown] = useState('');
+  if (flagged !== shown) {
+    setShown(flagged);
+    if (flagged) setOpen((now) => new Set([...now, ...flagged.split(' ')]));
+  }
 
   const removeQuestion = (sectionKey: string, questionKey: string) =>
     setSections((list) =>
@@ -192,7 +204,9 @@ export function SectionsEditor({ state }: { state: BuilderState }) {
               return (
                 <li
                   key={s.key}
+                  id={problemDomId(`section:${s.key}`)}
                   data-testid="form-section"
+                  data-invalid={error ? true : undefined}
                   draggable
                   onDragStart={(ev) => {
                     ev.dataTransfer.setData(SECTION_DRAG, s.key);
@@ -398,7 +412,9 @@ function QuestionList({
         return (
           <li
             key={q.key}
+            id={problemDomId(`question:${q.key}`)}
             data-testid="form-question"
+            data-invalid={error ? true : undefined}
             className="flex items-center gap-1 border-b border-divider py-2 pr-1 pl-3 last:border-b-0 sm:gap-2 sm:pr-2"
           >
             <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-info-soft text-action">

@@ -29,6 +29,7 @@ import {
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
+import { useMe } from '../../../../../../components/signed-in';
 import { api } from '../../../../../../lib/api';
 import { portalAuth } from '../../../../../../lib/auth';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
@@ -60,6 +61,7 @@ import {
   toDraft,
   validate,
 } from './settings-model';
+import { type PanelId, SettingsPanel } from './settings-panel';
 import { FullPreview } from './settings-preview';
 import {
   ClientPreviewFrame,
@@ -83,7 +85,8 @@ const SECTIONS: { id: SectionId; label: string; icon: Icon }[] = [
 /** The API's words for its codes, here and not in lib/errors (Intake Forms only). */
 const MESSAGES = {
   SAVE_CONFLICT: 'Someone saved these settings after you opened them. Reload and try again.',
-  TEST_REMINDER_UNAVAILABLE: 'Test reminder emails are not available yet.',
+  TEST_REMINDER_FAILED:
+    'The test email could not be sent right now. Nothing was changed. Try again in a few minutes.',
 };
 const STAFF_ONLY = 'Only an owner or admin can change these settings.';
 const FIX = 'Some details need fixing. Check the highlighted fields.';
@@ -191,25 +194,11 @@ function Kpis({ settings, loading }: { settings: IntakeSettings | undefined; loa
   );
 }
 
-/** The two categories with no card in the design: what covers them today, and where. */
-function SectionNote({ section, onOpen }: { section: SectionId; onOpen: (id: SectionId) => void }) {
-  if (section === 'submission')
-    return (
-      <div className="rounded-xl bg-surface p-3 text-sm shadow-md" data-testid="section-note">
-        <p className="font-bold text-heading">Submission Rules</p>
-        <p className="mt-1 text-xs text-muted">
-          Required answers, e-signature and expiration follow General Settings and each form&apos;s
-          own settings. Separate submission rules are not available yet.
-        </p>
-        <button
-          type="button"
-          onClick={() => onOpen('general')}
-          className="mt-2 text-xs font-medium text-link underline"
-        >
-          Go to General Settings
-        </button>
-      </div>
-    );
+/**
+ * Integrations has no card in the design: what covers it today, and where. (Submission Rules,
+ * the other category without a card, opens its own panel.)
+ */
+function SectionNote({ section }: { section: SectionId }) {
   if (section === 'integrations')
     return (
       <div className="rounded-xl bg-surface p-3 text-sm shadow-md" data-testid="section-note">
@@ -240,6 +229,7 @@ const quickAction =
  */
 export function SettingsScreen() {
   const { firm, role } = useFirm();
+  const { me } = useMe();
   const manager = role === 'OWNER' || role === 'ADMIN';
   const settings = useApiQuery(SETTINGS_KEY, () => api.intakeForms.settings());
   const changes = useApiQuery(CHANGES_KEY, () => api.intakeForms.settingsChanges());
@@ -254,6 +244,9 @@ export function SettingsScreen() {
   const [active, setActive] = useState<SectionId>('general');
   const [confirmReset, setConfirmReset] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  // The open editing panel, and the unsaved edits as they were when it opened (for Cancel).
+  const [panel, setPanel] = useState<PanelId | null>(null);
+  const [panelStart, setPanelStart] = useState<Edits | null>(null);
 
   const update = useApiMutation(
     (body: UpdateIntakeSettingsRequest) => api.intakeForms.updateSettings(body),
@@ -306,7 +299,7 @@ export function SettingsScreen() {
     void settings.refetch();
   }
 
-  function save() {
+  function save(after?: () => void) {
     setNotice(null);
     setConflict(false);
     if (!saved || !draft) return;
@@ -328,6 +321,7 @@ export function SettingsScreen() {
       onSuccess: () => {
         setEdits(null);
         setNotice({ message: 'Your intake settings were saved.', tone: 'success' });
+        after?.();
       },
       onError: (error) => {
         if (errorCode(error) === 'SAVE_CONFLICT') return setConflict(true);
@@ -360,11 +354,26 @@ export function SettingsScreen() {
     testReminder.mutate(undefined, {
       onSuccess: () =>
         setNotice({
-          message: 'A test reminder email was sent to you. No client was contacted.',
+          message: `A test reminder email was sent to ${me.user.email}. No client was contacted, and nothing was changed.`,
           tone: 'success',
         }),
       onError: (error) => setNotice({ message: errorMessage(error, MESSAGES), tone: 'error' }),
     });
+  }
+
+  /** Edit (and Submission Rules in the nav): the category's editing panel (Octavia's review, I4). */
+  function openPanel(section: SectionId) {
+    if (section === 'branding' || section === 'integrations') return open(section, true);
+    setActive(section);
+    setPanelStart(edits);
+    setPanel(section);
+  }
+
+  /** Cancel puts back the unsaved edits as they were when the panel opened. */
+  function cancelPanel() {
+    setEdits(panelStart);
+    setErrors({});
+    setPanel(null);
   }
 
   /** The nav, the Edit links and the checklist: select the category and bring its card in view. */
@@ -392,7 +401,7 @@ export function SettingsScreen() {
     errors,
     state,
     readOnly: !manager || update.isPending || reset.isPending,
-    onEdit: (section: SectionId) => open(section, true),
+    onEdit: openPanel,
   };
   const branding = info.data?.branding;
   const busy = update.isPending || reset.isPending;
@@ -415,7 +424,7 @@ export function SettingsScreen() {
               <Button
                 disabled={!saved || busy || !manager}
                 title={manager ? undefined : STAFF_ONLY}
-                onClick={save}
+                onClick={() => save()}
               >
                 <FloppyDisk aria-hidden weight="fill" className="size-5" />
                 Save Changes
@@ -474,7 +483,7 @@ export function SettingsScreen() {
                         <button
                           type="button"
                           aria-current={selected ? 'true' : undefined}
-                          onClick={() => open(id)}
+                          onClick={() => (id === 'submission' ? openPanel(id) : open(id))}
                           className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm ${selected ? 'bg-action font-medium text-on-action' : 'text-heading hover:bg-folder-hover'}`}
                         >
                           <Glyph aria-hidden weight="fill" className="size-5 shrink-0" />
@@ -485,7 +494,7 @@ export function SettingsScreen() {
                   })}
                 </ul>
               </nav>
-              <SectionNote section={active} onOpen={(id) => open(id, true)} />
+              <SectionNote section={active} />
             </div>
 
             <div className="@container min-w-0 flex-1">
@@ -530,7 +539,7 @@ export function SettingsScreen() {
                   className="w-full"
                   disabled={!saved || busy || !manager}
                   title={manager ? undefined : STAFF_ONLY}
-                  onClick={save}
+                  onClick={() => save()}
                 >
                   <FloppyDisk aria-hidden weight="fill" className="size-5" />
                   Save Settings
@@ -579,6 +588,18 @@ export function SettingsScreen() {
         </aside>
       </div>
 
+      <SettingsPanel
+        panel={panel}
+        fields={{ draft, set, errors, readOnly: cardProps.readOnly }}
+        members={members}
+        generalOwner={saved?.general.defaultOwner ?? null}
+        followUpOwner={saved?.automation.defaultFollowUpOwner ?? null}
+        savedFileSizeMb={saved?.security.maxFileSizeMb ?? null}
+        dirty={dirty}
+        busy={busy}
+        onSave={() => save(() => setPanel(null))}
+        onCancel={cancelPanel}
+      />
       <FullPreview
         open={previewing}
         onClose={() => setPreviewing(false)}

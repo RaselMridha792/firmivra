@@ -23,6 +23,8 @@ import {
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { NotifyDeliveryError } from '../../src/notify/notify.service.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -30,6 +32,8 @@ const person = (key: string) => ({ id: randomUUID(), email: `r55i-${key}-${run}@
 const people = {
   ownerA: person('owner-a'),
   adminA: person('admin-a'),
+  /** An admin whose email the stand-in sender refuses ("-refuse-" in the address). */
+  refusedAdminA: person('admin-refuse'),
   staffA: person('staff-a'),
   otherStaffA: person('other-staff-a'),
   ownerB: person('owner-b'),
@@ -91,7 +95,9 @@ const ok = (res: Response, status = 200) => {
   expect(res.status, JSON.stringify(res.body)).toBe(status);
   return res.body as unknown;
 };
-const { ownerA, adminA, staffA, otherStaffA, ownerB } = people;
+const { ownerA, adminA, refusedAdminA, staffA, otherStaffA, ownerB } = people;
+/** What the stand-in for NotifyService was asked to send. */
+const outbox: NotifyMessage[] = [];
 const ids = {} as Record<string, string>;
 
 beforeAll(async () => {
@@ -120,6 +126,7 @@ beforeAll(async () => {
   for (const [firm, userId, role] of [
     ['a', ownerA.id, 'OWNER'],
     ['a', adminA.id, 'ADMIN'],
+    ['a', refusedAdminA.id, 'ADMIN'],
     ['a', staffA.id, 'STAFF'],
     ['a', otherStaffA.id, 'STAFF'],
     ['b', ownerB.id, 'OWNER'],
@@ -215,7 +222,18 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue({
+      send: (message: NotifyMessage) => {
+        if (message.to.includes('-refuse-')) {
+          return Promise.reject(new NotifyDeliveryError(message.template, 'email', 'synthetic'));
+        }
+        outbox.push(message);
+        return Promise.resolve();
+      },
+    })
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -571,7 +589,7 @@ describe('the settings', () => {
     expect(row.maxFileSizeMb).toBe(100);
   });
 
-  it('is changed by Owner and Admin only, and a test reminder is not available yet', async () => {
+  it('is changed by Owner and Admin only', async () => {
     const s = IntakeSettings.parse(ok(await call('get', '/intake-settings', staffA)));
     expectError(
       await call('put', '/intake-settings', staffA, {
@@ -586,12 +604,49 @@ describe('the settings', () => {
       403,
       'FORBIDDEN',
     );
-    expectError(
-      await call('post', '/intake-settings/test-reminder', adminA, {}),
-      503,
-      'TEST_REMINDER_UNAVAILABLE',
+  });
+
+  // Octavia's review of Oct 20 (I6): a real test, to the member who asked, that changes nothing.
+  it('sends a test reminder to the member who asked, and nothing else changes', async () => {
+    const before = IntakeSettings.parse(ok(await call('get', '/intake-settings', adminA)));
+    const changesBefore = IntakeSettingsChangeList.parse(
+      ok(await call('get', '/intake-settings/changes', adminA)),
+    ).items;
+    outbox.length = 0;
+    expect(ok(await call('post', '/intake-settings/test-reminder', adminA, {}))).toEqual({
+      ok: true,
+    });
+    expect(outbox).toHaveLength(1);
+    const [mail] = outbox;
+    expect(mail).toMatchObject({
+      template: 'lead.message-email',
+      to: adminA.email,
+      businessId: firms.a,
+    });
+    const data = mail?.data as { subject: string; body: string };
+    expect(data.subject).toMatch(/^\[Test\] /);
+    expect(data.body).toContain('No client was contacted');
+    // No client's name or address, ever.
+    expect(JSON.stringify(mail)).not.toMatch(/client\.test|Mina|Theo|Lou/);
+    // Nothing else changed: the settings' version and their recent changes.
+    const after = IntakeSettings.parse(ok(await call('get', '/intake-settings', adminA)));
+    expect(after.version).toBe(before.version);
+    expect(
+      IntakeSettingsChangeList.parse(ok(await call('get', '/intake-settings/changes', adminA)))
+        .items,
+    ).toEqual(changesBefore);
+    const sent = await inFirm('a', (tx) =>
+      tx.auditLog.count({ where: { businessId: firms.a, action: 'intake_reminder.test_sent' } }),
     );
+    expect(sent).toBe(1);
+
+    // Staff may not; a sender that refuses says so.
     expectError(await call('post', '/intake-settings/test-reminder', staffA, {}), 403, 'FORBIDDEN');
+    expectError(
+      await call('post', '/intake-settings/test-reminder', refusedAdminA, {}),
+      503,
+      'TEST_REMINDER_FAILED',
+    );
   });
 });
 

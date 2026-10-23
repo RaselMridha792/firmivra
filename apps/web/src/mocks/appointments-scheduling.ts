@@ -265,6 +265,14 @@ function seed(empty: boolean): Store {
   };
 }
 
+/** The firm's buffers, notice and window, which Edit My Availability shows and cannot change. */
+const FIRM_RULES = {
+  bufferBeforeMinutes: 0,
+  bufferAfterMinutes: 15,
+  minNoticeHours: 24,
+  maxWindowDays: 60,
+};
+
 function TYPES() {
   return [
     ['Consultation', 60, '#2563eb'],
@@ -846,10 +854,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
                   reason: 'Vacation',
                 },
               ],
-          bufferBeforeMinutes: 0,
-          bufferAfterMinutes: 15,
-          minNoticeHours: 24,
-          maxWindowDays: 60,
+          ...FIRM_RULES,
           busyCalendarIds: [],
           effectiveFrom: null,
           updatedAt: null,
@@ -865,14 +870,27 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         userId,
         dateOverrides: [],
         timeOff: [],
-        bufferBeforeMinutes: 0,
-        bufferAfterMinutes: 0,
-        minNoticeHours: 0,
-        maxWindowDays: 60,
+        ...FIRM_RULES,
         busyCalendarIds: [],
         effectiveFrom: null,
         updatedAt: null,
       };
+      // As the API: these are the firm's, with no per-person value; a changed one is refused.
+      const same =
+        (input.bufferBeforeMinutes ?? current.bufferBeforeMinutes) ===
+          current.bufferBeforeMinutes &&
+        (input.bufferAfterMinutes ?? current.bufferAfterMinutes) === current.bufferAfterMinutes &&
+        (input.minNoticeHours ?? current.minNoticeHours) === current.minNoticeHours &&
+        (input.maxWindowDays ?? current.maxWindowDays) === current.maxWindowDays &&
+        (input.busyCalendarIds ?? []).length === 0 &&
+        (input.effectiveFrom ?? null) === null;
+      if (!same) {
+        throw fail(
+          400,
+          'VALIDATION_FAILED',
+          'Buffers, notice, booking window, busy calendars and the effective date cannot be saved per person yet.',
+        );
+      }
       const next: AvailabilityRules = {
         ...current,
         ...(input.dateOverrides ? { dateOverrides: input.dateOverrides } : {}),
@@ -886,16 +904,6 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
               })),
             }
           : {}),
-        ...(input.bufferBeforeMinutes !== undefined
-          ? { bufferBeforeMinutes: input.bufferBeforeMinutes }
-          : {}),
-        ...(input.bufferAfterMinutes !== undefined
-          ? { bufferAfterMinutes: input.bufferAfterMinutes }
-          : {}),
-        ...(input.minNoticeHours !== undefined ? { minNoticeHours: input.minNoticeHours } : {}),
-        ...(input.maxWindowDays !== undefined ? { maxWindowDays: input.maxWindowDays } : {}),
-        ...(input.busyCalendarIds ? { busyCalendarIds: input.busyCalendarIds } : {}),
-        ...(input.effectiveFrom !== undefined ? { effectiveFrom: input.effectiveFrom } : {}),
         updatedAt: new Date().toISOString(),
       };
       s.rules.set(userId, next);
@@ -904,15 +912,15 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
 
     typeConfig: async (typeId) => {
       await mockDelay();
+      // The types list is the appointment types mock's, with its own ids: any id has settings.
       const type = TYPES().find((t) => t.id === typeId);
-      if (!type) throw fail(404, 'NOT_FOUND', 'Not found');
       return copy(
         s.typeConfigs.get(typeId) ?? {
           typeId,
           description: null,
           serviceId: null,
           eligibleStaffUserIds: [],
-          methods: ['IN_PERSON', 'PHONE', 'VIDEO'],
+          methods: ['IN_PERSON'],
           officeIds: [],
           bufferBeforeMinutes: 0,
           bufferAfterMinutes: 15,
@@ -921,7 +929,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           requiredIntakeFormId: null,
           requiredDocuments: [],
           defaultReminders: [{ channel: 'EMAIL', amount: 1, unit: 'DAYS' }],
-          color: type.color,
+          color: type?.color ?? null,
         },
       );
     },
@@ -929,14 +937,21 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       await mockDelay();
       managers();
       const input = parseInput(SetAppointmentTypeConfigRequest, body);
+      // The types list is the appointment types mock's, with its own ids: any id has settings.
       const type = TYPES().find((t) => t.id === typeId);
-      if (!type) throw fail(404, 'NOT_FOUND', 'Not found');
+      if (input.methods && (input.methods.length !== 1 || input.methods[0] === 'OTHER')) {
+        throw fail(
+          400,
+          'VALIDATION_FAILED',
+          'An appointment type has one meeting method for now (in person, phone or video).',
+        );
+      }
       const base = s.typeConfigs.get(typeId) ?? {
         typeId,
         description: null,
         serviceId: null,
         eligibleStaffUserIds: [],
-        methods: ['IN_PERSON', 'PHONE', 'VIDEO'] as AppointmentTypeConfig['methods'],
+        methods: ['IN_PERSON'] as AppointmentTypeConfig['methods'],
         officeIds: [],
         bufferBeforeMinutes: 0,
         bufferAfterMinutes: 0,
@@ -945,7 +960,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         requiredIntakeFormId: null,
         requiredDocuments: [],
         defaultReminders: [],
-        color: type.color,
+        color: type?.color ?? null,
       };
       const next = { ...base };
       for (const [k, v] of Object.entries(input))

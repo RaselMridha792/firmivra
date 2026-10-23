@@ -171,18 +171,72 @@ export function checkDraft(d: FormDraft, publishing: boolean): Record<string, st
   // Plain words for the fields the person types in (the schema's own words are generic).
   if (!d.name.trim()) found.name = 'Enter a form name';
   if (found.expiresAfterDays) found.expiresAfterDays = 'Enter a number of days from 1 to 365';
+  // Publishing checks what the API's publish refuses (form-builder.ts `publishable`), so each
+  // problem shows on its own section or question (Octavia's review, I3).
   if (publishing) {
     if (!d.sections.length) found.form ??= 'Add at least one section';
     for (const s of d.sections) {
       for (const q of s.questions) {
-        if (CHOICE_TYPES.includes(q.type) && !q.options.some((o) => o.trim())) {
+        const choices = q.options.filter((o) => o.trim()).length;
+        if (q.type === 'MULTIPLE_CHOICE' && choices < 2) {
+          found[`question:${q.key}`] ??= 'Add at least two choices';
+        } else if (CHOICE_TYPES.includes(q.type) && choices < 1) {
           found[`question:${q.key}`] ??= 'Add at least one choice';
+        }
+      }
+      // The API splits a section at each section break; the last part needs a question.
+      const lastBreak = s.questions.findLastIndex((q) => q.type === 'SECTION_BREAK');
+      const after = s.questions.slice(lastBreak + 1);
+      if (!after.length) {
+        const breakQuestion = s.questions[lastBreak];
+        if (breakQuestion) {
+          found[`question:${breakQuestion.key}`] ??=
+            'Add a question after this section break, or remove the break';
+        } else {
+          found[`section:${s.key}`] ??= 'Add a question to this section, or remove the section';
         }
       }
     }
   }
   return found;
 }
+
+/** The element id of a problem's section or question row (`section:x` -> `problem-section-x`). */
+export const problemDomId = (key: string) => `problem-${key.replace(':', '-')}`;
+
+/** Where a problem key of `checkDraft` is, in words, and the section it belongs to. */
+export function problemPlace(
+  d: FormDraft,
+  key: string,
+): { label: string; sectionKey: string | null } {
+  if (key.startsWith('section:')) {
+    const s = d.sections.find((x) => `section:${x.key}` === key);
+    return { label: `Section "${s?.title || 'Untitled section'}"`, sectionKey: s?.key ?? null };
+  }
+  if (key.startsWith('question:')) {
+    for (const s of d.sections) {
+      const q = s.questions.find((x) => `question:${x.key}` === key);
+      if (q) {
+        return {
+          label: `"${q.label || 'Untitled'}" in ${s.title || 'Untitled section'}`,
+          sectionKey: s.key,
+        };
+      }
+    }
+  }
+  return { label: FIELD_PLACES[key] ?? 'The form', sectionKey: null };
+}
+
+/** The Form Details and Form Settings fields a problem can be on, in the screen's words. */
+const FIELD_PLACES: Record<string, string> = {
+  form: 'The form',
+  name: 'Form name',
+  category: 'Category',
+  description: 'Description',
+  internalNotes: 'Internal notes',
+  expiresAfterDays: 'Expires after',
+  successMessage: 'Success message',
+};
 
 /** Questions that take an answer (counts leave out Section Break and Instruction Text). */
 export const answerable = (s: DraftSection) =>

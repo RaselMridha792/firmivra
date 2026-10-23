@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ApiRequestError,
   type AppointmentType,
   type AppointmentTypeConfig,
   CreateAppointmentTypeRequest,
@@ -23,7 +24,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
-import { errorMessage } from '../../../../../../lib/errors';
+import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { BackToWorkflow } from '../../../settings/workflow/_components/back-to-workflow';
 import { RowMenu } from '../../../team/_components/row-menu';
@@ -36,6 +37,22 @@ const LOCATIONS: Record<LocationKind, string> = {
   PHONE: 'Phone',
   VIDEO: 'Zoom / Video',
 };
+
+/** The settings fields an API error can name, in the order shown. */
+const SETTING_FIELDS = {
+  description: 'Description',
+  methods: 'Meeting methods',
+  bufferBeforeMinutes: 'Buffer before',
+  bufferAfterMinutes: 'Buffer after',
+  minNoticeHours: 'Minimum notice',
+  maxWindowDays: 'Booking window',
+  defaultReminders: 'Email reminder',
+} as const;
+type SettingField = keyof typeof SETTING_FIELDS;
+
+/** Until the API keeps several (`meeting_methods`), a type saves one of these three. */
+const ONE_METHOD =
+  'For now a type keeps one meeting method: In-Person, Phone or Zoom / Video. Keep one and save again.';
 
 const TYPE_ERRORS: Record<string, string> = {
   DUPLICATE_NAME: 'Another appointment type already has this name.',
@@ -374,6 +391,7 @@ function SettingsForm({
   const [windowDays, setWindowDays] = useState(String(c.maxWindowDays));
   const [reminder, setReminder] = useState(c.defaultReminders.some((r) => r.channel === 'EMAIL'));
   const [saved, setSaved] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<SettingField, string>>>({});
   const save = useApiMutation(
     async () => {
       await api.scheduling.setTypeConfig(type.id, {
@@ -399,7 +417,32 @@ function SettingsForm({
       onSubmit={(e) => {
         e.preventDefault();
         if (!methods.length) return;
-        save.mutate(undefined);
+        setFieldErrors({});
+        const form = e.currentTarget;
+        save.mutate(undefined, {
+          onError: (error) => {
+            // Each refused field on its field; the entries stay as they are.
+            const next: Partial<Record<SettingField, string>> = {};
+            const details = error instanceof ApiRequestError ? (error.details ?? []) : [];
+            for (const d of details) {
+              const key = d.path.split('.')[0] as SettingField;
+              if (key in SETTING_FIELDS) next[key] ??= d.message;
+            }
+            if (
+              !details.length &&
+              errorCode(error) === 'VALIDATION_FAILED' &&
+              (methods.length > 1 || methods.includes('OTHER'))
+            ) {
+              next.methods = ONE_METHOD;
+            }
+            setFieldErrors(next);
+            requestAnimationFrame(() =>
+              form
+                .querySelector<HTMLElement>('[aria-invalid="true"], [data-invalid] input')
+                ?.focus(),
+            );
+          },
+        });
       }}
     >
       <Textarea
@@ -408,9 +451,15 @@ function SettingsForm({
         maxLength={500}
         disabled={off}
         value={description}
+        error={fieldErrors.description}
         onChange={(e) => setDescription(e.target.value)}
       />
-      <fieldset className="flex flex-col">
+      <fieldset
+        className="flex flex-col"
+        data-testid="meeting-methods"
+        data-invalid={fieldErrors.methods ? true : undefined}
+        aria-describedby={fieldErrors.methods ? `methods-error-${type.id}` : undefined}
+      >
         <legend className="mb-1 text-sm font-medium text-text">Meeting methods</legend>
         {(Object.entries(METHOD_LABELS) as [MeetingMethod, string][]).map(([m, label]) => (
           <Checkbox
@@ -418,13 +467,19 @@ function SettingsForm({
             label={label}
             disabled={off}
             checked={methods.includes(m)}
-            onChange={(e) =>
-              setMethods(e.target.checked ? [...methods, m] : methods.filter((x) => x !== m))
-            }
+            onChange={(e) => {
+              setMethods(e.target.checked ? [...methods, m] : methods.filter((x) => x !== m));
+              setFieldErrors(({ methods: _, ...rest }) => rest);
+            }}
             className="min-h-8 text-sm"
           />
         ))}
         {methods.length ? null : <p className="text-xs text-danger">Choose at least one method.</p>}
+        {fieldErrors.methods ? (
+          <p id={`methods-error-${type.id}`} className="text-sm font-medium text-danger">
+            {fieldErrors.methods}
+          </p>
+        ) : null}
       </fieldset>
       <div className="grid grid-cols-2 gap-3">
         <Select
@@ -470,8 +525,13 @@ function SettingsForm({
         className="text-sm"
       />
       {save.error ? (
-        <p role="alert" className="text-sm text-danger">
-          {errorMessage(save.error, TYPE_ERRORS)}
+        <p role="alert" data-testid="type-settings-error" className="text-sm text-danger">
+          {Object.keys(fieldErrors).length
+            ? `Fix ${(Object.keys(SETTING_FIELDS) as SettingField[])
+                .filter((k) => fieldErrors[k])
+                .map((k) => SETTING_FIELDS[k])
+                .join(', ')} and save again. Your other entries are kept.`
+            : errorMessage(save.error, TYPE_ERRORS)}
         </p>
       ) : saved ? (
         <p role="status" data-testid="type-settings-saved" className="text-sm text-success">

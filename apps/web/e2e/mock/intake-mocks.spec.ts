@@ -192,6 +192,40 @@ test.describe('Begin Online mock uploads', () => {
   });
 });
 
+test.describe("the firm's file size limit (I10)", () => {
+  const MB = 1024 * 1024;
+  const refusal = {
+    status: 400,
+    code: 'VALIDATION_FAILED',
+    details: [{ path: 'sizeBytes', message: 'Files can be at most 10 MB' }],
+  };
+
+  test('an intake carries 10 MB and its ticket refuses a larger file', async () => {
+    const api = createMyIntakesMock();
+    const row = intakeFixtures()[0]!;
+    expect((await api.get(row.item.id)).maxFileSizeMb).toBe(10);
+    const slot = 'incomeDocuments';
+    await expect(
+      api.createUpload(row.item.id, { ...file(slot, 1), sizeBytes: 10 * MB + 1 }),
+    ).rejects.toMatchObject(refusal);
+    await api.createUpload(row.item.id, { ...file(slot, 2), sizeBytes: 10 * MB });
+  });
+
+  test("Begin Online's form and draft carry 10 MB and the ticket refuses a larger file", async () => {
+    const api = createBeginOnlineMock('lvp');
+    expect((await api.form('ANNUAL_TAX')).maxFileSizeMb).toBe(10);
+    const draft = await api.start('ANNUAL_TAX', {
+      firstName: 'Avery',
+      lastName: 'Example',
+      email: 'avery.example@lvp.test',
+    });
+    expect(draft.maxFileSizeMb).toBe(10);
+    await expect(
+      api.createUpload('ANNUAL_TAX', { ...file('governmentId', 1), sizeBytes: 10 * MB + 1 }),
+    ).rejects.toMatchObject(refusal);
+  });
+});
+
 test.describe('a submit stores the cleaned answers', () => {
   test("intake: a hidden question's answer is not in the locked version", async () => {
     const api = createMyIntakesMock();
