@@ -17,6 +17,8 @@ export const EsignErrorCode = z.enum([
   'PDF_UNREADABLE',
   /** 409: the packet would have more than 100 pages. */
   'TOO_MANY_PAGES',
+  /** 409: the request's files would pass 100 MB in all (ESIGN_MAX_REQUEST_BYTES). */
+  'REQUEST_TOO_LARGE',
   /** 409: a file is still being checked for malware. */
   'SCAN_PENDING',
   /** 409: a file failed the malware check or could not be checked. */
@@ -108,6 +110,8 @@ export const ESIGN_ERRORS = {
   PDF_ENCRYPTED: 'This PDF has a password. Remove the password and upload it again.',
   PDF_UNREADABLE: "This file couldn't be read. Save it as a PDF again and upload it.",
   TOO_MANY_PAGES: 'A request can have at most 100 pages.',
+  REQUEST_TOO_LARGE:
+    "A request's files can be at most 100 MB in all. Remove a file, or send the rest in another request.",
   SCAN_PENDING: 'This file is still being checked. Try again in a moment.',
   FILE_BLOCKED: "This file couldn't be checked, so it can't be used.",
   FILE_TYPE_NOT_ALLOWED: 'Only PDF, JPG and PNG files can be sent for signature.',

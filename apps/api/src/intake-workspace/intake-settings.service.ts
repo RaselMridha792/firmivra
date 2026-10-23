@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
-  INTAKE_MAX_FILE_SIZE_MB,
+  INTAKE_FILE_SIZE_CHOICES,
   type IntakeSettings,
   type IntakeSettingsChange,
   type OkResponse,
@@ -16,6 +16,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { INTAKE_DEFAULT_FILE_SIZE_MB } from '../intake/intake-file-size.js';
 import { NotifyDeliveryError } from '../notify/notify.service.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { memberNames, memberRef } from '../workspaces/common.js';
@@ -32,6 +33,11 @@ const invalid = (path: string, message: string) =>
   });
 
 const MEMBER = { select: { userId: true, user: { select: { name: true } } } } as const;
+
+const isFileSizeChoice = (mb: number) =>
+  (INTAKE_FILE_SIZE_CHOICES as readonly number[]).includes(mb);
+/** "2, 5, 10, 50 or 100": the choices in words. */
+const FILE_SIZE_WORDS = `${INTAKE_FILE_SIZE_CHOICES.slice(0, -1).join(', ')} or ${INTAKE_FILE_SIZE_CHOICES.at(-1)}`;
 
 /**
  * The firm's Intake Forms settings: one row per firm, created on first read with the defaults.
@@ -226,11 +232,10 @@ export class IntakeSettingsService {
           ];
         }
         if (s.maxFileSizeMb !== undefined) {
-          if (s.maxFileSizeMb > INTAKE_MAX_FILE_SIZE_MB)
-            throw invalid(
-              'security.maxFileSizeMb',
-              `Files can be at most ${INTAKE_MAX_FILE_SIZE_MB} MB`,
-            );
+          // Octavia's I10: a change is to one of the choices. The size the firm already has stays
+          // valid as it is (a 25 MB saved when the API took 1 to 100 MB), read under the lock.
+          if (s.maxFileSizeMb !== current.maxFileSizeMb && !isFileSizeChoice(s.maxFileSizeMb))
+            throw invalid('security.maxFileSizeMb', `Choose ${FILE_SIZE_WORDS} MB`);
           data.maxFileSizeMb = s.maxFileSizeMb;
         }
         if (s.consentRequired !== undefined) data.consentRequired = s.consentRequired;
@@ -294,7 +299,7 @@ export class IntakeSettingsService {
           followUpOwnerUserId: null,
           useFirmBranding: true,
           acceptedFileTypes: ['application/pdf', 'image/jpeg', 'image/png'],
-          maxFileSizeMb: 10,
+          maxFileSizeMb: INTAKE_DEFAULT_FILE_SIZE_MB,
           consentRequired: true,
         },
         include: { defaultOwner: MEMBER, followUpOwner: MEMBER },
