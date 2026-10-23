@@ -151,7 +151,7 @@ This is newer than every handoff below, so read it first. Where they differ, thi
 - **#1027** (merged): the refunds e2e reads its audit rows in order. It was flaky because of a missing `orderBy`.
 - **Open at handoff, waiting for Rasel:**
   - **#1037:** the intake upload screens show the firm's own size limit. It adds a required `maxFileSizeMb` to `MyIntake` and `BeginOnlineForm`, and Begin Online checks it before upload.
-  - **#1040:** Octavia's item A1. Appointment types offer 1 to 3 meeting methods, bookings must use one of them, and errors name the field (`methods.N`, `method`, `locationKind`). The screens are another session's.
+  - **#1040:** Octavia's item A1. Appointment types offer 1 to 3 meeting methods, bookings must use one of them, and errors name the field (`methods.N`, `method`, `locationKind`). The screens are another session's. The web mock still has the one-method check for type configuration, kept so R56's #1029 spec passes. Lift it when the types screen moves to A1.
 
 ### Dev data fix (Oct 22, Rasel's own block)
 - **What changed:** Octavia's LVP login is now OWNER. Membership `01a1306a-4b71-7388-b87a-ed142b919c0c` went from ADMIN to OWNER.
