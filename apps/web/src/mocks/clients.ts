@@ -1,5 +1,6 @@
 import {
   ApiRequestError,
+  SetClientTagsRequest,
   BulkClientsRequest,
   ClientId,
   type ClientListRow,
@@ -20,6 +21,7 @@ import {
   UpdateMyProfileRequest,
 } from '@firmivra/types';
 import { mockedEmpty } from '../lib/mock';
+import { mockResolveTags } from './tags';
 import { taxStatusFixtures } from './tax-statuses';
 import { teamFixtures } from './team';
 
@@ -373,6 +375,8 @@ export function createClientsMock(
     },
   ];
   const history: Record<string, ClientTaxYear[]> = {};
+  /** Each client's tag names (L5); the firm's list is mocks/tags.ts. */
+  const tags = new Map<string, string[]>();
   let nextId = 100;
   const visible = (r: ClientRecord) => !staffOnly || r.assignedTo?.userId === mockStaff.userId;
   /** The id is already checked; an unknown, other firm's or (Staff) unassigned client is 404. */
@@ -524,6 +528,19 @@ export function createClientsMock(
     get: async (id) => {
       await pause();
       return structuredClone(find(parseInput(ClientId, id)));
+    },
+    tags: async (id) => {
+      await pause();
+      const row = find(parseInput(ClientId, id));
+      return { tags: [...(tags.get(row.id) ?? [])] };
+    },
+    setTags: async (id, body) => {
+      await pause();
+      const row = find(parseInput(ClientId, id));
+      const input = parseInput(SetClientTagsRequest, body);
+      const names = mockResolveTags(input.tags, options.role ?? 'OWNER');
+      tags.set(row.id, names);
+      return { tags: [...names] };
     },
     create: async (body) => {
       await pause();

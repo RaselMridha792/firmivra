@@ -28,6 +28,7 @@ import {
 } from './task-form-parts';
 import { PRIORITY_LABEL, TASKS_KEY, TASK_ERRORS } from './task-shared';
 import { TaskTypeSelect, useTypeChoice } from './task-type-field';
+import { UnsavedDialog, useUnsavedGuard } from './unsaved-guard';
 
 const RULES: Record<TaskAssignmentRule, string> = {
   UNASSIGNED: 'Chosen on each task',
@@ -150,6 +151,20 @@ function TemplateForm({ template }: { template: TaskTemplate | undefined }) {
       .map((i) => ({ label: i.label.trim(), required: i.required })),
     reminders: remind ? reminders.map((r) => ({ daysBefore: r.daysBefore })) : [],
   });
+  const guard = useUnsavedGuard({
+    name,
+    description,
+    typeId,
+    serviceId,
+    priority,
+    rule,
+    assignee,
+    dueDays,
+    visible,
+    items: items.map((i) => [i.label, i.required]),
+    remind,
+    reminders: reminders.map((r) => r.daysBefore),
+  });
   const save = useApiMutation(
     () =>
       template
@@ -180,7 +195,10 @@ function TemplateForm({ template }: { template: TaskTemplate | undefined }) {
       return;
     }
     save.mutate(undefined, {
-      onSuccess: (saved) => router.push(library(saved.id)),
+      onSuccess: (saved) => {
+        guard.allow();
+        router.push(library(saved.id));
+      },
       onError: (e) => {
         if (errorCode(e) === 'DUPLICATE_NAME')
           setErrors({ ...errors, name: TEMPLATE_ERRORS['DUPLICATE_NAME'] as string });
@@ -249,6 +267,7 @@ function TemplateForm({ template }: { template: TaskTemplate | undefined }) {
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
+      <UnsavedDialog guard={guard} onSave={submit} saving={save.isPending} />
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-4">
           <Section
@@ -432,7 +451,7 @@ function TemplateForm({ template }: { template: TaskTemplate | undefined }) {
         </aside>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button variant="secondary" onClick={() => router.push(library())}>
+        <Button variant="secondary" onClick={() => guard.leave(library())}>
           Cancel
         </Button>
         <Button disabled={save.isPending} onClick={submit} data-testid="template-save">
