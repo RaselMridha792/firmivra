@@ -41,7 +41,8 @@ import { mockStaff } from './clients';
  * dated around today so Overdue, Upcoming and the calendar are always full. It checks input with
  * the contract's schemas and answers its codes: DUPLICATE_NAME, REQUIRED_ITEMS_OPEN,
  * DEPENDENCY_OPEN, TASK_CLOSED, OCCURRENCE_CLOSED, SERIES_NOT_ACTIVE, INVALID_RECURRENCE.
- * `empty: true` (NEXT_PUBLIC_API_MOCK_EMPTY=taskWork) starts with no tasks, templates or series.
+ * `empty: true` (NEXT_PUBLIC_API_MOCK_EMPTY=taskWork) starts with no tasks, templates, series or
+ * task types, as a firm that never set any up.
  */
 type MockRole = 'OWNER' | 'ADMIN' | 'STAFF';
 interface Options {
@@ -132,7 +133,7 @@ function seed(empty: boolean): Store {
     'Compliance',
     'Onboarding',
   ].map((name, i) => ({ id: uuid('0e10', i + 1), name, sortOrder: i, archivedAt: null }));
-  if (empty) return { tasks: [], types, templates: [], series: [], next: 100 };
+  if (empty) return { tasks: [], types: [], templates: [], series: [], next: 100 };
   const d = today();
   const ty = (i: number) => ({ id: types[i]!.id, name: types[i]!.name });
   const items: [
@@ -870,6 +871,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     },
     restoreType: async (id) => {
       await mockDelay();
+      manage();
       const t = s.types.find((x) => x.id === id);
       if (!t) throw fail(404, 'NOT_FOUND', 'Not found');
       t.archivedAt = null;

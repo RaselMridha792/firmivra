@@ -14,10 +14,12 @@ import { errors } from './errors.js';
 import {
   colorFromHex,
   colorHex,
-  locationKindOf,
+  locationKindsOf,
   methodOf,
   reminderFromOffset,
   reminderOffset,
+  sameMethods,
+  typeMethods,
 } from './scheduling-map.js';
 import type { NoticeSettingsBody, TypeConfigBody } from './scheduling.input.js';
 
@@ -55,6 +57,7 @@ const configSelect = {
   description: true,
   serviceId: true,
   locationKind: true,
+  meetingMethods: true,
   bufferBeforeMinutes: true,
   bufferAfterMinutes: true,
   minNoticeMinutes: true,
@@ -71,7 +74,7 @@ function toConfig(row: ConfigRow): AppointmentTypeConfig {
     serviceId: row.serviceId,
     // No table of eligible staff, offices, intake forms or required documents yet: empty.
     eligibleStaffUserIds: [],
-    methods: [methodOf(row.locationKind)],
+    methods: typeMethods(row).map(methodOf),
     officeIds: [],
     bufferBeforeMinutes: row.bufferBeforeMinutes,
     bufferAfterMinutes: row.bufferAfterMinutes,
@@ -88,9 +91,11 @@ function toConfig(row: ConfigRow): AppointmentTypeConfig {
  * Manage Appointment Types' configuration and the firm's appointment notice settings (contract in
  * packages/types/src/appointments/scheduling.ts). Everyone at the firm reads a type's
  * configuration; Owner and Admin change it, and only they use the notice settings. What the
- * database cannot keep yet (eligible staff, offices, intake form, required documents, several
- * methods, default reminders of the firm) reads as empty and is refused with 400 when a
- * non-empty value is sent, never dropped silently. Audit rows hold field names only.
+ * database cannot keep yet (eligible staff, offices, intake form, required documents, default
+ * reminders of the firm) reads as empty and is refused with 400 when a non-empty value is sent,
+ * never dropped silently. A type's meeting methods (A1) are 1 to 3 of in person, phone and video
+ * (the contract names each problem at `methods.N`); the first is its location kind. Audit rows
+ * hold field names only.
  */
 @Injectable()
 export class SchedulingConfigService {
@@ -162,13 +167,16 @@ export class SchedulingConfigService {
           set('serviceId', 'serviceId', body.serviceId, body.serviceId === current.serviceId);
         }
         if (body.methods !== undefined) {
-          const kind = locationKindOf(body.methods[0] ?? 'OTHER');
-          if (body.methods.length !== 1 || !kind) {
-            throw errors.unsupported(
-              'An appointment type has one meeting method for now (in person, phone or video).',
-            );
+          // The contract refused OTHER, repeats and more than three, each at its `methods.N`.
+          const kinds = locationKindsOf(body.methods);
+          const first = kinds?.[0];
+          if (!kinds || !first) {
+            throw errors.invalidField('methods', 'Choose in person, phone or video');
           }
-          set('methods', 'locationKind', kind, kind === current.locationKind);
+          const same = sameMethods(kinds, typeMethods(current));
+          // Both, in step: the database also makes the first method the location kind.
+          set('methods', 'meetingMethods', kinds, same);
+          set('methods', 'locationKind', first, same);
         }
         if (body.bufferBeforeMinutes !== undefined) {
           set(

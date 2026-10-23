@@ -8,6 +8,9 @@ import { z } from 'zod';
  * Pricing, S12). Each answers `GET /business/<its collection>/{id}/public-link` with a
  * `PublicLink`, built with `publicItemUrl` and `publicEmbedCode` so the three agree; the screens
  * show it with `PublicLinkBlock` from `@firmivra/ui` (through `components/public-link.tsx`).
+ * One exception (Rasel, Oct 22): an intake form has no page of its own. Only a service's main form
+ * has a link, and it is that service's Begin Online page (`beginOnlinePageUrl`, begin-online), so
+ * the `forms` segment below is not used.
  *
  * The link is stable: the same while the item exists, and the same again after it is
  * reactivated. While the item is a draft, inactive, archived or hidden, the public page refuses

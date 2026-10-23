@@ -248,6 +248,7 @@ beforeAll(async () => {
     ids.serviceA = (
       await tx.service.create({ data: { ...A, kind: 'ANNUAL_TAX', name: `Tax ${run}` } })
     ).id;
+    // Offers every meeting method (A1), video first, so the tests may book any of them.
     ids.typeA = (
       await tx.appointmentType.create({
         data: {
@@ -256,6 +257,7 @@ beforeAll(async () => {
           durationMinutes: 30,
           color: 'BLUE',
           serviceId: ids.serviceA,
+          meetingMethods: ['VIDEO', 'IN_PERSON', 'PHONE'],
         },
       })
     ).id;
@@ -633,7 +635,9 @@ describe('options', () => {
       durationMinutes: 30,
       color: '#2563eb',
       serviceId: ids.serviceA,
+      methods: ['VIDEO', 'IN_PERSON', 'PHONE'],
     });
+    expect(o.types.find((t) => t.id === ids.typeA2)?.methods).toEqual(['VIDEO']);
     expect(o.types.map((t) => t.id)).not.toContain(ids.typeB);
     expect(o.services.map((s) => s.id)).toEqual([ids.serviceA]);
     expect(o.staff.map((s) => s.userId).sort()).toEqual(
@@ -2443,7 +2447,7 @@ describe('appointment type configuration', () => {
       description: null,
       serviceId: ids.serviceA,
       eligibleStaffUserIds: [],
-      methods: ['VIDEO'],
+      methods: ['VIDEO', 'IN_PERSON', 'PHONE'],
       officeIds: [],
       bufferBeforeMinutes: 0,
       bufferAfterMinutes: 0,
@@ -2597,7 +2601,7 @@ describe('appointment type configuration', () => {
     expectError(await put({ officeIds: [ids.office] }), 400, 'VALIDATION_FAILED');
     expectError(await put({ requiredIntakeFormId: randomUUID() }), 400, 'VALIDATION_FAILED');
     expectError(await put({ requiredDocuments: ['W-9'] }), 400, 'VALIDATION_FAILED');
-    expectError(await put({ methods: ['PHONE', 'VIDEO'] }), 400, 'VALIDATION_FAILED');
+    expectError(await put({ methods: ['PHONE', 'PHONE'] }), 400, 'VALIDATION_FAILED');
     expectError(await put({ methods: ['OTHER'] }), 400, 'VALIDATION_FAILED');
     expectError(await put({ color: '#123456' }), 400, 'VALIDATION_FAILED');
     expectError(await put({ bufferBeforeMinutes: 121 }), 400, 'VALIDATION_FAILED');
@@ -2617,6 +2621,201 @@ describe('appointment type configuration', () => {
       }),
     );
     expect(empty.typeId).toBe(ids.typeA2);
+  });
+});
+
+describe('meeting methods (A1)', () => {
+  type Kind = 'IN_PERSON' | 'PHONE' | 'VIDEO';
+  /** A type of firm A with these methods (the database fills in its location kind). */
+  const typeWith = (name: string, methods?: Kind[]) =>
+    asOwner(ids.firmA, (tx) =>
+      tx.appointmentType.create({
+        data: {
+          businessId: ids.firmA,
+          name: `${name} ${run}`,
+          durationMinutes: 30,
+          ...(methods ? { meetingMethods: methods } : {}),
+        },
+        select: { id: true },
+      }),
+    );
+  const stored = (id: string) =>
+    asOwner(ids.firmA, (tx) =>
+      tx.appointmentType.findUniqueOrThrow({
+        where: { id },
+        select: { locationKind: true, meetingMethods: true },
+      }),
+    );
+  const detailsOf = (res: Response) =>
+    (res.body as { error?: { details?: { path: string; message: string }[] } }).error?.details;
+  const notOffered = [
+    {
+      path: 'method',
+      message: 'This appointment type is not offered that way. Choose another method.',
+    },
+  ];
+  const putConfig = (id: string, methods: unknown, who: Who = people.ownerA) =>
+    call('put', `/appointment-types/${id}/config`, who, { methods });
+
+  it('saves two and three methods in the order given, and every read returns them in order', async () => {
+    const t = await typeWith('Methods');
+    const two = exact(AppointmentTypeConfig, await putConfig(t.id, ['PHONE', 'IN_PERSON']));
+    expect(two.methods).toEqual(['PHONE', 'IN_PERSON']);
+    expect(await stored(t.id)).toEqual({
+      locationKind: 'PHONE',
+      meetingMethods: ['PHONE', 'IN_PERSON'],
+    });
+    const order = ['IN_PERSON', 'VIDEO', 'PHONE'];
+    const three = exact(AppointmentTypeConfig, await putConfig(t.id, order, people.adminA));
+    expect(three.methods).toEqual(order);
+    expect(await stored(t.id)).toEqual({ locationKind: 'IN_PERSON', meetingMethods: order });
+    // Read back by everyone at the firm: the configuration, the types list and the form options.
+    expect(
+      exact(
+        AppointmentTypeConfig,
+        await call('get', `/appointment-types/${t.id}/config`, people.staffA),
+      ).methods,
+    ).toEqual(order);
+    const list = exact(AppointmentTypeList, await call('get', '/appointment-types', people.staffA));
+    expect(list.items.find((x) => x.id === t.id)).toMatchObject({
+      locationKind: 'IN_PERSON',
+      methods: order,
+    });
+    const o = exact(SchedulingOptions, await call('get', '/appointments/options', people.staffA));
+    expect(o.types.find((x) => x.id === t.id)?.methods).toEqual(order);
+    // The same methods again change nothing: two audit rows, with field names only.
+    exact(AppointmentTypeConfig, await putConfig(t.id, order));
+    const audit = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: ids.firmA,
+          action: 'appointment_type.config_updated',
+          entityId: t.id,
+        },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit.map((a) => a.metadata)).toEqual([
+      { fields: ['methods'] },
+      { fields: ['methods'] },
+    ]);
+  });
+
+  it('refuses a repeat, a fourth, Other or none at the exact field, and keeps what was saved', async () => {
+    const t = await typeWith('Refused', ['VIDEO', 'PHONE']);
+    const refused = async (methods: unknown, details: { path: string; message: string }[]) => {
+      const res = await putConfig(t.id, methods);
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(detailsOf(res)).toEqual(details);
+    };
+    await refused(
+      ['VIDEO', 'VIDEO'],
+      [{ path: 'methods.1', message: 'This meeting method is already chosen' }],
+    );
+    await refused(
+      ['VIDEO', 'PHONE', 'IN_PERSON', 'VIDEO'],
+      [{ path: 'methods.3', message: 'Choose at most 3 meeting methods' }],
+    );
+    await refused(
+      ['PHONE', 'OTHER'],
+      [{ path: 'methods.1', message: 'Choose in person, phone or video' }],
+    );
+    await refused([], [{ path: 'methods', message: 'Choose at least one meeting method' }]);
+    expect(await stored(t.id)).toEqual({
+      locationKind: 'VIDEO',
+      meetingMethods: ['VIDEO', 'PHONE'],
+    });
+  });
+
+  it('schedules only in a method the type offers, kept as the location kind (Owner and Staff)', async () => {
+    const t = await typeWith('Phone or office', ['PHONE', 'IN_PERSON']);
+    const count = () =>
+      asOwner(ids.firmA, (tx) =>
+        tx.appointment.count({ where: { businessId: ids.firmA, typeId: t.id } }),
+      );
+    for (const who of [people.ownerA, people.staffA]) {
+      const res = await call(
+        'post',
+        '/appointments/schedule',
+        who,
+        schedule({ typeId: t.id, method: 'VIDEO' }),
+      );
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(detailsOf(res)).toEqual(notOffered);
+    }
+    expect(await count()).toBe(0);
+    const r = await scheduled({ typeId: t.id, method: 'IN_PERSON', officeId: ids.office });
+    expect(r.method).toBe('IN_PERSON');
+    const byStaff = await scheduled({ typeId: t.id, method: 'PHONE' }, people.staffA);
+    expect(byStaff.method).toBe('PHONE');
+    const rows = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findMany({
+        where: { id: { in: [r.id, byStaff.id] } },
+        select: { id: true, locationKind: true },
+      }),
+    );
+    expect(Object.fromEntries(rows.map((x) => [x.id, x.locationKind]))).toEqual({
+      [r.id]: 'IN_PERSON',
+      [byStaff.id]: 'PHONE',
+    });
+  });
+
+  it('changes the method or the type only to a method the type offers', async () => {
+    const videoOnly = await typeWith('Video only', ['VIDEO']);
+    const r = await scheduled({ method: 'PHONE' });
+    const patch = (body: object) =>
+      call('patch', `/appointments/${r.id}/details`, people.ownerA, body);
+    // A type that does not offer the appointment's method.
+    const toType = await patch({ version: r.version, typeId: videoOnly.id });
+    expectError(toType, 400, 'VALIDATION_FAILED');
+    expect(detailsOf(toType)).toEqual(notOffered);
+    // With one of its methods.
+    const moved = exact(
+      AppointmentRecord,
+      await patch({ version: r.version, typeId: videoOnly.id, method: 'VIDEO' }),
+    );
+    expect(moved).toMatchObject({ type: { id: videoOnly.id }, method: 'VIDEO' });
+    // A method its type does not offer.
+    const toPhone = await patch({ version: moved.version, method: 'PHONE' });
+    expectError(toPhone, 400, 'VALIDATION_FAILED');
+    expect(detailsOf(toPhone)).toEqual(notOffered);
+    const still = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${r.id}/record`, people.ownerA),
+    );
+    expect([still.method, still.version]).toEqual(['VIDEO', moved.version]);
+  });
+
+  it("changing a type's methods keeps its appointments, which still change in other ways", async () => {
+    const t = await typeWith('Shrinking', ['VIDEO', 'PHONE']);
+    const r = await scheduled({ typeId: t.id, method: 'PHONE' });
+    exact(AppointmentTypeConfig, await putConfig(t.id, ['VIDEO']));
+    const kept = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${r.id}/record`, people.ownerA),
+    );
+    expect(kept.method).toBe('PHONE');
+    // The form sends the whole appointment back: its own method stays allowed.
+    const n = freshDay();
+    const edited = exact(
+      AppointmentRecord,
+      await call('patch', `/appointments/${r.id}/details`, people.ownerA, {
+        version: kept.version,
+        method: 'PHONE',
+        typeId: t.id,
+        startsAt: at(n, '11:00'),
+        endsAt: at(n, '11:30'),
+        internalNotes: 'Fake note',
+      }),
+    );
+    expect(edited).toMatchObject({ method: 'PHONE', startsAt: at(n, '11:00') });
+    // Another method it no longer offers is refused.
+    const res = await call('patch', `/appointments/${r.id}/details`, people.ownerA, {
+      version: edited.version,
+      method: 'IN_PERSON',
+    });
+    expectError(res, 400, 'VALIDATION_FAILED');
+    expect(detailsOf(res)).toEqual(notOffered);
   });
 });
 

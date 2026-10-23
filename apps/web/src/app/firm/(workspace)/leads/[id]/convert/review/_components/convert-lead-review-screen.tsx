@@ -26,6 +26,12 @@ import { useRef, type ReactNode } from 'react';
 import { api } from '../../../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../../lib/query';
+import {
+  type ConvertDraft,
+  draftErrors,
+  requestFrom,
+  useConvertDraft,
+} from '../../_components/convert-draft';
 
 const STEPS = [
   { id: 'review', label: 'Review Lead Information' },
@@ -190,24 +196,42 @@ function SelectionMark({ checked, label }: { checked: boolean; label: string }) 
   );
 }
 
-function LeadSummary({ lead }: { lead: LeadProfile }) {
-  const fullName = [lead.firstName, lead.lastName].filter(Boolean).join(' ');
-  const staffName = lead.assignedTo?.name;
+function DraftSummary({
+  draft,
+  options,
+}: {
+  draft: ConvertDraft;
+  options: Awaited<ReturnType<typeof api.leadPipeline.options>> | undefined;
+}) {
+  const serviceName = (id: string) => options?.services.find((s) => s.id === id)?.name ?? 'Service';
+  const staffName = (userId: string) =>
+    options?.staff.find((s) => s.userId === userId)?.name ?? null;
+  const primary = draft.primaryStaffUserId ? staffName(draft.primaryStaffUserId) : null;
+  const team = draft.additionalStaffUserIds
+    .filter((u) => u !== draft.primaryStaffUserId)
+    .map((u) => staffName(u))
+    .filter((n): n is string => Boolean(n));
 
   return (
     <dl className="grid min-w-0 gap-x-5 gap-y-3 sm:grid-cols-2">
       <SummaryField label="Client Type">
-        <Badge tone="info">Individual</Badge>
+        <Badge tone="info">{draft.accountType === 'BUSINESS' ? 'Business' : 'Individual'}</Badge>
       </SummaryField>
-      <SummaryField label="Full Name">{fullName || 'Not provided'}</SummaryField>
-      <SummaryField label="Email">{lead.email || 'Not provided'}</SummaryField>
-      <SummaryField label="Phone">{lead.phone || 'Not provided'}</SummaryField>
+      <SummaryField label="Full Name">{draft.fullName || 'Not provided'}</SummaryField>
+      {draft.accountType === 'BUSINESS' ? (
+        <SummaryField label="Business Name">{draft.businessName || 'Not provided'}</SummaryField>
+      ) : null}
+      <SummaryField label="Email">{draft.email || 'Not provided'}</SummaryField>
+      <SummaryField label="Phone">{draft.phone || 'Not provided'}</SummaryField>
+      <SummaryField label="Address">
+        {draft.address || <span className="font-normal text-muted">Not provided</span>}
+      </SummaryField>
       <SummaryField label="Services to Activate" className="sm:col-span-2">
-        {lead.services.length ? (
+        {draft.serviceIds.length ? (
           <div className="flex flex-wrap gap-2">
-            {lead.services.map((service) => (
-              <Badge key={service.id} tone="info">
-                {service.name}
+            {draft.serviceIds.map((id) => (
+              <Badge key={id} tone="info">
+                {serviceName(id)}
               </Badge>
             ))}
           </div>
@@ -216,23 +240,27 @@ function LeadSummary({ lead }: { lead: LeadProfile }) {
         )}
       </SummaryField>
       <SummaryField label="Primary Staff Member">
-        {staffName ? (
+        {primary ? (
           <span className="inline-flex items-center gap-2">
-            <Avatar name={staffName} size="sm" />
-            <span>{staffName}</span>
+            <Avatar name={primary} size="sm" />
+            <span>{primary}</span>
           </span>
         ) : (
           <span className="font-normal text-muted">No primary staff member selected.</span>
         )}
       </SummaryField>
       <SummaryField label="Additional Team Members" className="border-b-0">
-        <span className="font-normal text-muted">No additional team members selected.</span>
+        {team.length ? (
+          team.join(', ')
+        ) : (
+          <span className="font-normal text-muted">No additional team members selected.</span>
+        )}
       </SummaryField>
     </dl>
   );
 }
 
-function CarryOverSummary() {
+function CarryOverSummary({ draft }: { draft: ConvertDraft | null }) {
   return (
     <section aria-labelledby="carry-over-heading">
       <div className="mb-3 flex items-center gap-2">
@@ -246,7 +274,7 @@ function CarryOverSummary() {
       <ul className="space-y-2" aria-label="Selected items to carry over">
         {CARRY_OVER_ITEMS.map(({ id, icon: Glyph, tone, label }) => (
           <li key={id} className="flex min-w-0 items-center gap-2.5 text-xs text-text">
-            <SelectionMark checked label={label} />
+            <SelectionMark checked={draft?.carryOver[id] ?? true} label={label} />
             <span
               className={'flex size-6 shrink-0 items-center justify-center rounded-control ' + tone}
             >
@@ -260,7 +288,7 @@ function CarryOverSummary() {
   );
 }
 
-function PortalInviteSummary() {
+function PortalInviteSummary({ draft }: { draft: ConvertDraft | null }) {
   return (
     <section className="mt-5 border-t border-border pt-4" aria-labelledby="portal-invite-heading">
       <div className="mb-3 flex items-center gap-2">
@@ -278,7 +306,7 @@ function PortalInviteSummary() {
       </div>
       <div className="space-y-3 pl-1">
         <div className="flex items-start gap-2.5 text-sm text-text">
-          <SelectionMark checked label="Send now" />
+          <SelectionMark checked={draft?.sendPortalInvite ?? true} label="Send now" />
           <div>
             <p className="font-medium">Send now</p>
             <p className="mt-0.5 text-xs text-muted">
@@ -287,7 +315,7 @@ function PortalInviteSummary() {
           </div>
         </div>
         <div className="flex items-start gap-2.5 text-sm text-text">
-          <SelectionMark checked={false} label="Send later" />
+          <SelectionMark checked={draft ? !draft.sendPortalInvite : false} label="Send later" />
           <div>
             <p className="font-medium">Send later</p>
             <p className="mt-0.5 text-xs text-muted">
@@ -300,12 +328,6 @@ function PortalInviteSummary() {
   );
 }
 
-function canConvertLead(lead: LeadProfile | undefined) {
-  return Boolean(
-    lead?.email && lead.phone?.trim() && lead.services.length && lead.assignedTo?.userId,
-  );
-}
-
 export function ConvertLeadReviewScreen() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -314,39 +336,19 @@ export function ConvertLeadReviewScreen() {
     api.leadPipeline.profile(id),
   );
   const lead = leadQuery.data;
+  const options = useApiQuery(['lead-pipeline', 'options'], () => api.leadPipeline.options());
+  // What the steps set (the convert layout's draft), or the lead's own values on a fresh load.
+  const { draft } = useConvertDraft(lead);
+  const ready = Boolean(draft && Object.keys(draftErrors(draft)).length === 0);
   const convert = useApiMutation(
     (body: ConvertLeadToClientRequest) => api.leadPipeline.convertToClient(id, body),
     { invalidate: ['lead-pipeline'] },
   );
 
   const submitConversion = () => {
-    if (!lead || !canConvertLead(lead)) return;
+    if (!draft || !ready) return;
     idempotencyKeyRef.current ??= globalThis.crypto.randomUUID();
-
-    const body: ConvertLeadToClientRequest = {
-      idempotencyKey: idempotencyKeyRef.current,
-      accountType: 'INDIVIDUAL',
-      fullName: [lead.firstName, lead.lastName].filter(Boolean).join(' '),
-      businessName: lead.businessName,
-      email: lead.email,
-      phone: lead.phone ?? '',
-      address: lead.address,
-      serviceIds: lead.services.map((service) => service.id),
-      primaryStaffUserId: lead.assignedTo?.userId ?? '',
-      additionalStaffUserIds: [],
-      carryOver: {
-        contactInfo: true,
-        notes: true,
-        communications: true,
-        appointments: true,
-        tasks: true,
-        documents: true,
-        intakeForms: true,
-        tags: true,
-        attribution: true,
-      },
-      sendPortalInvite: true,
-    };
+    const body = requestFrom(draft, idempotencyKeyRef.current);
 
     convert.mutate(body, {
       onSuccess: () => router.push('/leads/' + id + '/convert/done'),
@@ -413,16 +415,16 @@ export function ConvertLeadReviewScreen() {
             title="Client Summary"
             subtitle="Review the client details, services, and staff assignment."
           />
-          {lead ? (
-            <LeadSummary lead={lead} />
+          {draft ? (
+            <DraftSummary draft={draft} options={options.data} />
           ) : (
             <QueryMessage query={leadQuery} onRetry={() => void leadQuery.refetch()} />
           )}
         </Card>
 
         <Card className="min-w-0 p-4 md:p-5" data-testid="convert-lead-review-selections">
-          <CarryOverSummary />
-          <PortalInviteSummary />
+          <CarryOverSummary draft={draft} />
+          <PortalInviteSummary draft={draft} />
         </Card>
       </section>
 
@@ -442,7 +444,7 @@ export function ConvertLeadReviewScreen() {
         </Button>
         <Button
           className="sm:min-w-44"
-          disabled={!lead || !canConvertLead(lead) || leadQuery.isPending || convert.isPending}
+          disabled={!ready || leadQuery.isPending || convert.isPending}
           onClick={submitConversion}
         >
           {convert.isPending ? 'Converting…' : 'Convert to Client'}
