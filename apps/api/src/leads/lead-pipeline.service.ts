@@ -10,6 +10,8 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { likeEscape } from '../clients/clients.service.js';
+import type { TenantContext } from '../common/request-context.js';
+import { CommunicationsService } from '../communications/communications.service.js';
 import { DATABASE, TenantPrisma } from '../database/database.module.js';
 import { zonedInstant } from '../reports/schedule-math.js';
 import {
@@ -41,6 +43,7 @@ export class LeadPipelineService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly tenantPrisma: TenantPrisma,
     private readonly audit: AuditService,
+    private readonly comms: CommunicationsService,
   ) {}
 
   private async timezone(businessId: string): Promise<string> {
@@ -77,8 +80,10 @@ export class LeadPipelineService {
           ? { createdAt: { lt: new Date(zonedInstant(q.to, '00:00', zone).getTime() + DAY_MS) } }
           : {},
         q.priority ? { priority: q.priority } : {},
-        // Leads carry no campaign yet: a campaign filter matches none.
-        q.campaignId ? { id: { in: [] } } : {},
+        // In the campaign's audience (Communications, L7).
+        q.campaignId
+          ? { commAudience: { some: { communicationId: q.campaignId, kind: 'LEAD' as const } } }
+          : {},
         q.tag ? { tags: { some: { tag: { name: { equals: q.tag, mode: 'insensitive' } } } } } : {},
         term
           ? {
@@ -155,9 +160,10 @@ export class LeadPipelineService {
     };
   }
 
-  async options(businessId: string): Promise<LeadOptions> {
+  async options(tenant: TenantContext, userId: string): Promise<LeadOptions> {
+    const { businessId } = tenant;
     const db = this.tenantPrisma.db;
-    const [services, staff, tags] = await Promise.all([
+    const [services, staff, tags, campaigns] = await Promise.all([
       db.service.findMany({
         where: { businessId, archivedAt: null },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
@@ -173,12 +179,14 @@ export class LeadPipelineService {
         orderBy: { name: 'asc' },
         select: { name: true },
       }),
+      // A lead's campaign is a Communications campaign (L7): the ones this member sees there.
+      this.comms.campaignRefs(tenant, userId),
     ]);
-    // `campaigns` is left out until leads can belong to one (Communications module).
     return {
       services,
       staff: staff.map((m) => ({ userId: m.userId, name: m.user.name })),
       tags: tags.map((t) => t.name),
+      campaigns,
     };
   }
 

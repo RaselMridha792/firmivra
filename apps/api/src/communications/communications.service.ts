@@ -26,6 +26,7 @@ import { sanitize, stripTags } from '../templates/html.js';
 import { BUILT_IN_FIELDS, builtIn, fieldsIn, fill, smsLength } from '../templates/merge-fields.js';
 import { memberNames, memberRef } from '../workspaces/common.js';
 import { comErrors, iso, mask, permsOf } from './communications.common.js';
+import { isGridFirmRole, roleCan } from '@firmivra/types';
 import {
   addressOf,
   CommunicationAudienceService,
@@ -1127,6 +1128,80 @@ export class CommunicationsService {
         },
       );
       return (await this.audience.compute(ctx, c)).summary;
+    });
+  }
+
+  // ---------- Leads' campaigns (L7 of Octavia's Leads review) ----------
+
+  /**
+   * The campaigns the Leads page offers (its filter, Add to Campaign, Add New Lead): the firm's
+   * email and text campaigns this member sees here, newest first. None without the grid's
+   * Communications view.
+   */
+  campaignRefs(tenant: TenantContext, userId: string): Promise<{ id: string; name: string }[]> {
+    return this.run(tenant, userId, async (ctx) => {
+      if (
+        tenant.kind === 'staff' &&
+        isGridFirmRole(tenant.role) &&
+        !roleCan(tenant.role, 'COMMUNICATIONS', 'VIEW')
+      )
+        return [];
+      return ctx.tx.communication.findMany({
+        where: {
+          AND: [
+            { businessId: ctx.businessId, archivedAt: null, channel: { in: ['EMAIL', 'SMS'] } },
+            this.visible(ctx),
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        select: { id: true, name: true },
+      });
+    });
+  }
+
+  /**
+   * Adds leads to a campaign's audience from the Leads page: the same rules as Recipients here
+   * (write permission, a campaign this member sees, still editable, leads in reach), and nothing
+   * is sent or scheduled. A lead excluded before is included now. Answers the leads added (those
+   * already in it count too) and the campaign's name.
+   */
+  addLeadsToAudience(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    leadIds: string[],
+    check = false,
+  ): Promise<{ ids: string[]; name: string }> {
+    return this.run(tenant, userId, async (ctx) => {
+      this.requireWrite(ctx);
+      const c = await this.lock(ctx, id);
+      // An archived campaign is not offered to Leads, so it takes no one.
+      if (c.archivedAt) throw refuse('NOT_EDITABLE', 'This campaign is archived');
+      this.assertEditable(c);
+      if (c.channel === 'ANNOUNCEMENT')
+        throw comErrors.invalid('campaignId', 'An announcement goes to clients, not leads');
+      if (check || leadIds.length === 0) return { ids: [], name: c.name };
+      const leads = await ctx.tx.lead.findMany({
+        where: { AND: [this.segments.leadReach(ctx), { id: { in: leadIds } }] },
+        select: { id: true },
+      });
+      const ids = leads.map((l) => l.id);
+      const base = { businessId: ctx.businessId, communicationId: c.id };
+      await ctx.tx.communicationAudienceEntry.deleteMany({
+        where: { ...base, kind: 'EXCLUDE_LEAD', leadId: { in: ids } },
+      });
+      await ctx.tx.communicationAudienceEntry.createMany({
+        data: ids.map((leadId) => ({ ...base, kind: 'LEAD' as const, leadId })),
+        skipDuplicates: true,
+      });
+      await this.audit.logIn(
+        ctx.tx,
+        'communication.audience_leads_added',
+        { type: 'communication', id: c.id },
+        { communicationId: c.id, leads: ids.length },
+      );
+      return { ids, name: c.name };
     });
   }
 

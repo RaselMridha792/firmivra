@@ -19,6 +19,7 @@ import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
+import { CommunicationsModule } from '../communications/communications.module.js';
 import { loadDocumentsConfig, type DocumentsConfig } from '../storage/config.js';
 import {
   createS3Client,
@@ -121,7 +122,7 @@ export class LeadsController {
 }
 
 @Module({
-  imports: [PortalInfoModule],
+  imports: [PortalInfoModule, CommunicationsModule],
   // The pipeline and email controllers first: their static paths must match before
   // LeadsController's `:id`.
   controllers: [

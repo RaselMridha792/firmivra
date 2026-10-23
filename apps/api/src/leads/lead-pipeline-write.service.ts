@@ -10,7 +10,8 @@ import type {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
-import { legacyFirmRole } from '../common/request-context.js';
+import { CommunicationsService } from '../communications/communications.service.js';
+import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { conflict, notFound } from './leads.service.js';
 import {
@@ -41,7 +42,7 @@ const ACTION_LABEL = {
   CLOSE_LEAD: 'Close lead',
 } as const;
 
-/** Campaigns and a date of birth have no column on leads yet: say so instead of dropping them. */
+/** A date of birth has no column on leads yet: say so instead of dropping it. */
 const unavailable = (what: string) => invalid(`${what} is not available yet`, 'FIELD_UNAVAILABLE');
 
 /** Add New Lead, Edit and the bulk bar (R57). Every change is one transaction and one audit row per lead. */
@@ -50,14 +51,22 @@ export class LeadPipelineWriteService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly comms: CommunicationsService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
     return this.database.withScope({ kind: 'business', businessId }, fn);
   }
 
-  async create(businessId: string, actor: PipelineActor, body: Create): Promise<LeadProfile> {
-    if (body.campaignId) throw unavailable('Campaigns');
+  async create(
+    businessId: string,
+    actor: PipelineActor,
+    body: Create,
+    tenant: TenantContext,
+  ): Promise<LeadProfile> {
+    // A campaign is a Communications campaign (L7): checked before the lead exists.
+    if (body.campaignId)
+      await this.comms.addLeadsToAudience(tenant, actor.userId, body.campaignId, [], true);
     const serviceIds = [...new Set(body.serviceIds)];
     // leads.service_id is required: a lead needs a first service until the column is optional.
     if (serviceIds.length === 0) throw invalid('Choose at least one service');
@@ -106,7 +115,12 @@ export class LeadPipelineWriteService {
       return loadProfile(tx, businessId, actor, lead.id, { unrestricted: true });
     });
     await this.audit.log('lead.created', { type: 'lead', id: profile.id }, { source: body.source });
-    return profile;
+    if (!body.campaignId) return profile;
+    // Into the campaign's audience (checked above), then the profile as it is now.
+    await this.addToCampaign(businessId, actor, tenant, [profile.id], body.campaignId);
+    return this.inFirm(businessId, (tx) =>
+      loadProfile(tx, businessId, actor, profile.id, { unrestricted: true }),
+    );
   }
 
   async update(
@@ -114,8 +128,15 @@ export class LeadPipelineWriteService {
     actor: PipelineActor,
     id: string,
     body: Update,
+    tenant: TenantContext,
   ): Promise<LeadProfile> {
-    if (body.campaignId) throw unavailable('Campaigns');
+    if (body.campaignId === null)
+      throw invalid(
+        'Remove a lead from a campaign in Communications, Recipients',
+        'FIELD_UNAVAILABLE',
+      );
+    if (body.campaignId)
+      await this.comms.addLeadsToAudience(tenant, actor.userId, body.campaignId, [], true);
     if (body.dateOfBirth) throw unavailable('Date of birth');
     if (body.address && body.address.length > 200)
       throw invalid('Use at most 200 characters for the address');
@@ -180,7 +201,12 @@ export class LeadPipelineWriteService {
     return profile;
   }
 
-  async bulk(businessId: string, actor: PipelineActor, body: Bulk): Promise<LeadBulkResult> {
+  async bulk(
+    businessId: string,
+    actor: PipelineActor,
+    body: Bulk,
+    tenant: TenantContext,
+  ): Promise<LeadBulkResult> {
     requireCapability(
       actor,
       { ASSIGN: 'EDIT', STAGE: 'EDIT', CAMPAIGN: 'MANAGE', TAGS: 'MANAGE', ARCHIVE: 'DELETE' }[
@@ -188,6 +214,8 @@ export class LeadPipelineWriteService {
       ] as 'EDIT',
     );
     const ids = [...new Set(body.ids)];
+    if (body.action === 'CAMPAIGN')
+      return this.addToCampaign(businessId, actor, tenant, ids, body.campaignId);
     const changed = await this.inFirm(businessId, async (tx) => {
       // A converted lead, an archived one and another member's lead are skipped, not errors.
       const rows = await tx.lead.findMany({
@@ -227,9 +255,6 @@ export class LeadPipelineWriteService {
           });
           return todo;
         }
-        // Leads carry no campaign yet (see the PR's gaps): nothing is changed, all are skipped.
-        case 'CAMPAIGN':
-          return [];
         case 'TAGS': {
           const todo = rows.map((r) => r.id);
           await this.setTags(tx, businessId, actor, todo, body.add, false);
@@ -250,6 +275,54 @@ export class LeadPipelineWriteService {
       await this.audit.log(`lead.bulk_${body.action.toLowerCase()}`, { type: 'lead', id });
     }
     return { changed: changed.length, skipped: ids.length - changed.length };
+  }
+
+  /**
+   * Add to Campaign (L7): the selected open leads this member reaches join the Communications
+   * campaign's audience. Nothing is sent or scheduled; Communications keeps its own rules (a
+   * campaign that has gone out is 409). Each lead logs "Added to a campaign".
+   */
+  async addToCampaign(
+    businessId: string,
+    actor: PipelineActor,
+    tenant: TenantContext,
+    ids: string[],
+    campaignId: string,
+  ): Promise<LeadBulkResult> {
+    const rows = await this.database.forBusiness(businessId).lead.findMany({
+      where: {
+        AND: [
+          visibleLead(businessId),
+          reach(actor),
+          { id: { in: ids }, archivedAt: null, status: { not: 'CONVERTED' } },
+        ],
+      },
+      select: { id: true },
+    });
+    const added = await this.comms.addLeadsToAudience(
+      tenant,
+      actor.userId,
+      campaignId,
+      rows.map((r) => r.id),
+      rows.length === 0,
+    );
+    if (added.ids.length > 0) {
+      await this.inFirm(businessId, (tx) =>
+        tx.leadActivity.createMany({
+          data: added.ids.map((leadId) => ({
+            businessId,
+            leadId,
+            kind: 'CAMPAIGN' as const,
+            actorUserId: actor.userId,
+            summary: added.name,
+          })),
+        }),
+      );
+    }
+    for (const id of added.ids) {
+      await this.audit.log('lead.campaign_added', { type: 'lead', id }, { campaignId });
+    }
+    return { changed: added.ids.length, skipped: ids.length - added.ids.length };
   }
 
   /** A live service of this firm for each id: 404 for anything else (another firm's included). */
