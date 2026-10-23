@@ -17,6 +17,30 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
 - [ ] L9 (P1): Convert to Client fields editable before completion; carry-forward checked.
 - [ ] L4 to L8, L10 to L14: after the P1s.
 
+## L4: the email composer (Oct 23)
+
+- **Reproduced on main:** the lead email was plain text from start to finish (a textarea, `body` escaped into one paragraph). `message_signatures` existed but nothing read or wrote it, and nothing could store an email image.
+- **Decided (Rasel, Oct 23):**
+  - font, size and image controls go into `packages/ui`'s RichTextEditor as opt-in props;
+  - inline images use a public URL under the firm's portal, not CID attachments, so there's no transport or infra change;
+  - the signature is per member;
+  - L4 comes before the P2s.
+- **Contract #1042, API #1044** (stacked on #1042):
+  - the HTML cleaner `notify/email-html.ts`;
+  - `GET`/`PUT /business/me/message-signature`;
+  - `POST /business/leads/messages/images` and `/confirm`;
+  - the public `GET /portal/{slug}/email-images/{id}.{ext}`;
+  - `html` on Send Email.
+- **Web** (`rasel/R55-leads-email-web`, stacked on #1044):
+  - Font and Size menus, bold and italic, image upload, then click the image to set its width (24 to 600 px), place it left, centre or right, or remove it; no link button;
+  - the saved signature sits under a new email and can be created, edited, given the firm's logo, or inserted again;
+  - `body` is the plain form of the same message.
+- **Live, Oct 23 (local API, web, Mailpit, owner@lvp.test):**
+  - the delivered email kept Georgia 20 px bold, italic, the image centred at 200 px (loaded from its public address) and the signature with the LVP logo;
+  - the text part had each line;
+  - the activity says "Email sent: <subject>".
+  - Screenshots: `apps/web/e2e/mock/r55-screenshots/leads/email-*.png`.
+
 ## Decisions
 
 1. L1: the Overview is built from `api.leadPipeline.profile` and the existing tab cards (Upcoming Appointments, Next Action / Follow-Up and Open Tasks are the same components as their tabs). Lead Score keeps its frame with "Not scored yet" while no scoring exists (contract: optional).
