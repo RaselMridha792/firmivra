@@ -205,13 +205,15 @@ export class SchedulingReadService {
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
         select: { id: true, name: true },
       });
+      // Only ACTIVE locations take new bookings (Settings > Locations: an inactive one keeps its
+      // appointments but is offered no more).
       const offices = await tx.firmOffice.findMany({
-        where: { businessId, archivedAt: null },
+        where: { businessId, archivedAt: null, status: 'ACTIVE' },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
         select: { id: true, name: true },
       });
       const rooms = await tx.firmRoom.findMany({
-        where: { businessId, archivedAt: null, office: { archivedAt: null } },
+        where: { businessId, archivedAt: null, office: { archivedAt: null, status: 'ACTIVE' } },
         orderBy: [{ name: 'asc' }, { id: 'asc' }],
         select: { id: true, name: true, officeId: true },
       });

@@ -2,7 +2,7 @@
 
 import type { AuditEntry } from '@firmivra/types';
 import { Avatar, Button, Card, EmptyState, Table, type Column } from '@firmivra/ui';
-import { ShieldCheck } from '@phosphor-icons/react';
+import { DownloadSimple, ShieldCheck } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { RequireRole } from '../../../../../components/require-role';
@@ -35,6 +35,8 @@ const AREAS = [
   { prefix: 'appointment.', label: 'Appointments' },
   { prefix: 'invoice.', label: 'Invoices' },
   { prefix: 'membership.', label: 'Team' },
+  { prefix: 'staff.', label: 'Staff access' },
+  { prefix: 'role.', label: 'Roles & permissions' },
 ] as const;
 
 /** "client_account.approved" → "Client account approved": the code stays beside it. */
@@ -151,6 +153,17 @@ export function AuditLogScreen() {
             Who did what in your firm, newest first. Entries can&apos;t be changed or removed.
           </p>
         </div>
+        <RequireRole roles={['OWNER', 'ADMIN']}>
+          {/* The filters shown, every page of them, as CSV (the export itself is logged). */}
+          <a
+            href={api.auditLog.exportUrl(filters)}
+            data-testid="audit-export"
+            className="ml-auto inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-action px-4 text-sm font-semibold text-action hover:bg-folder-surface"
+          >
+            <DownloadSimple aria-hidden weight="bold" className="size-5" />
+            Export
+          </a>
+        </RequireRole>
       </header>
       <RequireRole roles={['OWNER', 'ADMIN']}>
         <nav aria-label="Audit log areas" className="flex flex-wrap gap-2">

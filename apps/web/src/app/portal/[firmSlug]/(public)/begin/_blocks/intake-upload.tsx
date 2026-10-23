@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ApiRequestError,
   BEGIN_ONLINE_ERRORS,
   DOCUMENT_ERRORS,
   type IntakeUpload,
@@ -22,6 +23,16 @@ import {
 import { useId, useState } from 'react';
 import { errorMessage } from '../../../../../../lib/errors';
 import type { Fill } from './intake-fields';
+
+/**
+ * Why a file was refused: the firm's size limit in its own words ("Files can be at most 50 MB",
+ * the API's sizeBytes detail, I10), else the error code's message.
+ */
+function uploadProblem(e: unknown): string {
+  const size =
+    e instanceof ApiRequestError ? e.details?.find((d) => d.path === 'sizeBytes') : undefined;
+  return size?.message ?? errorMessage(e, { ...DOCUMENT_ERRORS, ...BEGIN_ONLINE_ERRORS });
+}
 import { issueKey, type ScreenUpload } from './intake-values';
 
 /** What an upload slot needs from the draft: its files and the two actions. */
@@ -96,9 +107,7 @@ export function UploadInput({
         await actions.upload(field.key, file);
         if (value.notAvailable) onChange({ notAvailable: false, reason: '' });
       } catch (e) {
-        setFailure(
-          `${file.name}: ${errorMessage(e, { ...DOCUMENT_ERRORS, ...BEGIN_ONLINE_ERRORS })}`,
-        );
+        setFailure(`${file.name}: ${uploadProblem(e)}`);
       } finally {
         setBusy((n) => n - 1);
       }
