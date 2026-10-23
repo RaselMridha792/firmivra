@@ -324,3 +324,79 @@ test('Templates: Duplicate and Archive from the row menu, Restore from Archived'
   await page.getByRole('button', { name: /^Restore Bank Account Setup \(Copy\)/ }).click();
   await expect(page.getByText('Bank Account Setup (Copy) restored.')).toBeVisible();
 });
+
+const pdf = (name: string) => ({
+  name,
+  mimeType: 'application/pdf',
+  buffer: Buffer.from('%PDF-1.4 synthetic'),
+});
+
+test('C6 Create Task: Browse Files and drop; wrong type and over 10 MB are named; saves with its files', async ({
+  page,
+}) => {
+  await page.goto(`${base}/new`);
+  const browse = page.getByRole('button', { name: 'Browse Files' });
+  const note = page.getByTestId('attachment-note');
+  await expect(browse).toBeDisabled();
+  await expect(note).toContainText('Choose the client first');
+  await fillRequired(page, 'Collect the W-2s');
+  await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
+  // Riley Example has no open service: files cannot go to their documents yet.
+  await expect(note).toContainText('Riley Example has no open service');
+  await expect(browse).toBeDisabled();
+  await page.getByLabel('Client', { exact: true }).selectOption({ label: 'Jamie Sample' });
+  await expect(browse).toBeEnabled();
+  await expect(note).toHaveText(
+    "Saved privately to Jamie Sample's documents under Bookkeeping (Growth), staff only.",
+  );
+
+  const chooser = page.waitForEvent('filechooser');
+  await browse.click();
+  await (
+    await chooser
+  ).setFiles([
+    pdf('w2-2025.pdf'),
+    { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('synthetic') },
+    { name: 'scan.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(11 * 1024 * 1024, 1) },
+  ]);
+  const queued = page.getByTestId('queued-files');
+  await expect(queued).toContainText('w2-2025.pdf');
+  await expect(queued.getByRole('alert')).toHaveCount(2);
+  await expect(queued).toContainText('Upload a PDF, JPG, PNG, Excel (.xlsx) or Word (.docx) file.');
+  await expect(queued).toContainText('This file is larger than 10 MB. Choose a smaller file.');
+
+  // Refused files block the save until removed; the entries stay.
+  await page.getByTestId('task-save').click();
+  await expect(page.getByText('Remove the files marked in red, or choose others.')).toBeVisible();
+  await expect(page.getByLabel('Task Name *')).toHaveValue('Collect the W-2s');
+  await page.getByRole('button', { name: 'Remove notes.txt' }).click();
+  await page.getByRole('button', { name: 'Remove scan.pdf' }).click();
+
+  const dropped = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    d.items.add(
+      new File(['%PDF-1.4 synthetic'], 'bank-statement.pdf', { type: 'application/pdf' }),
+    );
+    return d;
+  });
+  await page.getByTestId('attachment-drop').dispatchEvent('drop', { dataTransfer: dropped });
+  await expect(queued).toContainText('bank-statement.pdf');
+  await expect(queued).toContainText('uploads when the task is saved');
+
+  await page.getByTestId('task-save').click();
+  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('detail-attachments').getByRole('listitem')).toHaveCount(2);
+  await expect(page.getByTestId('detail-attachments')).toContainText('Staff only');
+
+  // Edit Task: a file attaches at once, and Save Changes still saves (no version conflict).
+  await page.getByRole('link', { name: 'Edit' }).first().click();
+  await expect(page.getByTestId('attached-files').getByRole('listitem')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Browse Files' })).toBeEnabled();
+  await page.getByTestId('attachment-input').setInputFiles([pdf('engagement-letter.pdf')]);
+  await expect(page.getByText('File attached.')).toBeVisible();
+  await expect(page.getByTestId('attached-files').getByRole('listitem')).toHaveCount(3);
+  await page.getByLabel('Task Name *').fill('Collect the W-2s and the 1099s');
+  await page.getByTestId('task-save').click();
+  await expect(page.getByTestId('task-title')).toHaveText('Collect the W-2s and the 1099s');
+  await expect(page.getByTestId('detail-attachments').getByRole('listitem')).toHaveCount(3);
+});

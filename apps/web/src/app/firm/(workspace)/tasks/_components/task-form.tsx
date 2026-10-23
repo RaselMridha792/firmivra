@@ -9,13 +9,19 @@ import type {
   UpdateTaskDetailRequest,
 } from '@firmivra/types';
 import { Button, Checkbox, Modal, Textarea, Toast, Toggle } from '@firmivra/ui';
-import { ArrowLeft, CloudArrowUp, FloppyDisk, Plus, X } from '@phosphor-icons/react';
+import { ArrowLeft, FloppyDisk, Plus, X } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import {
+  AttachmentDrop,
+  FilesNotUploaded,
+  type QueuedFile,
+  useTaskFiles,
+} from './task-attachments';
 import { useClients, useMembers } from './task-data';
 import {
   ChecklistItems,
@@ -161,6 +167,68 @@ function Form({
 
   const typeChoice = useTypeChoice(typeId, task?.type);
 
+  // Attachments (C6): files go to the client's documents under one of the client's open
+  // services: the Related To project when it is open, else the first open one.
+  const files = useTaskFiles();
+  const [version, setVersion] = useState(task?.version ?? '');
+  const [attached, setAttached] = useState(task?.attachments ?? []);
+  const openServices = (engagements.data ?? []).filter((x) => x.status === 'ACTIVE');
+  const fileService = openServices.find((x) => x.id === engagementId) ?? openServices[0];
+  const clientName =
+    clients.find((c) => c.id === clientId)?.displayName ?? task?.client.displayName ?? '';
+  const filesBlocked = !clientId
+    ? "Choose the client first: files are saved to the client's documents."
+    : engagements.isPending
+      ? "Loading the client's services…"
+      : engagements.isError
+        ? "The client's services could not be loaded, so files cannot be added right now."
+        : !fileService
+          ? `${clientName || 'This client'} has no open service, so files cannot be saved to their documents yet.`
+          : undefined;
+  const filesNote = fileService
+    ? `Saved privately to ${clientName}'s documents under ${fileService.title}, staff only.`
+    : undefined;
+  // Edit Task attaches each file as soon as it is up, then reads the task's new version, so
+  // Save Changes does not meet its own attachment as a conflict.
+  const attachNow = useApiMutation(
+    async (picked: QueuedFile[]) => {
+      if (!task || !fileService) return 0;
+      let count = 0;
+      for (const item of picked) {
+        try {
+          const [documentId] = await files.upload([item], task.client.id, fileService.id);
+          if (!documentId) continue;
+          await api.taskWork.addAttachment(task.id, { documentId });
+          files.remove(item.key);
+          count++;
+        } catch (e) {
+          if (!(e instanceof FilesNotUploaded))
+            files.patch(item.key, { state: 'error', error: errorMessage(e, TASK_ERRORS) });
+        }
+      }
+      if (count) {
+        const fresh = await api.taskWork.task(task.id);
+        setVersion(fresh.version);
+        setAttached(fresh.attachments);
+      }
+      return count;
+    },
+    { invalidate: [...TASKS_KEY] },
+  );
+  function addFiles(list: File[]) {
+    if (filesBlocked) return;
+    const ready = files.add(list);
+    if (task && ready.length)
+      attachNow.mutate(ready, {
+        onSuccess: (count) =>
+          count &&
+          setMessage({
+            text: count === 1 ? 'File attached.' : `${count} files attached.`,
+            tone: 'success',
+          }),
+      });
+  }
+
   const checklistBody = items
     .filter((i) => i.label.trim())
     .map((i) => ({ ...(i.id ? { id: i.id } : {}), label: i.label.trim(), required: i.required }));
@@ -192,7 +260,7 @@ function Form({
   const save = useApiMutation(async (another: boolean) => {
     if (task) {
       const body: UpdateTaskDetailRequest = {
-        version: task.version,
+        version,
         title: title.trim(),
         details,
         dueOn: dueOn || null,
@@ -202,6 +270,10 @@ function Form({
       };
       return { saved: await api.taskWork.update(task.id, body), another };
     }
+    const documentIds =
+      files.sendable.length && fileService
+        ? await files.upload(files.sendable, clientId, fileService.id)
+        : [];
     const body: CreateTaskDetailRequest = {
       clientId,
       title: title.trim(),
@@ -212,6 +284,9 @@ function Form({
       ...common(),
       checklist: checklistBody,
       ...(template ? { templateId: template.id } : {}),
+      ...(documentIds.length
+        ? { attachments: documentIds.map((documentId) => ({ documentId })) }
+        : {}),
     };
     return { saved: await api.taskWork.create(body), another };
   }, options);
@@ -236,6 +311,11 @@ function Form({
     if (!assignee && !byTeam) e['assignee'] = 'Choose who it is assigned to';
     if (!dueOn) e['due'] = 'Choose a due date';
     if (startOn && dueOn && startOn > dueOn) e['due'] = 'The due date is before the start';
+    if (files.queue.some((f) => f.state === 'uploading'))
+      e['files'] = 'Wait for the files to finish uploading.';
+    else if (files.queue.some((f) => f.blocking) || (task && files.queue.length > 0))
+      e['files'] = 'Remove the files marked in red, or choose others.';
+    else if (!task && files.sendable.length && filesBlocked) e['files'] = filesBlocked;
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -251,9 +331,17 @@ function Form({
           setMessage({ text: 'Task saved. Add another.', tone: 'success' });
           router.replace('/tasks/new');
           setTitle('');
+          files.setQueue([]);
         } else router.push(`/tasks/${saved.id}`);
       },
-      onError: (e) => setMessage({ text: errorMessage(e, TASK_ERRORS), tone: 'error' }),
+      onError: (e) =>
+        setMessage({
+          text:
+            e instanceof FilesNotUploaded
+              ? 'A file was not uploaded, so the task was not saved. See Attachments, then save again.'
+              : errorMessage(e, TASK_ERRORS),
+          tone: 'error',
+        }),
     });
   }
 
@@ -616,31 +704,15 @@ function Form({
             subtitle="Upload relevant documents (optional)."
             testId="form-attachments"
           >
-            {task && task.attachments.length > 0 ? (
-              <ul className="mb-3 divide-y divide-divider rounded-lg border border-divider">
-                {task.attachments.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between gap-3 p-3 text-sm">
-                    <span className="truncate text-heading">{a.fileName}</span>
-                    <span className="text-xs text-muted">
-                      {a.clientVisible ? 'Visible to client' : 'Staff only'}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-control-border bg-canvas p-6 text-center">
-              <CloudArrowUp aria-hidden weight="fill" className="size-10 text-action" />
-              <p className="text-sm text-heading">Drag and drop files here or click to upload</p>
-              <p className="text-xs text-muted">
-                Supported files: PDF, DOC, DOCX, XLS, XLSX, PNG, JPG (Max 10MB each)
-              </p>
-              <span
-                className="rounded-control border border-border bg-surface px-4 py-2 text-sm text-muted"
-                title="Documents are attached from the client's own documents once the task is saved."
-              >
-                Browse Files
-              </span>
-            </div>
+            <AttachmentDrop
+              attached={attached}
+              queue={files.queue}
+              onFiles={addFiles}
+              onRemove={files.remove}
+              blocked={filesBlocked}
+              note={filesNote}
+            />
+            {err('files')}
           </Section>
         </div>
 
