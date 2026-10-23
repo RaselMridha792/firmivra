@@ -35,8 +35,11 @@ Pushed, no PR yet (two non-contract PRs are open). Open each when a slot frees, 
 
 | Branch | What | Before its PR |
 | --- | --- | --- |
-| `rasel/R60-intake-settings-p2` | I8 (days, "after sending", the final after the first, No reminders saved as off), I9 (1 to 72 hours, 42 not 48), I11 (Always on). API and web | Body ready in the old scratchpad (`pr-settings-p2.md`); sheet committed |
+| `rasel/R60-intake-settings-p2` | I8 (days, "after sending", the final after the first, No reminders saved as off), I9 (1 to 72 hours, 42 not 48), I11 (Always on). API and web | Body ready in the second session's scratchpad (`pr-settings-p2.md`, path below); sheet committed |
 | `rasel/R60-staff-drafts` | SM5: Drafts in the directory's status filter (Continue, Delete); a chosen file stays after Back; the saved note says pay and files are not in a draft | Shoot its sheet on the real API (directory Drafts with data, empty, unreachable; 375 px), then write the body |
+
+The second session's scratchpad: `C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/ce1f72c0-0ecd-4c6c-8bc9-104d6f2a219d/scratchpad/`
+(`shots-link.cjs`, `shots-settings2.cjs`, `compose.cjs`, `spec-*.json`, the PR bodies `pr-*.md`).
 
 Mock specs pass on each: `r60-intake-link` 2, `tumit-intake-builder` and `tumit-intake-templates`;
 `r60-intake-settings` 11; `r60-staff-drafts` 2 and the `tumit-team*` specs 12.
