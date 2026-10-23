@@ -19,6 +19,7 @@ import {
   createCalculatorsClient,
   createClientNotesClient,
   createClientsClient,
+  createTagsClient,
   createClientSignUpsClient,
   createContentClient,
   createDocumentLibraryClient,
@@ -106,6 +107,7 @@ import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createClientsMock } from '../mocks/clients';
+import { createTagsMock } from '../mocks/tags';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import {
@@ -233,6 +235,8 @@ export const api = {
     dev && mocked('clients')
       ? createClientsMock({ role: MOCK_ROLE })
       : createClientsClient(request),
+  /** The firm's one tag list for Leads and Clients (L5, L6). */
+  tags: dev && mocked('tags') ? createTagsMock({ role: MOCK_ROLE }) : createTagsClient(request),
   engagements:
     dev && mocked('engagements')
       ? createEngagementsMock({ role: MOCK_ROLE })

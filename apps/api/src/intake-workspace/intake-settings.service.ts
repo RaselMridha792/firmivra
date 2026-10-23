@@ -95,8 +95,9 @@ export class IntakeSettingsService {
       notifications: {
         sendClientConfirmation: r.sendClientConfirmation,
         notifyAssignedStaff: r.notifyAssignedStaff,
-        firstReminderAfterDays: r.firstReminderDays,
-        finalReminderAfterDays: r.finalReminderDays,
+        // No reminders (reminders off for new sends) reads as no first and no final reminder.
+        firstReminderAfterDays: r.remindersEnabled ? r.firstReminderDays : null,
+        finalReminderAfterDays: r.remindersEnabled ? r.finalReminderDays : null,
         expirationAlertHours: r.expiryAlertHours,
       },
       automation: {
@@ -188,16 +189,32 @@ export class IntakeSettingsService {
         if (n.sendClientConfirmation !== undefined)
           data.sendClientConfirmation = n.sendClientConfirmation;
         if (n.notifyAssignedStaff !== undefined) data.notifyAssignedStaff = n.notifyAssignedStaff;
-        if (n.firstReminderAfterDays !== undefined)
-          data.firstReminderDays = n.firstReminderAfterDays ?? 3;
-        if (n.finalReminderAfterDays !== undefined)
-          data.finalReminderDays = n.finalReminderAfterDays ?? 7;
-        if (n.expirationAlertHours !== undefined)
-          data.expiryAlertHours = n.expirationAlertHours ?? 24;
+        // No first reminder turns reminders off (each new send's default); the days are kept
+        // for when they are turned on again. There is no column for a first reminder without a
+        // final one, or for no expiration alert, so neither is taken.
+        if (n.firstReminderAfterDays !== undefined) {
+          data.remindersEnabled = n.firstReminderAfterDays !== null;
+          if (n.firstReminderAfterDays !== null) data.firstReminderDays = n.firstReminderAfterDays;
+        }
+        if (n.finalReminderAfterDays !== undefined && n.finalReminderAfterDays !== null)
+          data.finalReminderDays = n.finalReminderAfterDays;
+        if (n.expirationAlertHours === null)
+          throw invalid(
+            'notifications.expirationAlertHours',
+            'Choose how long before expiry the alert goes',
+          );
+        if (n.expirationAlertHours !== undefined) data.expiryAlertHours = n.expirationAlertHours;
       }
+      const enabled = (data.remindersEnabled as boolean | undefined) ?? current.remindersEnabled;
+      if (enabled && n?.finalReminderAfterDays === null)
+        throw invalid(
+          'notifications.finalReminderAfterDays',
+          'Choose when the final reminder goes, or No reminders for the first',
+        );
       const first = (data.firstReminderDays as number | undefined) ?? current.firstReminderDays;
       const final = (data.finalReminderDays as number | undefined) ?? current.finalReminderDays;
-      if (final < first)
+      // As the database: the final reminder comes strictly after the first.
+      if (final <= first)
         throw invalid(
           'notifications.finalReminderAfterDays',
           'The final reminder comes after the first',
