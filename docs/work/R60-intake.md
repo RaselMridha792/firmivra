@@ -252,3 +252,7 @@ Mock specs pass on each: `r60-intake-link` 2, `tumit-intake-builder` and `tumit-
   that took them for empty breaks and choice-less dropdowns). LVP's Annual Tax published as v2
   on the real API, Begin Online serving its 72 fields. Web `tsc` 0 errors; mock specs 14 of 14
   (link, builder, templates); builder-draft unit 3 of 3.
+- Oct 24: SM5 (`rasel/R60-staff-drafts`): Drafts in the directory's status filter (Continue,
+  Delete; Owner and Admin), a chosen file and its type kept across Back and Next, and the saved
+  note naming what a draft does not keep (pay, files). Sheet shot on the real API; it also listed an
+  Oct 19 draft nothing had shown. `r60-staff-drafts` 2 of 2 and the `tumit-team*` specs 12 of 12.
