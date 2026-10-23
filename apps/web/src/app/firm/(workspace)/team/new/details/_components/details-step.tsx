@@ -77,6 +77,13 @@ interface QueuedFile {
   type: StaffDocumentType;
 }
 
+/**
+ * The files chosen here, by draft, while the person moves between the steps (Octavia's SM5: a
+ * file and its type were lost after Back). They stay in this browser tab only, never in the draft
+ * (a draft keeps no attachment yet), and upload on Submit.
+ */
+const keptFiles = new Map<string, QueuedFile[]>();
+
 interface Form {
   employmentType: StaffEmploymentType | '';
   endDate: string;
@@ -213,7 +220,9 @@ function DetailsForm({
   const options = useApiQuery(['staff', 'options'], () => api.staff.options());
   const o = options.data;
   const [form, setForm] = useState<Form>(() => fromDraft(base));
-  const [files, setFiles] = useState<QueuedFile[]>([]);
+  const [files, setFiles] = useState<QueuedFile[]>(() =>
+    startDraft ? (keptFiles.get(startDraft) ?? []) : [],
+  );
   const [fileNote, setFileNote] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [stepOne, setStepOne] = useState('');
@@ -261,6 +270,7 @@ function DetailsForm({
       {
         onSuccess: async (res) => {
           const id = res.staff.id;
+          if (draft.draftId) keptFiles.delete(draft.draftId);
           let failed = 0;
           setUploading(true);
           for (const q of files) {
@@ -649,14 +659,21 @@ function DetailsForm({
             <Button
               variant="secondary"
               disabled={pending}
-              onClick={() => draft.save(data(), (id) => router.push(stepHref('security', id)))}
+              onClick={() =>
+                draft.save(data(), (id) => {
+                  keptFiles.set(id, files);
+                  router.push(stepHref('security', id));
+                })
+              }
             >
               <ArrowLeft aria-hidden weight="bold" className="size-4" />
               Back
             </Button>
             {draft.saved ? (
               <span role="status" className="text-sm text-success" data-testid="draft-saved">
-                Draft saved (pay is not kept)
+                {files.length
+                  ? 'Draft saved. Pay and files are not kept in a draft: files stay while this tab is open.'
+                  : 'Draft saved. Pay is not kept in a draft.'}
               </span>
             ) : null}
             {uploading ? (
@@ -669,9 +686,10 @@ function DetailsForm({
                 variant="secondary"
                 disabled={pending}
                 onClick={() =>
-                  draft.save(data(), (id) =>
-                    router.replace(stepHref('details', id), { scroll: false }),
-                  )
+                  draft.save(data(), (id) => {
+                    keptFiles.set(id, files);
+                    router.replace(stepHref('details', id), { scroll: false });
+                  })
                 }
               >
                 Save as Draft

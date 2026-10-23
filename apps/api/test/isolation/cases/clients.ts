@@ -73,6 +73,11 @@ export const cases: CaseModule['cases'] = {
   },
   'GET /api/v1/business/clients/:id': { params: { id: 'client' } },
   'GET /api/v1/business/clients/:id/tax-years': { params: { id: 'client' } },
+  'GET /api/v1/business/clients/:id/tags': { params: { id: 'client' } },
+  'PUT /api/v1/business/clients/:id/tags': {
+    params: { id: 'client' },
+    body: { tags: ['Fake tag'] },
+  },
   'GET /api/v1/business/clients/:id/tax-years/:year/history': { params: { id: 'client' } },
   'PATCH /api/v1/business/clients/:id': {
     params: { id: 'client' },
