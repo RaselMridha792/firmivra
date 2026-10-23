@@ -13,17 +13,93 @@ Owned paths: `apps/web/src/app/firm/(workspace)/intake-forms/`, `apps/web/src/mo
 `apps/api/src/intake-workspace/`, their tests (`apps/api/test/e2e/intake-workspace.e2e.test.ts`,
 `apps/web/e2e/mock/*intake*`), and this file.
 
+## Handoff (Oct 23): start here
+
+R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,
+`docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
+this file.
+
+### Open PRs (one at a time, each after the previous one merged or had CI green)
+
+| PR | Branch | What |
+| --- | --- | --- |
+| #1028 | `rasel/R60-intake-send` | I2: Send says why a send can't reach someone, and where to fix it |
+| #1031 | `rasel/R60-intake-publish` | I3 (validation): Publish names each problem and goes to it |
+| #1033 | `rasel/R60-intake-settings-p1` | I4 to I6: Edit panels, Submission Rules panel, a real test reminder |
+
+After a PR merges, merge `origin/main` into the next branch before more work on it.
+
+### Next, in this order
+
+1. **I3, the rest: link and embed code.** Rasel decided (Oct 22): only each service's main form
+   (its default template, `service_default`, of a Begin Online service of the six kinds) gets a
+   public link and embed code, pointing to its existing page `{PORTAL_BASE_URL}/{slug}/begin/{path}`
+   (paths: annual-tax, quarterly-tax, bookkeeping, payroll, tax-planning, business-development;
+   `formOfPath` in `apps/api/src/begin-online/`). No new public page for other templates. Show it with
+   R56's `PublicLinkBlock` (#1020: `packages/types/src/public-links/schemas.ts`, `publicEmbedCode`,
+   and `apps/web/src/components/public-link.tsx` if R56 added it). Contract first (a
+   `GET /business/intake-forms/{id}/public-link` answering `PublicLink`, 404 for a form that is not
+   a main form), then API and screen (after Publish in the builder, and on the main form's card).
+   `state`: LIVE when published and the service is active and on Begin Online; else DRAFT,
+   INACTIVE, ARCHIVED or HIDDEN. Check whether the Begin Online pages honour `?embed=1` (the
+   block's iframe adds it); if not, say so in the PR and in Needs (R17's portal layout).
+2. **Intake Forms I7 to I12** (CHANGE-LIST section A). Check main first:
+   - I7 Notify additional emails (Notifications & Reminders), editable and saved: needs a column?
+     (`intake_settings` has none today: a written item to R0/R1, not built).
+   - I8 First and Final reminder options in minutes and hours too: the columns are whole days
+     (`first_reminder_days`): a schema item; label "after sending".
+   - I9 Expiration alert: add 30 minutes, 1, 2, 3, 5, 6, 10 hours; keep 72, 42, 24, 12.
+   - I10 50 and 100 MB: built by R1 (#1025); verify only.
+   - I11 Encryption: a read-only "Encrypted file uploads: Always on" label instead of the switch.
+   - I12 Data retention period (custom years): a column item; selecting it deletes nothing.
+   - I13 live tests: record Pass, Fail or Blocked with evidence in a PR.
+   Her open decisions stay open (Submitted vs Completed, due date vs expiration, staff Edit vs
+   Request Revision, import file types, auto-create client trigger): list them, do not guess.
+3. **Settings Confirm Checks** (`docs/specs/review-2026-10-21/settings--confirm-checks-supplement.md`,
+   CHANGE-LIST section E): verification, not features. For each check R60 owns (Overview, ownership
+   transfer and branding with R56, Security and Data with R1, Preferences consistency) return Built,
+   Partially built or Not built, the page, the test result, the evidence and what remains. The
+   tab-to-page mapping (check 10) is one table in that PR.
+4. **Settings areas:** Company Profile "Request Change", Notifications, Billing and Payments.
+5. **Staff Management screens** from Octavia's new review
+   (`docs/specs/review-2026-10-23/CHANGE-LIST.md`, section B): SM3 (wrong routes: Offices & Job
+   Titles, New Accounts & Security), SM5 (drafts not found; the file lost after Back), SM8 (work
+   schedules, maximum workload), SM9 (summary cards and one directory view), SM10 (date, time and
+   timezone in the shared header), SM11 (saved job titles; Custom Role shortcut), SM12 (Drafts view
+   and status; per-file Save), SM13 (Manage Members on a department).
+6. Then R60-settings.md's own items (Begin Online fixes, item 5, with the two failing r22 specs
+   below; Data & Backups; the others there).
+
+### How R60 worked (keep doing it)
+
+- Reproduce on local `main` first; write what was found into this file.
+- One PR per slice, P1 first; the PR body like #1028 (What and why, the sheet, Design match
+  ticked, How to test, Checklist). No attribution lines in commits or PR bodies (CLAUDE.md).
+- Screenshot sheets: helpers are in the old session's scratchpad
+  (`C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/ffc9f91f-04c1-4396-a3d5-c0f47af0b17e/scratchpad/`:
+  `shots-intake.cjs`, `shots-send.cjs`, `shots-builder.cjs`, `shots-settings-intake.cjs`,
+  `compose.cjs`, `spec-*.json`, and the PR bodies `pr-*.md`). Sheets go under
+  `apps/web/e2e/screenshots/r60-*/`, linked by blob URL pinned to the commit with `?raw=true`.
+- Local quirks: after merging `main`, run `pnpm install`, build `@firmivra/types` (and
+  `@firmivra/ui`), and `pnpm --filter @firmivra/db generate` before typechecking (stale builds give
+  false errors). The Docker services can stop: `docker start firmivra-postgres-1 firmivra-s3-1
+  firmivra-mailpit-1`. In Git Bash set `MSYS_NO_PATHCONV=1` when passing `/paths` to node scripts.
+  The machine is slow: run test suites and dev servers in the background and wait for them.
+  Stop dev servers by port (3600, 4600) and delete `apps/web/.next` afterwards.
+- Mock data: the intake mock now answers Send as the API does; its triggers are "noservice" (409
+  `NO_ENGAGEMENT`) and "undelivered" (delivery FAILED) in the subject.
+
 ## Items
 
 | # | Item | State |
 | --- | --- | --- |
-| I1 | Template library shows every form | PR opened Oct 22 (`rasel/R60-intake-templates`) |
-| I2 | Send to client fails | Built on `rasel/R60-intake-send` (web only); PR after I1 |
-| I3 | Publish validation, link and embed code | Waits on R56's shared Copy link / embed block for the embed part |
-| I4 | Settings Edit links | Reproduced |
-| I5 | Submission Rules shortcut | Reproduced |
-| I6 | Test Reminder Email | Reproduced |
-| I7 to I12 | Settings additions | After the P1 items |
+| I1 | Template library shows every form | Merged (#1019) |
+| I2 | Send to client fails | #1028 open (web only) |
+| I3 | Publish validation, link and embed code | Validation: #1031 open. Link and embed code: next (handoff item 1) |
+| I4 | Settings Edit links | #1033 open (with I5, I6) |
+| I5 | Submission Rules shortcut | #1033 open |
+| I6 | Test Reminder Email | #1033 open (a real test email; locally in Mailpit) |
+| I7 to I12 | Settings additions | Next (handoff item 2); I10 was built by R1 in #1025 |
 | I13 | Live tests | After I1 to I6 |
 
 ## What was reproduced (local `main`, Oct 21, LVP's Owner)
@@ -65,14 +141,13 @@ Owned paths: `apps/web/src/app/firm/(workspace)/intake-forms/`, `apps/web/src/mo
 
 ## Needs from others
 
-- **R1 (I10, 50 and 100 MB per file):** intake uploads must take the multipart path of #1009 for
-  files over the single-part limit, with the firm's chosen cap (`intake_settings.max_file_size_mb`,
-  up to 100). R60 adds the 50 and 100 MB choices and the enforcement message only once the intake
-  upload paths (Begin Online and the portal intake) use #1009's uploader; no second upload path.
-- **R56 (I3):** the shared "Copy link / Copy embed code" block and its API shape (one per public
-  item: form, appointment type, package). I3's validation part does not wait for it.
+- **R1 (I10):** done in #1025 (2, 5, 10, 50 or 100 MB, enforced in uploads). R60 verifies only.
+- **R56 (I3):** done in #1020 (`PublicLink`, `PublicLinkBlock`); R60 builds I3's link next.
 - **Secure link page (I2):** a form for a lead or a new contact needs the secure link page
   (`LEAD_LINK_UNAVAILABLE` today). Owner to be named by Rasel.
+- **Intake reminders (R6 or Rasel to name):** there is no intake reminder job and no intake
+  reminder email template. The test reminder (#1033) uses the firm's message email
+  (`lead.message-email`), which joins paragraphs; the job and a template of its own come together.
 - **Decisions she left open (do not guess):** Submitted vs Completed, due date vs expiration, staff
   Edit vs Request Revision, import template file types, the auto-create client trigger.
 - **Begin Online (seen, not changed):** `newestForm` picks the highest version number of any
@@ -93,3 +168,6 @@ Owned paths: `apps/web/src/app/firm/(workspace)/intake-forms/`, `apps/web/src/mo
 
 - Oct 21: P1 items reproduced on local `main` (above). I1 built.
 - Oct 22: I1 merged `main`; web and API typecheck 0 errors; PR opened. I2 built on its branch.
+- Oct 22: #1019 (I1) merged. I2, I3 (validation) and I4 to I6 built, with sheets.
+- Oct 23: #1028 (I2), #1031 (I3) and #1033 (I4 to I6) opened, each after the one before had CI
+  green. Handoff written (above).
