@@ -1,4 +1,5 @@
 import {
+  ApiRequestError,
   checkIntakeAnswers,
   type IntakeAnswers,
   type IntakeAnswerValue,
@@ -9,6 +10,8 @@ import {
   type IntakeStep,
   type IntakeUpload,
   intakeConditionHolds,
+  intakeFileSizeProblem,
+  INTAKE_MAX_FILE_SIZE_MB,
   intakeStepFields,
   intakeUploadCounts,
   type MaskedNumber,
@@ -278,3 +281,24 @@ export function localToday(): string {
 
 /** The message for a field (or a cell or row inside it), keyed by its path. */
 export const issueKey = (path: readonly (string | number)[]) => path.join('.');
+
+/**
+ * The firm's largest file per upload in words ("10 MB"): the draft's `maxFileSizeMb` (Intake Form
+ * Settings > Max file size per file), held to the platform's 100 MB as the API holds it.
+ */
+export const firmFileSize = (maxFileSizeMb: number) =>
+  `${String(Math.min(maxFileSizeMb, INTAKE_MAX_FILE_SIZE_MB))} MB`;
+
+/**
+ * Refuses a file over the firm's limit before anything is sent, as the upload ticket would: 400
+ * VALIDATION_FAILED with the `sizeBytes` detail "Files can be at most 10 MB", the words the upload
+ * field shows. The platform's limit stays the outer bound (`uploadFile`'s maxBytes).
+ */
+export function checkFirmFileSize(file: { size: number }, maxFileSizeMb: number): void {
+  const problem = intakeFileSizeProblem(file.size, maxFileSizeMb);
+  if (problem) {
+    throw new ApiRequestError(400, 'VALIDATION_FAILED', problem, undefined, undefined, [
+      { path: 'sizeBytes', message: problem },
+    ]);
+  }
+}

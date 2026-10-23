@@ -19,6 +19,7 @@ import {
   type IntakeFormDefinition,
   type IntakeFormKey,
   intakeFields,
+  intakeFileSizeProblem,
   IntakeId,
   IntakeKey,
   intakeStepFields,
@@ -68,7 +69,10 @@ import { mockUploadTicket } from './upload-ticket';
  * or "macro" is refused as the API would. Only CLEAN and PENDING files answer a required slot
  * (`intakeUploadCounts` on the scan status); every file counts toward a slot's `maxFiles` and the
  * form's limit, a blocked one too, checked at step 1 and again at step 3 (several files dropped at
- * once: those past the limit answer 409 TOO_MANY_FILES). A submit takes the files whose slot is
+ * once: those past the limit answer 409 TOO_MANY_FILES). The firm's limit per file is
+ * MOCK_INTAKE_FILE_SIZE_MB (10 MB, the API's default; `maxFileSizeMb` of each intake): a larger
+ * file's ticket answers 400 VALIDATION_FAILED at `sizeBytes`, "Files can be at most 10 MB", as the
+ * API's. A submit takes the files whose slot is
  * not a shown upload field out of the intake (`hiddenSlotUploads`), before the status changes,
  * and keeps only the answers of shown fields.
  * Submit: the body needs `signature` (400 VALIDATION_FAILED without it, as the API). 400
@@ -97,6 +101,13 @@ const fail = (status: number, code: string, message: string) =>
 const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
 const forbidden = () => fail(403, 'FORBIDDEN', 'This action is not permitted');
 const now = () => new Date().toISOString();
+
+/**
+ * The mock firm's largest file per upload, in MB (Intake Form Settings > Max file size per file):
+ * the API's limit while a firm has no intake settings. The portal's intakes and Begin Online's
+ * forms and drafts carry it as `maxFileSizeMb`.
+ */
+export const MOCK_INTAKE_FILE_SIZE_MB = 10;
 
 // ---------- Shared by the intake and Begin Online mocks ----------
 /** A form the mock firm offers: 404 for one INTAKE_FORMS doesn't have. */
@@ -343,11 +354,12 @@ function checkRoom(definition: IntakeFormDefinition, files: readonly MockSlotFil
 
 /**
  * Upload tickets for slot files: step 1 checks the slot and the limits (the slot's `maxFiles`
- * and INTAKE_LIMITS.maxFiles, every file counted, blocked ones too); step 3 checks the limits
+ * and INTAKE_LIMITS.maxFiles, every file counted, blocked ones too), then the firm's size limit
+ * (`maxFileSizeMb`: 400 VALIDATION_FAILED at `sizeBytes`, in the API's words); step 3 checks the limits
  * again (files confirmed since step 1 count, as the API checks inside the confirm transaction),
  * refuses what the API would refuse (by the file's name only) and stores the file.
  */
-export function createMockSlotUploads() {
+export function createMockSlotUploads(maxFileSizeMb: number = MOCK_INTAKE_FILE_SIZE_MB) {
   const pending = new Map<string, CreateIntakeUploadRequest & { owner: string }>();
   let next = 100;
   return {
@@ -358,6 +370,17 @@ export function createMockSlotUploads() {
       body: ReturnType<typeof CreateIntakeUploadRequest.parse>,
     ): UploadTicket {
       checkRoom(definition, files, body.slot);
+      const tooLarge = intakeFileSizeProblem(body.sizeBytes, maxFileSizeMb);
+      if (tooLarge) {
+        throw new ApiRequestError(
+          400,
+          'VALIDATION_FAILED',
+          'The request is not valid',
+          undefined,
+          undefined,
+          [{ path: 'sizeBytes', message: tooLarge }],
+        );
+      }
       const token = `mock-slot-upload-${String(next++)}`;
       pending.set(token, { ...body, owner });
       return mockUploadTicket({
@@ -753,6 +776,7 @@ export function createMyIntakesMock(
       taxYear: row.taxYear,
       answers: maskIntakeAnswers(definition(row), row.answers),
       uploads: row.files.map(fileView),
+      maxFileSizeMb: MOCK_INTAKE_FILE_SIZE_MB,
       savedSteps: definition(row)
         .steps.map((s) => s.key)
         .filter((k) => row.savedSteps.includes(k)),
