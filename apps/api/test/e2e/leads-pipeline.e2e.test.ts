@@ -244,8 +244,9 @@ describe('Add New Lead (POST /business/leads)', () => {
     expect(codeOf(await call('post', '', people.ownerA, lead({ serviceIds: [] })))).toBe(
       'VALIDATION_FAILED',
     );
+    // A campaign is a Communications campaign (L7): an unknown one is 404, and no lead is made.
     expect(codeOf(await call('post', '', people.ownerA, lead({ campaignId: randomUUID() })))).toBe(
-      'FIELD_UNAVAILABLE',
+      'NOT_FOUND',
     );
     expect(
       codeOf(
@@ -430,7 +431,7 @@ describe('profile and Edit (GET :id/profile, PATCH :id)', () => {
       'VALIDATION_FAILED',
     );
     expect(codeOf(await call('patch', `/${id}`, people.ownerA, { campaignId: randomUUID() }))).toBe(
-      'FIELD_UNAVAILABLE',
+      'NOT_FOUND',
     );
     expect(
       codeOf(await call('patch', `/${id}`, people.ownerA, { dateOfBirth: '1990-01-01' })),
@@ -529,17 +530,13 @@ describe('bulk bar (POST bulk)', () => {
     );
   });
 
-  it('skips a campaign (leads have none yet) and follows the grid per action', async () => {
-    const campaign = Result.parse(
-      ok(
-        await call('post', '/bulk', people.ownerA, {
-          action: 'CAMPAIGN',
-          ids: [made.hot!.id],
-          campaignId: randomUUID(),
-        }),
-      ),
-    );
-    expect(campaign).toEqual({ changed: 0, skipped: 1 });
+  it('an unknown campaign is 404, and the grid decides each action', async () => {
+    const campaign = await call('post', '/bulk', people.ownerA, {
+      action: 'CAMPAIGN',
+      ids: [made.hot!.id],
+      campaignId: randomUUID(),
+    });
+    expect(campaign.status).toBe(404);
     // Staff may change stage and assign but not tag or archive (the grid's Manage and Delete).
     const mine = [made.hot!.id];
     expect(

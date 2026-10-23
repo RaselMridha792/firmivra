@@ -62,7 +62,11 @@ export type NextActionType = z.infer<typeof NextActionType>;
 
 const NamedRef = z.object({ id: z.uuid(), name: z.string() });
 
-/** A campaign (Communications module, to build): a name only here. */
+/**
+ * A campaign: a Communications email or text campaign (L7). A lead is in it when it is in the
+ * campaign's audience (Add to Campaign, Add New Lead); joining sends nothing. The row shows the
+ * campaign the lead joined last; removing a lead is done in Communications, Recipients.
+ */
 export const LeadCampaignRef = NamedRef;
 
 export const NextAction = z.object({
