@@ -61,7 +61,9 @@ test('a question tile adds its question to the chosen section', async ({ page })
   await expect(page.getByTestId('builder-status')).toHaveText('Unsaved changes');
 });
 
-test('Save as Draft on a published template saves a new draft copy and moves to it', async ({
+// As the API (R37: versions per template): the changes are the form's next draft version, the
+// published one stays live, and the form keeps its id (a service's main form keeps its link).
+test('Save as Draft on a published template saves its next draft version and stays on it', async ({
   page,
 }) => {
   await page.goto(builder());
@@ -72,9 +74,8 @@ test('Save as Draft on a published template saves a new draft copy and moves to 
   await expect(page.getByTestId('builder-status')).toHaveText(
     'Saved as a new draft. The published form is unchanged.',
   );
-  await expect(page).not.toHaveURL(new RegExp(TEMPLATE));
-  await expect(page).toHaveURL(/\/intake-forms\/builder\/[0-9a-f-]{36}$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Create Form Template' })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`${TEMPLATE}$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Edit Form Template' })).toBeVisible();
   await expect(name).toHaveValue('Personal Tax Intake Form 2026');
   await expect(page.getByTestId('form-section')).toHaveCount(SECTIONS.length);
 });
