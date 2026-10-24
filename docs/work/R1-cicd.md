@@ -122,7 +122,11 @@ This is newer than every handoff below, so a fresh R1 starts here. Where they di
   - `deploy-prod.yml` creates the empty app stack before it builds.
   - After that PR merges: the ci diff, for Rasel's yes.
 - **Never create the app stack by hand.** No tag, no app deploy from R1.
-- **Step 6:** diff shown, waiting for Rasel's yes.
+- **Step 6:** done; dev's deploy role trusts only `environment:dev` (prod log, 6).
+- **Open:**
+  - #1120, infra: the prod ci role by name. After it merges, the 5e diff.
+  - #1121: R60's item 12, a data migration. Merge it after #1115, or together with it.
+  - Both count toward R1's limit of 2.
 
 ### Open PRs (Rasel merges)
 - **#1097:** docs, the prod log and this handoff.
@@ -194,6 +198,16 @@ This is newer than every handoff below, so read it first. Where they differ, thi
 - 5c. Oct 25: email before auth, on Rasel's yes (the auth stack depends on email: its 3 pools send through the SES identity `firmivra.com`). Checked first: no record at `mail.firmivra.com` and no SES identity or configuration set of those names outside CloudFormation. `firmivra-prod-email` deployed (all creates). Checked: `CREATE_COMPLETE`; its 5 records are in the zone (3 DKIM CNAMEs, MX and TXT at `mail.firmivra.com`; no `_dmarc`, the company's 2 DKIM records untouched); the identity is verified for sending, DKIM `SUCCESS` with signing on, MAIL FROM `SUCCESS`, configuration set `firmivra-prod-email`.
 - 5d. Oct 25, Rasel's yes on the re-run diff (the same as the first; email showed no differences): `firmivra-prod-auth` deployed (all creates). Checked: `CREATE_COMPLETE`; `firmivra-prod-staff`, `-clients` and `-admins` each have deletion protection, Plus tier, advanced security enforced, admin-only user creation and email from `no-reply@firmivra.com` through SES (`firmivra-prod-email`); MFA by authenticator app only, required for staff and admins, optional for clients; the API clients' refresh tokens last 7, 30 and 1 days (access tokens 15 minutes, existence errors hidden, revocation on); `firmivra/prod/cognito/api-clients` exists (name only, no value read).
 - 5e. Oct 25, stopped before any deploy: `firmivra-prod-ci` depends on `firmivra-prod-app`. Its deploy role is granted on the app's ECR repositories, cluster, migrate task roles and log group, so `cdk diff firmivra-prod-ci` includes the app stack, and a `-e` deploy would fail. `deploy-prod.yml` also needs both before the first tag: it assumes `firmivra-prod-github-deploy` (ci) and looks up the `firmivra-prod-*` ECR repositories (app) before it builds. With `ImageTag=none` the app stack runs 0 api and web tasks (scaling 0 to 0). Waiting for Rasel's decision.
+- 5e, decided (Oct 25): Rasel chose option B, never the app stack by hand. #1120:
+  - the prod ci role gets its permissions by resource name;
+  - `deploy-prod.yml` creates the empty app stack on the first `v*` tag.
+  - Dev's templates are unchanged.
+  - After it merges: the ci diff, for Rasel's yes.
+- 6. Oct 25, Rasel's yes on the diff (the trust only): `firmivra-dev-ci` deployed (`cdk deploy firmivra-dev-ci -e -c env=dev`). Checked:
+  - `UPDATE_COMPLETE` at 20:45 UTC;
+  - `firmivra-dev-github-deploy` trusts only the repo's `environment:dev`;
+  - Deploy dev run 40129918292 had signed in before the change and succeeded;
+  - run 40131466057, the first after the change, signed in at 20:50 UTC.
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
