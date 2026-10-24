@@ -8,6 +8,8 @@ Read first: `CLAUDE.md`, `docs/work/README.md`, `docs/work/R0-schema.md` (Stage 
 
 `packages/types/src/admin-notifications/**`, `admin-communications/**`, `admin-integrations/**` and their tests under `packages/types/test/`; `apps/web/src/mocks/admin-*-api.ts` (contract mocks); the `admin*` entries in `apps/web/src/lib/api.ts`; `apps/api/src/admin-notifications/**`, `admin-communications/**`, `admin-integrations/**` with their tests in `apps/api/test/`; the module's lines in the admin isolation test's `WRITES` map; this file.
 
+From Oct 24 (Rasel), the apply action: `packages/types/src/admin-firm-profile/**` and its test, `apps/api/src/admin-firm-profile/**` with `test/e2e/admin-firm-profile.e2e.test.ts` and `test/isolation/admin-firm-profile-writes.ts` (plus its lines in `admin-scope.test.ts`), `apps/web/src/mocks/admin-firm-profile-api.ts`, the firm page's `firms/_components/profile-changes.tsx` and its mount in `firm-detail.tsx`.
+
 ## Rules (from the Scrum thread, Oct 19)
 
 - Contracts follow the database (B6: a firm's clients are never recipients). Routes under `/api/v1/admin/*`, `@Roles('SUPER_ADMIN')`, `AdminPrisma` (never `forPlatform` in a route handler), platform audit entries, no firm data without a support grant, unit tests, an e2e test per route, static routes before `:id`, synthetic data only.
@@ -159,6 +161,90 @@ The contract keeps Tumit's method names and field names, so his screens switch w
 - **Tapped by Rasel Oct 24, queued with R1 as migration PRs (contract and schema, A5 and T2): no second series or task when a save is retried after a lost answer.** The screens send each save once (a second click does nothing), but a retry after the answer is lost makes another. Appointments solve this with an `idempotencyKey` kept on the row; tasks and series have none. Ask: an idempotency key on `tasks` and `task_series` (unique per firm and creator), and the create requests with it.
 - **Rasel (A4, still waiting for his word; do not build):** may only Owner and Admin manage task automations, in the API and the UI? The Tasks page's Automations button stays visible to everyone until then; the Automations module already hides its manage controls from those who cannot manage (`canManage`).
 - **Schema, only if Octavia wants rules per person** (A2): buffers, minimum notice and booking window are firm-wide or per appointment type (the guide's table 18 allows "globally or by appointment type"), and a future start date ("Effective Date") has no column. Edit My Availability shows the firm's values read-only and says where types set their own.
+- **R1 (one migration, the apply action; Rasel Oct 24 chose a definer function):** the Super Admin applies an approved Request Change (R60) to a firm past setup. Admin scope cannot do it today: `businesses_protected_columns` lets admin scope change only status and slug (the legal name changes only in platform scope), and `business_settings` (the EIN) is written only in the firm's scope, which admin routes never open. Ask: this definer function, as `rasel/R0-…` or R1's queue (name it `rN-admin-apply-profile-change`). The API (`apps/api/src/admin-firm-profile`) seals the EIN with the firm's key, checks it against other firms' applications (`ein_hash`), calls it in admin scope with `$executeRaw`, and writes the platform's audit row; the function writes the firm's own. The PR (`rasel/R56-admin-apply-profile-change`) opens once it lands. Locally R56 created it by hand in `firmivra_r56` and `firmivra_r56_test_api` to test (drop it there before applying the real migration). Licensing applies in admin scope once R1's `firm_licenses` lands (its policies allow `app_is_admin()`).
+
+  ```sql
+  -- R56 draft for R1's migration (Rasel, Oct 24): the Super Admin applies an approved Request
+  -- Change (a firm's support ticket, R60's Company Profile) to a firm past setup: its legal name,
+  -- and its EIN sealed by the API with the firm's key. Only a Super Admin, from admin scope; the
+  -- ticket must be this firm's. The firm's own audit log gets one row here; the API writes the
+  -- platform's. Licensing (R1's firm_licenses) is written by the API in admin scope, its policies
+  -- allow it.
+  CREATE FUNCTION app_admin_apply_profile_change(
+    p_business_id uuid,
+    p_ticket_id uuid,
+    p_legal_name text,
+    p_ein_enc bytea,
+    p_ein_last4 text,
+    p_fields text[]
+  ) RETURNS void
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = public, pg_temp
+    AS $$
+  DECLARE
+    admin_id uuid := app_current_admin_id();
+  BEGIN
+    IF p_business_id IS NULL OR p_ticket_id IS NULL OR NOT app_is_admin() THEN
+      RAISE EXCEPTION 'apply profile change: only a Super Admin, from admin scope'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF (p_legal_name IS NULL AND p_ein_enc IS NULL)
+       OR (p_ein_enc IS NULL) <> (p_ein_last4 IS NULL)
+       OR (p_ein_last4 IS NOT NULL AND p_ein_last4 !~ '^[0-9]{4}$')
+       OR (p_legal_name IS NOT NULL AND btrim(p_legal_name) = '')
+       OR coalesce(cardinality(p_fields), 0) = 0 THEN
+      RAISE EXCEPTION 'apply profile change: nothing valid to apply'
+        USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+
+    PERFORM 1 FROM support_tickets t
+     WHERE t.id = p_ticket_id AND t.business_id = p_business_id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'apply profile change: no such ticket for this firm'
+        USING ERRCODE = 'no_data_found';
+    END IF;
+    PERFORM 1 FROM businesses b
+     WHERE b.id = p_business_id AND b.status IN ('ACTIVE', 'SUSPENDED')
+       FOR NO KEY UPDATE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'apply profile change: only for a firm past setup'
+        USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- The legal name changes only in platform scope (businesses_protected_columns).
+    IF p_legal_name IS NOT NULL THEN
+      PERFORM set_config('app.scope', 'platform', true);
+      UPDATE businesses SET legal_name = btrim(p_legal_name) WHERE id = p_business_id;
+    END IF;
+
+    -- The firm's scope for its settings row and its audit row only.
+    PERFORM set_config('app.scope', 'business', true);
+    PERFORM set_config('app.current_business_id', p_business_id::text, true);
+    IF p_ein_enc IS NOT NULL THEN
+      UPDATE business_settings SET ein_enc = p_ein_enc, ein_last4 = p_ein_last4
+       WHERE business_id = p_business_id;
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'apply profile change: the firm has no settings row'
+          USING ERRCODE = 'no_data_found';
+      END IF;
+    END IF;
+    INSERT INTO audit_logs (id, business_id, actor_user_id, action, entity_type, entity_id,
+                            metadata)
+    VALUES (gen_random_uuid(), p_business_id, admin_id, 'settings.profile_change_applied',
+            'support_ticket', p_ticket_id::text, jsonb_build_object('fields', to_jsonb(p_fields)));
+
+    -- Back to admin scope for the rest of the transaction.
+    PERFORM set_config('app.scope', 'admin', true);
+    PERFORM set_config('app.current_business_id', '', true);
+  END
+  $$;
+  REVOKE ALL ON FUNCTION app_admin_apply_profile_change(uuid, uuid, text, bytea, text, text[])
+    FROM PUBLIC;
+  GRANT EXECUTE ON FUNCTION app_admin_apply_profile_change(uuid, uuid, text, bytea, text, text[])
+    TO firmivra_app;
+  ```
+- **R60 (Company Profile Request Change, once the apply action is merged):** the proposed EIN is kept in clear text in `support_tickets.description` ("Proposed: 98-7654321") and every Super Admin reading the ticket sees it. Rasel (Oct 24): keep only its last four digits there; the apply dialog then leaves the EIN empty for the Super Admin to enter from the firm's documents (it prefills only a whole EIN, and shows "Asked for: …" otherwise).
 - **Confirmed by Rasel (Oct 24, later): A3's 2, 6 and 12 hours are Minimum notice; what is built stays.** per Rasel, her 2, 6 and 12 hours are **Minimum notice**, and the booking window stays in days. Manage Appointment Types' Minimum notice now offers None, 2, 6, 12, 24, 48 and 72 hours (main had 2 and 12; 6 is added here). The Booking window offers 1 day (24 hours), 3, 5, 7, 14, 30, 60, 90, 180, 365 days and No limit (`maxWindowDays` 1 to 730; 730 is no limit). Her text (`docs/specs/review-2026-10-21/appointments--developer-instructions.md`, correction 2): "Add 2, 6, 12 and 24 hours and 3, 5 and 7 days. Keep Booking Window separate from Minimum Notice." Acceptance: "Each requested option is available and persists after saving. Changing Booking Window does not overwrite Minimum Notice." Her S4 screenshot is titled "current choices before adding the requested shorter windows". Read literally, that is a booking window in hours: a contract and schema change (`max_advance_days` is in days), not built.
 
 ## Progress log
@@ -193,6 +279,7 @@ The contract keeps Tumit's method names and field names, so his screens switch w
 - 2026-10-24: C6 PR #1052 and P2 PR #1055 (after #1043 and #1046 merged; main merged into both, conflicts only from the squash merges, resolved to the branch side). A3 and A5 on `rasel/R56-tasks-p3` (local): Custom… reminders (any days, a time of day; `reminderProblem` refuses what the API would), the task page shows a reminder's time; Save & Create Another on Set Up Recurring Task (a fresh form, "{title} saved. Set up the next one."); one save at a time on the task, template and series forms. Tests: `r56-tasks-review.spec.ts` 19, with `r56-tasks.spec.ts` 28 of 28; live A3, A5, T2 Pass. Requests: reminder offsets in hours and minutes, idempotency keys (Needs from others).
 - 2026-10-24: Services & Pricing S6 and S9 in R55's catalog (Rasel's go, Oct 24), on `rasel/R56-catalog-pricing` (from main): one service total (base plus ADDITIVE lines) for the service, its list price and packages; a package with a quote-required service has no total, no derived price and no savings, and says `quoteRequired`. Tests: unit 17 (2 new), e2e `catalog.e2e.test.ts` 16 (2 new: $100.50 + $75 = $175.50 everywhere and back to $100.50 when included; a quote-required service is not $0, optional extras never count), contract 5 (1 new); Services & Pricing mock specs 27 of 28 (`fahad-create-package` savings now as the API; `r56-sp-packages` "a percentage above 100" also fails on main: two alerts, fixed in the screens PR). R55 told under Needs.
 - 2026-10-24: Services & Pricing screens S6 to S9 on `rasel/R56-services-screens` (stacked on `rasel/R56-catalog-pricing`): S6 both service editors show the API's total while typing (`_components/service-total.ts`: base plus ADDITIVE lines; "Calculated on save" is gone) and a line's Price sets only its own rate, so the rows no longer remount on each key; S7 the editors' full client page lists Not Included (never internal notes); S8 View Full Page on the package builder, edit and detail screens (one shared full page in `_components/package-parts.tsx`: services with Quote required, offered add-ons that clients may tick and the total follows, no internal notes); S9 "Unavailable: quote required" for the total with a warning on the three package screens. Also `r56-sp-packages` "a percentage above 100" fixed (S10 made it two alerts). Tests: unit 4 new; `r56-services-pricing-review.spec.ts` 10 (4 new), all Services & Pricing mock specs 32 of 32; shots `e2e/screenshots/r56-services-pricing-review/{data,empty,offline}-s6..s9`.
+- 2026-10-24: The Super Admin apply action on `rasel/R56-admin-apply-profile-change` (from main; committed, PR after R1's definer function lands): contract `admin-firm-profile` (the firm's Request Changes read from R60's ticket text with `readProfileChangeTicket`, apply with the legal name and EIN), API `GET /admin/firms/:id/profile-changes` and `POST …/:ticketId/apply` (only what the ticket asks, a firm past setup, an open ticket, the EIN sealed with the firm's key and refused if another firm applied with it, both audit logs with field names only, 404 for another firm's ticket), the firm page's Company Profile Change Requests card with the Apply dialog (prefilled, checked before sending). Tests: contract 4, e2e 6, the admin isolation suite with the new write (3 of 3), mock spec 1; shots in `e2e/screenshots/r56-firm-profile-changes/`. `tenant-isolation` fails locally on automations and report exports (firm routes, s3mock running) and timing, not this change.
 
 ## Services & Pricing S14: Octavia's pending tests (Oct 24)
 

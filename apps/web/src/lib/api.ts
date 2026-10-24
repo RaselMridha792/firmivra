@@ -28,6 +28,7 @@ import {
   createEsignClient,
   createFirmApplicationsClient,
   createAdminIntegrationsClient,
+  createAdminFirmProfileClient,
   createAdminNotificationsClient,
   createAdminCommunicationsClient,
   createAdminBroadcastsClient,
@@ -101,6 +102,7 @@ import {
 } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
 import { createAdminIntegrationsMock } from '../mocks/admin-integrations-api';
+import { createAdminFirmProfileMock } from '../mocks/admin-firm-profile-api';
 import { createAdminNotificationsMock } from '../mocks/admin-notifications-api';
 import { createAdminCommunicationsMock } from '../mocks/admin-communications-api';
 import { createAdminBroadcastsMock } from '../mocks/admin-broadcasts-api';
@@ -524,6 +526,11 @@ export const api = {
       ? createAdminBroadcastsMock()
       : createAdminBroadcastsClient(request),
   /** Super Admin notifications (R56 on R0's B1): the member's notification center and bell. */
+  /** A firm's Company Profile Request Changes and applying one (R56, Super Admin firm page). */
+  adminFirmProfile:
+    dev && mocked('adminFirmProfile')
+      ? createAdminFirmProfileMock()
+      : createAdminFirmProfileClient(request),
   adminNotifications:
     dev && mocked('adminNotifications')
       ? createAdminNotificationsMock()

@@ -22,6 +22,7 @@ import { DevModule } from './dev/dev.controller.js';
 import { HealthModule } from './health/health.controller.js';
 import { SystemStatusModule } from './system-status/system-status.controller.js';
 import { FirmApplicationsModule } from './firm-applications/firm-applications.controller.js';
+import { AdminFirmProfileModule } from './admin-firm-profile/admin-firm-profile.controller.js';
 import { AdminNotificationsModule } from './admin-notifications/admin-notifications.controller.js';
 import { AdminCommunicationsModule } from './admin-communications/admin-communications.controller.js';
 import { AdminIntegrationsModule } from './admin-integrations/admin-integrations.controller.js';
@@ -127,6 +128,7 @@ export class AppModule {
         SystemStatusModule,
         MeModule,
         FirmApplicationsModule,
+        AdminFirmProfileModule,
         AdminNotificationsModule,
         AdminCommunicationsModule,
         AdminIntegrationsModule,
