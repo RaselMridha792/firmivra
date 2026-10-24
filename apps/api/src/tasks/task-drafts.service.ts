@@ -70,13 +70,17 @@ const SORT: Record<
 const DRAFT: Prisma.TaskWhereInput = { status: 'DRAFT' };
 
 /**
- * The drafts the actor sees: their own always, and the drafts with a client they reach by the
- * tasks' rule (Owner and Admin every client, Staff those assigned to them). A draft without a
- * client is its creator's alone, even for the Owner.
+ * The drafts the actor sees: their own drafts without a client (even the Owner sees no one
+ * else's), and the drafts with a client they reach by the tasks' rule (Owner and Admin every
+ * client, Staff those assigned to them), whoever made them. So a draft whose client is
+ * reassigned, or moved to another client, leaves a creator who no longer reaches that client.
  */
 const seen = (actor: ClientsActor): Prisma.TaskWhereInput => ({
   ...DRAFT,
-  OR: [{ createdByUserId: actor.userId }, { clientId: { not: null }, ...reach(actor) }],
+  OR: [
+    { clientId: null, createdByUserId: actor.userId },
+    { clientId: { not: null }, ...reach(actor) },
+  ],
 });
 
 /**
@@ -231,6 +235,10 @@ export class TaskDraftsService {
       const current = await this.open(tx, businessId, actor, id);
       if (version !== undefined && version !== current.updatedAt.toISOString()) {
         throw taskErrors.saveConflict();
+      }
+      // A missing client is named first, whatever else the body sends.
+      if (!(changes.clientId === undefined ? current.clientId : changes.clientId)) {
+        throw taskErrors.invalid('clientId', 'Choose a client');
       }
       if (Object.keys(changes).length > 0) {
         await this.writer.editDraft(tx, businessId, actor, current, changes);

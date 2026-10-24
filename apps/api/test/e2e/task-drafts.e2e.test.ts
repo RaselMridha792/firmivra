@@ -647,6 +647,29 @@ describe('who sees which draft', () => {
       'VALIDATION_FAILED',
     );
   });
+
+  it('a draft whose client leaves its creator’s reach leaves the creator too', async () => {
+    const moving = await save({ title: mark('Moving'), clientId: clients.c1 }, people.staffA);
+    expect((await getDraft(moving.id, people.staffA)).id).toBe(moving.id);
+    // The Owner moves it to c2, staffA2's client: staffA no longer reaches it in any way.
+    expect((await edit(moving.id, { clientId: clients.c2 })).client?.id).toBe(clients.c2);
+    expectError(await call('get', `/tasks/drafts/${moving.id}`, people.staffA), 404, 'NOT_FOUND');
+    expect(idsOf(await drafts('pageSize=100', people.staffA))).not.toContain(moving.id);
+    expectError(
+      await call('patch', `/tasks/drafts/${moving.id}`, people.staffA, { title: 'Mine' }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(await publish(moving.id, {}, people.staffA), 404, 'NOT_FOUND');
+    expectError(
+      await call('delete', `/tasks/drafts/${moving.id}`, people.staffA),
+      404,
+      'NOT_FOUND',
+    );
+    // staffA2, whose client it now is, and the Owner still have it.
+    expect((await getDraft(moving.id, people.staffA2)).title).toBe(moving.title);
+    expect((await getDraft(moving.id)).title).toBe(moving.title);
+  });
 });
 
 describe('the Drafts tab', () => {
@@ -918,6 +941,30 @@ describe('publish', () => {
       await publish(d.id, { assignedUserId: people.staffA.id }, people.staffA),
     );
     expect(fixed).toMatchObject({ id: d.id, status: 'OPEN', assignedUserId: people.staffA.id });
+  });
+});
+
+describe('publish after a prerequisite is done', () => {
+  it('releases a draft blocked by its prerequisite, which then publishes as saved', async () => {
+    const first = await createTask({ clientId: clients.c1, title: mark('First') });
+    const waiting = await save({
+      title: mark('Then'),
+      clientId: clients.c1,
+      dependsOnTaskId: first.id,
+    });
+    expect(waiting.progress).toBe('BLOCKED');
+    ok(await call('post', `/tasks/${first.id}/complete`, people.ownerA));
+    expect((await getDraft(waiting.id)).progress).toBe('PENDING');
+    const task = detailOf(await publish(waiting.id));
+    expect([task.id, task.status, task.progress]).toEqual([waiting.id, 'OPEN', 'PENDING']);
+  });
+
+  it('names a missing client before anything else the body sends', async () => {
+    const bare = await save({ title: mark('No client yet') });
+    // Applied first, an unknown assignee would answer before the missing client did.
+    const res = await publish(bare.id, { assignedUserId: randomUUID(), priority: 'HIGH' });
+    expectError(res, 400, 'VALIDATION_FAILED');
+    expect(pathsOf(res)).toEqual(['clientId']);
   });
 });
 

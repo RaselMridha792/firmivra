@@ -1025,13 +1025,16 @@ export class TaskWriteService {
     if (prerequisite && prerequisite.status !== 'DONE') throw taskErrors.dependencyOpen();
   }
 
-  /** The tasks that waited for this one are no longer blocked by it. */
+  /**
+   * The tasks (and drafts) that waited for this one are no longer blocked by it: a draft saved as
+   * BLOCKED by its prerequisite is then published as saved.
+   */
   private async unblock(tx: TxClient, businessId: string, id: string): Promise<void> {
     await tx.task.updateMany({
       where: {
         businessId,
         dependsOnTaskId: id,
-        status: 'OPEN',
+        status: { in: ['OPEN', 'DRAFT'] },
         progress: 'BLOCKED',
         blockedReason: null,
       },
