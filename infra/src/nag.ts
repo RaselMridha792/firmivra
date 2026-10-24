@@ -172,6 +172,19 @@ export function addNagSuppressions(
     `IAM5[Resource::arn:aws:cloudformation:${arn}:stack/firmivra-${config.envName}-*/*]`,
     "Read outputs of this environment's stacks only (stack ids end in a generated suffix).",
   );
+  // Prod's grants are by name (src/stacks.ts); dev's are by reference and need neither.
+  if (config.envName !== 'dev') {
+    ack(
+      role,
+      `IAM5[Resource::arn:aws:iam::${config.account}:role/${resourceName(config, 'app')}-MigrateTask*]`,
+      "The migration task's task and execution roles: CloudFormation adds a generated suffix to their names.",
+    );
+    ack(
+      role,
+      `IAM5[Resource::arn:aws:logs:${arn}:log-group:/firmivra/${config.envName}/migrate:*]`,
+      "Read the migration task's log streams (one per run).",
+    );
+  }
   const cachedImages = `IAM5[Resource::arn:aws:ecr:${arn}:repository/${ECR_PUBLIC_CACHE_PREFIX}/*]`;
   const cachedReason =
     'The pull-through cache makes one repository per upstream image (ecr-public/docker/library/node, .../postgres) on the first pull; pull and first-pull import only, no push.';
