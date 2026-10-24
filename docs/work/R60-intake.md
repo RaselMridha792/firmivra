@@ -692,3 +692,11 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   intake workspace e2e 19 of 19, `r60-intake-settings` 14 of 14. Needs: R55's one line in the
   firm setup invite; the reminder and alert sender and the Locations page recorded, not built;
   per-send reminder times written as a schema request.
+- Oct 25 (fifth session): #1116 (I12) merged `origin/main` after #1115: the stale
+  `intake.submitted-notice` line in `ALWAYS_SENT` (main's CI fix had removed it) dropped again;
+  API unit 1724 of 1724, typecheck 0; head `c02c020`, CI green. (a) SM11 Work Start Date
+  (`rasel/R60-staff-work-start`): `workStartDate` in `StaffDetailsInput` and
+  `StaffProfileDetails`, saved and read by the staff API; step 4 shows it under Hire Date; the
+  design's "Start Date" (step 1 card 4 and Edit Staff card 4) now saves it, and Edit Staff gains
+  Hire Date so it stays editable; the Success page's Start Date reads it first. staff-write e2e
+  23 of 23, types 22 of 22, staff mock specs 18 of 18; sheet shot on the real API.
