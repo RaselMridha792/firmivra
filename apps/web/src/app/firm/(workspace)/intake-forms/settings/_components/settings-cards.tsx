@@ -1,7 +1,7 @@
 'use client';
 
 import { Bell, GearSix, Lightning, Palette, ShieldCheck, User } from '@phosphor-icons/react';
-import type { PortalInfo } from '@firmivra/types';
+import { intakeDurationWords, type PortalInfo } from '@firmivra/types';
 import { Button, Checkbox, Modal, normalizeHex } from '@firmivra/ui';
 import Image from 'next/image';
 import { useId, useState } from 'react';
@@ -21,8 +21,8 @@ import {
   FILE_TYPES,
   type FieldErrors,
   type FileType,
-  nextReminderDay,
-  REMINDER_DAYS,
+  nextReminder,
+  REMINDER_MINUTES,
   fileSizeOptions,
   type Group,
   type SectionId,
@@ -47,12 +47,9 @@ export interface Member {
 
 const dayOptions = (values: number[]) =>
   values.map((n) => ({ value: String(n), label: `${n} ${n === 1 ? 'day' : 'days'}` }));
-/** A reminder's choices, said from when they count (Octavia's I8: "after sending"). */
+/** A reminder's choices in minutes, said from when they count (Octavia's I8: "after sending"). */
 const afterSending = (values: number[]) =>
-  values.map((n) => ({
-    value: String(n),
-    label: `${n} ${n === 1 ? 'day' : 'days'} after sending`,
-  }));
+  values.map((n) => ({ value: String(n), label: `${intakeDurationWords(n)} after sending` }));
 
 /** The firm's active members, plus the saved owner if the list does not have them. */
 function ownerOptions(members: Member[], current: Member | null) {
@@ -234,8 +231,9 @@ export function NotificationsCard(props: CardProps) {
 
 export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProps) {
   const n = draft?.notifications;
-  const first = n?.firstReminderAfterDays ?? null;
-  const w = 'w-48';
+  const first = n?.firstReminderAfterMinutes ?? null;
+  // Wide enough for "30 minutes after sending".
+  const w = 'w-56';
   return (
     <>
       {n ? (
@@ -263,48 +261,48 @@ export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProp
               { value: '', label: 'No reminders' },
               ...afterSending(
                 withCurrent(
-                  REMINDER_DAYS.filter((d) => nextReminderDay(d) !== null),
+                  REMINDER_MINUTES.filter((m) => nextReminder(m) !== null),
                   first,
                 ),
               ),
             ]}
             disabled={readOnly}
-            error={errors['notifications.firstReminderAfterDays']}
+            error={errors['notifications.firstReminderAfterMinutes']}
             onChange={(v) => {
               if (!v) {
                 set('notifications', {
-                  firstReminderAfterDays: null,
-                  finalReminderAfterDays: null,
+                  firstReminderAfterMinutes: null,
+                  finalReminderAfterMinutes: null,
                 });
                 return;
               }
-              // The final reminder follows the first: it moves to the next day after it if needed.
-              const days = Number(v);
-              const final = n.finalReminderAfterDays;
+              // The final reminder follows the first: it moves to the next time after it if needed.
+              const minutes = Number(v);
+              const final = n.finalReminderAfterMinutes;
               set('notifications', {
-                firstReminderAfterDays: days,
-                finalReminderAfterDays:
-                  final !== null && final > days ? final : nextReminderDay(days),
+                firstReminderAfterMinutes: minutes,
+                finalReminderAfterMinutes:
+                  final !== null && final > minutes ? final : nextReminder(minutes),
               });
             }}
           />
           <SelectRow
             label="Final reminder"
             width={w}
-            value={n.finalReminderAfterDays === null ? '' : String(n.finalReminderAfterDays)}
+            value={n.finalReminderAfterMinutes === null ? '' : String(n.finalReminderAfterMinutes)}
             options={
               first === null
                 ? [{ value: '', label: 'No reminders' }]
                 : afterSending(
                     withCurrent(
-                      REMINDER_DAYS.filter((d) => d > first),
-                      n.finalReminderAfterDays,
+                      REMINDER_MINUTES.filter((m) => m > first),
+                      n.finalReminderAfterMinutes,
                     ),
                   )
             }
             disabled={readOnly || first === null}
-            error={errors['notifications.finalReminderAfterDays']}
-            onChange={(v) => set('notifications', { finalReminderAfterDays: Number(v) })}
+            error={errors['notifications.finalReminderAfterMinutes']}
+            onChange={(v) => set('notifications', { finalReminderAfterMinutes: Number(v) })}
           />
           <SelectRow
             label="Expiration alert"

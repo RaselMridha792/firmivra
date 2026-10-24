@@ -36,7 +36,7 @@ test('shows the numbers, the six cards, the checklist and the side frames', asyn
   ])
     await expect(page.getByRole('heading', { level: 2, name, exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Default form expiration' })).toHaveValue('14');
-  await expect(page.getByRole('combobox', { name: 'First reminder' })).toHaveValue('3');
+  await expect(page.getByRole('combobox', { name: 'First reminder' })).toHaveValue('4320');
   // Octavia's I11: encryption is a label, not a switch.
   await expect(page.getByText('Encrypted file uploads', { exact: true })).toBeVisible();
   await expect(page.getByText('Always on', { exact: true })).toBeVisible();
@@ -174,8 +174,13 @@ test('a panel’s Cancel puts its changes back; Save Changes saves and closes it
   await expect(card).toHaveAttribute('aria-checked', 'false');
 });
 
-// Octavia's review of Oct 20 (I8, I9): reminders count from sending and the final one follows the
-// first; the expiration alert offers her hours (42, not 48). Minutes need a column (not offered).
+// Octavia's review of Oct 20 (I8, I9): reminders count from sending, in minutes, hours and days, and
+// the final one follows the first; the expiration alert offers her hours (42, not 48).
+const MINUTES = ['5 minutes', '10 minutes', '15 minutes', '30 minutes'];
+const HOURS = ['1 hour', '2 hours', '3 hours', '6 hours', '12 hours'];
+const DAYS = ['1 day', '2 days', '3 days', '5 days', '7 days', '10 days', '14 days', '21 days'];
+const after = (times: string[]) => times.map((t) => `${t} after sending`);
+
 test('reminders count from sending, the final follows the first, and No reminders saves', async ({
   page,
 }) => {
@@ -183,13 +188,13 @@ test('reminders count from sending, the final follows the first, and No reminder
   const first = page.getByRole('combobox', { name: 'First reminder' });
   const final = page.getByRole('combobox', { name: 'Final reminder' });
   const alert = page.getByRole('combobox', { name: 'Expiration alert' });
-  const after = (days: number[]) =>
-    days.map((d) => `${d} ${d === 1 ? 'day' : 'days'} after sending`);
   await expect(first.locator('option')).toHaveText([
     'No reminders',
-    ...after([1, 2, 3, 5, 7, 10, 14, 21]),
+    ...after([...MINUTES, ...HOURS, ...DAYS]),
   ]);
-  await expect(final.locator('option')).toHaveText(after([5, 7, 10, 14, 21, 30]));
+  await expect(final.locator('option')).toHaveText(
+    after(['5 days', '7 days', '10 days', '14 days', '21 days', '30 days']),
+  );
   await expect(alert.locator('option')).toHaveText(
     [1, 2, 3, 5, 6, 10, 12, 24, 42, 72].map(
       (h) => `${h} ${h === 1 ? 'hour' : 'hours'} before expiry`,
@@ -197,9 +202,9 @@ test('reminders count from sending, the final follows the first, and No reminder
   );
 
   // A later first reminder moves the final one after it.
-  await first.selectOption('10');
-  await expect(final).toHaveValue('14');
-  await expect(final.locator('option')).toHaveText(after([14, 21, 30]));
+  await first.selectOption('14400');
+  await expect(final).toHaveValue('20160');
+  await expect(final.locator('option')).toHaveText(after(['14 days', '21 days', '30 days']));
 
   // No reminders turns both off, and saves so.
   await first.selectOption('');
@@ -209,6 +214,19 @@ test('reminders count from sending, the final follows the first, and No reminder
   await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
   await expect(first).toHaveValue('');
   await expect(final).toBeDisabled();
+});
+
+test('a reminder in minutes and one in hours save (I8)', async ({ page }) => {
+  await openSettings(page);
+  const first = page.getByRole('combobox', { name: 'First reminder' });
+  const final = page.getByRole('combobox', { name: 'Final reminder' });
+  await first.selectOption({ label: '30 minutes after sending' });
+  await expect(final).toHaveValue('10080');
+  await final.selectOption({ label: '2 hours after sending' });
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
+  await expect(first).toHaveValue('30');
+  await expect(final).toHaveValue('120');
 });
 
 // Octavia's review of Oct 20 (I5): Submission Rules opened General instead of its own settings.

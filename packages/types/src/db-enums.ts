@@ -576,6 +576,10 @@ export type AgreementScope = z.infer<typeof AgreementScope>;
 export const SignatureMethod = z.enum(['TYPED', 'DRAWN', 'UPLOADED']);
 export type SignatureMethod = z.infer<typeof SignatureMethod>;
 
+/** A firm license's standing (R60's request 7). */
+export const FirmLicenseStatus = z.enum(['ACTIVE', 'EXPIRED', 'SUSPENDED', 'REVOKED']);
+export type FirmLicenseStatus = z.infer<typeof FirmLicenseStatus>;
+
 export const PlatformRoleLevel = z.enum([
   'CEO',
   'CHIEF_OFFICER',

@@ -5,6 +5,8 @@ import {
   createRequest,
   INTAKE_FILE_SIZE_CHOICES,
   INTAKE_MAX_FILE_SIZE_MB,
+  INTAKE_REMINDER_MINUTES,
+  intakeDurationWords,
   IntakeFormKey,
   publicEmbedCode,
   SaveIntakeFormRequest,
@@ -136,5 +138,43 @@ describe('api.intakeForms', () => {
       `/api/v1/business/intakes/${id}/complete`,
       `/api/v1/business/intakes/${id}`,
     ]);
+  });
+});
+
+describe('reminder times (I8)', () => {
+  it("offers Octavia's minutes, hours and days, in order, and says each in words", () => {
+    expect(INTAKE_REMINDER_MINUTES.map(intakeDurationWords)).toEqual([
+      '5 minutes',
+      '10 minutes',
+      '15 minutes',
+      '30 minutes',
+      '1 hour',
+      '2 hours',
+      '3 hours',
+      '6 hours',
+      '12 hours',
+      '1 day',
+      '2 days',
+      '3 days',
+      '5 days',
+      '7 days',
+      '10 days',
+      '14 days',
+      '21 days',
+      '30 days',
+    ]);
+    expect(intakeDurationWords(90)).toBe('90 minutes');
+    expect(intakeDurationWords(2520)).toBe('42 hours');
+  });
+
+  it('takes 5 minutes to 30 days for the first and up to 60 days for the final', () => {
+    const ok = (notifications: object) =>
+      UpdateIntakeSettingsRequest.safeParse({ version: 'v', notifications }).success;
+    expect(ok({ firstReminderAfterMinutes: 5, finalReminderAfterMinutes: 86400 })).toBe(true);
+    expect(ok({ firstReminderAfterMinutes: null, finalReminderAfterMinutes: null })).toBe(true);
+    expect(ok({ firstReminderAfterMinutes: 4 })).toBe(false);
+    expect(ok({ firstReminderAfterMinutes: 43201 })).toBe(false);
+    expect(ok({ finalReminderAfterMinutes: 86401 })).toBe(false);
+    expect(ok({ firstReminderAfterDays: 3 })).toBe(false);
   });
 });
