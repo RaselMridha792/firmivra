@@ -22,6 +22,8 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { usePortal } from '../../../layout';
+import { usePortalTabs } from '../../_components/portal-tabs';
+import { FirmContactLinks } from '../../../(public)/_components/firm-contact';
 import {
   PayButton,
   PayError,
@@ -104,6 +106,7 @@ const loadInsights = async (slug: string) => {
 
 export function ServicesScreen() {
   const { firmSlug: slug } = useParams<{ firmSlug: string }>();
+  const tabOn = usePortalTabs(slug);
   const { business } = usePortal();
   const [tab, setTab] = useState<Group>('active');
   const [showAllActivity, setShowAllActivity] = useState(false);
@@ -192,13 +195,16 @@ export function ServicesScreen() {
                         <p className="text-sm text-muted">Our team is here for you.</p>
                       </div>
                     </div>
-                    <Link
-                      href={'/' + slug + '/messages'}
-                      className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-control bg-action px-4 py-2 text-sm font-semibold text-on-action hover:bg-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-                    >
-                      Send a Message
-                      <ArrowRight aria-hidden className="size-4" />
-                    </Link>
+                    <FirmContactLinks className="mt-3 text-heading" />
+                    {tabOn('messages') ? (
+                      <Link
+                        href={'/' + slug + '/messages'}
+                        className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-control bg-action px-4 py-2 text-sm font-semibold text-on-action hover:bg-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                      >
+                        Send a Message
+                        <ArrowRight aria-hidden className="size-4" />
+                      </Link>
+                    ) : null}
                   </Card>
                   <Card
                     variant="elevated"

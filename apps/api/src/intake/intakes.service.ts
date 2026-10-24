@@ -31,9 +31,13 @@ import {
 } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
+import { sendSubmittedNotice } from '../intake-workspace/submitted-notice.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
+import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { requireFirmWideAgreement } from './intake-agreement.js';
 import { intakeFileSizeMb } from './intake-file-size.js';
 import { publishedForm, readDefinition } from './intake-forms.js';
@@ -230,6 +234,8 @@ export class IntakesService {
     private readonly fe: FieldEncryption,
     private readonly audit: AuditService,
     private readonly notifier: Notifier,
+    @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /**
@@ -726,6 +732,12 @@ export class IntakesService {
       { version: draft.version, detached: hidden.length },
     );
     await this.tell(businessId, 'intake.submitted', id, login.userId);
+    // Intake Form Settings > Notify additional emails (I7): the form's title only, no answers.
+    await sendSubmittedNotice(
+      { database: this.database, notify: this.notify, env: this.env, logger: this.logger },
+      businessId,
+      id,
+    );
     return intake;
   }
 

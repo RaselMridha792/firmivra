@@ -71,7 +71,13 @@ export interface Draft {
     defaultFollowUpOwnerUserId: string | null;
   };
   branding: IntakeSettings['branding'];
-  security: { acceptedFileTypes: FileType[]; maxFileSizeMb: number; consentRequired: boolean };
+  security: {
+    acceptedFileTypes: FileType[];
+    maxFileSizeMb: number;
+    consentRequired: boolean;
+    /** Whole years, or null for not set (Octavia's I12). */
+    dataRetentionYears: number | null;
+  };
 }
 export type Group = keyof Draft;
 const GROUPS: Group[] = [
@@ -111,6 +117,7 @@ export function toDraft(s: IntakeSettings): Draft {
       acceptedFileTypes: s.security.acceptedFileTypes.filter(isFileType),
       maxFileSizeMb: s.security.maxFileSizeMb,
       consentRequired: s.security.consentRequired,
+      dataRetentionYears: s.security.dataRetentionYears,
     },
   };
 }

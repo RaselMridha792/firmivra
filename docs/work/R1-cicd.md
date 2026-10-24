@@ -115,14 +115,46 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session stopped at about 95% context, on Rasel's word, before the prod stacks.
 
 **Update (Oct 25).** This wins over the rest of this section.
-- **Merged:** #1097, #1103, #1104 and #1105 (Rasel tells R56).
-- **Step 5:** network, data, email and auth are up (5a to 5d in the prod log). Email went before auth, because auth depends on it.
-- **5e (ci):** stopped, because the ci stack needs the app stack. Rasel chose an infra and workflow PR:
-  - the prod ci role gets its permissions by resource name;
-  - `deploy-prod.yml` creates the empty app stack before it builds.
-  - After that PR merges: the ci diff, for Rasel's yes.
-- **Never create the app stack by hand.** No tag, no app deploy from R1.
-- **Step 6:** diff shown, waiting for Rasel's yes.
+- **Merged:** #1097, #1103, #1104, #1105 (Rasel tells R56), #1119 and #1120.
+- **Step 5 is done:** network, data, email, auth and ci are up (5a to 5e in the prod log).
+  - Email went before auth, because auth depends on it.
+  - ci went after #1120, which grants the prod ci role by resource name and lets `deploy-prod.yml` create the empty app stack on the first tag.
+  - **Never create the app stack by hand.** No tag, no app deploy from R1.
+- **Step 6 is done:** dev's deploy role trusts only `environment:dev` (prod log, 6).
+- **Open:** #1121, R60's item 12, a data migration. Merge it after #1115, or together with it.
+- **Before Rasel's `v1.0.0` tag:**
+  1. **`firmivra/prod/stripe`: done** (prod log, 7a). Rasel's decision: release with **empty values** for all three keys, so payments are off until the real live keys. The API starts with an empty key. A value of any other shape stops it at boot.
+  2. **Tag a commit of `main` that has #1120,** after that commit's Deploy dev succeeds.
+     - `ef9e9badd` qualifies (run 40135441874).
+     - `564c8cfaf` (#1121) qualifies once its run 40136346592 succeeds.
+- **Stripe, while the keys are empty** (`apps/api/src/payments/stripe/config.ts`; `/api/v1/health` checks only the database):
+  - **Off:** Connect onboarding, card checkout and refunds answer 503 `PAYMENT_PROVIDER_UNAVAILABLE`; the webhook answers 503; Super Admin health shows payments not configured.
+  - **Still working:** invoices, and cash and check payments. Their Stripe calls run only when a card checkout is pending.
+- **Later, the real live keys (Rasel's steps of Oct 25):**
+  1. **Rasel** puts the live keys into `firmivra/prod/stripe` himself, in the console. All three keys stay in the secret; never in chat, a file or the repo. **Format rule, checked when the API starts:**
+     - `STRIPE_SECRET_KEY` matches `^(sk|rk)_(test|live)_[A-Za-z0-9]+$`; prod uses `sk_live_` or `rk_live_`;
+     - `STRIPE_WEBHOOK_SECRET` matches `^whsec_[A-Za-z0-9]+$`;
+     - `STRIPE_PUBLISHABLE_KEY` is `pk_live_…` (the API doesn't read it yet);
+     - an empty value means not set. A value of any other shape stops the API at boot. The circuit breaker then rolls back, and the old tasks keep running.
+  2. **R1, on Rasel's yes:** a new deployment of the api service, so the tasks read the secret (ECS reads it only when a task starts):
+     - `aws ecs update-service --cluster firmivra-prod-cluster --service firmivra-prod-api --force-new-deployment --query service.serviceName --output text`
+     - then `aws ecs wait services-stable --cluster firmivra-prod-cluster --services firmivra-prod-api`;
+     - check that `https://app.firmivra.com/api/v1/health` is ok and Super Admin health shows payments `CONFIGURED`.
+  3. **Rasel** creates the live webhook endpoint:
+     - URL `https://app.firmivra.com/api/v1/webhooks/stripe`, Events from: Connected accounts;
+     - the 8 events in `docs/SETUP-LOG.md`, "Stripe keys on dev";
+     - he stores its `whsec_` signing secret as `STRIPE_WEBHOOK_SECRET` in the same secret.
+     - Then R1 runs step 2 again. If the webhook is made before step 1, one deployment covers both.
+- **Checked, nothing to do (Oct 25):**
+  - the zone has no record at `admin.`, `app.` or `portal.firmivra.com`, and no CAA record;
+  - GitHub's `prod` environment needs Rasel's review and allows only `v*` tags;
+  - Deploy prod is active.
+- **The first tag's run has less room:** it also creates the load balancer, 3 CloudFront distributions and the certificate, and runs every migration on an empty database, within the job's 55 minutes.
+- **After the release (each on Rasel's word):**
+  - confirm the alarm topic's email subscription;
+  - the bootstrap one-off (#1104), then `create-firm-key lvp` and `--check`, then `set-module`;
+  - the smoke test (checklist 16).
+- **SMS:** prod sends through SNS (`SMS_MODE=sns`), but no US number is registered. Texts won't arrive until one is (an open decision).
 
 ### Open PRs (Rasel merges)
 - **#1097:** docs, the prod log and this handoff.
@@ -194,6 +226,24 @@ This is newer than every handoff below, so read it first. Where they differ, thi
 - 5c. Oct 25: email before auth, on Rasel's yes (the auth stack depends on email: its 3 pools send through the SES identity `firmivra.com`). Checked first: no record at `mail.firmivra.com` and no SES identity or configuration set of those names outside CloudFormation. `firmivra-prod-email` deployed (all creates). Checked: `CREATE_COMPLETE`; its 5 records are in the zone (3 DKIM CNAMEs, MX and TXT at `mail.firmivra.com`; no `_dmarc`, the company's 2 DKIM records untouched); the identity is verified for sending, DKIM `SUCCESS` with signing on, MAIL FROM `SUCCESS`, configuration set `firmivra-prod-email`.
 - 5d. Oct 25, Rasel's yes on the re-run diff (the same as the first; email showed no differences): `firmivra-prod-auth` deployed (all creates). Checked: `CREATE_COMPLETE`; `firmivra-prod-staff`, `-clients` and `-admins` each have deletion protection, Plus tier, advanced security enforced, admin-only user creation and email from `no-reply@firmivra.com` through SES (`firmivra-prod-email`); MFA by authenticator app only, required for staff and admins, optional for clients; the API clients' refresh tokens last 7, 30 and 1 days (access tokens 15 minutes, existence errors hidden, revocation on); `firmivra/prod/cognito/api-clients` exists (name only, no value read).
 - 5e. Oct 25, stopped before any deploy: `firmivra-prod-ci` depends on `firmivra-prod-app`. Its deploy role is granted on the app's ECR repositories, cluster, migrate task roles and log group, so `cdk diff firmivra-prod-ci` includes the app stack, and a `-e` deploy would fail. `deploy-prod.yml` also needs both before the first tag: it assumes `firmivra-prod-github-deploy` (ci) and looks up the `firmivra-prod-*` ECR repositories (app) before it builds. With `ImageTag=none` the app stack runs 0 api and web tasks (scaling 0 to 0). Waiting for Rasel's decision.
+- 5e, decided (Oct 25): Rasel chose option B, never the app stack by hand. #1120:
+  - the prod ci role gets its permissions by resource name;
+  - `deploy-prod.yml` creates the empty app stack on the first `v*` tag.
+  - Dev's templates are unchanged.
+  - After it merges: the ci diff, for Rasel's yes.
+- 5e. Oct 25, after #1120 merged, Rasel's yes on the diff (ci alone, no dependency stacks, no cross-stack references): `firmivra-prod-ci` deployed. Checked:
+  - `CREATE_COMPLETE`;
+  - `firmivra-prod-github-deploy` trusts only the repo's `environment:prod` (audience `sts.amazonaws.com`, dev's OIDC provider);
+  - the session is 1 hour, and the boundary is `firmivra-permissions-boundary`;
+  - one inline policy and no attached ones. Its 9 statements match the template: the 3 ECR repositories, the image cache, the bootstrap roles, the migrate task in `firmivra-prod-cluster`, `PassRole` on `firmivra-prod-app-MigrateTask*`, the migrate logs and `firmivra-prod-*` outputs.
+  - **Step 5 is done.**
+- 6. Oct 25, Rasel's yes on the diff (the trust only): `firmivra-dev-ci` deployed (`cdk deploy firmivra-dev-ci -e -c env=dev`). Checked:
+  - `UPDATE_COMPLETE` at 20:45 UTC;
+  - `firmivra-dev-github-deploy` trusts only the repo's `environment:dev`;
+  - Deploy dev run 40129918292 had signed in before the change and succeeded;
+  - run 40131466057, the first after the change, signed in at 20:50 UTC and succeeded at 21:02;
+  - run 40132450092 (`b6e013696`, with #1120) succeeded at 21:15, and the 3 dev sites answer 200. #1120's own run was cancelled by GitHub, because a newer commit's run took its place in the queue.
+- 7a. Oct 25, Rasel's yes on the command (empty values, his decision): `firmivra/prod/stripe` created with `aws secretsmanager create-secret` (`aws/secretsmanager` key and the tags `project=firmivra` and `env=prod`, as the other prod secrets; no rotation). Checked read-only: the keys are `STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, all three empty (printed as true or false, no values).
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).

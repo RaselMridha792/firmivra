@@ -85,7 +85,7 @@ export function CreatedScreen({ id, documentsFailed }: { id: string; documentsFa
           'Employment Type',
           m.profile.employmentType ? EMPLOYMENT_TYPES[m.profile.employmentType] : '—',
         ],
-        ['Start Date', date(m.profile.hireDate ?? m.accessStartsOn)],
+        ['Start Date', date(m.profile.workStartDate ?? m.profile.hireDate ?? m.accessStartsOn)],
         ['Primary Team', m.profile.primaryTeam?.name ?? '—'],
         ['Access Level', ACCESS_LEVELS[m.accessLevel]],
       ]

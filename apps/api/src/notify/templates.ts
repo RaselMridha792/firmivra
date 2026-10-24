@@ -514,6 +514,19 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ],
   }),
 
+  'intake.submitted-notice': (d, b, o) => ({
+    channel: 'email',
+    subject: `Intake form submitted: ${required(d, 'formTitle')}`,
+    blocks: [
+      text('Hello,'),
+      text(
+        `A client submitted ${required(d, 'formTitle')} to ${b.name}. The answers stay in Firmivra; this email has none of them.`,
+      ),
+      button('Open Intake Forms', link(d, 'link', o)),
+      text(`${b.name} added your address to its intake form notifications.`),
+    ],
+  }),
+
   'client.portal-invite': (d, b, o) => {
     const firm = b.name;
     return {
