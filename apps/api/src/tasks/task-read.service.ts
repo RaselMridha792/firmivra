@@ -18,6 +18,9 @@ import {
   detailInclude,
   type DetailShape,
   isOverdue,
+  liveClient,
+  liveStatus,
+  LIVE_TASK,
   type RowContext,
   rowInclude,
   toDetail,
@@ -120,10 +123,15 @@ export class TaskReadService {
     return this.inFirm(businessId, async (tx) => {
       const clock = await firmClock(tx, businessId);
       const monthStart = new Date(zonedInstant(clock.timeZone, `${clock.today.slice(0, 7)}-01`, 0));
-      const base: Prisma.TaskWhereInput = { businessId, archivedAt: null, ...reach(actor) };
+      const base: Prisma.TaskWhereInput = {
+        businessId,
+        archivedAt: null,
+        ...reach(actor),
+        ...LIVE_TASK,
+      };
       const open: Prisma.TaskWhereInput = { ...base, status: 'OPEN' };
       const [total, pending, inProgress, overdue, completedThisMonth, mine] = await Promise.all([
-        tx.task.count({ where: { ...base, status: { not: 'CANCELLED' } } }),
+        tx.task.count({ where: { AND: [base, { status: { not: 'CANCELLED' } }] } }),
         tx.task.count({ where: { ...open, progress: 'PENDING' } }),
         tx.task.count({ where: { ...open, progress: 'IN_PROGRESS' } }),
         tx.task.count({ where: { AND: [open, this.overdueWhere(clock)] } }),
@@ -157,7 +165,7 @@ export class TaskReadService {
   ): Promise<TaskOverviewPage> {
     const page = await this.inFirm(businessId, async (tx) => {
       const clock = await firmClock(tx, businessId);
-      const and: Prisma.TaskWhereInput[] = [{ businessId }, reach(actor)];
+      const and: Prisma.TaskWhereInput[] = [{ businessId }, reach(actor), LIVE_TASK];
       if (q.view === 'archived') and.push({ archivedAt: { not: null } });
       else and.push({ archivedAt: null });
       if (q.view === 'all') and.push({ status: { not: 'CANCELLED' } });
@@ -224,6 +232,7 @@ export class TaskReadService {
           businessId,
           archivedAt: null,
           status: { not: 'CANCELLED' },
+          AND: [LIVE_TASK],
           dueOn: { gte: toDay(q.from), lte: toDay(q.to) },
           ...reach(actor),
           ...(q.clientId ? { clientId: q.clientId } : {}),
@@ -252,10 +261,10 @@ export class TaskReadService {
           dueTime: t.dueTime ? t.dueTime.toISOString().slice(11, 16) : null,
           allDay: t.allDay,
           priority: t.priority,
-          status: t.status,
+          status: liveStatus(t.status),
           progress: t.progress,
           overdue: isOverdue(t, clock.today, clock.nowMinutes),
-          clientName: t.client.displayName,
+          clientName: liveClient(t.client).displayName,
         })),
       };
     });
@@ -271,10 +280,10 @@ export class TaskReadService {
     return task;
   }
 
-  /** One task the actor reaches, as a TaskDetail, inside the caller's transaction. */
+  /** One live task the actor reaches, as a TaskDetail, inside the caller's transaction. */
   async read(tx: TxClient, businessId: string, actor: ClientsActor | null, id: string) {
     const row = await tx.task.findFirst({
-      where: { businessId, id, ...(actor ? reach(actor) : {}) },
+      where: { businessId, id, ...LIVE_TASK, ...(actor ? reach(actor) : {}) },
       include: detailInclude,
     });
     if (!row) throw notFound();

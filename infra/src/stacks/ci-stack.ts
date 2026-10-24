@@ -12,8 +12,9 @@ export interface CiStackProps extends StackProps {
 
 /**
  * GitHub Actions deploy access without stored AWS keys (OIDC).
- * Trust: only jobs of RaselMridha792/firmivra running in the GitHub environments `dev` or `prod`
- * (docs/SETUP-LOG.md). GitHub limits those environments to `main` and `v*` tags.
+ * Trust: only jobs of RaselMridha792/firmivra running in this environment's own GitHub environment:
+ * `dev` for firmivra-dev-github-deploy, `prod` for firmivra-prod-github-deploy (docs/SETUP-LOG.md).
+ * GitHub limits `dev` to `main` and `prod` to `v*` tags, with required reviewers.
  * Permissions: push images to this environment's ECR repositories, run the migration task,
  * and `cdk deploy` through the CDK bootstrap roles.
  */
@@ -22,7 +23,8 @@ export const ECR_PUBLIC_CACHE_PREFIX = 'ecr-public';
 
 export class CiStack extends Stack {
   readonly deployRole: iam.Role;
-  readonly pullRequestRole: iam.Role;
+  /** Only in the CI stack that owns the account's CI pieces (config.ownsAccountCi): dev's. */
+  readonly pullRequestRole?: iam.Role;
 
   constructor(scope: Construct, id: string, props: CiStackProps) {
     super(scope, id, props);
@@ -31,22 +33,26 @@ export class CiStack extends Stack {
     // Immutable OIDC subject (repo setting "use_immutable_subject"): owner and repo with their ids.
     const repo = `repo:${owner}@${ownerId}/${name}@${repoId}`;
 
-    const github = new iam.OidcProviderNative(this, 'GitHubOidc', {
-      url: 'https://token.actions.githubusercontent.com',
-      clientIds: ['sts.amazonaws.com'],
-    });
+    // One GitHub OIDC provider per account: dev's CI stack owns it, prod's imports it.
+    const github = config.ownsAccountCi
+      ? new iam.OidcProviderNative(this, 'GitHubOidc', {
+          url: 'https://token.actions.githubusercontent.com',
+          clientIds: ['sts.amazonaws.com'],
+        })
+      : iam.OidcProviderNative.fromOidcProviderArn(
+          this,
+          'GitHubOidc',
+          `arn:aws:iam::${this.account}:oidc-provider/token.actions.githubusercontent.com`,
+        );
 
     this.deployRole = new iam.Role(this, 'DeployRole', {
       roleName: resourceName(config, 'github-deploy'),
-      description: 'GitHub Actions deploys (environments dev and prod of the Firmivra repo only)',
+      description: `GitHub Actions deploys (environment ${config.envName} of the Firmivra repo only)`,
       maxSessionDuration: Duration.hours(1),
       assumedBy: new iam.WebIdentityPrincipal(github.oidcProviderArn, {
         StringEquals: {
           'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-          'token.actions.githubusercontent.com:sub': [
-            `${repo}:environment:dev`,
-            `${repo}:environment:prod`,
-          ],
+          'token.actions.githubusercontent.com:sub': `${repo}:environment:${config.envName}`,
         },
       }),
     });
@@ -114,11 +120,14 @@ export class CiStack extends Stack {
     // stores the image, later pulls come from our registry. No repository creation template
     // (Rasel, Oct 17): it needs ecr:CreateRepository on * for CloudFormation, and two base images
     // grow only slowly without a lifecycle rule.
-    new ecr.CfnPullThroughCacheRule(this, 'EcrPublicCache', {
-      ecrRepositoryPrefix: ECR_PUBLIC_CACHE_PREFIX,
-      upstreamRegistry: 'ecr-public',
-      upstreamRegistryUrl: 'public.ecr.aws',
-    });
+    // One rule per account and prefix: dev's CI stack owns it; prod's deploys pull through it too.
+    if (config.ownsAccountCi) {
+      new ecr.CfnPullThroughCacheRule(this, 'EcrPublicCache', {
+        ecrRepositoryPrefix: ECR_PUBLIC_CACHE_PREFIX,
+        upstreamRegistry: 'ecr-public',
+        upstreamRegistryUrl: 'public.ecr.aws',
+      });
+    }
     const cachedImages = `arn:aws:ecr:${this.region}:${this.account}:repository/${ECR_PUBLIC_CACHE_PREFIX}/*`;
     const pullCached = new iam.PolicyStatement({
       sid: 'PullCachedPublicImages',
@@ -134,9 +143,15 @@ export class CiStack extends Stack {
     });
     role.addToPolicy(pullCached);
 
+    new CfnOutput(this, 'BaseImageRegistry', {
+      value: `${this.account}.dkr.ecr.${this.region}.amazonaws.com/${ECR_PUBLIC_CACHE_PREFIX}`,
+    });
+    if (!config.ownsAccountCi) return;
+
     // Pull requests of this repo: base images from the cache, nothing else. A pull request has
     // no GitHub environment, so it cannot use the deploy role. Fork pull requests get no OIDC
     // token at all (GitHub withholds id-token from forks), so they fall back to another mirror.
+    // One role for the account, in dev's CI stack: pull requests are not an environment's.
     this.pullRequestRole = new iam.Role(this, 'PullRequestRole', {
       roleName: resourceName(config, 'github-ci-pull'),
       description:
@@ -155,8 +170,5 @@ export class CiStack extends Stack {
     this.pullRequestRole.addToPolicy(pullCached);
 
     new CfnOutput(this, 'PullRequestRoleArn', { value: this.pullRequestRole.roleArn });
-    new CfnOutput(this, 'BaseImageRegistry', {
-      value: `${this.account}.dkr.ecr.${this.region}.amazonaws.com/${ECR_PUBLIC_CACHE_PREFIX}`,
-    });
   }
 }

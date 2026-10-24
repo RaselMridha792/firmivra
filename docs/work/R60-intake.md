@@ -31,7 +31,7 @@ to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/
 
 | # | Branch | State |
 | --- | --- | --- |
-| 1 | `rasel/R60-profile-request-change` | #1063 (open): `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
+| 1 | `rasel/R60-profile-request-change` | Built: `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
 | 2 | `rasel/R60-notifications-email` (stacked on #1063) | Built: staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
 
 ### State (Oct 23, second session): open PRs and branches waiting
