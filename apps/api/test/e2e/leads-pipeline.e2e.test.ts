@@ -308,7 +308,10 @@ describe('the table, the cards and the dropdowns', () => {
     ]);
     expect((await list('?search=facebook')).items.map((i) => i.id)).toEqual([made.overdue!.id]);
     expect((await list('?tag=nothing')).total).toBe(0);
-    const today = new Date().toISOString().slice(0, 10);
+    // The firm's day (New York, the default zone), not the UTC one: they differ for 4 to 5 hours.
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+      new Date(),
+    );
     expect((await list(`?from=${today}&to=${today}`)).total).toBe(7);
     expect((await list('?from=2001-01-01&to=2001-01-02')).total).toBe(0);
     expect((await list(`?campaignId=${randomUUID()}`)).total).toBe(0);
@@ -740,5 +743,50 @@ describe('firm isolation', () => {
     } finally {
       await owner.$disconnect();
     }
+  });
+});
+
+describe('Archived Leads and Restore (L10)', () => {
+  const page = async (query: string, who = people.ownerA) =>
+    Page.parse(ok(await call('get', `/pipeline${query}`, who)));
+  const bulk = (action: 'ARCHIVE' | 'RESTORE', leadIds: string[], who = people.ownerA) =>
+    call('post', '/bulk', who, { action, ids: leadIds });
+
+  it('archived leads show only under Archived Leads, and Restore brings one back as it was', async () => {
+    const lead = await create(people.ownerA, { stage: 'IN_FOLLOW_UP', priority: 'HOT' });
+    const open = await create(people.ownerA);
+    expect(Result.parse(ok(await bulk('ARCHIVE', [lead.id])))).toEqual({ changed: 1, skipped: 0 });
+    expect((await page('?pageSize=100')).items.map((r) => r.id)).not.toContain(lead.id);
+    const archived = await page('?archived=true&pageSize=100');
+    expect(archived.items.map((r) => r.id)).toContain(lead.id);
+    expect(archived.items.map((r) => r.id)).not.toContain(open.id);
+
+    // Restore: a lead that is not archived is skipped.
+    expect(Result.parse(ok(await bulk('RESTORE', [lead.id, open.id])))).toEqual({
+      changed: 1,
+      skipped: 1,
+    });
+    const back = (await page('?pageSize=100')).items.find((r) => r.id === lead.id);
+    expect(back).toMatchObject({ stage: 'IN_FOLLOW_UP', priority: 'HOT' });
+    expect((await page('?archived=true&pageSize=100')).items.map((r) => r.id)).not.toContain(
+      lead.id,
+    );
+    const profile = Profile.parse(ok(await call('get', `/${lead.id}/profile`, people.ownerA)));
+    expect(profile.recentActivity.map((a) => a.label)[0]).toMatch(/^Lead created/);
+  });
+
+  it('Staff cannot restore (the grid’s Delete), and firm B restores none of firm A’s', async () => {
+    const lead = await create(people.ownerA, { assignedUserId: people.staffA.id });
+    ok(await bulk('ARCHIVE', [lead.id]));
+    expect((await bulk('RESTORE', [lead.id], people.staffA)).status).toBe(403);
+    const other = await call(
+      'post',
+      '/bulk',
+      people.ownerB,
+      { action: 'RESTORE', ids: [lead.id] },
+      ids.firmB,
+    );
+    expect(Result.parse(ok(other))).toEqual({ changed: 0, skipped: 1 });
+    expect((await page('?archived=true&pageSize=100')).items.map((r) => r.id)).toContain(lead.id);
   });
 });

@@ -131,6 +131,11 @@ export const LeadPipelineQuery = z.strictObject({
   priority: LeadPriority.optional(),
   campaignId: z.uuid().optional(),
   tag: z.string().max(40).optional(),
+  /**
+   * Archived Leads (More Filters, L10): only the archived leads, which every other view leaves
+   * out. The other filters still apply.
+   */
+  archived: QueryBool.optional(),
   page: Page,
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(8),
 });
@@ -264,6 +269,11 @@ export const LeadBulkRequest = z.discriminatedUnion('action', [
   }),
   /** Archive: leads are never deleted from history; a converted lead cannot be archived. */
   z.strictObject({ action: z.literal('ARCHIVE'), ids: z.array(z.uuid()).min(1).max(200) }),
+  /**
+   * Restore from Archived Leads (L10): the grid's Delete, as Archive. The lead comes back with
+   * the status, details and history it had; a lead that is not archived is skipped.
+   */
+  z.strictObject({ action: z.literal('RESTORE'), ids: z.array(z.uuid()).min(1).max(200) }),
 ]);
 export type LeadBulkRequest = z.input<typeof LeadBulkRequest>;
 

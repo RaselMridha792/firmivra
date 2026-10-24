@@ -473,8 +473,10 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
   const role = options.role ?? 'OWNER';
   const s = storeFor(options);
   const me = role === 'STAFF' ? staff(3, 'Daniel Okafor') : staff(1, 'Morgan Avery');
-  const visible = (l: Lead) =>
-    !l.profile.archivedAt && (role !== 'STAFF' || l.profile.assignedTo?.userId === me.userId);
+  const reachable = (l: Lead) => role !== 'STAFF' || l.profile.assignedTo?.userId === me.userId;
+  const visible = (l: Lead) => !l.profile.archivedAt && reachable(l);
+  /** Archived Leads (L10): only the archived ones the member reaches. */
+  const archived = (l: Lead) => !!l.profile.archivedAt && reachable(l);
   /**
    * The Begin Online mock's leads, as the pipeline reads them when one is opened (the API keeps
    * both in one table). Kept apart from the list so the Leads page's counts stay as seeded.
@@ -576,7 +578,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       const q = parseInput(LeadPipelineQuery, query);
       const search = q.search?.toLowerCase() ?? '';
       const rows = s.leads
-        .filter(visible)
+        .filter(q.archived ? archived : visible)
         .filter((l) => {
           const p = l.profile;
           if (
@@ -749,7 +751,9 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       let changed = 0;
       for (const id of input.ids) {
         const l = s.leads.find((x) => x.profile.id === id);
-        if (!l || !visible(l) || (input.action !== 'TAGS' && l.profile.stage === 'CONVERTED'))
+        // Restore takes archived leads; every other action open ones.
+        const inView = input.action === 'RESTORE' ? archived : visible;
+        if (!l || !inView(l) || (input.action !== 'TAGS' && l.profile.stage === 'CONVERTED'))
           continue;
         if (input.action === 'ASSIGN')
           l.profile.assignedTo = team().find((m) => m.userId === input.assignedUserId) ?? null;
@@ -759,6 +763,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         if (input.action === 'TAGS')
           l.profile.tags = [...new Set([...l.profile.tags, ...input.add])];
         if (input.action === 'ARCHIVE') l.profile.archivedAt = new Date().toISOString();
+        if (input.action === 'RESTORE') l.profile.archivedAt = null;
         bump(l);
         changed += 1;
       }

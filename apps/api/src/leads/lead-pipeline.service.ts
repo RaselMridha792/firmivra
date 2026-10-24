@@ -64,7 +64,8 @@ export class LeadPipelineService {
       AND: [
         visibleLead(businessId),
         reach(actor),
-        { archivedAt: null },
+        // Archived Leads (L10) shows only those; every other view leaves them out.
+        q.archived ? { archivedAt: { not: null } } : { archivedAt: null },
         q.source ? { source: q.source } : {},
         q.serviceId
           ? { OR: [{ serviceId: q.serviceId }, { services: { some: { serviceId: q.serviceId } } }] }
