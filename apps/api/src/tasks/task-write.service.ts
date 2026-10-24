@@ -36,6 +36,9 @@ import { completedAtAfter } from '../workspaces/tasks.service.js';
 import {
   checkReminders,
   fitReminders,
+  keyColumns,
+  keyedSave,
+  keyScope,
   LIVE_TASK,
   liveClient,
   type Reminder,
@@ -44,10 +47,12 @@ import {
   reminderFromRow,
   reminderRow,
   remindersFromJson,
+  TASK_KEY_INDEX,
   taskErrors,
 } from './task-common.js';
 import type {
   CreateTaskDetailRequest,
+  DuplicateTaskRequest,
   SaveTaskDraftRequest,
   UpdateTaskDetailRequest,
   UpdateTaskDraftRequest,
@@ -56,6 +61,7 @@ import { firmClock, reach, TaskReadService } from './task-read.service.js';
 
 type CreateBody = z.output<typeof CreateTaskDetailRequest>;
 type UpdateBody = z.output<typeof UpdateTaskDetailRequest>;
+type DuplicateBody = z.output<typeof DuplicateTaskRequest>;
 /** A new task's body, or a new draft's (Save as Draft: the client may come later). */
 type NewTaskBody = CreateBody | z.output<typeof SaveTaskDraftRequest>;
 /** A draft's changes (PATCH, or the fields sent with publish), without `version`. */
@@ -145,7 +151,9 @@ const publishInclude = {
  * change locks the client and then the task, as the older service did. Audited with ids,
  * statuses and field names only: never a title, details, notes, a checklist label or a file name.
  * Drafts (task-drafts.service.ts) are saved, edited and checked before they go live with the same
- * pieces: `insertNew`, `editDraft` and `checkAsNew`.
+ * pieces: `insertNew`, `editDraft` and `checkAsNew`. Create and Duplicate are retry-safe by the
+ * request's idempotency key (keyedSave), and audit the new task in the transaction that makes it,
+ * so a task a retry returns was always audited.
  */
 @Injectable()
 export class TaskWriteService {
@@ -161,25 +169,35 @@ export class TaskWriteService {
 
   // ---------- Create ----------
 
+  /** A new task; with `idempotencyKey`, a retry returns the task the first save made. */
   async create(businessId: string, actor: ClientsActor, body: CreateBody): Promise<TaskDetail> {
-    const task = await this.inFirm(businessId, async (tx) => {
-      const client = await lockClient(tx, businessId, body.clientId);
-      if (!client || !reachesClient(actor, client)) throw notFound();
-      const id = await this.insertNew(tx, businessId, actor, body, client);
-      return this.reader.read(tx, businessId, null, id);
-    }).catch(this.newTaskErrors(body));
-    await this.audit.log(
-      'task.created',
-      { type: 'task', id: task.id },
-      {
-        clientId: task.client.id,
-        engagementId: task.engagementId,
-        assignedUserId: task.assignedTo?.userId ?? null,
-        fields: sentFields(body, CREATE_FIELDS),
-        ...(body.templateId ? { templateId: body.templateId.toLowerCase() } : {}),
+    return keyedSave(
+      this.database,
+      businessId,
+      actor,
+      { key: body.idempotencyKey, scope: keyScope.create, index: TASK_KEY_INDEX },
+      (tx, id) => this.reader.read(tx, businessId, actor, id),
+      async (tx) => {
+        const client = await lockClient(tx, businessId, body.clientId);
+        if (!client || !reachesClient(actor, client)) throw notFound();
+        const id = await this.insertNew(tx, businessId, actor, body, client);
+        const task = await this.reader.read(tx, businessId, null, id);
+        await this.audit.logIn(
+          tx,
+          'task.created',
+          { type: 'task', id: task.id },
+          {
+            clientId: task.client.id,
+            engagementId: task.engagementId,
+            assignedUserId: task.assignedTo?.userId ?? null,
+            fields: sentFields(body, CREATE_FIELDS),
+            ...(body.templateId ? { templateId: body.templateId.toLowerCase() } : {}),
+          },
+        );
+        return task;
       },
+      this.newTaskErrors(body),
     );
-    return task;
   }
 
   /** Backstop of a new task or draft: the assignee's membership went away before the insert. */
@@ -199,7 +217,8 @@ export class TaskWriteService {
    * but what only publishing checks (the assignee's reach, an archived type, the reminders and
    * stage a live task needs) waits for `checkAsNew`. The template's reminders are never refused:
    * a new task leaves out the ones that do not fit it, a draft keeps them all for publishing to
-   * check. The new task's id.
+   * check. The request's idempotency key is stored with its scope ('create' or 'draft'). The new
+   * task's id.
    */
   async insertNew(
     tx: TxClient,
@@ -269,6 +288,7 @@ export class TaskWriteService {
         blockedReason: shape.blockedReason,
         dependsOnTaskId: shape.dependsOnTaskId,
         templateId: tpl?.id ?? null,
+        ...keyColumns(body.idempotencyKey, draft ? keyScope.draft : keyScope.create),
       },
       select: { id: true },
     });
@@ -705,80 +725,111 @@ export class TaskWriteService {
     return task;
   }
 
-  async duplicate(businessId: string, actor: ClientsActor, id: string): Promise<TaskDetail> {
-    const task = await this.inFirm(businessId, async (tx) => {
-      const { client, current } = await this.open(tx, businessId, actor, id);
-      const [items, reminders, extra] = await Promise.all([
-        tx.taskChecklistItem.findMany({
-          where: { businessId, taskId: id },
-          orderBy: { position: 'asc' },
-        }),
-        tx.taskReminder.findMany({ where: { businessId, taskId: id } }),
-        tx.taskAssignee.findMany({ where: { businessId, taskId: id }, select: { userId: true } }),
-      ]);
-      // A copy keeps the assignee only while that person may still take this client's tasks.
-      let assignedUserId = current.assignedUserId;
-      if (assignedUserId) {
-        try {
-          await checkAssignee(tx, businessId, assignedUserId, client);
-        } catch {
-          assignedUserId = null;
-        }
-      }
-      const type = await this.liveType(tx, current.typeId);
-      const created = await tx.task.create({
-        data: {
-          businessId,
-          clientId: current.clientId,
-          engagementId: current.engagementId,
-          title: `${current.title.slice(0, 193)} (Copy)`,
-          details: current.details,
-          dueOn: current.dueOn,
-          startOn: current.startOn,
-          dueTime: current.dueTime,
-          allDay: current.allDay,
-          assignedUserId,
-          createdByUserId: actor.userId,
-          typeId: type,
-          serviceId: current.serviceId,
-          priority: current.priority,
-          clientVisible: current.clientVisible,
-          internalNotes: current.internalNotes,
-          templateId: current.templateId,
-        },
-        select: { id: true },
-      });
-      await tx.taskChecklistItem.createMany({
-        data: items.map((i, position) => ({
-          businessId,
-          taskId: created.id,
-          label: i.label,
-          position,
-          required: i.required,
-          assignedUserId: i.assignedUserId,
-        })),
-      });
-      // Days rules and Custom ones alike (the copy keeps the due date and time).
-      await tx.taskReminder.createMany({
-        data: reminders.map((r) => ({
-          businessId,
-          taskId: created.id,
-          ...reminderRow(reminderFromRow(r)),
-        })),
-      });
-      await tx.taskAssignee.createMany({
-        data: extra
-          .filter((e) => e.userId !== assignedUserId)
-          .map((e) => ({ businessId, taskId: created.id, userId: e.userId })),
-      });
-      return { task: await this.reader.read(tx, businessId, null, created.id), source: id };
-    }).catch(this.mapErrors({}));
-    await this.audit.log(
-      'task.duplicated',
-      { type: 'task', id: task.task.id },
-      { clientId: task.task.client.id, from: task.source },
+  /**
+   * A new OPEN copy of the task; with `idempotencyKey`, a retry returns the copy the first one
+   * made (the key is kept with the source task's id: on another task it is 409).
+   */
+  async duplicate(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: DuplicateBody = {},
+  ): Promise<TaskDetail> {
+    const key = body.idempotencyKey;
+    const scope = keyScope.duplicate(id);
+    return keyedSave(
+      this.database,
+      businessId,
+      actor,
+      { key, scope, index: TASK_KEY_INDEX },
+      (tx, copy) => this.reader.read(tx, businessId, actor, copy),
+      (tx) => this.copy(tx, businessId, actor, id, keyColumns(key, scope)),
+      this.mapErrors({}),
     );
-    return task.task;
+  }
+
+  /** Duplicate's copy, with its key's columns, audited in its transaction. */
+  private async copy(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    keyed: ReturnType<typeof keyColumns>,
+  ): Promise<TaskDetail> {
+    const { client, current } = await this.open(tx, businessId, actor, id);
+    const [items, reminders, extra] = await Promise.all([
+      tx.taskChecklistItem.findMany({
+        where: { businessId, taskId: id },
+        orderBy: { position: 'asc' },
+      }),
+      tx.taskReminder.findMany({ where: { businessId, taskId: id } }),
+      tx.taskAssignee.findMany({ where: { businessId, taskId: id }, select: { userId: true } }),
+    ]);
+    // A copy keeps the assignee only while that person may still take this client's tasks.
+    let assignedUserId = current.assignedUserId;
+    if (assignedUserId) {
+      try {
+        await checkAssignee(tx, businessId, assignedUserId, client);
+      } catch {
+        assignedUserId = null;
+      }
+    }
+    const type = await this.liveType(tx, current.typeId);
+    const created = await tx.task.create({
+      data: {
+        businessId,
+        clientId: current.clientId,
+        engagementId: current.engagementId,
+        title: `${current.title.slice(0, 193)} (Copy)`,
+        details: current.details,
+        dueOn: current.dueOn,
+        startOn: current.startOn,
+        dueTime: current.dueTime,
+        allDay: current.allDay,
+        assignedUserId,
+        createdByUserId: actor.userId,
+        typeId: type,
+        serviceId: current.serviceId,
+        priority: current.priority,
+        clientVisible: current.clientVisible,
+        internalNotes: current.internalNotes,
+        templateId: current.templateId,
+        ...keyed,
+      },
+      select: { id: true },
+    });
+    await tx.taskChecklistItem.createMany({
+      data: items.map((i, position) => ({
+        businessId,
+        taskId: created.id,
+        label: i.label,
+        position,
+        required: i.required,
+        assignedUserId: i.assignedUserId,
+      })),
+    });
+    // Days rules and Custom ones alike (the copy keeps the due date and time).
+    await tx.taskReminder.createMany({
+      data: reminders.map((r) => ({
+        businessId,
+        taskId: created.id,
+        ...reminderRow(reminderFromRow(r)),
+      })),
+    });
+    await tx.taskAssignee.createMany({
+      data: extra
+        .filter((e) => e.userId !== assignedUserId)
+        .map((e) => ({ businessId, taskId: created.id, userId: e.userId })),
+    });
+    const task = await this.reader.read(tx, businessId, null, created.id);
+    // The source's stored id, not the URL's spelling.
+    await this.audit.logIn(
+      tx,
+      'task.duplicated',
+      { type: 'task', id: task.id },
+      { clientId: task.client.id, from: current.id },
+    );
+    return task;
   }
 
   archive(businessId: string, actor: ClientsActor, id: string) {

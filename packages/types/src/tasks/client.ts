@@ -22,6 +22,7 @@ export function createTasksClient(request: ApiRequest) {
       const q = parseInput(ListTasksQuery, query);
       return request(TaskList, `${BASE}${toQuery(q)}`);
     },
+    /** Retry-safe with `idempotencyKey`: a retry returns the task the first call made. */
     create: async (body: CreateTaskRequest): Promise<Task> =>
       request(Task, BASE, { method: 'POST', body: parseInput(CreateTaskRequest, body) }),
     update: async (id: string, body: UpdateTaskRequest): Promise<Task> =>

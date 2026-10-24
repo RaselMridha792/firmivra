@@ -5,6 +5,7 @@ import {
   AppointmentList,
   AppointmentType,
   BookableType,
+  busyRanges,
   BookAppointmentRequest,
   BookMyAppointmentRequest,
   CancelAppointmentRequest,
@@ -13,6 +14,7 @@ import {
   createAppointmentsClient,
   createAppointmentTypesClient,
   createAvailabilityClient,
+  freeRanges,
   createMyAppointmentsClient,
   createRequest,
   MAX_MEETING_METHODS,
@@ -326,5 +328,33 @@ describe('meeting methods of an appointment type (A1)', () => {
     expect(BookMyAppointmentRequest.safeParse({ ...book, locationKind: 'OTHER' }).success).toBe(
       false,
     );
+  });
+});
+
+// Octavia's Availability guide, items 8 and 10: block only the free time around bookings.
+describe('freeRanges and busyRanges', () => {
+  const r = (s: string, e: string) => ({
+    startsAt: `2026-11-02T${s}:00.000Z`,
+    endsAt: `2026-11-02T${e}:00.000Z`,
+  });
+  const day = r('09:00', '17:00');
+
+  it('leaves out each booking, merging overlaps, and keeps the rest in order', () => {
+    expect(
+      freeRanges(day, [r('13:00', '14:00'), r('10:00', '11:00'), r('10:30', '11:30')]),
+    ).toEqual([r('09:00', '10:00'), r('11:30', '13:00'), r('14:00', '17:00')]);
+    expect(
+      busyRanges(day, [r('13:00', '14:00'), r('10:00', '11:00'), r('10:30', '11:30')]),
+    ).toEqual([r('10:00', '11:30'), r('13:00', '14:00')]);
+  });
+
+  it('clips bookings at the edges, and gives nothing when all of it is booked', () => {
+    expect(freeRanges(day, [r('08:00', '09:30'), r('16:30', '18:00')])).toEqual([
+      r('09:30', '16:30'),
+    ]);
+    expect(freeRanges(day, [r('08:00', '18:00')])).toEqual([]);
+    expect(busyRanges(day, [r('08:00', '18:00')])).toEqual([day]);
+    expect(freeRanges(day, [])).toEqual([day]);
+    expect(busyRanges(day, [r('18:00', '19:00')])).toEqual([]);
   });
 });
