@@ -209,9 +209,14 @@ export class LeadPipelineWriteService {
   ): Promise<LeadBulkResult> {
     requireCapability(
       actor,
-      { ASSIGN: 'EDIT', STAGE: 'EDIT', CAMPAIGN: 'MANAGE', TAGS: 'MANAGE', ARCHIVE: 'DELETE' }[
-        body.action
-      ] as 'EDIT',
+      {
+        ASSIGN: 'EDIT',
+        STAGE: 'EDIT',
+        CAMPAIGN: 'MANAGE',
+        TAGS: 'MANAGE',
+        ARCHIVE: 'DELETE',
+        RESTORE: 'DELETE',
+      }[body.action] as 'EDIT',
     );
     const ids = [...new Set(body.ids)];
     if (body.action === 'CAMPAIGN')
@@ -223,7 +228,12 @@ export class LeadPipelineWriteService {
           AND: [
             visibleLead(businessId),
             reach(actor),
-            { id: { in: ids }, archivedAt: null, status: { not: 'CONVERTED' } },
+            {
+              id: { in: ids },
+              // Restore takes the archived ones (L10); every other action the open ones.
+              archivedAt: body.action === 'RESTORE' ? { not: null } : null,
+              status: { not: 'CONVERTED' },
+            },
           ],
         },
         select: { id: true, status: true, assignedUserId: true },
@@ -266,6 +276,15 @@ export class LeadPipelineWriteService {
           await tx.lead.updateMany({
             where: { businessId, id: { in: todo } },
             data: { ...base, archivedAt: new Date(), archivedByUserId: actor.userId },
+          });
+          return todo;
+        }
+        // Back with the status, details and history it had: only the archive mark goes.
+        case 'RESTORE': {
+          const todo = rows.map((r) => r.id);
+          await tx.lead.updateMany({
+            where: { businessId, id: { in: todo } },
+            data: { ...base, archivedAt: null, archivedByUserId: null },
           });
           return todo;
         }
