@@ -9,6 +9,7 @@ import {
   CreateTaskDetailRequest,
   CreateTaskSeriesRequest,
   CreateTaskTemplateRequest,
+  DuplicateTaskRequest,
   ReorderChecklistRequest,
   SaveTaskAsTemplateRequest,
   SaveTaskTypeRequest,
@@ -71,6 +72,8 @@ const post = (body?: unknown) => ({ method: 'POST', ...(body === undefined ? {} 
  * (403 FORBIDDEN), and Staff reach only their assigned clients' tasks (404 otherwise). Bad input
  * rejects with ApiRequestError(400, 'VALIDATION_FAILED') before anything is sent. No business id
  * is ever sent. Error codes: TaskErrorCode (./schemas.ts) and TaskWorkErrorCode (./work.ts).
+ * Create, Save as Draft, Duplicate, Set Up Recurring and Convert are retry-safe with
+ * `idempotencyKey` (./work.ts IdempotencyKey): one new key per save, reused only to retry it.
  */
 export function createTaskWorkClient(request: ApiRequest) {
   return {
@@ -102,9 +105,12 @@ export function createTaskWorkClient(request: ApiRequest) {
       request(TaskDetail, `${task(id)}/cancel`, post()),
     setProgress: async (id: string, body: SetTaskProgressRequest): Promise<TaskDetail> =>
       request(TaskDetail, `${task(id)}/progress`, post(parseInput(SetTaskProgressRequest, body))),
-    /** A new OPEN copy with its checklist and reminders (not the attachments or history). */
-    duplicate: async (id: string): Promise<TaskDetail> =>
-      request(TaskDetail, `${task(id)}/duplicate`, post()),
+    /**
+     * A new OPEN copy with its checklist and reminders (not the attachments or history). With
+     * `idempotencyKey`, a retry returns the first copy.
+     */
+    duplicate: async (id: string, body: DuplicateTaskRequest = {}): Promise<TaskDetail> =>
+      request(TaskDetail, `${task(id)}/duplicate`, post(parseInput(DuplicateTaskRequest, body))),
     archive: async (id: string): Promise<TaskDetail> =>
       request(TaskDetail, `${task(id)}/archive`, post()),
     restore: async (id: string): Promise<TaskDetail> =>

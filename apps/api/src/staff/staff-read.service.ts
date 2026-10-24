@@ -255,19 +255,18 @@ export class StaffReadService {
             select: memberSelect,
             orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           }),
-          tx.membership.findMany({
-            where: { businessId, jobTitle: { not: null } },
-            select: { jobTitle: true },
-            distinct: ['jobTitle'],
-            orderBy: { jobTitle: 'asc' },
-            take: 200,
+          // Offices & Job Titles: the saved titles, and Location Management's active locations.
+          tx.staffJobTitle.findMany({
+            where: { businessId, archivedAt: null },
+            select: { name: true },
+            orderBy: [{ name: 'asc' }, { id: 'asc' }],
+            take: 500,
           }),
-          tx.staffProfile.findMany({
-            where: { businessId, office: { not: null } },
-            select: { office: true },
-            distinct: ['office'],
-            orderBy: { office: 'asc' },
-            take: 100,
+          tx.firmOffice.findMany({
+            where: { businessId, status: 'ACTIVE', archivedAt: null },
+            select: { name: true },
+            orderBy: [{ isMain: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+            take: 200,
           }),
           this.custom.givable(tx, businessId, actor),
           // The firm's own schedules already given to someone (Octavia's SM8: custom, saved).
@@ -290,8 +289,10 @@ export class StaffReadService {
         managers: managers.map(ref),
         roles,
         customRoles,
-        jobTitles: titles.flatMap((t) => (t.jobTitle ? [t.jobTitle] : [])),
-        offices: offices.flatMap((o) => (o.office ? [o.office] : [])),
+        jobTitles: titles
+          .map((t) => t.name)
+          .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })),
+        offices: offices.map((o) => o.name),
         workSchedules: [
           ...WORK_SCHEDULES,
           ...schedules.flatMap((x) =>

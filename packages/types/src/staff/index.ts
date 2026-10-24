@@ -1,5 +1,6 @@
 export * from './schemas.js';
 export * from './departments.js';
+export * from './job-titles.js';
 export * from './roles.js';
 export {
   createDepartmentsClient,

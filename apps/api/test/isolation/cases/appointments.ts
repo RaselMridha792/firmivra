@@ -170,6 +170,11 @@ export const cases: CaseModule['cases'] = {
     bodyIds: { userId: 'staffUser' },
     body: { startsAt: later(5).toISOString(), endsAt: later(5.1).toISOString() },
   },
+  'POST /api/v1/business/blocked-times/free-slots': {
+    params: {},
+    bodyIds: { userId: 'staffUser' },
+    body: { startsAt: later(6).toISOString(), endsAt: later(6.1).toISOString() },
+  },
   'PATCH /api/v1/business/appointment-types/:id': {
     params: { id: 'appointmentType' },
     body: { name: 'Fake renamed type', methods: ['IN_PERSON', 'VIDEO'] },

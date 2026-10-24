@@ -29,6 +29,7 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
 import { NeedHelpCard } from '../../_components/need-help-card';
 import { type CsvFile, FIELDS, guessMap, parseCsv } from './csv';
+import { excelDay, readXlsx } from './xlsx';
 
 const STEPS = [
   { id: 'upload', label: 'Template & Upload' },
@@ -48,11 +49,15 @@ const IMPORT_ERRORS: Record<string, string> = {
 };
 
 const BEFORE = [
-  'Use the template, one person per row.',
+  'Use the template, one person per row: CSV, or Excel (.xlsx) with the people on the first sheet.',
+  'Required: First Name, Last Name, Work Email, Role and Department; Job Title too for someone new.',
   'Work Email must be unique; an existing email updates that person.',
-  'Role and Department must match the ones in Staff Management.',
-  'Up to 500 rows and 1 MB per file.',
-  'Nothing is imported until you check the preview.',
+  'Role: Admin, Manager, Staff, Bookkeeper, Tax Preparer, Client Support, Business Consultant or Read Only (only the roles you may give).',
+  'Department: the name of an active department in Teams & Departments.',
+  'Employment Type: W-2, 1099, Full-Time, Part-Time, Contract, Temporary, Seasonal, Intern or Other.',
+  'Hire Date: year-month-day, for example 2026-01-15 (an Excel date cell works as it is).',
+  'Employee ID is optional; when given, no one else in the firm may have it.',
+  'Up to 500 rows and 1 MB per file. Nothing is imported until you check the preview.',
 ];
 
 function Card({
@@ -113,7 +118,15 @@ export function ImportScreen() {
 
   const read = async (file: File) => {
     setFileError('');
-    const parsed = parseCsv(await file.text());
+    let parsed: CsvFile;
+    try {
+      parsed = /\.xlsx$/i.test(file.name)
+        ? await readXlsx(await file.arrayBuffer())
+        : parseCsv(await file.text());
+    } catch {
+      setFileError('This file could not be read. Save it as Excel (.xlsx) or CSV and try again.');
+      return;
+    }
     if (!parsed.headers.length || !parsed.rows.length) {
       setFileError('This file has no rows under its header. Use the template.');
       return;
@@ -138,8 +151,13 @@ export function ImportScreen() {
       return;
     }
     setMapError('');
+    // A date typed in Excel arrives as its day number: send it as a date.
+    const dateColumn = Object.entries(map).find(([, f]) => f === 'hireDate')?.[0];
+    const rows = dateColumn
+      ? csv.rows.map((r) => ({ ...r, [dateColumn]: excelDay(r[dateColumn] ?? '') }))
+      : csv.rows;
     check.mutate(
-      { fileName, columnMap: map, rows: csv.rows },
+      { fileName, columnMap: map, rows },
       {
         onSuccess: (p) => {
           setPreview(p);
@@ -178,8 +196,8 @@ export function ImportScreen() {
               Bulk Upload Staff
             </h1>
             <p className="text-link">
-              Add or update many staff members from a CSV file. Check the preview before anything is
-              imported.
+              Add or update many staff members from a CSV or Excel file. Check the preview before
+              anything is imported.
             </p>
           </div>
         </div>
@@ -200,7 +218,8 @@ export function ImportScreen() {
               <Card title="1. Download the Template" testId="import-template">
                 <p className="text-sm text-text">
                   The template has the columns Bulk Upload reads. Fill one person per row; Work
-                  Email, First Name, Last Name, Role and Department are required.
+                  Email, First Name, Last Name, Role and Department are required, and Job Title for
+                  someone new. Employee ID is optional. Save it as CSV or Excel (.xlsx).
                 </p>
                 <a
                   href={api.staff.importTemplateUrl()}
@@ -215,10 +234,13 @@ export function ImportScreen() {
                 <FileDropzone
                   label="Staff file"
                   icon={FileCsv}
-                  accept={['.csv']}
+                  accept={['.csv', '.xlsx']}
                   maxBytes={MAX_BYTES}
-                  title="Drag & drop your CSV here or click to upload"
-                  hints={['Accepted format: CSV', 'Max size: 1MB, up to 500 rows']}
+                  title="Drag & drop your CSV or Excel file here or click to upload"
+                  hints={[
+                    'Accepted formats: CSV, Excel (.xlsx, first sheet)',
+                    'Max size: 1MB, up to 500 rows',
+                  ]}
                   onFiles={(files) => {
                     const file = files[0];
                     if (file) void read(file);
@@ -227,7 +249,7 @@ export function ImportScreen() {
                     setFileError(
                       rejections[0]?.reason === 'size'
                         ? 'This file is larger than 1 MB. Split it into smaller files.'
-                        : 'Upload a CSV file. Save a spreadsheet as CSV first.',
+                        : 'Upload a CSV or Excel (.xlsx) file.',
                     )
                   }
                 />
@@ -311,7 +333,12 @@ export function ImportScreen() {
                   { id: 'message', label: 'Problem', cell: (e) => e.message },
                 ]}
               />
-              {preview.invalid ? (
+              {preview.previewToken === null ? (
+                <Callout icon={WarningCircle} tone="amber" surface="warning" size="compact">
+                  No row can be imported yet. Fix the problems above in the file and upload it
+                  again.
+                </Callout>
+              ) : preview.invalid ? (
                 <Callout icon={WarningCircle} tone="amber" surface="warning" size="compact">
                   Rows with errors are skipped. Fix them in the file and upload it again, or import
                   the valid rows now.
@@ -339,8 +366,9 @@ export function ImportScreen() {
                 </Button>
                 <Button
                   className="ml-auto"
-                  disabled={run.isPending || preview.toCreate + preview.toUpdate === 0}
+                  disabled={run.isPending || preview.previewToken === null}
                   onClick={() =>
+                    preview.previewToken &&
                     run.mutate(
                       { previewToken: preview.previewToken, sendInvitations: invite },
                       {

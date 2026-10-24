@@ -12,6 +12,10 @@ import {
   type AvailabilityClient,
   type BlockedTime,
   BlockedTimesQuery,
+  BlockConflictsQuery,
+  type BlockConflict,
+  busyRanges,
+  freeRanges,
   type LocationKind,
   BookAppointmentRequest,
   BookMyAppointmentRequest,
@@ -114,6 +118,14 @@ const errors = {
   cutoffNotSupported: () =>
     fail(409, 'CUTOFF_NOT_SUPPORTED', 'For now every appointment type has a 24-hour cutoff'),
   blocks: () => fail(409, 'BLOCKS_APPOINTMENT', 'An appointment is scheduled in this time'),
+  nothingFree: () =>
+    fail(409, 'NOTHING_FREE', 'Every part of this time is booked, so nothing was blocked.'),
+  reasonRequired: () => {
+    const message = 'Give a reason for blocking your time';
+    return new ApiRequestError(400, 'VALIDATION_FAILED', message, undefined, undefined, [
+      { path: 'reason', message },
+    ]);
+  },
   duplicate: () => fail(409, 'DUPLICATE_NAME', 'An appointment type with this name exists'),
   /** As the API (A1): 400 naming the field, for a method the type does not offer. */
   methodNotOffered: (path: string) => {
@@ -467,6 +479,30 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
   const mayChange = (userId: string | null) => {
     if (options.role === 'STAFF' && userId !== me.userId) throw errors.forbidden();
   };
+  // As the API: Staff blocking their own time say why.
+  const needsReason = (input: { reason?: string | null }) => {
+    if (options.role === 'STAFF' && !input.reason) throw errors.reasonRequired();
+  };
+  const conflictsIn = (
+    s: ReturnType<typeof db>,
+    userId: string | null,
+    range: { startsAt: string; endsAt: string },
+  ): BlockConflict[] =>
+    s.appointments
+      .filter(
+        (a) =>
+          a.status === 'SCHEDULED' &&
+          (userId === null || a.staff.userId === userId) &&
+          overlaps(a, range),
+      )
+      .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
+      .map((a) => ({
+        id: a.id,
+        startsAt: a.startsAt,
+        endsAt: a.endsAt,
+        member: a.staff,
+        clientName: a.client.displayName,
+      }));
   return {
     get: async () => {
       await mockDelay();
@@ -496,11 +532,14 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
       await mockDelay();
       const q = parseInput(BlockedTimesQuery, query);
       return copy(
-        db().blocks.filter(
-          (b) =>
-            overlaps(b, { startsAt: q.from, endsAt: q.to }) &&
-            (!q.userId || b.member?.userId === q.userId || b.member === null),
-        ),
+        db()
+          .blocks.filter(
+            (b) =>
+              overlaps(b, { startsAt: q.from, endsAt: q.to }) &&
+              (!q.userId || b.member?.userId === q.userId || b.member === null),
+          )
+          // As the API: in time order.
+          .sort((x, y) => Date.parse(x.startsAt) - Date.parse(y.startsAt)),
       );
     },
     block: async (body) => {
@@ -508,6 +547,7 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
       const input = parseInput(CreateBlockedTimeRequest, body);
       if (Date.parse(input.endsAt) <= Date.now()) throw errors.blockInPast();
       mayChange(input.userId);
+      needsReason(input);
       const s = db();
       const m = input.userId === null ? null : member(input.userId);
       if (m === undefined) throw errors.notFound();
@@ -537,6 +577,49 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
       };
       s.blocks.push(created);
       return copy(created);
+    },
+    blockConflicts: async (query) => {
+      await mockDelay();
+      const q = parseInput(BlockConflictsQuery, query);
+      mayChange(q.userId ?? null);
+      if (q.userId && !member(q.userId)) throw errors.notFound();
+      return copy(conflictsIn(db(), q.userId ?? null, q));
+    },
+    blockFreeSlots: async (body) => {
+      await mockDelay();
+      const input = parseInput(CreateBlockedTimeRequest, body);
+      if (Date.parse(input.endsAt) <= Date.now()) throw errors.blockInPast();
+      mayChange(input.userId);
+      needsReason(input);
+      const s = db();
+      const m = input.userId === null ? null : member(input.userId);
+      if (m === undefined) throw errors.notFound();
+      // As the API: the free time only; a whole-firm block is the firm's where nobody is booked
+      // and each member's own around their bookings.
+      const kept = conflictsIn(s, input.userId, input);
+      const pieces = freeRanges(input, kept).map((r) => ({ ...r, member: m }));
+      if (m === null) {
+        for (const window of busyRanges(input, kept)) {
+          for (const x of members()) {
+            const theirs = kept.filter((k) => k.member.userId === x.userId);
+            for (const r of freeRanges(window, theirs)) pieces.push({ ...r, member: x });
+          }
+        }
+      }
+      if (pieces.length === 0) throw errors.nothingFree();
+      const items = pieces.map((p) => {
+        const created: BlockedTime = {
+          id: id('4', s.next++),
+          member: p.member,
+          startsAt: p.startsAt,
+          endsAt: p.endsAt,
+          reason: input.reason ?? null,
+          createdBy: me,
+        };
+        s.blocks.push(created);
+        return created;
+      });
+      return copy({ items, kept });
     },
     unblock: async (blockId) => {
       await mockDelay();
