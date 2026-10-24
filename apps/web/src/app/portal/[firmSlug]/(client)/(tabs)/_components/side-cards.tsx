@@ -19,6 +19,7 @@ import type { ReactNode } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { ButtonLink } from '../../../(public)/_components/button-link';
+import { FirmContactLinks } from '../../../(public)/_components/firm-contact';
 import { NotesCard } from '../messages/_components/notes-card';
 import { HelpfulResources } from '../business/_components/business-cards';
 import { TaxPaymentCard } from '../taxes/_components/tax-cards';
@@ -118,6 +119,7 @@ function MessagesRightColumn({ slug }: { slug: string }) {
       <Card className="bg-firm-primary! text-on-action">
         <h2 className="font-display text-2xl font-bold">Need Help?</h2>
         <p className="my-3 text-sm">Our team is here for you.</p>
+        <FirmContactLinks className="mb-3" />
         <ButtonLink href={`/${slug}/messages`} className="cursor-pointer">
           Send a Message
         </ButtonLink>
@@ -169,6 +171,7 @@ function DefaultRightColumn({
       <Card className="bg-firm-primary! text-on-action">
         <h2 className="font-display text-2xl font-bold">Need Help?</h2>
         <p className="my-3 text-sm">Our team is here for you.</p>
+        <FirmContactLinks className="mb-3" />
         <ButtonLink href={`/${slug}/messages`}>Send a Message</ButtonLink>
       </Card>
       <LinkCard
