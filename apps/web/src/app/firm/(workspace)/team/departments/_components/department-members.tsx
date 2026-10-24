@@ -87,6 +87,7 @@ function MembersForm({
       <div data-testid="department-members" className="flex w-full max-w-lg flex-col gap-4">
         <SearchField
           label="Search staff"
+          placeholder="Search staff by name or job title"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
