@@ -1,6 +1,7 @@
 import {
   ApiRequestError,
   BulkRequestPacketsRequest,
+  CreateRequestPacketRequest,
   DocumentFolder,
   type DocumentLibraryClient,
   type DocumentsClient,
@@ -9,9 +10,15 @@ import {
   type RequestPacketRow,
   RequestPacketsQuery,
   type RequestPacketView,
+  type RequestItem,
+  CreateRequestItemRequest,
+  UpdateRequestItemRequest,
+  UpdateRequestPacketRequest,
+  type DocumentActivity,
   type RequestTemplate,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { clientFixtures } from './clients';
 
 // Synthetic folders and the upload step of the firm's document library (R55 contract,
 // `api.documentLibrary`) for mock mode. Uploads go through the documents mock (`api.documents`),
@@ -82,53 +89,100 @@ const MEMBERS = [
   { userId: memberId(3), name: 'Taylor Moore' },
 ];
 
-/** Synthetic request templates (the firm's request types). */
+/** Synthetic request templates: the firm's request types, and one member's saved list. */
 export function requestTemplateFixtures(): RequestTemplate[] {
-  const item = (t: number, n: number, title: string) => ({
-    id: `0199d2b0-7e00-7000-8000-${String(t * 100 + n).padStart(12, '0')}`,
-    title,
-    description: null,
-    required: true,
-    category: null,
-  });
-  const template = (n: number, name: string, titles: string[]): RequestTemplate => ({
+  const template = (
+    n: number,
+    name: string,
+    description: string,
+    items: [string, string?][],
+    owner: RequestTemplate['owner'] = 'FIRM',
+  ): RequestTemplate => ({
     id: templateId(n),
     name,
-    description: null,
-    owner: 'FIRM',
-    items: titles.map((t, i) => item(n, i + 1, t)),
+    description,
+    owner,
+    items: items.map(([title, about], i) => ({
+      id: `0199d2b0-7e00-7000-8000-${String(n * 100 + i + 1).padStart(12, '0')}`,
+      title,
+      description: about ?? null,
+      required: true,
+      category: null,
+    })),
     updatedAt: ago(48 * n),
   });
   return [
-    template(1, 'Personal Tax Documents', ['W-2', '1099-INT', '1098', 'Prior return', 'ID']),
-    template(2, 'Business Tax Documents', [
-      'P&L',
-      'Balance sheet',
-      '1099s',
-      'Payroll',
-      'Assets',
-      'Loans',
+    template(
+      1,
+      'Personal Tax Documents',
+      'Common documents needed for individual tax preparation.',
+      [
+        ['W-2 Forms (All Employers)', 'All W-2 forms for tax year 2025.'],
+        ['1099 Forms (All Applicable)', 'All 1099 forms for tax year 2025.'],
+        ['Bank Statements (Jan – Dec 2025)', 'Checking, savings, and business accounts.'],
+        ['Investment Statements'],
+        ['Prior Year Tax Return (2024)'],
+      ],
+    ),
+    template(
+      2,
+      'Business Tax Documents',
+      'Documents for business tax clients (S-Corp, LLC, etc.).',
+      [
+        ['Profit and Loss Statement'],
+        ['Balance Sheet'],
+        ['1099s Issued'],
+        ['Payroll Reports'],
+        ['Fixed Asset Purchases'],
+        ['Loan Statements'],
+      ],
+    ),
+    template(3, 'Bookkeeping Onboarding', 'Initial documents for bookkeeping clients.', [
+      ['Bank Statements'],
+      ['Credit Card Statements'],
+      ['Chart of Accounts'],
+      ['Loan Statements'],
     ]),
-    template(3, 'Bookkeeping Onboarding', [
-      'Bank statements',
-      'Card statements',
-      'Accounts',
-      'Loans',
+    template(4, 'Payroll Setup', 'Documents needed to set up payroll services.', [
+      ['EIN Confirmation Letter'],
+      ['State Tax IDs'],
+      ['Employee List'],
+      ['Pay Schedule'],
     ]),
-    template(4, 'Payroll Setup', ['EIN letter', 'State IDs', 'Employee list', 'Pay schedule']),
-    template(5, 'New Client Intake', [
-      'ID',
-      'Engagement letter',
-      'Prior return',
-      'Address',
-      'Bank',
+    template(5, 'New Client Intake', 'General documents for all new clients.', [
+      ["Driver's License or State ID", 'A clear copy of a valid government-issued ID.'],
+      ['Signed Engagement Letter'],
+      ['Prior Year Tax Return (2024)'],
+      ['Proof of Address'],
+      ['Voided Check'],
     ]),
+    template(6, 'Entity Formation', 'Documents for business formation services.', [
+      ['Articles of Organization'],
+      ['Operating Agreement'],
+      ['EIN Confirmation Letter'],
+      ['Owner IDs'],
+    ]),
+    template(7, 'Advisory Engagement', 'Documents for advisory and consulting clients.', [
+      ['Financial Statements (3 Years)'],
+      ['Business Plan'],
+      ['Budget and Forecast'],
+      ['Debt Schedule'],
+    ]),
+    template(
+      8,
+      'My Year-End Checklist',
+      'A saved list of year-end documents.',
+      [['Year-End Bank Statements'], ['Property Tax Statements'], ['Charitable Donation Receipts']],
+      'MINE',
+    ),
   ];
 }
 
 interface MockPacket {
   row: RequestPacketRow;
   required: number;
+  /** What a created request keeps beyond its row (the fixtures leave the defaults). */
+  extra?: Partial<RequestPacketDetail>;
 }
 
 /** The dashboard's status as the API works it out (packets.service.ts `viewOf`). */
@@ -139,6 +193,98 @@ function viewOf(p: RequestPacketRow, required: number): RequestPacketView {
   if (p.status === 'SUBMITTED' || (required > 0 && p.items.received >= required))
     return 'READY_FOR_REVIEW';
   return p.items.received > 0 ? 'PARTIALLY_RECEIVED' : 'OUTSTANDING';
+}
+
+const ITEM_TITLES = [
+  'W-2 Forms (All Employers)',
+  '1099 Forms (All Applicable)',
+  'Bank Statements (Jan – Dec 2025)',
+  'Prior Year Tax Return (2024)',
+  "Driver's License or State ID",
+  'Signed Engagement Letter',
+];
+const itemId = (n: number, k: number) =>
+  `0199d2b0-7d00-7000-8000-${String(n * 100 + k).padStart(12, '0')}`;
+const activityId = (n: number, k: number) =>
+  `0199d2b0-7a00-7000-8000-${String(n * 100 + k).padStart(12, '0')}`;
+
+/**
+ * A fixture's checklist and history, matching its row: the received items have a file (the first
+ * one accepted), a completed request's are all accepted, the rest wait.
+ */
+function fixtureExtra(p: MockPacket): Partial<RequestPacketDetail> {
+  const r = p.row;
+  const n = Number(r.reference.slice(3));
+  const checklist: RequestItem[] = Array.from({ length: r.items.total }, (_, k) => {
+    const title = ITEM_TITLES[k % ITEM_TITLES.length]!;
+    const got = k < r.items.received;
+    const status: RequestItem['status'] =
+      r.status === 'COMPLETED' || (got && k === 0) ? 'ACCEPTED' : got ? 'SUBMITTED' : 'REQUESTED';
+    return {
+      id: itemId(n, k),
+      title,
+      instructions: null,
+      required: true,
+      category: null,
+      status,
+      statusNote: null,
+      sortOrder: k,
+      documents: got
+        ? [
+            {
+              id: itemId(n, 50 + k),
+              fileName: `${title
+                .split(' (')[0]!
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')}.pdf`,
+              scanStatus: 'CLEAN',
+              createdAt: r.updatedAt,
+            },
+          ]
+        : [],
+      resolvedAt: status === 'ACCEPTED' ? r.updatedAt : null,
+    };
+  });
+  const by = MEMBERS[0]?.name ?? null;
+  const created = r.sentAt ? new Date(Date.parse(r.sentAt) - 3_600_000).toISOString() : ago(6);
+  const events: DocumentActivity[] = [
+    { id: activityId(n, 0), at: created, kind: 'REQUEST_CREATED', label: 'Request created', by },
+  ];
+  if (r.sentAt)
+    events.push({
+      id: activityId(n, 1),
+      at: r.sentAt,
+      kind: 'REQUEST_SENT',
+      label: `Request sent to ${r.recipient.name}`,
+      by,
+    });
+  if (r.items.received)
+    events.push({
+      id: activityId(n, 2),
+      at: r.updatedAt,
+      kind: 'REQUEST_RECEIVED',
+      label: `${r.client.name} uploaded ${r.items.received} ${r.items.received === 1 ? 'document' : 'documents'}`,
+      by: r.client.name,
+    });
+  if (r.status === 'COMPLETED' || r.status === 'CANCELLED')
+    events.push({
+      id: activityId(n, 3),
+      at: r.updatedAt,
+      kind: r.status === 'COMPLETED' ? 'REQUEST_COMPLETED' : 'REQUEST_CANCELLED',
+      label: r.status === 'COMPLETED' ? 'Request completed' : 'Request cancelled',
+      by,
+    });
+  const sent = r.status !== 'DRAFT';
+  return {
+    checklist,
+    activity: events.reverse(),
+    messageSubject: sent ? `Action Needed: ${r.title}` : null,
+    messageBody: sent
+      ? `Hi ${r.client.name},\n\nPlease upload the documents listed in this request through your client portal.\n\nThank you,\n${by ?? ''}`
+      : null,
+    reminderDaysBefore: 3,
+    requestedBy: MEMBERS[0] ?? null,
+  };
 }
 
 /** Synthetic request packets in every status, due dates relative to today. */
@@ -190,7 +336,10 @@ function packetFixtures(): MockPacket[] {
     make(16, 'Entity Documents', 'Business Tax Intake', acme, 'OPEN', 1, 4, 17, 2, 26),
     make(15, 'Prior Year Return', 'Personal Tax Intake', morgan, 'CANCELLED', 0, 1, 5, 0, 200),
   ];
-  for (const p of list) p.row.view = viewOf(p.row, p.required);
+  for (const p of list) {
+    p.row.view = viewOf(p.row, p.required);
+    p.extra = fixtureExtra(p);
+  }
   return list;
 }
 
@@ -243,6 +392,7 @@ export function createDocumentLibraryMock(options: {
     cancelledAt: p.row.status === 'CANCELLED' ? p.row.updatedAt : null,
     checklist: [],
     activity: [],
+    ...structuredClone(p.extra ?? {}),
   });
   /** Only an open request can be reminded, resent or completed (409 otherwise). */
   const open = (p: MockPacket) => {
@@ -253,6 +403,71 @@ export function createDocumentLibraryMock(options: {
     if (status) p.row.status = status;
     p.row.updatedAt = new Date().toISOString();
     p.row.view = viewOf(p.row, p.required);
+  };
+  let events = 0;
+  const log = (p: MockPacket, kind: DocumentActivity['kind'], label: string) => {
+    p.extra ??= {};
+    p.extra.activity = [
+      {
+        id: activityId(990, events++),
+        at: new Date().toISOString(),
+        kind,
+        label,
+        by: MEMBERS[0]?.name ?? null,
+      },
+      ...(p.extra.activity ?? []),
+    ];
+  };
+  const checklistOf = (p: MockPacket) => ((p.extra ??= {}).checklist ??= []);
+  /** The row's counts from the live checklist, as the API works them out. */
+  const recount = (p: MockPacket) => {
+    const live = checklistOf(p).filter((i) => i.status !== 'CANCELLED');
+    p.required = live.filter((i) => i.required).length;
+    p.row.items = {
+      total: live.length,
+      required: p.required,
+      received: live.filter((i) => ['SUBMITTED', 'ACCEPTED', 'NOT_AVAILABLE'].includes(i.status))
+        .length,
+    };
+    touch(p);
+  };
+  const draftOnly = (p: MockPacket) => {
+    if (p.row.status !== 'DRAFT') throw fail(409, 'REQUEST_SENT', 'This request was sent');
+  };
+  const findItem = (itemId: string) => {
+    for (const p of packets) {
+      const item = checklistOf(p).find((i) => i.id === itemId);
+      if (item) return { p, item };
+    }
+    return null;
+  };
+  // Accept and Request Replacement are the documents API's calls on one item: the shared
+  // documents mock answers them for this mock's checklist items too.
+  const documents = options.documents;
+  const accept = documents.acceptRequest;
+  const reject = documents.rejectRequest;
+  type FirmRequest = Awaited<ReturnType<DocumentsClient['acceptRequest']>>;
+  documents.acceptRequest = async (itemId) => {
+    const hit = findItem(itemId);
+    if (!hit) return accept(itemId);
+    await mockDelay();
+    if (hit.item.status !== 'SUBMITTED') throw fail(409, 'NOTHING_SUBMITTED', 'Nothing submitted');
+    hit.item.status = 'ACCEPTED';
+    hit.item.resolvedAt = new Date().toISOString();
+    log(hit.p, 'REVIEW', `${hit.item.title} accepted`);
+    recount(hit.p);
+    return { id: itemId } as unknown as FirmRequest;
+  };
+  documents.rejectRequest = async (itemId, body) => {
+    const hit = findItem(itemId);
+    if (!hit) return reject(itemId, body);
+    await mockDelay();
+    if (hit.item.status !== 'SUBMITTED') throw fail(409, 'NOTHING_SUBMITTED', 'Nothing submitted');
+    hit.item.status = 'REJECTED';
+    hit.item.statusNote = body.reason;
+    log(hit.p, 'REVIEW', `Replacement requested for ${hit.item.title}`);
+    recount(hit.p);
+    return { id: itemId } as unknown as FirmRequest;
   };
   return {
     list: notInMock,
@@ -354,14 +569,114 @@ export function createDocumentLibraryMock(options: {
       await mockDelay();
       return detail(find(id));
     },
-    createRequest: notInMock,
-    updateRequest: notInMock,
-    sendRequest: notInMock,
+    createRequest: async (body) => {
+      await mockDelay();
+      const input = parseInput(CreateRequestPacketRequest, body);
+      const client = clientFixtures().find((c) => c.id === input.clientId);
+      if (!client) throw fail(404, 'NOT_FOUND', 'Not found');
+      const template = templates.find((t) => t.id === input.templateId);
+      const items = [
+        ...(template?.items ?? []).map((i) => ({ ...i, instructions: i.description })),
+        ...(input.items ?? []).map((i) => ({ ...i, instructions: i.instructions ?? null })),
+      ];
+      if (
+        input.send &&
+        (!input.dueOn || !input.messageSubject || !input.messageBody || !items.length)
+      )
+        throw fail(400, 'REQUEST_INCOMPLETE', 'Add the missing parts before sending');
+      const n = Math.max(0, ...packets.map((p) => Number(p.row.reference.slice(3)))) + 1;
+      const member =
+        input.recipient.kind === 'MEMBER'
+          ? MEMBERS.find((m) => m.userId === (input.recipient as { userId: string }).userId)
+          : undefined;
+      const now = new Date().toISOString();
+      const required = items.filter((i) => i.required).length;
+      const p: MockPacket = {
+        required,
+        row: {
+          id: packetId(n),
+          reference: `DR-${String(n).padStart(4, '0')}`,
+          title: input.title,
+          client: { id: client.id, name: client.displayName },
+          service: { id: input.serviceId ?? packetId(900 + n), title: 'Personal Tax Intake' },
+          recipient: member
+            ? { kind: 'MEMBER', userId: member.userId, name: member.name }
+            : { kind: 'CLIENT', userId: null, name: client.displayName },
+          status: input.send ? 'OPEN' : 'DRAFT',
+          view: 'DRAFT',
+          items: { total: items.length, required, received: 0 },
+          dueOn: input.dueOn ?? null,
+          expiresAt: input.expiresAt ?? null,
+          assignedTo: null,
+          sentAt: input.send ? now : null,
+          updatedAt: now,
+        },
+        extra: {
+          templateId: input.templateId ?? null,
+          messageSubject: input.messageSubject ?? null,
+          messageBody: input.messageBody ?? null,
+          notifyEmail: input.notifyEmail ?? true,
+          notifyPortal: input.notifyPortal ?? true,
+          notifySms: input.notifySms ?? false,
+          reminderDaysBefore: input.reminderDaysBefore ?? null,
+          allowMultipleFiles: input.allowMultipleFiles ?? true,
+          allowClientComments: input.allowClientComments ?? true,
+          checklist: items.map((i, k) => ({
+            id: `0199d2b0-7d00-7000-8000-${String(n * 100 + k).padStart(12, '0')}`,
+            title: i.title,
+            instructions: i.instructions,
+            required: i.required,
+            category: null,
+            status: 'REQUESTED' as const,
+            statusNote: null,
+            sortOrder: k,
+            documents: [],
+            resolvedAt: null,
+          })),
+        },
+      };
+      p.row.view = viewOf(p.row, p.required);
+      packets.unshift(p);
+      return detail(p);
+    },
+    updateRequest: async (id, body) => {
+      await mockDelay();
+      const input = parseInput(UpdateRequestPacketRequest, body);
+      const p = find(id);
+      const later = ['dueOn', 'assignedUserId', 'reminderDaysBefore', 'expiresAt'];
+      if (p.row.status !== 'DRAFT' && Object.keys(input).some((k) => !later.includes(k)))
+        throw fail(409, 'REQUEST_SENT', 'This request was sent');
+      if (input.title !== undefined) p.row.title = input.title;
+      if (input.dueOn !== undefined) p.row.dueOn = input.dueOn;
+      if (input.expiresAt !== undefined) p.row.expiresAt = input.expiresAt;
+      if (input.assignedUserId !== undefined)
+        p.row.assignedTo = MEMBERS.find((m) => m.userId === input.assignedUserId) ?? null;
+      p.extra ??= {};
+      if (input.messageSubject !== undefined) p.extra.messageSubject = input.messageSubject;
+      if (input.messageBody !== undefined) p.extra.messageBody = input.messageBody;
+      if (input.reminderDaysBefore !== undefined)
+        p.extra.reminderDaysBefore = input.reminderDaysBefore;
+      touch(p);
+      return detail(p);
+    },
+    sendRequest: async (id) => {
+      await mockDelay();
+      const p = find(id);
+      if (p.row.status !== 'DRAFT') throw fail(409, 'INVALID_STATUS', 'Already sent');
+      const live = checklistOf(p).filter((i) => i.status !== 'CANCELLED');
+      if (!p.row.dueOn || !p.extra?.messageSubject || !p.extra.messageBody || !live.length)
+        throw fail(400, 'REQUEST_INCOMPLETE', 'Add the missing parts before sending');
+      p.row.sentAt = new Date().toISOString();
+      log(p, 'REQUEST_SENT', `Request sent to ${p.row.recipient.name}`);
+      touch(p, 'OPEN');
+      return detail(p);
+    },
     resendRequest: async (id) => {
       await mockDelay();
       const p = find(id);
       open(p);
       p.row.sentAt = new Date().toISOString();
+      log(p, 'REQUEST_SENT', `Request sent again to ${p.row.recipient.name}`);
       touch(p);
       return detail(p);
     },
@@ -369,6 +684,7 @@ export function createDocumentLibraryMock(options: {
       await mockDelay();
       const p = find(id);
       open(p);
+      log(p, 'REQUEST_REMINDED', `Reminder sent to ${p.row.recipient.name}`);
       touch(p);
       return detail(p);
     },
@@ -405,9 +721,50 @@ export function createDocumentLibraryMock(options: {
       }
       return { updated, skipped };
     },
-    addItem: notInMock,
-    updateItem: notInMock,
-    removeItem: notInMock,
+    addItem: async (id, body) => {
+      await mockDelay();
+      const input = parseInput(CreateRequestItemRequest, body);
+      const p = find(id);
+      draftOnly(p);
+      const list = checklistOf(p);
+      list.push({
+        id: itemId(Number(p.row.reference.slice(3)), 80 + list.length),
+        title: input.title,
+        instructions: input.instructions ?? null,
+        required: input.required,
+        category: null,
+        status: 'REQUESTED',
+        statusNote: null,
+        sortOrder: list.length,
+        documents: [],
+        resolvedAt: null,
+      });
+      recount(p);
+      return detail(p);
+    },
+    updateItem: async (id, itemId, body) => {
+      await mockDelay();
+      const input = parseInput(UpdateRequestItemRequest, body);
+      const p = find(id);
+      draftOnly(p);
+      const item = checklistOf(p).find((i) => i.id === itemId);
+      if (!item) throw fail(404, 'NOT_FOUND', 'Not found');
+      if (input.title !== undefined) item.title = input.title;
+      if (input.instructions !== undefined) item.instructions = input.instructions;
+      if (input.required !== undefined) item.required = input.required;
+      recount(p);
+      return detail(p);
+    },
+    removeItem: async (id, itemId) => {
+      await mockDelay();
+      const p = find(id);
+      draftOnly(p);
+      const item = checklistOf(p).find((i) => i.id === itemId);
+      if (!item) throw fail(404, 'NOT_FOUND', 'Not found');
+      item.status = 'CANCELLED';
+      recount(p);
+      return detail(p);
+    },
     reorderItems: notInMock,
     templates: async () => {
       await mockDelay();

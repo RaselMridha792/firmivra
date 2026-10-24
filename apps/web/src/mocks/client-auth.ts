@@ -147,6 +147,13 @@ function buildFixtures() {
       terms: { version: 2, publishedAt: '2026-10-01T09:00:00.000Z' },
       privacy: { version: 1, publishedAt: '2026-09-20T09:00:00.000Z' },
     },
+    // Company Profile and the main office's hours (synthetic).
+    contact: {
+      phone: '(770) 555-0134',
+      email: 'hello@lvp.example.test',
+      addressLines: ['123 Main Street, Suite 100', 'Auburn, GA 30011'],
+      hours: [1, 2, 3, 4, 5].map((weekday) => ({ weekday, opensAt: '09:00', closesAt: '18:00' })),
+    },
   });
   /** GET /api/v1/portal/lvp/legal/terms */
   const termsDocument = LegalDocument.parse({

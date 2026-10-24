@@ -7,6 +7,9 @@ import { isActive } from '../../../../../components/app-shell/types';
 import { RecentActivity } from './_components/recent-activity';
 import { QuickLinks, RightColumn } from './_components/side-cards';
 import { PortalPageHeader } from '../_components/portal-page-header';
+import { usePortalTabs } from '../_components/portal-tabs';
+import { usePortal } from '../../layout';
+import { Card } from '@firmivra/ui';
 
 const tabs: [label: string, path: string][] = [
   ['Intake Form', 'intake'],
@@ -24,11 +27,19 @@ const tabs: [label: string, path: string][] = [
 export default function TabsLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
   const pathname = usePathname();
+  const { business } = usePortal();
+  // A tab the firm turned off (Settings > Client Portal > Features) leaves the row, and its page
+  // shows why instead of its content, also when opened by its address.
+  const tabOn = usePortalTabs(firmSlug);
+  const shownTabs = tabs.filter(([, path]) => tabOn(path));
+  const hidden = tabs.find(
+    ([, path]) => !tabOn(path) && isActive(pathname, `/${firmSlug}/${path}`),
+  );
   const intakeActive = isActive(pathname, `/${firmSlug}/intake`);
-  const documentsPage = isActive(pathname, `/${firmSlug}/documents`);
-  const isMessagesPage = isActive(pathname, `/${firmSlug}/messages`);
-  const taxReturns = isActive(pathname, `/${firmSlug}/taxes`);
-  const invoicesPage = isActive(pathname, `/${firmSlug}/invoices`);
+  const documentsPage = !hidden && isActive(pathname, `/${firmSlug}/documents`);
+  const isMessagesPage = !hidden && isActive(pathname, `/${firmSlug}/messages`);
+  const taxReturns = !hidden && isActive(pathname, `/${firmSlug}/taxes`);
+  const invoicesPage = !hidden && isActive(pathname, `/${firmSlug}/invoices`);
   const isBusinessPage = isActive(pathname, `/${firmSlug}/business`);
 
   return (
@@ -50,7 +61,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           aria-label="Portal folders"
           className="grid grid-cols-2 gap-1 border-b border-folder-border md:grid-cols-3 xl:grid-cols-6"
         >
-          {tabs.map(([label, path]) => {
+          {shownTabs.map(([label, path]) => {
             const href = `/${firmSlug}/${path}`;
             const active = isActive(pathname, href);
             const activeBorder =
@@ -77,7 +88,19 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        {children}
+        {hidden ? (
+          <Card role="status">
+            <h1 className="font-display text-xl font-bold text-heading">
+              {hidden[0]} isn&apos;t available
+            </h1>
+            <p className="mt-2 text-sm text-text">
+              {business.name} has turned this part of the portal off. Nothing you shared with them
+              is removed.
+            </p>
+          </Card>
+        ) : (
+          children
+        )}
         <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
           <RecentActivity
             slug={firmSlug}

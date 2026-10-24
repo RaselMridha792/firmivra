@@ -19,6 +19,48 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
+### Oct 25 (fourth session, end): start here
+
+R60's context was full; the next R60 starts from this section. Read `CLAUDE.md`,
+`docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules) and this file.
+
+**Merged:** #1088 (Offices & Job Titles), #1093 (New Accounts & Security), #1094 (I8), #1101
+(Request Change keeps the EIN's last four), #1106 (I9). **Open (two, the limit):** #1115 (I7,
+Notify additional emails, from `main`) and #1116 (I12, data retention, stacked on #1115). After
+#1115 merges, merge `origin/main` into `rasel/R60-intake-retention` before #1116 merges.
+
+**Later on Oct 25:**
+- #1115's CI fix: the client-submit notice (`intake.submitted-notice`) left `ALWAYS_SENT` and keeps the INTAKE category. It is sent with no `recipient`, so no preference applies anyway, and `notify.test.ts` keeps its rule that always-sent templates are ACCOUNT. `main` merged in; new head `a2479a0`.
+- API unit tests: 1724 of 1724. Intakes e2e: 27 of 27. Types, API and web typecheck: 0 errors.
+- Column request item 12 (each existing firm's contact email in Notify additional emails) waits for Rasel's own tap before anyone touches `packages/db`. It stays written in this file (on #1115's branch); he will ask.
+- Items (a) to (d) below are not started.
+
+**Rasel's answers (Oct 25):**
+1. Column items 7 to 11 are on `main` (R1's #1095): build them now, in this order, one PR each,
+   at most two open: (a) SM11 Work Start Date, (b) SM8 company schedules, (c) the staff phone
+   verification, (d) the firm's licensing card (read-only for the firm; only a Super Admin or the
+   platform writes licenses).
+2. The firm's contact email hears of a submit by default (done in #1115; existing rows: column
+   request item 12, a data change for R1).
+3. Firm setup's invite and the sign-in code: R55 adds the one line (under Needs). Do not touch.
+4. The Send page's schedule stays read-only; per-send times are a schema request (below), Rasel
+   decides later.
+5. The reminder and alert sender (I8, I9) and the Locations page: recorded under Needs, not built.
+
+**Next, (a) to (d), from fresh `main` (names from R1's #1095; see "From R1" under Needs):**
+
+| # | Columns | Where it goes |
+| --- | --- | --- |
+| a | `staff_profiles.work_start_date` (`StaffProfile.workStartDate`, a date) | Contract `StaffDetailsInput` and `StaffProfileDetails` (`packages/types/src/staff/schemas.ts`); `profileData` in `apps/api/src/staff/staff-write.service.ts` and the profile in `staff-read.service.ts`; Create Staff step 4 (`team/new/details/_components/details-step.tsx`) and Edit Staff (`team/[id]/_components/edit-staff-screen.tsx`), apart from Hire Date and Access Start Date; the staff mock; `staff-write.e2e.test.ts` |
+| b | `staff_work_schedules` (`StaffWorkSchedule`, like `staff_job_titles`) | Follow #1088 (job titles): API add, rename, archive, restore; `StaffFormOptions.workSchedules` = the presets, then the firm's saved schedules (today they come from `staff_profiles.work_schedule`, `staff-read.service.ts`); a "Work Schedules" card on Offices & Job Titles; check R1's migration for a backfill |
+| c | `users.phone_verified_at` (`User.phoneVerifiedAt`; the database clears it when `phone` changes) | A code by SMS through R6's sender (`SMS_MODE=log` locally), then `smsOffered` for verified staff in `apps/api/src/notifications/notifications.service.ts` (today staff get email only, #1065); `Notifier.phoneChanged` still clears the SMS choices |
+| d | `firm_licenses` (`FirmLicense`, `FirmLicenseStatus`) | The Professional Licensing card (`settings/profile/_components/locked-details.tsx`) lists the firm's rows instead of "Not on file"; the Request Change "Current" values from them (`profile-changes.service.ts`); read-only for the firm, no firm write route |
+
+**How this session worked (keep doing it):**
+- Rebuild after every branch switch: `pnpm --filter @firmivra/db generate` and `build`, `@firmivra/types` build (and `@firmivra/ui`), then typecheck; also `pnpm --filter @firmivra/types typecheck` (its tests are typechecked in CI).
+- Main squash-merges, so a branch stacked on a merged PR conflicts on that PR's own lines: check `git log <base>..origin/main -- <file>` and, when only the squash touched the file and it equals the branch's copy, keep the branch's side. The progress log at the end of this file conflicts on every merge: keep both entries, `main`'s first.
+- Screenshots: this session's scratchpad `C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/aa63cad8-4ccf-4508-ba07-6873392c6ec3/scratchpad/` (`shots-*.cjs`, `compose.cjs`, `spec-*.json`, the PR bodies `pr-*.md`). Run the dev servers in the background, stop them by port (3600, 4600), delete `apps/web/.next`. The first mock run after `.next` is deleted can time out once on a cold page: rerun with `--last-failed`.
+
 ### Oct 24 (fourth session): Rasel's go on column items 1 to 6, start here
 
 Rasel (Oct 24, evening): build I7, I8, I9 and I12 and SM3's two routes (saved job titles, new

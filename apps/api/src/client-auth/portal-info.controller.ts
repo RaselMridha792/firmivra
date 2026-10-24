@@ -13,8 +13,10 @@ import {
   LegalKind,
   type LegalDocument,
   type LegalVersion,
+  type PortalContact,
   type PortalInfo,
 } from '@firmivra/types';
+import { timeOfDayFromDb } from '../appointments/calendar.js';
 import { Public } from '../auth/decorators.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -35,6 +37,49 @@ const KIND = { terms: 'TERMS', privacy: 'PRIVACY' } as const;
 /** Only the version and date go to the browser, never the document's id. */
 const shown = (v: LegalVersion | null): LegalVersion | null =>
   v && { version: v.version, publishedAt: v.publishedAt };
+
+type Address = {
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+};
+const text = (value: string | null | undefined) => value?.trim() || null;
+/** "1 Main St", "Suite 2", "Auburn, GA 30011": only the parts that are set. */
+const addressLines = (a: Address): string[] => {
+  const place = [text(a.city), [text(a.state), text(a.postalCode)].filter(Boolean).join(' ')]
+    .filter(Boolean)
+    .join(', ');
+  return [text(a.addressLine1), text(a.addressLine2), place].filter((l): l is string => !!l);
+};
+
+/**
+ * Company Profile is the source; Locations' main office fills what it leaves empty (guide 9.4).
+ * The address comes whole from one of them, never a street from one and a city from the other.
+ */
+function contactOf(
+  profile: (Address & { contactPhone: string | null; contactEmail: string | null }) | null,
+  office:
+    | (Address & {
+        phone: string | null;
+        email: string | null;
+        hours: { weekday: number; opensAt: Date; closesAt: Date }[];
+      })
+    | null,
+): PortalContact {
+  const fromProfile = profile && text(profile.addressLine1) ? addressLines(profile) : [];
+  return {
+    phone: text(profile?.contactPhone) ?? text(office?.phone),
+    email: text(profile?.contactEmail) ?? text(office?.email),
+    addressLines: fromProfile.length > 0 ? fromProfile : office ? addressLines(office) : [],
+    hours: (office?.hours ?? []).map((h) => ({
+      weekday: h.weekday,
+      opensAt: timeOfDayFromDb(h.opensAt),
+      closesAt: timeOfDayFromDb(h.closesAt),
+    })),
+  };
+}
 
 /**
  * The portal's public reads (docs/api/client-auth.yaml). Only ACTIVE firms have a portal: any
@@ -86,7 +131,7 @@ export class PortalInfoService {
   async info(firmSlug: string): Promise<PortalInfo> {
     const firm = await this.activeFirm(firmSlug);
     const scope = this.db.forBusiness(firm.id);
-    const [settings, terms, privacy] = await Promise.all([
+    const [settings, terms, privacy, mainOffice] = await Promise.all([
       scope.businessSettings.findUnique({
         where: { businessId: firm.id },
         select: {
@@ -104,10 +149,33 @@ export class PortalInfoService {
           portalName: true,
           portalHeader: true,
           welcomeMessage: true,
+          contactPhone: true,
+          contactEmail: true,
+          addressLine1: true,
+          addressLine2: true,
+          city: true,
+          state: true,
+          postalCode: true,
         },
       }),
       this.currentVersion(firm.id, 'TERMS'),
       this.currentVersion(firm.id, 'PRIVACY'),
+      scope.firmOffice.findFirst({
+        where: { isMain: true, archivedAt: null, status: 'ACTIVE' },
+        select: {
+          phone: true,
+          email: true,
+          addressLine1: true,
+          addressLine2: true,
+          city: true,
+          state: true,
+          postalCode: true,
+          hours: {
+            orderBy: [{ weekday: 'asc' }, { opensAt: 'asc' }],
+            select: { weekday: true, opensAt: true, closesAt: true },
+          },
+        },
+      }),
     ]);
     return {
       business: { slug: firm.slug, name: firm.name },
@@ -131,6 +199,7 @@ export class PortalInfoService {
       // Sign-up needs both documents to accept, and the firm's say-so.
       signUpOpen: (settings?.clientSignUpEnabled ?? true) && terms !== null && privacy !== null,
       legal: { terms: shown(terms), privacy: shown(privacy) },
+      contact: contactOf(settings, mainOffice),
     };
   }
 

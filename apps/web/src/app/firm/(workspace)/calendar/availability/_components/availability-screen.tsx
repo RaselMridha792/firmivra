@@ -144,6 +144,7 @@ export function AvailabilityScreen() {
               timeZone={week.data?.timezone ?? tz}
               saved={saved}
               onSaved={setSaved}
+              hoursEditable={manages}
             />
           ) : rules.isPending || week.isPending ? (
             <Skeleton className="h-80" />
@@ -173,6 +174,7 @@ function RulesForm({
   timeZone,
   saved,
   onSaved: setSaved,
+  hoursEditable,
 }: {
   userId: string;
   rules: AvailabilityRules;
@@ -181,6 +183,8 @@ function RulesForm({
   timeZone: string;
   saved: string;
   onSaved: (message: string) => void;
+  /** Owner and Admin: Staff hours are read-only (Rasel, Oct 24); time off stays theirs. */
+  hoursEditable: boolean;
 }) {
   const [hours, setHours] = useState<WorkingHoursRange[]>(savedHours ?? []);
   const [off, setOff] = useState<TimeOff[]>(() =>
@@ -199,7 +203,7 @@ function RulesForm({
   const problems = hourProblems.size + offProblems.size;
   const client = useQueryClient();
   const save = useApiMutation(async () => {
-    if (savedHours && JSON.stringify(hours) !== JSON.stringify(savedHours)) {
+    if (hoursEditable && savedHours && JSON.stringify(hours) !== JSON.stringify(savedHours)) {
       await api.availability.setWorkingHours(userId, { hours });
     }
     // Time off only: buffers, notice, window and a start date are not kept per person.
@@ -239,12 +243,17 @@ function RulesForm({
         save.mutate(undefined);
       }}
     >
+      {hoursEditable ? null : (
+        <p className="text-sm text-muted">
+          Working hours are set by an Owner or Admin. Ask them for a change.
+        </p>
+      )}
       {savedHours ? (
         <WeekHours
           hours={hours}
           errors={checked ? hourProblems : new Map()}
           timeZone={timeZone}
-          editable
+          editable={hoursEditable}
           onChange={(next) => {
             setHours(next);
             edited();

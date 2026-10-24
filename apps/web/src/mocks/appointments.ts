@@ -515,6 +515,13 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
       const m = member(userId);
       if (!m) throw errors.notFound();
       mayChange(userId);
+      // As the API: Staff hours are read-only (Rasel, Oct 24).
+      if (options.role === 'STAFF')
+        throw fail(
+          403,
+          'FORBIDDEN',
+          'Working hours are set by an Owner or Admin. Ask them for a change.',
+        );
       db().hours.set(userId, input.hours);
       return copy(memberAvailability(db(), m));
     },

@@ -1,7 +1,7 @@
 'use client';
 
 import type { FirmSettings } from '@firmivra/types';
-import { Badge, Checkbox, Input } from '@firmivra/ui';
+import { Checkbox, Input } from '@firmivra/ui';
 import { MonitorSmartphone } from 'lucide-react';
 import { BrandPreview } from './brand-preview';
 import { TextArea } from './fields';
@@ -48,9 +48,6 @@ export function PortalFields({ form, firm }: { form: StepForm; firm: FirmSetting
         label="Clients may create their own portal account (you approve each one)"
         {...form.register('clientSignUpEnabled')}
       />
-      <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
-        Turning portal features on and off: <Badge>Soon</Badge>
-      </p>
       <BrandPreview
         name={firm.portalName ?? `${firm.name} Client Portal`}
         primary={firm.primaryColor}
