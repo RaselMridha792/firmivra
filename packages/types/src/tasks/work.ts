@@ -115,10 +115,15 @@ export function reminderMinutes(rule: {
  *   HOURS count back from the due moment; DAYS is the same clock time that many days earlier; a
  *   due time that falls in a daylight-saving gap moves forward. Custom takes no `timeOfDay`, and
  *   `daysBefore` only as its whole days, so a rule read back (ReminderRuleOut, without its `id`)
- *   can be sent back as it came. Two Custom rules of one length (60 MINUTES and 1 HOURS) are the
- *   same reminder.
+ *   can be sent back as it came.
  * Custom needs a due time: on an all-day task, or one with no due date, it is refused (400
  * INVALID_REMINDER).
+ * The exact instant a reminder fires is the delivery job's to work out, as above. The API's checks
+ * count plain clock minutes instead (an hour is 60, a day 1,440, daylight saving ignored): the same
+ * reminder (60 MINUTES and 1 HOURS, or 24 HOURS and 1 DAYS), two that fire at the same moment (1
+ * day before at 13:30 and 25 HOURS, on a task due at 14:30), and the order a task's reminders are
+ * read in. So on a daylight-saving weekend two rules an hour apart can be refused as one moment,
+ * and two that fire together can both be kept.
  */
 export const ReminderRule = z
   .strictObject({

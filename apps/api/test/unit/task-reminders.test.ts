@@ -1,8 +1,9 @@
 // Custom task reminders (R1, Oct 24; Octavia's Tasks review A3): the rules of task-common.ts. A
 // rule is a days rule or Custom (minutes, hours or days before the due date and time). Custom
 // needs a due time; two rules never fire at one moment; a template's rules that do not fit a new
-// task are left out; a task's rules read in the order they fire.
-import { BadRequestException } from '@nestjs/common';
+// task are left out; a task's rules read in the order they fire; a reminder index's refusal is
+// the reminders' 400.
+import { BadRequestException, ConflictException, type HttpException } from '@nestjs/common';
 import { ReminderRule } from '@firmivra/types';
 import { describe, expect, it } from 'vitest';
 import {
@@ -16,6 +17,7 @@ import {
   remindersFromJson,
   remindersJson,
 } from '../../src/tasks/task-common.js';
+import { TaskWriteService } from '../../src/tasks/task-write.service.js';
 
 /** A rule as a request sends it, parsed by the contract. */
 const rule = (body: object): Reminder => reminderFrom(ReminderRule.parse(body));
@@ -210,5 +212,49 @@ describe('inFiringOrder', () => {
       '1d@-',
       '0d@-',
     ]);
+  });
+});
+
+// Decision A.7: a task_reminders index refusing a save (only a backstop: the rules are checked
+// first) is the reminders' 400, never the 409 of an open name change.
+describe("a unique index's refusal on save", () => {
+  const service = new TaskWriteService({} as never, {} as never, {} as never);
+  /** What mapErrors throws for `error`. */
+  const mapped = (error: unknown) => {
+    try {
+      service.mapErrors({})(error);
+    } catch (out) {
+      return out;
+    }
+    throw new Error('mapErrors returned');
+  };
+  /** A P2002 as Prisma's pg adapter reports it: the index in `constraint`, or only in the message. */
+  const unique = (cause: object) => ({ code: 'P2002', meta: { driverAdapterError: { cause } } });
+  const body = (error: unknown) => (error as HttpException).getResponse();
+
+  it('is 400 INVALID_REMINDER on a reminder index', () => {
+    for (const cause of [
+      { constraint: { index: 'task_reminders_one_custom_rule' } },
+      { constraint: { index: 'task_reminders_one_days_rule' } },
+      {
+        originalMessage:
+          'duplicate key value violates unique constraint "task_reminders_one_days_rule"',
+      },
+    ]) {
+      const out = mapped(unique(cause));
+      expect(out, JSON.stringify(cause)).toBeInstanceOf(BadRequestException);
+      expect(body(out)).toEqual({
+        code: 'INVALID_REMINDER',
+        message: 'Each reminder can be added once',
+      });
+    }
+  });
+
+  it('is still 409 NAME_CHANGE_PENDING on the open name change index, or one not named', () => {
+    for (const cause of [{ constraint: { index: 'tasks_one_open_name_change' } }, {}]) {
+      const out = mapped(unique(cause));
+      expect(out, JSON.stringify(cause)).toBeInstanceOf(ConflictException);
+      expect(body(out)).toMatchObject({ code: 'NAME_CHANGE_PENDING' });
+    }
   });
 });

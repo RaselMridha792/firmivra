@@ -1329,6 +1329,57 @@ describe('Custom reminders on templates and series', () => {
     ]);
   });
 
+  it('the job leaves out the reminders a task would refuse, so the task can still be changed', async () => {
+    const s = await mkSeries({
+      dueTime: '09:00',
+      reminders: [{ daysBefore: 1 }],
+      recurrence: { unit: 'DAY', startOn: '2030-07-01' },
+    });
+    // As a series saved before its reminders were checked, or changed by an older API, can keep
+    // them: one after the due time, and two that fire at one moment (a day before at 09:00 and
+    // 1 DAYS, on a task due at 09:00).
+    await inFirm('a', (tx) =>
+      tx.taskSeries.update({
+        where: { id: s.id },
+        data: {
+          reminders: [
+            { daysBefore: 0, timeOfDay: '17:00', inApp: true, channels: [] },
+            { daysBefore: 1, timeOfDay: '09:00', inApp: true, channels: ['EMAIL'] },
+            { daysBefore: 1, minutesBefore: 1_440, unit: 'DAYS', inApp: true, channels: [] },
+            { daysBefore: 0, minutesBefore: 120, unit: 'HOURS', inApp: true, channels: [] },
+          ],
+        },
+      }),
+    );
+    await runJob('2030-07-02');
+    const [made] = await tasksOf(s.id);
+    const task = TaskDetail.parse(ok(await call('get', `/tasks/${made!.id}`, people.ownerA)));
+    expect(task.reminders.map(shape)).toEqual([
+      [1, '09:00', null, null],
+      [0, null, 2, 'HOURS'],
+    ]);
+    expect(task.reminders[0]?.channels).toEqual(['EMAIL']);
+    // A change that does not resend the reminders, on its own or in bulk.
+    const renamed = TaskDetail.parse(
+      ok(
+        await call('patch', `/tasks/${task.id}`, people.ownerA, {
+          version: task.version,
+          title: mark('Renamed occurrence'),
+        }),
+      ),
+    );
+    expect(renamed.reminders).toEqual(task.reminders);
+    expect(
+      ok(
+        await call('post', '/tasks/bulk', people.ownerA, {
+          action: 'SET_PRIORITY',
+          ids: [task.id],
+          priority: 'HIGH',
+        }),
+      ),
+    ).toEqual({ updated: 1, skipped: [] });
+  });
+
   it('turning a task into a series keeps its Custom reminders', async () => {
     const t = TaskDetail.parse(
       ok(

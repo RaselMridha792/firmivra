@@ -218,6 +218,8 @@ export function reminderOut(r: Reminder, id: string | null): ReminderRuleOut {
  * Minutes from a rule's reminder to the due moment, when they can be told: always for Custom (it
  * needs a due time); for a days rule with a time on a task with a due time, the same clock time
  * that many days earlier. Null otherwise (a days rule with the firm's default time, or no due time).
+ * Plain clock minutes, as the contract's ReminderRule says: an hour is 60, a day 1,440, daylight
+ * saving ignored. The delivery job works out the exact instant.
  */
 function minutesToDue(r: Reminder, dueTime: string | null): number | null {
   if (r.minutesBefore !== null) return r.minutesBefore;
@@ -251,7 +253,8 @@ export const reminderErrors = {
  * it has one and is not all-day, else null), 400 INVALID_REMINDER. `strict` (a live task, a
  * publish, a series): a Custom rule needs a due time, two rules never fire at the same moment, and
  * none after the due time. Otherwise (a draft, a template, kept as sent): only what is kept once,
- * the same rule twice or two Custom rules of one length.
+ * the same rule twice or two Custom rules of one length. Moments and lengths are plain clock
+ * minutes (see minutesToDue).
  */
 export function checkReminders(rules: Reminder[], dueTime: string | null, strict: boolean): void {
   const same = new Set<string>();
@@ -290,9 +293,10 @@ export function fitReminders(rules: Reminder[], dueTime: string | null): Reminde
 }
 
 /**
- * A task's rules in the order they fire, the earliest first: by minutes to the due moment, a days
- * rule with no time placed as if at the due time, and an all-day task due at the end of its day;
- * then by days, a days rule before a Custom one, and time. Ties keep their order.
+ * A task's rules in the order they fire, the earliest first: by minutes to the due moment (plain
+ * clock minutes, as minutesToDue), a days rule with no time placed as if at the due time, and an
+ * all-day task due at the end of its day; then by days, a days rule before a Custom one, and time.
+ * Ties keep their order.
  */
 export function inFiringOrder<T extends { rule: Reminder }>(
   list: T[],

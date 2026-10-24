@@ -193,6 +193,10 @@ This is newer than every handoff below, so read it first. Where they differ, thi
   - CI runs only on PRs into `main`. After changing a PR's base, close and reopen it to trigger CI.
   - Deploy dev deploys only the app stack. The other stacks are manual: `cdk diff`, show Rasel, deploy on his go, snapshot first for the data stack.
   - A local `cdk diff` shows `:none` images and `DesiredCount 0`. Those are parameter defaults, not real changes.
+- **Deploy dev, a migration stopped by its `lock_timeout`:** the first migration with a top-level `SET LOCAL lock_timeout` is `20261024014634_r1_task_reminder_custom` (10 s on `task_reminders`; a long transaction there, such as the series job or a bulk action during the deploy, is enough). Its transaction rolls back cleanly, but `prisma migrate deploy` records the migration as failed, and every later Deploy dev, for any PR, stops with P3009 until it is resolved. Its PR description carries these steps too. With Rasel's go:
+  1. Make sure nothing still holds a lock on `task_reminders` (`pg_locks` joined to `pg_stat_activity`, as the owner role).
+  2. In a one-off task on `firmivra-dev-migrate`, run `prisma migrate resolve --rolled-back 20261024014634_r1_task_reminder_custom` with the owner URL that `migrate-deploy.mjs` builds for Prisma.
+  3. Re-run Deploy dev (only R1 does). The migration then runs again from the start.
 - **One-off ECS tasks:**
   - The overrides JSON must stay under 8 KB, so strip comments from inline scripts.
   - Keep emails and names out of overrides.

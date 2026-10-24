@@ -8,8 +8,9 @@ import {
 import type { Database, TxClient } from '@firmivra/db';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { timeOfDayFromDb } from '../appointments/calendar.js';
 import { addDays, generationCutoff, schedule } from './recurrence.js';
-import { reminderRow, remindersFromJson } from './task-common.js';
+import { fitReminders, reminderRow, remindersFromJson } from './task-common.js';
 import { firmClock } from './task-read.service.js';
 import { HORIZON_DAYS, ruleOf, TaskSeriesService } from './task-series.service.js';
 import { day, toDay } from '../workspaces/common.js';
@@ -322,10 +323,14 @@ export class TaskSeriesJob implements OnApplicationBootstrap, OnModuleDestroy {
       const checklist = Array.isArray(s.checklist)
         ? (s.checklist as { label: string; required?: boolean }[])
         : [];
-      // A Custom reminder counts back from the due time: a series without one (saving refuses
-      // that; only an older API could have kept it) makes its tasks without them.
-      const reminders = remindersFromJson(s.reminders).filter(
-        (r) => r.unit === null || s.dueTime !== null,
+      // Only the reminders that fit the task, as a template's for a new task. Saving checks a
+      // series' reminders against its due time, but a series saved before that check, or changed
+      // by an older API during a rollout, can keep a Custom one with no due time, one after the
+      // due time, or two that fire at one moment. A task never keeps what it would refuse, so it
+      // can still be changed without resending its reminders (a bulk action too).
+      const reminders = fitReminders(
+        remindersFromJson(s.reminders),
+        s.dueTime ? timeOfDayFromDb(s.dueTime) : null,
       );
       const task = await tx.task.create({
         data: {
