@@ -25,6 +25,7 @@ import type { ClientsActor } from '../clients/clients.service.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { MessagesService } from './messages.service.js';
+import { PortalTabRoute } from '../client-portal/portal-tabs.js';
 
 const clientPipe = new ZodValidationPipe(ClientId);
 const idPipe = new ZodValidationPipe(MessageThreadId);
@@ -156,6 +157,7 @@ export class MessageThreadsController {
 /** The signed-in client's messages at one firm (portal); the client from the session. */
 @Controller('portal/:firmSlug/me/messages')
 @Roles('CLIENT')
+@PortalTabRoute('MESSAGES')
 export class MyMessagesController {
   constructor(private readonly messages: MessagesService) {}
 
