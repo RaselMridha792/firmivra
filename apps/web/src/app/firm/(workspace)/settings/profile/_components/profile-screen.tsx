@@ -2,6 +2,7 @@
 
 import { ENTITY_TYPES, type FirmSettings } from '@firmivra/types';
 import { Input, Select, Textarea } from '@firmivra/ui';
+import { Buildings, ShieldCheck } from '@phosphor-icons/react';
 import {
   BrandActionsCard,
   BrandCardFrame,
@@ -14,6 +15,7 @@ import {
 } from '../../_components/brand-cards';
 import { type BrandDraftState, useBrandDraft } from '../../_components/brand-draft';
 import { BrandCard, BrandFrame } from '../../_components/brand-frame';
+import { LockedDetailsCard } from './locked-details';
 
 /**
  * Business Type choices: a short list of the firm categories the design and guide name; the
@@ -27,6 +29,14 @@ const BUSINESS_TYPES = [
   'Business Consulting',
 ];
 
+/** The EIN as far as it is ever shown: its last 4 digits. */
+const einShown = (last4: string | null) => (last4 ? `••-•••${last4}` : null);
+
+/**
+ * Company Information (her guide B2): the legal name and the EIN are locked; Request Change asks
+ * Firmivra. The company's display details below stay editable here (Rasel, Oct 24: the editors
+ * stay on Company Profile for now).
+ */
 function CompanyInformationCard({ state, firm }: { state: BrandDraftState; firm: FirmSettings }) {
   const d = state.draft;
   if (!d) return null;
@@ -35,11 +45,25 @@ function CompanyInformationCard({ state, firm }: { state: BrandDraftState; firm:
     BUSINESS_TYPES.includes(d.businessCategory) || !d.businessCategory
       ? BUSINESS_TYPES
       : [d.businessCategory, ...BUSINESS_TYPES];
+  const ein = einShown(firm.einLast4);
   return (
-    <BrandCard
+    <LockedDetailsCard
+      kind="COMPANY"
+      icon={Buildings}
       title="Company Information"
-      subtitle="This information appears across the platform and on client-facing materials."
       testId="company-information"
+      timeZone={firm.timezone}
+      rows={[
+        { label: 'Legal Company Name', value: firm.business.legalName },
+        { label: 'EIN (Tax ID)', value: ein },
+      ]}
+      current={{ legalName: firm.business.legalName, ein }}
+      note={
+        <>
+          To update your legal company name or EIN, click <strong>Request Change</strong>. Your
+          request will be reviewed by the Firmivra Super Admin team.
+        </>
+      }
     >
       <Input
         label="Company Name *"
@@ -47,20 +71,6 @@ function CompanyInformationCard({ state, firm }: { state: BrandDraftState; firm:
         value={d.name}
         error={e.name}
         onChange={(ev) => state.set('name', ev.target.value)}
-      />
-      {firm.business.legalName ? (
-        <p className="-mt-2 text-xs text-muted">
-          Legal name: {firm.business.legalName} (locked after approval)
-        </p>
-      ) : null}
-      <Input
-        label="EIN (Optional)"
-        autoComplete="off"
-        inputMode="numeric"
-        placeholder={firm.einLast4 ? `•••-••-${firm.einLast4}` : '9 digits'}
-        value={d.ein}
-        error={e.ein}
-        onChange={(ev) => state.set('ein', ev.target.value)}
       />
       <Input
         label="Website"
@@ -109,7 +119,33 @@ function CompanyInformationCard({ state, firm }: { state: BrandDraftState; firm:
         />
         <p className="self-end text-xs text-muted">{d.description.length}/250</p>
       </div>
-    </BrandCard>
+    </LockedDetailsCard>
+  );
+}
+
+/**
+ * Professional Licensing Information (her guide B3): read-only; Request Change asks Firmivra.
+ * No licensing details are stored yet (Column request for R1, item 7), so each row says so.
+ */
+function LicensingCard({ firm }: { firm: FirmSettings }) {
+  return (
+    <LockedDetailsCard
+      kind="LICENSING"
+      icon={ShieldCheck}
+      title="Professional Licensing Information"
+      testId="licensing-information"
+      timeZone={firm.timezone}
+      rows={['Regulatory Body', 'License Type', 'License Number', 'Expiration Date', 'Status'].map(
+        (label) => ({ label, value: null }),
+      )}
+      current={{}}
+      note={
+        <>
+          To update your professional licensing information, click <strong>Request Change</strong>.
+          Your request will be reviewed by the Firmivra Super Admin team.
+        </>
+      }
+    />
   );
 }
 
@@ -209,6 +245,7 @@ export function ProfileScreen() {
           ) : (
             frame('Company Information')
           )}
+          {ready ? <LicensingCard firm={firm} /> : frame('Professional Licensing Information')}
           {ready ? <ContactInformationCard state={state} /> : frame('Contact Information')}
         </div>
         <div className="flex min-w-0 flex-col gap-4">

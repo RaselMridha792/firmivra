@@ -19,6 +19,20 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
+### Oct 24 (third session): Rasel's order, start here
+
+#1054 and #1056 merged. Rasel's order (Oct 24), one PR each, at most two open: (1) Company
+Profile Request Change, (2) Notifications settings, (3) Billing, (4) Payments, (5) Staff SM8 to
+SM13. His defaults: Request Change goes to Super Admin through the existing support-request flow;
+the branding editors stay on Company Profile; pay is not kept in a staff draft. Waiting for his
+word, not built: ownership transfer, Sign Out All Sessions (questions 1 and 2 below). Columns go
+to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/db`, `infra`,
+`.github`, auth guards or AWS work.
+
+| # | Branch | State |
+| --- | --- | --- |
+| 1 | `rasel/R60-profile-request-change` | Built: `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
+
 ### State (Oct 23, second session): open PRs and branches waiting
 
 #1028, #1031, #1033 and #1034 merged on Oct 23; #1038, #1039, #1045 and #1047 merged on Oct 23
@@ -196,6 +210,22 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   4. *Notifications* next: employee email always on, enforced on the server, existing Off settings
      migrated to On; SMS only after a verified mobile number.
   5. *Billing and Payments* after Notifications, by R60.
+- **Request Change (built, `rasel/R60-profile-request-change`): what it cannot do yet.**
+  1. *Applying an approved request:* Super Admin has no way to change a firm's legal name, EIN or
+     licensing details after activation (question 3 below). The team resolves the ticket and
+     nothing changes.
+  2. *Licensing details:* no columns, so the card's five rows say "Not on file" and a request's
+     "Current" says the same (Column request for R1, item 7).
+  3. *History and SLA (R0's policies):* a firm-raised ticket gets no Activity entry and no
+     response due time, because the firm's scope can neither write `support_ticket_events` nor
+     read `support_settings` and `support_holidays`. It shows in the queue, unassigned. A
+     SECURITY DEFINER function that stamps both on a firm insert, or the SLA job filling a
+     missing due time, would fix it.
+  4. *Conversation:* the firm sees only Firmivra's latest sent reply on the card; there is no firm
+     Support page to read the thread or answer ("Waiting on You" has no answer path). Owner to be
+     named by Rasel.
+  5. *Supporting document (guide E4, optional):* not built; the firm side has no support upload
+     route (`support_ticket_attachments_firm_add` exists in the database).
 - **Staff Management SM3 is blocked (handoff item 5):** each wrong route needs a destination that
   does not exist. Offices & Job Titles needs R1's Locations API and the saved job titles; New
   Accounts & Security needs the staff security defaults (both in "Column request for R1"). The
@@ -233,6 +263,9 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 2. **Sign Out All Sessions ends no real session** (check 6): it marks `staff_sessions` rows that
    sign-in never writes, and never signs anyone out of Cognito. Fix it as Reset MFA does (a Cognito
    global sign-out of the member), and by whom (Users & Roles is R55's page)?
+3. **Applying a Request Change** (Company Profile): R60 proposes a Super Admin action on the
+   firm's detail ("Edit legal details": legal name, EIN, and licensing once item 7 lands), admin
+   scope, audited in both logs, linked from the ticket. Who builds it, and may R60?
 
 ## Column request for R1 (approved by Rasel, Oct 24)
 
@@ -276,6 +309,14 @@ later migration drops them.
    `updated_at`. Create Staff step 3 starts from it; changing it changes no existing account. Owner
    and Admin read and change it through the API. (Sign-in does not enforce these settings for
    anyone yet: Settings checks, check 6.)
+
+7. **Company Profile, professional licensing (added Oct 24, not yet approved).** Table
+   `firm_licenses`: `id uuid` (uuid7), `business_id`, `regulatory_body text NOT NULL` (1 to 120
+   characters), `license_type text NOT NULL` (1 to 80), `license_number text NOT NULL` (1 to 60),
+   `expires_on date NULL`, `status` (`ACTIVE`, `EXPIRED`, `SUSPENDED`, `REVOKED`; default
+   `ACTIVE`), `verified_by_user_id uuid NULL` (a Super Admin), `verified_at timestamptz NULL`,
+   `created_at`, `updated_at`. One row per license (a firm may hold several). The firm reads its
+   own rows; only the admin or platform scope writes them (Firmivra applies an approved request).
 
 Offices need no column: they are R1's Locations API (`firm_offices`).
 

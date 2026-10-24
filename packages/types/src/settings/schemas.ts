@@ -186,7 +186,8 @@ export const UpdateFirmSettingsRequest = z
     entityType: EntityType,
     /**
      * Write-only: 9 digits (dashes and spaces are dropped), stored encrypted under the firm's
-     * key; only `einLast4` comes back. Null or '' removes it.
+     * key; only `einLast4` comes back. Null or '' removes it. Only while the firm is Pending
+     * Setup: once it is Active, 403 EIN_LOCKED (Company Profile's Request Change asks Firmivra).
      */
     ein: clearable(Ein),
     teamSize: z
