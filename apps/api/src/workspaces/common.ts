@@ -36,6 +36,20 @@ export function clientAccountOf(tenant: TenantContext | undefined): string {
 export const isUniqueViolation = (error: unknown) =>
   (error as { code?: unknown } | null)?.code === 'P2002' || databaseErrorCode(error) === '23505';
 
+/**
+ * The unique index or constraint a Prisma error names, if any: the pg adapter keeps PostgreSQL's
+ * in `meta.driverAdapterError.cause` (its message names it too).
+ */
+export function violatedIndex(error: unknown): string | undefined {
+  const meta = (error as { meta?: { driverAdapterError?: { cause?: unknown } } } | null)?.meta;
+  const cause = meta?.driverAdapterError?.cause as
+    { constraint?: { index?: unknown }; originalMessage?: unknown } | undefined;
+  const index = cause?.constraint?.index;
+  if (typeof index === 'string') return index;
+  const message = cause?.originalMessage;
+  return typeof message === 'string' ? /constraint "([^"]+)"/.exec(message)?.[1] : undefined;
+}
+
 /** A foreign key refused the write: the row it points at is gone. */
 export const isForeignKeyViolation = (error: unknown) =>
   (error as { code?: unknown } | null)?.code === 'P2003' || databaseErrorCode(error) === '23503';
