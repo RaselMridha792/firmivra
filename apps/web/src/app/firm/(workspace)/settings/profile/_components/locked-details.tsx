@@ -285,6 +285,12 @@ function RequestChangeModal({
                 onChange={(e) => setValues((v) => ({ ...v, [f]: e.target.value }))}
               />
               <p className="text-xs text-muted">Current: {current[f] ?? 'Not on file'}</p>
+              {f === 'ein' ? (
+                <p data-testid="ein-kept" className="text-xs text-muted">
+                  Only the last four digits are kept with your request. Firmivra confirms the full
+                  number with you before applying it.
+                </p>
+              ) : null}
             </div>
           );
         })}
