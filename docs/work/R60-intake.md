@@ -34,6 +34,7 @@ to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/
 | 1 | `rasel/R60-profile-request-change` | #1063 (open): `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
 | 2 | `rasel/R60-notifications-email` (stacked on #1063) | #1065 (open): staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
 | 3 | `rasel/R60-billing` (stacked on #1065, local until a PR slot frees) | Built: `api.firmBilling` (overview, invoices, invoice, PDF, requests), the Billing page on her design with the plan, usage, details and invoice dialogs; plan and contact changes as support requests. Notes below ("Billing") |
+| 4 | `rasel/R60-payments` (stacked on billing, local) | Built: the Payments page on her design (web only); Stripe keeps every existing state; Manage Connection, Manage Bank Account and Check Eligibility open the firm's own Stripe Dashboard. Notes below ("Payments") |
 
 ### State (Oct 23, second session): open PRs and branches waiting
 
@@ -255,6 +256,20 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
      two show; her design's storage and monthly rows have no measure behind them.
   4. *Billing address:* the billing profile keeps a contact, not an address; the card shows the
      company address from Company Profile.
+- **Payments (built, `rasel/R60-payments`, web only): what it cannot do yet.**
+  1. *Square and PayPal:* no Firmivra app or credentials exist for either (an OAuth app each, the
+     callback bound to the firm, stored tokens, webhooks). Their cards say so with the button off.
+     Rasel to decide whether Firmivra offers them, and R1 to hold the provider accounts.
+  2. *Accepted methods:* checkout takes cards only (`stripe-gateway.ts`: bank debits wait until a
+     refund can wait for settlement, R7), and no firm setting stores a choice, so the switches
+     show what clients can pay with and cannot change; there is no Save. Choosing methods needs a
+     setting per firm (cards on, ACH on, default processor) and ACH in checkout: a column item for
+     R1 when Rasel wants it.
+  3. *Stripe management:* each connected account has the full Stripe Dashboard, so Manage
+     Connection, Manage Bank Account and Check Eligibility open dashboard.stripe.com, signed in
+     with the firm's Stripe login. Firmivra does not read the bank account or instant payout
+     eligibility from Stripe (it would need the Accounts API's external accounts and balance on
+     the connected account).
 - **Staff Management SM3 is blocked (handoff item 5):** each wrong route needs a destination that
   does not exist. Offices & Job Titles needs R1's Locations API and the saved job titles; New
   Accounts & Security needs the staff security defaults (both in "Column request for R1"). The
@@ -365,6 +380,10 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 
 ## Checks that fail on clean `main` too (not R60's changes)
 
+- `apps/web/e2e/mock/r19-payments-settings.spec.ts` "other roles" and "answers from the API": on
+  Windows they cannot start their extra mock servers (`spawn pnpm ENOENT`: `spawn` without a
+  shell). Local only; CI (Linux) runs them. Its two in-page tests pass locally.
+
 - `apps/api/test/e2e/leads-pipeline.e2e.test.ts:311` (R55): the date filter test takes "today" in UTC
   while the API filters days in the firm's time zone (America/New_York), so it fails every night
   from 00:00 to 04:00 UTC (06:00 to 10:00 Dhaka). It failed #1063's first run (Oct 24, 00:53
@@ -437,3 +456,10 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   review) and invoice dialogs. Billing e2e 8 of 8, profile-changes 6 of 6, unit 3 of 3, contract
   3 of 3, `tumit-settings-billing` 3 of 3 (rewritten) and `r56-settings-shell`; sheet shot on the
   real API. Question 4 for Rasel.
+- Oct 24: item 4, Payments (`rasel/R60-payments`, stacked on billing, local), web only: the page on
+  her design (Stripe, Square, PayPal; Accepted Client Payments; Payout Settings; the Invoices &
+  Payments link). Stripe keeps every state and test id of `r19-payments-settings`; Square and
+  PayPal and the ACH and PayPal methods are off with the reason; the Stripe Dashboard opens for
+  the connection, the bank and instant payouts. Web `tsc` 0 errors; `r60-payments-settings` 2 of
+  2, r19's in-page tests pass (its server-spawning ones cannot run on Windows); sheet shot on the
+  local API with `STRIPE_MODE=fake`.
