@@ -363,6 +363,7 @@ describe('Begin Online drafts', () => {
     expect(v.jar.get(name)).not.toContain(lead.id);
     expect(lead).toMatchObject({
       status: 'DRAFT',
+      source: 'BEGIN_ONLINE',
       serviceId: services.annual,
       firstName: 'Avery',
       lastName: 'Sample',
