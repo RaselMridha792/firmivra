@@ -1,6 +1,7 @@
 import {
   ApiRequestError,
   BulkRequestPacketsRequest,
+  CreateRequestPacketRequest,
   DocumentFolder,
   type DocumentLibraryClient,
   type DocumentsClient,
@@ -12,6 +13,7 @@ import {
   type RequestTemplate,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { clientFixtures } from './clients';
 
 // Synthetic folders and the upload step of the firm's document library (R55 contract,
 // `api.documentLibrary`) for mock mode. Uploads go through the documents mock (`api.documents`),
@@ -82,53 +84,100 @@ const MEMBERS = [
   { userId: memberId(3), name: 'Taylor Moore' },
 ];
 
-/** Synthetic request templates (the firm's request types). */
+/** Synthetic request templates: the firm's request types, and one member's saved list. */
 export function requestTemplateFixtures(): RequestTemplate[] {
-  const item = (t: number, n: number, title: string) => ({
-    id: `0199d2b0-7e00-7000-8000-${String(t * 100 + n).padStart(12, '0')}`,
-    title,
-    description: null,
-    required: true,
-    category: null,
-  });
-  const template = (n: number, name: string, titles: string[]): RequestTemplate => ({
+  const template = (
+    n: number,
+    name: string,
+    description: string,
+    items: [string, string?][],
+    owner: RequestTemplate['owner'] = 'FIRM',
+  ): RequestTemplate => ({
     id: templateId(n),
     name,
-    description: null,
-    owner: 'FIRM',
-    items: titles.map((t, i) => item(n, i + 1, t)),
+    description,
+    owner,
+    items: items.map(([title, about], i) => ({
+      id: `0199d2b0-7e00-7000-8000-${String(n * 100 + i + 1).padStart(12, '0')}`,
+      title,
+      description: about ?? null,
+      required: true,
+      category: null,
+    })),
     updatedAt: ago(48 * n),
   });
   return [
-    template(1, 'Personal Tax Documents', ['W-2', '1099-INT', '1098', 'Prior return', 'ID']),
-    template(2, 'Business Tax Documents', [
-      'P&L',
-      'Balance sheet',
-      '1099s',
-      'Payroll',
-      'Assets',
-      'Loans',
+    template(
+      1,
+      'Personal Tax Documents',
+      'Common documents needed for individual tax preparation.',
+      [
+        ['W-2 Forms (All Employers)', 'All W-2 forms for tax year 2025.'],
+        ['1099 Forms (All Applicable)', 'All 1099 forms for tax year 2025.'],
+        ['Bank Statements (Jan – Dec 2025)', 'Checking, savings, and business accounts.'],
+        ['Investment Statements'],
+        ['Prior Year Tax Return (2024)'],
+      ],
+    ),
+    template(
+      2,
+      'Business Tax Documents',
+      'Documents for business tax clients (S-Corp, LLC, etc.).',
+      [
+        ['Profit and Loss Statement'],
+        ['Balance Sheet'],
+        ['1099s Issued'],
+        ['Payroll Reports'],
+        ['Fixed Asset Purchases'],
+        ['Loan Statements'],
+      ],
+    ),
+    template(3, 'Bookkeeping Onboarding', 'Initial documents for bookkeeping clients.', [
+      ['Bank Statements'],
+      ['Credit Card Statements'],
+      ['Chart of Accounts'],
+      ['Loan Statements'],
     ]),
-    template(3, 'Bookkeeping Onboarding', [
-      'Bank statements',
-      'Card statements',
-      'Accounts',
-      'Loans',
+    template(4, 'Payroll Setup', 'Documents needed to set up payroll services.', [
+      ['EIN Confirmation Letter'],
+      ['State Tax IDs'],
+      ['Employee List'],
+      ['Pay Schedule'],
     ]),
-    template(4, 'Payroll Setup', ['EIN letter', 'State IDs', 'Employee list', 'Pay schedule']),
-    template(5, 'New Client Intake', [
-      'ID',
-      'Engagement letter',
-      'Prior return',
-      'Address',
-      'Bank',
+    template(5, 'New Client Intake', 'General documents for all new clients.', [
+      ["Driver's License or State ID", 'A clear copy of a valid government-issued ID.'],
+      ['Signed Engagement Letter'],
+      ['Prior Year Tax Return (2024)'],
+      ['Proof of Address'],
+      ['Voided Check'],
     ]),
+    template(6, 'Entity Formation', 'Documents for business formation services.', [
+      ['Articles of Organization'],
+      ['Operating Agreement'],
+      ['EIN Confirmation Letter'],
+      ['Owner IDs'],
+    ]),
+    template(7, 'Advisory Engagement', 'Documents for advisory and consulting clients.', [
+      ['Financial Statements (3 Years)'],
+      ['Business Plan'],
+      ['Budget and Forecast'],
+      ['Debt Schedule'],
+    ]),
+    template(
+      8,
+      'My Year-End Checklist',
+      'A saved list of year-end documents.',
+      [['Year-End Bank Statements'], ['Property Tax Statements'], ['Charitable Donation Receipts']],
+      'MINE',
+    ),
   ];
 }
 
 interface MockPacket {
   row: RequestPacketRow;
   required: number;
+  /** What a created request keeps beyond its row (the fixtures leave the defaults). */
+  extra?: Partial<RequestPacketDetail>;
 }
 
 /** The dashboard's status as the API works it out (packets.service.ts `viewOf`). */
@@ -243,6 +292,7 @@ export function createDocumentLibraryMock(options: {
     cancelledAt: p.row.status === 'CANCELLED' ? p.row.updatedAt : null,
     checklist: [],
     activity: [],
+    ...structuredClone(p.extra ?? {}),
   });
   /** Only an open request can be reminded, resent or completed (409 otherwise). */
   const open = (p: MockPacket) => {
@@ -354,7 +404,76 @@ export function createDocumentLibraryMock(options: {
       await mockDelay();
       return detail(find(id));
     },
-    createRequest: notInMock,
+    createRequest: async (body) => {
+      await mockDelay();
+      const input = parseInput(CreateRequestPacketRequest, body);
+      const client = clientFixtures().find((c) => c.id === input.clientId);
+      if (!client) throw fail(404, 'NOT_FOUND', 'Not found');
+      const template = templates.find((t) => t.id === input.templateId);
+      const items = [
+        ...(template?.items ?? []).map((i) => ({ ...i, instructions: i.description })),
+        ...(input.items ?? []).map((i) => ({ ...i, instructions: i.instructions ?? null })),
+      ];
+      if (
+        input.send &&
+        (!input.dueOn || !input.messageSubject || !input.messageBody || !items.length)
+      )
+        throw fail(400, 'REQUEST_INCOMPLETE', 'Add the missing parts before sending');
+      const n = Math.max(0, ...packets.map((p) => Number(p.row.reference.slice(3)))) + 1;
+      const member =
+        input.recipient.kind === 'MEMBER'
+          ? MEMBERS.find((m) => m.userId === (input.recipient as { userId: string }).userId)
+          : undefined;
+      const now = new Date().toISOString();
+      const required = items.filter((i) => i.required).length;
+      const p: MockPacket = {
+        required,
+        row: {
+          id: packetId(n),
+          reference: `DR-${String(n).padStart(4, '0')}`,
+          title: input.title,
+          client: { id: client.id, name: client.displayName },
+          service: { id: input.serviceId ?? packetId(900 + n), title: 'Personal Tax Intake' },
+          recipient: member
+            ? { kind: 'MEMBER', userId: member.userId, name: member.name }
+            : { kind: 'CLIENT', userId: null, name: client.displayName },
+          status: input.send ? 'OPEN' : 'DRAFT',
+          view: 'DRAFT',
+          items: { total: items.length, required, received: 0 },
+          dueOn: input.dueOn ?? null,
+          expiresAt: input.expiresAt ?? null,
+          assignedTo: null,
+          sentAt: input.send ? now : null,
+          updatedAt: now,
+        },
+        extra: {
+          templateId: input.templateId ?? null,
+          messageSubject: input.messageSubject ?? null,
+          messageBody: input.messageBody ?? null,
+          notifyEmail: input.notifyEmail ?? true,
+          notifyPortal: input.notifyPortal ?? true,
+          notifySms: input.notifySms ?? false,
+          reminderDaysBefore: input.reminderDaysBefore ?? null,
+          allowMultipleFiles: input.allowMultipleFiles ?? true,
+          allowClientComments: input.allowClientComments ?? true,
+          checklist: items.map((i, k) => ({
+            id: `0199d2b0-7d00-7000-8000-${String(n * 100 + k).padStart(12, '0')}`,
+            title: i.title,
+            instructions: i.instructions,
+            required: i.required,
+            category: null,
+            status: 'REQUESTED' as const,
+            statusNote: null,
+            sortOrder: k,
+            documents: [],
+            resolvedAt: null,
+          })),
+        },
+      };
+      p.row.view = viewOf(p.row, p.required);
+      packets.unshift(p);
+      return detail(p);
+    },
     updateRequest: notInMock,
     sendRequest: notInMock,
     resendRequest: async (id) => {

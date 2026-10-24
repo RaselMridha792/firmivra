@@ -40,7 +40,6 @@ import { useDeferredValue, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
-import { moduleHref } from '../../../../../../lib/firm-modules';
 import { useApiQuery } from '../../../../../../lib/query';
 import { RowMenu } from '../../../team/_components/row-menu';
 import { RequestsRail } from './requests-rail';
@@ -126,7 +125,7 @@ export function RequestsScreen() {
     completed: s?.completed,
     overdue: s?.overdue,
   };
-  const createHref = moduleHref('document-request-create');
+  const createHref = '/documents/requests/new';
 
   const columns: Column<RequestPacketRow>[] = [
     {
