@@ -6,6 +6,7 @@ import {
   ArrowUp,
   CaretRight,
   CheckCircle,
+  XCircle,
   Eye,
   Tag,
   Trash,
@@ -255,6 +256,7 @@ export function ClientPreview({
   icon,
   price,
   included,
+  notIncluded,
   addons,
   fullDescription,
 }: {
@@ -263,13 +265,15 @@ export function ClientPreview({
   icon?: string | null;
   price: string;
   included: string[];
+  /** Octavia's S7: the exclusions the firm wrote, shown on the full page. */
+  notIncluded: string[];
   addons: { name: string; priceCents: number }[];
   fullDescription?: string | null;
 }) {
   const [full, setFull] = useState(false);
   const Glyph = iconChoices[icon ?? ''] ?? Tag;
   // The card matches the design (What's Included, then Book This Service); the full page adds
-  // the full description and the add-ons.
+  // what is not included, the full description and the add-ons. Internal notes never reach it.
   const content = (expanded: boolean) => (
     <Card className="space-y-4" data-testid="client-preview">
       <div className="flex items-start gap-3">
@@ -303,6 +307,23 @@ export function ClientPreview({
           <p className="text-sm text-muted">No included items yet.</p>
         )}
       </div>
+      {expanded ? (
+        <div data-testid="client-preview-not-included">
+          <h4 className="mb-2 font-semibold text-heading">Not Included:</h4>
+          {notIncluded.length ? (
+            <ul className="space-y-2">
+              {notIncluded.map((text, i) => (
+                <li key={i} className="flex gap-2 text-sm">
+                  <XCircle weight="fill" className="size-4 shrink-0 text-muted" />
+                  <span className="break-words">{text}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted">No exclusions listed.</p>
+          )}
+        </div>
+      ) : null}
       {expanded && fullDescription ? (
         <p className="whitespace-pre-wrap break-words text-sm text-text">
           {fullDescription.replace(/<[^>]*>/g, ' ')}

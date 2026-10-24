@@ -21,7 +21,8 @@ test('package picks unique services, uses API savings, keeps notes private and s
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByTestId('selected-package-service')).toHaveCount(2);
   await expect(page.getByTestId('package-total')).toHaveText('$489.00');
-  await expect(page.getByTestId('package-savings')).toContainText('$89.00');
+  // As the API: a variable-priced service makes savings unknown, so none are promised.
+  await expect(page.getByTestId('package-savings')).toHaveText('Client Savings: —');
   await expect(
     page.getByText('Variable-price services are included.', { exact: false }),
   ).toBeVisible();

@@ -24,8 +24,6 @@ export const BRANDING = ['branding'];
  */
 export interface BrandDraft {
   name: string;
-  /** Write-only; '' leaves the stored EIN alone. */
-  ein: string;
   website: string;
   businessCategory: string;
   entityType: string;
@@ -119,7 +117,6 @@ const BRANDING_KEYS: BrandingKey[] = [
 export function fromData(s: FirmSettings, b: BrandingSettings): BrandDraft {
   return {
     name: s.name,
-    ein: '',
     website: s.website ?? '',
     businessCategory: b.businessCategory ?? '',
     entityType: s.entityType ?? '',
@@ -156,7 +153,6 @@ function patches(next: BrandDraft, before: BrandDraft) {
     if (next[k] !== before[k]) settings[k] = k === 'name' ? next[k].trim() : next[k] || null;
   }
   if (next.tagline !== before.tagline) settings.sidebarMotto = next.tagline || null;
-  if (next.ein.trim()) settings.ein = next.ein.trim();
   const branding: Record<string, unknown> = {};
   for (const k of BRANDING_KEYS) {
     if (next[k] !== before[k]) branding[k] = next[k] === '' ? null : next[k];

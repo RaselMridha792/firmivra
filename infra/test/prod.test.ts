@@ -148,6 +148,14 @@ describe('prod stacks', () => {
               Federated:
                 'arn:aws:iam::778127141557:oidc-provider/token.actions.githubusercontent.com',
             },
+            // Only the prod GitHub environment (v* tags, required reviewers), never dev's.
+            Condition: {
+              StringEquals: {
+                'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+                'token.actions.githubusercontent.com:sub':
+                  'repo:RaselMridha792@149437621/firmivra@1404534844:environment:prod',
+              },
+            },
           }),
         ],
       },
