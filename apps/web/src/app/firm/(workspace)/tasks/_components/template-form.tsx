@@ -10,7 +10,7 @@ import { Button, Checkbox, Textarea, Toast } from '@firmivra/ui';
 import { ArrowLeft, FileText, Plus } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
@@ -22,6 +22,8 @@ import {
   Label,
   type Reminder,
   ReminderList,
+  reminderProblem,
+  toReminders,
   Section,
   Selectbox,
   field,
@@ -112,8 +114,8 @@ function TemplateForm({ template }: { template: TaskTemplate | undefined }) {
   );
   const [nextKey, setNextKey] = useState(0);
   const [remind, setRemind] = useState((template?.reminders.length ?? 0) > 0);
-  const [reminders, setReminders] = useState<Reminder[]>(
-    (template?.reminders ?? []).map((r, i) => ({ key: `r${i}`, daysBefore: r.daysBefore })),
+  const [reminders, setReminders] = useState<Reminder[]>(() =>
+    toReminders(template?.reminders ?? []),
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
@@ -149,7 +151,9 @@ function TemplateForm({ template }: { template: TaskTemplate | undefined }) {
     checklist: items
       .filter((i) => i.label.trim())
       .map((i) => ({ label: i.label.trim(), required: i.required })),
-    reminders: remind ? reminders.map((r) => ({ daysBefore: r.daysBefore })) : [],
+    reminders: remind
+      ? reminders.map((r) => ({ daysBefore: r.daysBefore, timeOfDay: r.timeOfDay }))
+      : [],
   });
   const guard = useUnsavedGuard({
     name,
@@ -163,7 +167,7 @@ function TemplateForm({ template }: { template: TaskTemplate | undefined }) {
     visible,
     items: items.map((i) => [i.label, i.required]),
     remind,
-    reminders: reminders.map((r) => r.daysBefore),
+    reminders: reminders.map((r) => [r.daysBefore, r.timeOfDay]),
   });
   const save = useApiMutation(
     () =>
@@ -182,19 +186,25 @@ function TemplateForm({ template }: { template: TaskTemplate | undefined }) {
       e['due'] = 'Enter 0 to 730 days, or leave it empty for no due date';
     if (remind && reminders.length > 0) {
       if (dueDays === '') e['reminders'] = 'Reminders need a due date. Set the due date first.';
-      else if (new Set(reminders.map((r) => r.daysBefore)).size < reminders.length)
-        e['reminders'] = 'Two reminders are the same. Remove one.';
+      else if (reminderProblem(reminders)) e['reminders'] = reminderProblem(reminders) as string;
     }
     setErrors(e);
     return Object.keys(e).length === 0;
   }
+  // One save at a time: a second click before the first answers does nothing.
+  const sendingRef = useRef(false);
   function submit() {
+    if (sendingRef.current) return;
     setMessage(undefined);
     if (!validate()) {
       setMessage({ text: 'Fix the highlighted fields to continue.', tone: 'error' });
       return;
     }
+    sendingRef.current = true;
     save.mutate(undefined, {
+      onSettled: () => {
+        sendingRef.current = false;
+      },
       onSuccess: (saved) => {
         guard.allow();
         router.push(library(saved.id));
@@ -428,7 +438,7 @@ function TemplateForm({ template }: { template: TaskTemplate | undefined }) {
               onChange={(e) => {
                 setRemind(e.target.checked);
                 if (e.target.checked && reminders.length === 0)
-                  setReminders([{ key: 'r0', daysBefore: 1 }]);
+                  setReminders([{ key: 'r0', daysBefore: 1, timeOfDay: null, custom: false }]);
               }}
             />
             {remind ? <ReminderList reminders={reminders} onChange={setReminders} /> : null}
