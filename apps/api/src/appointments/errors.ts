@@ -27,6 +27,12 @@ export const errors = {
   notFound: () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' }),
   forbidden: () =>
     new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' }),
+  /** Staff hours are read-only (Settings review, Availability items 4 and 19; Rasel, Oct 24). */
+  hoursReadOnly: () =>
+    new ForbiddenException({
+      code: 'FORBIDDEN',
+      message: 'Working hours are set by an Owner or Admin. Ask them for a change.',
+    }),
   slotTaken: () => conflict('SLOT_TAKEN', 'Someone else just took this time. Pick another.'),
   slotUnavailable: () => conflict('SLOT_UNAVAILABLE', 'This time is not available'),
   windowClosed: () =>
