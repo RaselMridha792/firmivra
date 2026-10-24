@@ -10,8 +10,10 @@ import {
   DepartmentId,
   DepartmentListQuery,
   DepartmentListResponse,
+  DepartmentMembers,
   DepartmentSummary,
   OrgChart,
+  SetDepartmentMembersRequest,
   SetStaffTeamMembersRequest,
   StaffTeam,
   StaffTeamDetail,
@@ -21,6 +23,13 @@ import {
   UpdateDepartmentRequest,
   UpdateStaffTeamRequest,
 } from './departments.js';
+import { SaveStaffSecurityDefaultsRequest, StaffSecurityDefaults } from './security-defaults.js';
+import {
+  SaveStaffJobTitleRequest,
+  StaffJobTitle,
+  StaffJobTitleId,
+  StaffJobTitleList,
+} from './job-titles.js';
 import {
   CreateCustomRoleRequest,
   CustomRole,
@@ -77,9 +86,13 @@ import {
 
 const STAFF = '/business/staff';
 const DRAFTS = '/business/staff-drafts';
+const TITLES = '/business/staff-job-titles';
+const title = (id: string) => `${TITLES}/${parseInput(StaffJobTitleId, id)}`;
+const SECURITY_DEFAULTS = '/business/staff-security-defaults';
 const one = (id: string) => `${STAFF}/${parseInput(StaffId, id)}`;
 const post = (body?: unknown) => ({ method: 'POST', ...(body === undefined ? {} : { body }) });
 const put = (body: unknown) => ({ method: 'PUT', body });
+const patch = (body: unknown) => ({ method: 'PATCH', body });
 
 /** The note's GET answers null when there is none. */
 const MaybeNote = z.object({ note: StaffNote.nullable() });
@@ -278,6 +291,34 @@ export function createStaffClient(request: ApiRequest, baseUrl = '') {
     deleteDraft: async (draftId: string): Promise<OkResponse> =>
       request(OkResponse, `${DRAFTS}/${parseInput(StaffDraftId, draftId)}`, { method: 'DELETE' }),
 
+    // Offices & Job Titles: the firm's saved job titles (Owner and Admin)
+    jobTitles: async (includeArchived = false): Promise<StaffJobTitle[]> =>
+      (
+        await request(
+          StaffJobTitleList,
+          `${TITLES}${toQuery({ includeArchived: includeArchived ? 'true' : undefined })}`,
+        )
+      ).items,
+    createJobTitle: async (body: SaveStaffJobTitleRequest): Promise<StaffJobTitle> =>
+      request(StaffJobTitle, TITLES, post(parseInput(SaveStaffJobTitleRequest, body))),
+    renameJobTitle: async (id: string, body: SaveStaffJobTitleRequest): Promise<StaffJobTitle> =>
+      request(StaffJobTitle, title(id), patch(parseInput(SaveStaffJobTitleRequest, body))),
+    archiveJobTitle: async (id: string): Promise<StaffJobTitle> =>
+      request(StaffJobTitle, `${title(id)}/archive`, post()),
+    restoreJobTitle: async (id: string): Promise<StaffJobTitle> =>
+      request(StaffJobTitle, `${title(id)}/restore`, post()),
+    // New Accounts & Security: what every new staff account starts from (Owner and Admin)
+    securityDefaults: async (): Promise<StaffSecurityDefaults> =>
+      request(StaffSecurityDefaults, SECURITY_DEFAULTS),
+    saveSecurityDefaults: async (
+      body: SaveStaffSecurityDefaultsRequest,
+    ): Promise<StaffSecurityDefaults> =>
+      request(
+        StaffSecurityDefaults,
+        SECURITY_DEFAULTS,
+        put(parseInput(SaveStaffSecurityDefaultsRequest, body)),
+      ),
+
     // Bulk Upload Staff
     /** The CSV template's address (a plain download link). */
     importTemplateUrl: (): string => `${baseUrl}${STAFF}/import/template`,
@@ -338,6 +379,20 @@ export function createDepartmentsClient(request: ApiRequest) {
         StaffTeamDetail,
         `${team(id)}/members`,
         put(parseInput(SetStaffTeamMembersRequest, body)),
+      ),
+
+    /** The staff assigned straight to the department (Manage Members). */
+    departmentMembers: async (id: string): Promise<DepartmentMembers> =>
+      request(DepartmentMembers, `${department(id)}/members`),
+    /** The whole list; 409 LAST_DEPARTMENT for someone whose only department it is. */
+    setDepartmentMembers: async (
+      id: string,
+      body: SetDepartmentMembersRequest,
+    ): Promise<DepartmentMembers> =>
+      request(
+        DepartmentMembers,
+        `${department(id)}/members`,
+        put(parseInput(SetDepartmentMembersRequest, body)),
       ),
 
     orgChart: async (): Promise<OrgChart> => request(OrgChart, '/business/org-chart'),

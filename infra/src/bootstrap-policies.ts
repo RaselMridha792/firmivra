@@ -6,7 +6,7 @@
 //   Only the services and resource names our stacks use.
 // - firmivra-permissions-boundary: on the execution role and on every role our stacks create.
 //   Caps what any of them can do, and stops a role from creating a role without this boundary.
-import { DEV_FIRMIVRA_COM } from './config';
+import { DEV_FIRMIVRA_COM, FIRMIVRA_COM } from './config';
 
 export const CFN_EXEC_POLICY_NAME = 'firmivra-cdk-cfn-exec';
 export const PERMISSIONS_BOUNDARY_NAME = 'firmivra-permissions-boundary';
@@ -25,7 +25,7 @@ export interface PolicyDocument {
 }
 
 /** Every hosted zone a config can switch to (customDomain); the policy may change records only there. */
-const HOSTED_ZONE_IDS = [DEV_FIRMIVRA_COM.hostedZoneId];
+const HOSTED_ZONE_IDS = [DEV_FIRMIVRA_COM.hostedZoneId, FIRMIVRA_COM.hostedZoneId];
 
 /** Service-linked roles that our resources need the first time they are created. */
 export const SERVICE_LINKED_ROLES = [

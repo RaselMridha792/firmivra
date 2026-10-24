@@ -123,9 +123,9 @@ function defaultSettings(): IntakeSettings {
     notifications: {
       sendClientConfirmation: true,
       notifyAssignedStaff: true,
-      firstReminderAfterDays: 3,
-      finalReminderAfterDays: 7,
-      expirationAlertHours: 24,
+      firstReminderAfterMinutes: 4320,
+      finalReminderAfterMinutes: 10080,
+      expirationAlertMinutes: 1440,
     },
     automation: {
       autoCreateClient: false,
@@ -980,25 +980,20 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       }
       const pick = <T extends object>(o: T | undefined) =>
         Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined));
-      // As the API: no first reminder is no reminders; no alert, or a final reminder that is not
-      // after the first, is refused at its field.
+      // As the API: no first reminder is no reminders; a final reminder that is not after the
+      // first is refused at its field. No alert (null) is taken.
       const n = { ...st.notifications, ...pick(input.notifications) };
-      if (n.firstReminderAfterDays === null) n.finalReminderAfterDays = null;
+      if (n.firstReminderAfterMinutes === null) n.finalReminderAfterMinutes = null;
       const refuse = (path: string, message: string) =>
         new ApiRequestError(400, 'VALIDATION_FAILED', message, undefined, undefined, [
           { path, message },
         ]);
-      if (n.expirationAlertHours === null)
-        throw refuse(
-          'notifications.expirationAlertHours',
-          'Choose how long before expiry the alert goes',
-        );
       if (
-        n.firstReminderAfterDays !== null &&
-        (n.finalReminderAfterDays ?? 0) <= n.firstReminderAfterDays
+        n.firstReminderAfterMinutes !== null &&
+        (n.finalReminderAfterMinutes ?? 0) <= n.firstReminderAfterMinutes
       )
         throw refuse(
-          'notifications.finalReminderAfterDays',
+          'notifications.finalReminderAfterMinutes',
           'The final reminder comes after the first',
         );
       const { defaultOwnerUserId, ...general } = input.general ?? {};

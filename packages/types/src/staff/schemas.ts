@@ -152,13 +152,20 @@ export const StaffFormOptions = z.object({
       }),
     )
     .optional(),
-  /** Titles already used at the firm, for "Select or enter job title". Free text is allowed. */
+  /**
+   * The firm's saved job titles (Offices & Job Titles; archived ones left out), by name, for
+   * "Select or enter job title". Free text is allowed and stays on the staff record only.
+   */
   jobTitles: z.array(z.string()),
   /**
-   * Offices or branches already used at the firm. No firm locations table yet: the distinct
-   * staff_profiles.office values until Settings > Company Profile adds locations.
+   * The firm's active locations (Settings > Locations, the main one first), for Office / Branch.
+   * A record keeps the office it has; the screens show it even when it is not one of these.
    */
   offices: z.array(z.string()),
+  /**
+   * The presets, then the firm's own schedules already given to someone (Octavia's SM8: custom
+   * saved schedules). Free text up to 80 characters is allowed.
+   */
   workSchedules: z.array(z.string()),
   /** Service codes (FIRM_SERVICES) for Service Area(s) and Primary Service Specialty. */
   serviceAreas: z.array(z.object({ code: z.string(), label: z.string() })),
@@ -271,12 +278,14 @@ export const StaffSecurityNotices = z.strictObject({
 });
 export type StaffSecurityNotices = z.infer<typeof StaffSecurityNotices>;
 
-const IpOrNetwork = z
+/** An IPv4 or IPv6 address, or a network in CIDR form. */
+export const StaffIpOrNetwork = z
   .string()
   .trim()
   .max(43)
   .regex(/^[0-9a-fA-F:.]+(\/\d{1,3})?$/, 'Use an IP address or network like 203.0.113.0/24');
-const CountryCode = z
+/** A two-letter country code (ISO 3166-1 alpha-2). */
+export const StaffCountryCode = z
   .string()
   .trim()
   .toUpperCase()
@@ -296,8 +305,8 @@ export const StaffAccessInput = z.strictObject({
   autoLogoutMinutes: z.number().int().min(5).max(480).nullable().optional(),
   disableOn: CalendarDate.nullable().optional(),
   accessLocation: StaffAccessLocation.optional(),
-  allowedIps: z.array(IpOrNetwork).max(20).optional(),
-  allowedCountries: z.array(CountryCode).max(50).optional(),
+  allowedIps: z.array(StaffIpOrNetwork).max(20).optional(),
+  allowedCountries: z.array(StaffCountryCode).max(50).optional(),
   maxConcurrentSessions: z.number().int().min(1).max(10).optional(),
   signOutOtherSessions: z.boolean().optional(),
   allowTrustedDevices: z.boolean().optional(),
@@ -731,7 +740,8 @@ export const StaffImportRowError = z.object({
 export type StaffImportRowError = z.infer<typeof StaffImportRowError>;
 
 export const StaffImportPreview = z.object({
-  previewToken: z.string(),
+  /** For import; null when no row can be imported (then only `errors` to fix). */
+  previewToken: z.string().nullable(),
   toCreate: z.number().int(),
   toUpdate: z.number().int(),
   invalid: z.number().int(),

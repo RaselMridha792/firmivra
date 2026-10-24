@@ -275,7 +275,7 @@ export function PayrollScreen() {
           <button type="button" className={outlined} onClick={() => setDialog('reports')}>
             <ChartBar aria-hidden weight="fill" className="size-4" /> View Reports
           </button>
-          <Link href="/modules/document-requests" className={outlined}>
+          <Link href="/documents/requests" className={outlined}>
             <FileText aria-hidden weight="fill" className="size-4" /> Request Documents
           </Link>
           <button type="button" className={outlined} onClick={() => setDialog('settings')}>

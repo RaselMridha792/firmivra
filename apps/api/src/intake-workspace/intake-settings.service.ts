@@ -8,6 +8,7 @@ import {
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
   INTAKE_FILE_SIZE_CHOICES,
+  intakeDurationWords,
   type IntakeSettings,
   type IntakeSettingsChange,
   type OkResponse,
@@ -33,6 +34,19 @@ const invalid = (path: string, message: string) =>
   });
 
 const MEMBER = { select: { userId: true, user: { select: { name: true } } } } as const;
+
+/**
+ * The old whole-day reminder columns, which keep their rules (first 1 to 30 days, final after it,
+ * at most 60) until a later migration drops them: the minutes rounded up to days.
+ */
+export function reminderDays(firstMinutes: number, finalMinutes: number) {
+  const firstReminderDays = Math.min(30, Math.max(1, Math.ceil(firstMinutes / 1440)));
+  const finalReminderDays = Math.min(
+    60,
+    Math.max(firstReminderDays + 1, Math.ceil(finalMinutes / 1440)),
+  );
+  return { firstReminderDays, finalReminderDays };
+}
 
 const isFileSizeChoice = (mb: number) =>
   (INTAKE_FILE_SIZE_CHOICES as readonly number[]).includes(mb);
@@ -96,9 +110,9 @@ export class IntakeSettingsService {
         sendClientConfirmation: r.sendClientConfirmation,
         notifyAssignedStaff: r.notifyAssignedStaff,
         // No reminders (reminders off for new sends) reads as no first and no final reminder.
-        firstReminderAfterDays: r.remindersEnabled ? r.firstReminderDays : null,
-        finalReminderAfterDays: r.remindersEnabled ? r.finalReminderDays : null,
-        expirationAlertHours: r.expiryAlertHours,
+        firstReminderAfterMinutes: r.remindersEnabled ? r.firstReminderMinutes : null,
+        finalReminderAfterMinutes: r.remindersEnabled ? r.finalReminderMinutes : null,
+        expirationAlertMinutes: r.expiryAlertMinutes,
       },
       automation: {
         autoCreateClient: r.autoCreateClient,
@@ -189,36 +203,44 @@ export class IntakeSettingsService {
         if (n.sendClientConfirmation !== undefined)
           data.sendClientConfirmation = n.sendClientConfirmation;
         if (n.notifyAssignedStaff !== undefined) data.notifyAssignedStaff = n.notifyAssignedStaff;
-        // No first reminder turns reminders off (each new send's default); the days are kept
+        // No first reminder turns reminders off (each new send's default); the times are kept
         // for when they are turned on again. There is no column for a first reminder without a
-        // final one, or for no expiration alert, so neither is taken.
-        if (n.firstReminderAfterDays !== undefined) {
-          data.remindersEnabled = n.firstReminderAfterDays !== null;
-          if (n.firstReminderAfterDays !== null) data.firstReminderDays = n.firstReminderAfterDays;
+        // final one, so that is not taken.
+        if (n.firstReminderAfterMinutes !== undefined) {
+          data.remindersEnabled = n.firstReminderAfterMinutes !== null;
+          if (n.firstReminderAfterMinutes !== null)
+            data.firstReminderMinutes = n.firstReminderAfterMinutes;
         }
-        if (n.finalReminderAfterDays !== undefined && n.finalReminderAfterDays !== null)
-          data.finalReminderDays = n.finalReminderAfterDays;
-        if (n.expirationAlertHours === null)
-          throw invalid(
-            'notifications.expirationAlertHours',
-            'Choose how long before expiry the alert goes',
-          );
-        if (n.expirationAlertHours !== undefined) data.expiryAlertHours = n.expirationAlertHours;
+        if (n.finalReminderAfterMinutes !== undefined && n.finalReminderAfterMinutes !== null)
+          data.finalReminderMinutes = n.finalReminderAfterMinutes;
+        // Octavia's I9: minutes too, and No alert (null). The old whole-hour column keeps its own
+        // rule (1 to 168) until a later migration drops it: it follows, rounded up, and keeps its
+        // value under No alert.
+        if (n.expirationAlertMinutes !== undefined) {
+          data.expiryAlertMinutes = n.expirationAlertMinutes;
+          if (n.expirationAlertMinutes !== null)
+            data.expiryAlertHours = Math.min(168, Math.ceil(n.expirationAlertMinutes / 60));
+        }
       }
       const enabled = (data.remindersEnabled as boolean | undefined) ?? current.remindersEnabled;
-      if (enabled && n?.finalReminderAfterDays === null)
+      if (enabled && n?.finalReminderAfterMinutes === null)
         throw invalid(
-          'notifications.finalReminderAfterDays',
+          'notifications.finalReminderAfterMinutes',
           'Choose when the final reminder goes, or No reminders for the first',
         );
-      const first = (data.firstReminderDays as number | undefined) ?? current.firstReminderDays;
-      const final = (data.finalReminderDays as number | undefined) ?? current.finalReminderDays;
+      const first =
+        (data.firstReminderMinutes as number | undefined) ?? current.firstReminderMinutes;
+      const final =
+        (data.finalReminderMinutes as number | undefined) ?? current.finalReminderMinutes;
       // As the database: the final reminder comes strictly after the first.
       if (final <= first)
         throw invalid(
-          'notifications.finalReminderAfterDays',
+          'notifications.finalReminderAfterMinutes',
           'The final reminder comes after the first',
         );
+      // The day columns stay (with their own rules) until a later migration drops them: they
+      // follow the minutes, rounded up to whole days, the final still after the first.
+      Object.assign(data, reminderDays(first, final));
       if (a) {
         if (a.autoCreateClient !== undefined) data.autoCreateClient = a.autoCreateClient;
         if (a.autoCreateFollowUpTask !== undefined)
@@ -307,8 +329,11 @@ export class IntakeSettingsService {
           sendClientConfirmation: true,
           notifyAssignedStaff: true,
           remindersEnabled: true,
+          firstReminderMinutes: 4320,
+          finalReminderMinutes: 10080,
           firstReminderDays: 3,
           finalReminderDays: 7,
+          expiryAlertMinutes: 1440,
           expiryAlertHours: 24,
           autoCreateClient: false,
           autoCreateFollowUpTask: false,
@@ -389,9 +414,8 @@ export class IntakeSettingsService {
       settings: await this.row(tx, businessId),
     }));
     if (!member?.user.email) throw forbidden();
-    const days = (n: number) => `${n} ${n === 1 ? 'day' : 'days'}`;
     const timing = settings.remindersEnabled
-      ? `Your firm sends the first reminder ${days(settings.firstReminderDays)} after a form is sent, and the final one ${days(settings.finalReminderDays)} after, until the form is submitted.`
+      ? `Your firm sends the first reminder ${intakeDurationWords(settings.firstReminderMinutes)} after a form is sent, and the final one ${intakeDurationWords(settings.finalReminderMinutes)} after it is sent, until the form is submitted.`
       : 'Reminders are off for new forms, so clients get none until they are turned on.';
     try {
       await this.notify.send({

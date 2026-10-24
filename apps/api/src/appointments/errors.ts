@@ -41,6 +41,10 @@ export const errors = {
     conflict('BLOCKS_APPOINTMENT', 'An appointment is scheduled in this time. Move it first.'),
   blockLimit: () =>
     conflict('BLOCK_LIMIT', 'This calendar has too many blocks. Delete some first.'),
+  nothingFree: () =>
+    conflict('NOTHING_FREE', 'Every part of this time is booked, so nothing was blocked.'),
+  /** Staff blocking their own time say why (Octavia's Availability guide, items 6 and 9). */
+  reasonRequired: () => invalidField('reason', 'Give a reason for blocking your time'),
   duplicateName: () =>
     conflict('DUPLICATE_NAME', 'An appointment type with this name already exists'),
   /** 409 with the conflict check's answer in `details`, so the form can show and offer a way out. */

@@ -17,7 +17,9 @@ import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './c
  * Mock data for `api.tasks` (R12). Synthetic data only. Same checks, rules and error codes as the
  * API. `role: 'STAFF'` is Sam Staff, as in mocks/clients.ts: Sam sees, changes and creates only
  * his clients' tasks (clients 1 and 2). A task goes to Sam only on his clients (409
- * CLIENT_NOT_ASSIGNED otherwise); Mock User (the Owner) can take any client's task.
+ * CLIENT_NOT_ASSIGNED otherwise); Mock User (the Owner) can take any client's task. Create keeps
+ * its idempotency key: a retry with one returns the first task, another member's use is 409
+ * IDEMPOTENCY_KEY_REUSED, as the API answers.
  */
 const at = '2026-10-07T09:00:00.000Z';
 const client = { id: firstClientId, displayName: 'Jamie Sample' };
@@ -110,6 +112,14 @@ export const mockOffset = (cursor: string | undefined) => {
 let rows: Task[] | undefined;
 export const mockTaskStore = () => (rows ??= taskFixtures().map(copy));
 
+/**
+ * The idempotency keys Create was sent with, in lower case, shared as the store is: the task each
+ * one made and the member who sent it. Create is this mock's only route with a key (the API's
+ * 'create' scope); the Tasks module's mock (mocks/tasks-work.ts) keeps its own.
+ */
+let keys: Map<string, { id: string; member: string }> | undefined;
+const mockTaskKeys = () => (keys ??= new Map());
+
 const order = (a: Task, b: Task) => {
   if (a.status === 'OPEN' && b.status !== 'OPEN') return -1;
   if (b.status === 'OPEN' && a.status !== 'OPEN') return 1;
@@ -167,6 +177,20 @@ export function createTasksMock(options: { role?: MockFirmRole } = {}): TasksCli
     create: async (body) => {
       await mockDelay();
       const input = parseInput(CreateTaskRequest, body);
+      // As the API, before anything else: a retry with the key by the member who sent it first
+      // returns that task as it is now (even if the body changed); any other use is 409.
+      const key = input.idempotencyKey?.toLowerCase();
+      const first = key === undefined ? undefined : mockTaskKeys().get(key);
+      if (first) {
+        if (first.member !== me.userId) {
+          throw fail(
+            409,
+            'IDEMPOTENCY_KEY_REUSED',
+            'This request key was already used for another save. Try again.',
+          );
+        }
+        return copy(find(first.id));
+      }
       const record = clientFixtures().find((c) => c.id === input.clientId);
       if (!record || (staffOnly && !theirClient(record.id))) throw notFound();
       if (input.engagementId && !ENGAGEMENTS[record.id]?.includes(input.engagementId)) {
@@ -186,6 +210,7 @@ export function createTasksMock(options: { role?: MockFirmRole } = {}): TasksCli
         updatedAt: now,
       });
       mockTaskStore().push(created);
+      if (key !== undefined) mockTaskKeys().set(key, { id: created.id, member: me.userId });
       return copy(created);
     },
     update: async (id, body) => {

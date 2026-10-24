@@ -30,11 +30,29 @@ import {
   reachesClient,
   sentFields,
   toDay,
+  violatedIndex,
 } from '../workspaces/common.js';
 import { completedAtAfter } from '../workspaces/tasks.service.js';
-import { LIVE_TASK, liveClient, taskErrors } from './task-common.js';
+import {
+  checkReminders,
+  fitReminders,
+  keyColumns,
+  keyedSave,
+  keyScope,
+  LIVE_TASK,
+  liveClient,
+  type Reminder,
+  reminderErrors,
+  reminderFrom,
+  reminderFromRow,
+  reminderRow,
+  remindersFromJson,
+  TASK_KEY_INDEX,
+  taskErrors,
+} from './task-common.js';
 import type {
   CreateTaskDetailRequest,
+  DuplicateTaskRequest,
   SaveTaskDraftRequest,
   UpdateTaskDetailRequest,
   UpdateTaskDraftRequest,
@@ -43,13 +61,13 @@ import { firmClock, reach, TaskReadService } from './task-read.service.js';
 
 type CreateBody = z.output<typeof CreateTaskDetailRequest>;
 type UpdateBody = z.output<typeof UpdateTaskDetailRequest>;
+type DuplicateBody = z.output<typeof DuplicateTaskRequest>;
 /** A new task's body, or a new draft's (Save as Draft: the client may come later). */
 type NewTaskBody = CreateBody | z.output<typeof SaveTaskDraftRequest>;
 /** A draft's changes (PATCH, or the fields sent with publish), without `version`. */
 export type DraftChanges = Omit<z.output<typeof UpdateTaskDraftRequest>, 'version'>;
 /** The fields a live task's change and a draft's change have in common. */
 type FieldChanges = Omit<UpdateBody, 'status' | 'version'>;
-type Reminder = NonNullable<CreateBody['reminders']>[number];
 type ChecklistInput = NonNullable<CreateBody['checklist']>[number];
 type Prerequisite = { id: string; status: StoredTaskStatus } | null;
 
@@ -133,7 +151,9 @@ const publishInclude = {
  * change locks the client and then the task, as the older service did. Audited with ids,
  * statuses and field names only: never a title, details, notes, a checklist label or a file name.
  * Drafts (task-drafts.service.ts) are saved, edited and checked before they go live with the same
- * pieces: `insertNew`, `editDraft` and `checkAsNew`.
+ * pieces: `insertNew`, `editDraft` and `checkAsNew`. Create and Duplicate are retry-safe by the
+ * request's idempotency key (keyedSave), and audit the new task in the transaction that makes it,
+ * so a task a retry returns was always audited.
  */
 @Injectable()
 export class TaskWriteService {
@@ -149,25 +169,35 @@ export class TaskWriteService {
 
   // ---------- Create ----------
 
+  /** A new task; with `idempotencyKey`, a retry returns the task the first save made. */
   async create(businessId: string, actor: ClientsActor, body: CreateBody): Promise<TaskDetail> {
-    const task = await this.inFirm(businessId, async (tx) => {
-      const client = await lockClient(tx, businessId, body.clientId);
-      if (!client || !reachesClient(actor, client)) throw notFound();
-      const id = await this.insertNew(tx, businessId, actor, body, client);
-      return this.reader.read(tx, businessId, null, id);
-    }).catch(this.newTaskErrors(body));
-    await this.audit.log(
-      'task.created',
-      { type: 'task', id: task.id },
-      {
-        clientId: task.client.id,
-        engagementId: task.engagementId,
-        assignedUserId: task.assignedTo?.userId ?? null,
-        fields: sentFields(body, CREATE_FIELDS),
-        ...(body.templateId ? { templateId: body.templateId.toLowerCase() } : {}),
+    return keyedSave(
+      this.database,
+      businessId,
+      actor,
+      { key: body.idempotencyKey, scope: keyScope.create, index: TASK_KEY_INDEX },
+      (tx, id) => this.reader.read(tx, businessId, actor, id),
+      async (tx) => {
+        const client = await lockClient(tx, businessId, body.clientId);
+        if (!client || !reachesClient(actor, client)) throw notFound();
+        const id = await this.insertNew(tx, businessId, actor, body, client);
+        const task = await this.reader.read(tx, businessId, null, id);
+        await this.audit.logIn(
+          tx,
+          'task.created',
+          { type: 'task', id: task.id },
+          {
+            clientId: task.client.id,
+            engagementId: task.engagementId,
+            assignedUserId: task.assignedTo?.userId ?? null,
+            fields: sentFields(body, CREATE_FIELDS),
+            ...(body.templateId ? { templateId: body.templateId.toLowerCase() } : {}),
+          },
+        );
+        return task;
       },
+      this.newTaskErrors(body),
     );
-    return task;
   }
 
   /** Backstop of a new task or draft: the assignee's membership went away before the insert. */
@@ -185,7 +215,10 @@ export class TaskWriteService {
    * attachments. `client`: the request's client, locked and reached by the actor; a draft may
    * have none yet. A draft is kept as sent: its ids must be the firm's and it must be storable,
    * but what only publishing checks (the assignee's reach, an archived type, the reminders and
-   * stage a live task needs) waits for `checkAsNew`. The new task's id.
+   * stage a live task needs) waits for `checkAsNew`. The template's reminders are never refused:
+   * a new task leaves out the ones that do not fit it, a draft keeps them all for publishing to
+   * check. The request's idempotency key is stored with its scope ('create' or 'draft'). The new
+   * task's id.
    */
   async insertNew(
     tx: TxClient,
@@ -211,14 +244,17 @@ export class TaskWriteService {
     const dueOn =
       body.dueOn ?? (tpl?.dueOffsetDays != null ? addDays(clock.today, tpl.dueOffsetDays) : null);
     const dueTime = body.dueTime ?? null;
+    const allDay = body.allDay ?? dueTime === null;
     const prerequisite = await this.prerequisite(tx, businessId, actor, null, body.dependsOnTaskId);
-    const reminders = body.reminders ?? reminderRules(tpl?.reminders);
+    const reminders = body.reminders
+      ? body.reminders.map(reminderFrom)
+      : templateReminders(tpl?.reminders, { dueOn, dueTime: allDay ? null : dueTime }, draft);
     const checklist = body.checklist ?? checklistRules(tpl?.checklist);
     const shape: Shape = {
       dueOn,
       startOn: body.startOn ?? null,
       dueTime,
-      allDay: body.allDay ?? dueTime === null,
+      allDay,
       progress:
         body.progress ?? (prerequisite?.status === 'DONE' || !prerequisite ? 'PENDING' : 'BLOCKED'),
       blockedReason: body.blockedReason ?? null,
@@ -252,6 +288,7 @@ export class TaskWriteService {
         blockedReason: shape.blockedReason,
         dependsOnTaskId: shape.dependsOnTaskId,
         templateId: tpl?.id ?? null,
+        ...keyColumns(body.idempotencyKey, draft ? keyScope.draft : keyScope.create),
       },
       select: { id: true },
     });
@@ -362,7 +399,7 @@ export class TaskWriteService {
         await this.saveChecklist(tx, businessId, id, changes.checklist, true);
       }
       if (changes.reminders !== undefined) {
-        await this.saveReminders(tx, businessId, id, changes.reminders);
+        await this.saveReminders(tx, businessId, id, shape.reminders);
       }
       if (changes.status === 'DONE' && current.status !== 'DONE')
         await this.unblock(tx, businessId, id);
@@ -384,7 +421,11 @@ export class TaskWriteService {
     return task;
   }
 
-  /** The dates, time, stage and reminders a stored task has once `changes` apply. */
+  /**
+   * The dates, time, stage and reminders a stored task has once `changes` apply: the reminders
+   * sent, or the stored ones, so a change of the due date or time (all-day, or none) is checked
+   * against the reminders the task keeps.
+   */
   private async shapeAfter(
     tx: TxClient,
     current: Task,
@@ -414,7 +455,9 @@ export class TaskWriteService {
         changes.blockedReason !== undefined ? changes.blockedReason : current.blockedReason,
       dependsOnTaskId: prerequisite?.id ?? null,
       dependencyOpen: prerequisite !== null && prerequisite.status !== 'DONE',
-      reminders: changes.reminders ?? (await this.storedReminders(tx, current.id)),
+      reminders: changes.reminders
+        ? changes.reminders.map(reminderFrom)
+        : await this.storedReminders(tx, current.id),
     };
     if (dueOn === null) shape.allDay = true;
     return shape;
@@ -516,7 +559,7 @@ export class TaskWriteService {
       await this.saveChecklist(tx, businessId, id, changes.checklist, true);
     }
     if (changes.reminders !== undefined) {
-      await this.saveReminders(tx, businessId, id, changes.reminders);
+      await this.saveReminders(tx, businessId, id, shape.reminders);
     }
     if (clientId && changes.attachments?.length) {
       await this.addAttachments(tx, businessId, actor, id, clientId, changes.attachments);
@@ -682,82 +725,111 @@ export class TaskWriteService {
     return task;
   }
 
-  async duplicate(businessId: string, actor: ClientsActor, id: string): Promise<TaskDetail> {
-    const task = await this.inFirm(businessId, async (tx) => {
-      const { client, current } = await this.open(tx, businessId, actor, id);
-      const [items, reminders, extra] = await Promise.all([
-        tx.taskChecklistItem.findMany({
-          where: { businessId, taskId: id },
-          orderBy: { position: 'asc' },
-        }),
-        tx.taskReminder.findMany({ where: { businessId, taskId: id } }),
-        tx.taskAssignee.findMany({ where: { businessId, taskId: id }, select: { userId: true } }),
-      ]);
-      // A copy keeps the assignee only while that person may still take this client's tasks.
-      let assignedUserId = current.assignedUserId;
-      if (assignedUserId) {
-        try {
-          await checkAssignee(tx, businessId, assignedUserId, client);
-        } catch {
-          assignedUserId = null;
-        }
-      }
-      const type = await this.liveType(tx, current.typeId);
-      const created = await tx.task.create({
-        data: {
-          businessId,
-          clientId: current.clientId,
-          engagementId: current.engagementId,
-          title: `${current.title.slice(0, 193)} (Copy)`,
-          details: current.details,
-          dueOn: current.dueOn,
-          startOn: current.startOn,
-          dueTime: current.dueTime,
-          allDay: current.allDay,
-          assignedUserId,
-          createdByUserId: actor.userId,
-          typeId: type,
-          serviceId: current.serviceId,
-          priority: current.priority,
-          clientVisible: current.clientVisible,
-          internalNotes: current.internalNotes,
-          templateId: current.templateId,
-        },
-        select: { id: true },
-      });
-      await tx.taskChecklistItem.createMany({
-        data: items.map((i, position) => ({
-          businessId,
-          taskId: created.id,
-          label: i.label,
-          position,
-          required: i.required,
-          assignedUserId: i.assignedUserId,
-        })),
-      });
-      await tx.taskReminder.createMany({
-        data: reminders.map((r) => ({
-          businessId,
-          taskId: created.id,
-          daysBefore: r.daysBefore,
-          timeOfDay: r.timeOfDay,
-          inApp: r.inApp,
-          channels: r.channels,
-        })),
-      });
-      await tx.taskAssignee.createMany({
-        data: extra
-          .filter((e) => e.userId !== assignedUserId)
-          .map((e) => ({ businessId, taskId: created.id, userId: e.userId })),
-      });
-      return { task: await this.reader.read(tx, businessId, null, created.id), source: id };
-    }).catch(this.mapErrors({}));
-    await this.audit.log(
-      'task.duplicated',
-      { type: 'task', id: task.task.id },
-      { clientId: task.task.client.id, from: task.source },
+  /**
+   * A new OPEN copy of the task; with `idempotencyKey`, a retry returns the copy the first one
+   * made (the key is kept with the source task's id: on another task it is 409).
+   */
+  async duplicate(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: DuplicateBody = {},
+  ): Promise<TaskDetail> {
+    const key = body.idempotencyKey;
+    const scope = keyScope.duplicate(id);
+    return keyedSave(
+      this.database,
+      businessId,
+      actor,
+      { key, scope, index: TASK_KEY_INDEX },
+      (tx, copy) => this.reader.read(tx, businessId, actor, copy),
+      (tx) => this.copy(tx, businessId, actor, id, keyColumns(key, scope)),
+      this.mapErrors({}),
     );
-    return task.task;
+  }
+
+  /** Duplicate's copy, with its key's columns, audited in its transaction. */
+  private async copy(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    keyed: ReturnType<typeof keyColumns>,
+  ): Promise<TaskDetail> {
+    const { client, current } = await this.open(tx, businessId, actor, id);
+    const [items, reminders, extra] = await Promise.all([
+      tx.taskChecklistItem.findMany({
+        where: { businessId, taskId: id },
+        orderBy: { position: 'asc' },
+      }),
+      tx.taskReminder.findMany({ where: { businessId, taskId: id } }),
+      tx.taskAssignee.findMany({ where: { businessId, taskId: id }, select: { userId: true } }),
+    ]);
+    // A copy keeps the assignee only while that person may still take this client's tasks.
+    let assignedUserId = current.assignedUserId;
+    if (assignedUserId) {
+      try {
+        await checkAssignee(tx, businessId, assignedUserId, client);
+      } catch {
+        assignedUserId = null;
+      }
+    }
+    const type = await this.liveType(tx, current.typeId);
+    const created = await tx.task.create({
+      data: {
+        businessId,
+        clientId: current.clientId,
+        engagementId: current.engagementId,
+        title: `${current.title.slice(0, 193)} (Copy)`,
+        details: current.details,
+        dueOn: current.dueOn,
+        startOn: current.startOn,
+        dueTime: current.dueTime,
+        allDay: current.allDay,
+        assignedUserId,
+        createdByUserId: actor.userId,
+        typeId: type,
+        serviceId: current.serviceId,
+        priority: current.priority,
+        clientVisible: current.clientVisible,
+        internalNotes: current.internalNotes,
+        templateId: current.templateId,
+        ...keyed,
+      },
+      select: { id: true },
+    });
+    await tx.taskChecklistItem.createMany({
+      data: items.map((i, position) => ({
+        businessId,
+        taskId: created.id,
+        label: i.label,
+        position,
+        required: i.required,
+        assignedUserId: i.assignedUserId,
+      })),
+    });
+    // Days rules and Custom ones alike (the copy keeps the due date and time).
+    await tx.taskReminder.createMany({
+      data: reminders.map((r) => ({
+        businessId,
+        taskId: created.id,
+        ...reminderRow(reminderFromRow(r)),
+      })),
+    });
+    await tx.taskAssignee.createMany({
+      data: extra
+        .filter((e) => e.userId !== assignedUserId)
+        .map((e) => ({ businessId, taskId: created.id, userId: e.userId })),
+    });
+    const task = await this.reader.read(tx, businessId, null, created.id);
+    // The source's stored id, not the URL's spelling.
+    await this.audit.logIn(
+      tx,
+      'task.duplicated',
+      { type: 'task', id: task.id },
+      { clientId: task.client.id, from: current.id },
+    );
+    return task;
   }
 
   archive(businessId: string, actor: ClientsActor, id: string) {
@@ -1044,8 +1116,12 @@ export class TaskWriteService {
 
   mapErrors(changes: { assignedUserId?: string | null }) {
     return (error: unknown): never => {
-      // tasks_one_open_name_change: another name change of this client opened at the same time.
-      if (isUniqueViolation(error)) throw nameChangePending();
+      if (isUniqueViolation(error)) {
+        // task_reminders_*: each rule once (only a backstop: the rules are checked first).
+        if (violatedIndex(error)?.startsWith('task_reminders')) throw reminderErrors.once();
+        // tasks_one_open_name_change: another name change of this client opened at the same time.
+        throw nameChangePending();
+      }
       if (changes.assignedUserId && isForeignKeyViolation(error)) throw notAMember();
       if (isCheckViolation(error)) {
         const text = String((error as { message?: unknown }).message ?? '');
@@ -1063,7 +1139,8 @@ export class TaskWriteService {
   /**
    * The shape a task must have. A draft (`draft`) only needs what the database can hold (the
    * start before the due date, a time with a due date and "all day" off, each reminder once);
-   * the stage and the reminders' timing are checked when it is published.
+   * the stage and the reminders' timing (a due date, a due time for a Custom one, never after
+   * the due time or two at one moment) are checked when it is published.
    */
   private checkShape(s: Shape, draft = false): void {
     if (s.startOn && s.dueOn && s.startOn > s.dueOn) {
@@ -1075,20 +1152,8 @@ export class TaskWriteService {
     if (!draft && s.progress === 'BLOCKED' && !s.blockedReason && !s.dependencyOpen) {
       throw taskErrors.invalid('progress', 'Say why it is blocked, or choose a prerequisite');
     }
-    if (!draft && s.reminders.length > 0 && s.dueOn === null) {
-      throw taskErrors.bad('INVALID_REMINDER', 'Set a due date before adding reminders');
-    }
-    const seen = new Set<string>();
-    for (const r of s.reminders) {
-      const key = `${r.daysBefore}@${r.timeOfDay ?? ''}`;
-      if (seen.has(key))
-        throw taskErrors.bad('INVALID_REMINDER', 'Each reminder can be added once');
-      seen.add(key);
-      // On the due day itself, a reminder after the due time is too late.
-      if (!draft && r.daysBefore === 0 && r.timeOfDay && s.dueTime && r.timeOfDay > s.dueTime) {
-        throw taskErrors.bad('INVALID_REMINDER', 'A reminder cannot be after the due time');
-      }
-    }
+    if (!draft && s.reminders.length > 0 && s.dueOn === null) throw reminderErrors.needsDueDate();
+    checkReminders(s.reminders, timedDue(s), !draft);
   }
 
   /** The engagement must be the client's (409 ENGAGEMENT_MISMATCH); without a client, none. */
@@ -1219,12 +1284,7 @@ export class TaskWriteService {
 
   private async storedReminders(tx: TxClient, taskId: string): Promise<Reminder[]> {
     const rows = await tx.taskReminder.findMany({ where: { taskId } });
-    return rows.map((r) => ({
-      daysBefore: r.daysBefore,
-      timeOfDay: r.timeOfDay ? r.timeOfDay.toISOString().slice(11, 16) : null,
-      inApp: r.inApp,
-      channels: r.channels,
-    }));
+    return rows.map(reminderFromRow);
   }
 
   private async template(tx: TxClient, businessId: string, id: string) {
@@ -1332,14 +1392,7 @@ export class TaskWriteService {
   ): Promise<void> {
     await tx.taskReminder.deleteMany({ where: { taskId } });
     await tx.taskReminder.createMany({
-      data: reminders.map((r) => ({
-        businessId,
-        taskId,
-        daysBefore: r.daysBefore,
-        timeOfDay: r.timeOfDay ? timeOfDayToDb(r.timeOfDay) : null,
-        inApp: r.inApp ?? true,
-        channels: r.channels ?? [],
-      })),
+      data: reminders.map((r) => ({ businessId, taskId, ...reminderRow(r) })),
     });
   }
 
@@ -1405,22 +1458,23 @@ function day(d: Date | null): string | null {
   return d ? d.toISOString().slice(0, 10) : null;
 }
 
-/** A template's reminders (JSON) as rules. */
-function reminderRules(json: unknown): Reminder[] {
-  if (!Array.isArray(json)) return [];
-  return json.map(
-    (r: {
-      daysBefore: number;
-      timeOfDay?: string | null;
-      inApp?: boolean;
-      channels?: ('EMAIL' | 'SMS')[];
-    }) => ({
-      daysBefore: r.daysBefore,
-      timeOfDay: r.timeOfDay ?? null,
-      inApp: r.inApp ?? true,
-      channels: r.channels ?? [],
-    }),
-  );
+/** The due time a task's reminders count back from: none when it has no date or is all-day. */
+const timedDue = (s: { dueOn: string | null; dueTime: string | null; allDay: boolean }) =>
+  s.dueOn !== null && !s.allDay ? s.dueTime : null;
+
+/**
+ * A template's reminders (JSON) for a new task: never refused. A live task leaves out the ones
+ * that do not fit it (all of them without a due date); a draft keeps them all for publishing to
+ * check, as if sent.
+ */
+function templateReminders(
+  json: unknown,
+  due: { dueOn: string | null; dueTime: string | null },
+  draft: boolean,
+): Reminder[] {
+  const rules = remindersFromJson(json);
+  if (draft) return rules;
+  return due.dueOn === null ? [] : fitReminders(rules, due.dueTime);
 }
 
 /** A template's checklist (JSON) as steps. */

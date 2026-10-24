@@ -71,6 +71,7 @@ export const TaskDraft = TaskDraftRow.extend({
   assignedUserId: z.uuid().nullable(),
   additionalAssignees: z.array(MemberRef),
   checklistItems: z.array(ChecklistItem),
+  /** As a task's: in the order they fire. */
   reminders: z.array(ReminderRuleOut),
   attachments: z.array(TaskAttachment),
   dependsOn: z.object({ id: z.uuid(), title: z.string(), status: TaskStatus }).nullable(),
@@ -123,18 +124,24 @@ const clientFirstError = {
 /**
  * POST /business/tasks/drafts: Save as Draft. The fields of CreateTaskDetailRequest, all kept as
  * sent, but only the title is required: the client may come later. Nothing is checked that
- * publishing checks (an assignee's reach, an archived type, reminders after the due date). Each
- * id sent must still be one the caller may use, with the error a new task gives for it (404 for a
- * client out of the caller's reach; 409 ENGAGEMENT_MISMATCH, NOT_A_MEMBER or
- * ATTACHMENT_NOT_ALLOWED; 400 VALIDATION_FAILED naming the field otherwise). `templateId` fills
- * the fields the request leaves out, as for a new task.
+ * publishing checks (an assignee's reach, an archived type, reminders without a due date or time,
+ * after the due time or at the same moment). Each id sent must still be one the caller may use,
+ * with the error a new task gives for it (404 for a client out of the caller's reach; 409
+ * ENGAGEMENT_MISMATCH, NOT_A_MEMBER or ATTACHMENT_NOT_ALLOWED; 400 VALIDATION_FAILED naming the
+ * field otherwise), and the same reminder twice (or two Custom ones of one length) is 400
+ * INVALID_REMINDER. `templateId` fills the fields the request leaves out, as for a new task,
+ * except that the draft keeps all the template's reminders: publishing checks them as if sent.
+ * `idempotencyKey` (./work.ts IdempotencyKey) makes a retry return the draft the first save made,
+ * while it is still a draft: once it is published, or for any other use of the key, 409
+ * IDEMPOTENCY_KEY_REUSED.
  */
 export const SaveTaskDraftRequest = CreateTaskDetailRequest.extend({
   clientId: z.uuid().optional(),
 }).refine(clientFirst, clientFirstError);
 export type SaveTaskDraftRequest = z.input<typeof SaveTaskDraftRequest>;
 
-const draftChanges = CreateTaskDetailRequest.omit({ templateId: true })
+/** A draft's changes; never a key (an edit or a publish changes the same row). */
+const draftChanges = CreateTaskDetailRequest.omit({ templateId: true, idempotencyKey: true })
   .partial()
   .extend({
     /** Setting, changing or clearing the client also clears the engagement and attachments
@@ -169,7 +176,13 @@ export type UpdateTaskDraftRequest = z.input<typeof UpdateTaskDraftRequest>;
  * PATCH does, then checks the draft as a new task is checked (a client, the engagement, the
  * assignee's reach, an active type, reminders) and makes it an OPEN task with the same id.
  * Answers the TaskDetail (./work.ts). 400 VALIDATION_FAILED naming `clientId` when it has none;
- * the task errors of a new task otherwise. An empty body publishes the draft as saved.
+ * the task errors of a new task otherwise. An empty body publishes the draft as saved. It takes
+ * no idempotency key: a publish retried after it went through (its answer lost) answers 200 with
+ * the task as it is now, without publishing or auditing again, when the caller published it and
+ * still reaches it; anyone else gets 404. That answer applies nothing the request sends (its
+ * fields and `version` are not read): the API cannot tell a retry from a second Save Task with
+ * other values, from another tab say, which then gets the task as the first publish left it. So
+ * after Save Task, show the task the answer returns, never the form's values.
  */
 export const PublishTaskDraftRequest = draftChanges.refine(
   (o) => o.clientId !== null || (o.engagementId == null && !o.attachments?.length),

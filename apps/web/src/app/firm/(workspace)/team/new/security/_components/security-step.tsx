@@ -8,8 +8,9 @@ import {
   StaffAccountInput,
   type StaffAuthMethod,
   type StaffDraftData,
+  type StaffSecurityDefaults,
 } from '@firmivra/types';
-import { Callout, Checkbox, Input, Radio, Select, Textarea } from '@firmivra/ui';
+import { Callout, Checkbox, Input, Radio, Select, Skeleton, Textarea } from '@firmivra/ui';
 import { Desktop, EnvelopeSimple, Info, LockSimple, ShieldCheck } from '@phosphor-icons/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -66,8 +67,26 @@ interface Form {
   notices: Record<(typeof NOTICES)[number][0], boolean>;
 }
 
-function fromDraft(d: StaffDraftData): Form {
-  const x = d.access ?? {};
+/** The firm's defaults for new accounts (Staff Settings > New Accounts & Security) as step 3. */
+const fromDefaults = (s: StaffSecurityDefaults): AccessInput => ({
+  allowedAuthMethods: s.allowedAuthMethods,
+  restrictDevices: s.restrictDevices,
+  autoLogoutMinutes: s.autoLogoutMinutes,
+  accessLocation: s.accessLocation,
+  allowedIps: s.allowedIps,
+  allowedCountries: s.allowedCountries,
+  maxConcurrentSessions: s.maxConcurrentSessions,
+  signOutOtherSessions: s.signOutOtherSessions,
+  allowTrustedDevices: s.allowTrustedDevices,
+  notices: s.notices,
+});
+
+/**
+ * The draft's step 3, each setting it has not chosen yet from the firm's defaults (when they could
+ * be read). Step 1 already keeps "Require password change" in the draft's access.
+ */
+function fromDraft(d: StaffDraftData, start?: StaffSecurityDefaults): Form {
+  const x: AccessInput = { ...(start ? fromDefaults(start) : {}), ...d.access };
   return {
     email: d.account?.email ?? '',
     requirePasswordChange: x.requirePasswordChange ?? true,
@@ -151,9 +170,16 @@ function check(f: Form): Record<string, string> {
  * here (a secure, time-limited link) and two-factor sign-in is always on for staff.
  */
 export function SecurityStep({ draftId }: { draftId?: string }) {
+  const defaults = useApiQuery(['staff', 'security-defaults'], () => api.staff.securityDefaults());
   return (
     <WithDraft draftId={draftId} step="security">
-      {(state) => <SecurityForm {...state} />}
+      {(state) =>
+        defaults.isPending ? (
+          <Skeleton className="h-96" />
+        ) : (
+          <SecurityForm {...state} start={defaults.data} />
+        )
+      }
     </WithDraft>
   );
 }
@@ -162,14 +188,16 @@ function SecurityForm({
   draftId: startDraft,
   base,
   notice,
+  start,
 }: {
   draftId: string | null;
   base: StaffDraftData;
   notice?: string;
+  start?: StaffSecurityDefaults;
 }) {
   const router = useRouter();
   const options = useApiQuery(['staff', 'options'], () => api.staff.options());
-  const [form, setForm] = useState<Form>(() => fromDraft(base));
+  const [form, setForm] = useState<Form>(() => fromDraft(base, start));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const draft = useDraftSaver(startDraft, 3);
   const set = <K extends keyof Form>(field: K, value: Form[K]) => {

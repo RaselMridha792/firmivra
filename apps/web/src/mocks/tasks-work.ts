@@ -6,9 +6,13 @@ import {
   CreateTaskDetailRequest,
   CreateTaskSeriesRequest,
   CreateTaskTemplateRequest,
+  DuplicateTaskRequest,
   type MemberRef,
   parseInput,
   PublishTaskDraftRequest,
+  reminderMinutes,
+  type ReminderRule,
+  type ReminderRuleOut,
   ReorderChecklistRequest,
   SaveTaskDraftRequest,
   SaveTaskAsTemplateRequest,
@@ -46,7 +50,10 @@ import { mockStaff } from './clients';
  * Mock data for `api.taskWork` (R55 contract, the Tasks module). Synthetic people and tasks only,
  * dated around today so Overdue, Upcoming and the calendar are always full. It checks input with
  * the contract's schemas and answers its codes: DUPLICATE_NAME, REQUIRED_ITEMS_OPEN,
- * DEPENDENCY_OPEN, TASK_CLOSED, OCCURRENCE_CLOSED, SERIES_NOT_ACTIVE, INVALID_RECURRENCE.
+ * DEPENDENCY_OPEN, TASK_CLOSED, OCCURRENCE_CLOSED, SERIES_NOT_ACTIVE, INVALID_RECURRENCE,
+ * IDEMPOTENCY_KEY_REUSED. Create, Save as Draft, Duplicate, Set Up Recurring and Convert keep
+ * their idempotency keys: a retry with one returns the first record, as the API does; a publish
+ * retried after it went through answers the task to the member who published it.
  * `empty: true` (NEXT_PUBLIC_API_MOCK_EMPTY=taskWork) starts with no tasks, templates, series or
  * task types, as a firm that never set any up.
  */
@@ -77,10 +84,65 @@ const CLIENTS = [
 const KEVIN: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000001', name: 'Kevin Martin' };
 const ALICIA: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000002', name: 'Alicia Park' };
 
+/** One day before the due date, at the firm's default time (a days rule, as read back). */
+const DAY_BEFORE: ReminderRuleOut = {
+  id: null,
+  daysBefore: 1,
+  timeOfDay: null,
+  amount: null,
+  unit: null,
+  inApp: true,
+  channels: [],
+};
+
+/**
+ * A reminder as the API reads it back: a days rule as sent, or Custom (minutes, hours or days
+ * before the due time) with its amount and unit, its whole days and no time.
+ */
+const reminderOut = (r: ReminderRule): ReminderRuleOut => {
+  const minutes = reminderMinutes(r);
+  const sent = { id: null, inApp: r.inApp ?? true, channels: r.channels ?? [] };
+  return minutes === null
+    ? {
+        ...sent,
+        daysBefore: r.daysBefore ?? 0,
+        timeOfDay: r.timeOfDay ?? null,
+        amount: null,
+        unit: null,
+      }
+    : {
+        ...sent,
+        daysBefore: Math.floor(minutes / 1_440),
+        timeOfDay: null,
+        amount: r.amount ?? null,
+        unit: r.unit ?? null,
+      };
+};
+
+/** As the API: a Custom reminder counts back from a due time (a draft keeps it until publishing). */
+const refuseCustomWithoutTime = (t: TaskDetail) => {
+  const timed = t.dueOn !== null && t.dueTime !== null && !t.allDay;
+  if (!timed && t.reminders.some((r) => r.unit !== null))
+    throw fail(400, 'INVALID_REMINDER', 'A reminder in minutes or hours needs a due time');
+};
+
 /** A draft is kept as the task it will become, with its client apart (a draft may have none). */
 interface StoredDraft {
   t: TaskDetail;
   client: TaskDraft['client'];
+}
+
+/**
+ * What a save sent with an idempotency key made, as the API keeps it on the row: a task (Create,
+ * Save as Draft, Duplicate) or a series (Set Up Recurring, Convert), the route and task the key
+ * was used for, and the member who used it.
+ */
+interface KeyedSave {
+  kind: 'task' | 'series';
+  /** 'create', 'draft', 'duplicate:<task id>', 'series' or 'convert:<task id>'. */
+  scope: string;
+  id: string;
+  member: string;
 }
 
 interface Store {
@@ -90,6 +152,10 @@ interface Store {
   templates: TaskTemplate[];
   series: { detail: TaskSeriesDetail; occurrences: TaskOccurrence[] }[];
   next: number;
+  /** By idempotency key, in lower case. */
+  keys: Map<string, KeyedSave>;
+  /** Who published each draft, by task id (the API reads it from the publish's audit row). */
+  publishedBy: Map<string, string>;
 }
 
 const rowFields = (t: Partial<TaskDetail> & { id: string; title: string }): TaskDetail => {
@@ -146,7 +212,18 @@ function seed(empty: boolean): Store {
     'Compliance',
     'Onboarding',
   ].map((name, i) => ({ id: uuid('0e10', i + 1), name, sortOrder: i, archivedAt: null }));
-  if (empty) return { tasks: [], drafts: [], types: [], templates: [], series: [], next: 100 };
+  if (empty) {
+    return {
+      tasks: [],
+      drafts: [],
+      types: [],
+      templates: [],
+      series: [],
+      next: 100,
+      keys: new Map(),
+      publishedBy: new Map(),
+    };
+  }
   const d = today();
   const ty = (i: number) => ({ id: types[i]!.id, name: types[i]!.name });
   const items: [
@@ -213,8 +290,7 @@ function seed(empty: boolean): Store {
         i === 0
           ? 'Prepare initial business plan draft including market analysis, financial projections, and growth strategy.'
           : null,
-      reminders:
-        i === 0 ? [{ id: null, daysBefore: 1, timeOfDay: null, inApp: true, channels: [] }] : [],
+      reminders: i === 0 ? [{ ...DAY_BEFORE }] : [],
       updatedAt: new Date(Date.now() - i * 3_600_000).toISOString(),
     });
   });
@@ -295,6 +371,8 @@ function seed(empty: boolean): Store {
     templates,
     series: [],
     next: 100,
+    keys: new Map(),
+    publishedBy: new Map(),
   };
   store.series.push(makeSeries(store, 1, 'Quarterly Bookkeeping Review', CLIENTS[2]!, 3, 'MONTH'));
   store.series.push(makeSeries(store, 2, 'Weekly Payroll Check', CLIENTS[3]!, 1, 'WEEK'));
@@ -394,7 +472,7 @@ function makeSeries(
       { label: 'Reconcile bank and credit card accounts', required: true },
       { label: 'Review income and expenses', required: false },
     ],
-    reminders: [{ id: null, daysBefore: 1, timeOfDay: null, inApp: true, channels: [] }],
+    reminders: [{ ...DAY_BEFORE }],
     upcoming: dates,
     pausedAt: null,
     endedAt: null,
@@ -475,8 +553,17 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     if (has('priority')) t.priority = b['priority'] as TaskDetail['priority'];
     if (has('progress')) t.progress = b['progress'] as TaskDetail['progress'];
     if (has('startOn')) t.startOn = (b['startOn'] as string | null) ?? null;
-    if (has('dueTime')) t.dueTime = (b['dueTime'] as string | null) ?? null;
+    if (has('dueTime')) {
+      t.dueTime = (b['dueTime'] as string | null) ?? null;
+      // As the API: without "all day" sent, a time turns it off and no time turns it on.
+      if (!has('allDay')) t.allDay = t.dueTime === null;
+    }
     if (has('allDay')) t.allDay = b['allDay'] as boolean;
+    // As the API: no due date, no time.
+    if (has('dueOn') && t.dueOn === null) {
+      t.dueTime = null;
+      t.allDay = true;
+    }
     if (has('clientVisible')) t.clientVisible = b['clientVisible'] as boolean;
     if (has('internalNotes')) t.internalNotes = (b['internalNotes'] as string | null) ?? null;
     if (has('blockedReason')) t.blockedReason = (b['blockedReason'] as string | null) ?? null;
@@ -494,21 +581,10 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       t.dependsOn = dep ? { id: dep.id, title: dep.title, status: dep.status } : null;
     }
     if (has('reminders')) {
-      const list = b['reminders'] as {
-        daysBefore: number;
-        timeOfDay?: string | null;
-        inApp?: boolean;
-        channels?: ('EMAIL' | 'SMS')[];
-      }[];
+      const list = b['reminders'] as ReminderRule[];
       if (list.length && !t.dueOn)
         throw fail(400, 'INVALID_REMINDER', 'A reminder needs a due date');
-      t.reminders = list.map((r) => ({
-        id: null,
-        daysBefore: r.daysBefore,
-        timeOfDay: r.timeOfDay ?? null,
-        inApp: r.inApp ?? true,
-        channels: r.channels ?? [],
-      }));
+      t.reminders = list.map(reminderOut);
     }
     if (has('checklist')) {
       const list = b['checklist'] as {
@@ -649,19 +725,37 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     if (!x) throw fail(404, 'NOT_FOUND', 'Not found');
     return x;
   };
+  // ----- Idempotency keys (the contract's IdempotencyKey) -----
+  const keyReused = () =>
+    fail(
+      409,
+      'IDEMPOTENCY_KEY_REUSED',
+      'This request key was already used for another save. Try again.',
+    );
+  /**
+   * As the API, before anything else: a retry of a keyed save by the member who made it, on the
+   * same route and task, gets what the first save made; null for a new key; 409 for any other use.
+   */
+  const keyed = (key: string | undefined, scope: string): KeyedSave | null => {
+    if (!key) return null;
+    const first = s.keys.get(key.toLowerCase());
+    if (!first) return null;
+    if (first.member !== me.userId || first.scope !== scope) throw keyReused();
+    return first;
+  };
+  const remember = (
+    key: string | undefined,
+    kind: KeyedSave['kind'],
+    scope: string,
+    id: string,
+  ) => {
+    if (key) s.keys.set(key.toLowerCase(), { kind, scope, id, member: me.userId });
+  };
   // The mock has no catalog: a template's service keeps its id under a neutral name.
   const templateService = (id: string | null | undefined) =>
     id ? { id, name: 'Selected service' } : null;
-  const templateReminders = (
-    list: { daysBefore: number; timeOfDay?: string | null }[] | undefined,
-  ) =>
-    (list ?? []).map((r) => ({
-      id: null,
-      daysBefore: r.daysBefore,
-      timeOfDay: r.timeOfDay ?? null,
-      inApp: true,
-      channels: [] as ('EMAIL' | 'SMS')[],
-    }));
+  // Each rule as sent, Custom ones too (a template has no due time).
+  const templateReminders = (list: ReminderRule[] | undefined) => (list ?? []).map(reminderOut);
   const template = (id: string) => {
     const x = s.templates.find((y) => y.id === id);
     if (!x) throw fail(404, 'NOT_FOUND', 'Not found');
@@ -803,6 +897,8 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     create: async (body) => {
       await mockDelay();
       const b = parseInput(CreateTaskDetailRequest, body);
+      const first = keyed(b.idempotencyKey, 'create');
+      if (first) return copy(touchless(find(first.id)));
       const client = CLIENTS.find((c) => c.id === b.clientId) ?? {
         id: b.clientId,
         displayName: 'Selected client',
@@ -825,8 +921,10 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         checklist:
           b.checklist ?? tpl?.checklist.map((c) => ({ label: c.label, required: c.required })),
       });
+      refuseCustomWithoutTime(t);
       for (const a of b.attachments ?? []) attach(t, a);
       s.tasks.unshift(t);
+      remember(b.idempotencyKey, 'task', 'create', t.id);
       return copy(touch(t));
     },
     update: async (id, body) => {
@@ -841,7 +939,12 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         Object.keys(b).some((k) => k !== 'version')
       )
         throw fail(409, 'TASK_CLOSED', 'Reopen the task before changing it');
-      applyFields(t, b);
+      // Checked on a copy, so a refused change leaves the task as it was. The reminders kept count:
+      // going all-day with a Custom reminder is refused unless the request replaces them.
+      const next = copy(t);
+      applyFields(next, b);
+      refuseCustomWithoutTime(next);
+      Object.assign(t, next);
       if (b.status) t.status = b.status;
       return copy(touch(t));
     },
@@ -895,6 +998,12 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     saveDraft: async (body) => {
       await mockDelay();
       const b = parseInput(SaveTaskDraftRequest, body);
+      const first = keyed(b.idempotencyKey, 'draft');
+      if (first) {
+        // Only while it is still a draft: once published, the key gives nothing back.
+        if (!s.drafts.some((y) => y.t.id === first.id)) throw keyReused();
+        return copy(draftOf(findDraft(first.id)));
+      }
       const tpl = b.templateId ? template(b.templateId) : undefined;
       const x: StoredDraft = {
         client: null,
@@ -915,6 +1024,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
           b.checklist ?? tpl?.checklist.map((c) => ({ label: c.label, required: c.required })),
       });
       s.drafts.unshift(x);
+      remember(b.idempotencyKey, 'task', 'draft', x.t.id);
       return copy(draftOf(x));
     },
     updateDraft: async (id, body) => {
@@ -930,6 +1040,10 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     publishDraft: async (id, body = {}) => {
       await mockDelay();
       const b = parseInput(PublishTaskDraftRequest, body);
+      // As the API: a publish retried after it went through answers the task as it is now, to
+      // the member who published it while they still see it, and applies nothing of the body.
+      const live = s.tasks.find((t) => t.id === id);
+      if (live && sees(live) && s.publishedBy.get(id) === me.userId) return copy(touchless(live));
       const x = findDraft(id);
       if (b.version && b.version !== x.t.version)
         throw fail(409, 'SAVE_CONFLICT', 'Someone saved this draft after you opened it');
@@ -946,16 +1060,20 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       type(x.t.type?.id);
       if (x.t.reminders.length && !x.t.dueOn)
         throw fail(400, 'INVALID_REMINDER', 'A reminder needs a due date');
+      refuseCustomWithoutTime(x.t);
       s.drafts = s.drafts.filter((y) => y !== x);
       x.t.client = x.client;
       x.t.status = 'OPEN';
       s.tasks.unshift(x.t);
+      s.publishedBy.set(x.t.id, me.userId);
       return copy(touch(x.t));
     },
     discardDraft: async (id) => {
       const x = findDraft(id);
       await mockDelay();
       s.drafts = s.drafts.filter((y) => y !== x);
+      // A discarded draft frees its key.
+      for (const [key, saved] of s.keys) if (saved.id === x.t.id) s.keys.delete(key);
       return { ok: true };
     },
     complete: async (id) => {
@@ -992,8 +1110,12 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       t.progress = progress;
       return copy(touch(t));
     },
-    duplicate: async (id) => {
+    duplicate: async (id, body = {}) => {
       await mockDelay();
+      const key = parseInput(DuplicateTaskRequest, body)?.idempotencyKey;
+      const scope = `duplicate:${id.toLowerCase()}`;
+      const first = keyed(key, scope);
+      if (first) return copy(touchless(find(first.id)));
       const src = find(id);
       const t = copy(src);
       t.id = uuid('0a10', s.next++);
@@ -1010,6 +1132,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         completedBy: null,
       }));
       s.tasks.unshift(t);
+      remember(key, 'task', scope, t.id);
       return copy(touch(t));
     },
     archive: async (id) => {
@@ -1312,6 +1435,8 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     createSeries: async (body) => {
       await mockDelay();
       const b = parseInput(CreateTaskSeriesRequest, body);
+      const first = keyed(b.idempotencyKey, 'series');
+      if (first) return copy(series(first.id).detail);
       const client = CLIENTS.find((c) => c.id === b.clientId) ?? {
         id: b.clientId,
         displayName: 'Selected client',
@@ -1338,6 +1463,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       made.occurrences = [];
       reseries(made);
       s.series.unshift(made);
+      remember(b.idempotencyKey, 'series', 'series', made.detail.id);
       return copy(made.detail);
     },
     updateSeries: async (id, body) => {
@@ -1414,6 +1540,9 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     convertToRecurring: async (id, body) => {
       await mockDelay();
       const b = parseInput(ConvertToRecurringRequest, body);
+      const scope = `convert:${id.toLowerCase()}`;
+      const first = keyed(b.idempotencyKey, scope);
+      if (first) return copy(series(first.id).detail);
       const t = find(id);
       const made = makeSeries(
         s,
@@ -1427,6 +1556,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       t.series = { id: made.detail.id, title: made.detail.title };
       touch(t);
       s.series.unshift(made);
+      remember(b.idempotencyKey, 'series', scope, made.detail.id);
       return copy(made.detail);
     },
   };

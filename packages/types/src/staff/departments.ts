@@ -145,6 +145,27 @@ export const SetStaffTeamMembersRequest = z.strictObject({
 });
 export type SetStaffTeamMembersRequest = z.input<typeof SetStaffTeamMembersRequest>;
 
+/**
+ * GET /business/departments/{id}/members: Manage Members on a department (Octavia's SM13): the
+ * staff assigned straight to it (member_departments), whatever their teams. Deactivated staff are
+ * not listed and keep their assignments.
+ */
+export const DepartmentMembers = z.object({ members: z.array(StaffRef) });
+export type DepartmentMembers = z.infer<typeof DepartmentMembers>;
+
+/**
+ * PUT /business/departments/{id}/members: the department's whole list, with no team needed. Only
+ * an active department; each person an active, invited or locked member. Taking someone out of
+ * their only department is 409 LAST_DEPARTMENT (staff keep at least one, as Create Staff asks).
+ */
+export const SetDepartmentMembersRequest = z.strictObject({
+  membershipIds: z
+    .array(z.uuid())
+    .max(500)
+    .refine((list) => new Set(list).size === list.length, 'Add each person once'),
+});
+export type SetDepartmentMembersRequest = z.input<typeof SetDepartmentMembersRequest>;
+
 /** One person in the org chart; `supervisorId` (a membership id) draws the line up. */
 export const OrgChartNode = StaffRef.extend({
   supervisorId: z.uuid().nullable(),

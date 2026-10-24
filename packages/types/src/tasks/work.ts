@@ -10,6 +10,7 @@ import {
   TaskOccurrenceState,
   TaskPriority,
   TaskProgress,
+  TaskReminderUnit,
   TaskSeriesStatus,
 } from '../db-enums.js';
 import { TaskKind, TaskStatus } from './schemas.js';
@@ -88,12 +89,52 @@ export const ChecklistItemInput = z.strictObject({
 });
 export type ChecklistItemInput = z.input<typeof ChecklistItemInput>;
 
-/** A relative reminder: `daysBefore` the due date (0: the due day) at `timeOfDay`. */
+/** Minutes in one unit of a Custom reminder. */
+export const TASK_REMINDER_UNIT_MINUTES = {
+  MINUTES: 1,
+  HOURS: 60,
+  DAYS: 1_440,
+} as const satisfies Record<TaskReminderUnit, number>;
+/** The longest Custom reminder, in minutes: 365 days. */
+export const TASK_REMINDER_MAX_MINUTES = 525_600;
+
+/** A Custom reminder's length in minutes (`amount` times its unit); null for a days rule. */
+export function reminderMinutes(rule: {
+  amount?: number | null;
+  unit?: TaskReminderUnit | null;
+}): number | null {
+  return rule.amount != null && rule.unit != null
+    ? rule.amount * TASK_REMINDER_UNIT_MINUTES[rule.unit]
+    : null;
+}
+
+/**
+ * A reminder rule, in one of two forms (Octavia's Tasks review A3, Oct 24):
+ * - days: `daysBefore` the due date (0: the due day) at `timeOfDay`, as before;
+ * - Custom: `amount` `unit` before the due date and time, in the firm's time zone. MINUTES and
+ *   HOURS count back from the due moment; DAYS is the same clock time that many days earlier; a
+ *   due time that falls in a daylight-saving gap moves forward. Custom takes no `timeOfDay`, and
+ *   `daysBefore` only as its whole days, so a rule read back (ReminderRuleOut, without its `id`)
+ *   can be sent back as it came.
+ * Custom needs a due time: on an all-day task, or one with no due date, it is refused (400
+ * INVALID_REMINDER).
+ * The exact instant a reminder fires is the delivery job's to work out, as above. The API's checks
+ * count plain clock minutes instead (an hour is 60, a day 1,440, daylight saving ignored): the same
+ * reminder (60 MINUTES and 1 HOURS, or 24 HOURS and 1 DAYS), two that fire at the same moment (1
+ * day before at 13:30 and 25 HOURS, on a task due at 14:30), and the order a task's reminders are
+ * read in. So on a daylight-saving weekend two rules an hour apart can be refused as one moment,
+ * and two that fire together can both be kept.
+ */
 export const ReminderRule = z
   .strictObject({
-    daysBefore: z.number().int().min(0).max(365),
-    /** Null: the firm's default time. */
+    /** A days rule: 0 to 365 days before the due date. */
+    daysBefore: z.number().int().min(0).max(365).optional(),
+    /** A days rule's time. Null: the firm's default time. */
     timeOfDay: TaskTimeOfDay.nullable().default(null),
+    /** Custom: how many `unit`s before the due date and time, at most 365 days in all. */
+    amount: z.number().int().min(1).max(999).nullable().optional(),
+    /** Custom: MINUTES, HOURS or DAYS. Null or left out: a days rule. */
+    unit: TaskReminderUnit.nullable().optional(),
     inApp: z.boolean().default(true),
     /** Email or SMS, as the firm's settings, the provider and the person's consent allow. */
     channels: z.array(DeliveryChannel).max(2).default([]),
@@ -101,12 +142,38 @@ export const ReminderRule = z
   .refine((r) => r.inApp || r.channels.length > 0, {
     message: 'Choose where to remind',
     path: ['channels'],
+  })
+  .superRefine((r, ctx) => {
+    const issue = (path: string, message: string) =>
+      ctx.addIssue({ code: 'custom', path: [path], message });
+    if (r.amount == null && r.unit == null) {
+      if (r.daysBefore === undefined) issue('daysBefore', 'Choose when to remind');
+      return;
+    }
+    if (r.amount == null) return issue('amount', 'Enter how many');
+    if (r.unit == null) return issue('unit', 'Choose minutes, hours or days');
+    if (r.timeOfDay !== null) issue('timeOfDay', 'Choose a time only for a reminder in days');
+    const minutes = r.amount * TASK_REMINDER_UNIT_MINUTES[r.unit];
+    if (minutes > TASK_REMINDER_MAX_MINUTES) issue('amount', 'Use at most 365 days');
+    else if (r.daysBefore !== undefined && r.daysBefore !== Math.floor(minutes / 1_440)) {
+      issue('daysBefore', 'Send the days or the amount and unit, not both');
+    }
   });
 export type ReminderRule = z.input<typeof ReminderRule>;
+
+/**
+ * A reminder rule as read. Both forms carry `daysBefore` (a Custom rule's whole days), so a screen
+ * that shows only days still shows a valid rule.
+ */
 export const ReminderRuleOut = z.object({
   id: z.uuid().nullable(),
+  /** A days rule's days; a Custom rule's whole days (90 MINUTES: 0, 36 HOURS: 1). */
   daysBefore: z.number().int(),
+  /** A days rule's time; null for Custom. */
   timeOfDay: TaskTimeOfDay.nullable(),
+  /** Custom, as typed; null for a days rule (and filled in when an older API leaves them out). */
+  amount: z.number().int().nullable().default(null),
+  unit: TaskReminderUnit.nullable().default(null),
   inApp: z.boolean(),
   channels: z.array(DeliveryChannel),
 });
@@ -183,6 +250,10 @@ export const TaskDetail = TaskRow.extend({
   assignedUserId: z.uuid().nullable(),
   additionalAssignees: z.array(MemberRef),
   checklistItems: z.array(ChecklistItem),
+  /**
+   * In the order they fire, the earliest first (a days rule with no time is placed as if at the
+   * due time).
+   */
   reminders: z.array(ReminderRuleOut),
   attachments: z.array(TaskAttachment),
   /** The one task that must be done first. */
@@ -280,6 +351,22 @@ export const TaskCalendarItem = z.object({
 export const TaskCalendar = z.object({ items: z.array(TaskCalendarItem).max(500) });
 export type TaskCalendar = z.infer<typeof TaskCalendar>;
 
+/**
+ * The key a screen makes for one save that creates something (`crypto.randomUUID()`): Create
+ * Task, Save as Draft, Duplicate, Set Up Recurring Task and Convert to Recurring (R1, Oct 24).
+ * Send it again only when retrying that same save after a lost answer (a network error or a
+ * timeout); make a new one after a success (Save & Create Another), after any change to the form
+ * and after a 409. A retry with the key makes nothing new: it answers the route's success status
+ * with the record the first save made, as it is now and as the caller reaches it (404 when they
+ * no longer do), and nothing is saved or audited again, even when the body changed. Only the
+ * member who made the record gets it back, and only on the same route for the same task in the
+ * URL: any other use of the key in the firm is 409 IDEMPOTENCY_KEY_REUSED, and the record is
+ * never shown. Two saves with one key at once, on any of these routes, are answered as if one
+ * came after the other. Kept as long as the record (a discarded draft frees its key). Never on a
+ * change (PATCH) or on publishing a draft.
+ */
+const IdempotencyKey = z.uuid();
+
 const taskFields = {
   typeId: z.uuid().nullable().optional(),
   priority: TaskPriority.optional(),
@@ -297,7 +384,12 @@ const taskFields = {
   additionalAssigneeIds: z.array(z.uuid()).max(20).optional(),
   /** The one task that must be done first (400 DEPENDENCY_CYCLE when it would loop). */
   dependsOnTaskId: z.uuid().nullable().optional(),
-  /** Replaces the reminders. A reminder after the due date is refused (400 INVALID_REMINDER). */
+  /**
+   * Replaces the reminders. 400 INVALID_REMINDER: a reminder with no due date, after the due
+   * time, two that fire at the same moment, or a Custom one without a due time. Making the task
+   * all-day, or clearing its due date or time, while it keeps Custom reminders is refused the
+   * same way unless the request also replaces them.
+   */
   reminders: z.array(ReminderRule).max(10).optional(),
 };
 
@@ -305,7 +397,10 @@ const taskFields = {
  * POST /business/tasks: a new GENERAL task. The fields of ./schemas.ts CreateTaskRequest plus
  * these. `templateId` starts the task from a template: every field the request leaves out comes
  * from the template (type, service, priority, assignment rule, due date offset, checklist,
- * reminders, visibility), as a snapshot; the request's own fields win.
+ * reminders, visibility), as a snapshot; the request's own fields win. The template's reminders
+ * that do not fit the new task are left out, never refused: all of them when it has no due date,
+ * a Custom one when it has no due time, and one after the due time or at the moment of another.
+ * `idempotencyKey` makes a retry return the task the first save made (see IdempotencyKey).
  */
 export const CreateTaskDetailRequest = z.strictObject({
   clientId: z.uuid(),
@@ -320,6 +415,7 @@ export const CreateTaskDetailRequest = z.strictObject({
   /** Documents of the client to attach. */
   attachments: z.array(AddTaskAttachmentRequest).max(20).optional(),
   templateId: TaskTemplateId.optional(),
+  idempotencyKey: IdempotencyKey.optional(),
 });
 export type CreateTaskDetailRequest = z.input<typeof CreateTaskDetailRequest>;
 
@@ -344,6 +440,16 @@ export const UpdateTaskDetailRequest = z
     'Change at least one field',
   );
 export type UpdateTaskDetailRequest = z.input<typeof UpdateTaskDetailRequest>;
+
+/**
+ * POST /business/tasks/{id}/duplicate: a new OPEN copy with its checklist and reminders (not the
+ * attachments or history). The body is optional. `idempotencyKey` makes a retry return the copy
+ * the first one made; a key that duplicated another task is 409 IDEMPOTENCY_KEY_REUSED.
+ */
+export const DuplicateTaskRequest = z
+  .strictObject({ idempotencyKey: IdempotencyKey.optional() })
+  .optional();
+export type DuplicateTaskRequest = z.input<typeof DuplicateTaskRequest>;
 
 /** POST /business/tasks/{id}/progress: the stage of an OPEN task, nothing else. */
 export const SetTaskProgressRequest = z.strictObject({ progress: TaskProgress });
@@ -526,6 +632,7 @@ export const TaskTemplate = z.object({
   dueOffsetDays: z.number().int().nullable(),
   clientVisibleDefault: z.boolean(),
   checklist: z.array(z.object({ label: z.string(), required: z.boolean() })),
+  /** In the order saved (`id` null). */
   reminders: z.array(ReminderRuleOut),
   recurrence: z.record(z.string(), z.unknown()).nullable(),
   archivedAt: DateTime.nullable(),
@@ -555,6 +662,10 @@ const templateFields = {
   dueOffsetDays: z.number().int().min(0).max(730).nullable().optional(),
   clientVisibleDefault: z.boolean().optional(),
   checklist: z.array(TemplateChecklistItem).max(50).optional(),
+  /**
+   * Kept in the order sent; each rule once (400 INVALID_REMINDER). Custom ones too: a task or
+   * series made from the template leaves out the ones that do not fit it (see POST /business/tasks).
+   */
   reminders: z.array(ReminderRule).max(10).optional(),
   recurrence: Recurrence.nullable().optional(),
 };
@@ -595,15 +706,25 @@ const seriesDefaults = {
   /** Needs `clientVisible`. */
   notifyClient: z.boolean().optional(),
   checklist: z.array(TemplateChecklistItem).max(50).optional(),
+  /**
+   * Every task made gets them. Kept in the order sent and checked against `dueTime` as a task's
+   * are (400 INVALID_REMINDER; a Custom one needs a due time). Clearing `dueTime` while Custom
+   * reminders are kept is refused unless the request replaces them. From a template, the ones
+   * that do not fit are left out.
+   */
   reminders: z.array(ReminderRule).max(10).optional(),
 };
 
-/** POST /business/task-series. The client and the start date cannot change afterwards. */
+/**
+ * POST /business/task-series. The client and the start date cannot change afterwards.
+ * `idempotencyKey` makes a retry return the series the first save made (see IdempotencyKey).
+ */
 export const CreateTaskSeriesRequest = z.strictObject({
   clientId: z.uuid(),
   ...seriesDefaults,
   recurrence: Recurrence,
   templateId: TaskTemplateId.optional(),
+  idempotencyKey: IdempotencyKey.optional(),
 });
 export type CreateTaskSeriesRequest = z.input<typeof CreateTaskSeriesRequest>;
 
@@ -679,6 +800,7 @@ export const TaskSeriesDetail = TaskSeriesRow.extend({
   clientVisible: z.boolean(),
   notifyClient: z.boolean(),
   checklist: z.array(z.object({ label: z.string(), required: z.boolean() })),
+  /** In the order saved (`id` null). */
   reminders: z.array(ReminderRuleOut),
   /** The next few due dates, calculated now (up to 6). */
   upcoming: z.array(z.object({ scheduledOn: CalendarDate, dueOn: CalendarDate })),
@@ -729,9 +851,15 @@ export type SkipOccurrenceRequest = z.input<typeof SkipOccurrenceRequest>;
 export const SkipFutureRequest = z.strictObject({ confirm: z.literal(true) });
 export type SkipFutureRequest = z.input<typeof SkipFutureRequest>;
 
-/** POST /business/tasks/{id}/convert-to-recurring: the task becomes the first occurrence. */
+/**
+ * POST /business/tasks/{id}/convert-to-recurring: the task becomes the first occurrence. A task
+ * that already belongs to a series is 400 VALIDATION_FAILED, also when two conversions run at
+ * once. `idempotencyKey` makes a retry return the series the first one made; a key that converted
+ * another task is 409 IDEMPOTENCY_KEY_REUSED.
+ */
 export const ConvertToRecurringRequest = z.strictObject({
   recurrence: endRules(z.strictObject(recurrenceShape)),
+  idempotencyKey: IdempotencyKey.optional(),
 });
 export type ConvertToRecurringRequest = z.input<typeof ConvertToRecurringRequest>;
 
@@ -748,7 +876,10 @@ export const TaskWorkErrorCode = z.enum([
   'DEPENDENCY_CYCLE',
   /** 409: the task type is archived. */
   'TYPE_ARCHIVED',
-  /** 400: a reminder after the due date, or a reminder on a task with no due date. */
+  /**
+   * 400: a reminder on a task with no due date, after the due time, two that fire at the same
+   * moment, or a Custom one (minutes, hours or days before the due time) without a due time.
+   */
   'INVALID_REMINDER',
   /** 400: the recurrence settings conflict (the message says how). */
   'INVALID_RECURRENCE',
@@ -760,5 +891,10 @@ export const TaskWorkErrorCode = z.enum([
   'TASK_CLOSED',
   /** 409: the document is not one of the task's client's, or is internal and made visible. */
   'ATTACHMENT_NOT_ALLOWED',
+  /**
+   * 409: the idempotency key was already used in the firm by another member, on another route,
+   * for another task, or for a draft since published. Nothing is saved or shown: make a new key.
+   */
+  'IDEMPOTENCY_KEY_REUSED',
 ]);
 export type TaskWorkErrorCode = z.infer<typeof TaskWorkErrorCode>;

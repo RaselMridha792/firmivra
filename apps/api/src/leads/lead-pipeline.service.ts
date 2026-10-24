@@ -36,6 +36,34 @@ const overdue = (now: Date): Prisma.LeadWhereInput => ({
   status: { notIn: ['CONVERTED', 'DECLINED', 'LOST'] },
 });
 
+/**
+ * Search: every word must match one of the lead's fields, so "Jane Doe" finds Jane Doe (first and
+ * last name are separate fields) and a single word behaves as before (L12).
+ */
+const searchWords = (search: string | undefined): Prisma.LeadWhereInput[] =>
+  (search ?? '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((word) => {
+      const term = likeEscape(word);
+      const sources = Object.entries(SOURCE_LABELS)
+        .filter(([, label]) => label.toLowerCase().includes(word.toLowerCase()))
+        .map(([key]) => key as keyof typeof SOURCE_LABELS);
+      return {
+        OR: [
+          { firstName: { contains: term, mode: 'insensitive' } },
+          { lastName: { contains: term, mode: 'insensitive' } },
+          { businessName: { contains: term, mode: 'insensitive' } },
+          { email: { contains: term, mode: 'insensitive' } },
+          { phone: { contains: term, mode: 'insensitive' } },
+          { sourceDetail: { contains: term, mode: 'insensitive' } },
+          ...(sources.length ? [{ source: { in: sources } }] : []),
+          { activities: { some: { kind: 'NOTE', body: { contains: term, mode: 'insensitive' } } } },
+        ],
+      };
+    });
+
 /** The Leads page's reads (R57): the table, the six cards, the dropdowns and the profile. */
 @Injectable()
 export class LeadPipelineService {
@@ -57,12 +85,6 @@ export class LeadPipelineService {
   async list(businessId: string, actor: PipelineActor, q: Query): Promise<LeadPipelinePage> {
     const now = new Date();
     const zone = q.from || q.to ? await this.timezone(businessId) : '';
-    const term = q.search ? likeEscape(q.search) : undefined;
-    const sources = q.search
-      ? Object.entries(SOURCE_LABELS)
-          .filter(([, label]) => label.toLowerCase().includes(q.search!.toLowerCase()))
-          .map(([key]) => key as keyof typeof SOURCE_LABELS)
-      : [];
     const where: Prisma.LeadWhereInput = {
       AND: [
         visibleLead(businessId),
@@ -86,24 +108,7 @@ export class LeadPipelineService {
           ? { commAudience: { some: { communicationId: q.campaignId, kind: 'LEAD' as const } } }
           : {},
         q.tag ? { tags: { some: { tag: { name: { equals: q.tag, mode: 'insensitive' } } } } } : {},
-        term
-          ? {
-              OR: [
-                { firstName: { contains: term, mode: 'insensitive' } },
-                { lastName: { contains: term, mode: 'insensitive' } },
-                { businessName: { contains: term, mode: 'insensitive' } },
-                { email: { contains: term, mode: 'insensitive' } },
-                { phone: { contains: term, mode: 'insensitive' } },
-                { sourceDetail: { contains: term, mode: 'insensitive' } },
-                ...(sources.length ? [{ source: { in: sources } }] : []),
-                {
-                  activities: {
-                    some: { kind: 'NOTE', body: { contains: term, mode: 'insensitive' } },
-                  },
-                },
-              ],
-            }
-          : {},
+        ...searchWords(q.search),
       ],
     };
     const db = this.tenantPrisma.db.lead;

@@ -15,6 +15,7 @@ import { notFound, toDay } from '../workspaces/common.js';
 import type { CreateStaffBody, UpdateStaffBody } from './staff-input.js';
 import { writeMemberGrid } from './staff-permissions.service.js';
 import { StaffReadService } from './staff-read.service.js';
+import { type NewAccountSecurity, newAccountSecurity } from './staff-security-defaults.service.js';
 import {
   assertManages,
   assertMayGive,
@@ -182,7 +183,15 @@ export class StaffWriteService {
             update: profile,
           });
           await this.setTeams(tx, businessId, id, body.details);
-          await this.writeAccess(tx, businessId, id, body.access);
+          // A new account starts from the firm's defaults (New Accounts & Security); step 3's
+          // choices, when sent, win.
+          await this.writeAccess(
+            tx,
+            businessId,
+            id,
+            body.access,
+            await newAccountSecurity(tx, businessId),
+          );
           if (body.compensation && Object.values(body.compensation).some((v) => v !== undefined))
             await this.writePay(tx, businessId, id, body.compensation);
           let grid = { changedCells: 0, escalated: false };
@@ -349,12 +358,16 @@ export class StaffWriteService {
     }
   }
 
-  /** Step 3 (staff_security_settings), shared with PUT security. */
+  /**
+   * Step 3 (staff_security_settings), shared with PUT security. `start` is what a new account's row
+   * starts from (the firm's defaults); an existing row is only changed by `access`.
+   */
   async writeAccess(
     tx: TxClient,
     businessId: string,
     membershipId: string,
     access: Out<typeof CreateStaffBody>['access'],
+    start?: NewAccountSecurity,
   ) {
     const data: Prisma.StaffSecuritySettingsUncheckedUpdateInput = {};
     if (access) {
@@ -377,6 +390,7 @@ export class StaffWriteService {
     await tx.staffSecuritySettings.upsert({
       where: { businessId_membershipId: { businessId, membershipId } },
       create: {
+        ...start,
         ...(data as Prisma.StaffSecuritySettingsUncheckedCreateInput),
         businessId,
         membershipId,

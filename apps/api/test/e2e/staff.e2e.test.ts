@@ -163,6 +163,7 @@ beforeAll(async () => {
         businessId,
         membershipId: member.staffA,
         office: `Main Office ${run}`,
+        workSchedule: `Mon-Thu ${run}`,
         supervisorId: member.managerA,
         employeeId: 'E-77',
         serviceAreas: ['TAX_PREPARATION'],
@@ -274,6 +275,19 @@ describe('summary, options and the template', () => {
   });
 
   it('serves the form options: only active groups and managers, the roles the caller may give', async () => {
+    // Offices & Job Titles: the saved live titles and Location Management's active locations.
+    await inFirm('a', async (tx) => {
+      await tx.staffJobTitle.createMany({
+        data: [
+          { businessId: firms.a, name: `Saved Title ${run}` },
+          { businessId: firms.a, name: `Old Title ${run}`, archivedAt: new Date() },
+        ],
+      });
+      await tx.firmOffice.create({ data: { businessId: firms.a, name: `Branch ${run}` } });
+      await tx.firmOffice.create({
+        data: { businessId: firms.a, name: `Closed ${run}`, status: 'INACTIVE' },
+      });
+    });
     const o = StaffFormOptions.parse(ok(await call('get', '/staff/options', adminA)));
     expect(o.departments.map((d) => d.id).sort()).toEqual([dept.tax, dept.books].sort());
     expect(o.teams).toHaveLength(1);
@@ -292,10 +306,16 @@ describe('summary, options and the template', () => {
     ]);
     const owner = StaffFormOptions.parse(ok(await call('get', '/staff/options', ownerA)));
     expect(owner.roles.map((r) => r.role)).toContain('ADMIN');
-    expect(o.jobTitles).toContain('Senior Preparer');
-    expect(o.offices).toContain(`Main Office ${run}`);
+    expect(o.jobTitles).toContain(`Saved Title ${run}`);
+    expect(o.jobTitles).not.toContain(`Old Title ${run}`);
+    // A record's own title or office text is not a saved choice.
+    expect(o.jobTitles).not.toContain('Senior Preparer');
+    expect(o.offices).toEqual([`Branch ${run}`]);
     expect(o.serviceAreas.map((s) => s.code)).toContain('TAX_PREPARATION');
-    expect(o.workSchedules.length).toBeGreaterThan(0);
+    // The presets first, then the firm's own schedules already given (Octavia's SM8).
+    expect(o.workSchedules.slice(0, 5)).toContain('Flexible');
+    expect(o.workSchedules).toContain(`Mon-Thu ${run}`);
+    expect(o.workSchedules.indexOf(`Mon-Thu ${run}`)).toBeGreaterThanOrEqual(5);
   });
 
   it('serves the import template as a CSV file', async () => {

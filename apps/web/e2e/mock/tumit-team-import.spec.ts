@@ -45,13 +45,14 @@ test('maps, previews and imports a CSV', async ({ page }) => {
   await expect(results).toContainText('1Invitations sent');
 });
 
-test('refuses a file that is not a CSV', async ({ page }) => {
+// CSV and Excel (.xlsx) are read since SM7 (R55); anything else is refused.
+test('refuses a file that is not a CSV or Excel file', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`http://app.localhost:${port}/team/import`);
   await page.locator('input[type=file]').setInputFiles({
-    name: 'staff.xlsx',
-    mimeType: 'application/octet-stream',
+    name: 'staff.pdf',
+    mimeType: 'application/pdf',
     buffer: Buffer.from('x'),
   });
-  await expect(page.getByText('Upload a CSV file.')).toBeVisible();
+  await expect(page.getByText('Upload a CSV or Excel (.xlsx) file.')).toBeVisible();
 });

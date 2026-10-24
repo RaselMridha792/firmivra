@@ -15,10 +15,14 @@ import { StaffDocumentsController } from './staff-documents.controller.js';
 import { StaffDocumentsService, StaffUploadTokens } from './staff-documents.service.js';
 import { StaffDraftsController } from './staff-drafts.controller.js';
 import { StaffImportService } from './staff-import.service.js';
+import { StaffJobTitlesController } from './staff-job-titles.controller.js';
+import { StaffJobTitlesService } from './staff-job-titles.service.js';
 import { StaffPermissionsService } from './staff-permissions.service.js';
 import { StaffReadService } from './staff-read.service.js';
 import { StaffRecordsService } from './staff-records.service.js';
 import { StaffScanHandler } from './staff-scan-handler.js';
+import { StaffSecurityDefaultsController } from './staff-security-defaults.controller.js';
+import { StaffSecurityDefaultsService } from './staff-security-defaults.service.js';
 import { StaffSecurityController } from './staff-security.controller.js';
 import { StaffSecurityService } from './staff-security.service.js';
 import { StaffWriteController } from './staff-write.controller.js';
@@ -30,9 +34,10 @@ import { UsersService } from './users.service.js';
 /**
  * Staff Management (R55; contract in packages/types/src/staff): the directory and one member
  * (read), Create and Edit Staff, the account actions, a member's permissions, notes, pay and
- * drafts, Account Access & Security, staff documents and Bulk Upload Staff. Invites and resets go
- * through R2's InvitesService and identity adapter (SignInModule). The documents controller comes
- * first: its static import routes must never meet an ':id' route.
+ * drafts, Account Access & Security, staff documents, Bulk Upload Staff, the saved job titles and
+ * the security defaults for new accounts. Invites and resets go through R2's InvitesService and
+ * identity adapter (SignInModule). The documents controller comes first: its static import routes
+ * must never meet an ':id' route.
  */
 @Module({
   imports: [SignInModule, ScanRouterModule],
@@ -42,6 +47,8 @@ import { UsersService } from './users.service.js';
     StaffWriteController,
     StaffSecurityController,
     StaffDraftsController,
+    StaffJobTitlesController,
+    StaffSecurityDefaultsController,
     UsersController,
   ],
   providers: [
@@ -54,6 +61,8 @@ import { UsersService } from './users.service.js';
     StaffDocumentsService,
     StaffScanHandler,
     StaffImportService,
+    StaffJobTitlesService,
+    StaffSecurityDefaultsService,
     UsersService,
     // The documents bucket and settings, as DocumentsModule builds them (that module exports none).
     { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },

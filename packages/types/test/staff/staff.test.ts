@@ -7,10 +7,12 @@ import {
   createRolesClient,
   createStaffClient,
   CreateCustomRoleRequest,
+  SaveStaffSecurityDefaultsRequest,
   SetStaffOverridesRequest,
   SetStaffTeamMembersRequest,
   StaffAccessInput,
   StaffDraftData,
+  StaffJobTitleListQuery,
   UpdateCustomRoleRequest,
   UpdateStaffRequest,
 } from '../../src/index.js';
@@ -320,5 +322,103 @@ describe('api.roles', () => {
     expect(
       UpdateStaffRequest.safeParse({ version: 'v1', account: { customRoleId: 'x' } }).success,
     ).toBe(false);
+  });
+});
+
+describe('saved job titles (Offices & Job Titles)', () => {
+  const title = {
+    id,
+    name: 'Tax Preparer',
+    staffCount: 2,
+    archivedAt: null,
+    createdAt: at,
+    updatedAt: at,
+  };
+
+  it('lists, adds, renames, archives and restores on their own routes', async () => {
+    const list = fakeFetch(200, { items: [title] });
+    expect(await staff(list.fn).jobTitles()).toEqual([title]);
+    expect(list.calls[0]?.url).toBe('/api/v1/business/staff-job-titles');
+    const all = fakeFetch(200, { items: [] });
+    await staff(all.fn).jobTitles(true);
+    expect(all.calls[0]?.url).toBe('/api/v1/business/staff-job-titles?includeArchived=true');
+
+    const one = fakeFetch(200, title);
+    await staff(one.fn).createJobTitle({ name: '  Tax Preparer ' });
+    await staff(one.fn).renameJobTitle(id, { name: 'Senior Tax Preparer' });
+    await staff(one.fn).archiveJobTitle(id);
+    await staff(one.fn).restoreJobTitle(id);
+    expect(one.calls.map((c) => [c.init.method, c.url, bodyOf(c.init)])).toEqual([
+      ['POST', '/api/v1/business/staff-job-titles', { name: 'Tax Preparer' }],
+      ['PATCH', `/api/v1/business/staff-job-titles/${id}`, { name: 'Senior Tax Preparer' }],
+      ['POST', `/api/v1/business/staff-job-titles/${id}/archive`, undefined],
+      ['POST', `/api/v1/business/staff-job-titles/${id}/restore`, undefined],
+    ]);
+  });
+
+  it('refuses an empty, long or multi-line name and a bad id before sending', async () => {
+    const { fn, calls } = fakeFetch(200, title);
+    for (const name of ['', '   ', 'x'.repeat(81), 'Two\nlines']) {
+      await expect(staff(fn).createJobTitle({ name })).rejects.toBeInstanceOf(ApiRequestError);
+    }
+    await expect(staff(fn).archiveJobTitle('not-a-uuid')).rejects.toBeInstanceOf(ApiRequestError);
+    expect(calls).toEqual([]);
+    expect(StaffJobTitleListQuery.parse({ includeArchived: 'true' })).toEqual({
+      includeArchived: true,
+    });
+    expect(StaffJobTitleListQuery.parse({})).toEqual({ includeArchived: false });
+  });
+});
+
+describe('security defaults for new accounts (New Accounts & Security)', () => {
+  const settings: SaveStaffSecurityDefaultsRequest = {
+    version: 'none',
+    allowedAuthMethods: ['AUTHENTICATOR_APP', 'BACKUP_CODES'],
+    restrictDevices: false,
+    autoLogoutMinutes: null,
+    accessLocation: 'ANYWHERE',
+    allowedIps: [],
+    allowedCountries: [],
+    maxConcurrentSessions: 1,
+    signOutOtherSessions: false,
+    allowTrustedDevices: false,
+    notices: {
+      newDeviceLogin: true,
+      failedLogins: true,
+      passwordChanges: true,
+      securityAlerts: true,
+      lockouts: true,
+    },
+  };
+  const answer = {
+    ...settings,
+    existingAccounts: 4,
+    updatedAt: null,
+    updatedBy: null,
+  };
+
+  it('reads and saves on one route', async () => {
+    const { fn, calls } = fakeFetch(200, answer);
+    await staff(fn).securityDefaults();
+    await staff(fn).saveSecurityDefaults({ ...settings, allowedCountries: [] });
+    expect(calls.map((c) => [c.init.method ?? 'GET', c.url])).toEqual([
+      ['GET', '/api/v1/business/staff-security-defaults'],
+      ['PUT', '/api/v1/business/staff-security-defaults'],
+    ]);
+  });
+
+  it('keeps each list with its access choice and needs a sign-in method', () => {
+    const ok = (over: object) =>
+      SaveStaffSecurityDefaultsRequest.safeParse({ ...settings, ...over }).success;
+    expect(ok({})).toBe(true);
+    expect(ok({ accessLocation: 'ALLOWED_IPS', allowedIps: ['203.0.113.0/24'] })).toBe(true);
+    expect(ok({ accessLocation: 'ALLOWED_IPS' })).toBe(false);
+    expect(ok({ allowedIps: ['203.0.113.10'] })).toBe(false);
+    expect(ok({ accessLocation: 'ALLOWED_COUNTRIES', allowedCountries: ['us'] })).toBe(true);
+    expect(ok({ accessLocation: 'ALLOWED_COUNTRIES', allowedCountries: ['USA'] })).toBe(false);
+    expect(ok({ allowedAuthMethods: [] })).toBe(false);
+    expect(ok({ allowedAuthMethods: ['EMAIL', 'EMAIL'] })).toBe(false);
+    expect(ok({ autoLogoutMinutes: 4 })).toBe(false);
+    expect(ok({ maxConcurrentSessions: 11 })).toBe(false);
   });
 });
