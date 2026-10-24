@@ -77,3 +77,91 @@ test('A1: a meeting-method choice the API refuses is named on the field, entries
   await page.getByRole('button', { name: 'Save Settings' }).click();
   await expect(page.getByTestId('type-settings-saved')).toHaveText('Settings saved.');
 });
+
+test('A3 and A10: the window in days, notice in hours, both kept; the description is staff only', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/types'));
+  const windowDays = page.getByLabel('Booking window');
+  const notice = page.getByLabel('Minimum notice');
+  await expect(windowDays).toBeVisible({ timeout: 60_000 });
+
+  // Her 1, 3, 5 and 7 days and No limit stay in days; her 2, 6 and 12 hours are Minimum notice.
+  expect(await windowDays.locator('option').allTextContents()).toEqual([
+    '1 day ahead (24 hours)',
+    '3 days ahead',
+    '5 days ahead',
+    '7 days ahead',
+    '14 days ahead',
+    '30 days ahead',
+    '60 days ahead',
+    '90 days ahead',
+    '180 days ahead',
+    '365 days ahead',
+    'No limit',
+  ]);
+  expect(await notice.locator('option').allTextContents()).toEqual([
+    'None',
+    '2 hours',
+    '6 hours',
+    '12 hours',
+    '24 hours',
+    '48 hours',
+    '72 hours',
+  ]);
+  await expect(page.getByLabel('Description (staff only)')).toBeVisible();
+  await expect(page.getByTestId('type-description-note')).toHaveText(
+    'For your team only: clients never see it, in the portal, booking or emails.',
+  );
+
+  await windowDays.selectOption('3');
+  await notice.selectOption('6');
+  await page.getByRole('button', { name: 'Save Settings' }).click();
+  await expect(page.getByTestId('type-settings-saved')).toHaveText('Settings saved.');
+
+  // Another type and back: the settings are read again from the API, each value in its field.
+  const types = page.locator('button[aria-pressed]');
+  await types.nth(1).click();
+  await expect(types.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await types.nth(0).click();
+  await expect(types.nth(0)).toHaveAttribute('aria-pressed', 'true');
+  await expect(windowDays).toHaveValue('3');
+  await expect(notice).toHaveValue('6');
+});
+
+test('A6: the video link has its own full-width row, the toggle on its label line, and Copy', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  await page
+    .getByRole('radiogroup', { name: 'Location Type *' })
+    .getByRole('radio', { name: 'Zoom / Video' })
+    .click();
+
+  const row = page.getByTestId('video-link');
+  const link = row.getByRole('textbox', { name: 'Video Meeting Link' });
+  const copy = row.getByRole('button', { name: 'Copy the video link' });
+  await expect(link).toBeEnabled();
+  await expect(copy).toBeDisabled();
+
+  // The link and Copy span the row that Office / Branch and Room share above it.
+  const office = await page.getByLabel('Office / Branch').boundingBox();
+  const room = await page.getByLabel('Room (optional)').boundingBox();
+  const field = await link.boundingBox();
+  const button = await copy.boundingBox();
+  expect(office && room && field && button).toBeTruthy();
+  expect(Math.abs(field!.x - office!.x)).toBeLessThan(2);
+  expect(Math.abs(button!.x + button!.width - (room!.x + room!.width))).toBeLessThan(2);
+
+  // The toggle sits on the label's line, above the field.
+  const label = await row.getByText('Video Meeting Link', { exact: true }).first().boundingBox();
+  const toggle = await row.getByRole('switch', { name: 'Generate Zoom Link' }).boundingBox();
+  expect(Math.abs(label!.y + label!.height / 2 - (toggle!.y + toggle!.height / 2))).toBeLessThan(6);
+  expect(toggle!.y + toggle!.height).toBeLessThanOrEqual(field!.y);
+
+  await link.fill('https://meet.example.test/abc-defg');
+  await expect(copy).toBeEnabled();
+});
