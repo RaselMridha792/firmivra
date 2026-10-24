@@ -123,8 +123,8 @@ function defaultSettings(): IntakeSettings {
     notifications: {
       sendClientConfirmation: true,
       notifyAssignedStaff: true,
-      firstReminderAfterDays: 3,
-      finalReminderAfterDays: 7,
+      firstReminderAfterMinutes: 4320,
+      finalReminderAfterMinutes: 10080,
       expirationAlertHours: 24,
     },
     automation: {
@@ -983,7 +983,7 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       // As the API: no first reminder is no reminders; no alert, or a final reminder that is not
       // after the first, is refused at its field.
       const n = { ...st.notifications, ...pick(input.notifications) };
-      if (n.firstReminderAfterDays === null) n.finalReminderAfterDays = null;
+      if (n.firstReminderAfterMinutes === null) n.finalReminderAfterMinutes = null;
       const refuse = (path: string, message: string) =>
         new ApiRequestError(400, 'VALIDATION_FAILED', message, undefined, undefined, [
           { path, message },
@@ -994,11 +994,11 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
           'Choose how long before expiry the alert goes',
         );
       if (
-        n.firstReminderAfterDays !== null &&
-        (n.finalReminderAfterDays ?? 0) <= n.firstReminderAfterDays
+        n.firstReminderAfterMinutes !== null &&
+        (n.finalReminderAfterMinutes ?? 0) <= n.firstReminderAfterMinutes
       )
         throw refuse(
-          'notifications.finalReminderAfterDays',
+          'notifications.finalReminderAfterMinutes',
           'The final reminder comes after the first',
         );
       const { defaultOwnerUserId, ...general } = input.general ?? {};
