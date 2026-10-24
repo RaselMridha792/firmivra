@@ -81,6 +81,16 @@ describe('Task drafts contract: requests', () => {
     expect(UpdateTaskDraftRequest.safeParse({ clientId: null }).success).toBe(true);
   });
 
+  it('a draft takes Custom reminders before it has a due time; the rule shape still holds', () => {
+    const custom = [{ amount: 30, unit: 'MINUTES' }, { daysBefore: 1 }];
+    expect(SaveTaskDraftRequest.safeParse({ title: 'T', reminders: custom }).success).toBe(true);
+    expect(UpdateTaskDraftRequest.safeParse({ reminders: custom }).success).toBe(true);
+    expect(PublishTaskDraftRequest.safeParse({ reminders: custom }).success).toBe(true);
+    expect(
+      SaveTaskDraftRequest.safeParse({ title: 'T', reminders: [{ amount: 30 }] }).success,
+    ).toBe(false);
+  });
+
   it('requests are strict and a draft is never given a status', () => {
     expect(SaveTaskDraftRequest.safeParse({ title: 'T', businessId: id }).success).toBe(false);
     expect(UpdateTaskDraftRequest.safeParse({ status: 'OPEN' }).success).toBe(false);
