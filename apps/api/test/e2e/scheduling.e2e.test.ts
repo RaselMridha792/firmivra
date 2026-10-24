@@ -2302,9 +2302,18 @@ describe('availability rules', () => {
     expect(rows).toBe(0);
   });
 
-  it("a member edits their own; Owner and Admin anyone's; Staff cannot reach others (403)", async () => {
+  it("Owner and Admin edit anyone's; Staff keep their time off but not their hours, and cannot reach others (403)", async () => {
     const n = freshDay();
-    await save(people.staffA.id, { dateOverrides: [{ date: day(n), ranges: [] }] }, people.staffA);
+    // A day's different hours are working hours: read-only for Staff (Rasel, Oct 24).
+    const own = await call('put', `/availability/${people.staffA.id}/rules`, people.staffA, {
+      dateOverrides: [{ date: day(n), ranges: [] }],
+    });
+    expectError(own, 403, 'FORBIDDEN');
+    expect((own.body as { error: { message: string } }).error.message).toBe(
+      'Working hours are set by an Owner or Admin. Ask them for a change.',
+    );
+    await save(people.staffA.id, { timeOff: [] }, people.staffA);
+    await save(people.staffA.id, { dateOverrides: [{ date: day(n), ranges: [] }] }, people.adminA);
     expectError(
       await call('get', `/availability/${people.staffA.id}/rules`, people.staffA2),
       403,

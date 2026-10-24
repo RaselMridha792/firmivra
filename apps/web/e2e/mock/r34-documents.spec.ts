@@ -68,7 +68,7 @@ test('every chrome element of the design is present, with honest placeholders wh
   );
   await expect(page.getByTestId('create-document-request')).toHaveAttribute(
     'href',
-    '/modules/document-request-create',
+    '/documents/requests/new',
   );
 
   // No client chosen yet: the table area explains why, instead of an empty grid pretending to be
