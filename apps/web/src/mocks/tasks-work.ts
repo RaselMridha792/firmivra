@@ -652,11 +652,13 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
   // The mock has no catalog: a template's service keeps its id under a neutral name.
   const templateService = (id: string | null | undefined) =>
     id ? { id, name: 'Selected service' } : null;
-  const templateReminders = (list: { daysBefore: number }[] | undefined) =>
+  const templateReminders = (
+    list: { daysBefore: number; timeOfDay?: string | null }[] | undefined,
+  ) =>
     (list ?? []).map((r) => ({
       id: null,
       daysBefore: r.daysBefore,
-      timeOfDay: null,
+      timeOfDay: r.timeOfDay ?? null,
       inApp: true,
       channels: [] as ('EMAIL' | 'SMS')[],
     }));
