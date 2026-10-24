@@ -25,9 +25,6 @@ export interface Member {
   name: string;
 }
 
-/** Edit Schedule: left out values use the firm's defaults. */
-export type Schedule = Omit<ReminderSchedule, 'enabled'>;
-
 export type FieldKey =
   'recipient' | 'formId' | 'channel' | 'subject' | 'message' | 'dueOn' | 'expiresOn';
 export type FieldErrors = Partial<Record<FieldKey, string>>;
@@ -193,7 +190,6 @@ export interface SendChoices {
   expiresOn: string;
   assignee: Member | undefined;
   reminders: boolean;
-  schedule: Schedule;
   allowSave: boolean;
   sendMeCopy: boolean;
 }
@@ -201,8 +197,8 @@ export interface SendChoices {
 const recipientRef = (r: Recipient) =>
   r.kind === 'CLIENT' ? { kind: 'CLIENT' as const, id: r.id } : { kind: 'LEAD' as const, id: r.id };
 
-const reminderBody = (c: SendChoices): ReminderSchedule =>
-  c.reminders ? { enabled: true, ...c.schedule } : { enabled: false };
+/** A send keeps only whether reminders are on; their times are the firm's (Intake Form Settings). */
+const reminderBody = (c: SendChoices): ReminderSchedule => ({ enabled: c.reminders });
 
 /** POST /business/intakes/send. Call only after `validate` found nothing. */
 export function sendBody(

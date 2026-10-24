@@ -539,3 +539,11 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   retry key, now in `NOT_RECORDS` (pushed to #1063 and merged up the stack); isolation cases for
   the firm's invoice and its PDF (billing branch) and a department's members (staff branch). The
   sweep passes locally on each; its other local failures are the known file-scanner ones.
+- Oct 24 (fourth session): I8 (`rasel/R60-intake-reminders`, from `main`, local until a slot
+  frees): the first and final reminders in minutes (`firstReminderAfterMinutes`,
+  `finalReminderAfterMinutes`; her 5, 10, 15 and 30 minutes, 1, 2, 3, 6 and 12 hours and 1 to 30
+  days, "after sending"), the old day columns kept valid on every save (rounded up, the final
+  after the first), the test reminder's wording in minutes, and the Send page's schedule showing
+  the firm's times (a send keeps only on or off; "View Schedule" instead of fields the API never
+  kept). Intake workspace e2e 17 of 17, unit 11 and 10, the Intake Forms mock specs 38 of 38;
+  sheet shot on the real API.

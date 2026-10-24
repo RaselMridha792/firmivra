@@ -30,7 +30,6 @@ import {
   type FieldKey,
   missingSteps,
   type Recipient,
-  type Schedule,
   type SendChoices,
   type SendNotice,
   sendBody,
@@ -110,7 +109,6 @@ const start = (formId: string): State => ({
   expiresOn: '',
   assignee: undefined,
   reminders: true,
-  schedule: {},
   allowSave: true,
   sendMeCopy: true,
 });
@@ -250,11 +248,6 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
     send.reset();
   }
 
-  function saveSchedule(schedule: Schedule) {
-    set({ schedule });
-    setScheduleOpen(false);
-  }
-
   return (
     <div className="flex flex-col gap-4" data-testid="send-intake-page">
       <PageHeader
@@ -321,12 +314,7 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
           />
         </div>
       </div>
-      <ScheduleModal
-        open={scheduleOpen}
-        schedule={state.schedule}
-        onSave={saveSchedule}
-        onClose={() => setScheduleOpen(false)}
-      />
+      <ScheduleModal open={scheduleOpen} onClose={() => setScheduleOpen(false)} />
     </div>
   );
 }
