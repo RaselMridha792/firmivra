@@ -12,6 +12,8 @@ import {
   AppointmentTypeList,
   AppointmentTypesQuery,
   Availability,
+  BlockConflictList,
+  BlockConflictsQuery,
   BlockedTime,
   BlockedTimeId,
   BlockedTimeList,
@@ -23,6 +25,7 @@ import {
   CancelMyAppointmentRequest,
   CreateAppointmentTypeRequest,
   CreateBlockedTimeRequest,
+  FreeSlotsBlockResult,
   MemberAvailability,
   MemberId,
   MyAppointment,
@@ -108,6 +111,17 @@ export function createAvailabilityClient(request: ApiRequest) {
       request(
         BlockedTime,
         '/business/blocked-times',
+        post(parseInput(CreateBlockedTimeRequest, body)),
+      ),
+    blockConflicts: async (query: BlockConflictsQuery): Promise<BlockConflictList['items']> => {
+      const q = parseInput(BlockConflictsQuery, query);
+      return (await request(BlockConflictList, `/business/blocked-times/conflicts${toQuery(q)}`))
+        .items;
+    },
+    blockFreeSlots: async (body: CreateBlockedTimeRequest): Promise<FreeSlotsBlockResult> =>
+      request(
+        FreeSlotsBlockResult,
+        '/business/blocked-times/free-slots',
         post(parseInput(CreateBlockedTimeRequest, body)),
       ),
     unblock: async (id: string): Promise<OkResponse> =>

@@ -24,6 +24,12 @@ import {
   UpdateStaffTeamRequest,
 } from './departments.js';
 import {
+  SaveStaffJobTitleRequest,
+  StaffJobTitle,
+  StaffJobTitleId,
+  StaffJobTitleList,
+} from './job-titles.js';
+import {
   CreateCustomRoleRequest,
   CustomRole,
   CustomRoleDetail,
@@ -79,9 +85,12 @@ import {
 
 const STAFF = '/business/staff';
 const DRAFTS = '/business/staff-drafts';
+const TITLES = '/business/staff-job-titles';
+const title = (id: string) => `${TITLES}/${parseInput(StaffJobTitleId, id)}`;
 const one = (id: string) => `${STAFF}/${parseInput(StaffId, id)}`;
 const post = (body?: unknown) => ({ method: 'POST', ...(body === undefined ? {} : { body }) });
 const put = (body: unknown) => ({ method: 'PUT', body });
+const patch = (body: unknown) => ({ method: 'PATCH', body });
 
 /** The note's GET answers null when there is none. */
 const MaybeNote = z.object({ note: StaffNote.nullable() });
@@ -279,6 +288,23 @@ export function createStaffClient(request: ApiRequest, baseUrl = '') {
       ),
     deleteDraft: async (draftId: string): Promise<OkResponse> =>
       request(OkResponse, `${DRAFTS}/${parseInput(StaffDraftId, draftId)}`, { method: 'DELETE' }),
+
+    // Offices & Job Titles: the firm's saved job titles (Owner and Admin)
+    jobTitles: async (includeArchived = false): Promise<StaffJobTitle[]> =>
+      (
+        await request(
+          StaffJobTitleList,
+          `${TITLES}${toQuery({ includeArchived: includeArchived ? 'true' : undefined })}`,
+        )
+      ).items,
+    createJobTitle: async (body: SaveStaffJobTitleRequest): Promise<StaffJobTitle> =>
+      request(StaffJobTitle, TITLES, post(parseInput(SaveStaffJobTitleRequest, body))),
+    renameJobTitle: async (id: string, body: SaveStaffJobTitleRequest): Promise<StaffJobTitle> =>
+      request(StaffJobTitle, title(id), patch(parseInput(SaveStaffJobTitleRequest, body))),
+    archiveJobTitle: async (id: string): Promise<StaffJobTitle> =>
+      request(StaffJobTitle, `${title(id)}/archive`, post()),
+    restoreJobTitle: async (id: string): Promise<StaffJobTitle> =>
+      request(StaffJobTitle, `${title(id)}/restore`, post()),
 
     // Bulk Upload Staff
     /** The CSV template's address (a plain download link). */

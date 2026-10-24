@@ -70,6 +70,16 @@ export const records: CaseModule['records'] = {
     },
   },
   /** A saved Create Staff form (no account, no invite). */
+  /** A saved job title (Offices & Job Titles). */
+  staffJobTitle: {
+    async create({ tx, businessId }) {
+      const row = await tx.staffJobTitle.create({
+        data: { businessId, name: `Fake title ${tag()}` },
+        select: { id: true },
+      });
+      return row.id;
+    },
+  },
   staffDraft: {
     async create({ tx, businessId, get }) {
       const owner = await tx.membership.findFirstOrThrow({
@@ -217,4 +227,10 @@ export const cases: CaseModule['cases'] = {
     body: { step: 2, data: {} },
   },
   ['DELETE /api/v1/business/staff-drafts/:id']: { params: { id: 'staffDraft' } },
+  ['PATCH /api/v1/business/staff-job-titles/:id']: {
+    params: { id: 'staffJobTitle' },
+    body: () => ({ name: `Fake renamed title ${tag()}` }),
+  },
+  ['POST /api/v1/business/staff-job-titles/:id/archive']: { params: { id: 'staffJobTitle' } },
+  ['POST /api/v1/business/staff-job-titles/:id/restore']: { params: { id: 'staffJobTitle' } },
 };
