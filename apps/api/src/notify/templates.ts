@@ -416,6 +416,13 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
+  'document.requested-sms': (d, b, o) => ({
+    channel: 'sms',
+    text: `${b.name}: please upload ${required(d, 'title')}${
+      d.dueOn === null ? '' : ` by ${calendarDate(d.dueOn)}`
+    } in your client portal: ${link(d, 'link', o)}`,
+  }),
+
   'appointment.booked': (d, b, o) =>
     appointment(
       d,
@@ -940,7 +947,14 @@ export function render<T extends NotifyTemplate>(
     accentColor: hexColor(branding.accentColor, FIRMIVRA_BRANDING.accentColor),
   };
   const content = (TEMPLATES[template] as Build<T>)(data, b, options);
-  if (content.channel === 'sms') return { channel: 'sms', text: oneLine(content.text) };
+  if (content.channel === 'sms') {
+    // A text the person can switch off says where, as the emails' footer does.
+    const optOut =
+      options.canOptOut === true && !ALWAYS_SENT.has(template)
+        ? ' Turn off texts like this in your notification settings.'
+        : '';
+    return { channel: 'sms', text: oneLine(content.text + optOut) };
+  }
   const subject = oneLine(content.subject);
   const foot = footer(b, template, options.canOptOut === true);
   return {
