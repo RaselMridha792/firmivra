@@ -23,6 +23,7 @@ import {
   UpdateDepartmentRequest,
   UpdateStaffTeamRequest,
 } from './departments.js';
+import { SaveStaffSecurityDefaultsRequest, StaffSecurityDefaults } from './security-defaults.js';
 import {
   CreateCustomRoleRequest,
   CustomRole,
@@ -79,6 +80,7 @@ import {
 
 const STAFF = '/business/staff';
 const DRAFTS = '/business/staff-drafts';
+const SECURITY_DEFAULTS = '/business/staff-security-defaults';
 const one = (id: string) => `${STAFF}/${parseInput(StaffId, id)}`;
 const post = (body?: unknown) => ({ method: 'POST', ...(body === undefined ? {} : { body }) });
 const put = (body: unknown) => ({ method: 'PUT', body });
@@ -279,6 +281,18 @@ export function createStaffClient(request: ApiRequest, baseUrl = '') {
       ),
     deleteDraft: async (draftId: string): Promise<OkResponse> =>
       request(OkResponse, `${DRAFTS}/${parseInput(StaffDraftId, draftId)}`, { method: 'DELETE' }),
+
+    // New Accounts & Security: what every new staff account starts from (Owner and Admin)
+    securityDefaults: async (): Promise<StaffSecurityDefaults> =>
+      request(StaffSecurityDefaults, SECURITY_DEFAULTS),
+    saveSecurityDefaults: async (
+      body: SaveStaffSecurityDefaultsRequest,
+    ): Promise<StaffSecurityDefaults> =>
+      request(
+        StaffSecurityDefaults,
+        SECURITY_DEFAULTS,
+        put(parseInput(SaveStaffSecurityDefaultsRequest, body)),
+      ),
 
     // Bulk Upload Staff
     /** The CSV template's address (a plain download link). */

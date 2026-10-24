@@ -312,6 +312,15 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   Accounts & Security needs the staff security defaults (both in "Column request for R1"). The
   Reports shortcut needs a Staff and Team report in Reports (its owner to name). Until then the
   cards stay as they are.
+- **New Accounts & Security (built, `rasel/R60-sm3-security-defaults`): what it cannot do yet.**
+  1. *Firm setup's Team step* invites through `POST /auth/invites`
+     (`apps/api/src/auth/invites.controller.ts`, outside R60's paths), which creates an account
+     with no security row; the row is made later with the columns' own defaults, not the firm's.
+     Create Staff and Bulk Upload Staff start from the firm's defaults. The invite would call
+     `newAccountSecurity` (`apps/api/src/staff/staff-security-defaults.service.ts`) when it
+     creates the member: Rasel to say who (auth is off limits to R60).
+  2. *Enforcement:* sign-in does not enforce any staff security setting yet (Settings checks,
+     check 6), so the defaults, like each account's own settings, are stored and shown only.
 - **SM5 (Rasel's default, Oct 24):** pay is not kept in a staff draft (her own text says "pay is
   not kept"); the note says so. Per-file Save of a draft's attachments needs storage for draft
   files (an API and maybe a table): not built; the chosen files stay only while the tab is open.
@@ -539,3 +548,11 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   retry key, now in `NOT_RECORDS` (pushed to #1063 and merged up the stack); isolation cases for
   the firm's invoice and its PDF (billing branch) and a department's members (staff branch). The
   sweep passes locally on each; its other local failures are the known file-scanner ones.
+- Oct 24 (fourth session): SM3 New Accounts & Security (`rasel/R60-sm3-security-defaults`, from
+  `main`): `api.staff.securityDefaults` and `saveSecurityDefaults` (Owner and Admin; version and
+  409 `SAVE_CONFLICT`; the lists with their access choice; the audit row names the changed
+  settings), the page at `/team/settings/security` (who it affects, a confirm before saving), Staff
+  Settings' card showing them, Create Staff step 3 and every new account (Bulk Upload too)
+  starting from them, step 3's choices winning. Defaults e2e 6 of 6, staff write and security e2e
+  34 of 34, contract unit 20 of 20, the Staff mock specs 55 of 55, API and web `tsc` 0 errors.
+  Sheet shot on the real API. Firm setup's invite (`/auth/invites`) is outside R60's paths (Needs).

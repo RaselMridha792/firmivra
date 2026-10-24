@@ -4,6 +4,7 @@ import {
   CreateStaffRequest,
   LockStaffRequest,
   SaveStaffDraftRequest,
+  SaveStaffSecurityDefaultsRequest,
   SetStaffNoteRequest,
   SetStaffOverridesRequest,
   SetStaffPermissionsRequest,
@@ -57,3 +58,4 @@ export const ConfirmStaffDocumentUploadBody = clean(ConfirmStaffDocumentUploadRe
 export const UpdateStaffDocumentBody = clean(UpdateStaffDocumentRequest);
 export const StaffImportPreviewBody = clean(StaffImportPreviewRequest);
 export const StaffImportBody = clean(StaffImportRequest);
+export const SaveStaffSecurityDefaultsBody = clean(SaveStaffSecurityDefaultsRequest);

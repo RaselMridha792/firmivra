@@ -275,12 +275,14 @@ export const StaffSecurityNotices = z.strictObject({
 });
 export type StaffSecurityNotices = z.infer<typeof StaffSecurityNotices>;
 
-const IpOrNetwork = z
+/** An IPv4 or IPv6 address, or a network in CIDR form. */
+export const StaffIpOrNetwork = z
   .string()
   .trim()
   .max(43)
   .regex(/^[0-9a-fA-F:.]+(\/\d{1,3})?$/, 'Use an IP address or network like 203.0.113.0/24');
-const CountryCode = z
+/** A two-letter country code (ISO 3166-1 alpha-2). */
+export const StaffCountryCode = z
   .string()
   .trim()
   .toUpperCase()
@@ -300,8 +302,8 @@ export const StaffAccessInput = z.strictObject({
   autoLogoutMinutes: z.number().int().min(5).max(480).nullable().optional(),
   disableOn: CalendarDate.nullable().optional(),
   accessLocation: StaffAccessLocation.optional(),
-  allowedIps: z.array(IpOrNetwork).max(20).optional(),
-  allowedCountries: z.array(CountryCode).max(50).optional(),
+  allowedIps: z.array(StaffIpOrNetwork).max(20).optional(),
+  allowedCountries: z.array(StaffCountryCode).max(50).optional(),
   maxConcurrentSessions: z.number().int().min(1).max(10).optional(),
   signOutOtherSessions: z.boolean().optional(),
   allowTrustedDevices: z.boolean().optional(),
