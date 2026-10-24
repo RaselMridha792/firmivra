@@ -841,9 +841,10 @@ function FormBody({
               onChange={(v) => set('method', v)}
             />
           </div>
-          {/* The design's row: Office / Branch, Room and Video Meeting Link, each used by its
-              location type and greyed out for the others. */}
-          <div className="grid gap-4 md:grid-cols-3">
+          {/* Office / Branch and Room, used by In Person and greyed out for the others; then the
+              Video Meeting Link on its own full-width row (Octavia's A6: the toggle aligned with
+              its label, the link field full width with Copy). */}
+          <div className="grid gap-4 md:grid-cols-2">
             <Select
               label="Office / Branch"
               disabled={form.method !== 'IN_PERSON'}
@@ -864,12 +865,14 @@ function FormBody({
               value={form.roomId}
               onChange={(e) => set('roomId', e.target.value)}
             />
-            <div className="flex min-w-0 flex-col gap-1" data-testid="video-link">
+          </div>
+          <div className="flex min-w-0 flex-col gap-1" data-testid="video-link">
+            <span className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
               <span className="flex items-center gap-1 text-sm font-medium text-text">
                 Video Meeting Link
                 <Info aria-hidden weight="fill" className="size-4 text-action" />
               </span>
-              <span className="flex items-center gap-2 text-xs text-text">
+              <span className="flex items-center gap-2 text-sm text-text">
                 <Toggle
                   label="Generate Zoom Link"
                   checked={form.generateVideoLink}
@@ -880,7 +883,10 @@ function FormBody({
                   ? 'Generate Zoom Link'
                   : 'Generate Zoom Link (connect video first)'}
               </span>
-              <span className="flex min-w-0 items-stretch gap-1">
+            </span>
+            <div className="flex min-w-0 items-stretch gap-2">
+              {/* The kit Input does not grow in a row: this box takes the row's width. */}
+              <div className="min-w-0 flex-1">
                 <Input
                   label="Video Meeting Link"
                   hideLabel
@@ -890,21 +896,21 @@ function FormBody({
                   error={errors.videoUrl}
                   onChange={(e) => set('videoUrl', e.target.value)}
                 />
-                <button
-                  type="button"
-                  aria-label="Copy the video link"
-                  title={copied ? 'Copied' : 'Copy'}
-                  disabled={!form.videoUrl.trim() || form.generateVideoLink}
-                  onClick={() =>
-                    void navigator.clipboard
-                      ?.writeText(form.videoUrl.trim())
-                      .then(() => setCopied(true))
-                  }
-                  className="flex w-10 shrink-0 items-center justify-center rounded-control border border-border text-action hover:bg-canvas disabled:text-muted"
-                >
-                  <Copy aria-hidden weight="bold" className="size-4" />
-                </button>
-              </span>
+              </div>
+              <button
+                type="button"
+                aria-label="Copy the video link"
+                title={copied ? 'Copied' : 'Copy'}
+                disabled={!form.videoUrl.trim() || form.generateVideoLink}
+                onClick={() =>
+                  void navigator.clipboard
+                    ?.writeText(form.videoUrl.trim())
+                    .then(() => setCopied(true))
+                }
+                className="flex w-10 shrink-0 items-center justify-center rounded-control border border-border text-action hover:bg-canvas disabled:text-muted"
+              >
+                <Copy aria-hidden weight="bold" className="size-4" />
+              </button>
             </div>
           </div>
           {form.method === 'PHONE' || form.method === 'OTHER' ? (

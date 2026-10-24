@@ -1,16 +1,25 @@
 'use client';
 
-import { UpdateLeadRequest, type LeadRow } from '@firmivra/types';
+import { TAG_ERRORS, UpdateLeadRequest, type LeadRow } from '@firmivra/types';
 import { Button, Input, Modal, Select } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
+import { useFirm } from '../../../../../components/firm-context';
+import { TagPicker } from '../../../../../components/tag-picker';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
-import { useApiMutation } from '../../../../../lib/query';
+import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { LEAD_PIPELINE_KEY, PRIORITIES, SOURCES, STAGES } from './lead-shared';
 
+const sameTags = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((t) => b.some((u) => u.toLowerCase() === t.toLowerCase()));
+
+/**
+ * Edit Lead, from the row, the lead's page and its "+ Add Tag" (L5): the tags are picked from the
+ * firm's one list (components/tag-picker.tsx) and sent only when they changed.
+ */
 export function LeadEditDialog({ lead, onClose }: { lead: LeadRow; onClose: () => void }) {
-  const { register, handleSubmit, formState } = useForm<UpdateLeadRequest>({
+  const { register, handleSubmit, formState, control, setValue } = useForm<UpdateLeadRequest>({
     resolver: zodResolver(UpdateLeadRequest),
     defaultValues: {
       firstName: lead.firstName,
@@ -21,8 +30,12 @@ export function LeadEditDialog({ lead, onClose }: { lead: LeadRow; onClose: () =
       sourceDetail: lead.sourceDetail ?? '',
       priority: lead.priority,
       stage: lead.stage === 'CONVERTED' ? undefined : lead.stage,
+      tags: lead.tags,
     },
   });
+  const tags = useWatch({ control, name: 'tags' }) ?? [];
+  const options = useApiQuery([...LEAD_PIPELINE_KEY, 'options'], () => api.leadPipeline.options());
+  const { role } = useFirm();
   const save = useApiMutation(
     ({ id, body }: { id: string; body: UpdateLeadRequest }) => api.leadPipeline.update(id, body),
     { invalidate: LEAD_PIPELINE_KEY },
@@ -48,8 +61,14 @@ export function LeadEditDialog({ lead, onClose }: { lead: LeadRow; onClose: () =
         id="lead-edit-form"
         className="flex flex-col gap-4"
         noValidate
-        onSubmit={handleSubmit((body) =>
-          save.mutate({ id: lead.id, body }, { onSuccess: onClose }),
+        onSubmit={handleSubmit(({ tags: picked, ...rest }) =>
+          save.mutate(
+            {
+              id: lead.id,
+              body: picked && !sameTags(picked, lead.tags) ? { ...rest, tags: picked } : rest,
+            },
+            { onSuccess: onClose },
+          ),
         )}
       >
         <div className="grid gap-3 sm:grid-cols-2">
@@ -98,9 +117,19 @@ export function LeadEditDialog({ lead, onClose }: { lead: LeadRow; onClose: () =
             />
           )}
         </div>
+        <TagPicker
+          label="Tags"
+          value={tags}
+          onChange={(next) => setValue('tags', next, { shouldDirty: true })}
+          options={options.data?.tags ?? []}
+          loading={options.isPending}
+          canCreate={role === 'OWNER' || role === 'ADMIN'}
+          max={20}
+          error={formState.errors.tags?.message}
+        />
         {save.error ? (
           <p role="alert" className="text-sm text-danger">
-            {errorMessage(save.error)}
+            {errorMessage(save.error, TAG_ERRORS)}
           </p>
         ) : null}
       </form>
