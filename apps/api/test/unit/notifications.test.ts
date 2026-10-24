@@ -212,14 +212,26 @@ describe('PreferenceSource', () => {
   it("reads the person's own choice, and the defaults (email on, SMS off) without one", async () => {
     const row = { email: false, sms: true };
     const findUnique = vi.fn(() => Promise.resolve<typeof row | null>(row));
+    // Not a member of the firm (a client login): the stored choice counts.
+    const findFirst = vi.fn(() => Promise.resolve<{ userId: string } | null>(null));
     const source = new PreferenceSource({
-      forBusiness: () => ({ notificationPreference: { findUnique } }),
+      forBusiness: () => ({ notificationPreference: { findUnique }, membership: { findFirst } }),
     } as never);
     expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'email')).toBe(false);
     expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'sms')).toBe(true);
     findUnique.mockResolvedValue(null);
     expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'email')).toBe(true);
     expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'sms')).toBe(false);
+
+    // An active member (staff): always the email, never a text, whatever the row says.
+    findUnique.mockResolvedValue(row);
+    findFirst.mockResolvedValue({ userId: USER_ID });
+    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'email')).toBe(true);
+    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'sms')).toBe(false);
+    expect(findFirst).toHaveBeenLastCalledWith({
+      where: { businessId: FIRM_ID, userId: USER_ID, status: 'ACTIVE' },
+      select: { userId: true },
+    });
   });
 });
 

@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -107,6 +108,7 @@ export class SettingsService {
     // The theme colours (sidebarColor, textPrimaryColor, ...) are columns of the same name.
     const { name, primaryColor, ein, ...rest } = patch;
     const fields = Object.keys(patch).sort();
+    if (ein !== undefined) await this.einOpen(businessId);
     // The EIN is sealed before the transaction, so a KMS call never holds a pooled connection or
     // the settings row. Null removes it. Only its last 4 digits are stored in the clear.
     const einColumns =
@@ -142,6 +144,21 @@ export class SettingsService {
       );
       return this.view(tx, businessId);
     });
+  }
+
+  /**
+   * The setup wizard enters the EIN; once the firm is Active only Firmivra changes it, through
+   * Company Profile's Request Change (her guide B2): 403 EIN_LOCKED.
+   */
+  private async einOpen(businessId: string): Promise<void> {
+    const firm = await this.inFirm(businessId, (tx) =>
+      tx.business.findUnique({ where: { id: businessId }, select: { status: true } }),
+    );
+    if (firm?.status !== 'PENDING_SETUP')
+      throw new ForbiddenException({
+        code: 'EIN_LOCKED',
+        message: 'The EIN is locked. Use Request Change on Company Profile to ask Firmivra.',
+      });
   }
 
   /** The EIN sealed with the firm's key, or 503 ENCRYPTION_UNAVAILABLE when that can't be done now. */

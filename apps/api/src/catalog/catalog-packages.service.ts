@@ -22,6 +22,8 @@ import {
   iso,
   lockRow,
   packagePricing,
+  pricedService,
+  serviceTotalCents,
   statusOf,
   versionOf,
 } from './catalog.shared.js';
@@ -38,6 +40,9 @@ const serviceBits = {
   pricingType: true,
   basePriceCents: true,
   billingFrequency: true,
+  // A service's price is its total: ADDITIVE line items add to the base (S6).
+  lineItemMode: true,
+  lineItems: { select: { quantity: true, rateCents: true } },
   category: { select: { id: true, name: true, color: true } },
 } satisfies Prisma.ServiceSelect;
 
@@ -53,7 +58,7 @@ type PackageShape = Prisma.ServicePackageGetPayload<{ include: typeof packageInc
 
 const pricingOf = (p: PackageShape): PackagePricing =>
   packagePricing({
-    included: p.items.filter((i) => i.included).map((i) => i.service),
+    included: p.items.filter((i) => i.included).map((i) => pricedService(i.service)),
     packagePriceCents: p.packagePriceCents,
     ...discountOf(p),
   });
@@ -81,8 +86,7 @@ export const toServicePackage = (p: PackageShape): ServicePackage => ({
     name: i.service.name,
     icon: i.service.iconKey,
     category: categoryRef(i.service.category),
-    individualPriceCents:
-      i.service.pricingType === 'CUSTOM_QUOTE' ? null : i.service.basePriceCents,
+    individualPriceCents: serviceTotalCents(i.service),
     pricingType: i.service.pricingType,
     included: i.included,
     inactive: i.service.status !== 'ACTIVE' || i.service.archivedAt !== null,
@@ -140,13 +144,21 @@ export class CatalogPackagesService {
     const ids = [...new Set(body.services.map((s) => s.serviceId))];
     const found = await this.tenantPrisma.db.service.findMany({
       where: { businessId, id: { in: ids } },
-      select: { id: true, basePriceCents: true, pricingType: true },
+      select: {
+        id: true,
+        basePriceCents: true,
+        pricingType: true,
+        lineItemMode: true,
+        lineItems: { select: { quantity: true, rateCents: true } },
+      },
     });
     if (found.length !== ids.length)
       throw errors.invalid('services', 'Choose services of this firm');
     const byId = new Map(found.map((s) => [s.id, s]));
     return packagePricing({
-      included: body.services.filter((s) => s.included).map((s) => byId.get(s.serviceId)!),
+      included: body.services
+        .filter((s) => s.included)
+        .map((s) => pricedService(byId.get(s.serviceId)!)),
       packagePriceCents: body.packagePriceCents,
       discountType: body.discountType,
       discountValue: body.discountValue,
@@ -461,7 +473,7 @@ export class CatalogPackagesService {
     });
     const now = discountOf(cur);
     const worked = packagePricing({
-      included: items.map((i) => i.service),
+      included: items.map((i) => pricedService(i.service)),
       packagePriceCents: null,
       discountType: changes.discountType ?? now.discountType,
       discountValue:

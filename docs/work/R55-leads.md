@@ -17,11 +17,12 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
 - [x] L9 (P1): Convert to Client's steps are editable (client type, full and business name, email, phone, address, services, primary and additional staff, what to carry over, the portal invitation), from the lead's values, kept across the steps in one draft (the convert layout), checked when Client Details & Services is left, and Review & Confirm shows and sends exactly that. Live: a converted lead became a Business client with the edited name, phone, address and staff, no invitation (Send later), and the lead stayed, Converted. Arfan's mock specs `arfan-convert-lead-step-2` (3 cases) and `-step-3` (1 case) already fail on main (they expect every card and a highlight on step 2); not changed here.
 - [x] L4 (P3): the email composer, with fonts, sizes, images and a saved signature with the logo. Contract #1042, API #1044 and web #1049 are merged.
 - [x] L5 (P2): the tag picker for leads and clients: #1048, #1050 and #1058 are merged.
-- [x] L6 (P3): Add New Tag. Branch `rasel/R55-tags-add`.
-- [ ] L7 (P3): Create Campaign. The API PR is #1059. The web is on branch `rasel/R55-leads-campaign-web`, stacked on L6 and #1059.
+- [x] L6 (P3): Add New Tag: #1061 is merged.
+- [x] L7 (P3): Create Campaign. The API #1059 and the screen #1070 are merged.
 - [ ] L8 (P3): several follow-ups. It waits for the schema request, issue #1051 (`lead_follow_ups`, R0).
-- [x] L10 (P3): Archived Leads and Restore. Branch `rasel/R55-leads-archived`; open its PR when a slot frees.
-- [ ] L11 to L14: next, in order. L11 needs Rasel's answer on what "delete" means.
+- [x] L10 (P3): Archived Leads and Restore. Branch `rasel/R55-leads-archived`, one PR covering contract, API and screen.
+- [x] L11 (P2): Delete (the archive) and Restore are Owner and Admin only, on the server and on screen. Branch `rasel/R55-leads-delete-admin`, stacked on L10.
+- [ ] L12 to L14: next, in order.
 
 ## L4: the email composer (Oct 23)
 
@@ -85,6 +86,30 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
   - Email or Text starts a draft, and the composer opens in its embedded mode in a wide panel.
   - Closing the panel keeps the filters and selection.
   - Mock spec `r55-create-campaign` (2).
+
+## L5 and L6: tags (Oct 24)
+
+- **Reproduced on main:**
+  - Leads' Tags dialog was free text separated by commas, with the existing tags as plain text.
+  - Edit Lead had no tags field, so "+ Add Tag" and the Campaigns tab's hint were dead ends.
+  - Clients had no tags at all; only Convert to Client wrote `client_tags`.
+  - The database already keeps one `tags` table for both, unique per firm ignoring case.
+- **Decided (Rasel, Oct 23):** build client tags too.
+- **Contract #1048:**
+  - `GET` and `POST /business/tags`;
+  - `GET` and `PUT /business/clients/{id}/tags`;
+  - `api.tags`;
+  - mocks share one tag list.
+- **API #1050** (stacked on #1048):
+  - a tags module;
+  - Owner and Admin add tags; 409 `TAG_EXISTS` for a name in any case;
+  - client tags under the client's row lock: Staff only their own clients, 400 `UNKNOWN_TAG` for a new name, 409 for an archived client;
+  - e2e (7) and isolation cases.
+- **Web, L5** (`rasel/R55-tags-web`, stacked on #1050):
+  - `components/tag-picker.tsx` in the Leads Tags dialog, Edit Lead (Tags field) and a Tags card on the client Overview;
+  - live: a name in another case is the same tag, and the counts follow.
+- **Web, L6** (`rasel/R55-tags-add`, stacked on L5): Add New Tag beside Add New Lead (Owner and Admin) adds to the one list and shows where each tag is used.
+- `r23-client-record` (4 cases) already fails on main without these changes; not changed here.
 
 ## Decisions
 
