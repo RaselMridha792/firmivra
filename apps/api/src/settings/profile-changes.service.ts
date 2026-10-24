@@ -62,13 +62,19 @@ export const ROLE_NAMES: Record<string, string> = {
   STAFF: 'Staff',
 };
 
-const EIN_SHOWN = (ein: string) => `${ein.slice(0, 2)}-${ein.slice(2)}`;
+/**
+ * A proposed EIN is kept as its last four digits only, as the firm's own EIN is (`ein_last4`): the
+ * full number is never stored in the ticket, an audit row or a log. Firmivra confirms it with the
+ * firm and types it when it applies the change (R56's Apply).
+ */
+const EIN_KEPT = (ein: string) => `Ending in ${ein.slice(-4)}`;
 
 /**
  * Company Profile's Request Change (Rasel's default, Oct 24): the legal name, the EIN and the
  * licensing details are changed only by Firmivra. An Owner or Admin raises a support ticket for
  * the Super Admin team (`firm-tickets.ts`) with the current and proposed values and the reason.
- * Nothing on the profile changes here. The audit entry names the fields, never the values.
+ * Nothing on the profile changes here. The audit entry names the fields, never the values, and a
+ * proposed EIN is kept as its last four digits only.
  */
 @Injectable()
 export class ProfileChangesService {
@@ -126,7 +132,7 @@ export class ProfileChangesService {
         };
         const proposed = (f: ProfileChangeField) => {
           const value = body.changes[f] as string;
-          return f === 'ein' ? EIN_SHOWN(value) : value;
+          return f === 'ein' ? EIN_KEPT(value) : value;
         };
         const description = [
           `${member.user.name} (${ROLE_NAMES[member.role] ?? member.role}) asks Firmivra to ` +

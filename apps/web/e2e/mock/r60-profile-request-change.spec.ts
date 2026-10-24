@@ -42,6 +42,9 @@ test('the legal name and EIN are locked; Request Change sends a request whose st
   );
 
   await dialog.getByLabel('New Legal Company Name').fill('Sample Renamed Legal LLC');
+  await expect(dialog.getByTestId('ein-kept')).toHaveText(
+    'Only the last four digits are kept with your request. Firmivra confirms the full number with you before applying it.',
+  );
   await dialog.getByLabel('New EIN (Tax ID)').fill('12-3456789');
   await dialog.getByRole('button', { name: 'Submit Request' }).click();
   await expect(dialog).toBeHidden();
