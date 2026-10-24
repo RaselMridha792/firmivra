@@ -234,6 +234,9 @@ test('No alert and an alert 30 minutes before expiry save (I9)', async ({ page }
 test('additional emails to notify are added, checked, removed and saved (I7)', async ({ page }) => {
   await openSettings(page);
   const list = page.getByTestId('additional-emails');
+  // The firm's contact email starts the list; the firm may remove it.
+  await expect(list.getByRole('listitem')).toHaveText(['office@lvp.test']);
+  await list.getByRole('button', { name: 'Remove office@lvp.test' }).click();
   await expect(list).toContainText('No additional emails.');
   const input = list.getByLabel('Add an email to notify');
   await input.fill(' Office@Example.test ');

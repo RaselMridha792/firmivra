@@ -126,7 +126,8 @@ function defaultSettings(): IntakeSettings {
       firstReminderAfterMinutes: 4320,
       finalReminderAfterMinutes: 10080,
       expirationAlertMinutes: 1440,
-      additionalEmails: [],
+      // The firm's contact email starts the list (Rasel, Oct 25).
+      additionalEmails: ['office@lvp.test'],
     },
     automation: {
       autoCreateClient: false,
