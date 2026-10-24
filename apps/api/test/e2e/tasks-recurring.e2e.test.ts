@@ -1575,6 +1575,32 @@ describe('idempotency keys', () => {
     );
   });
 
+  it('one key on Create Task and Set Up Recurring at once: one record, and 409 for the other', async () => {
+    // The two tables' unique indexes never meet: the lock on the firm's key makes the second
+    // wait for the first and then find its record.
+    for (let i = 0; i < 3; i += 1) {
+      const key = randomUUID();
+      const title = mark('One key, two routes');
+      const answers = await Promise.all([
+        call('post', '/tasks', people.ownerA, { clientId: clients.c1, title, idempotencyKey: key }),
+        call('post', '/task-series', people.ownerA, {
+          clientId: clients.c1,
+          title,
+          recurrence: { unit: 'MONTH', startOn: '2030-01-01' },
+          idempotencyKey: key,
+        }),
+      ]);
+      const [task, plan] = answers;
+      expect(answers.map((r) => r.status).sort()).toEqual([201, 409]);
+      expectError(task.status === 409 ? task : plan, 409, 'IDEMPOTENCY_KEY_REUSED');
+      if (plan.status === 201) toStop.push(series(plan, 201).id);
+      const tasks = await inFirm('a', (tx) =>
+        tx.task.count({ where: { businessId: firms.a, idempotencyKey: key } }),
+      );
+      expect(tasks + (await keyed(key)).length).toBe(1);
+    }
+  });
+
   it('Convert twice with one key returns the same series; the key on another task is 409', async () => {
     const t = await dated();
     const key = randomUUID();

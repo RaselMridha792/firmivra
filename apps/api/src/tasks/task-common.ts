@@ -331,14 +331,17 @@ export function inFiringOrder<T extends { rule: Reminder }>(
 
 // ---------- Idempotency keys ----------
 
-/** The keys' unique indexes on (business_id, idempotency_key) (migration r1_task_idempotency_keys). */
+/**
+ * The keys' unique indexes on (business_id, idempotency_key) (migrations r1_task_idempotency_keys
+ * and r1_task_series_idempotency_keys).
+ */
 export const TASK_KEY_INDEX = 'tasks_business_id_idempotency_key_key';
 export const SERIES_KEY_INDEX = 'task_series_business_id_idempotency_key_key';
 
 /**
  * Where a key was used, kept beside it: the route, and for Duplicate and Convert the task in the
  * URL, in lower case as ids are stored. Tasks take 'create', 'draft' and 'duplicate:<id>', series
- * 'series' and 'convert:<id>' (the migration's CHECKs).
+ * 'series' and 'convert:<id>' (the migrations' CHECKs).
  */
 export const keyScope = {
   create: 'create',
@@ -386,16 +389,30 @@ export async function firstByKey(
 }
 
 /**
+ * Locks the key in this firm until the transaction ends (an advisory lock). Tasks and series share
+ * the lock, so saves with one key, on any route, run one after the other: a second one waits for
+ * the first to commit or roll back and then finds what it made (a retry, or 409), instead of
+ * running every check again before it blocks on a unique index, or making a record in the other
+ * table, whose index would not stop it.
+ */
+async function lockKey(tx: TxClient, businessId: string, key: string): Promise<void> {
+  const name = `task-key:${businessId.toLowerCase()}:${key.toLowerCase()}`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${name}, 0))`;
+}
+
+/**
  * A save that makes a task or a series, retry-safe by the request's idempotency key (R1, Oct 24;
  * the contract's IdempotencyKey):
- * - the key is looked up first, before any check that can change between two tries (an archived
- *   type or template, an assignee gone, a task already recurring): the same member's retry on the
- *   same route and task gets `read` of the record the first save made, as it is now and as they
- *   reach it, with nothing written or audited; any other use of the key is 409 (firstByKey);
+ * - the key is locked first (lockKey), so two requests with one key at once, on the same route or
+ *   not, are answered as if one came after the other;
+ * - then it is looked up, before any check that can change between two tries (an archived type or
+ *   template, an assignee gone, a task already recurring): the same member's retry on the same
+ *   route and task gets `read` of the record the first save made, as it is now and as they reach
+ *   it, with nothing written or audited; any other use of the key is 409 (firstByKey);
  * - a new key runs `create`, which stores the key with `scope`;
- * - two requests with one key at once: the second's insert waits on the key's unique `index` and
- *   fails once the first commits. Its transaction is aborted, so it is answered as a retry in a
- *   new one. This is checked before any other error is mapped (`otherwise`).
+ * - the key's unique `index` stays as a backstop: an insert that reaches it fails once the first
+ *   commits. Its transaction is aborted, so it is answered as a retry in a new one. This is
+ *   checked before any other error is mapped (`otherwise`).
  * Without a key, only `create`.
  */
 export async function keyedSave<T>(
@@ -412,7 +429,9 @@ export async function keyedSave<T>(
     database.withScope({ kind: 'business', businessId }, fn);
   try {
     return await inFirm(async (tx) => {
-      const first = key ? await firstByKey(tx, businessId, actor, key, scope) : null;
+      if (!key) return create(tx);
+      await lockKey(tx, businessId, key);
+      const first = await firstByKey(tx, businessId, actor, key, scope);
       return first === null ? create(tx) : read(tx, first);
     });
   } catch (error) {

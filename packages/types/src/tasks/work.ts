@@ -361,8 +361,9 @@ export type TaskCalendar = z.infer<typeof TaskCalendar>;
  * no longer do), and nothing is saved or audited again, even when the body changed. Only the
  * member who made the record gets it back, and only on the same route for the same task in the
  * URL: any other use of the key in the firm is 409 IDEMPOTENCY_KEY_REUSED, and the record is
- * never shown. Kept as long as the record (a discarded draft frees its key). Never on a change
- * (PATCH) or on publishing a draft.
+ * never shown. Two saves with one key at once, on any of these routes, are answered as if one
+ * came after the other. Kept as long as the record (a discarded draft frees its key). Never on a
+ * change (PATCH) or on publishing a draft.
  */
 const IdempotencyKey = z.uuid();
 

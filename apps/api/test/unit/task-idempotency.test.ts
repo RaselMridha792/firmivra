@@ -1,8 +1,8 @@
 // Idempotency keys on the Tasks module's saves that create something (R1, Oct 24): task-common.ts's
-// firstByKey and keyedSave. A key is looked up first; the same member's retry on the same route
-// and task reads the first record and writes nothing; any other use of the key is 409, on a task
-// or a series; two requests at once are told apart by the key's unique index and the loser reads
-// the winner's record in a new transaction; every other error goes on unchanged.
+// firstByKey and keyedSave. A key is locked for the firm and then looked up first; the same
+// member's retry on the same route and task reads the first record and writes nothing; any other
+// use of the key is 409, on a task or a series; an insert that still meets the key's unique index
+// reads the winner's record in a new transaction; every other error goes on unchanged.
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import { describe, expect, it } from 'vitest';
@@ -30,17 +30,31 @@ interface Row {
   status?: string;
 }
 
-/** A transaction whose tasks and series tables hold at most these keyed rows. */
+/**
+ * A transaction whose tasks and series tables hold at most these keyed rows. `asked`: each lookup's
+ * arguments; `steps`: each lookup's table and each advisory lock's name, in order.
+ */
 function fakeTx(rows: { task?: Row; series?: Row }) {
   const asked: unknown[] = [];
-  const table = (row: Row | undefined) => ({
+  const steps: string[] = [];
+  const table = (name: string, row: Row | undefined) => ({
     findFirst: async (args: unknown) => {
       asked.push(args);
+      steps.push(name);
       return row ?? null;
     },
   });
-  const tx = { task: table(rows.task), taskSeries: table(rows.series) } as unknown as TxClient;
-  return { tx, asked };
+  const tx = {
+    task: table('tasks', rows.task),
+    taskSeries: table('task_series', rows.series),
+    // Prisma's tagged template: the SQL around the values, then the values.
+    $executeRaw: async (sql: TemplateStringsArray, ...values: unknown[]) => {
+      expect(sql.join('?')).toBe('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))');
+      steps.push(`lock ${String(values[0])}`);
+      return 1;
+    },
+  } as unknown as TxClient;
+  return { tx, asked, steps };
 }
 
 /** A database whose transactions run on `txs` in turn, counting how many were opened. */
@@ -151,8 +165,8 @@ describe('keyedSave', () => {
     throw error;
   };
 
-  it('without a key, only creates', async () => {
-    const { tx, asked } = fakeTx({ task: mine('create') });
+  it('without a key, only creates: no lock, no lookup', async () => {
+    const { tx, steps } = fakeTx({ task: mine('create') });
     const { database, opened } = fakeDatabase([tx]);
     const out = await keyedSave(
       database,
@@ -164,8 +178,32 @@ describe('keyedSave', () => {
       never,
     );
     expect(out).toBe('made');
-    expect(asked).toHaveLength(0);
+    expect(steps).toEqual([]);
     expect(opened).toEqual([`business:${FIRM}`]);
+  });
+
+  it('locks the firm’s key (in lower case, the same for every route) before looking it up and creating', async () => {
+    for (const [scope, index] of [
+      [keyScope.create, TASK_KEY_INDEX],
+      [keyScope.convert(SOURCE), SERIES_KEY_INDEX],
+    ] as const) {
+      const { tx, steps } = fakeTx({});
+      const { database } = fakeDatabase([tx]);
+      const out = await keyedSave(
+        database,
+        FIRM,
+        actor,
+        { key: KEY.toUpperCase(), scope, index },
+        async () => 'read',
+        async () => {
+          steps.push('create');
+          return 'made';
+        },
+        never,
+      );
+      expect(out).toBe('made');
+      expect(steps).toEqual([`lock task-key:${FIRM}:${KEY}`, 'tasks', 'task_series', 'create']);
+    }
   });
 
   it('a new key creates; a retry of the same save reads the first record and writes nothing', async () => {
@@ -191,7 +229,7 @@ describe('keyedSave', () => {
     expect(reads).toEqual(['first']);
   });
 
-  it('two at once: the loser of the key index reads the winner’s record in a new transaction', async () => {
+  it('an insert that still meets the key index reads the winner’s record in a new transaction', async () => {
     const { database, opened } = fakeDatabase([fakeTx({}).tx, fakeTx({ task: mine('create') }).tx]);
     const out = await keyedSave(
       database,
