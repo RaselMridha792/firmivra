@@ -60,6 +60,12 @@ export interface EnvConfig {
    * so the deploy role trusts the numeric ids too: a renamed or re-created repo cannot deploy.
    */
   github: { owner: string; ownerId: number; repo: string; repoId: number };
+  /**
+   * The email stack writes the domain's DMARC record (`_dmarc.<zone>`). False where the zone
+   * already has the domain owner's own record, which then stays the domain's policy: firmivra.com
+   * keeps the one its company mail (Microsoft 365) uses, copied from GoDaddy (Rasel, Oct 24).
+   */
+  dmarcRecord: boolean;
   availabilityZones: string[];
   logRetentionDays: 14;
   db: {
@@ -136,25 +142,25 @@ const dev: EnvConfig = {
   task: { cpu: 256, memoryMiB: 512, spot: true, count: 1 },
   apiMemoryMiB: 1024,
   ownsAccountCi: true,
+  dmarcRecord: true,
 };
 
 /**
- * firmivra.com's Route 53 zone does not exist yet: it is made on Rasel's yes
- * (docs/work/R1-prod-morning.md, section 2), and its id replaces this. Until then prod only
- * synthesizes with `-c allowPending=true` (a read-only check), and nothing can deploy it.
+ * firmivra.com, prod's zone: made on Rasel's yes on Oct 24 with every GoDaddy record copied, and
+ * delegated to Route 53 at GoDaddy the same day (docs/work/R1-cicd.md, "Prod log").
  */
-export const PENDING_ZONE_ID = 'PENDING-firmivra-com';
+export const FIRMIVRA_COM: CustomDomain = {
+  zoneName: 'firmivra.com',
+  hostedZoneId: 'Z06906951XI9J0KSHI8TO',
+  hosts: { admin: 'admin.firmivra.com', app: 'app.firmivra.com', portal: 'portal.firmivra.com' },
+};
 
 /** Prod (Rasel, Oct 23): the proposals in the prod checklist's step 5, with auto scaling. */
 const prod: EnvConfig = {
   envName: 'prod',
   account: dev.account,
   region: dev.region,
-  customDomain: {
-    zoneName: 'firmivra.com',
-    hostedZoneId: PENDING_ZONE_ID,
-    hosts: { admin: 'admin.firmivra.com', app: 'app.firmivra.com', portal: 'portal.firmivra.com' },
-  },
+  customDomain: FIRMIVRA_COM,
   cognitoEmail: {
     from: 'no-reply@firmivra.com',
     sesVerifiedDomain: 'firmivra.com',
@@ -185,6 +191,8 @@ const prod: EnvConfig = {
   },
   apiMemoryMiB: 1024,
   ownsAccountCi: false,
+  // firmivra.com keeps its own DMARC record (company mail), copied from GoDaddy.
+  dmarcRecord: false,
 };
 
 /**
@@ -230,26 +238,10 @@ function checkConnections(config: EnvConfig): EnvConfig {
   return config;
 }
 
-/**
- * The settings of `envName`. `allowPending` lets prod synthesize while its zone id is still the
- * placeholder (`cdk synth -c env=prod -c allowPending=true`); no deploy passes it.
- */
-export function configFor(
-  envName: unknown,
-  overrides: Partial<EnvConfig> = {},
-  { allowPending = false }: { allowPending?: boolean } = {},
-): EnvConfig {
+/** The settings of `envName`. */
+export function configFor(envName: unknown, overrides: Partial<EnvConfig> = {}): EnvConfig {
   if (envName === 'dev') return checkConnections({ ...dev, ...overrides });
-  if (envName === 'prod') {
-    const config = checkConnections({ ...prod, ...overrides });
-    if (config.customDomain?.hostedZoneId === PENDING_ZONE_ID && !allowPending) {
-      throw new Error(
-        "prod has no Route 53 zone id yet (firmivra.com's zone is made on Rasel's yes). For a " +
-          'read-only synth add -c allowPending=true.',
-      );
-    }
-    return config;
-  }
+  if (envName === 'prod') return checkConnections({ ...prod, ...overrides });
   throw new Error(`Unknown environment "${String(envName)}". Use -c env=dev or -c env=prod.`);
 }
 
