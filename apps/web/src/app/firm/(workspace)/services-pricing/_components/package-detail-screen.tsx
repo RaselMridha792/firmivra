@@ -27,7 +27,14 @@ import {
   percent,
   tone,
 } from './catalog-shared';
-import { PackagePreview, Panel } from './package-parts';
+import {
+  PackagePreview,
+  Panel,
+  QuoteRequiredNote,
+  selectedTotal,
+  ViewFullPage,
+  type PreviewData,
+} from './package-parts';
 
 const yes = (v: boolean) => (v ? 'Yes' : 'No');
 
@@ -44,6 +51,20 @@ export function PackageDetailScreen({ id }: { id: string }) {
   const fail = (e: unknown) => setMessage({ text: errorMessage(e, CATALOG_ERRORS), tone: 'error' });
   const note = query.isPending ? 'Loading…' : 'This package is not available right now.';
   const included = (p?.services ?? []).filter((s) => s.included);
+  const preview: PreviewData = {
+    name: p?.name ?? '',
+    icon: p?.icon ?? null,
+    priceCents: p?.packagePriceCents ?? null,
+    description: p?.shortDescription ?? '',
+    included: included.map((s) => ({
+      name: s.name,
+      quoteRequired: s.pricingType === 'CUSTOM_QUOTE',
+    })),
+    addOns: (p?.addOns ?? [])
+      .filter((a) => a.offered)
+      .map((a) => ({ name: a.name, priceCents: a.priceCents, description: a.description })),
+    allowClientAddOns: p?.allowClientAddOns ?? false,
+  };
   const btn =
     'inline-flex min-h-10 items-center gap-2 rounded-control border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-canvas disabled:opacity-50';
 
@@ -215,7 +236,9 @@ export function PackageDetailScreen({ id }: { id: string }) {
             {p ? (
               <dl className="grid grid-cols-[10rem_1fr] gap-x-3 gap-y-2 text-sm">
                 <dt className="text-text">Total of Selected Services</dt>
-                <dd className="text-heading">{money(p.pricing.totalSelectedCents)}</dd>
+                <dd className="text-heading" data-testid="detail-total">
+                  {selectedTotal(p.pricing)}
+                </dd>
                 <dt className="text-text">Package Price</dt>
                 <dd className="font-semibold text-heading">{money(p.pricing.packagePriceCents)}</dd>
                 <dt className="text-text">Discount</dt>
@@ -236,7 +259,9 @@ export function PackageDetailScreen({ id }: { id: string }) {
             ) : (
               <Quiet>{note}</Quiet>
             )}
-            {p?.pricing.variablePrice ? (
+            {p?.pricing.quoteRequired ? (
+              <QuoteRequiredNote />
+            ) : p?.pricing.variablePrice ? (
               <p className="mt-3 flex items-center gap-2 rounded-lg bg-warning-soft p-3 text-sm text-text">
                 <Warning aria-hidden weight="fill" className="size-5 shrink-0 text-gold" />A
                 Starting At, Hourly or Custom Quote service is included, so the savings are an
@@ -268,19 +293,12 @@ export function PackageDetailScreen({ id }: { id: string }) {
           </Panel>
         </div>
         <aside className="flex min-w-0 flex-col gap-4" aria-label="Preview and settings">
-          <Panel title="Package Preview (Client View)" testId="detail-preview">
-            <PackagePreview
-              data={{
-                name: p?.name ?? '',
-                icon: p?.icon ?? null,
-                priceCents: p?.packagePriceCents ?? null,
-                description: p?.shortDescription ?? '',
-                included: included.map((s) => s.name),
-                addOns: (p?.addOns ?? [])
-                  .filter((a) => a.offered)
-                  .map((a) => ({ name: a.name, priceCents: a.priceCents })),
-              }}
-            />
+          <Panel
+            title="Package Preview (Client View)"
+            testId="detail-preview"
+            aside={<ViewFullPage data={preview} />}
+          >
+            <PackagePreview data={preview} />
           </Panel>
           <Panel title="Internal Notes (Not Visible to Clients)" testId="detail-notes">
             <p className="whitespace-pre-line text-sm text-text">

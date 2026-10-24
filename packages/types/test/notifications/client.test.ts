@@ -48,7 +48,7 @@ const item = {
 };
 const prefs = {
   channels: ['EMAIL'],
-  items: [{ category: 'ACCOUNT', email: true, sms: false, locked: true }],
+  items: [{ category: 'ACCOUNT', email: true, sms: false, locked: true, emailLocked: true }],
 };
 
 async function rejection(promise: Promise<unknown>) {

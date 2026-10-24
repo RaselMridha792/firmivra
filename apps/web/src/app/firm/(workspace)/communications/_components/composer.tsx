@@ -90,25 +90,43 @@ const formOf = (d: CommunicationDetail): Form => ({
   visibility: d.visibility ?? '',
 });
 
-/** /communications/[id]/edit: the channel-aware composer. */
-export function Composer({ id }: { id: string }) {
+/**
+ * Another page's panel around the composer (Create Campaign on Leads, L7): no breadcrumb or page
+ * title, Cancel closes the panel, and after Review & Send the panel closes instead of the page
+ * moving to the communication.
+ */
+export interface ComposerEmbed {
+  onClose: () => void;
+  onDone: (id: string) => void;
+}
+
+/** /communications/[id]/edit: the channel-aware composer (also inside a panel, `embedded`). */
+export function Composer({ id, embedded }: { id: string; embedded?: ComposerEmbed }) {
   const detail = useApiQuery([...COMM_KEY, 'detail', id], () => api.communications.get(id));
   if (detail.isError)
     return (
       <div className="flex flex-col gap-3" data-testid="composer-error">
-        <Link href="/communications" className="text-sm font-medium text-link">
-          ← Back to Communications
-        </Link>
+        {embedded ? null : (
+          <Link href="/communications" className="text-sm font-medium text-link">
+            ← Back to Communications
+          </Link>
+        )}
         <p role="alert" className={quiet}>
           This communication is not available. It may have been removed, or we could not load it.
         </p>
       </div>
     );
   if (!detail.data) return <p className={quiet}>Loading…</p>;
-  return <ComposerForm key={detail.data.id} initial={detail.data} />;
+  return <ComposerForm key={detail.data.id} initial={detail.data} embedded={embedded} />;
 }
 
-function ComposerForm({ initial }: { initial: CommunicationDetail }) {
+function ComposerForm({
+  initial,
+  embedded,
+}: {
+  initial: CommunicationDetail;
+  embedded?: ComposerEmbed;
+}) {
   const router = useRouter();
   const qc = useQueryClient();
   const [d, setD] = useState(initial);
@@ -247,38 +265,51 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="composer">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
-        <Link href="/communications" aria-label="Back to Communications" className="text-link">
-          <ArrowLeft aria-hidden weight="bold" className="size-4" />
-        </Link>
-        <Link href="/communications" className="text-link">
-          Communications
-        </Link>
-        <span aria-hidden className="text-muted">
-          ›
-        </span>
-        <span className="font-semibold text-heading">
-          {d.status === 'DRAFT' ? 'New Communication' : 'Edit Communication'}
-        </span>
-      </nav>
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-display text-3xl font-bold text-heading">
-              Create New Communication
-            </h1>
-            <StatusPill status={d.status} />
+      {embedded ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <StatusPill status={d.status} />
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Top actions">
+            {saveDraft}
+            {sendTest}
+            {reviewBtn}
           </div>
-          <p className="text-base text-muted">
-            Build, preview, and send a message to the right audience.
-          </p>
         </div>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Top actions">
-          {saveDraft}
-          {sendTest}
-          {reviewBtn}
-        </div>
-      </header>
+      ) : (
+        <>
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
+            <Link href="/communications" aria-label="Back to Communications" className="text-link">
+              <ArrowLeft aria-hidden weight="bold" className="size-4" />
+            </Link>
+            <Link href="/communications" className="text-link">
+              Communications
+            </Link>
+            <span aria-hidden className="text-muted">
+              ›
+            </span>
+            <span className="font-semibold text-heading">
+              {d.status === 'DRAFT' ? 'New Communication' : 'Edit Communication'}
+            </span>
+          </nav>
+          <header className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="font-display text-3xl font-bold text-heading">
+                  Create New Communication
+                </h1>
+                <StatusPill status={d.status} />
+              </div>
+              <p className="text-base text-muted">
+                Build, preview, and send a message to the right audience.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Top actions">
+              {saveDraft}
+              {sendTest}
+              {reviewBtn}
+            </div>
+          </header>
+        </>
+      )}
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
@@ -722,9 +753,15 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
       </div>
 
       <footer className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface p-3 shadow-md">
-        <Link href="/communications" className={subtle}>
-          Cancel
-        </Link>
+        {embedded ? (
+          <button type="button" className={subtle} onClick={embedded.onClose}>
+            Cancel
+          </button>
+        ) : (
+          <Link href="/communications" className={subtle}>
+            Cancel
+          </Link>
+        )}
         <p className="text-xs text-muted" role="status">
           {saving ? 'Saving…' : dirty ? 'Unsaved changes' : `Saved ${dateTimeText(d.savedAt)}`}
         </p>
@@ -754,7 +791,8 @@ function ComposerForm({ initial }: { initial: CommunicationDetail }) {
           onClose={() => setDialog(undefined)}
           onDone={(cid) => {
             void qc.invalidateQueries({ queryKey: [...COMM_KEY] });
-            router.push(`/communications/${cid}`);
+            if (embedded) embedded.onDone(cid);
+            else router.push(`/communications/${cid}`);
           }}
         />
       ) : null}
