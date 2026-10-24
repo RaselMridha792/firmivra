@@ -251,7 +251,9 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   applying is all the firm side needs. R60 proposes: admin scope, audited in both logs (platform
   and the firm's), linked from the ticket; a new EIN written as activation writes it (encrypted
   with the firm's KMS key, `ein_enc` and `ein_last4`) and checked for duplicates as an
-  application's is (`ein_hash`). R60 changes nothing on the firm side for it.
+  application's is (`ein_hash`). Rasel (Oct 24): the request keeps only the proposed EIN's last
+  four digits ("Ending in 6789"), so Apply leaves the EIN empty for the admin to type
+  (`rasel/R60-profile-ein-last4`).
 - **R1 (I10):** done in #1025 (2, 5, 10, 50 or 100 MB, enforced in uploads). R60 verifies only.
 - **R56 (I3):** done in #1020 (`PublicLink`, `PublicLinkBlock`); R60 builds I3's link next.
 - **Secure link page (I2):** a form for a lead or a new contact needs the secure link page
@@ -605,3 +607,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   starting from them, step 3's choices winning. Defaults e2e 6 of 6, staff write and security e2e
   34 of 34, contract unit 20 of 20, the Staff mock specs 55 of 55, API and web `tsc` 0 errors.
   Sheet shot on the real API. Firm setup's invite (`/auth/invites`) is outside R60's paths (Needs).
+- Oct 24 (fourth session): Rasel's fix before the next feature (`rasel/R60-profile-ein-last4`,
+  from `main`): Request Change keeps only the proposed EIN's last four digits in the ticket
+  ("Proposed: Ending in 4321"); the full number is in no ticket, audit row, log or answer (the
+  e2e checks the stored ticket, the POST and GET answers and Super Admin's detail). The dialog says
+  so under New EIN. Profile-changes e2e 6 of 6, `r60-profile-request-change` 2 of 2.
