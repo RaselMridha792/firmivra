@@ -1,9 +1,9 @@
-// Idempotency keys on tasks and task series (R1, Oct 24; migration r1_task_idempotency_keys): the
-// key a screen sends with a save that makes a task or a series, kept with where it was used. A key
-// is unique per firm (another firm may use the same one, and rows without a key never clash), a
-// key comes with its scope and a scope with its key, each table takes only its own routes' scopes,
-// and a firm never sees, finds or changes another firm's keyed rows. Runs as the app role under
-// RLS.
+// Idempotency keys on tasks and task series (R1, Oct 24; migrations r1_task_idempotency_keys and
+// r1_task_series_idempotency_keys, one per table): the key a screen sends with a save that makes a
+// task or a series, kept with where it was used. A key is unique per firm (another firm may use the
+// same one, and rows without a key never clash), a key comes with its scope and a scope with its
+// key, each table takes only its own routes' scopes, and a firm never sees, finds or changes
+// another firm's keyed rows. Runs as the app role under RLS.
 import { randomUUID } from 'node:crypto';
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 import { databaseErrorCode } from '../src/errors.js';
@@ -122,7 +122,8 @@ describe('one key per firm', () => {
   });
 
   it('keeps the two tables apart: one key may be on a task and on a series', async () => {
-    // The API answers 409 for a key used on another route; the database only keeps each once.
+    // The API answers 409 for a key used on another route, also at once (it locks the key first);
+    // the database only keeps each once per table.
     const key = randomUUID();
     await task(keyed('create', key));
     await expect(series(keyed('series', key))).resolves.toMatchObject({ idempotencyKey: key });
