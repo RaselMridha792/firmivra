@@ -38,6 +38,35 @@ Contract: `packages/types/src/staff/` (R42). Module: `apps/api/src/staff/`.
 17. Staff documents: the three-step upload under `tenant/<business>/staff/<member>/`, as documents'. Every read and write opens the scope with the acting Owner or Admin (the database wall); the scan result is set with no actor (the scanner's place), `updateMany` from PENDING only. Confirm checks size, SHA-256 and the type (documents' checks for PDF, JPEG, PNG and DOCX; a Word 97-2003 file must be a compound file and is refused when it names a `Macros` or `_VBA_PROJECT` storage). A refused file is deleted. Download only when CLEAN (409 DOCUMENT_NOT_READY). Replace adds a row and archives the old one; nothing is deleted.
 18. Import: the preview keeps the valid rows (with what each will do) for an hour, under its author; its id is the `previewToken`. The import uses it once, as its author (400 IMPORT_PREVIEW_EXPIRED otherwise), and runs each row through Create Staff (a stable idempotency key per row) or Edit Staff, so rows are checked, invited and audited as on the screens. An existing member's row updates job title, department (added), employment type, office, hire date and employee id; never the role. The error file is a `data:` CSV link built in the answer (no storage). Rows run one by one: 500 invites take a while, and the firm's daily invite cap (50) applies.
 
+## Octavia's review of Oct 23 (CHANGE-LIST section B): SM1, SM2, SM4, SM6, SM7 (Oct 24)
+
+R60 took SM8 to SM13 (#1079, merged). SM5 (drafts) and SM14 (account authority) are not R55's here; SM14 waits for Rasel's word.
+
+- **SM1, Bulk Upload stops at Validate & Preview (#1090).** Reproduced on the local API: a 500. When no row could be imported, the preview stored an empty list, which the table's CHECK refuses. The downloaded template's sample department ("Tax Services") makes every row invalid in most firms, so it failed straight away.
+  - Now the preview answers `previewToken: null` with every row's errors, and the screen says no row can be imported yet.
+  - Checked live with the template as downloaded.
+- **SM7, formats (#1090).**
+  - Excel (.xlsx, first sheet) is read in the browser with no library, and an Excel date cell becomes a date.
+  - The template's own headers map by themselves.
+  - Employee ID is optional, and unique in the firm and the file when given.
+  - "W-2 Employee" and "1099 Contractor" are accepted.
+  - The page lists the required columns, accepted values and date format.
+  - Her "Employee ID is required" came from the same 500: choosing "Don't import" for it failed the same way.
+- **SM2, custom role as Admin. Not reproduced on main (Oct 24).** With the local Staff member made an Admin for the test (then restored), both entry points saved a role, with and without an extra permission ("Save Anyway"), and it was listed:
+  - Staff Management > Roles > Create Custom Role;
+  - Settings > Users & Roles > Create Custom Role.
+
+  The e2e covers an Admin creating one. Her test may predate #1017 (the screens, Oct 22) on dev. **Ask her to retest on dev**, and if it fails, to give the account, the start role and the name.
+- **SM4, Active Sessions and Login History. The cause is known; the fix belongs to the sign-in flow.** Nothing writes `staff_sessions`. Staff sign-ins (`auth.signed_in`) go to the platform's log without a firm, and a member's Login History reads only the firm's log (notes 14 and 16; "R2: sign-ins the firm can see" below).
+  - The fix: record a session row and a firm-scoped sign-in row when the member opens the firm.
+  - That means changing the sign-in or session path (auth), and revoking needs Cognito, which is "Sign Out All Sessions", waiting for Rasel's word.
+  - Not built.
+- **SM6, the Export permission (`rasel/R55-export-permission`, PR when a slot frees).**
+  - The grid already has Export for every module, and Payroll, Tax Returns, Bookkeeping, Compliance, Automations and Communications check it.
+  - **Report exports** asked the guard for Create, so a Manager (Reports View and Export by default) got 403. They now ask for Export.
+  - **The users export** asked for Staff Management View. It now asks for Export, so a firm can close it for Admins.
+  - No screen builds exports in the browser. The audit log export stays Owner and Admin by role, since there is no audit module in the grid.
+
 ## Needs from others
 
 - **S3 for staff documents (Rasel, infra).** The API task role needs `s3:PutObject` (presigned), `s3:GetObject` and `s3:DeleteObject` on `tenant/*/staff/*` of the documents bucket, as it has for `tenant/*/templates/*`, and the GuardDuty scan results of that prefix routed to the API's scan queue (the router now knows the `staff` prefix).

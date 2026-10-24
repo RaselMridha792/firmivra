@@ -20,9 +20,11 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
 - [x] L6 (P3): Add New Tag: #1061 is merged.
 - [x] L7 (P3): Create Campaign. The API #1059 and the screen #1070 are merged.
 - [ ] L8 (P3): several follow-ups. It waits for the schema request, issue #1051 (`lead_follow_ups`, R0).
-- [x] L10 (P3): Archived Leads and Restore. Branch `rasel/R55-leads-archived`, one PR covering contract, API and screen.
-- [x] L11 (P2): Delete (the archive) and Restore are Owner and Admin only, on the server and on screen. Branch `rasel/R55-leads-delete-admin`, stacked on L10.
-- [ ] L12 to L14: next, in order.
+- [x] L10 (P3): Archived Leads and Restore: #1075 is merged.
+- [x] L11 (P2): Delete (the archive) and Restore are Owner and Admin only, on the server and on screen: #1078 is merged.
+- [x] L12: the verification checklist, #1080 (merged): `docs/work/R55-L12-checklist.md`. Its fixes are below.
+- [x] L13: website lead capture, answered in #1089 (`docs/work/R55-L13-website-capture.md`).
+- [x] L14: creating a client without a lead works (Add New Client, since #978), recorded in #1089.
 
 ## L4: the email composer (Oct 23)
 
@@ -111,11 +113,37 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
 - **Web, L6** (`rasel/R55-tags-add`, stacked on L5): Add New Tag beside Add New Lead (Owner and Admin) adds to the one list and shows where each tag is used.
 - `r23-client-record` (4 cases) already fails on main without these changes; not changed here.
 
+## L12 to L14 (Oct 24)
+
+- **L12 checklist (#1080).**
+  - **Passed:** filters (alone and combined), search at the API, paging, every bulk action that exists, statuses, and closed or converted leads staying listed.
+  - **Failed:** no search box on the Leads page, full-name search, Schedule Appointment for a lead, and bulk Convert to Client. The Preferred column is missing.
+- **Fixes:**
+  - #1083 (merged): Schedule Appointment shows the phone and email, and the server's reason when it refuses.
+  - #1082 (merged): a Begin Online lead is saved with source Begin Online, not Other (found in L13).
+  - `rasel/R55-leads-search` (pushed, no PR yet): search matches every word, so a full name works. The screen part waits for the placement decision below.
+- **L13 (#1089).**
+  - A link to Begin Online is the one website method today.
+  - Embedding is blocked (`X-Frame-Options: SAMEORIGIN`).
+  - There is no inbound API, widget or webhook, and Shopify and HubSpot don't create leads.
+  - Gaps: duplicates (a second lead for the same email), and a data fix for the leads saved as Other.
+- **L14 (#1089):** Add New Client works for the Owner, and a role without Clients create is refused. The button shows for every role, and the full name fills only the display name.
+
+### Decisions needed (L12 to L14)
+
+1. **Leads search box:** in the header search on `/leads` (the design's place, which is the shell, R56), or in the Leads filter row (as Clients)?
+2. **Bulk Convert to Client:** it's in the written spec but not in the design. Build it?
+3. **Preferred column:** it's in the written spec but not in the design. Add it?
+4. **Begin Online duplicates:** warn, link or merge? And should the leads saved as Other since Oct 14 be fixed (a migration or a script, R0)?
+
 ## Decisions
 
 1. L1: the Overview is built from `api.leadPipeline.profile` and the existing tab cards (Upcoming Appointments, Next Action / Follow-Up and Open Tasks are the same components as their tabs). Lead Score keeps its frame with "Not scored yet" while no scoring exists (contract: optional).
 
 ## Needs from others
+
+- **R0 (schema), L12:** `appointments.lead_id` (with `client_id` nullable, exactly one set), so a lead can be booked before conversion. Until then the dialog says why (#1083).
+- **R0 or Rasel (data), L13:** Begin Online leads saved with source OTHER since Oct 14 (they have an intake with their `lead_id`).
 
 - **Rasel (infra, dev):** register the toll-free number and set `SMS_ORIGINATION_NUMBER` for the dev API (`infra/src/stacks/app-stack.ts` sets `SMS_MODE: 'sns'` alone); until then every text on dev is refused, whatever the screen does.
 - **Contract (later):** a Begin Online lead's answers read only while it is in a Begin Online status (`LeadDetail.status`); once it moves on in the pipeline the Overview says so. Reading them in any status needs `LeadDetail` to allow the pipeline statuses.
