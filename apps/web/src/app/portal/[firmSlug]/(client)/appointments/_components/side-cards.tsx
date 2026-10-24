@@ -13,6 +13,7 @@ import {
   MessageCircleMore,
 } from 'lucide-react';
 import Link from 'next/link';
+import { FirmContactLinks } from '../../../(public)/_components/firm-contact';
 
 /** The right-hand column: Quick Actions, Need Help? and Be Prepared. */
 export function SideCards({
@@ -66,6 +67,7 @@ export function SideCards({
             <p className="text-sm text-text">Our team is here for you.</p>
           </div>
         </div>
+        <FirmContactLinks className="mb-4 text-text" />
         <Link
           href={`/${slug}/messages`}
           className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-control border border-firm-primary bg-surface px-4 py-2 text-sm font-medium text-firm-text hover:bg-firm-primary hover:text-on-action"
