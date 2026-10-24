@@ -123,10 +123,28 @@ This is newer than every handoff below, so a fresh R1 starts here. Where they di
 - **Step 6 is done:** dev's deploy role trusts only `environment:dev` (prod log, 6).
 - **Open:** #1121, R60's item 12, a data migration. Merge it after #1115, or together with it.
 - **Before Rasel's `v1.0.0` tag:**
-  1. **`firmivra/prod/stripe`, by hand (Rasel).** It doesn't exist yet. It needs all three keys: `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` and `STRIPE_WEBHOOK_SECRET`. ECS can't start an API task whose secret lacks one.
-     - The live webhook endpoint can be made in Stripe first, at `https://app.firmivra.com/api/v1/webhooks/stripe`, to get its signing secret.
-     - This needs the Stripe account activated for live payments.
-  2. **Tag a commit of `main` that has #1120,** after that commit's Deploy dev succeeds. `b6e013696` qualifies (run 40132450092).
+  1. **`firmivra/prod/stripe`: done** (prod log, 7a). Rasel's decision: release with **empty values** for all three keys, so payments are off until the real live keys. The API starts with an empty key. A value of any other shape stops it at boot.
+  2. **Tag a commit of `main` that has #1120,** after that commit's Deploy dev succeeds.
+     - `ef9e9badd` qualifies (run 40135441874).
+     - `564c8cfaf` (#1121) qualifies once its run 40136346592 succeeds.
+- **Stripe, while the keys are empty** (`apps/api/src/payments/stripe/config.ts`; `/api/v1/health` checks only the database):
+  - **Off:** Connect onboarding, card checkout and refunds answer 503 `PAYMENT_PROVIDER_UNAVAILABLE`; the webhook answers 503; Super Admin health shows payments not configured.
+  - **Still working:** invoices, and cash and check payments. Their Stripe calls run only when a card checkout is pending.
+- **Later, the real live keys (Rasel's steps of Oct 25):**
+  1. **Rasel** puts the live keys into `firmivra/prod/stripe` himself, in the console. All three keys stay in the secret; never in chat, a file or the repo. **Format rule, checked when the API starts:**
+     - `STRIPE_SECRET_KEY` matches `^(sk|rk)_(test|live)_[A-Za-z0-9]+$`; prod uses `sk_live_` or `rk_live_`;
+     - `STRIPE_WEBHOOK_SECRET` matches `^whsec_[A-Za-z0-9]+$`;
+     - `STRIPE_PUBLISHABLE_KEY` is `pk_live_…` (the API doesn't read it yet);
+     - an empty value means not set. A value of any other shape stops the API at boot. The circuit breaker then rolls back, and the old tasks keep running.
+  2. **R1, on Rasel's yes:** a new deployment of the api service, so the tasks read the secret (ECS reads it only when a task starts):
+     - `aws ecs update-service --cluster firmivra-prod-cluster --service firmivra-prod-api --force-new-deployment --query service.serviceName --output text`
+     - then `aws ecs wait services-stable --cluster firmivra-prod-cluster --services firmivra-prod-api`;
+     - check that `https://app.firmivra.com/api/v1/health` is ok and Super Admin health shows payments `CONFIGURED`.
+  3. **Rasel** creates the live webhook endpoint:
+     - URL `https://app.firmivra.com/api/v1/webhooks/stripe`, Events from: Connected accounts;
+     - the 8 events in `docs/SETUP-LOG.md`, "Stripe keys on dev";
+     - he stores its `whsec_` signing secret as `STRIPE_WEBHOOK_SECRET` in the same secret.
+     - Then R1 runs step 2 again. If the webhook is made before step 1, one deployment covers both.
 - **Checked, nothing to do (Oct 25):**
   - the zone has no record at `admin.`, `app.` or `portal.firmivra.com`, and no CAA record;
   - GitHub's `prod` environment needs Rasel's review and allows only `v*` tags;
@@ -225,6 +243,7 @@ This is newer than every handoff below, so read it first. Where they differ, thi
   - Deploy dev run 40129918292 had signed in before the change and succeeded;
   - run 40131466057, the first after the change, signed in at 20:50 UTC and succeeded at 21:02;
   - run 40132450092 (`b6e013696`, with #1120) succeeded at 21:15, and the 3 dev sites answer 200. #1120's own run was cancelled by GitHub, because a newer commit's run took its place in the queue.
+- 7a. Oct 25, Rasel's yes on the command (empty values, his decision): `firmivra/prod/stripe` created with `aws secretsmanager create-secret` (`aws/secretsmanager` key and the tags `project=firmivra` and `env=prod`, as the other prod secrets; no rotation). Checked read-only: the keys are `STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, all three empty (printed as true or false, no values).
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
