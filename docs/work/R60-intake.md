@@ -525,6 +525,18 @@ merges. Old columns stay until R60's API reads the new ones, then a later migrat
     `(business_id, lower(name)) WHERE archived_at IS NULL`; filled once from the distinct
     `staff_profiles.work_schedule`. A staff record keeps its own text.
 
+12. **I7, the firm's contact email in existing intake settings (Rasel's tap, Oct 24 20:20 UTC; a
+    data change only; R1's `rasel/R1-intake-contact-email`).** Since #1115 a firm's new intake
+    settings start with its own contact email (`business_settings.contact_email`) first in
+    `notify_additional_emails`. One data migration, `r1_intake_contact_email`, does the same once
+    for the rows that exist:
+    - **Per firm**, each in its own scope (RLS is forced).
+    - **Where it adds:** the address, trimmed and lower-case, goes first in that firm's own list,
+      only where the list does not hold it yet (ignoring case).
+    - **Where it skips:** a firm with no valid contact email (the API's email check), with no
+      intake settings, or with 10 emails already keeps what it has.
+    - **Nothing else changes** (`updated_at` included). A second run changes nothing, and it logs
+      no address.
 12. **I7, the firm's contact email in the existing lists (Oct 25, a data change only, not yet
     approved).** One data migration, per firm as #1074's backfill: `UPDATE intake_settings s SET
     notify_additional_emails = ARRAY[lower(b.contact_email)] FROM business_settings b WHERE
