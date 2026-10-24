@@ -407,6 +407,12 @@ export const LeadProfile = LeadRow.extend({
   client: NamedRef.nullable(),
   /** R11's Begin Online intake, when the lead came from there (open with api.leads.get). */
   beginOnline: z.boolean(),
+  /**
+   * Other leads and clients with this lead's email (any case) or phone, at most five each, among
+   * the ones the member reaches; its own client is left out. Begin Online can make a second lead
+   * for the same person: the screen warns and links, nothing is merged (Rasel, Oct 24).
+   */
+  duplicates: z.object({ leads: z.array(NamedRef), clients: z.array(NamedRef) }),
   archivedAt: DateTime.nullable(),
   version: z.string(),
 });
