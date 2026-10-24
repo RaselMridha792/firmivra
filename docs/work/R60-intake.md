@@ -366,6 +366,10 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   (`apps/api/src/begin-online/begin-online.service.ts`) checks only `beginOnline` and not archived,
   so a service set Inactive or Draft in Services & Pricing still takes Begin Online submissions.
   The public link says INACTIVE then (Rasel's rule); `serviceFor` should also require ACTIVE.
+- **I7, the firm's own address on submit (Rasel's call):** her text keeps "the firm master email"
+  notified after a submission. Nothing is emailed to the firm's contact address
+  (`businesses.contact_email`) on submit, before or after I7; a firm can add it to Notify
+  additional emails. Sending to it by default is for Rasel to decide.
 - **Decisions she left open (do not guess):** Submitted vs Completed, due date vs expiration, staff
   Edit vs Request Revision, import template file types, the auto-create client trigger.
 - **Begin Online (seen, not changed):** `newestForm` picks the highest version number of any
