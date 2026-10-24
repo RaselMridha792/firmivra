@@ -244,6 +244,13 @@ This is newer than every handoff below, so read it first. Where they differ, thi
   - run 40131466057, the first after the change, signed in at 20:50 UTC and succeeded at 21:02;
   - run 40132450092 (`b6e013696`, with #1120) succeeded at 21:15, and the 3 dev sites answer 200. #1120's own run was cancelled by GitHub, because a newer commit's run took its place in the queue.
 - 7a. Oct 25, Rasel's yes on the command (empty values, his decision): `firmivra/prod/stripe` created with `aws secretsmanager create-secret` (`aws/secretsmanager` key and the tags `project=firmivra` and `env=prod`, as the other prod secrets; no rotation). Checked read-only: the keys are `STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, all three empty (printed as true or false, no values).
+- 8a. Oct 24 22:25 UTC: Rasel tagged `v1.0.0` on `564c8cfaf` and approved `prod`. Deploy prod run 40138508812 failed at its first new step, "Create the empty app stack":
+  - **Cause:** both auto scaling targets failed with "Unable to assume IAM role" on `AWSServiceRoleForApplicationAutoScaling_ECSService`. Application Auto Scaling had created that service-linked role on its first use in the account, at 22:31:18, and tried to assume it the same second. It's a one-time timing race; the role exists now.
+  - **The other failures followed from it:** the VPC origin's create was cancelled, and so were the 3 distributions'.
+  - **The rollback failed** (`ROLLBACK_FAILED`). The VPC origin can't be deleted while CloudFront is still deploying it, and the cluster's capacity provider was still in use as the services were removed.
+  - **Left in the stack:** the load balancer, its empty log bucket, the VPC origin and the cluster (no services).
+  - **Not started:** no images, no migrations, no tasks.
+  - Waiting for Rasel: delete the failed stack once the VPC origin is deployed, then re-run the run.
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
