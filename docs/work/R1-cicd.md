@@ -180,6 +180,7 @@ This is newer than every handoff below, so read it first. Where they differ, thi
 - 4b. Rasel's yes: `firmivra-permissions-boundary` v5 created as default, from #1103's branch (adds `application-autoscaling:*` and the ECS auto scaling service-linked role).
 - 4c. Rasel's yes: `firmivra-cdk-cfn-exec` v6 created as default (the same additions, plus DNS records in the prod zone). Next: step 5, the prod stacks, in a fresh R1 session (Rasel).
 - 5a. Oct 25, Rasel's yes on the diff (all creates): `firmivra-prod-network` deployed (`cdk deploy firmivra-prod-network -e -c env=prod`). Checked: `CREATE_COMPLETE`; 2 public and 2 data subnets in us-east-1a and 1b, no NAT; the rejected-traffic flow log is active; the default security group has no rules; the S3 gateway endpoint is available.
+- 5b. Oct 25, Rasel's yes on the diff (all creates): `firmivra-prod-data` deployed. Checked: `CREATE_COMPLETE`; PostgreSQL 16.13 `available`, db.t3.small, single-AZ, encrypted, not public, 14 days of backups, deletion protection on, 20 GiB growing to 100; `firmivra/prod/db/owner` and `firmivra/prod/db/app` exist (names only, no values read); the documents bucket has KMS encryption with a bucket key, versioning, the full public-access block and access logging; the documents key is enabled with rotation on.
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
