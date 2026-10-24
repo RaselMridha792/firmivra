@@ -10,6 +10,7 @@ import { CurrentTenant, Roles } from '../../auth/decorators.js';
 import type { TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { MyInvoicesService } from './my-invoices.service.js';
+import { PortalTabRoute } from '../../client-portal/portal-tabs.js';
 
 export function portalLogin(tenant: TenantContext) {
   if (tenant.kind !== 'client') throw new Error('portal routes are for clients');
@@ -22,6 +23,7 @@ export function portalLogin(tenant: TenantContext) {
  */
 @Controller('portal/:firmSlug/me/invoices')
 @Roles('CLIENT')
+@PortalTabRoute('INVOICES_PAYMENTS')
 export class MyInvoicesController {
   constructor(private readonly mine: MyInvoicesService) {}
 

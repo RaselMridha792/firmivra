@@ -42,6 +42,7 @@ import { AgreementFilesService, AgreementUploadTokens } from './agreement-files.
 import { AgreementScanHandler } from './agreement-scan-handler.js';
 import { AGREEMENTS_CONFIG, agreementsConfig, AgreementsService } from './agreements.service.js';
 import { IntakeSignaturesService } from './intake-signatures.service.js';
+import { PortalTabRoute, PortalTabsModule } from '../client-portal/portal-tabs.js';
 
 const idPipe = new ZodValidationPipe(AgreementPathId);
 /** A version in the path: plain digits ("2", not "02" or "2e0"). */
@@ -192,6 +193,7 @@ export class PublicAgreementsController {
  */
 @Controller('portal/:firmSlug/me/intakes')
 @Roles('CLIENT')
+@PortalTabRoute('INTAKE_FORMS')
 export class MyIntakeAgreementsController {
   constructor(private readonly agreements: AgreementsService) {}
 
@@ -206,7 +208,7 @@ export class MyIntakeAgreementsController {
 }
 
 @Module({
-  imports: [PortalInfoModule, ScanRouterModule],
+  imports: [PortalInfoModule, ScanRouterModule, PortalTabsModule],
   controllers: [AgreementsController, PublicAgreementsController, MyIntakeAgreementsController],
   providers: [
     AgreementsService,

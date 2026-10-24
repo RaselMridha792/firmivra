@@ -21,6 +21,9 @@ const fx = inject('fixtures');
 let app: INestApplication;
 /** A firm of this file only, with its own settings and legal documents. */
 const slug = `r3-portal-${randomUUID().slice(0, 8)}`;
+/** A firm whose Company Profile has no contact details: its main office fills them. */
+const officeSlug = `r55-portal-${randomUUID().slice(0, 8)}`;
+const time = (hhmm: string) => new Date(`1970-01-01T${hhmm}:00.000Z`);
 
 const get = (path: string) => request(app.getHttpServer()).get(path);
 
@@ -43,8 +46,41 @@ beforeAll(async () => {
         portalName: 'R3 Portal',
         portalHeader: 'Welcome to R3',
         welcomeMessage: 'Your documents, in one place.',
+        contactPhone: '(555) 010-0001',
+        contactEmail: 'front@r3.example.test',
+        addressLine1: '1 Profile Way',
+        addressLine2: 'Suite 2',
+        city: 'Testville',
+        state: 'GA',
+        postalCode: '30011',
       },
     });
+    // Company Profile wins over the main office, whose hours are the portal's.
+    const main = await tx.firmOffice.create({
+      data: {
+        businessId: firm.id,
+        name: 'Main',
+        isMain: true,
+        phone: '+15550100002',
+        addressLine1: '9 Office Rd',
+        city: 'Elsewhere',
+      },
+    });
+    for (const [weekday, opensAt, closesAt] of [
+      [2, '13:00', '17:00'],
+      [2, '09:00', '12:00'],
+      [1, '09:00', '18:00'],
+    ] as const) {
+      await tx.firmOfficeHours.create({
+        data: {
+          businessId: firm.id,
+          officeId: main.id,
+          weekday,
+          opensAt: time(opensAt),
+          closesAt: time(closesAt),
+        },
+      });
+    }
     for (const [kind, version] of [
       ['TERMS', 1],
       ['TERMS', 2],
@@ -60,6 +96,30 @@ beforeAll(async () => {
         },
       });
     }
+  });
+  const other = await runInScope(owner, { kind: 'platform' }, (tx) =>
+    tx.business.create({
+      data: { slug: officeSlug, name: 'R55 Office Firm', status: 'ACTIVE' },
+      select: { id: true },
+    }),
+  );
+  await runInScope(owner, { kind: 'business', businessId: other.id }, async (tx) => {
+    await tx.businessSettings.create({ data: { businessId: other.id, city: 'Not a street' } });
+    await tx.firmOffice.create({
+      data: { businessId: other.id, name: 'Branch', phone: '+15550100009', city: 'Branchton' },
+    });
+    await tx.firmOffice.create({
+      data: {
+        businessId: other.id,
+        name: 'Head Office',
+        isMain: true,
+        phone: '+15550100003',
+        email: 'office@r55.example.test',
+        addressLine1: '3 Main Office St',
+        state: 'NY',
+        postalCode: '10001',
+      },
+    });
   });
   await owner.$disconnect();
 
@@ -110,6 +170,16 @@ describe('GET /portal/{firmSlug}/info', () => {
           terms: { version: 2, publishedAt: expect.any(String) },
           privacy: { version: 1, publishedAt: expect.any(String) },
         },
+        contact: {
+          phone: '(555) 010-0001',
+          email: 'front@r3.example.test',
+          addressLines: ['1 Profile Way', 'Suite 2', 'Testville, GA 30011'],
+          hours: [
+            { weekday: 1, opensAt: '09:00', closesAt: '18:00' },
+            { weekday: 2, opensAt: '09:00', closesAt: '12:00' },
+            { weekday: 2, opensAt: '13:00', closesAt: '17:00' },
+          ],
+        },
       });
       // Nothing beyond the contract, such as the documents' ids.
       expect(Object.keys((res.body as { legal: { terms: object } }).legal.terms).sort()).toEqual([
@@ -131,6 +201,17 @@ describe('GET /portal/{firmSlug}/info', () => {
       },
       signUpOpen: false,
       legal: { terms: null, privacy: null },
+    });
+  });
+
+  it("fills the contact Company Profile leaves empty from the main office, never a branch's", async () => {
+    const res = await get(`/api/v1/portal/${officeSlug}/info`).expect(200);
+    expect(PortalInfo.parse(res.body).contact).toEqual({
+      phone: '+15550100003',
+      email: 'office@r55.example.test',
+      // The profile has a city but no street: the office's address is used whole.
+      addressLines: ['3 Main Office St', 'NY 10001'],
+      hours: [],
     });
   });
 

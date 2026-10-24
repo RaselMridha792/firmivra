@@ -6,10 +6,12 @@ import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { InvoicesModule } from '../invoices/invoices.module.js';
 import { portalLogin } from '../invoices/my-invoices.controller.js';
 import { CheckoutService } from './checkout.service.js';
+import { PortalTabRoute, PortalTabsModule } from '../../client-portal/portal-tabs.js';
 
 /** Pay Now on the portal (R7). The client comes from the session; the body has no fields. */
 @Controller('portal/:firmSlug/me/invoices')
 @Roles('CLIENT')
+@PortalTabRoute('INVOICES_PAYMENTS')
 export class CheckoutController {
   constructor(private readonly checkout: CheckoutService) {}
 
@@ -26,7 +28,7 @@ export class CheckoutController {
 }
 
 @Module({
-  imports: [InvoicesModule],
+  imports: [InvoicesModule, PortalTabsModule],
   controllers: [CheckoutController],
   providers: [CheckoutService],
 })

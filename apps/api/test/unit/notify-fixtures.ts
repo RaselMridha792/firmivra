@@ -110,6 +110,10 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   },
   'lead.confirmation': { serviceName: 'Annual Tax' },
   'lead.received': { serviceName: 'Annual Tax', link: 'https://app.example.test/leads/1' },
+  'intake.submitted-notice': {
+    formTitle: 'Personal Tax Intake Form',
+    link: 'https://app.example.test/intake-forms',
+  },
   'client.portal-invite': {
     name: 'Robin Example',
     signUpLink: 'https://portal.example.test/sample/sign-up',
