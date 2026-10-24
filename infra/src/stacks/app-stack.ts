@@ -1,4 +1,5 @@
 import {
+  Aws,
   CfnCondition,
   CfnOutput,
   CfnParameter,
@@ -93,7 +94,13 @@ export class AppStack extends Stack {
     const hasImage = new CfnCondition(this, 'HasImage', {
       expression: Fn.conditionNot(Fn.conditionEquals(tag, NO_IMAGE)),
     });
-    const desiredCount = Token.asNumber(Fn.conditionIf(hasImage.logicalId, config.task.count, 0));
+    const scaling = config.task.autoScaling;
+    // With auto scaling, the count is Application Auto Scaling's once there is an image: the
+    // template leaves DesiredCount out, so a deploy keeps a scaled-out service as it is (a value
+    // here would reset it on every deploy). Without an image, 0 tasks either way.
+    const desiredCount = Token.asNumber(
+      Fn.conditionIf(hasImage.logicalId, scaling ? Aws.NO_VALUE : config.task.count, 0),
+    );
 
     // ---------- Images ----------
     const repository = (key: 'api' | 'web' | 'migrate') =>
@@ -552,6 +559,26 @@ export class AppStack extends Stack {
       });
     const apiService = service('api', apiTask, network.apiSg);
     const webService = service('web', webTask, network.webSg);
+    // Prod: between min and max tasks on the average CPU. Migrations still run once per deploy,
+    // in the one-off migrate task, never in these services.
+    if (scaling) {
+      const whenImage = (n: number) => Token.asNumber(Fn.conditionIf(hasImage.logicalId, n, 0));
+      for (const [key, svc] of [
+        ['Api', apiService],
+        ['Web', webService],
+      ] as const) {
+        svc
+          .autoScaleTaskCount({
+            minCapacity: whenImage(scaling.min),
+            maxCapacity: whenImage(scaling.max),
+          })
+          .scaleOnCpuUtilization(`${key}Cpu`, {
+            targetUtilizationPercent: scaling.cpuPercent,
+            scaleOutCooldown: Duration.minutes(1),
+            scaleInCooldown: Duration.minutes(5),
+          });
+      }
+    }
 
     const targetGroup = (key: string, port: number, healthPath: string) =>
       new elbv2.ApplicationTargetGroup(this, `${key}Targets`, {
