@@ -31,19 +31,18 @@ to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/
 
 | # | Branch | State |
 | --- | --- | --- |
-| 1 | `rasel/R60-profile-request-change` | #1063 (open): `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
-| 2 | `rasel/R60-notifications-email` (stacked on #1063) | #1065 (open): staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
-| 3 | `rasel/R60-billing` (stacked on #1065, local until a PR slot frees) | Built: `api.firmBilling` (overview, invoices, invoice, PDF, requests), the Billing page on her design with the plan, usage, details and invoice dialogs; plan and contact changes as support requests. Notes below ("Billing") |
-| 4 | `rasel/R60-payments` (stacked on billing, local) | Built: the Payments page on her design (web only); Stripe keeps every existing state; Manage Connection, Manage Bank Account and Check Eligibility open the firm's own Stripe Dashboard. Notes below ("Payments") |
+| 1 | `rasel/R60-profile-request-change` | #1063 (merged Oct 24): `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
+| 2 | `rasel/R60-notifications-email` (stacked on #1063) | #1065 (merged Oct 24): staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
+| 3 | `rasel/R60-billing` | #1073 (open, Oct 24): `api.firmBilling` (overview, invoices, invoice, PDF, requests), the Billing page on her design with the plan, usage, details and invoice dialogs; plan and contact changes as support requests. Notes below ("Billing") |
+| 4 | `rasel/R60-payments` (stacked on #1073) | PR (Oct 24): the Payments page on her design (web only); Stripe keeps every existing state; Manage Connection, Manage Bank Account and Check Eligibility open the firm's own Stripe Dashboard. Notes below ("Payments") |
 | 5 | `rasel/R60-staff-sm8-13` (from `main`, independent; local until a slot frees) | Built: SM9 cards and `/team/directory`, SM13 department Manage Members (`GET`/`PUT /business/departments/{id}/members`), SM11 custom roles in Create Staff and the Create Custom Role shortcut with Back, SM8 custom schedules and the workload unit, SM10 the header clock. Notes below ("Staff") |
 
-Open: #1063 and #1065, CI green (Oct 24, 04:10 UTC). Waiting for a slot, in this order: Billing
-(stacked on #1065), Payments (stacked on Billing; carries this file), Staff (from `main`). Their PR
-bodies are ready in the third session's scratchpad:
+#1063 and #1065 merged on Oct 24. Open: #1073 (Billing) and the Payments PR stacked on it. Staff
+(from `main`) waits for a slot; its PR body is ready in the third session's scratchpad:
 `C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/fd07679c-e53b-4b16-8968-b670b5107292/scratchpad/`
-(`pr-billing.md`, `pr-payments.md`, `pr-staff.md`; replace SHEET with the sheet's blob link
-pinned to the branch head). Shot helpers there: `shots-profile.cjs`, `shots-notifications.cjs`,
-`shots-billing.cjs`, `shots-payments.cjs`, `shots-staff.cjs`, `compose.cjs`, `spec-*.json`.
+(`pr-staff.md`; replace SHEET with the sheet's blob link pinned to the branch head). Shot helpers
+there: `shots-profile.cjs`, `shots-notifications.cjs`, `shots-billing.cjs`, `shots-payments.cjs`,
+`shots-staff.cjs`, `compose.cjs`, `spec-*.json`.
 
 ### State (Oct 23, second session): open PRs and branches waiting
 

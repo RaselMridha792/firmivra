@@ -22,6 +22,7 @@ import {
   Clock,
   ClockCountdown,
   Handshake,
+  Megaphone,
   Plus,
   Tag,
   Trash,
@@ -39,6 +40,9 @@ import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { LeadBulkDialog, type LeadBulkDialogState } from './lead-bulk-dialog';
 import { LeadAppointmentDialog } from './lead-appointment-dialog';
 import { LeadsActionLegend } from './leads-action-legend';
+import { useFirm } from '../../../../../components/firm-context';
+import { AddTagDialog } from './add-tag-dialog';
+import { CreateCampaignPanel } from './create-campaign-panel';
 import { LeadCreateDialog } from './lead-create-dialog';
 import { LeadEditDialog } from './lead-edit-dialog';
 import { LeadMessageDialog, type MessageRecipient, recipientOf } from './lead-message-dialog';
@@ -292,6 +296,11 @@ export function LeadsScreen() {
   const [pageSize, setPageSize] = useState(8);
   const [selected, setSelected] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  // Create Campaign (L7): the Communications builder in a panel over this page.
+  const [campaignOpen, setCampaignOpen] = useState(false);
+  // Add New Tag (L6): Owner and Admin add to the firm's one tag list.
+  const [tagOpen, setTagOpen] = useState(false);
+  const { role } = useFirm();
   const [message, setMessage] = useState<{
     recipients: MessageRecipient[];
     channel: 'EMAIL' | 'SMS';
@@ -513,10 +522,26 @@ export function LeadsScreen() {
             Manage your leads, track their progress, and turn opportunities into clients.
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)} data-testid="add-lead">
-          <Plus aria-hidden weight="fill" className="size-4" />
-          Add New Lead
-        </Button>
+        <div className="flex flex-wrap gap-3">
+          {role === 'OWNER' || role === 'ADMIN' ? (
+            <Button variant="secondary" onClick={() => setTagOpen(true)} data-testid="add-tag">
+              <Tag aria-hidden weight="fill" className="size-4" />
+              Add New Tag
+            </Button>
+          ) : null}
+          <Button
+            variant="secondary"
+            onClick={() => setCampaignOpen(true)}
+            data-testid="create-campaign"
+          >
+            <Megaphone aria-hidden weight="fill" className="size-4" />
+            Create Campaign
+          </Button>
+          <Button onClick={() => setCreateOpen(true)} data-testid="add-lead">
+            <Plus aria-hidden weight="fill" className="size-4" />
+            Add New Lead
+          </Button>
+        </div>
       </header>
 
       {/* Every widget keeps its frame when its data cannot load (design rule 2). */}
@@ -550,6 +575,8 @@ export function LeadsScreen() {
       )}
 
       <LeadsActionLegend />
+      {tagOpen ? <AddTagDialog onClose={() => setTagOpen(false)} /> : null}
+      {campaignOpen ? <CreateCampaignPanel onClose={() => setCampaignOpen(false)} /> : null}
       {createOpen ? (
         <LeadCreateDialog open options={options.data} onClose={() => setCreateOpen(false)} />
       ) : null}

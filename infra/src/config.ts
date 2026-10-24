@@ -1,6 +1,6 @@
 /**
- * Settings per environment. Only dev exists today (one AWS account, decided Oct 4);
- * prod is added after the decision with Octavia (docs/SETUP-LOG.md).
+ * Settings per environment: dev, and prod in the same AWS account (decided Oct 4) with its own
+ * firmivra-prod-* stacks (docs/work/R1-cicd.md, "Prod go-live checklist (Oct 22)").
  */
 export interface CustomDomain {
   /** Route 53 hosted zone created by hand in Step 5.4; it must be delegated (NS records). */
@@ -25,7 +25,7 @@ export interface CognitoEmail {
 }
 
 export interface EnvConfig {
-  envName: 'dev';
+  envName: 'dev' | 'prod';
   account: string;
   region: string;
   /**
@@ -70,12 +70,29 @@ export interface EnvConfig {
     backupDays: number;
   };
   /** Fargate size per service (0.25 vCPU / 0.5 GB), on Spot in dev; tasks per service once an image is deployed. */
-  task: { cpu: number; memoryMiB: number; spot: boolean; count: number };
+  task: {
+    cpu: number;
+    memoryMiB: number;
+    spot: boolean;
+    /** Tasks per service without auto scaling. */
+    count: number;
+    /**
+     * Application Auto Scaling of the api and web services on their average CPU, between min and
+     * max tasks. The services' count is then left to it (a deploy never resets it). Unset: `count`.
+     */
+    autoScaling?: { min: number; max: number; cpuPercent: number };
+  };
   /**
    * The API task's memory: more than the others, as it checks uploads of up to 100 MB and Firm
    * Sign loads whole PDFs (Rasel, Oct 21). 1024 MiB is valid with 0.25 vCPU.
    */
   apiMemoryMiB: number;
+  /**
+   * The CI stack that owns the account's GitHub OIDC provider, the ECR Public pull-through cache
+   * rule and the pull request role, each of which exists once per account: dev's. Another
+   * environment's CI stack (prod) imports the provider and uses the same cache.
+   */
+  ownsAccountCi: boolean;
 }
 
 /** dev.firmivra.com, used once GoDaddy delegates the zone to Route 53. */
@@ -118,13 +135,122 @@ const dev: EnvConfig = {
   },
   task: { cpu: 256, memoryMiB: 512, spot: true, count: 1 },
   apiMemoryMiB: 1024,
+  ownsAccountCi: true,
 };
 
-export function configFor(envName: unknown, overrides: Partial<EnvConfig> = {}): EnvConfig {
-  if (envName === 'dev') return { ...dev, ...overrides };
-  throw new Error(
-    `Unknown or unsupported environment "${String(envName)}". Use -c env=dev (prod is not set up yet).`,
-  );
+/**
+ * firmivra.com's Route 53 zone does not exist yet: it is made on Rasel's yes
+ * (docs/work/R1-prod-morning.md, section 2), and its id replaces this. Until then prod only
+ * synthesizes with `-c allowPending=true` (a read-only check), and nothing can deploy it.
+ */
+export const PENDING_ZONE_ID = 'PENDING-firmivra-com';
+
+/** Prod (Rasel, Oct 23): the proposals in the prod checklist's step 5, with auto scaling. */
+const prod: EnvConfig = {
+  envName: 'prod',
+  account: dev.account,
+  region: dev.region,
+  customDomain: {
+    zoneName: 'firmivra.com',
+    hostedZoneId: PENDING_ZONE_ID,
+    hosts: { admin: 'admin.firmivra.com', app: 'app.firmivra.com', portal: 'portal.firmivra.com' },
+  },
+  cognitoEmail: {
+    from: 'no-reply@firmivra.com',
+    sesVerifiedDomain: 'firmivra.com',
+    configurationSet: 'firmivra-prod-email',
+  },
+  // Made by hand with the live keys before the first app deploy (checklist step 12).
+  stripeSecretName: 'firmivra/prod/stripe',
+  // Prod sends only from its own identity; SES production access comes first (step 1).
+  sesSandboxSendFromAnyIdentity: false,
+  github: dev.github,
+  availabilityZones: dev.availabilityZones,
+  logRetentionDays: 14,
+  db: {
+    instanceClass: 't3.small',
+    allocatedStorageGiB: 20,
+    maxAllocatedStorageGiB: 100,
+    // Single-AZ: the data stack fixes multiAz false (Multi-AZ doubles the database cost).
+    backupDays: 14,
+  },
+  // 0.5 vCPU / 1 GB on plain Fargate (no Spot): 2 tasks per service always, up to 6 when the
+  // average CPU stays over 55%.
+  task: {
+    cpu: 512,
+    memoryMiB: 1024,
+    spot: false,
+    count: 2,
+    autoScaling: { min: 2, max: 6, cpuPercent: 55 },
+  },
+  apiMemoryMiB: 1024,
+  ownsAccountCi: false,
+};
+
+/**
+ * Connections one API task can open: pg's default pool of 10 (packages/db createDatabase sets no
+ * maximum, and the API makes one database per process). The web tasks never connect.
+ */
+export const API_DB_POOL_SIZE = 10;
+
+/**
+ * About how many connections RDS for PostgreSQL allows per instance class:
+ * LEAST(DBInstanceClassMemory / 9531392, 5000), rounded down for the memory RDS keeps for itself
+ * (check with `SHOW max_connections` after the first deploy).
+ */
+export const DB_MAX_CONNECTIONS: Record<string, number> = { 't3.micro': 80, 't3.small': 170 };
+
+/** Kept free for the migrate task, one-off tasks, a psql session and RDS's reserved slots. */
+export const DB_CONNECTION_HEADROOM = 30;
+
+/**
+ * The most connections the API tasks can hold at once: every task at the scaling maximum, twice
+ * over, because a rolling deploy starts the new tasks before it stops the old ones
+ * (maxHealthyPercent 200).
+ */
+export function apiConnectionPeak(config: EnvConfig): number {
+  const tasks = config.task.autoScaling?.max ?? config.task.count;
+  return tasks * 2 * API_DB_POOL_SIZE;
+}
+
+/** Refuses settings whose API tasks could use up the database's connections. */
+function checkConnections(config: EnvConfig): EnvConfig {
+  const limit = DB_MAX_CONNECTIONS[config.db.instanceClass];
+  if (limit === undefined) {
+    throw new Error(`Add db.${config.db.instanceClass}'s connection limit to DB_MAX_CONNECTIONS.`);
+  }
+  const peak = apiConnectionPeak(config);
+  if (peak + DB_CONNECTION_HEADROOM > limit) {
+    throw new Error(
+      `${config.envName}: up to ${peak} API connections plus ${DB_CONNECTION_HEADROOM} kept free ` +
+        `exceed db.${config.db.instanceClass}'s about ${limit}. Lower the task maximum or use a ` +
+        'larger instance class.',
+    );
+  }
+  return config;
+}
+
+/**
+ * The settings of `envName`. `allowPending` lets prod synthesize while its zone id is still the
+ * placeholder (`cdk synth -c env=prod -c allowPending=true`); no deploy passes it.
+ */
+export function configFor(
+  envName: unknown,
+  overrides: Partial<EnvConfig> = {},
+  { allowPending = false }: { allowPending?: boolean } = {},
+): EnvConfig {
+  if (envName === 'dev') return checkConnections({ ...dev, ...overrides });
+  if (envName === 'prod') {
+    const config = checkConnections({ ...prod, ...overrides });
+    if (config.customDomain?.hostedZoneId === PENDING_ZONE_ID && !allowPending) {
+      throw new Error(
+        "prod has no Route 53 zone id yet (firmivra.com's zone is made on Rasel's yes). For a " +
+          'read-only synth add -c allowPending=true.',
+      );
+    }
+    return config;
+  }
+  throw new Error(`Unknown environment "${String(envName)}". Use -c env=dev or -c env=prod.`);
 }
 
 /** firmivra-dev-<name> */

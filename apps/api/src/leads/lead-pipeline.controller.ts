@@ -61,8 +61,11 @@ export class LeadPipelineController {
   }
 
   @Get('options')
-  options(@CurrentTenant() tenant: TenantContext): Promise<LeadOptions> {
-    return this.reads.options(tenant.businessId);
+  options(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<LeadOptions> {
+    return this.reads.options(tenant, auth.userId);
   }
 
   @Post()
@@ -71,7 +74,7 @@ export class LeadPipelineController {
     @CurrentTenant() tenant: TenantContext,
     @Body(new ZodValidationPipe(CreateLeadRequest)) body: z.output<typeof CreateLeadRequest>,
   ): Promise<LeadProfile> {
-    return this.writes.create(tenant.businessId, pipelineActor(auth, tenant), body);
+    return this.writes.create(tenant.businessId, pipelineActor(auth, tenant), body, tenant);
   }
 
   @Post('bulk')
@@ -81,7 +84,7 @@ export class LeadPipelineController {
     @CurrentTenant() tenant: TenantContext,
     @Body(new ZodValidationPipe(LeadBulkRequest)) body: z.output<typeof LeadBulkRequest>,
   ): Promise<LeadBulkResult> {
-    return this.writes.bulk(tenant.businessId, pipelineActor(auth, tenant), body);
+    return this.writes.bulk(tenant.businessId, pipelineActor(auth, tenant), body, tenant);
   }
 
   @Post('messages')
@@ -110,6 +113,6 @@ export class LeadPipelineController {
     @Param('id', idPipe) id: string,
     @Body(new ZodValidationPipe(UpdateLeadRequest)) body: z.output<typeof UpdateLeadRequest>,
   ): Promise<LeadProfile> {
-    return this.writes.update(tenant.businessId, pipelineActor(auth, tenant), id, body);
+    return this.writes.update(tenant.businessId, pipelineActor(auth, tenant), id, body, tenant);
   }
 }

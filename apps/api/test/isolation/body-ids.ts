@@ -130,8 +130,8 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   },
   {
     field: 'campaignId',
-    routes: /^(POST \/api\/v1\/business\/leads(\/bulk)?|PATCH \/api\/v1\/business\/leads\/:id)$/,
-    why: 'leads have no campaign column yet: a campaign id is refused (400 FIELD_UNAVAILABLE) or, in the bulk bar, every lead is skipped, so it names no record (R57)',
+    routes: /^POST \/api\/v1\/business\/leads\/bulk$/,
+    why: "the bulk bar's case is the ASSIGN variant of a strict union; the CAMPAIGN variant's campaign (a Communications campaign, L7) is checked by lead-campaigns.e2e.test.ts: another firm's is 404 and changes nothing (R55)",
   },
   {
     field: 'ids',
@@ -170,8 +170,8 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   },
   {
     field: 'checklist.id',
-    routes: /^POST \/api\/v1\/business\/tasks$/,
-    why: 'a new task has no checklist steps yet: any step id is refused (400), so the field names no record (R55)',
+    routes: /^POST \/api\/v1\/business\/tasks(\/drafts)?$/,
+    why: 'a new task or draft has no checklist steps yet: any step id is refused (400), so the field names no record (R55, R1)',
   },
   ...[
     [

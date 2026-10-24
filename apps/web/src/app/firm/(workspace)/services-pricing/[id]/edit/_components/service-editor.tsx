@@ -28,6 +28,7 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../../lib/errors';
 import { activationGap, CATALOG_ERRORS } from '../../../_components/catalog-shared';
+import { lineCents, serviceTotalCents } from '../../../_components/service-total';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { CatalogHeader, ClientPreview, IconPicker, money, Panel, TextList } from './service-parts';
 
@@ -179,14 +180,9 @@ export function ServiceEditor({
       .filter((c) => c.status === 'ACTIVE' || c.id === initial?.category?.id)
       .map((c) => ({ value: c.id, label: c.name })),
   ];
-  const currency = money(value.basePriceCents);
-  const savedLineTotal = (index: number) => {
-    const line = value.lineItems?.[index];
-    const saved = initial?.lineItems.find((item) => item.id === line?.id);
-    return saved && saved.quantity === line?.quantity && saved.rateCents === line?.rateCents
-      ? money(saved.totalCents)
-      : '—';
-  };
+  // The total as the API works it out, shown while editing: ADDITIVE line items add to the base
+  // price (S6).
+  const currency = money(serviceTotalCents(value));
   const previewPrice =
     value.pricingType === 'CUSTOM_QUOTE'
       ? 'Quote required'
@@ -436,24 +432,16 @@ export function ServiceEditor({
                         min={0}
                         step="0.01"
                         value={(value.lineItems?.[i]?.rateCents ?? 0) / 100}
+                        // Only this line's rate: setting the whole list would remount the rows
+                        // and take the cursor out of the field on every key.
                         onChange={(e) =>
-                          put(
-                            `lineItems`,
-                            (value.lineItems ?? []).map((x, index) =>
-                              index === i
-                                ? { ...x, rateCents: Math.round(Number(e.target.value) * 100) }
-                                : x,
-                            ),
-                          )
+                          put(`lineItems.${i}.rateCents`, Math.round(Number(e.target.value) * 100))
                         }
                         error={errors.lineItems?.[i]?.rateCents?.message}
                       />
                     </div>
-                    <p
-                      className="self-center text-sm text-text"
-                      title="Saved line total; recalculated by the API on save"
-                    >
-                      {savedLineTotal(i)}
+                    <p className="self-center text-sm text-text" title="Quantity × price">
+                      {money(lineCents(value.lineItems?.[i]))}
                     </p>
                     <div className="flex flex-wrap gap-1 sm:col-span-2 lg:col-span-2 lg:justify-center">
                       <IconButton
@@ -495,12 +483,8 @@ export function ServiceEditor({
                 </Button>
                 <p className="text-base text-text">
                   Total Price:{' '}
-                  <strong className="text-lg text-heading">
-                    {disabled
-                      ? '—'
-                      : value.lineItemsMode === 'ADDITIVE'
-                        ? 'Calculated on save'
-                        : currency}
+                  <strong className="text-lg text-heading" data-testid="service-total">
+                    {disabled ? '—' : currency}
                   </strong>
                 </p>
               </div>
@@ -515,6 +499,7 @@ export function ServiceEditor({
               icon={value.icon}
               price={disabled ? 'No price available.' : previewPrice}
               included={(value.included ?? []).filter(Boolean)}
+              notIncluded={(value.notIncluded ?? []).filter(Boolean)}
               addons={(value.addOns ?? []).filter(
                 (a) => a.status !== 'INACTIVE' && a.clientSelectable,
               )}

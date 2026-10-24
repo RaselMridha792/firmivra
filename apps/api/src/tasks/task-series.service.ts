@@ -31,7 +31,7 @@ import {
   sentFields,
   toDay,
 } from '../workspaces/common.js';
-import { taskErrors } from './task-common.js';
+import { LIVE_TASK, liveClient, taskErrors } from './task-common.js';
 import { checkReminders, reminderJson, remindersOf } from './task-templates.service.js';
 import { firmClock } from './task-read.service.js';
 import { addDays, describe, type RecurrenceRule, schedule, totalDates } from './recurrence.js';
@@ -575,6 +575,7 @@ export class TaskSeriesService {
         where: {
           businessId,
           id: taskId,
+          ...LIVE_TASK,
           ...(actor.role === 'STAFF' ? { client: { assignedUserId: actor.userId } } : {}),
         },
         include: {
@@ -598,7 +599,7 @@ export class TaskSeriesService {
       const created = await tx.taskSeries.create({
         data: {
           businessId,
-          clientId: task.clientId,
+          clientId: liveClient(task.clientId),
           engagementId: task.engagementId,
           createdByUserId: actor.userId,
           startOn: task.dueOn,
