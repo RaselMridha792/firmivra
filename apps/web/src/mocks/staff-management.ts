@@ -1446,25 +1446,41 @@ export function createStaffMock(options: Options = {}): StaffClient {
       await g.allowed();
       ownerOrAdmin();
       const input = parseInput(StaffImportPreviewRequest, body);
-      const emailColumn = Object.entries(input.columnMap).find(([, f]) => f === 'email')?.[0];
+      const column = (field: string) =>
+        Object.entries(input.columnMap).find(([, f]) => f === field)?.[0];
+      const emailColumn = column('email');
+      const idColumn = column('employeeId');
+      const ids = new Set<string>();
       const errors = input.rows.flatMap((row, i) => {
         const email = emailColumn ? row[emailColumn] : undefined;
-        return email && email.includes('@')
-          ? []
-          : [{ row: i + 1, field: 'email' as const, message: 'Enter a valid work email' }];
+        const found: { row: number; field: 'email' | 'employeeId'; message: string }[] =
+          email && email.includes('@')
+            ? []
+            : [{ row: i + 1, field: 'email', message: 'Enter a valid work email' }];
+        // As the API: Employee ID is optional, and unique when given.
+        const employeeId = (idColumn ? row[idColumn] : '')?.trim().toLowerCase();
+        if (employeeId && ids.has(employeeId))
+          found.push({
+            row: i + 1,
+            field: 'employeeId',
+            message: 'This Employee ID is in the file twice',
+          });
+        if (employeeId) ids.add(employeeId);
+        return found;
       });
       const existing = new Set(s.members.map((m) => m.detail.email.toLowerCase()));
       const valid = input.rows.filter((_, i) => !errors.some((e) => e.row === i + 1));
       const toUpdate = valid.filter(
         (r) => emailColumn && existing.has((r[emailColumn] ?? '').toLowerCase()),
       ).length;
-      const token = `mock-import-${s.next++}`;
-      s.imports.set(token, { create: valid.length - toUpdate, update: toUpdate });
+      // As the API: no preview to keep when no row can be imported.
+      const token = valid.length ? `mock-import-${s.next++}` : null;
+      if (token) s.imports.set(token, { create: valid.length - toUpdate, update: toUpdate });
       return {
         previewToken: token,
         toCreate: valid.length - toUpdate,
         toUpdate,
-        invalid: errors.length,
+        invalid: new Set(errors.map((e) => e.row)).size,
         errors,
       };
     },
