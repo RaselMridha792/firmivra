@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { RowMenu } from '../../../../team/_components/row-menu';
 import { type DraftItem } from '../../new/_components/request-draft';
 import { DocIcon, ItemDialog, newItem, Section } from '../../new/_components/request-sections';
-import { formatTime, ITEM_LOOKS, type PacketActions } from './detail-parts';
+import { formatTime, ITEM_LOOKS, liveItems, type PacketActions } from './detail-parts';
 
 const SCAN: Record<string, string> = {
   PENDING: 'Being checked for viruses',
@@ -37,7 +37,7 @@ export function RequestChecklist({
   on: ChecklistHandlers;
 }) {
   const [adding, setAdding] = useState<DraftItem | null>(null);
-  const items = packet.checklist.filter((i) => i.status !== 'CANCELLED');
+  const items = liveItems(packet);
   return (
     <Section
       title="Requested Documents"
