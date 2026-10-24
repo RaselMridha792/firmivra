@@ -120,6 +120,9 @@ This is newer than every handoff below, so read it first. Where they differ, thi
 - 2b. Rasel's yes: GoDaddy's records copied into the zone (16 record sets, the `dev` delegation included, his `_dmarc` kept). Checked: every record matches on all 4 of the zone's name servers, and matches GoDaddy's live answers. Next: Rasel switches the name servers at GoDaddy.
 - 2c. Rasel switched the name servers at GoDaddy. The .com registry (RDAP) now lists the 4 AWS name servers (no DNSSEC), Google and Cloudflare return them, and the 3 dev sites still answer 200.
 - 3. Infra PR #1103: prod uses `FIRMIVRA_COM` (`Z06906951XI9J0KSHI8TO`), the bootstrap policy's `HOSTED_ZONE_IDS` has it, and the prod email stack writes no `_dmarc` (the domain keeps its own). Rasel merges.
+- 4a. Rasel's yes: `firmivra-cdk-cfn-exec` v1 (Oct 5) deleted; the default stays v5.
+- 4b. Rasel's yes: `firmivra-permissions-boundary` v5 created as default, from #1103's branch (adds `application-autoscaling:*` and the ECS auto scaling service-linked role).
+- 4c. Rasel's yes: `firmivra-cdk-cfn-exec` v6 created as default (the same additions, plus DNS records in the prod zone). Next: step 5, the prod stacks, in a fresh R1 session (Rasel).
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
