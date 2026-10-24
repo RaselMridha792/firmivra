@@ -15,7 +15,13 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
 - [x] L2 (P1): the composer (row, selected leads, the lead's page) lists each recipient's saved number or address before sending, leaves out a lead with no phone (Send is off when nobody has one), and after sending says how many went and why the others did not; `SMS_UNAVAILABLE` reads "Text messages are not set up for this firm yet, so nothing was sent". Texts on dev still need the number (Needs, Rasel). Delivery to a real phone is untested until then.
 - [x] L3 (P1): the card turns on a visible "Overdue Follow-Ups" chip (remove to clear; More Filters keeps its checkbox), and the filter now combines with a status instead of clearing it. The API already counts only open leads' past-due, unfinished follow-ups (closing a lead clears its follow-up); the mock now does the same. With the API unreachable the Leads page keeps every frame (the cards show a dash, the filters stay, the table says why with Try again) instead of one error panel per section.
 - [x] L9 (P1): Convert to Client's steps are editable (client type, full and business name, email, phone, address, services, primary and additional staff, what to carry over, the portal invitation), from the lead's values, kept across the steps in one draft (the convert layout), checked when Client Details & Services is left, and Review & Confirm shows and sends exactly that. Live: a converted lead became a Business client with the edited name, phone, address and staff, no invitation (Send later), and the lead stayed, Converted. Arfan's mock specs `arfan-convert-lead-step-2` (3 cases) and `-step-3` (1 case) already fail on main (they expect every card and a highlight on step 2); not changed here.
-- [ ] L4 to L8, L10 to L14: after the P1s.
+- [x] L4 (P3): the email composer, with fonts, sizes, images and a saved signature with the logo. Contract #1042, API #1044 and web #1049 are merged.
+- [x] L5 (P2): the tag picker for leads and clients: #1048, #1050 and #1058 are merged.
+- [x] L6 (P3): Add New Tag. Branch `rasel/R55-tags-add`.
+- [ ] L7 (P3): Create Campaign. The API PR is #1059. The web is on branch `rasel/R55-leads-campaign-web`, stacked on L6 and #1059.
+- [ ] L8 (P3): several follow-ups. It waits for the schema request, issue #1051 (`lead_follow_ups`, R0).
+- [x] L10 (P3): Archived Leads and Restore. Branch `rasel/R55-leads-archived`; open its PR when a slot frees.
+- [ ] L11 to L14: next, in order. L11 needs Rasel's answer on what "delete" means.
 
 ## L4: the email composer (Oct 23)
 
@@ -40,6 +46,45 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
   - the text part had each line;
   - the activity says "Email sent: <subject>".
   - Screenshots: `apps/web/e2e/mock/r55-screenshots/leads/email-*.png`.
+## L5 and L6: tags (Oct 24)
+
+- **Reproduced on main:**
+  - Leads' Tags dialog was free text separated by commas, with the existing tags as plain text.
+  - Edit Lead had no tags field, so "+ Add Tag" and the Campaigns tab's hint were dead ends.
+  - Clients had no tags at all; only Convert to Client wrote `client_tags`.
+  - The database already keeps one `tags` table for both, unique per firm ignoring case.
+- **Decided (Rasel, Oct 23):** build client tags too.
+- **Contract #1048:**
+  - `GET` and `POST /business/tags`;
+  - `GET` and `PUT /business/clients/{id}/tags`;
+  - `api.tags`;
+  - mocks share one tag list.
+- **API #1050** (stacked on #1048):
+  - a tags module;
+  - Owner and Admin add tags; 409 `TAG_EXISTS` for a name in any case;
+  - client tags under the client's row lock: Staff only their own clients, 400 `UNKNOWN_TAG` for a new name, 409 for an archived client;
+  - e2e (7) and isolation cases.
+- **Web, L5** (`rasel/R55-tags-web`, stacked on #1050):
+  - `components/tag-picker.tsx` in the Leads Tags dialog, Edit Lead (Tags field) and a Tags card on the client Overview;
+  - live: a name in another case is the same tag, and the counts follow.
+- **Web, L6** (`rasel/R55-tags-add`, stacked on L5): Add New Tag beside Add New Lead (Owner and Admin) adds to the one list and shows where each tag is used.
+- `r23-client-record` (4 cases) already fails on main without these changes; not changed here.
+
+## L7: campaigns (Oct 24)
+
+- **Reproduced on main:** Leads campaigns were a stub, with no column or table. Options left them out, `campaignId` was refused, the bulk action skipped every lead, and the filter matched nothing.
+- **Decided (Rasel, Oct 24):**
+  - the Communications builder in a panel, with Leads' campaigns wired to Communications;
+  - a wide `Drawer` (`size="wide"`) in `packages/ui`.
+- **API #1059:**
+  - A lead's campaign is a Communications email or text campaign. The lead is in it when it is in the audience (`communication_audience_entries`, kind LEAD).
+  - Two new public methods on `CommunicationsService`, `campaignRefs` and `addLeadsToAudience`, keep Communications' own rules (write permission, visibility, editable, reach).
+  - Nothing is sent.
+- **Web** (`rasel/R55-leads-campaign-web`):
+  - Create Campaign sits between Add New Tag and Add New Lead.
+  - Email or Text starts a draft, and the composer opens in its embedded mode in a wide panel.
+  - Closing the panel keeps the filters and selection.
+  - Mock spec `r55-create-campaign` (2).
 
 ## Decisions
 
