@@ -24,11 +24,11 @@ test('every chrome element of the design is present, with honest placeholders wh
   ).toBeVisible();
   await expect(page.getByTestId('open-document-requests')).toHaveAttribute(
     'href',
-    '/modules/document-requests',
+    '/documents/requests',
   );
   await expect(page.getByTestId('open-upload-document')).toHaveAttribute(
     'href',
-    '/modules/document-upload',
+    '/documents/upload',
   );
 
   // Five stat cards, each a quiet "—": the API has no firm-wide document count (R34 PR).
@@ -61,14 +61,14 @@ test('every chrome element of the design is present, with honest placeholders wh
   );
   await expect(page.getByTestId('quick-upload-dropzone')).toHaveAttribute(
     'href',
-    '/modules/document-upload',
+    '/documents/upload',
   );
   await expect(page.getByTestId('document-requests-card')).toContainText(
     'Request specific documents from clients or team members.',
   );
   await expect(page.getByTestId('create-document-request')).toHaveAttribute(
     'href',
-    '/modules/document-requests',
+    '/modules/document-request-create',
   );
 
   // No client chosen yet: the table area explains why, instead of an empty grid pretending to be

@@ -1,5 +1,6 @@
 'use client';
 
+import type { StaffSecurityDefaults } from '@firmivra/types';
 import { Badge, Skeleton } from '@firmivra/ui';
 import {
   ArrowLeft,
@@ -93,29 +94,39 @@ function Body<T>({
   return <>{children(query.data)}</>;
 }
 
-/** The rules every new staff account gets (contract and guide §3, §7): fixed, not a setting. */
-const SECURITY: [string, ReactNode][] = [
+const minutes = (m: number) => (m < 60 ? `${m} minutes` : `${m / 60} hour${m === 60 ? '' : 's'}`);
+
+/** New Account Security: the fixed rules, then the firm's defaults for new accounts. */
+const securityRows = (d: StaffSecurityDefaults): [string, ReactNode][] => [
   [
     'Two-factor sign-in',
     <Badge key="2fa" tone="success" icon={CheckCircle}>
       Always required
     </Badge>,
   ],
-  ['First password', 'Chosen by the person from a secure link'],
-  ['Invitation link', 'Time-limited; Resend replaces it'],
-  ['Change password at first sign-in', 'On by default'],
+  ['Sign-in methods', `${d.allowedAuthMethods.length} allowed`],
+  [
+    'Access from',
+    d.accessLocation === 'ANYWHERE'
+      ? 'Anywhere'
+      : d.accessLocation === 'ALLOWED_IPS'
+        ? 'Specific IP addresses'
+        : 'Specific countries',
+  ],
+  ['Automatic logout', d.autoLogoutMinutes ? `After ${minutes(d.autoLogoutMinutes)}` : 'Off'],
+  ['Concurrent sessions', d.maxConcurrentSessions],
 ];
 
 /**
  * Staff Management > Staff Settings (`/team/settings`, guide §1, §3): the firm's staff defaults in
- * one place. No firm-wide staff defaults are stored yet (contract), so each card shows what the
- * staff contract has today and opens the page that changes it.
+ * one place. Each card shows what the firm has today and opens the page that changes it.
  */
 export function StaffSettingsScreen() {
   const summary = useApiQuery(['staff', 'summary'], () => api.staff.summary());
   const roles = useApiQuery(['roles', 'list'], () => api.roles.list());
   const groups = useApiQuery(['departments', 'summary'], () => api.departments.summary());
   const options = useApiQuery(['staff', 'options'], () => api.staff.options());
+  const defaults = useApiQuery(['staff', 'security-defaults'], () => api.staff.securityDefaults());
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -146,13 +157,13 @@ export function StaffSettingsScreen() {
       <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-3">
         <Card
           title="New Account Security"
-          subtitle="What every new staff account gets. These rules protect client data and cannot be turned off."
+          subtitle="What every new staff account starts with. Existing accounts keep their own."
           icon={LockKey}
-          href="/team/new/security"
-          action="Create Staff: Access & Security"
+          href="/team/settings/security"
+          action="Manage New Account Security"
           testId="settings-security"
         >
-          <Facts rows={SECURITY} />
+          <Body query={defaults}>{(d) => <Facts rows={securityRows(d)} />}</Body>
         </Card>
 
         <Card

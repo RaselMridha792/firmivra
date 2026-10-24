@@ -5,8 +5,8 @@
 # v* tags) and the OIDC role firmivra-prod-github-deploy, which trusts that environment only. The
 # running image tags are parameters of firmivra-prod-app (ImageTag, MigrateImageTag); only this
 # workflow sets them. The other prod stacks stay manual (diff, then Rasel's yes).
-# Until firmivra.com's Route 53 zone id is in infra/src/config.ts, `-c env=prod` refuses to
-# synthesize, so this workflow stops at its first cdk step and changes nothing.
+# Prod deploys only after its other stacks are up (network, data, auth, email, ci), each deployed
+# by hand on Rasel's yes (docs/work/R1-cicd.md, "Prod go-live checklist").
 # One job on purpose, as in deploy-dev.yml: each job with an environment is a GitHub deployment.
 # Actions are pinned to commit SHAs (public repo); the comment after each one is its release.
 name: Deploy prod

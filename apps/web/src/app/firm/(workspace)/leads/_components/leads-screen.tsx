@@ -39,6 +39,7 @@ import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { LeadBulkConvertDialog } from './lead-bulk-convert-dialog';
 import { LeadBulkDialog, type LeadBulkDialogState } from './lead-bulk-dialog';
 import { LeadAppointmentDialog } from './lead-appointment-dialog';
 import { LeadsActionLegend } from './leads-action-legend';
@@ -339,6 +340,8 @@ export function LeadsScreen() {
     channel: 'EMAIL' | 'SMS';
   } | null>(null);
   const [bulkDialog, setBulkDialog] = useState<LeadBulkDialogState>(null);
+  /** The leads Convert to Client (bulk bar) is open for. */
+  const [convertIds, setConvertIds] = useState<string[] | null>(null);
   const [editingLead, setEditingLead] = useState<LeadRow | null>(null);
   const [appointmentLead, setAppointmentLead] = useState<LeadRow | null>(null);
   const summary = useApiQuery([...LEAD_PIPELINE_KEY, 'summary'], () => api.leadPipeline.summary());
@@ -445,6 +448,8 @@ export function LeadsScreen() {
       { label: 'Change Status', icon: ArrowsClockwise, onClick: () => openBulk('STAGE') },
       { label: 'Add to Campaign', icon: EnvelopeSimple, onClick: () => openBulk('CAMPAIGN') },
       { label: 'Add Tags', icon: Tag, onClick: () => openBulk('TAGS') },
+      // Her written spec's bulk Convert (Rasel, Oct 24): each lead from its own record.
+      { label: 'Convert to Client', icon: UserPlus, onClick: () => setConvertIds(selected) },
       ...(canDelete
         ? [{ label: 'Delete', icon: Trash, danger: true, onClick: () => openBulk('ARCHIVE') }]
         : []),
@@ -666,6 +671,16 @@ export function LeadsScreen() {
           state={bulkDialog}
           options={options.data}
           onClose={() => setBulkDialog(null)}
+        />
+      ) : null}
+      {convertIds ? (
+        <LeadBulkConvertDialog
+          ids={convertIds}
+          options={options.data}
+          onClose={() => {
+            setConvertIds(null);
+            setSelected([]);
+          }}
         />
       ) : null}
       {editingLead ? (

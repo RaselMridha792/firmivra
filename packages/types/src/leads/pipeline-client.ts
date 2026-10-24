@@ -3,6 +3,8 @@ import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import {
   AddLeadNoteRequest,
   CompleteFollowUpRequest,
+  BulkConvertLeadsRequest,
+  BulkConvertLeadsResult,
   ConvertLeadToClientRequest,
   ConvertLeadToClientResult,
   CreateLeadRequest,
@@ -139,6 +141,13 @@ export function createLeadPipelineClient(request: ApiRequest) {
         ConvertLeadToClientResult,
         `${one(id)}/convert-to-client`,
         post(parseInput(ConvertLeadToClientRequest, body)),
+      ),
+    /** Convert to Client from the bulk bar: each lead converted or skipped with the reason. */
+    bulkConvert: async (body: BulkConvertLeadsRequest): Promise<BulkConvertLeadsResult> =>
+      request(
+        BulkConvertLeadsResult,
+        '/business/leads/bulk-convert',
+        post(parseInput(BulkConvertLeadsRequest, body)),
       ),
   };
 }

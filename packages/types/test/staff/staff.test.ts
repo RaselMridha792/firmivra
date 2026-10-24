@@ -7,6 +7,7 @@ import {
   createRolesClient,
   createStaffClient,
   CreateCustomRoleRequest,
+  SaveStaffSecurityDefaultsRequest,
   SetStaffOverridesRequest,
   SetStaffTeamMembersRequest,
   StaffAccessInput,
@@ -366,5 +367,58 @@ describe('saved job titles (Offices & Job Titles)', () => {
       includeArchived: true,
     });
     expect(StaffJobTitleListQuery.parse({})).toEqual({ includeArchived: false });
+  });
+});
+
+describe('security defaults for new accounts (New Accounts & Security)', () => {
+  const settings: SaveStaffSecurityDefaultsRequest = {
+    version: 'none',
+    allowedAuthMethods: ['AUTHENTICATOR_APP', 'BACKUP_CODES'],
+    restrictDevices: false,
+    autoLogoutMinutes: null,
+    accessLocation: 'ANYWHERE',
+    allowedIps: [],
+    allowedCountries: [],
+    maxConcurrentSessions: 1,
+    signOutOtherSessions: false,
+    allowTrustedDevices: false,
+    notices: {
+      newDeviceLogin: true,
+      failedLogins: true,
+      passwordChanges: true,
+      securityAlerts: true,
+      lockouts: true,
+    },
+  };
+  const answer = {
+    ...settings,
+    existingAccounts: 4,
+    updatedAt: null,
+    updatedBy: null,
+  };
+
+  it('reads and saves on one route', async () => {
+    const { fn, calls } = fakeFetch(200, answer);
+    await staff(fn).securityDefaults();
+    await staff(fn).saveSecurityDefaults({ ...settings, allowedCountries: [] });
+    expect(calls.map((c) => [c.init.method ?? 'GET', c.url])).toEqual([
+      ['GET', '/api/v1/business/staff-security-defaults'],
+      ['PUT', '/api/v1/business/staff-security-defaults'],
+    ]);
+  });
+
+  it('keeps each list with its access choice and needs a sign-in method', () => {
+    const ok = (over: object) =>
+      SaveStaffSecurityDefaultsRequest.safeParse({ ...settings, ...over }).success;
+    expect(ok({})).toBe(true);
+    expect(ok({ accessLocation: 'ALLOWED_IPS', allowedIps: ['203.0.113.0/24'] })).toBe(true);
+    expect(ok({ accessLocation: 'ALLOWED_IPS' })).toBe(false);
+    expect(ok({ allowedIps: ['203.0.113.10'] })).toBe(false);
+    expect(ok({ accessLocation: 'ALLOWED_COUNTRIES', allowedCountries: ['us'] })).toBe(true);
+    expect(ok({ accessLocation: 'ALLOWED_COUNTRIES', allowedCountries: ['USA'] })).toBe(false);
+    expect(ok({ allowedAuthMethods: [] })).toBe(false);
+    expect(ok({ allowedAuthMethods: ['EMAIL', 'EMAIL'] })).toBe(false);
+    expect(ok({ autoLogoutMinutes: 4 })).toBe(false);
+    expect(ok({ maxConcurrentSessions: 11 })).toBe(false);
   });
 });
