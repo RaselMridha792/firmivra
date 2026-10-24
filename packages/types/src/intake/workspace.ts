@@ -546,6 +546,11 @@ export const IntakeSettings = z.object({
     finalReminderAfterMinutes: z.number().int().nullable(),
     /** Minutes before the form expires (INTAKE_ALERT_MINUTES); null is No alert. */
     expirationAlertMinutes: z.number().int().nullable(),
+    /**
+     * Notify additional emails (Octavia's I7): up to 10 more addresses told when a client submits
+     * a form, with the form's title only (no client name, no answers). Lower case, each once.
+     */
+    additionalEmails: z.array(z.string()),
   }),
   automation: z.object({
     /** Trigger not defined yet (Octavia): kept off until it is. */
@@ -610,6 +615,11 @@ export const UpdateIntakeSettingsRequest = z.strictObject({
       finalReminderAfterMinutes: z.number().int().min(5).max(86400).nullable(),
       /** 30 minutes to 7 days before expiry; null is No alert. */
       expirationAlertMinutes: z.number().int().min(30).max(10080).nullable(),
+      /** Replaces the list; at most 10, each a valid address once (letter case ignored). */
+      additionalEmails: z
+        .array(Email)
+        .max(10, 'Add at most 10 addresses')
+        .refine((list) => new Set(list).size === list.length, 'Add each address once'),
     })
     .partial()
     .optional(),

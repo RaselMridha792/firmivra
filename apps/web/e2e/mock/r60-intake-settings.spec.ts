@@ -230,6 +230,32 @@ test('No alert and an alert 30 minutes before expiry save (I9)', async ({ page }
   await expect(alert).toHaveValue('30');
 });
 
+// Octavia's I7: Notify additional emails, editable and saved.
+test('additional emails to notify are added, checked, removed and saved (I7)', async ({ page }) => {
+  await openSettings(page);
+  const list = page.getByTestId('additional-emails');
+  // The firm's contact email starts the list; the firm may remove it.
+  await expect(list.getByRole('listitem')).toHaveText(['office@lvp.test']);
+  await list.getByRole('button', { name: 'Remove office@lvp.test' }).click();
+  await expect(list).toContainText('No additional emails.');
+  const input = list.getByLabel('Add an email to notify');
+  await input.fill(' Office@Example.test ');
+  await list.getByRole('button', { name: 'Add' }).click();
+  await input.fill('partner@example.test');
+  await input.press('Enter');
+  await input.fill('OFFICE@example.test');
+  await list.getByRole('button', { name: 'Add' }).click();
+  await expect(list).toContainText('This address is already on the list');
+  await input.fill('not-an-email');
+  await list.getByRole('button', { name: 'Add' }).click();
+  await expect(list).toContainText('Enter a valid email address');
+  await input.fill('');
+  await list.getByRole('button', { name: 'Remove partner@example.test' }).click();
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
+  await expect(list.getByRole('listitem')).toHaveText(['office@example.test']);
+});
+
 test('a reminder in minutes and one in hours save (I8)', async ({ page }) => {
   await openSettings(page);
   const first = page.getByRole('combobox', { name: 'First reminder' });
