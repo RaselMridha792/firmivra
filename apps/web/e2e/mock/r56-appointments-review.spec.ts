@@ -165,3 +165,48 @@ test('A6: the video link has its own full-width row, the toggle on its label lin
   await link.fill('https://meet.example.test/abc-defg');
   await expect(copy).toBeEnabled();
 });
+
+test('A7: several default reminders, each with its channels, kept after reopening', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/types'));
+  const box = page.getByTestId('type-reminders');
+  await expect(box).toBeVisible({ timeout: 60_000 });
+  const rows = box.getByTestId('type-reminder');
+  await expect(rows).toHaveCount(1);
+  await expect(page.getByLabel('Reminder 1 unit')).toHaveValue('DAYS');
+
+  // A second reminder, 2 hours before, by SMS and Portal only.
+  await box.getByRole('button', { name: 'Add Reminder' }).click();
+  await page.getByLabel('Reminder 2 amount').fill('2');
+  const second = box.getByRole('group', { name: 'Reminder 2 channels' });
+  await second.getByLabel('Email').uncheck();
+  await second.getByLabel('SMS').check();
+  await second.getByLabel('Portal').check();
+
+  // A third with no channel is refused before anything is sent.
+  await box.getByRole('button', { name: 'Add Reminder' }).click();
+  await box.getByRole('group', { name: 'Reminder 3 channels' }).getByLabel('Email').uncheck();
+  await page.getByRole('button', { name: 'Save Settings' }).click();
+  await expect(box).toContainText('Choose Email, SMS or Portal for reminder 3.');
+  await expect(page.getByTestId('type-settings-saved')).toHaveCount(0);
+  await box.getByRole('button', { name: 'Remove reminder 3' }).click();
+  await page.getByRole('button', { name: 'Save Settings' }).click();
+  await expect(page.getByTestId('type-settings-saved')).toHaveText('Settings saved.');
+
+  // Another type and back: both reminders as they were saved.
+  const types = page.locator('button[aria-pressed]');
+  await types.nth(1).click();
+  await expect(types.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await types.nth(0).click();
+  await expect(rows).toHaveCount(2);
+  await expect(page.getByLabel('Reminder 1 amount')).toHaveValue('1');
+  await expect(page.getByLabel('Reminder 1 unit')).toHaveValue('DAYS');
+  await expect(page.getByLabel('Reminder 2 amount')).toHaveValue('2');
+  await expect(page.getByLabel('Reminder 2 unit')).toHaveValue('HOURS');
+  const back = box.getByRole('group', { name: 'Reminder 2 channels' });
+  await expect(back.getByLabel('Email')).not.toBeChecked();
+  await expect(back.getByLabel('SMS')).toBeChecked();
+  await expect(back.getByLabel('Portal')).toBeChecked();
+});

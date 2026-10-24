@@ -29,6 +29,13 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { BackToWorkflow } from '../../../settings/workflow/_components/back-to-workflow';
 import { RowMenu } from '../../../team/_components/row-menu';
 import { METHOD_LABELS, NOT_LOADED, SCHEDULING } from '../../_components/appointments-parts';
+import { TypeReminders } from './type-reminders';
+import {
+  reminderRowsProblem,
+  remindersFromRows,
+  rowsFromReminders,
+  type ReminderRow,
+} from './type-reminders-model';
 
 const TYPES_KEY = [...SCHEDULING, 'types'];
 
@@ -46,7 +53,7 @@ const SETTING_FIELDS = {
   bufferAfterMinutes: 'Buffer after',
   minNoticeHours: 'Minimum notice',
   maxWindowDays: 'Booking window',
-  defaultReminders: 'Email reminder',
+  defaultReminders: 'Default reminders',
 } as const;
 type SettingField = keyof typeof SETTING_FIELDS;
 
@@ -402,7 +409,11 @@ function SettingsForm({
   const [after, setAfter] = useState(String(c.bufferAfterMinutes));
   const [notice, setNotice] = useState(String(c.minNoticeHours));
   const [windowDays, setWindowDays] = useState(String(c.maxWindowDays));
-  const [reminder, setReminder] = useState(c.defaultReminders.some((r) => r.channel === 'EMAIL'));
+  // Octavia's A7: every reminder the type has, each with its channels (no longer one checkbox
+  // that replaced them all with "Email, 1 day before").
+  const [reminders, setReminders] = useState<ReminderRow[]>(() =>
+    rowsFromReminders(c.defaultReminders),
+  );
   const [saved, setSaved] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<SettingField, string>>>({});
   const save = useApiMutation(
@@ -414,7 +425,7 @@ function SettingsForm({
         bufferAfterMinutes: Number(after),
         minNoticeHours: Number(notice),
         maxWindowDays: Number(windowDays),
-        defaultReminders: reminder ? [{ channel: 'EMAIL', amount: 1, unit: 'DAYS' }] : [],
+        defaultReminders: remindersFromRows(reminders),
       });
       setSaved('Settings saved.');
     },
@@ -430,8 +441,14 @@ function SettingsForm({
       onSubmit={(e) => {
         e.preventDefault();
         if (!methods.length) return;
-        setFieldErrors({});
         const form = e.currentTarget;
+        const problem = reminderRowsProblem(reminders);
+        if (problem) {
+          setFieldErrors({ defaultReminders: problem });
+          form.querySelector<HTMLElement>('[data-testid="type-reminders"] input')?.focus();
+          return;
+        }
+        setFieldErrors({});
         save.mutate(undefined, {
           onError: (error) => {
             // Each refused field on its field; the entries stay as they are.
@@ -534,12 +551,15 @@ function SettingsForm({
           onChange={(e) => setWindowDays(e.target.value)}
         />
       </div>
-      <Checkbox
-        label="Email reminder 1 day before, by default"
+      <TypeReminders
+        typeId={type.id}
+        rows={reminders}
         disabled={off}
-        checked={reminder}
-        onChange={(e) => setReminder(e.target.checked)}
-        className="text-sm"
+        error={fieldErrors.defaultReminders}
+        onChange={(next) => {
+          setReminders(next);
+          setFieldErrors((now) => ({ ...now, defaultReminders: undefined }));
+        }}
       />
       {save.error ? (
         <p role="alert" data-testid="type-settings-error" className="text-sm text-danger">

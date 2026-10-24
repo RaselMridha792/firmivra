@@ -67,6 +67,9 @@ export function AvailabilityScreen() {
   const rules = useApiQuery([...SCHEDULING, 'rules', whose], () => api.scheduling.rules(whose));
   const week = useApiQuery(AVAILABILITY, () => api.availability.get());
   const hours = week.data?.members.find((m) => m.member.userId === whose)?.hours ?? null;
+  // Kept here: the form is drawn again from what the API returns after a save (its key changes),
+  // which would otherwise clear "Availability saved." the moment it shows.
+  const [saved, setSaved] = useState('');
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -126,7 +129,10 @@ export function AvailabilityScreen() {
               label="Availability of"
               options={people.map((p) => ({ value: p.userId, label: p.name }))}
               value={whose}
-              onChange={(e) => setWhose(e.target.value)}
+              onChange={(e) => {
+                setWhose(e.target.value);
+                setSaved('');
+              }}
             />
           ) : null}
           {rules.data && !week.isPending ? (
@@ -136,6 +142,8 @@ export function AvailabilityScreen() {
               rules={rules.data}
               hours={hours}
               timeZone={week.data?.timezone ?? tz}
+              saved={saved}
+              onSaved={setSaved}
             />
           ) : rules.isPending || week.isPending ? (
             <Skeleton className="h-80" />
@@ -163,12 +171,16 @@ function RulesForm({
   rules: r,
   hours: savedHours,
   timeZone,
+  saved,
+  onSaved: setSaved,
 }: {
   userId: string;
   rules: AvailabilityRules;
   /** Null when the weekly hours could not be loaded: then only time off is saved. */
   hours: WorkingHoursRange[] | null;
   timeZone: string;
+  saved: string;
+  onSaved: (message: string) => void;
 }) {
   const [hours, setHours] = useState<WorkingHoursRange[]>(savedHours ?? []);
   const [off, setOff] = useState<TimeOff[]>(() =>
@@ -176,7 +188,6 @@ function RulesForm({
   );
   // Field errors show once Save was pressed, then follow every edit.
   const [checked, setChecked] = useState(false);
-  const [saved, setSaved] = useState('');
   const hourProblems = hourErrors(hours);
   const offProblems = new Map<string, { from?: string; to?: string }>();
   for (const t of off) {
