@@ -49,6 +49,7 @@ import {
   createMyInvoicesClient,
   createMyMessagesClient,
   createMyNotesClient,
+  createMyAnnouncementsClient,
   createMyNotificationsClient,
   createMyProfileClient,
   createMyReportsClient,
@@ -142,6 +143,7 @@ import { createNotificationsMock, myNotificationsMock } from '../mocks/notificat
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createFirmBillingMock } from '../mocks/firm-billing';
 import { createProfileChangesMock } from '../mocks/profile-changes';
+import { myAnnouncementsMock } from '../mocks/my-announcements';
 import { createSettingsMock } from '../mocks/settings';
 import {
   createBrandingMock,
@@ -505,6 +507,11 @@ export const api = {
   notifications:
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
   /** Notifications (R6): the signed-in client's own, per firm (portal). Same calls as `notifications`. */
+  /** Announcements published to the signed-in client from Communications (portal). */
+  myAnnouncements: (firmSlug: string) =>
+    dev && mocked('myAnnouncements')
+      ? myAnnouncementsMock()
+      : createMyAnnouncementsClient(request, firmSlug),
   myNotifications: (firmSlug: string) =>
     dev && mocked('myNotifications')
       ? myNotificationsMock(firmSlug)
