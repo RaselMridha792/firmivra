@@ -84,7 +84,9 @@ const seen = (actor: ClientsActor): Prisma.TaskWhereInput => ({
  * as Draft, the Drafts tab (search, filters, sort, pages), reopen, edit, publish and discard. A
  * draft is a task with status DRAFT, kept as sent: only the title is required, and nothing that
  * publishing checks is checked before (TaskWriteService's `insertNew` and `editDraft` with
- * `draft`). No other read of tasks sees a draft (LIVE_TASK); publishing checks it as a new task
+ * `draft`): its reminders, Custom ones (minutes, hours or days before the due time) and a
+ * template's included, are only kept once each until publishing checks them against the due date
+ * and time. No other read of tasks sees a draft (LIVE_TASK); publishing checks it as a new task
  * (`checkAsNew`), makes it OPEN with the same id once, and then "task created" happens as for a
  * new task. A draft out of sight is 404, as is another firm's. Audited with ids and field names
  * only, never a title, details, notes, a checklist label or a file name.

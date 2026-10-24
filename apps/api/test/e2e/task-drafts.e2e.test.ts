@@ -921,6 +921,96 @@ describe('publish', () => {
   });
 });
 
+// Octavia's Tasks review A3 (R1, Oct 24): a draft keeps Custom reminders (minutes, hours or days
+// before the due time) as sent, a template's included; publishing checks them as for a new task.
+describe('Custom reminders on a draft', () => {
+  const shape = (r: TaskDraft['reminders'][number]) => [
+    r.daysBefore,
+    r.timeOfDay,
+    r.amount,
+    r.unit,
+  ];
+
+  it('keeps them as sent; publishing needs a due time for them', async () => {
+    const d = await save({
+      title: mark('Custom draft'),
+      clientId: clients.c1,
+      reminders: [{ amount: 45, unit: 'MINUTES', channels: ['EMAIL'] }, { daysBefore: 1 }],
+    });
+    expect(d).toMatchObject({ dueOn: null, dueTime: null, allDay: true });
+    expect(d.reminders.map(shape)).toEqual([
+      [1, null, null, null],
+      [0, null, 45, 'MINUTES'],
+    ]);
+    expect(await getDraft(d.id)).toEqual(d);
+    // Only the same reminder twice is refused before publishing.
+    expectError(
+      await call('post', '/tasks/drafts', people.ownerA, {
+        title: mark('Twice'),
+        reminders: [
+          { amount: 60, unit: 'MINUTES' },
+          { amount: 1, unit: 'HOURS' },
+        ],
+      }),
+      400,
+      'INVALID_REMINDER',
+    );
+
+    expectError(await publish(d.id), 400, 'INVALID_REMINDER');
+    // A due date alone is not enough: they count back from a due time. Nothing is kept.
+    expectError(await publish(d.id, { dueOn: '2031-09-01' }), 400, 'INVALID_REMINDER');
+    expect(await getDraft(d.id)).toEqual(d);
+    // An edit keeps it a draft, still with them.
+    const dated = await edit(d.id, { dueOn: '2031-09-01' });
+    expect(dated.reminders.map(shape)).toEqual(d.reminders.map(shape));
+
+    const t = detailOf(await publish(d.id, { dueTime: '10:00' }));
+    expect(t).toMatchObject({ id: d.id, status: 'OPEN', dueOn: '2031-09-01', dueTime: '10:00' });
+    expect(t.reminders.map(shape)).toEqual(d.reminders.map(shape));
+    expect(t.reminders[1]).toMatchObject({ inApp: true, channels: ['EMAIL'] });
+  });
+
+  it("keeps a template's, even those a task would leave out, for publishing to check", async () => {
+    const tpl = ok(
+      await call('post', '/task-templates', people.ownerA, {
+        name: mark('Draft template'),
+        reminders: [{ amount: 2, unit: 'HOURS' }, { daysBefore: 1 }],
+      }),
+      201,
+    ) as { id: string };
+    const d = await save({
+      title: mark('From a template'),
+      clientId: clients.c1,
+      templateId: tpl.id,
+    });
+    expect(d.reminders.map(shape)).toEqual([
+      [1, null, null, null],
+      [0, null, 2, 'HOURS'],
+    ]);
+    expectError(await publish(d.id, { dueOn: '2031-10-01' }), 400, 'INVALID_REMINDER');
+    const t = detailOf(await publish(d.id, { dueOn: '2031-10-01', dueTime: '09:30' }));
+    expect(t.reminders.map(shape)).toEqual(d.reminders.map(shape));
+  });
+
+  it('firm B never reads or changes them', async () => {
+    const d = await save({
+      title: mark('Firm A custom'),
+      reminders: [{ amount: 3, unit: 'DAYS' }],
+    });
+    for (const [method, path, body] of [
+      ['get', `/tasks/drafts/${d.id}`],
+      ['patch', `/tasks/drafts/${d.id}`, { reminders: [] }],
+      ['post', `/tasks/drafts/${d.id}/publish`, { dueOn: '2031-11-01', dueTime: '09:00' }],
+    ] as const) {
+      const res = await call(method, path, people.ownerB, body, 'b');
+      expect([res.status, codeOf(res), method, path].join(' ')).toBe(
+        [404, 'NOT_FOUND', method, path].join(' '),
+      );
+    }
+    expect(await getDraft(d.id)).toEqual(d);
+  });
+});
+
 describe('discard', () => {
   it('deletes the draft with its checklist, reminders and files', async () => {
     const d = await save({

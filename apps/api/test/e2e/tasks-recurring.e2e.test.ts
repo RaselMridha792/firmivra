@@ -1201,6 +1201,228 @@ describe('editing and controlling a series', () => {
   });
 });
 
+// Octavia's Tasks review A3 (R1, Oct 24): Custom reminders on templates and series. A series is
+// checked against its due time as a task is (every task made gets its reminders); a template
+// keeps them, and a task or series made from it leaves out the ones that do not fit.
+describe('Custom reminders on templates and series', () => {
+  const shape = (r: {
+    daysBefore: number;
+    timeOfDay: string | null;
+    amount: number | null;
+    unit: string | null;
+  }) => [r.daysBefore, r.timeOfDay, r.amount, r.unit];
+  const refused = (res: Response, message: string) => {
+    expectError(res, 400, 'INVALID_REMINDER');
+    expect((res.body as { error: { message: string } }).error.message).toBe(message);
+  };
+  const NEEDS_TIME = 'A reminder in minutes or hours needs a due time';
+  const SAME_MOMENT = 'Two reminders fire at the same time';
+
+  it('a series needs a due time for them, and keeps it while it has them', async () => {
+    const post = (body: object) =>
+      call('post', '/task-series', people.ownerA, {
+        clientId: clients.c1,
+        title: mark('Custom series'),
+        recurrence: { unit: 'DAY', startOn: '2030-01-01' },
+        ...body,
+      });
+    refused(await post({ reminders: [{ amount: 2, unit: 'HOURS' }] }), NEEDS_TIME);
+    refused(
+      await post({
+        dueTime: '09:00',
+        reminders: [
+          { amount: 60, unit: 'MINUTES' },
+          { amount: 1, unit: 'HOURS' },
+        ],
+      }),
+      SAME_MOMENT,
+    );
+    refused(
+      await post({
+        dueTime: '09:00',
+        reminders: [
+          { daysBefore: 1, timeOfDay: '09:00' },
+          { amount: 24, unit: 'HOURS' },
+        ],
+      }),
+      SAME_MOMENT,
+    );
+    refused(
+      await post({ dueTime: '09:00', reminders: [{ daysBefore: 0, timeOfDay: '10:00' }] }),
+      'A reminder cannot be after the due time',
+    );
+
+    const s = await mkSeries({
+      dueTime: '09:00',
+      reminders: [{ amount: 2, unit: 'HOURS', channels: ['EMAIL'] }, { daysBefore: 1 }],
+      recurrence: { unit: 'MONTH', startOn: '2099-01-05' },
+    });
+    expect(s.reminders.map(shape)).toEqual([
+      [0, null, 2, 'HOURS'],
+      [1, null, null, null],
+    ]);
+    expect(s.reminders[0]).toMatchObject({ id: null, inApp: true, channels: ['EMAIL'] });
+    const read = series(await call('get', `/task-series/${s.id}`, people.staffA));
+    expect(read.reminders).toEqual(s.reminders);
+    // Clearing the due time while it keeps them is refused, unless the request replaces them.
+    refused(
+      await call('patch', `/task-series/${s.id}`, people.ownerA, {
+        scope: 'FUTURE',
+        version: s.version,
+        dueTime: null,
+      }),
+      NEEDS_TIME,
+    );
+    // Moving the due time is checked against them too.
+    const moved = series(
+      await call('patch', `/task-series/${s.id}`, people.ownerA, {
+        scope: 'FUTURE',
+        version: s.version,
+        dueTime: '11:00',
+      }),
+    );
+    expect(moved.dueTime).toBe('11:00');
+    const cleared = series(
+      await call('patch', `/task-series/${s.id}`, people.ownerA, {
+        scope: 'FUTURE',
+        version: moved.version,
+        dueTime: null,
+        reminders: [{ daysBefore: 1 }],
+      }),
+    );
+    expect(cleared.dueTime).toBeNull();
+    expect(cleared.reminders.map(shape)).toEqual([[1, null, null, null]]);
+  });
+
+  it('the job gives every task the series’ Custom reminders', async () => {
+    const s = await mkSeries({
+      dueTime: '10:00',
+      reminders: [{ amount: 90, unit: 'MINUTES', channels: ['EMAIL'] }, { daysBefore: 0 }],
+      recurrence: { unit: 'DAY', startOn: '2030-05-01' },
+    });
+    await runJob('2030-05-02');
+    const [made] = await tasksOf(s.id);
+    expect(made).toMatchObject({ allDay: false });
+    const task = TaskDetail.parse(ok(await call('get', `/tasks/${made!.id}`, people.ownerA)));
+    expect(task.dueTime).toBe('10:00');
+    expect(task.reminders.map(shape)).toEqual([
+      [0, null, 90, 'MINUTES'],
+      [0, null, null, null],
+    ]);
+    expect(task.reminders[0]?.channels).toEqual(['EMAIL']);
+  });
+
+  it('the job leaves them out of a series with no due time (as an older API could save it)', async () => {
+    const s = await mkSeries({
+      dueTime: '10:00',
+      reminders: [{ amount: 30, unit: 'MINUTES' }, { daysBefore: 1 }],
+      recurrence: { unit: 'DAY', startOn: '2030-06-01' },
+    });
+    await inFirm('a', (tx) =>
+      tx.taskSeries.update({ where: { id: s.id }, data: { dueTime: null } }),
+    );
+    await runJob('2030-06-02');
+    const [made] = await tasksOf(s.id);
+    expect(made).toMatchObject({ allDay: true, dueTime: null });
+    expect(made?.taskReminders.map((r) => [r.daysBefore, r.minutesBefore, r.unit])).toEqual([
+      [1, null, null],
+    ]);
+  });
+
+  it('turning a task into a series keeps its Custom reminders', async () => {
+    const t = TaskDetail.parse(
+      ok(
+        await call('post', '/tasks', people.ownerA, {
+          clientId: clients.c1,
+          title: mark('Timed one-off'),
+          dueOn: '2031-03-10',
+          dueTime: '11:15',
+          reminders: [
+            { amount: 3, unit: 'HOURS' },
+            { daysBefore: 2, timeOfDay: '08:00' },
+          ],
+        }),
+        201,
+      ),
+    );
+    const s = series(
+      await call('post', `/tasks/${t.id}/convert-to-recurring`, people.ownerA, {
+        recurrence: { unit: 'MONTH' },
+      }),
+      201,
+    );
+    toStop.push(s.id);
+    expect(s.dueTime).toBe('11:15');
+    expect(s.reminders.map(shape)).toEqual([
+      [2, '08:00', null, null],
+      [0, null, 3, 'HOURS'],
+    ]);
+  });
+
+  it('a template keeps them; a series from it leaves out the ones that do not fit', async () => {
+    const tpl = await mkTemplate({
+      reminders: [{ amount: 2, unit: 'HOURS' }, { daysBefore: 1 }, { amount: 1, unit: 'DAYS' }],
+    });
+    expect(tpl.reminders.map(shape)).toEqual([
+      [0, null, 2, 'HOURS'],
+      [1, null, null, null],
+      [1, null, 1, 'DAYS'],
+    ]);
+    const copy = template(
+      await call('post', `/task-templates/${tpl.id}/duplicate`, people.ownerA),
+      201,
+    );
+    expect(copy.reminders).toEqual(tpl.reminders);
+    // A template has no due time: only the same rule twice is refused.
+    expectError(
+      await call('post', '/task-templates', people.ownerA, {
+        name: mark('Twice'),
+        reminders: [
+          { amount: 60, unit: 'MINUTES' },
+          { amount: 1, unit: 'HOURS' },
+        ],
+      }),
+      400,
+      'INVALID_REMINDER',
+    );
+    const noTime = await mkSeries({ templateId: tpl.id });
+    expect(noTime.reminders.map(shape)).toEqual([[1, null, null, null]]);
+    const withTime = await mkSeries({ templateId: tpl.id, dueTime: '09:00' });
+    expect(withTime.reminders.map(shape)).toEqual([
+      [0, null, 2, 'HOURS'],
+      [1, null, null, null],
+      [1, null, 1, 'DAYS'],
+    ]);
+  });
+
+  it('firm B never reads or changes firm A’s series reminders', async () => {
+    const s = await mkSeries({
+      dueTime: '09:00',
+      reminders: [{ amount: 45, unit: 'MINUTES' }],
+      recurrence: { unit: 'MONTH', startOn: '2099-02-01' },
+    });
+    expectError(
+      await call('get', `/task-series/${s.id}`, people.ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call(
+        'patch',
+        `/task-series/${s.id}`,
+        people.ownerB,
+        { scope: 'FUTURE', version: s.version, dueTime: null, reminders: [] },
+        'b',
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    const kept = series(await call('get', `/task-series/${s.id}`, people.ownerA));
+    expect(kept.reminders.map(shape)).toEqual([[0, null, 45, 'MINUTES']]);
+    expect(kept.version).toBe(s.version);
+  });
+});
+
 describe('who reaches which series', () => {
   it('Staff read only their assigned clients’ series', async () => {
     const mine = await mkSeries({ clientId: clients.c1, title: mark('Staff mine') });

@@ -8,8 +8,8 @@ import {
 import type { Database, TxClient } from '@firmivra/db';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
-import { timeOfDayToDb } from '../appointments/calendar.js';
 import { addDays, generationCutoff, schedule } from './recurrence.js';
+import { reminderRow, remindersFromJson } from './task-common.js';
 import { firmClock } from './task-read.service.js';
 import { HORIZON_DAYS, ruleOf, TaskSeriesService } from './task-series.service.js';
 import { day, toDay } from '../workspaces/common.js';
@@ -322,14 +322,11 @@ export class TaskSeriesJob implements OnApplicationBootstrap, OnModuleDestroy {
       const checklist = Array.isArray(s.checklist)
         ? (s.checklist as { label: string; required?: boolean }[])
         : [];
-      const reminders = Array.isArray(s.reminders)
-        ? (s.reminders as {
-            daysBefore: number;
-            timeOfDay?: string | null;
-            inApp?: boolean;
-            channels?: ('EMAIL' | 'SMS')[];
-          }[])
-        : [];
+      // A Custom reminder counts back from the due time: a series without one (saving refuses
+      // that; only an older API could have kept it) makes its tasks without them.
+      const reminders = remindersFromJson(s.reminders).filter(
+        (r) => r.unit === null || s.dueTime !== null,
+      );
       const task = await tx.task.create({
         data: {
           businessId,
@@ -359,14 +356,7 @@ export class TaskSeriesJob implements OnApplicationBootstrap, OnModuleDestroy {
         })),
       });
       await tx.taskReminder.createMany({
-        data: reminders.map((r) => ({
-          businessId,
-          taskId: task.id,
-          daysBefore: r.daysBefore,
-          timeOfDay: r.timeOfDay ? timeOfDayToDb(r.timeOfDay) : null,
-          inApp: r.inApp ?? true,
-          channels: r.channels ?? [],
-        })),
+        data: reminders.map((r) => ({ businessId, taskId: task.id, ...reminderRow(r) })),
         skipDuplicates: true,
       });
       await tx.taskAssignee.createMany({

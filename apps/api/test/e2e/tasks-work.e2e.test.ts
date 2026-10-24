@@ -21,6 +21,7 @@ import {
   TaskDetail as DetailShape,
   TaskOverviewPage,
   TaskSummary,
+  TaskTemplate,
   TaskType,
   TaskTypeList,
 } from '@firmivra/types';
@@ -1097,6 +1098,283 @@ describe('audit', () => {
       clientId: clients.c1,
       fields: ['checklist', 'details', 'dueOn', 'internalNotes', 'reminders'],
     });
+  });
+});
+
+// Octavia's Tasks review A3 (R1, Oct 24): Custom reminders, a number of minutes, hours or days
+// before the due date and time, beside the days rules. They need a due time, two never fire at one
+// moment, and they read back as sent, in the order they fire.
+describe('Custom reminders', () => {
+  type Rule = TaskDetail['reminders'][number];
+  /** A rule as read, without its row id. */
+  const shape = (r: Omit<Rule, 'id'>) => [
+    r.daysBefore,
+    r.timeOfDay,
+    r.amount,
+    r.unit,
+    r.inApp,
+    r.channels,
+  ];
+  const timed = (body: object = {}) =>
+    create({
+      clientId: clients.c1,
+      title: mark('Custom'),
+      dueOn: '2030-06-10',
+      dueTime: '14:30',
+      ...body,
+    });
+  const refused = (res: Response, message: string) => {
+    expectError(res, 400, 'INVALID_REMINDER');
+    expect((res.body as { error: { message: string } }).error.message).toBe(message);
+  };
+  const NEEDS_TIME = 'A reminder in minutes or hours needs a due time';
+  const SAME_MOMENT = 'Two reminders fire at the same time';
+
+  it('keeps each unit as sent, beside the days rules, in the order they fire', async () => {
+    const t = await timed({
+      reminders: [
+        { amount: 30, unit: 'MINUTES' },
+        { amount: 2, unit: 'HOURS', channels: ['EMAIL'] },
+        { daysBefore: 1, timeOfDay: '09:00' },
+        { amount: 3, unit: 'DAYS', inApp: false, channels: ['SMS'] },
+        { amount: 36, unit: 'HOURS' },
+        { daysBefore: 0 },
+      ],
+    });
+    // Due Jun 10 at 14:30: 3 days, 36 hours, Jun 9 at 09:00, 2 hours, 30 minutes before; the day
+    // rule with the firm's default time sits as if at the due time.
+    expect(t.reminders.map(shape)).toEqual([
+      [3, null, 3, 'DAYS', false, ['SMS']],
+      [1, null, 36, 'HOURS', true, []],
+      [1, '09:00', null, null, true, []],
+      [0, null, 2, 'HOURS', true, ['EMAIL']],
+      [0, null, 30, 'MINUTES', true, []],
+      [0, null, null, null, true, []],
+    ]);
+    expect(await get(t.id)).toEqual(t);
+    // Kept as minutes and the unit typed, with their whole days.
+    const rows = await inFirm('a', (tx) =>
+      tx.taskReminder.findMany({
+        where: { taskId: t.id },
+        orderBy: [{ daysBefore: 'desc' }, { minutesBefore: { sort: 'desc', nulls: 'last' } }],
+      }),
+    );
+    expect(rows.map((r) => [r.daysBefore, r.minutesBefore, r.unit])).toEqual([
+      [3, 4_320, 'DAYS'],
+      [1, 2_160, 'HOURS'],
+      [1, null, null],
+      [0, 120, 'HOURS'],
+      [0, 30, 'MINUTES'],
+      [0, null, null],
+    ]);
+    // Read back and sent back without their ids, they stay as they were.
+    const again = await patch(t.id, { reminders: t.reminders.map(({ id: _id, ...rule }) => rule) });
+    expect(again.reminders.map(shape)).toEqual(t.reminders.map(shape));
+  });
+
+  it('need a due time: refused on an all-day task, and they keep the task from going all-day', async () => {
+    const base = { clientId: clients.c1, title: mark('No time') };
+    refused(
+      await call('post', '/tasks', people.ownerA, {
+        ...base,
+        dueOn: '2030-06-10',
+        reminders: [{ amount: 1, unit: 'HOURS' }],
+      }),
+      NEEDS_TIME,
+    );
+    refused(
+      await call('post', '/tasks', people.ownerA, {
+        ...base,
+        dueOn: '2030-06-10',
+        allDay: true,
+        reminders: [{ amount: 2, unit: 'DAYS' }],
+      }),
+      NEEDS_TIME,
+    );
+    refused(
+      await call('post', '/tasks', people.ownerA, {
+        ...base,
+        reminders: [{ amount: 2, unit: 'DAYS' }],
+      }),
+      'Set a due date before adding reminders',
+    );
+
+    const t = await timed({ reminders: [{ amount: 45, unit: 'MINUTES' }, { daysBefore: 2 }] });
+    refused(
+      await call('patch', `/tasks/${t.id}`, people.ownerA, { allDay: true, dueTime: null }),
+      NEEDS_TIME,
+    );
+    refused(await call('patch', `/tasks/${t.id}`, people.ownerA, { dueTime: null }), NEEDS_TIME);
+    refused(
+      await call('patch', `/tasks/${t.id}`, people.ownerA, { dueOn: null }),
+      'Set a due date before adding reminders',
+    );
+    expect(await get(t.id)).toEqual(t);
+    // A change that keeps the due time keeps them.
+    expect((await patch(t.id, { title: `${t.title} v2` })).reminders.map(shape)).toEqual(
+      t.reminders.map(shape),
+    );
+    // With its reminders replaced in the same request, it goes all-day.
+    const allDay = await patch(t.id, {
+      allDay: true,
+      dueTime: null,
+      reminders: [{ daysBefore: 2 }],
+    });
+    expect(allDay).toMatchObject({ allDay: true, dueTime: null });
+    expect(allDay.reminders.map(shape)).toEqual([[2, null, null, null, true, []]]);
+  });
+
+  it('never fire twice at one moment, also after the due time moves', async () => {
+    const at = (dueTime: string, reminders: object[]) =>
+      call('post', '/tasks', people.ownerA, {
+        clientId: clients.c1,
+        title: mark('Moments'),
+        dueOn: '2030-06-10',
+        dueTime,
+        reminders,
+      });
+    // 60 minutes and 1 hour are one reminder, as are 1 day and 24 hours.
+    refused(
+      await at('14:30', [
+        { amount: 60, unit: 'MINUTES' },
+        { amount: 1, unit: 'HOURS' },
+      ]),
+      SAME_MOMENT,
+    );
+    refused(
+      await at('14:30', [
+        { amount: 1, unit: 'DAYS' },
+        { amount: 24, unit: 'HOURS' },
+      ]),
+      SAME_MOMENT,
+    );
+    refused(
+      await at('14:30', [
+        { amount: 15, unit: 'MINUTES' },
+        { amount: 15, unit: 'MINUTES', channels: ['EMAIL'] },
+      ]),
+      'Each reminder can be added once',
+    );
+    // "1 day before at 14:30" and "1 day before" a task due at 14:30 are the same moment...
+    refused(
+      await at('14:30', [
+        { daysBefore: 1, timeOfDay: '14:30' },
+        { amount: 1, unit: 'DAYS' },
+      ]),
+      SAME_MOMENT,
+    );
+    // ...but not when it is due at 16:00.
+    const t = detail(
+      await at('16:00', [
+        { amount: 1, unit: 'DAYS' },
+        { daysBefore: 1, timeOfDay: '14:30' },
+        { daysBefore: 0 },
+        { amount: 2, unit: 'HOURS' },
+      ]),
+      201,
+    );
+    expect(t.reminders.map(shape)).toEqual([
+      [1, '14:30', null, null, true, []],
+      [1, null, 1, 'DAYS', true, []],
+      [0, null, 2, 'HOURS', true, []],
+      [0, null, null, null, true, []],
+    ]);
+    // Moving the due time onto the collision is refused: the kept reminders are checked.
+    refused(
+      await call('patch', `/tasks/${t.id}`, people.ownerA, { dueTime: '14:30' }),
+      SAME_MOMENT,
+    );
+    expect((await get(t.id)).dueTime).toBe('16:00');
+  });
+
+  it('are kept by Duplicate and Save as Template', async () => {
+    const t = await timed({
+      reminders: [{ amount: 90, unit: 'MINUTES', channels: ['EMAIL'] }, { daysBefore: 1 }],
+    });
+    const copy = detail(await act(t.id, 'duplicate'), 201);
+    expect(copy).toMatchObject({ dueOn: '2030-06-10', dueTime: '14:30' });
+    expect(copy.reminders.map(shape)).toEqual([
+      [1, null, null, null, true, []],
+      [0, null, 90, 'MINUTES', true, ['EMAIL']],
+    ]);
+    expect(copy.reminders.map(shape)).toEqual(t.reminders.map(shape));
+    const tpl = TaskTemplate.parse(
+      ok(
+        await call('post', `/tasks/${t.id}/save-as-template`, people.ownerA, {
+          name: mark('Custom template'),
+        }),
+        201,
+      ),
+    );
+    expect(tpl.reminders.map(shape)).toEqual(t.reminders.map(shape));
+  });
+
+  it('a template’s that do not fit a new task are left out, never refused', async () => {
+    const tpl = TaskTemplate.parse(
+      ok(
+        await call('post', '/task-templates', people.ownerA, {
+          name: mark('Fitting'),
+          reminders: [
+            { amount: 2, unit: 'HOURS' },
+            { daysBefore: 1, timeOfDay: '14:30' },
+            { amount: 1, unit: 'DAYS' },
+            { daysBefore: 0, timeOfDay: '18:00' },
+          ],
+        }),
+        201,
+      ),
+    );
+    expect(tpl.reminders.map(shape)).toEqual([
+      [0, null, 2, 'HOURS', true, []],
+      [1, '14:30', null, null, true, []],
+      [1, null, 1, 'DAYS', true, []],
+      [0, '18:00', null, null, true, []],
+    ]);
+    const from = (body: object) =>
+      create({ clientId: clients.c1, title: mark('From template'), templateId: tpl.id, ...body });
+    // No due date (the template sets none): none of them.
+    expect((await from({})).reminders).toEqual([]);
+    // All day: the days rules only.
+    expect((await from({ dueOn: '2030-07-01' })).reminders.map(shape)).toEqual([
+      [1, '14:30', null, null, true, []],
+      [0, '18:00', null, null, true, []],
+    ]);
+    // Due at 14:30: "1 day" fires with "1 day at 14:30", and 18:00 is after the due time.
+    expect((await from({ dueOn: '2030-07-01', dueTime: '14:30' })).reminders.map(shape)).toEqual([
+      [1, '14:30', null, null, true, []],
+      [0, null, 2, 'HOURS', true, []],
+    ]);
+    // The same rules sent with the request are checked as sent.
+    refused(
+      await call('post', '/tasks', people.ownerA, {
+        clientId: clients.c1,
+        title: mark('Sent'),
+        templateId: tpl.id,
+        dueOn: '2030-07-01',
+        reminders: [{ amount: 2, unit: 'HOURS' }],
+      }),
+      NEEDS_TIME,
+    );
+  });
+
+  it('firm B never reads or changes firm A’s Custom reminders', async () => {
+    const a = await timed({ reminders: [{ amount: 15, unit: 'MINUTES' }] });
+    const asB = (method: Method, path: string, body?: object) =>
+      call(method, path, people.ownerB, body, 'b');
+    for (const [method, path, body] of [
+      ['get', `/tasks/${a.id}`],
+      ['patch', `/tasks/${a.id}`, { reminders: [{ amount: 30, unit: 'MINUTES' }] }],
+      ['patch', `/tasks/${a.id}`, { allDay: true, dueTime: null }],
+      ['post', `/tasks/${a.id}/duplicate`],
+      ['post', `/tasks/${a.id}/save-as-template`, { name: mark('Taken') }],
+    ] as const) {
+      const res = await asB(method, path, body);
+      expect([res.status, codeOf(res), method, path].join(' ')).toBe(
+        [404, 'NOT_FOUND', method, path].join(' '),
+      );
+    }
+    expect(await get(a.id)).toEqual(a);
+    expect(a.reminders.map(shape)).toEqual([[0, null, 15, 'MINUTES', true, []]]);
   });
 });
 

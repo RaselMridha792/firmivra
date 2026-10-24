@@ -31,14 +31,25 @@ import {
   sentFields,
   toDay,
 } from '../workspaces/common.js';
-import { LIVE_TASK, liveClient, taskErrors } from './task-common.js';
-import { checkReminders, reminderJson, remindersOf } from './task-templates.service.js';
+import {
+  checkReminders,
+  fitReminders,
+  inFiringOrder,
+  LIVE_TASK,
+  liveClient,
+  type Reminder,
+  reminderFrom,
+  reminderFromRow,
+  remindersFromJson,
+  remindersJson,
+  taskErrors,
+} from './task-common.js';
+import { remindersOf } from './task-templates.service.js';
 import { firmClock } from './task-read.service.js';
 import { addDays, describe, type RecurrenceRule, schedule, totalDates } from './recurrence.js';
 
 type CreateBody = z.output<typeof CreateTaskSeriesRequest>;
 type UpdateBody = z.output<typeof UpdateTaskSeriesRequest>;
-type Reminder = NonNullable<CreateBody['reminders']>[number];
 
 /** Occurrences are made this far ahead of today (their due dates), so the list and the job see them. */
 export const HORIZON_DAYS = 120;
@@ -303,16 +314,10 @@ export class TaskSeriesService {
           (Array.isArray(tpl?.checklist)
             ? (tpl.checklist as { label: string; required: boolean }[])
             : undefined),
+        // The request's reminders are checked; the template's that do not fit are left out.
         reminders:
-          body.reminders ??
-          (tpl
-            ? (remindersOf(tpl.reminders).map((r) => ({
-                daysBefore: r.daysBefore,
-                timeOfDay: r.timeOfDay,
-                inApp: r.inApp,
-                channels: r.channels,
-              })) as Reminder[])
-            : undefined),
+          body.reminders?.map(reminderFrom) ??
+          (tpl ? fitReminders(remindersFromJson(tpl.reminders), body.dueTime ?? null) : undefined),
       });
       if (body.engagementId) {
         const engagement = await tx.engagement.findFirst({
@@ -393,6 +398,7 @@ export class TaskSeriesService {
         assignmentRule: changes.assignmentRule ?? row.assignmentRule,
         assignedUserId:
           changes.assignedUserId !== undefined ? changes.assignedUserId : row.assignedUserId,
+        reminders: changes.reminders?.map(reminderFrom),
       };
       const fields = await this.fields(tx, businessId, { ...changes, ...merged }, row);
       await tx.taskSeries.update({
@@ -580,7 +586,7 @@ export class TaskSeriesService {
         },
         include: {
           taskChecklistItems: { orderBy: { position: 'asc' } },
-          taskReminders: true,
+          taskReminders: { orderBy: [{ daysBefore: 'desc' }, { timeOfDay: 'asc' }, { id: 'asc' }] },
           assignees: { select: { userId: true } },
           taskOccurrence: { select: { id: true } },
         },
@@ -615,12 +621,13 @@ export class TaskSeriesService {
           dueTime: task.dueTime,
           clientVisible: task.clientVisible,
           checklist: task.taskChecklistItems.map((i) => ({ label: i.label, required: i.required })),
-          reminders: task.taskReminders.map((r) => ({
-            daysBefore: r.daysBefore,
-            timeOfDay: r.timeOfDay ? timeOfDayFromDb(r.timeOfDay) : null,
-            inApp: r.inApp,
-            channels: r.channels,
-          })),
+          // Custom ones too, in the order they fire (the series keeps the task's due time).
+          reminders: remindersJson(
+            inFiringOrder(
+              task.taskReminders.map((r) => ({ rule: reminderFromRow(r) })),
+              task.dueTime && !task.allDay ? timeOfDayFromDb(task.dueTime) : null,
+            ).map((r) => r.rule),
+          ),
         },
         select: { id: true },
       });
@@ -752,15 +759,17 @@ export class TaskSeriesService {
   /**
    * The series' own columns from a request: checked and shaped (assignee rule, collaborators, type,
    * service, reminders, the client notice). Only what the request holds is returned, so an update
-   * leaves the rest.
+   * leaves the rest. The reminders are checked against the due time as a task's are, also the
+   * kept ones when only the due time changes: every task made gets them.
    */
   private async fields(
     tx: TxClient,
     businessId: string,
-    b: Partial<Omit<CreateBody, 'recurrence' | 'clientId'>> & {
+    b: Partial<Omit<CreateBody, 'recurrence' | 'clientId' | 'reminders'>> & {
       assignmentRule?: 'UNASSIGNED' | 'SPECIFIC_USER' | 'CLIENT_TEAM';
       assignedUserId?: string | null;
       checklist?: { label: string; required: boolean }[];
+      reminders?: Reminder[];
     },
     current?: Row,
   ) {
@@ -837,10 +846,16 @@ export class TaskSeriesService {
     }
     if (b.checklist !== undefined)
       out.checklist = b.checklist.map((i) => ({ label: i.label, required: i.required }));
-    if (b.reminders !== undefined) {
-      checkReminders(b.reminders);
-      out.reminders = reminderJson(b.reminders);
+    if (b.reminders !== undefined || (current && b.dueTime !== undefined)) {
+      const dueTime =
+        b.dueTime !== undefined
+          ? b.dueTime
+          : current?.dueTime
+            ? timeOfDayFromDb(current.dueTime)
+            : null;
+      checkReminders(b.reminders ?? remindersFromJson(current?.reminders), dueTime, true);
     }
+    if (b.reminders !== undefined) out.reminders = remindersJson(b.reminders);
     return out;
   }
 
