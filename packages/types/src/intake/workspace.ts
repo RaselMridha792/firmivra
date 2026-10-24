@@ -488,6 +488,23 @@ export type FormFileLink = z.infer<typeof FormFileLink>;
 
 // ---------- Intake Form Settings (Frame 5) ----------
 
+/**
+ * The first and final reminder choices, in minutes after the form is sent (Octavia's I8): 5, 10,
+ * 15 and 30 minutes; 1, 2, 3, 6 and 12 hours; 1, 2, 3, 5, 7, 10, 14, 21 and 30 days. The final
+ * reminder comes after the first. A saved time that is not one of these is shown as it is.
+ */
+export const INTAKE_REMINDER_MINUTES = [
+  5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 2880, 4320, 7200, 10080, 14400, 20160, 30240, 43200,
+] as const;
+
+/** "30 minutes", "1 hour", "12 hours", "1 day", "3 days": a reminder or alert time in words. */
+export function intakeDurationWords(minutes: number): string {
+  const unit = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  if (minutes % 1440 === 0) return unit(minutes / 1440, 'day');
+  if (minutes % 60 === 0) return unit(minutes / 60, 'hour');
+  return unit(minutes, 'minute');
+}
+
 export const IntakeSettings = z.object({
   general: z.object({
     defaultExpirationDays: z.number().int().nullable(),
@@ -506,8 +523,12 @@ export const IntakeSettings = z.object({
   notifications: z.object({
     sendClientConfirmation: z.boolean(),
     notifyAssignedStaff: z.boolean(),
-    firstReminderAfterDays: z.number().int().nullable(),
-    finalReminderAfterDays: z.number().int().nullable(),
+    /**
+     * Minutes after sending (INTAKE_REMINDER_MINUTES). Null for both: no reminders (each new
+     * send's default is off). There is no first reminder without a final one.
+     */
+    firstReminderAfterMinutes: z.number().int().nullable(),
+    finalReminderAfterMinutes: z.number().int().nullable(),
     expirationAlertHours: z.number().int().nullable(),
   }),
   automation: z.object({
@@ -567,8 +588,10 @@ export const UpdateIntakeSettingsRequest = z.strictObject({
     .strictObject({
       sendClientConfirmation: z.boolean(),
       notifyAssignedStaff: z.boolean(),
-      firstReminderAfterDays: z.number().int().min(1).max(60).nullable(),
-      finalReminderAfterDays: z.number().int().min(1).max(90).nullable(),
+      /** 5 minutes to 30 days; null turns reminders off (the final then goes null too). */
+      firstReminderAfterMinutes: z.number().int().min(5).max(43200).nullable(),
+      /** After the first, at most 60 days (400 VALIDATION_FAILED otherwise). */
+      finalReminderAfterMinutes: z.number().int().min(5).max(86400).nullable(),
       expirationAlertHours: z.number().int().min(1).max(168).nullable(),
     })
     .partial()

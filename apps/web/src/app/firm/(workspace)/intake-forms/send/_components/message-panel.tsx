@@ -256,7 +256,7 @@ export function MessagePanel({
             onClick={onEditSchedule}
             className="text-sm font-medium text-link underline disabled:cursor-not-allowed disabled:text-muted disabled:no-underline"
           >
-            Edit Schedule
+            View Schedule
           </button>
         }
       />

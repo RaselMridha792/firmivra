@@ -30,12 +30,12 @@ Sessions stay unbuilt. #1073 and #1076 merged.
 
 | # | Branch (from `main`) | What | State |
 | --- | --- | --- | --- |
-| 1 | `rasel/R60-sm3-job-titles` | SM3 Offices & Job Titles: `api.staff` job titles (list, add, rename, archive, restore; 409 `JOB_TITLE_EXISTS`), the editor at `/team/settings/offices-titles`; Create and Edit Staff offer the saved titles and Location Management's active locations | PR |
-| 2 | `rasel/R60-sm3-security-defaults` | SM3 New Accounts & Security: the firm's defaults for new accounts (`staff_security_defaults`), a policy page that says existing accounts keep their own and confirms the save; Create Staff (and import) start from them | Next |
-| 3 | `rasel/R60-intake-reminders` | I8: first and final reminders in minutes (5 minutes to 30 days, "after sending"); the old day columns kept valid; the Send page's schedule shows the firm's timing (a send keeps only on or off) | Next |
+| 1 | `rasel/R60-sm3-job-titles` | SM3 Offices & Job Titles: `api.staff` job titles (list, add, rename, archive, restore; 409 `JOB_TITLE_EXISTS`), the editor at `/team/settings/offices-titles`; Create and Edit Staff offer the saved titles and Location Management's active locations | #1088 (merged Oct 24) |
+| 2 | `rasel/R60-sm3-security-defaults` | SM3 New Accounts & Security: the firm's defaults for new accounts (`staff_security_defaults`), a policy page that says existing accounts keep their own and confirms the save; Create Staff (and import) start from them | #1093 |
+| 3 | `rasel/R60-intake-reminders` | I8: first and final reminders in minutes (5 minutes to 30 days, "after sending"); the old day columns kept valid; the Send page's schedule shows the firm's timing (a send keeps only on or off) | PR (Oct 24) |
 | 4 | stacked on 3 | I9: the expiration alert in minutes (30 minutes; 1, 2, 3, 5, 6, 10, 12, 24, 42, 72 hours) and No alert | Next |
-| 5 | from `main` | I7: Notify additional emails (up to 10) and a no-content "form submitted" email to them | Next |
-| 6 | from `main` | I12: Data retention period in years (1 to 100, or not set); saving deletes nothing | Next |
+| 5 | stacked on 4 (the same settings) | I7: Notify additional emails (up to 10) and a no-content "form submitted" email to them | Next |
+| 6 | stacked on 5 | I12: Data retention period in years (1 to 100, or not set); saving deletes nothing | Next |
 
 ### Oct 24 (third session): Rasel's order, start here
 
@@ -581,3 +581,10 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   8 of 8, staff e2e 8 of 8, contract unit 20 of 20, `r60-staff-job-titles` and the Staff specs 10 of
   10, API and web `tsc` 0 errors; the isolation sweep's only local failures are the known
   file-scanner ones. Sheet shot on the real API. No Locations page exists (Needs).
+- Oct 24 (fourth session): I8 (`rasel/R60-intake-reminders`, from `main`; PR once #1088 merged): the first and final reminders in minutes (`firstReminderAfterMinutes`,
+  `finalReminderAfterMinutes`; her 5, 10, 15 and 30 minutes, 1, 2, 3, 6 and 12 hours and 1 to 30
+  days, "after sending"), the old day columns kept valid on every save (rounded up, the final
+  after the first), the test reminder's wording in minutes, and the Send page's schedule showing
+  the firm's times (a send keeps only on or off; "View Schedule" instead of fields the API never
+  kept). Intake workspace e2e 17 of 17, unit 11 and 10, the Intake Forms mock specs 38 of 38;
+  sheet shot on the real API.
