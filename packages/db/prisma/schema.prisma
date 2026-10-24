@@ -153,6 +153,13 @@ enum TaskPriority {
   HIGH
 }
 
+/// The unit a Custom task reminder was typed in (TaskReminder.minutesBefore holds its length).
+enum TaskReminderUnit {
+  MINUTES
+  HOURS
+  DAYS
+}
+
 /// What a compliance deadline is for (the Deadline Types chart and filter).
 enum DeadlineType {
   TAX_FILING
@@ -8930,20 +8937,28 @@ model TaskChecklistItem {
   @@map("task_checklist_items")
 }
 
-/// A reminder rule of a task: daysBefore the due date (0 = the due day) at timeOfDay (the firm's
-/// timezone; the API's default when null), in-app and by email or SMS. lastFiredFor is the due
-/// date the reminder last fired for, so a retry never sends it twice.
+/// A reminder rule of a task, in-app and by email or SMS. A days rule (unit null): daysBefore the
+/// due date (0 = the due day) at timeOfDay (the firm's timezone; the API's default when null).
+/// Custom (R1, Oct 24): minutesBefore the due date and time, typed in unit; it has no timeOfDay
+/// and its daysBefore is its whole days (minutesBefore / 1440), so a reader of days still sees a
+/// valid rule. Each days rule once (an empty time counted once) and each Custom length once
+/// (partial unique indexes in r1_task_reminder_custom). lastFiredFor is the due date the reminder
+/// last fired for, so a retry never sends it twice.
 model TaskReminder {
-  id           String            @id @default(uuid(7)) @db.Uuid
-  businessId   String            @map("business_id") @db.Uuid
-  taskId       String            @map("task_id") @db.Uuid
-  daysBefore   Int               @map("days_before")
-  timeOfDay    DateTime?         @map("time_of_day") @db.Time(0)
-  inApp        Boolean           @default(true) @map("in_app")
-  channels     DeliveryChannel[] @default([])
-  lastFiredFor DateTime?         @map("last_fired_for") @db.Date
-  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id            String            @id @default(uuid(7)) @db.Uuid
+  businessId    String            @map("business_id") @db.Uuid
+  taskId        String            @map("task_id") @db.Uuid
+  daysBefore    Int               @map("days_before")
+  timeOfDay     DateTime?         @map("time_of_day") @db.Time(0)
+  /// Custom only: minutes before the due date and time (1 to 525,600, a whole number of units).
+  minutesBefore Int?              @map("minutes_before")
+  /// Custom only: the unit it was typed in; null for a days rule.
+  unit          TaskReminderUnit?
+  inApp         Boolean           @default(true) @map("in_app")
+  channels      DeliveryChannel[] @default([])
+  lastFiredFor  DateTime?         @map("last_fired_for") @db.Date
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   task Task @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Cascade)
 

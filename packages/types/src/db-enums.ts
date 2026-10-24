@@ -92,6 +92,10 @@ export type TaskProgress = z.infer<typeof TaskProgress>;
 export const TaskPriority = z.enum(['LOW', 'MEDIUM', 'HIGH']);
 export type TaskPriority = z.infer<typeof TaskPriority>;
 
+/** The unit a Custom task reminder was typed in (TaskReminder.minutesBefore holds its length). */
+export const TaskReminderUnit = z.enum(['MINUTES', 'HOURS', 'DAYS']);
+export type TaskReminderUnit = z.infer<typeof TaskReminderUnit>;
+
 /** What a compliance deadline is for (the Deadline Types chart and filter). */
 export const DeadlineType = z.enum([
   'TAX_FILING',
