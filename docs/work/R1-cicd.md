@@ -114,6 +114,16 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 
 This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session stopped at about 95% context, on Rasel's word, before the prod stacks.
 
+**Update (Oct 25).** This wins over the rest of this section.
+- **Merged:** #1097, #1103, #1104 and #1105 (Rasel tells R56).
+- **Step 5:** network, data, email and auth are up (5a to 5d in the prod log). Email went before auth, because auth depends on it.
+- **5e (ci):** stopped, because the ci stack needs the app stack. Rasel chose an infra and workflow PR:
+  - the prod ci role gets its permissions by resource name;
+  - `deploy-prod.yml` creates the empty app stack before it builds.
+  - After that PR merges: the ci diff, for Rasel's yes.
+- **Never create the app stack by hand.** No tag, no app deploy from R1.
+- **Step 6:** diff shown, waiting for Rasel's yes.
+
 ### Open PRs (Rasel merges)
 - **#1097:** docs, the prod log and this handoff.
 - **#1103:** infra, step 3.
