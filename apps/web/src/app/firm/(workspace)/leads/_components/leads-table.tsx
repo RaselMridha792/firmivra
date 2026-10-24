@@ -1,8 +1,9 @@
 'use client';
 
 import type { LeadRow } from '@firmivra/types';
-import { ActionMenu, Avatar, Badge, IconButton, Table, type Column } from '@firmivra/ui';
+import { ActionMenu, Avatar, Badge, Button, IconButton, Table, type Column } from '@firmivra/ui';
 import {
+  ArrowCounterClockwise,
   Archive,
   CalendarBlank,
   ChartLine,
@@ -45,6 +46,11 @@ interface LeadsTableProps {
   onCall: (lead: LeadRow) => void;
   onMessage: (lead: LeadRow, channel: 'EMAIL' | 'SMS') => void;
   onRowAction: (lead: LeadRow, action: LeadRowAction) => void;
+  /**
+   * Archived Leads (L10): names are not links (an archived lead has no workspace until it is
+   * restored) and Restore is the only action, when the member may restore.
+   */
+  archived?: { onRestore: (lead: LeadRow) => void; canRestore: boolean };
 }
 
 const columns: Column<LeadRow>[] = [
@@ -208,6 +214,24 @@ const columns: Column<LeadRow>[] = [
   },
 ];
 
+/** The archived view's columns: the name as text, not a link to a workspace (L10). */
+const archivedColumns: Column<LeadRow>[] = columns.map((column) =>
+  column.id === 'name'
+    ? {
+        ...column,
+        cell: (lead) => {
+          const name = fullName(lead.firstName, lead.lastName, lead.email);
+          return (
+            <span className="flex min-w-0 items-center gap-1 text-navigation">
+              <Avatar name={name} src={lead.avatarUrl ?? undefined} size="md" />
+              <span className="min-w-0 truncate text-xs font-semibold">{name}</span>
+            </span>
+          );
+        },
+      }
+    : column,
+);
+
 export function LeadsTable({
   rows,
   empty,
@@ -221,6 +245,7 @@ export function LeadsTable({
   onCall,
   onMessage,
   onRowAction,
+  archived,
 }: LeadsTableProps) {
   const router = useRouter();
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -229,7 +254,7 @@ export function LeadsTable({
       <Table
         caption="Leads"
         rows={rows}
-        columns={columns}
+        columns={archived ? archivedColumns : columns}
         rowKey={(lead) => lead.id}
         dense
         noun="leads"
@@ -252,97 +277,114 @@ export function LeadsTable({
         selection={{ selected, onChange: onSelectionChange }}
         emptyTitle={empty?.title ?? 'No leads match these filters'}
         emptyText={empty?.text ?? 'Try another search or clear a filter to see more leads.'}
-        rowActions={(lead) => (
-          <>
-            <IconButton
-              icon={Phone}
-              label={`Call ${fullName(lead.firstName, lead.lastName, lead.email)}`}
-              disabled={!lead.phone}
-              className="!size-6"
-              onClick={() => onCall(lead)}
-            />
-            <IconButton
-              icon={EnvelopeSimple}
-              tone="danger"
-              label={`Send email to ${lead.email}`}
-              className="!size-6"
-              onClick={() => onMessage(lead, 'EMAIL')}
-            />
-            <IconButton
-              icon={ChatCircleDots}
-              tone="action"
-              label={`Send SMS to ${fullName(lead.firstName, lead.lastName, lead.email)}`}
-              disabled={!lead.phone}
-              className="!size-6"
-              onClick={() => onMessage(lead, 'SMS')}
-            />
-            <IconButton
-              icon={CalendarBlank}
-              tone="action"
-              label={`Schedule an appointment with ${fullName(lead.firstName, lead.lastName, lead.email)}`}
-              className="!size-6"
-              onClick={() => onRowAction(lead, 'APPOINTMENT')}
-            />
-            <IconButton
-              icon={NotePencil}
-              tone="accent"
-              label={`View notes for ${fullName(lead.firstName, lead.lastName, lead.email)}`}
-              className="!size-6"
-              onClick={() => router.push(`/leads/${lead.id}/notes`)}
-            />
-            <IconButton
-              icon={ChartLine}
-              tone="action"
-              label={`View activity for ${fullName(lead.firstName, lead.lastName, lead.email)}`}
-              className="!size-6"
-              onClick={() => router.push(`/leads/${lead.id}/activity`)}
-            />
-            <ActionMenu
-              label={`More actions for ${fullName(lead.firstName, lead.lastName, lead.email)}`}
-              className="[&>button>svg:last-child]:hidden [&>button]:!size-6 [&>button]:!min-h-0 [&>button]:!gap-0 [&>button]:!justify-center [&>button]:!px-0"
-              trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-4" />}
-              sections={[
-                {
-                  title: 'Lead',
-                  items: [
-                    { label: 'View', icon: Eye, onSelect: () => router.push(`/leads/${lead.id}`) },
-                    {
-                      label: 'Edit',
-                      icon: PencilSimple,
-                      onSelect: () => onRowAction(lead, 'EDIT'),
-                    },
-                    {
-                      label: 'Assign',
-                      icon: UserPlus,
-                      onSelect: () => onRowAction(lead, 'ASSIGN'),
-                    },
-                    { label: 'Tags', icon: Tag, onSelect: () => onRowAction(lead, 'TAGS') },
-                    {
-                      label: 'Change Status',
-                      icon: ArrowsClockwise,
-                      onSelect: () => onRowAction(lead, 'STAGE'),
-                    },
-                    ...(lead.stage === 'CONVERTED' || lead.stage === 'DECLINED'
-                      ? []
-                      : [
-                          {
-                            label: 'Convert to Client',
-                            icon: UserPlus,
-                            onSelect: () => router.push(`/leads/${lead.id}/convert`),
-                          },
-                        ]),
-                    {
-                      label: 'Archive',
-                      icon: Archive,
-                      danger: true,
-                      onSelect: () => onRowAction(lead, 'ARCHIVE'),
-                    },
-                  ],
-                },
-              ]}
-            />
-          </>
-        )}
+        rowActions={(lead) =>
+          archived ? (
+            archived.canRestore ? (
+              <Button
+                variant="secondary"
+                onClick={() => archived.onRestore(lead)}
+                aria-label={`Restore ${fullName(lead.firstName, lead.lastName, lead.email)}`}
+              >
+                <ArrowCounterClockwise aria-hidden weight="bold" className="size-4" />
+                Restore
+              </Button>
+            ) : null
+          ) : (
+            <>
+              <IconButton
+                icon={Phone}
+                label={`Call ${fullName(lead.firstName, lead.lastName, lead.email)}`}
+                disabled={!lead.phone}
+                className="!size-6"
+                onClick={() => onCall(lead)}
+              />
+              <IconButton
+                icon={EnvelopeSimple}
+                tone="danger"
+                label={`Send email to ${lead.email}`}
+                className="!size-6"
+                onClick={() => onMessage(lead, 'EMAIL')}
+              />
+              <IconButton
+                icon={ChatCircleDots}
+                tone="action"
+                label={`Send SMS to ${fullName(lead.firstName, lead.lastName, lead.email)}`}
+                disabled={!lead.phone}
+                className="!size-6"
+                onClick={() => onMessage(lead, 'SMS')}
+              />
+              <IconButton
+                icon={CalendarBlank}
+                tone="action"
+                label={`Schedule an appointment with ${fullName(lead.firstName, lead.lastName, lead.email)}`}
+                className="!size-6"
+                onClick={() => onRowAction(lead, 'APPOINTMENT')}
+              />
+              <IconButton
+                icon={NotePencil}
+                tone="accent"
+                label={`View notes for ${fullName(lead.firstName, lead.lastName, lead.email)}`}
+                className="!size-6"
+                onClick={() => router.push(`/leads/${lead.id}/notes`)}
+              />
+              <IconButton
+                icon={ChartLine}
+                tone="action"
+                label={`View activity for ${fullName(lead.firstName, lead.lastName, lead.email)}`}
+                className="!size-6"
+                onClick={() => router.push(`/leads/${lead.id}/activity`)}
+              />
+              <ActionMenu
+                label={`More actions for ${fullName(lead.firstName, lead.lastName, lead.email)}`}
+                className="[&>button>svg:last-child]:hidden [&>button]:!size-6 [&>button]:!min-h-0 [&>button]:!gap-0 [&>button]:!justify-center [&>button]:!px-0"
+                trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-4" />}
+                sections={[
+                  {
+                    title: 'Lead',
+                    items: [
+                      {
+                        label: 'View',
+                        icon: Eye,
+                        onSelect: () => router.push(`/leads/${lead.id}`),
+                      },
+                      {
+                        label: 'Edit',
+                        icon: PencilSimple,
+                        onSelect: () => onRowAction(lead, 'EDIT'),
+                      },
+                      {
+                        label: 'Assign',
+                        icon: UserPlus,
+                        onSelect: () => onRowAction(lead, 'ASSIGN'),
+                      },
+                      { label: 'Tags', icon: Tag, onSelect: () => onRowAction(lead, 'TAGS') },
+                      {
+                        label: 'Change Status',
+                        icon: ArrowsClockwise,
+                        onSelect: () => onRowAction(lead, 'STAGE'),
+                      },
+                      ...(lead.stage === 'CONVERTED' || lead.stage === 'DECLINED'
+                        ? []
+                        : [
+                            {
+                              label: 'Convert to Client',
+                              icon: UserPlus,
+                              onSelect: () => router.push(`/leads/${lead.id}/convert`),
+                            },
+                          ]),
+                      {
+                        label: 'Archive',
+                        icon: Archive,
+                        danger: true,
+                        onSelect: () => onRowAction(lead, 'ARCHIVE'),
+                      },
+                    ],
+                  },
+                ]}
+              />
+            </>
+          )
+        }
       />
     </div>
   );
