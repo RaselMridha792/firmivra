@@ -15,20 +15,8 @@ The older sections below are history.
 
 | PR | Branch | What |
 | --- | --- | --- |
-| #1059 | `rasel/R55-leads-campaigns` | L7 API: Leads campaigns are Communications campaigns (options, Add to Campaign, filter, row). |
-| #1070 | `rasel/R55-leads-campaign-web` | L7 screen: Create Campaign in a wide panel. Stacked on #1059, so merge `origin/main` once #1059 lands. |
 | (this PR) | `rasel/R55-leads-archived` | L10: Archived Leads and Restore (contract, API, screen). It also carries this handoff. |
-
-**#1059's CI:**
-- Shard 3 failed on a unit fixture; fixed in 1388bfbd.
-- Shard 4 failed in `automations.e2e.test.ts` (5 cases). Those same 5 fail on `main` locally, so it's not this PR; they look time-of-day dependent ("end date has passed").
-- I asked CI to rerun the failed jobs. If it fails again, tell Rasel: it's `main`'s automations test, not Leads.
-
-### Pushed, waiting for a slot
-
-- `rasel/R55-leads-delete-admin`: L11. Stacked on L10, so merge `origin/main` once L10 lands.
-  - **What:** only the Owner and the Admin may delete (archive) or restore leads. `requireFirmAdmin` is in `pipeline.shared.ts`; the screen hides Delete, Archive and Restore from everyone else.
-  - **Tests:** unit (every role); e2e (Staff and a Manager get 403 on delete and restore by direct request, a Manager's other bulk actions are unchanged); leads-pipeline e2e (22).
+| (next) | `rasel/R55-leads-delete-admin` | L11, stacked on L10: only the Owner and the Admin may delete (archive) or restore leads. `requireFirmAdmin` is in `pipeline.shared.ts`; the screen hides Delete, Archive and Restore from everyone else. Tests: unit (every role); e2e (Staff and a Manager get 403 on delete and restore by direct request, a Manager's other bulk actions are unchanged). |
 
 When a PR before them merges, merge `origin/main` into the next branch (no rebase, no force-push), rerun its typecheck and its mock specs, and push. One open non-contract PR may be stacked on another.
 
@@ -37,6 +25,7 @@ When a PR before them merges, merge `origin/main` into the next branch (no rebas
 - L4: #1042, #1044, #1049.
 - L5: #1048, #1050, #1058.
 - L6: #1061.
+- L7: #1059 (API), #1070 (screen).
 - Earlier: L1 #1030, L2 #1032, L3 #1035, L9 #1036.
 
 ### Decisions (Rasel, Oct 23 and 24)

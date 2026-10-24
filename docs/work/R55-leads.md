@@ -18,7 +18,7 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
 - [x] L4 (P3): the email composer, with fonts, sizes, images and a saved signature with the logo. Contract #1042, API #1044 and web #1049 are merged.
 - [x] L5 (P2): the tag picker for leads and clients: #1048, #1050 and #1058 are merged.
 - [x] L6 (P3): Add New Tag: #1061 is merged.
-- [x] L7 (P3): Create Campaign. The API is #1059 and the screen #1070, stacked on #1059.
+- [x] L7 (P3): Create Campaign. The API #1059 and the screen #1070 are merged.
 - [ ] L8 (P3): several follow-ups. It waits for the schema request, issue #1051 (`lead_follow_ups`, R0).
 - [x] L10 (P3): Archived Leads and Restore. Branch `rasel/R55-leads-archived`, one PR covering contract, API and screen.
 - [x] L11 (P2): Delete (the archive) and Restore are Owner and Admin only, on the server and on screen. Branch `rasel/R55-leads-delete-admin`, stacked on L10.

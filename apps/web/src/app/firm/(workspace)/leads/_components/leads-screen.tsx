@@ -36,7 +36,6 @@ import {
 import { useMemo, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
-import { useFirm } from '../../../../../components/firm-context';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { LeadBulkDialog, type LeadBulkDialogState } from './lead-bulk-dialog';
@@ -323,7 +322,6 @@ export function LeadsScreen() {
   const summary = useApiQuery([...LEAD_PIPELINE_KEY, 'summary'], () => api.leadPipeline.summary());
   const options = useApiQuery([...LEAD_PIPELINE_KEY, 'options'], () => api.leadPipeline.options());
   // Restore from Archived Leads (L10): the grid's Delete, as Archive; Staff cannot.
-  const { role } = useFirm();
   const canRestore = role !== 'STAFF';
   const restore = useApiMutation(
     (ids: string[]) => api.leadPipeline.bulk({ action: 'RESTORE', ids }),
