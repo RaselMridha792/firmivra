@@ -321,8 +321,9 @@ export function LeadsScreen() {
   const [appointmentLead, setAppointmentLead] = useState<LeadRow | null>(null);
   const summary = useApiQuery([...LEAD_PIPELINE_KEY, 'summary'], () => api.leadPipeline.summary());
   const options = useApiQuery([...LEAD_PIPELINE_KEY, 'options'], () => api.leadPipeline.options());
-  // Restore from Archived Leads (L10): the grid's Delete, as Archive; Staff cannot.
-  const canRestore = role !== 'STAFF';
+  // Delete (the archive) and Restore: Firm Admin only, the Owner and the Admin (L11).
+  const canDelete = role === 'OWNER' || role === 'ADMIN';
+  const canRestore = canDelete;
   const restore = useApiMutation(
     (ids: string[]) => api.leadPipeline.bulk({ action: 'RESTORE', ids }),
     { invalidate: LEAD_PIPELINE_KEY },
@@ -420,7 +421,9 @@ export function LeadsScreen() {
       { label: 'Change Status', icon: ArrowsClockwise, onClick: () => openBulk('STAGE') },
       { label: 'Add to Campaign', icon: EnvelopeSimple, onClick: () => openBulk('CAMPAIGN') },
       { label: 'Add Tags', icon: Tag, onClick: () => openBulk('TAGS') },
-      { label: 'Delete', icon: Trash, danger: true, onClick: () => openBulk('ARCHIVE') },
+      ...(canDelete
+        ? [{ label: 'Delete', icon: Trash, danger: true, onClick: () => openBulk('ARCHIVE') }]
+        : []),
     ];
     // Archived Leads (L10): Restore is the only bulk action, for those who may restore.
     const archivedActions = canRestore
@@ -491,6 +494,7 @@ export function LeadsScreen() {
           </div>
         </div>
         <LeadsTable
+          canDelete={canDelete}
           archived={
             filters.archived
               ? { canRestore, onRestore: (lead) => restore.mutate([lead.id]) }

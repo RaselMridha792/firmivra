@@ -51,6 +51,8 @@ interface LeadsTableProps {
    * restored) and Restore is the only action, when the member may restore.
    */
   archived?: { onRestore: (lead: LeadRow) => void; canRestore: boolean };
+  /** Archive (Delete) in the row's menu: Firm Admin only, the Owner and the Admin (L11). */
+  canDelete?: boolean;
 }
 
 const columns: Column<LeadRow>[] = [
@@ -246,6 +248,7 @@ export function LeadsTable({
   onMessage,
   onRowAction,
   archived,
+  canDelete = false,
 }: LeadsTableProps) {
   const router = useRouter();
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -372,12 +375,16 @@ export function LeadsTable({
                               onSelect: () => router.push(`/leads/${lead.id}/convert`),
                             },
                           ]),
-                      {
-                        label: 'Archive',
-                        icon: Archive,
-                        danger: true,
-                        onSelect: () => onRowAction(lead, 'ARCHIVE'),
-                      },
+                      ...(canDelete
+                        ? [
+                            {
+                              label: 'Archive',
+                              icon: Archive,
+                              danger: true,
+                              onSelect: () => onRowAction(lead, 'ARCHIVE'),
+                            },
+                          ]
+                        : []),
                     ],
                   },
                 ]}

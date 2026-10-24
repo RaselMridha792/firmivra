@@ -71,6 +71,7 @@ export const TaskDraft = TaskDraftRow.extend({
   assignedUserId: z.uuid().nullable(),
   additionalAssignees: z.array(MemberRef),
   checklistItems: z.array(ChecklistItem),
+  /** As a task's: in the order they fire. */
   reminders: z.array(ReminderRuleOut),
   attachments: z.array(TaskAttachment),
   dependsOn: z.object({ id: z.uuid(), title: z.string(), status: TaskStatus }).nullable(),
@@ -123,11 +124,13 @@ const clientFirstError = {
 /**
  * POST /business/tasks/drafts: Save as Draft. The fields of CreateTaskDetailRequest, all kept as
  * sent, but only the title is required: the client may come later. Nothing is checked that
- * publishing checks (an assignee's reach, an archived type, reminders after the due date). Each
- * id sent must still be one the caller may use, with the error a new task gives for it (404 for a
- * client out of the caller's reach; 409 ENGAGEMENT_MISMATCH, NOT_A_MEMBER or
- * ATTACHMENT_NOT_ALLOWED; 400 VALIDATION_FAILED naming the field otherwise). `templateId` fills
- * the fields the request leaves out, as for a new task.
+ * publishing checks (an assignee's reach, an archived type, reminders without a due date or time,
+ * after the due time or at the same moment). Each id sent must still be one the caller may use,
+ * with the error a new task gives for it (404 for a client out of the caller's reach; 409
+ * ENGAGEMENT_MISMATCH, NOT_A_MEMBER or ATTACHMENT_NOT_ALLOWED; 400 VALIDATION_FAILED naming the
+ * field otherwise), and the same reminder twice (or two Custom ones of one length) is 400
+ * INVALID_REMINDER. `templateId` fills the fields the request leaves out, as for a new task,
+ * except that the draft keeps all the template's reminders: publishing checks them as if sent.
  */
 export const SaveTaskDraftRequest = CreateTaskDetailRequest.extend({
   clientId: z.uuid().optional(),
