@@ -20,6 +20,7 @@ import { MEMBER_ERRORS, canManage } from '../[id]/_components/staff-parts';
 import { NOT_LOADED } from './quiet-card';
 import { RowMenu, type RowMenuItem } from './row-menu';
 import { LastLogin, RoleChip, StatusChip } from './staff-list-parts';
+import { StaffDrafts } from './staff-drafts';
 import { DIRECTORY_ID } from './staff-links';
 
 const PAGE_SIZES = [10, 25, 50, 100];
@@ -31,6 +32,9 @@ const STATUSES: { value: StaffStatusFilter; label: string }[] = [
   { value: 'locked', label: 'Locked' },
   { value: 'inactive', label: 'Inactive' },
 ];
+/** Create Staff's saved drafts: not people yet, so their own list (Owner and Admin). */
+const DRAFTS = 'drafts';
+type DirectoryStatus = StaffStatusFilter | typeof DRAFTS;
 
 type Dialog =
   | { kind: 'action'; action: StaffAction; member: StaffListItem }
@@ -59,7 +63,9 @@ export function StaffDirectory({
   const [search, setSearch] = useState('');
   const term = useDeferredValue(search.trim());
   const [departmentId, setDepartmentId] = useState('');
-  const [status, setStatus] = useState<StaffStatusFilter>('all');
+  const [view, setView] = useState<DirectoryStatus>('all');
+  const drafts = view === DRAFTS;
+  const status: StaffStatusFilter = drafts ? 'all' : view;
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0] ?? 10);
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -81,6 +87,10 @@ export function StaffDirectory({
   const data = list.data;
   const rows = data?.items ?? [];
   const filtered = Boolean(term || departmentId || status !== 'all');
+  // Drafts are Owner and Admin only, as the drafts API (Octavia's SM5: they could not be found).
+  const views: { value: DirectoryStatus; label: string }[] = admin
+    ? [...STATUSES, { value: DRAFTS, label: 'Drafts' }]
+    : STATUSES;
   const open = (href: string) => () => router.push(href);
   const ask = (action: StaffAction, member: StaffListItem) => () => {
     setMessage(null);
@@ -220,12 +230,10 @@ export function StaffDirectory({
             <Select
               label="Status"
               hideLabel
-              options={STATUSES}
-              value={status}
+              options={views}
+              value={view}
               onChange={(event) =>
-                resetTo(setStatus)(
-                  STATUSES.find((s) => s.value === event.target.value)?.value ?? 'all',
-                )
+                resetTo(setView)(views.find((s) => s.value === event.target.value)?.value ?? 'all')
               }
             />
           </div>
@@ -251,56 +259,60 @@ export function StaffDirectory({
         </p>
       ) : null}
       {/* The table's frame stays when the call fails or finds nothing (design-match rule 2). */}
-      <Table
-        rows={rows}
-        loading={list.isPending}
-        rowKey={(m) => m.id}
-        caption="Staff directory"
-        noun="staff members"
-        columns={columns}
-        selection={{ selected, onChange: onSelect }}
-        rowActions={(m) => <RowMenu vertical label={`Actions for ${m.name}`} items={menu(m)} />}
-        tableClassName="[&_td]:py-0.5 [&_tbody_td]:border-divider [&_tbody_td:not(:first-child):not(:last-child)]:border-r [&_thead_th]:font-semibold [&_thead_th]:text-heading"
-        pageSize={pageSize}
-        pageSizes={PAGE_SIZES}
-        onPageSize={(size) => {
-          setPageSize(size);
-          setPage(1);
-        }}
-        server={
-          data && {
-            page: data.page,
-            total: data.total,
-            hasNext: data.page * data.pageSize < data.total,
-            hasPrevious: data.page > 1,
-            onNext: () => setPage(data.page + 1),
-            onPrevious: () => setPage(data.page - 1),
-            onPage: setPage,
-            onSort: () => undefined,
+      {drafts ? (
+        <StaffDrafts search={term} />
+      ) : (
+        <Table
+          rows={rows}
+          loading={list.isPending}
+          rowKey={(m) => m.id}
+          caption="Staff directory"
+          noun="staff members"
+          columns={columns}
+          selection={{ selected, onChange: onSelect }}
+          rowActions={(m) => <RowMenu vertical label={`Actions for ${m.name}`} items={menu(m)} />}
+          tableClassName="[&_td]:py-0.5 [&_tbody_td]:border-divider [&_tbody_td:not(:first-child):not(:last-child)]:border-r [&_thead_th]:font-semibold [&_thead_th]:text-heading"
+          pageSize={pageSize}
+          pageSizes={PAGE_SIZES}
+          onPageSize={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          server={
+            data && {
+              page: data.page,
+              total: data.total,
+              hasNext: data.page * data.pageSize < data.total,
+              hasPrevious: data.page > 1,
+              onNext: () => setPage(data.page + 1),
+              onPrevious: () => setPage(data.page - 1),
+              onPage: setPage,
+              onSort: () => undefined,
+            }
           }
-        }
-        emptyTitle={
-          list.isError
-            ? 'Staff are not available'
-            : filtered
-              ? 'No matching staff'
-              : 'No staff members yet'
-        }
-        emptyText={
-          list.isError
-            ? NOT_LOADED
-            : filtered
-              ? 'Try another search, department or status.'
-              : 'Create a staff account to add your first team member.'
-        }
-        emptyAction={
-          list.isError ? (
-            <Button variant="secondary" onClick={() => void list.refetch()}>
-              Try again
-            </Button>
-          ) : undefined
-        }
-      />
+          emptyTitle={
+            list.isError
+              ? 'Staff are not available'
+              : filtered
+                ? 'No matching staff'
+                : 'No staff members yet'
+          }
+          emptyText={
+            list.isError
+              ? NOT_LOADED
+              : filtered
+                ? 'Try another search, department or status.'
+                : 'Create a staff account to add your first team member.'
+          }
+          emptyAction={
+            list.isError ? (
+              <Button variant="secondary" onClick={() => void list.refetch()}>
+                Try again
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
 
       {dialog?.kind === 'action' ? (
         <ActionModal

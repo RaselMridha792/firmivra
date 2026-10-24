@@ -31,6 +31,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { beginOnlineFixture } from './leads';
+import { mockFirmTags, mockResolveTags } from './tags';
 
 /**
  * Mock data for `api.leadPipeline` (R43 contract, the Leads page and Lead Profile). Synthetic
@@ -634,7 +635,11 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
     },
     options: async () => {
       await mockDelay();
-      const tags = [...new Set(s.leads.flatMap((l) => l.profile.tags))];
+      // The firm's one tag list (mocks/tags.ts), with any a lead carries.
+      const tags = mockResolveTags(
+        [...mockFirmTags().map((t) => t.name), ...s.leads.flatMap((l) => l.profile.tags)],
+        'OWNER',
+      ).sort((a, b) => a.localeCompare(b));
       return {
         services: services_,
         staff: team(),
@@ -726,6 +731,8 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         throw fail(409, 'SAVE_CONFLICT', 'Someone saved this lead first');
       const p = l.profile;
       const { version: _v, serviceIds, assignedUserId, campaignId, stage, ...rest } = input;
+      // Tags as the API keeps them: the firm's name in any case, once, new ones Owner/Admin only.
+      if (rest.tags) rest.tags = mockResolveTags(rest.tags, role);
       for (const [k, v] of Object.entries(rest)) if (v !== undefined) Object.assign(p, { [k]: v });
       if (serviceIds) p.services = services_.filter((x) => serviceIds.includes(x.id));
       if (assignedUserId !== undefined) {
@@ -757,7 +764,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         if (input.action === 'CAMPAIGN')
           l.profile.campaign = { id: input.campaignId, name: 'Campaign' };
         if (input.action === 'TAGS')
-          l.profile.tags = [...new Set([...l.profile.tags, ...input.add])];
+          l.profile.tags = mockResolveTags([...l.profile.tags, ...input.add], role);
         if (input.action === 'ARCHIVE') l.profile.archivedAt = new Date().toISOString();
         bump(l);
         changed += 1;
