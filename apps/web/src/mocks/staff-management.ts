@@ -334,6 +334,7 @@ function seed(empty: boolean): Store {
         workSchedule: 'Full-Time',
         office: i % 2 ? 'Riverside Office' : 'Main Office',
         hireDate: day(joined),
+        workStartDate: day(joined),
         endDate: null,
         supervisor: null,
         timeZone: 'America/New_York',
@@ -745,6 +746,7 @@ export function addInvitedMember(
       workSchedule: null,
       office: null,
       hireDate: null,
+      workStartDate: null,
       endDate: null,
       supervisor: null,
       timeZone: 'America/New_York',
@@ -987,6 +989,8 @@ export function createStaffMock(options: Options = {}): StaffClient {
       if (input.details?.employmentType !== undefined)
         m.detail.profile.employmentType = input.details.employmentType;
       if (input.details?.hireDate !== undefined) m.detail.profile.hireDate = input.details.hireDate;
+      if (input.details?.workStartDate !== undefined)
+        m.detail.profile.workStartDate = input.details.workStartDate;
       if (input.details?.office !== undefined) m.detail.profile.office = input.details.office;
       if (input.compensation)
         Object.assign(m.compensation, input.compensation, { updatedAt: now() });
@@ -1055,6 +1059,7 @@ export function createStaffMock(options: Options = {}): StaffClient {
         if (d.workSchedule !== undefined) p.workSchedule = d.workSchedule;
         if (d.office !== undefined) p.office = d.office;
         if (d.hireDate !== undefined) p.hireDate = d.hireDate;
+        if (d.workStartDate !== undefined) p.workStartDate = d.workStartDate;
         if (d.endDate !== undefined) p.endDate = d.endDate;
         if (d.timeZone !== undefined) p.timeZone = d.timeZone;
         if (d.employeeId !== undefined) p.employeeId = d.employeeId;

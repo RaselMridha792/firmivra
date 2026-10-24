@@ -180,6 +180,8 @@ export const StaffProfileDetails = z.object({
   workSchedule: z.string().nullable(),
   office: z.string().nullable(),
   hireDate: CalendarDate.nullable(),
+  /** The first day of work (Octavia's SM11), apart from the hire date and access start date. */
+  workStartDate: CalendarDate.nullable(),
   endDate: CalendarDate.nullable(),
   supervisor: StaffRef.nullable(),
   /** IANA name. */
@@ -322,6 +324,7 @@ export const StaffDetailsInput = z.strictObject({
   workSchedule: clearable(text(80)),
   office: clearable(text(100)),
   hireDate: CalendarDate.nullable().optional(),
+  workStartDate: CalendarDate.nullable().optional(),
   endDate: CalendarDate.nullable().optional(),
   supervisorId: z.uuid().nullable().optional(),
   timeZone: clearable(text(100)),
