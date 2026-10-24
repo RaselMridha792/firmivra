@@ -75,6 +75,7 @@ import { NotificationsModule } from '../notifications/notifications.controller.j
 import { INTAKE_SIGNING, INTAKE_SIGNING_PROVIDER, type IntakeSigner } from './intake-signing.js';
 import { type IntakeUploader, IntakeUploadsService } from './intake-uploads.service.js';
 import { type IntakeReach, IntakesService, type PortalClient } from './intakes.service.js';
+import { PortalTabRoute, PortalTabsModule } from '../client-portal/portal-tabs.js';
 
 const idPipe = new ZodValidationPipe(IntakeId);
 const clientIdPipe = new ZodValidationPipe(ClientId);
@@ -101,6 +102,7 @@ function staff(auth: AuthContext, tenant: TenantContext): IntakeReach & { kind: 
  */
 @Controller('portal/:firmSlug/me/intakes')
 @Roles('CLIENT')
+@PortalTabRoute('INTAKE_FORMS')
 export class MyIntakesController {
   constructor(
     private readonly intakes: IntakesService,
@@ -438,6 +440,7 @@ export class IntakesController {
     AgreementsModule,
     NotificationsModule,
     IntakeWorkspaceModule,
+    PortalTabsModule,
   ],
   controllers: [MyIntakesController, ClientIntakesController, IntakesController],
   providers: [IntakesService, IntakeUploadsService, INTAKE_SIGNING_PROVIDER],
