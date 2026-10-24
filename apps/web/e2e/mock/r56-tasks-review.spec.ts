@@ -548,3 +548,78 @@ test('C11 Duplicate a checklist item: a separate copy below it, kept in order on
   await expect(list).toContainText('Collect the contractor invoices');
   await expect(list).not.toContainText('File the return');
 });
+
+test('A3 Custom reminders: any days and a time; alike or late ones are refused; kept on Edit', async ({
+  page,
+}) => {
+  await page.goto(`${base}/new`);
+  await fillRequired(page, 'File the quarterly estimate');
+  await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
+  await page.getByLabel('All Day').uncheck();
+  await page.locator('#tf-time').selectOption('14:30');
+  await page.getByLabel('Enable reminders').check();
+  const first = page.getByLabel('Reminder 1', { exact: true });
+  await expect(first.locator('option', { hasText: 'Custom…' })).toHaveCount(1);
+  await first.selectOption('custom');
+  await page.getByLabel('Reminder 1 days before').fill('');
+  await page.getByTestId('task-save').click();
+  await expect(page.getByText('Enter 0 to 365 days before the due date.')).toBeVisible();
+  await page.getByLabel('Reminder 1 days before').fill('10');
+  await page.getByLabel('Reminder 1 time').selectOption('09:00');
+
+  // A second one alike is refused.
+  await page.getByRole('button', { name: 'Add Reminder' }).click();
+  await page.getByLabel('Reminder 2', { exact: true }).selectOption('custom');
+  await page.getByLabel('Reminder 2 days before').fill('10');
+  await page.getByLabel('Reminder 2 time').selectOption('09:00');
+  await page.getByTestId('task-save').click();
+  await expect(page.getByText('Two reminders are the same. Remove one.')).toBeVisible();
+
+  // Same day after the due time is refused.
+  await page.getByLabel('Reminder 2 days before').fill('0');
+  await page.getByLabel('Reminder 2 time').selectOption('18:00');
+  await page.getByTestId('task-save').click();
+  await expect(page.getByText('A same-day reminder cannot be after the due time.')).toBeVisible();
+  await page.getByLabel('Reminder 2 time').selectOption('08:00');
+  await page.getByTestId('task-save').click();
+
+  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
+  const shown = page.getByTestId('detail-reminders');
+  await expect(shown).toContainText('10 days before, at 9:00 AM');
+  await expect(shown).toContainText('Same day, at 8:00 AM');
+  await page.getByRole('link', { name: 'Edit' }).first().click();
+  await expect(page.getByLabel('Reminder 1', { exact: true })).toHaveValue('custom');
+  await expect(page.getByLabel('Reminder 1 days before')).toHaveValue('10');
+  await expect(page.getByLabel('Reminder 1 time')).toHaveValue('09:00');
+});
+
+test('A5 Recurring Save & Create Another: saved once, a fresh form says so', async ({ page }) => {
+  await page.goto(`${base}/recurring/new`);
+  await page.getByLabel('Task Name *').fill('Monthly sales tax filing');
+  await page.getByLabel('Task Type *').selectOption({ label: 'Compliance' });
+  await page.getByLabel('Client *').selectOption({ index: 1 });
+  await page.getByLabel('Assign To *').selectOption({ index: 1 });
+  await page.getByTestId('series-save-another').dblclick();
+  await expect(
+    page.getByText('Monthly sales tax filing saved. Set up the next one.'),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/tasks\/recurring\/new$/);
+  await expect(page.getByLabel('Task Name *')).toHaveValue('');
+  await page.getByRole('link', { name: 'Back to Tasks' }).click();
+  await page.getByRole('tab', { name: 'Recurring Tasks' }).click();
+  await expect(
+    page.getByTestId('series-rows').getByRole('link', { name: 'Monthly sales tax filing' }),
+  ).toHaveCount(1);
+});
+
+test('T2 A double click on Save makes one task', async ({ page }) => {
+  await page.goto(`${base}/new`);
+  await fillRequired(page, 'Send the engagement renewal');
+  await page.getByLabel('Task type').selectOption({ label: 'Onboarding' });
+  await page.getByTestId('task-save').dblclick();
+  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
+  await page.getByRole('link', { name: 'Back to Tasks' }).click();
+  await page.getByRole('tab', { name: 'All Tasks' }).click();
+  await page.getByLabel('Search tasks').fill('Send the engagement renewal');
+  await expect(page.getByTestId('task-table').getByTestId('task-link')).toHaveCount(1);
+});
