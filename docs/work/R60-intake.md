@@ -19,6 +19,42 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
+### Oct 25 (fifth session, end): start here
+
+The fifth R60 stops here. The next R60 reads `CLAUDE.md`, `docs/work/README.md`,
+`docs/work/R60-settings.md` (the R60 rules) and this file, then `git fetch origin`.
+
+**Open (two, the limit):**
+- **#1116 (I12, data retention):** `origin/main` was merged in after #1115 merged. Main's CI fix had
+  taken `intake.submitted-notice` out of `ALWAYS_SENT`, and the merge brought the line back, so it
+  was dropped again. API unit 1724 of 1724; types, API and web typecheck 0. Head `c02c020`, CI green.
+  It waits for the review thread to merge it.
+- **#1128 (a) SM11 Work Start Date** (`rasel/R60-staff-work-start`, CI green). **For Rasel:** the
+  design's "Start Date" (Create Staff step 1 card 4, Edit Staff card 4) now saves the Work Start
+  Date. Hire Date stays in step 4, and Edit Staff gains a Hire Date field. Changing that back is
+  one line per screen.
+
+**Built and pushed, no PR yet (open each when a slot frees):**
+1. (b) SM8 company schedules, `rasel/R60-staff-schedules` (head `0bf54a1`, from `main`): merge
+   `origin/main`, check, then `gh pr create` with the body in this session's scratchpad
+   (`pr-schedules.md`).
+2. (d) the licensing card, `rasel/R60-firm-licenses` (head `72bc02a`, from `main`): the same, with
+   `pr-licenses.md`.
+
+The bodies' sheet links are pinned to those heads. If a merge changes a sheet, shoot it again and
+re-pin.
+
+**Blocked:** (c) the staff phone verification needs a place to keep a code and count wrong tries.
+`users.phone_verified_at` alone is not enough, and `verification_codes` is keyed to a client
+account. This is column request item 13 below, for Rasel's word.
+
+**Local state:** `firmivra_r60` holds one fake license for LVP, written as the platform for (d)'s
+sheet. This session's scratchpad:
+`C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/40a63a02-fb97-48a6-861e-a53c02853169/scratchpad/`.
+It holds `shots-work.cjs`, `shots-sched.cjs`, `shots-lic.cjs`, `compose.cjs`, `spec-*.json`,
+`pr-*.md` and `sub.py`, an exact-match replacer that keeps LF line endings. On Windows, Python's
+plain `open(..., 'w')` writes CRLF, so pass `newline=''`.
+
 ### Oct 25 (fourth session, end): start here
 
 R60's context was full; the next R60 starts from this section. Read `CLAUDE.md`,
@@ -526,7 +562,7 @@ merges. Old columns stay until R60's API reads the new ones, then a later migrat
     `staff_profiles.work_schedule`. A staff record keeps its own text.
 
 12. **I7, the firm's contact email in existing intake settings (Rasel's tap, Oct 24 20:20 UTC; a
-    data change only; R1's `rasel/R1-intake-contact-email`).** Since #1115 a firm's new intake
+    data change only; R1's `rasel/R1-intake-contact-email`, #1121).** Since #1115 a firm's new intake
     settings start with its own contact email (`business_settings.contact_email`) first in
     `notify_additional_emails`. One data migration, `r1_intake_contact_email`, does the same once
     for the rows that exist:
@@ -537,11 +573,19 @@ merges. Old columns stay until R60's API reads the new ones, then a later migrat
       intake settings, or with 10 emails already keeps what it has.
     - **Nothing else changes** (`updated_at` included). A second run changes nothing, and it logs
       no address.
-12. **I7, the firm's contact email in the existing lists (Oct 25, a data change only, not yet
-    approved).** One data migration, per firm as #1074's backfill: `UPDATE intake_settings s SET
-    notify_additional_emails = ARRAY[lower(b.contact_email)] FROM business_settings b WHERE
-    b.business_id = s.business_id AND b.contact_email IS NOT NULL AND
-    cardinality(s.notify_additional_emails) = 0`. New rows already start with it (the API).
+13. **Staff phone verification codes (Oct 25, for Rasel's word; blocks item (c)).** Item 9 gave
+    `users.phone_verified_at`, but no table holds a code sent to a staff member, so the API can
+    neither check a code nor count wrong tries (`verification_codes` is keyed to a client account).
+    Proposed: table `staff_phone_codes`, like `verification_codes`: `id` (uuid7), `business_id`,
+    `user_id` (a member of the firm), `target` (the E.164 number the code went to), `code_hash` (an
+    HMAC, never the code), `attempts int NOT NULL DEFAULT 0`, `expires_at` (at most 15 minutes after
+    `created_at`), `consumed_at NULL`, `created_at` (the database's clock); the firm's row-level
+    security; SELECT, INSERT and UPDATE only (attempts +1 at a time, `consumed_at` once, on the
+    newest unexpired code for that user); no DELETE; index `(user_id, created_at DESC)`. With it
+    R60 builds: Send Code (one per minute, a daily cap per firm as the client codes), Verify (5
+    tries, then a new code), and on success `phone_verified_at` set in the same update as the number;
+    then SMS for verified staff. Alternative for Rasel: let `verification_codes` take a staff
+    `user_id` as well as a client account.
 
 **Schema request, for Rasel to decide later (Oct 25, not a PR):** per-send reminder times. The
 Send page shows the firm's times ("View Schedule", read-only) because a send keeps only
@@ -704,3 +748,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   intake workspace e2e 19 of 19, `r60-intake-settings` 14 of 14. Needs: R55's one line in the
   firm setup invite; the reminder and alert sender and the Locations page recorded, not built;
   per-send reminder times written as a schema request.
+- Oct 25 (fifth session): #1116 merged `main` after #1115 (head `c02c020`, CI green). (a) SM11
+  Work Start Date as #1128 (CI green). (b) SM8 company schedules and (d) the licensing card built,
+  tested and pushed (`rasel/R60-staff-schedules`, `rasel/R60-firm-licenses`), waiting for a PR
+  slot. (c) blocked on column request item 13 (staff phone codes). The duplicate item 12 (the
+  unapproved draft) is removed; item 12 is R1's #1121.
