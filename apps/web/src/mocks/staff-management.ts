@@ -28,6 +28,7 @@ import {
   SetStaffNoteRequest,
   SetStaffOverridesRequest,
   SetStaffPermissionsRequest,
+  SetDepartmentMembersRequest,
   SetStaffTeamMembersRequest,
   StaffAccessInput,
   type StaffActionResult,
@@ -1595,6 +1596,57 @@ export function createDepartmentsMock(options: Options = {}): DepartmentsClient 
       );
       recount(s);
       return teamDetail(t);
+    },
+    departmentMembers: async (id) => {
+      await g.allowed();
+      const d = dept(id);
+      return {
+        members: s.members
+          .filter(
+            (m) =>
+              m.detail.status !== 'DEACTIVATED' && m.detail.departments.some((x) => x.id === d.id),
+          )
+          .map(ref),
+      };
+    },
+    // As the API (Octavia's SM13): the whole list, no team needed; nobody loses their only one.
+    setDepartmentMembers: async (id, body) => {
+      await g.allowed();
+      change();
+      const input = parseInput(SetDepartmentMembersRequest, body);
+      const d = dept(id);
+      if (d.status !== 'ACTIVE')
+        throw fail(400, 'VALIDATION_FAILED', 'Members join an active department');
+      const wanted = new Set(input.membershipIds.map((x) => g.find(x).detail.id));
+      const listed = s.members.filter((m) => m.detail.status !== 'DEACTIVATED');
+      const alone = listed.filter(
+        (m) =>
+          !wanted.has(m.detail.id) &&
+          m.detail.departments.length === 1 &&
+          m.detail.departments[0]?.id === d.id,
+      );
+      if (alone.length)
+        throw new ApiRequestError(
+          409,
+          'LAST_DEPARTMENT',
+          'Everyone keeps at least one department',
+          undefined,
+          undefined,
+          alone.map((m) => ({
+            path: 'membershipIds',
+            message: `${ref(m).name} has no other department. Add one first.`,
+          })),
+        );
+      for (const m of listed) {
+        const has = m.detail.departments.some((x) => x.id === d.id);
+        if (wanted.has(m.detail.id) && !has) m.detail.departments.push({ id: d.id, name: d.name });
+        if (!wanted.has(m.detail.id) && has)
+          m.detail.departments = m.detail.departments.filter((x) => x.id !== d.id);
+      }
+      recount(s);
+      return {
+        members: listed.filter((m) => m.detail.departments.some((x) => x.id === d.id)).map(ref),
+      };
     },
     orgChart: async () => {
       await g.allowed();

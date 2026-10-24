@@ -5,6 +5,7 @@ import {
   type Department,
   type DepartmentDetail,
   type DepartmentListResponse,
+  type DepartmentMembers,
   type DepartmentSummary,
   type OrgChart,
   type StaffTeam,
@@ -26,6 +27,7 @@ import {
   CreateDepartmentBody,
   CreateTeamBody,
   DepartmentListQ,
+  SetDepartmentMembersBody,
   SetTeamMembersBody,
   TeamListQ,
   UpdateDepartmentBody,
@@ -77,6 +79,28 @@ export class DepartmentsController {
     @Param('id', departmentPipe) id: string,
   ): Promise<DepartmentDetail> {
     return this.departments.get(tenant, id);
+  }
+
+  /** Manage Members on a department (Octavia's SM13): read as the department. */
+  @Get('departments/:id/members')
+  members(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', departmentPipe) id: string,
+  ): Promise<DepartmentMembers> {
+    return this.departments.departmentMembers(tenant, id);
+  }
+
+  @Put('departments/:id/members')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  setDepartmentMembers(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', departmentPipe) id: string,
+    @Body(new ZodValidationPipe(SetDepartmentMembersBody))
+    body: Out<typeof SetDepartmentMembersBody>,
+  ): Promise<DepartmentMembers> {
+    return this.departments.setDepartmentMembers(tenant, auth.userId, id, body);
   }
 
   @Patch('departments/:id')
