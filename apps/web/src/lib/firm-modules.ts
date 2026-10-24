@@ -15,9 +15,9 @@ export interface FirmModule {
  * (`firmMenu` in the firm layout) to the real page.
  */
 export const FIRM_MODULES: readonly FirmModule[] = [
-  // R34: the Documents page itself is built, and Upload Document (R56, `/documents/upload`).
-  // Document Requests / Create Document Request still open this one.
-  { slug: 'document-requests', label: 'Document Requests', icon: Envelope },
+  // R34: the Documents page itself is built, and Upload Document and Document Requests (R56,
+  // `/documents/upload`, `/documents/requests`). Create Document Request still opens this one.
+  { slug: 'document-request-create', label: 'Create Document Request', icon: Envelope },
   { slug: 'client-portal', label: 'Client Portal', icon: Globe },
 ];
 

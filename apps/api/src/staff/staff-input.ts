@@ -5,6 +5,7 @@ import {
   LockStaffRequest,
   SaveStaffDraftRequest,
   SaveStaffJobTitleRequest,
+  SaveStaffSecurityDefaultsRequest,
   SetStaffNoteRequest,
   SetStaffOverridesRequest,
   SetStaffPermissionsRequest,
@@ -63,3 +64,4 @@ export const StaffImportBody = clean(StaffImportRequest);
 export const StaffJobTitleIdParam = StaffJobTitleId;
 export const StaffJobTitleListQ = StaffJobTitleListQuery;
 export const SaveStaffJobTitleBody = clean(SaveStaffJobTitleRequest);
+export const SaveStaffSecurityDefaultsBody = clean(SaveStaffSecurityDefaultsRequest);

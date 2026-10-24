@@ -541,7 +541,7 @@ function Overview({
         <button type="button" className={outlined} onClick={() => onAdd('CONTRACTOR')}>
           <Users aria-hidden weight="fill" className="size-4" /> Add Contractor
         </button>
-        <Link href="/modules/document-requests" className={outlined}>
+        <Link href="/documents/requests" className={outlined}>
           <FileText aria-hidden weight="fill" className="size-4" /> Request Documents
         </Link>
         <Link href="/tasks/new" className={outlined}>
