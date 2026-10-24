@@ -1,6 +1,6 @@
 # R55: handoff
 
-## Start here (handoff of 2026-10-24 evening, for the next R55)
+## Start here (handoff of 2026-10-24 night, for the next R55)
 
 Read these first:
 - `CLAUDE.md` and `docs/work/README.md`;
@@ -15,9 +15,10 @@ The older sections below are history.
 
 | PR | Branch | What |
 | --- | --- | --- |
-| #1096 | `rasel/R55-export-permission` | SM6: report exports and the users export check the Export permission. |
-| #1098 | `rasel/R55-leads-search` | L12: search in the Leads filter row; every word matches, so a full name works. |
-| (this PR, docs) | `rasel/R55-settings-repro` | `R55-settings.md` (reproduction), the R file updates and Rasel's answers. |
+| #1107 | `rasel/R55-lead-create-fix` | Add New Lead saves a lead left Unassigned or with No campaign. It was meant for #1098, but #1098 merged at its earlier head. |
+| #1108 | `rasel/R55-leads-bulk-convert` | Convert to Client in the bulk bar (`POST /business/leads/bulk-convert`), and the Preferred column. |
+| next | `rasel/R55-leads-duplicates` | A lead's Overview warns of other leads and clients with its email or phone, with links, and merges nothing (`LeadProfile.duplicates`). Open when #1107 or #1108 merges: merge `origin/main`, then run `leads-pipeline` e2e and `r55-lead-duplicates`. The spec picks a campaign only because #1107 isn't on main yet. |
+| next | `rasel/R55-staff-hours-readonly` | Staff working hours are read-only: 403 on weekly hours and date overrides, with notes on both screens. Time off and own blocks stay. |
 
 Docs PRs go one at a time. Code PRs: at most two open.
 
@@ -25,6 +26,7 @@ Docs PRs go one at a time. Code PRs: at most two open.
 
 - L10 #1075, L11 #1078, L12 #1080, L13 and L14 #1089.
 - SM1 and SM7 #1090; Availability blocked time #1091.
+- SM6 #1096; Leads search #1098; the R55 files and answers #1099.
 - Fixes found by L12 and L13: #1082 (Begin Online source), #1083 (Schedule Appointment's reason, phone and email).
 - Before that: L4 #1042, #1044, #1049; L5 #1048, #1050, #1058; L6 #1061; L7 #1059, #1070; L1 #1030; L2 #1032; L3 #1035; L9 #1036.
 
@@ -47,7 +49,15 @@ Docs PRs go one at a time. Code PRs: at most two open.
 6. SM4 (sessions, login history): Rasel decides it himself. Leave it.
 7. SM14, ownership transfer and Sign Out All Sessions stay unbuilt.
 
-**Next, in order:** bulk Convert to Client, the Preferred column, Begin Online duplicates (warn and link), Staff hours read-only, then the Client Portal parts without schema ((e) to (h) in `R55-settings.md`).
+**Done since the answers:** search (#1098), bulk Convert and Preferred (#1108), the Add New Lead fix (#1107), and two pushed branches waiting for a slot: duplicates and Staff hours read-only.
+
+**Next:** the Client Portal parts without schema, (e) to (h) in `R55-settings.md`, one PR each:
+- (e) contact details in the portal from Company Profile and Locations, replacing the fixed LVP text in `portal/[firmSlug]/(public)/_components/portal-footer.tsx`;
+- (f) module on and off for the five modules in the `PortalModule` enum, with `portal_module_visibility` rows that have no `client_id`, enforced on the portal API too (not only the nav);
+- (g) personal and service email locked on, and SMS only with consent (`LOCKED_NOTIFICATION_CATEGORIES`, `notifications.service.ts` `smsOffered`, `communication_consents`);
+- (h) announcements from Communications shown in the portal.
+
+Reproduce each first.
 
 ### Needs from others (current)
 

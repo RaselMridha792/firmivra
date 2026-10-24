@@ -113,7 +113,7 @@ export function ClientActionMenu({
     item('View Payroll Runs', CalendarBlank, go(`${base}?tab=runs`)),
     item('View Payroll Reports', ChartBar, go(`${base}?tab=reports`), { submenu: true }),
     item('View Tax Filings', Receipt, go(`${base}?tab=filings`)),
-    item('Request Payroll Documents', FileText, go('/modules/document-requests')),
+    item('Request Payroll Documents', FileText, go('/documents/requests')),
     item('View Documents', Folder, go(`/clients/${client.client.id}/documents`)),
     item('Create Task', ListChecks, go('/tasks/new')),
     item('Add Note', NotePencil, () => setDialog('note')),

@@ -223,7 +223,7 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 
 ## Needs from others
 
-- **From R1 (Oct 24): column requests 7 to 11 are built**, one PR on R1's branch `rasel/R1-r60-columns-2`. Its PR opened on Oct 24 after the idempotency PR (#1084) merged, one migration PR at a time; not merged yet. Build on these names once it merges:
+- **From R1 (Oct 24): column requests 7 to 11 are built** (merged as #1095 on Oct 24), one PR on R1's branch `rasel/R1-r60-columns-2`. Its PR opened on Oct 24 after the idempotency PR (#1084) merged, one migration PR at a time; not merged yet. Build on these names once it merges:
   - **7, `firm_licenses`:**
     - Columns: `regulatory_body` (1 to 120), `license_type` (1 to 80), `license_number` (1 to 60), each trimmed, something visible and no control characters; `expires_on`; `status` (`FirmLicenseStatus`: ACTIVE, EXPIRED, SUSPENDED or REVOKED, default ACTIVE); `verified_by_user_id` with `verified_at`.
     - Who may write: the firm reads only its own rows. Only the admin scope (a Super Admin, `forAdmin`) or the platform scope inserts or updates, so the firm-side API can only read, and a firm can never verify its own license.
@@ -251,7 +251,9 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   applying is all the firm side needs. R60 proposes: admin scope, audited in both logs (platform
   and the firm's), linked from the ticket; a new EIN written as activation writes it (encrypted
   with the firm's KMS key, `ein_enc` and `ein_last4`) and checked for duplicates as an
-  application's is (`ein_hash`). R60 changes nothing on the firm side for it.
+  application's is (`ein_hash`). Rasel (Oct 24): the request keeps only the proposed EIN's last
+  four digits ("Ending in 6789"), so Apply leaves the EIN empty for the admin to type
+  (`rasel/R60-profile-ein-last4`).
 - **R1 (I10):** done in #1025 (2, 5, 10, 50 or 100 MB, enforced in uploads). R60 verifies only.
 - **R56 (I3):** done in #1020 (`PublicLink`, `PublicLinkBlock`); R60 builds I3's link next.
 - **Secure link page (I2):** a form for a lead or a new contact needs the secure link page
@@ -347,6 +349,15 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   (`/business/locations`), but the web has no Settings > Locations page (`/settings/locations`, which
   Billing's dialog already links to, answers 404). Offices & Job Titles lists the firm's active
   locations and says they come from Location Management, without a link until the page exists.
+- **New Accounts & Security (built, `rasel/R60-sm3-security-defaults`): what it cannot do yet.**
+  1. *Firm setup's Team step* invites through `POST /auth/invites`
+     (`apps/api/src/auth/invites.controller.ts`, outside R60's paths), which creates an account
+     with no security row; the row is made later with the columns' own defaults, not the firm's.
+     Create Staff and Bulk Upload Staff start from the firm's defaults. The invite would call
+     `newAccountSecurity` (`apps/api/src/staff/staff-security-defaults.service.ts`) when it
+     creates the member: Rasel to say who (auth is off limits to R60).
+  2. *Enforcement:* sign-in does not enforce any staff security setting yet (Settings checks,
+     check 6), so the defaults, like each account's own settings, are stored and shown only.
 - **SM5 (Rasel's default, Oct 24):** pay is not kept in a staff draft (her own text says "pay is
   not kept"); the note says so. Per-file Save of a draft's attachments needs storage for draft
   files (an API and maybe a table): not built; the chosen files stay only while the tab is open.
@@ -588,3 +599,21 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   the firm's times (a send keeps only on or off; "View Schedule" instead of fields the API never
   kept). Intake workspace e2e 17 of 17, unit 11 and 10, the Intake Forms mock specs 38 of 38;
   sheet shot on the real API.
+- Oct 24 (fourth session): SM3 New Accounts & Security (`rasel/R60-sm3-security-defaults`, from
+  `main`): `api.staff.securityDefaults` and `saveSecurityDefaults` (Owner and Admin; version and
+  409 `SAVE_CONFLICT`; the lists with their access choice; the audit row names the changed
+  settings), the page at `/team/settings/security` (who it affects, a confirm before saving), Staff
+  Settings' card showing them, Create Staff step 3 and every new account (Bulk Upload too)
+  starting from them, step 3's choices winning. Defaults e2e 6 of 6, staff write and security e2e
+  34 of 34, contract unit 20 of 20, the Staff mock specs 55 of 55, API and web `tsc` 0 errors.
+  Sheet shot on the real API. Firm setup's invite (`/auth/invites`) is outside R60's paths (Needs).
+- Oct 24 (fourth session): Rasel's fix before the next feature (`rasel/R60-profile-ein-last4`,
+  from `main`): Request Change keeps only the proposed EIN's last four digits in the ticket
+  ("Proposed: Ending in 4321"); the full number is in no ticket, audit row, log or answer (the
+  e2e checks the stored ticket, the POST and GET answers and Super Admin's detail). The dialog says
+  so under New EIN. Profile-changes e2e 6 of 6, `r60-profile-request-change` 2 of 2.
+- Oct 24 (fourth session): I9 (`rasel/R60-intake-expiry-alert`, stacked on I8, which merged as #1094): the
+  expiration alert in minutes (`expirationAlertMinutes`; 30 minutes and 1, 2, 3, 5, 6, 10, 12, 24,
+  42 and 72 hours) and No alert (null, now taken), the old hour column following (rounded up,
+  kept under No alert), the Send page's schedule saying it. Intake workspace e2e 17 of 17, types
+  unit 12 of 12, the Intake Forms mock specs 39 of 39; sheet shot on the real API.

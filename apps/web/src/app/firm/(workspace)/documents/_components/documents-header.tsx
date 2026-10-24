@@ -1,10 +1,9 @@
 import { Envelope, UploadSimple } from '@phosphor-icons/react';
-import { moduleHref } from '../../../../../lib/firm-modules';
 import { ButtonLink } from './button-link';
 
 /**
- * Document Requests and Upload Document open Frame 3 and Frame 1 of the design, neither built yet
- * (R34 PR: the two new /modules/<slug> placeholders added for this ticket).
+ * Upload Document opens Frame 1 (`/documents/upload`). Document Requests opens Frame 3, not built
+ * yet (its /modules/<slug> placeholder).
  */
 export function DocumentsHeader() {
   return (
@@ -20,17 +19,13 @@ export function DocumentsHeader() {
       <div className="flex shrink-0 gap-3">
         <ButtonLink
           variant="secondary"
-          href={moduleHref('document-requests')}
+          href="/documents/requests"
           data-testid="open-document-requests"
         >
           <Envelope weight="regular" className="size-5" aria-hidden="true" />
           Document Requests
         </ButtonLink>
-        <ButtonLink
-          variant="primary"
-          href={moduleHref('document-upload')}
-          data-testid="open-upload-document"
-        >
+        <ButtonLink variant="primary" href="/documents/upload" data-testid="open-upload-document">
           <UploadSimple weight="regular" className="size-5" aria-hidden="true" />
           Upload Document
         </ButtonLink>

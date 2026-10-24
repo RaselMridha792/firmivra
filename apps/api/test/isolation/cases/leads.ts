@@ -184,6 +184,15 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/leads/:id/appointments': { params: { id: 'lead' } },
   'GET /api/v1/business/leads/:id/documents-and-forms': { params: { id: 'lead' } },
   // The lead's first service is `leadService`, named in the body; the client and staff too.
+  'POST /api/v1/business/leads/bulk-convert': {
+    params: {},
+    body: {
+      idempotencyKey: '01a14ebc-7954-75a4-be30-0ba529ae2e1c',
+      ids: ['01a14ebc-7954-75a4-be30-0ba529ae2e1a'],
+      sendPortalInvite: false,
+    },
+    bodyIds: { primaryStaffUserId: 'staffUser' },
+  },
   'POST /api/v1/business/leads/:id/convert-to-client': {
     params: { id: 'leadConvert' },
     body: {

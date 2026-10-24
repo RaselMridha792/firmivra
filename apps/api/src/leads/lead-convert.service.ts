@@ -6,13 +6,16 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import type { Database, TxClient } from '@firmivra/db';
-import type {
-  ConvertLeadRequest,
-  ConvertLeadResponse,
+import {
+  type BulkConvertLeadsRequest,
+  type BulkConvertLeadsResult,
+  type ConvertLeadRequest,
+  type ConvertLeadResponse,
   ConvertLeadToClientRequest,
-  ConvertLeadToClientResult,
-  DownloadLink,
+  type ConvertLeadToClientResult,
+  type DownloadLink,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -26,10 +29,34 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { storageUnavailable } from '../storage/document-records.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
 import { conflict, handled, LeadsService, notFound, OPEN, REVIEWED } from './leads.service.js';
-import { invalid, lockLead, requireActiveMember } from './pipeline.shared.js';
+import { legacyFirmRole } from '../common/request-context.js';
+import {
+  invalid,
+  loadProfile,
+  lockLead,
+  type PipelineActor,
+  requireActiveMember,
+} from './pipeline.shared.js';
 
 type ConvertBody = z.output<typeof ConvertLeadRequest>;
 type ToClientBody = z.output<typeof ConvertLeadToClientRequest>;
+type BulkBody = z.output<typeof BulkConvertLeadsRequest>;
+
+/** One lead's idempotency key in a bulk conversion: the same each retry, its own per lead. */
+function keyFor(bulkKey: string, leadId: string): string {
+  const h = createHash('sha256').update(`${bulkKey}:${leadId}`).digest('hex');
+  const variant = (8 + (parseInt(h[16]!, 16) & 3)).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/** Why one lead of a bulk conversion was left, in words for the screen. */
+const SKIP_REASONS: Record<string, string> = {
+  DUPLICATE_EMAIL: 'A client already has this email: convert it on its own to choose that client',
+  ALREADY_CONVERTED: 'Already a client',
+  NOT_FOUND: 'Not found, archived, or not one of yours',
+  FORBIDDEN: 'Not permitted',
+  CLIENT_ARCHIVED: 'Its client is archived',
+};
 /** What a CONVERTED activity keeps so a retry with the same key gets the first answer. */
 interface Stored {
   result: Omit<ConvertLeadToClientResult, 'inviteSent'> & { inviteSent: boolean };
@@ -174,6 +201,74 @@ export class LeadConvertService {
    * in the CONVERTED activity's metadata, and a repeat with it returns the first result (with
    * `inviteSent` false: an invitation is never sent twice).
    */
+  /**
+   * Convert to Client from the bulk bar: each lead as the five steps would with what its record
+   * holds, one transaction each, so one that cannot convert never stops the others.
+   */
+  async convertMany(
+    businessId: string,
+    actor: PipelineActor,
+    body: BulkBody,
+  ): Promise<BulkConvertLeadsResult> {
+    const clientsActor: ClientsActor = { userId: actor.userId, role: legacyFirmRole(actor.role) };
+    // A chosen staff member is checked first: someone not active here is 404, before any lead.
+    const chosen = body.primaryStaffUserId;
+    if (chosen) await this.inFirm(businessId, (tx) => requireActiveMember(tx, businessId, chosen));
+    const out: BulkConvertLeadsResult = { converted: [], skipped: [] };
+    for (const leadId of [...new Set(body.ids)]) {
+      const profile = await this.inFirm(businessId, (tx) =>
+        loadProfile(tx, businessId, actor, leadId),
+      ).catch(() => null);
+      if (!profile) {
+        out.skipped.push({ leadId, name: '', reason: SKIP_REASONS['NOT_FOUND']! });
+        continue;
+      }
+      const name = `${profile.firstName} ${profile.lastName}`.trim();
+      const skip = (reason: string) => out.skipped.push({ leadId, name, reason });
+      if (!profile.phone) {
+        skip('No phone number: convert it on its own');
+        continue;
+      }
+      if (!profile.services.length) {
+        skip('No service of interest: convert it on its own');
+        continue;
+      }
+      const parsed = ConvertLeadToClientRequest.safeParse({
+        idempotencyKey: keyFor(body.idempotencyKey, leadId),
+        accountType: profile.businessName ? 'BUSINESS' : 'INDIVIDUAL',
+        fullName: name,
+        businessName: profile.businessName ?? null,
+        email: profile.email,
+        phone: profile.phone,
+        address: profile.address ?? null,
+        serviceIds: profile.services.map((s) => s.id),
+        primaryStaffUserId:
+          clientsActor.role === 'STAFF'
+            ? actor.userId
+            : (body.primaryStaffUserId ?? profile.assignedTo?.userId ?? actor.userId),
+        sendPortalInvite: body.sendPortalInvite,
+      });
+      if (!parsed.success) {
+        skip('Its details need checking: convert it on its own');
+        continue;
+      }
+      try {
+        const done = await this.convertToClient(businessId, clientsActor, leadId, parsed.data);
+        out.converted.push({ leadId, name, clientId: done.clientId });
+      } catch (e) {
+        if (!(e instanceof HttpException)) throw e;
+        const code = (e.getResponse() as { code?: string }).code ?? '';
+        skip(SKIP_REASONS[code] ?? 'It could not be converted: convert it on its own');
+      }
+    }
+    await this.audit.log(
+      'leads.bulk_converted',
+      { type: 'lead' },
+      { converted: out.converted.length, skipped: out.skipped.length },
+    );
+    return out;
+  }
+
   async convertToClient(
     businessId: string,
     actor: ClientsActor,

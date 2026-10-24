@@ -564,8 +564,8 @@ describe('the settings', () => {
       firstReminderAfterMinutes: 5,
       finalReminderAfterMinutes: 10,
     });
-    // A final reminder at the first's time, no final reminder while they are on, times out of
-    // range and no alert are refused at their fields (no column holds the last one).
+    // A final reminder at the first's time, no final reminder while they are on, and times out of
+    // range are refused at their fields.
     for (const [body, path] of [
       [
         { firstReminderAfterMinutes: 4320, finalReminderAfterMinutes: 4320 },
@@ -574,19 +574,33 @@ describe('the settings', () => {
       [{ finalReminderAfterMinutes: null }, 'notifications.finalReminderAfterMinutes'],
       [{ firstReminderAfterMinutes: 4 }, 'notifications.firstReminderAfterMinutes'],
       [{ finalReminderAfterMinutes: 86401 }, 'notifications.finalReminderAfterMinutes'],
-      [{ expirationAlertHours: null }, 'notifications.expirationAlertHours'],
+      [{ expirationAlertMinutes: 29 }, 'notifications.expirationAlertMinutes'],
+      [{ expirationAlertMinutes: 10081 }, 'notifications.expirationAlertMinutes'],
     ] as const) {
       const res = await put(back.version, body);
       expectError(res, 400, 'VALIDATION_FAILED');
       expect(JSON.stringify(res.body)).toContain(path);
     }
-    // The hours Octavia asked for fit the column (1 to 168): 1 hour and 42 hours.
-    for (const hours of [1, 42]) {
+    // Octavia's I9: 30 minutes and her hours (42, not 48), and No alert. The old hour column
+    // follows, rounded up, and keeps its value under No alert.
+    const alertRow = () =>
+      inFirm('a', (tx) =>
+        tx.intakeSettings.findUniqueOrThrow({
+          where: { businessId: firms.a },
+          select: { expiryAlertMinutes: true, expiryAlertHours: true },
+        }),
+      );
+    for (const [minutes, hours] of [
+      [30, 1],
+      [2520, 42],
+      [null, 42],
+    ] as const) {
       const now = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
       expect(
-        IntakeSettings.parse(ok(await put(now.version, { expirationAlertHours: hours })))
-          .notifications.expirationAlertHours,
-      ).toBe(hours);
+        IntakeSettings.parse(ok(await put(now.version, { expirationAlertMinutes: minutes })))
+          .notifications.expirationAlertMinutes,
+      ).toBe(minutes);
+      expect(await alertRow()).toEqual({ expiryAlertMinutes: minutes, expiryAlertHours: hours });
     }
   });
 
@@ -605,6 +619,7 @@ describe('the settings', () => {
     expect(back.notifications).toMatchObject({
       firstReminderAfterMinutes: 4320,
       finalReminderAfterMinutes: 10080,
+      expirationAlertMinutes: 1440,
     });
     expect(back.clientExperience.thankYouMessage).toBeNull();
     expect(

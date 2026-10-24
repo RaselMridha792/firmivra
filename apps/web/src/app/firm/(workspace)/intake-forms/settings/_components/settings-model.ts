@@ -1,6 +1,7 @@
 import {
   ApiRequestError,
   INTAKE_FILE_SIZE_CHOICES,
+  INTAKE_ALERT_MINUTES,
   INTAKE_REMINDER_MINUTES,
   type IntakeSettings,
   type PortalInfo,
@@ -187,10 +188,10 @@ export const EXPIRATION_DAYS = [7, 14, 21, 30, 45, 60, 90];
  */
 export const REMINDER_MINUTES: readonly number[] = INTAKE_REMINDER_MINUTES;
 /**
- * Hours before expiry (Octavia's I9): 72, 42, 24 and 12 as she saw them (42, not 48), and 10, 6,
- * 5, 3, 2 and 1. Her 30 minutes needs a column (`expiry_alert_hours` is whole hours).
+ * Minutes before expiry (Octavia's I9): 30 minutes; 1, 2, 3, 5, 6, 10, 12, 24, 42 and 72 hours (42
+ * as she saw it, not 48). No alert is null.
  */
-export const ALERT_HOURS = [1, 2, 3, 5, 6, 10, 12, 24, 42, 72];
+export const ALERT_MINUTES: readonly number[] = INTAKE_ALERT_MINUTES;
 /** The first reminder time after `minutes`: the final reminder comes strictly after the first. */
 export const nextReminder = (minutes: number) => REMINDER_MINUTES.find((m) => m > minutes) ?? null;
 /**
@@ -228,7 +229,7 @@ export function switches(s: IntakeSettings): boolean[] {
 export const remindersOn = (s: IntakeSettings) =>
   s.notifications.firstReminderAfterMinutes !== null ||
   s.notifications.finalReminderAfterMinutes !== null ||
-  s.notifications.expirationAlertHours !== null;
+  s.notifications.expirationAlertMinutes !== null;
 
 export interface Check {
   id: string;

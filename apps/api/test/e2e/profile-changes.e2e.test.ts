@@ -190,10 +190,22 @@ describe('POST and GET /business/settings/profile/change-requests', () => {
       `Current: ${LEGAL_NAME}`,
       'Proposed: Fake R60 New Legal Name LLC',
       'Current: Ending in 6789',
-      'Proposed: 98-7654321',
+      'Proposed: Ending in 4321',
       company.reason,
     ])
       expect(ticket.description).toContain(line);
+    // The proposed EIN is kept as its last four digits only: never the full number, in any form,
+    // in what is stored or answered (R56's Apply asks the admin to type it).
+    const FULL_EIN = /98-?7654321/;
+    expect(JSON.stringify(ticket)).not.toMatch(FULL_EIN);
+    expect(JSON.stringify(res.body)).not.toMatch(FULL_EIN);
+    const listed = await call(
+      'get',
+      '/business/settings/profile/change-requests',
+      people.ownerA,
+      firms.a.id,
+    );
+    expect(JSON.stringify(listed.body)).not.toMatch(FULL_EIN);
 
     // The Super Admin team reads it in the queue.
     const detail = await call(
@@ -208,6 +220,7 @@ describe('POST and GET /business/settings/profile/change-requests', () => {
       status: 'OPEN',
       description: ticket.description,
     });
+    expect(JSON.stringify(detail.body)).not.toMatch(FULL_EIN);
 
     // Nothing on the profile changed.
     const settings = FirmSettings.parse(
