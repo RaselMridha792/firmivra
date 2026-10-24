@@ -39,9 +39,14 @@ info:
     - **Preferences.** The bell is always on; preferences choose the email and SMS copies per
       category. Nothing saved means email on, SMS off. `ACCOUNT` (sign-in and security) is
       `locked`: always sent, shown with its switches disabled, and a request that changes it is
-      refused (`400`). `channels` lists what to show switches for: `EMAIL` always, `SMS` when the
-      person has a phone number (q27: the switch only stores the choice; no text goes out until
-      SMS is switched on in config). While `SMS` is not
+      refused (`400`). **The firm's staff always get the email** (Octavia's Notifications review of
+      Oct 18): every item answers `email: true` and `emailLocked: true` on the firm site, a row
+      stored off before reads as on and the sender sends anyway, and `email: false` is
+      `400 EMAIL_ALWAYS_ON`. A client may still switch email off (`emailLocked` only on
+      `ACCOUNT`). `channels` lists what to show switches for: `EMAIL` always, `SMS` for a
+      client with a phone number (q27: the switch only stores the choice; no text goes out until
+      SMS is switched on in config), and for staff only with a verified mobile number (Rasel,
+      Oct 24), which no staff login records yet, so staff get `EMAIL` only. While `SMS` is not
       listed, every item answers `sms: false` and a change with `sms: true` is refused (`400`);
       turning SMS off is always allowed. A new or removed phone number clears every SMS choice, so
       texts start only after the person opts in for that number.
@@ -157,13 +162,15 @@ info:
     - `read-all` sets `read_at = now()` where it is null and the notification is not newer than
       the request. `read` keeps the first `read_at`.
     - Preferences: one row per changed category (upsert on `business_id, user_id, category`);
-      `ACCOUNT` is never stored. `SMS` is in `channels` when the person has a phone number
-      (`users.phone`, staff or client; q27), whatever `SMS_MODE` says: the choice is stored and
+      `ACCOUNT` is never stored. `SMS` is in `channels` when a client has a phone number
+      (`users.phone`; q27; staff: a verified mobile number, none recorded yet), whatever
+      `SMS_MODE` says: the choice is stored and
       used once texts can go out. `sms: true` is refused while SMS is not in the person's
       `channels`; changing or removing the phone number sets every stored `sms` to off
       (`Notifier.phoneChanged(businessId, userId)`, for the module that changes the number).
       NotifyService (step 5) reads them when a message names its `recipient`: it skips a channel
-      the person switched off; `ALWAYS_SENT` messages and `ACCOUNT` ignore them. A preference
+      the person switched off; `ALWAYS_SENT` messages and `ACCOUNT` ignore them. An active
+      member of the firm always gets the email and no text. A preference
       change writes an audit entry (`notification_preferences.updated`, entity the person's user
       id, metadata the categories and the switches set, no other data): it is the person's
       consent to texts. Reading and marking read are not audited (the person's own items, no
@@ -411,7 +418,7 @@ components:
       description: '`BUSINESS_INACTIVE`, `BUSINESS_SETUP_REQUIRED` (firm site) or `ORIGIN_NOT_ALLOWED` (changes)'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     ValidationFailed:
-      description: '`VALIDATION_FAILED` (bad id, query or body, a locked category, or `sms: true` while SMS is not offered) or `BUSINESS_REQUIRED` (firm site)'
+      description: '`VALIDATION_FAILED` (bad id, query or body, a locked category, or `sms: true` while SMS is not offered), `EMAIL_ALWAYS_ON` (`email: false` from the firm''s staff) or `BUSINESS_REQUIRED` (firm site)'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotFound:
       description: '`NOT_FOUND`: no place in that firm, or not the caller''s own notification'
@@ -483,12 +490,13 @@ components:
           description: Every category, in the order of the enum
           items:
             type: object
-            required: [category, email, sms, locked]
+            required: [category, email, sms, locked, emailLocked]
             properties:
               category: { $ref: '#/components/schemas/Category' }
               email: { type: boolean }
               sms: { type: boolean }
               locked: { type: boolean, description: 'Always sent (ACCOUNT): switches disabled' }
+              emailLocked: { type: boolean, description: 'Email always goes out (every category for the firm''s staff; ACCOUNT for everyone): the email box checked and disabled' }
     UpdateNotificationPreferencesRequest:
       type: object
       additionalProperties: false

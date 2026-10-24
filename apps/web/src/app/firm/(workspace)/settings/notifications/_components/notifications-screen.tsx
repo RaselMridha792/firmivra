@@ -7,6 +7,7 @@ import {
 } from '@firmivra/types';
 import { Badge, Button, Callout, Checkbox, Skeleton, Table } from '@firmivra/ui';
 import { Bell, Info, LockSimple } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
@@ -16,14 +17,15 @@ import { NOT_LOADED, Quiet, SettingsCard, SettingsHeader } from '../../_componen
 const PREFERENCES = ['notifications', 'preferences'];
 
 const NOTICE_ERRORS: Record<string, string> = {
-  VALIDATION_FAILED:
-    'Text messages are not available for your account yet. Add a mobile number first.',
+  VALIDATION_FAILED: 'Text messages are not available for your account yet.',
+  EMAIL_ALWAYS_ON: 'Email notices are always on for staff.',
 };
 
 /**
- * Settings > Notifications (guide §11): which notices reach you by email and text message, per
- * category (`api.notifications` preferences, R6). In-app notices (the bell) always arrive, and
- * Account and security notices are always sent (locked). Each person sets their own.
+ * Settings > Notifications (guide §11; Octavia's review of Oct 18): which notices reach you by text
+ * message, per category (`api.notifications` preferences, R6). In-app notices (the bell) always
+ * arrive, and staff email is always on (each row `emailLocked`, enforced by the API). Text
+ * messages wait for a verified mobile number. Each person sets their own.
  */
 export function NotificationsScreen() {
   const prefs = useApiQuery(PREFERENCES, () => api.notifications.preferences());
@@ -33,11 +35,11 @@ export function NotificationsScreen() {
       <SettingsHeader
         icon={Bell}
         title="Notifications"
-        subtitle="Choose which notices reach you by email and text message."
+        subtitle="Choose which notices also reach you by text message. Email and in-app notices always arrive."
       />
       <SettingsCard
         title="My Notification Preferences"
-        subtitle="In-app notices in the bell always arrive. These choices are yours alone."
+        subtitle="Email and in-app notices in the bell always arrive. These choices are yours alone."
         icon={Bell}
         testId="notification-preferences"
       >
@@ -55,9 +57,8 @@ export function NotificationsScreen() {
         )}
       </SettingsCard>
       <Callout icon={Info} tone="navy" surface="plain" size="compact">
-        Sign-in and security notices are always sent so you know when your account changes. Text
-        messages only say that something is waiting; they never carry a link, a code or client
-        details.
+        Email notices are always on for staff, so work that needs you is never missed. Text messages
+        only say that something is waiting; they never carry a link, a code or client details.
       </Callout>
     </div>
   );
@@ -76,14 +77,20 @@ function PreferencesTable({
   const sms = prefs.channels.includes('SMS');
   const changed = items.filter((item) => {
     const before = prefs.items.find((p) => p.category === item.category);
-    return !item.locked && (before?.email !== item.email || before?.sms !== item.sms);
+    return (
+      !item.locked &&
+      ((!item.emailLocked && before?.email !== item.email) || before?.sms !== item.sms)
+    );
   });
   const save = useApiMutation(
     async () => {
       await api.notifications.updatePreferences({
-        // Account and security notices are locked: never sent as a change.
-        items: changed.flatMap(({ category, email, sms: text }) =>
-          category === 'ACCOUNT' ? [] : [{ category, email, sms: text }],
+        // Account and security notices are locked: never sent as a change. Email is sent only
+        // where it can change (never for staff, whose email is always on).
+        items: changed.flatMap(({ category, email, emailLocked, sms: text }) =>
+          category === 'ACCOUNT'
+            ? []
+            : [{ category, ...(emailLocked ? {} : { email }), sms: text }],
         ),
       });
       onSaved('Notification preferences saved.');
@@ -134,9 +141,9 @@ function PreferencesTable({
             cell: (item) => (
               <span className={box}>
                 <Checkbox
-                  label={`${NOTIFICATION_CATEGORY_LABELS[item.category]} by email`}
-                  checked={item.locked || item.email}
-                  disabled={item.locked || save.isPending}
+                  label={`${NOTIFICATION_CATEGORY_LABELS[item.category]} by email${item.emailLocked ? ' (always on)' : ''}`}
+                  checked={item.emailLocked || item.locked || item.email}
+                  disabled={item.emailLocked || item.locked || save.isPending}
                   onChange={(e) => set(item.category, 'email', e.target.checked)}
                 />
               </span>
@@ -159,8 +166,13 @@ function PreferencesTable({
         ]}
       />
       {sms ? null : (
-        <p className="text-xs text-muted">
-          Text messages need a mobile number on your profile, so their boxes are off for now.
+        <p data-testid="sms-unavailable" className="text-xs text-muted">
+          Text messages need a verified mobile number, and staff numbers cannot be verified yet, so
+          their boxes stay off. You can add your number on{' '}
+          <Link href="/profile" className="font-semibold text-action underline">
+            My Profile
+          </Link>
+          .
         </p>
       )}
       {save.error ? (

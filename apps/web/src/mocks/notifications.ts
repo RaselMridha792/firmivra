@@ -253,15 +253,26 @@ export function myNotificationFixtures(): readonly NotificationItem[] {
   return portalFixtures;
 }
 
-/** Every category in order: email on and SMS off unless `choices` says otherwise; ACCOUNT locked. */
+/**
+ * Every category in order: email on and SMS off unless `choices` says otherwise; ACCOUNT locked.
+ * `staff`: the firm's side, where email is always on (as the API: every row `emailLocked`).
+ */
 const preferences = (
   channels: DeliveryChannel[],
   choices: Partial<Record<NotificationCategory, { email?: boolean; sms?: boolean }>> = {},
+  staff = false,
 ): NotificationPreferences => ({
   channels,
   items: NotificationCategory.options.map((category) => {
     const locked = (LOCKED_NOTIFICATION_CATEGORIES as readonly string[]).includes(category);
-    return { category, email: true, sms: false, ...(locked ? {} : choices[category]), locked };
+    return {
+      category,
+      email: true,
+      sms: false,
+      ...(locked ? {} : choices[category]),
+      locked,
+      emailLocked: locked || staff,
+    };
   }),
 });
 
@@ -340,6 +351,16 @@ function createMock(
     updatePreferences: async (body) => {
       const s = await open();
       const { items } = parseInput(UpdateNotificationPreferencesRequest, body);
+      // As the API: email stays on where it is locked (the firm's staff).
+      if (
+        items.some(
+          (i) =>
+            i.email === false &&
+            s.preferences.items.find((p) => p.category === i.category)?.emailLocked,
+        )
+      ) {
+        throw fail(400, 'EMAIL_ALWAYS_ON', "Email notices are always on for the firm's staff");
+      }
       // As the API: no SMS opt-in while texts cannot reach the person (turning it off is fine).
       if (!s.preferences.channels.includes('SMS') && items.some((i) => i.sms === true)) {
         throw fail(400, 'VALIDATION_FAILED', 'Text messages are not available for you');
@@ -355,13 +376,13 @@ function createMock(
 }
 
 /**
- * An in-memory `api.notifications`: the signed-in member's bell. No phone number on file, so the
- * preferences offer email only.
+ * An in-memory `api.notifications`: the signed-in member's bell. Email is always on for staff, and
+ * no verified mobile number is on file, so the preferences offer email only.
  */
 export function createNotificationsMock(): NotificationsClient {
   return createMock(() => ({
     items: [...notificationFixtures()],
-    preferences: preferences(['EMAIL']),
+    preferences: preferences(['EMAIL'], {}, true),
   }));
 }
 

@@ -194,6 +194,12 @@ export const NotificationPreference = z.object({
   sms: z.boolean(),
   /** Always sent, whatever the switches say (ACCOUNT): show the row with its switches disabled. */
   locked: z.boolean(),
+  /**
+   * Email always goes out, so `email` is true: show the email box checked and disabled. Every
+   * category for the firm's staff (Octavia's Notifications review of Oct 18: employee email is
+   * always on, enforced by the API and the sender), and the locked categories for everyone.
+   */
+  emailLocked: z.boolean(),
 });
 export type NotificationPreference = z.infer<typeof NotificationPreference>;
 
@@ -201,8 +207,9 @@ export type NotificationPreference = z.infer<typeof NotificationPreference>;
 export const NotificationPreferences = z.object({
   /**
    * The channels that can reach this person now, in display order: show a switch only for these.
-   * EMAIL always; SMS when the person has a phone number (q27: the switch only stores the choice
-   * until SMS is switched on in config).
+   * EMAIL always. SMS for a client with a phone number (q27: the switch only stores the choice
+   * until SMS is switched on in config); for the firm's staff only with a verified mobile number
+   * (Rasel, Oct 24), which no staff login records yet, so staff get EMAIL only for now.
    * While SMS is not listed, every item answers `sms: false` and an update with `sms: true` is
    * refused (400). Turning SMS off is always allowed. A change of phone number clears every SMS
    * choice: the person opts in again for the new number.
@@ -216,7 +223,8 @@ export type NotificationPreferences = z.infer<typeof NotificationPreferences>;
 /**
  * PATCH .../notification-preferences: only the categories and channels given change (one switch,
  * or the whole form). A locked category is refused like any bad input (400), and so is
- * `sms: true` while SMS is not in the person's `channels` (the API checks that one).
+ * `sms: true` while SMS is not in the person's `channels` (the API checks that one). For the
+ * firm's staff, `email: false` is 400 EMAIL_ALWAYS_ON.
  */
 export const UpdateNotificationPreferencesRequest = z.strictObject({
   items: z

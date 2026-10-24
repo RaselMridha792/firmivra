@@ -220,9 +220,16 @@ export class NotificationsService {
   /**
    * Upserts each category given (only the switches given change), in one transaction, and audits
    * the change: the categories and switches only (consent to texts). `sms: true` while SMS is not
-   * offered is 400.
+   * offered is 400, and so is `email: false` from the firm's staff (their email is always on).
    */
   async updatePreferences(me: Me, body: UpdateBody): Promise<NotificationPreferences> {
+    if (me.side === 'staff' && body.items.some((i) => i.email === false)) {
+      throw new BadRequestException({
+        code: 'EMAIL_ALWAYS_ON',
+        message: "Email notices are always on for the firm's staff",
+        details: [{ path: 'items', message: 'Email cannot be switched off' }],
+      });
+    }
     const sms = await this.smsOffered(me);
     if (!sms && body.items.some((i) => i.sms === true)) {
       throw new BadRequestException({
@@ -267,10 +274,13 @@ export class NotificationsService {
   }
 
   /**
-   * q27 (Rasel, Oct 8): the SMS switch shows for anyone with a phone number on their login; it
-   * only stores the choice, and no text goes out until SMS is switched on in config.
+   * q27 (Rasel, Oct 8): the SMS switch shows for a client with a phone number on their login; it
+   * only stores the choice, and no text goes out until SMS is switched on in config. The firm's
+   * staff need a verified mobile number (Rasel, Oct 24), which no staff login records yet (the
+   * R60 file's column request), so they are offered email only.
    */
   private async smsOffered(me: Me): Promise<boolean> {
+    if (me.side === 'staff') return false;
     const user = await this.database.forBusiness(me.businessId).user.findFirst({
       where: { id: me.userId },
       select: { phone: true },
@@ -285,8 +295,16 @@ export class NotificationsService {
       channels,
       items: NotificationCategory.options.map((category) => {
         const locked = isLockedCategory(category);
+        // The firm's staff always get the email: a row stored off before this rule reads as on.
+        const emailLocked = locked || me.side === 'staff';
         const choice = locked ? DEFAULT_CHOICE : (saved.get(category) ?? DEFAULT_CHOICE);
-        return { category, email: choice.email, sms: sms && choice.sms, locked };
+        return {
+          category,
+          email: emailLocked || choice.email,
+          sms: sms && choice.sms,
+          locked,
+          emailLocked,
+        };
       }),
     };
   }

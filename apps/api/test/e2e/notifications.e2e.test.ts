@@ -632,21 +632,38 @@ describe('firm routes: the member’s own', () => {
     expect((await rowsOf(people.adminA)).some((r) => r.readAt === null)).toBe(true);
   });
 
-  it('preferences: defaults, a change (audited: categories and switches only), ACCOUNT and SMS refused', async () => {
+  it('preferences: defaults, a change (audited: categories and switches only), ACCOUNT, staff email off and SMS refused', async () => {
     const before = exact(
       NotificationPreferences,
       await firm('get', '/notification-preferences', people.staff1),
     );
     expect(before.channels).toEqual(['EMAIL']);
-    expect(before.items[0]).toEqual({ category: 'ACCOUNT', email: true, sms: false, locked: true });
-    expect(before.items.every((i) => i.email && !i.sms)).toBe(true);
+    expect(before.items[0]).toEqual({
+      category: 'ACCOUNT',
+      email: true,
+      sms: false,
+      locked: true,
+      emailLocked: true,
+    });
+    // Staff email is always on (Octavia's review of Oct 18): every row locked on.
+    expect(before.items.every((i) => i.email && i.emailLocked && !i.sms)).toBe(true);
     const after = exact(
       NotificationPreferences,
       await firm('patch', '/notification-preferences', people.staff1, {
-        items: [{ category: 'MESSAGES', email: false }],
+        items: [{ category: 'MESSAGES', email: true, sms: false }],
       }),
     );
-    expect(after.items.find((i) => i.category === 'MESSAGES')).toMatchObject({ email: false });
+    expect(after.items.find((i) => i.category === 'MESSAGES')).toMatchObject({
+      email: true,
+      sms: false,
+    });
+    expectError(
+      await firm('patch', '/notification-preferences', people.staff1, {
+        items: [{ category: 'MESSAGES', email: false }],
+      }),
+      400,
+      'EMAIL_ALWAYS_ON',
+    );
     expectError(
       await firm('patch', '/notification-preferences', people.staff1, {
         items: [{ category: 'ACCOUNT', email: false }],
@@ -671,7 +688,9 @@ describe('firm routes: the member’s own', () => {
       entityId: people.staff1.id,
     });
     // Exactly the categories and switches: no address, name or phone number beside them.
-    expect(audit[0]!.metadata).toEqual({ items: [{ category: 'MESSAGES', email: false }] });
+    expect(audit[0]!.metadata).toEqual({
+      items: [{ category: 'MESSAGES', email: true, sms: false }],
+    });
     const metadata = JSON.stringify(audit[0]!.metadata);
     for (const value of [people.staff1.email, people.staff1.name, '+1']) {
       expect(metadata).not.toContain(value);
@@ -724,11 +743,13 @@ describe('portal routes: the client login’s own', () => {
         items: [{ category: 'BILLING', email: false, sms: false }],
       }),
     );
+    // A client may switch email off: the staff rule is the firm's side only.
     expect(prefs.items.find((i) => i.category === 'BILLING')).toEqual({
       category: 'BILLING',
       email: false,
       sms: false,
       locked: false,
+      emailLocked: false,
     });
     expect(
       exact(
@@ -739,7 +760,7 @@ describe('portal routes: the client login’s own', () => {
   });
 });
 
-describe('SMS switch: shown for anyone with a phone number, whatever SMS_MODE says (q27)', () => {
+describe('SMS switch: a client with a phone number, whatever SMS_MODE says (q27); staff only with a verified mobile number (none yet)', () => {
   const setPhone = async (who: Who, phone: string | null) => {
     const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     try {
@@ -759,7 +780,7 @@ describe('SMS switch: shown for anyone with a phone number, whatever SMS_MODE sa
     ).channels;
   const optIn = { items: [{ category: 'DOCUMENTS', sms: true }] };
 
-  it('client and staff: EMAIL only without a number; SMS with one, and the choice is kept', async () => {
+  it('client: EMAIL only without a number, SMS with one, and the choice is kept; staff: EMAIL only', async () => {
     const config = app.get<NotifyConfig>(NOTIFY_CONFIG);
     expect(config.sms.mode).not.toBe('sns');
     // No phone number: EMAIL only, and an SMS opt-in is refused.
@@ -777,11 +798,16 @@ describe('SMS switch: shown for anyone with a phone number, whatever SMS_MODE sa
       await portal('patch', '/notification-preferences', people.spouse1, optIn),
     );
     expect(prefs.items.find((i) => i.category === 'DOCUMENTS')).toMatchObject({ sms: true });
-    // Staff: the same rule.
+    // Staff: a number alone is not a verified mobile number (Rasel, Oct 24), so EMAIL only.
     expect(await channels(people.ownerA, 'firm')).toEqual(['EMAIL']);
     await setPhone(people.ownerA, '+15555550124');
     try {
-      expect(await channels(people.ownerA, 'firm')).toEqual(['EMAIL', 'SMS']);
+      expect(await channels(people.ownerA, 'firm')).toEqual(['EMAIL']);
+      expectError(
+        await firm('patch', '/notification-preferences', people.ownerA, optIn),
+        400,
+        'VALIDATION_FAILED',
+      );
     } finally {
       await setPhone(people.ownerA, null);
     }
@@ -867,7 +893,7 @@ describe('tenant isolation and the error order', () => {
     exact(
       NotificationPreferences,
       await inFirmB('patch', '/notification-preferences', {
-        items: [{ category: 'DOCUMENTS', email: false }],
+        items: [{ category: 'DOCUMENTS', email: true, sms: false }],
       }),
     );
     const [rowsA, itemA] = await asOwner(ids.firmA, (tx) =>
@@ -1004,6 +1030,50 @@ describe('NotifyService reads the preferences (step 5)', () => {
     } finally {
       await db.disconnect();
     }
+  });
+
+  it('staff always get the email, even with an older row switched off, and no text', async () => {
+    await asOwner(ids.firmA, (tx) =>
+      tx.notificationPreference.upsert({
+        where: {
+          businessId_userId_category: {
+            businessId: ids.firmA,
+            userId: people.staff1.id,
+            category: 'DOCUMENTS',
+          },
+        },
+        create: {
+          businessId: ids.firmA,
+          userId: people.staff1.id,
+          category: 'DOCUMENTS',
+          email: false,
+          sms: true,
+        },
+        update: { email: false, sms: true },
+      }),
+    );
+    const db = createDatabase(fx.appUrl, TEST_CLIENT_OPTIONS);
+    try {
+      const prefs = new PreferenceSource(db);
+      const staff = { userId: people.staff1.id };
+      expect(await prefs.allows(ids.firmA, staff, 'DOCUMENTS', 'email')).toBe(true);
+      expect(await prefs.allows(ids.firmA, staff, 'DOCUMENTS', 'sms')).toBe(false);
+      // A client's own choice still counts (primary2 switched BILLING email off above).
+      const client = { userId: people.primary2.id };
+      expect(await prefs.allows(ids.firmA, client, 'BILLING', 'email')).toBe(false);
+    } finally {
+      await db.disconnect();
+    }
+    // The firm's page reads the older row as on.
+    const read = exact(
+      NotificationPreferences,
+      await firm('get', '/notification-preferences', people.staff1),
+    );
+    expect(read.items.find((i) => i.category === 'DOCUMENTS')).toMatchObject({
+      email: true,
+      sms: false,
+      emailLocked: true,
+    });
   });
 
   it('the bell item is written even when the person switched that email off', async () => {

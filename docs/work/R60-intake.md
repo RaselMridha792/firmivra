@@ -31,7 +31,8 @@ to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/
 
 | # | Branch | State |
 | --- | --- | --- |
-| 1 | `rasel/R60-profile-request-change` | Built: `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
+| 1 | `rasel/R60-profile-request-change` | #1063 (open): `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
+| 2 | `rasel/R60-notifications-email` (stacked on #1063) | Built: staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
 
 ### State (Oct 23, second session): open PRs and branches waiting
 
@@ -226,6 +227,20 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
      named by Rasel.
   5. *Supporting document (guide E4, optional):* not built; the firm side has no support upload
      route (`support_ticket_attachments_firm_add` exists in the database).
+- **Notifications (built, `rasel/R60-notifications-email`): what it cannot do yet.**
+  1. *Staff SMS is off until a verified mobile number exists* (Rasel's default, Oct 24). Staff
+     logins have no verified marker (only `client_accounts.phone_verified_at`), so staff are
+     offered email only and the sender sends them no text. Before Oct 24 any staff number turned
+     the SMS switches on (q27). Octavia's SMS tests (her checks 02 and 04) wait on item 9 of the
+     column request and a verification flow (a code by SMS: R6's sender, SNS in AWS, so R1).
+     If Rasel prefers q27 until then, it is two lines (`smsOffered` and `allows`).
+  2. *Older Off rows:* the API reads a staff row stored with email off as on and the sender sends
+     anyway; item 8 of the column request flips the stored rows so the table says the same.
+  3. *SMS opt-out (STOP):* no inbound SMS handler exists (an SNS topic and a route: R1 and R6).
+  4. *Delivery records:* `notification_deliveries` already keeps each email and SMS outcome
+     (QUEUED, SENT, FAILED, SKIPPED, the provider's id); no screen shows them yet.
+  5. *Portal:* the client portal keeps its own preferences (email may be switched off there);
+     her guide leaves the portal to its own review.
 - **Staff Management SM3 is blocked (handoff item 5):** each wrong route needs a destination that
   does not exist. Offices & Job Titles needs R1's Locations API and the saved job titles; New
   Accounts & Security needs the staff security defaults (both in "Column request for R1"). The
@@ -318,9 +333,23 @@ later migration drops them.
    `created_at`, `updated_at`. One row per license (a firm may hold several). The firm reads its
    own rows; only the admin or platform scope writes them (Firmivra applies an approved request).
 
+8. **Notifications, staff email on (added Oct 24, a data change only).** One data migration:
+   `UPDATE notification_preferences np SET email = true FROM memberships m WHERE
+   m.business_id = np.business_id AND m.user_id = np.user_id AND np.email = false`. The API
+   already treats these rows as on; this makes the table say so.
+9. **Notifications, a verified staff mobile number (added Oct 24, not yet approved).**
+   `users.phone_verified_at timestamptz NULL`, cleared whenever `users.phone` changes (the
+   same transaction that clears the SMS choices, `Notifier.phoneChanged`). With it R60 builds
+   the staff verification (a code by text through R6's sender) and offers SMS to verified staff.
+
 Offices need no column: they are R1's Locations API (`firm_offices`).
 
 ## Checks that fail on clean `main` too (not R60's changes)
+
+- `apps/api/test/e2e/leads-pipeline.e2e.test.ts:311` (R55): the date filter test takes "today" in UTC
+  while the API filters days in the firm's time zone (America/New_York), so it fails every night
+  from 00:00 to 04:00 UTC (06:00 to 10:00 Dhaka). It failed #1063's first run (Oct 24, 00:53
+  UTC). Fix: take today in the firm's zone, as the bookkeeping test was fixed in #991.
 
 - `apps/api/test/isolation/tenant-isolation.test.ts`, locally: 4 of 19 fail on clean `main` as on
   the I1 branch. The two refusal sweeps time out at 30 s; the controls list file and export routes
