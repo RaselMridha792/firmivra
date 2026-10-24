@@ -15,52 +15,50 @@ The older sections below are history.
 
 | PR | Branch | What |
 | --- | --- | --- |
-| #1059 | `rasel/R55-leads-campaigns` | L7 API: Leads campaigns are Communications campaigns (options, Add to Campaign, filter, row). CI shard 3 failed on a unit fixture (`commAudience`); fixed in 1388bfbd. |
-| (this PR) | `rasel/R55-tags-add` | L6: Add New Tag. It also carries this handoff and `R55-leads.md`. |
+| #1059 | `rasel/R55-leads-campaigns` | L7 API: Leads campaigns are Communications campaigns (options, Add to Campaign, filter, row). |
+| #1070 | `rasel/R55-leads-campaign-web` | L7 screen: Create Campaign in a wide panel. Stacked on #1059, so merge `origin/main` once #1059 lands. |
+| (this PR) | `rasel/R55-leads-archived` | L10: Archived Leads and Restore (contract, API, screen). It also carries this handoff. |
 
-### Pushed, waiting for a slot (open them in this order, one at a time)
+**#1059's CI:**
+- Shard 3 failed on a unit fixture; fixed in 1388bfbd.
+- Shard 4 failed in `automations.e2e.test.ts` (5 cases). Those same 5 fail on `main` locally, so it's not this PR; they look time-of-day dependent ("end date has passed").
+- I asked CI to rerun the failed jobs. If it fails again, tell Rasel: it's `main`'s automations test, not Leads.
 
-1. `rasel/R55-leads-campaign-web`: L7 web. It is stacked on L6 and #1059 (merge `origin/main` once those land). It contains:
-   - `packages/ui` Drawer `size="wide"` (Rasel's yes, Oct 24);
-   - the Communications composer's embedded mode;
-   - Create Campaign in a wide panel;
-   - mock spec `r55-create-campaign`.
-2. `rasel/R55-leads-archived`: L10, from main, one PR covering contract, API and screen.
-   - **What:** Archived Leads under More Filters, read-only rows, and Restore per row and in the bulk bar.
-   - **Tests:** leads-pipeline e2e (21 pass); mock spec `r55-leads-archived`.
-   - **Also fixed:** the date-filter e2e now uses the firm's New York day. It used to fail between midnight and 4 a.m. UTC.
-   - **Gap:** there is no lead activity kind for archive or restore, so they are audited only. A visible history entry needs an enum value from R0.
+### Pushed, waiting for a slot
 
-When a PR before them merges, merge `origin/main` into the next branch (no rebase, no force-push), rerun its typecheck and its mock specs, and push.
+- `rasel/R55-leads-delete-admin`: L11. Stacked on L10, so merge `origin/main` once L10 lands.
+  - **What:** only the Owner and the Admin may delete (archive) or restore leads. `requireFirmAdmin` is in `pipeline.shared.ts`; the screen hides Delete, Archive and Restore from everyone else.
+  - **Tests:** unit (every role); e2e (Staff and a Manager get 403 on delete and restore by direct request, a Manager's other bulk actions are unchanged); leads-pipeline e2e (22).
+
+When a PR before them merges, merge `origin/main` into the next branch (no rebase, no force-push), rerun its typecheck and its mock specs, and push. One open non-contract PR may be stacked on another.
 
 ### Merged this round
 
-- L4 (email composer): #1042, #1044, #1049.
+- L4: #1042, #1044, #1049.
 - L5: #1048, #1050, #1058.
+- L6: #1061.
 - Earlier: L1 #1030, L2 #1032, L3 #1035, L9 #1036.
 
 ### Decisions (Rasel, Oct 23 and 24)
 
 - **L4:**
   - editor controls as opt-in props in `packages/ui` RichTextEditor;
-  - inline images on a public URL under the firm's portal, not CID;
-  - the signature per member (`message_signatures`).
+  - inline images on a public URL under the firm's portal;
+  - the signature per member.
 - **L5:** client tags are built too.
 - **L7:**
   - the Communications builder in a panel;
-  - Leads campaigns are Communications campaigns, with no separate system and no send on creation;
-  - the wide Drawer in `packages/ui` is approved.
-- **L8:** a new `lead_follow_ups` table through R0. Schema request filed as **issue #1051**; L8 waits for it.
+  - Leads campaigns are Communications campaigns, with no send on creation;
+  - the wide Drawer in `packages/ui`.
+- **L8:** a new `lead_follow_ups` table through R0, **issue #1051**. L8 waits for it.
+- **L11:** "Delete" stays the archive (leads are never deleted) and is Firm Admin only, meaning the Owner and the Admin. Restore follows it.
 
 ### Next, in this order
 
 1. **Leads:**
-   - **L11 (P2) only Firm Admin may delete leads**, single and bulk, enforced on the server and in the UI.
-     - Note: today the API has no delete at all. The bulk "Delete" is `ARCHIVE`, gated by the grid's `DELETE` (`lead-pipeline-write.service.ts`).
-     - Ask Rasel what "delete" should mean before building: archive only for Owner/Admin, or a real delete. The app role has no DELETE on `leads`.
-   - L12: the verification checklist, recording Pass, Fail or Blocked with evidence.
-   - L13: website lead capture. Answer which methods exist; don't guess platforms.
-   - L14: direct client creation (check on Clients).
+   - L12: the verification checklist (bulk Convert to Client, filters alone and combined, search with paging, columns, Schedule Appointment prefill, statuses). Record Pass, Fail or Blocked with evidence, in a docs PR (it doesn't count toward the two).
+   - L13: website lead capture beyond the intake form. Answer which methods exist, with test steps; don't guess platforms.
+   - L14: direct client creation without a lead (check on Clients).
    - L8: once #1051 lands.
 2. **Settings > Availability and Settings > Client Portal settings** (`docs/specs/settings-review-2026-10-20/`): reproduce first, one PR each.
 3. **Staff Management API items** (CHANGE-LIST Oct 23, section B, in the guide's retest order):
@@ -70,7 +68,11 @@ When a PR before them merges, merge `origin/main` into the next branch (no rebas
    - SM5 drafts;
    - SM6 the Export permission;
    - SM7 the bulk upload formats.
-4. **SM14 waits for Rasel's own word** (the question below). Don't touch role or guard checks for it.
+4. **SM14 waits for Rasel's own word.** Don't touch role or guard checks for it.
+
+**Gaps noted:**
+- Leads have no activity kind for archive or restore, so both are audited only. A visible entry needs an enum value from R0.
+- The `r23-client-record` mock spec (4 cases) and Arfan's `convert-lead-step-2/3` already fail on main.
 
 ### Question for Rasel
 
