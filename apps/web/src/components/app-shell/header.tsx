@@ -4,6 +4,7 @@ import { Bell, ChevronDown, Menu, Search } from 'lucide-react';
 import Link from 'next/link';
 import { type ReactNode, useState } from 'react';
 import { useMe } from '../signed-in';
+import { HeaderClock } from './header-clock';
 import { initials } from './types';
 
 /** One entry of the account menu above Sign out: a page, or an action such as opening a panel. */
@@ -21,7 +22,10 @@ export function Header({
   start,
   actions,
   accountMenu = [],
+  clock = false,
 }: {
+  /** The current date and time with its time zone (SM10): the firm workspace and Super Admin. */
+  clock?: boolean;
   /** Account menu entries above Sign out (the firm's My Profile, My Settings, Help & Support). */
   accountMenu?: AccountMenuItem[];
   /** Replaces the search box or greeting, for example the firm's search form. */
@@ -82,6 +86,7 @@ export function Header({
             : 'ml-auto flex items-center gap-2'
         }
       >
+        {clock ? <HeaderClock /> : null}
         {actions}
         {bell ?? (
           <button

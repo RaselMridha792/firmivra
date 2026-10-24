@@ -43,6 +43,9 @@ import {
 } from '../../_components/wizard-parts';
 import { AccountPreview, WizardNotes, previewFromDraft } from '../../_components/wizard-side';
 
+/** The Work Schedule choice that opens a typed one (Octavia's SM8). */
+const CUSTOM_SCHEDULE = '__custom__';
+
 const PAY_TYPES: Record<StaffPayType, string> = {
   SALARY: 'Salary',
   HOURLY: 'Hourly',
@@ -220,6 +223,11 @@ function DetailsForm({
   const options = useApiQuery(['staff', 'options'], () => api.staff.options());
   const o = options.data;
   const [form, setForm] = useState<Form>(() => fromDraft(base));
+  // The presets and the firm's own saved schedules; anything else is a custom one.
+  const schedules = o?.workSchedules ?? [];
+  const [customOpen, setCustomOpen] = useState(false);
+  const customSchedule =
+    customOpen || Boolean(form.workSchedule && o && !schedules.includes(form.workSchedule));
   const [files, setFiles] = useState<QueuedFile[]>(() =>
     startDraft ? (keptFiles.get(startDraft) ?? []) : [],
   );
@@ -359,15 +367,34 @@ function DetailsForm({
                 value={form.endDate}
                 onChange={(e) => set('endDate', e.target.value)}
               />
-              <Select
-                label="Work Schedule"
-                options={[
-                  { value: '', label: 'Select schedule' },
-                  ...(o?.workSchedules ?? []).map((x) => ({ value: x, label: x })),
-                ]}
-                value={form.workSchedule}
-                onChange={(e) => set('workSchedule', e.target.value)}
-              />
+              <div className="flex min-w-0 flex-col gap-2">
+                <Select
+                  label="Work Schedule"
+                  options={[
+                    { value: '', label: 'Select schedule' },
+                    ...schedules.map((x) => ({ value: x, label: x })),
+                    { value: CUSTOM_SCHEDULE, label: 'Custom schedule…' },
+                  ]}
+                  value={customSchedule ? CUSTOM_SCHEDULE : form.workSchedule}
+                  onChange={(e) => {
+                    const custom = e.target.value === CUSTOM_SCHEDULE;
+                    setCustomOpen(custom);
+                    set('workSchedule', custom ? '' : e.target.value);
+                  }}
+                />
+                {customSchedule ? (
+                  <Input
+                    label="Custom schedule"
+                    maxLength={80}
+                    placeholder="e.g., Mon-Thu, 10-hour days"
+                    value={form.workSchedule}
+                    onChange={(e) => set('workSchedule', e.target.value)}
+                  />
+                ) : null}
+                <p className="text-xs text-muted">
+                  A custom schedule is saved for the firm and offered for the next staff member.
+                </p>
+              </div>
               <Select
                 label="Supervisor / Manager"
                 options={[
@@ -437,18 +464,25 @@ function DetailsForm({
                 value={form.backupTeamId}
                 onChange={(e) => set('backupTeamId', e.target.value)}
               />
-              <div className="flex min-w-0 items-end gap-2">
-                <div className="min-w-0 flex-1">
-                  <Input
-                    label="Maximum Workload (Optional)"
-                    inputMode="numeric"
-                    placeholder="e.g., 50"
-                    value={form.maxWorkload}
-                    error={errors.maxWorkload}
-                    onChange={(e) => set('maxWorkload', e.target.value)}
-                  />
+              <div className="flex min-w-0 flex-col gap-1">
+                <div className="flex min-w-0 items-end gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Input
+                      label="Maximum Active Clients (Optional)"
+                      inputMode="numeric"
+                      placeholder="e.g., 50"
+                      value={form.maxWorkload}
+                      error={errors.maxWorkload}
+                      onChange={(e) => set('maxWorkload', e.target.value)}
+                    />
+                  </div>
+                  <span className="pb-2.5 text-sm text-muted">clients</span>
                 </div>
-                <span className="pb-2.5 text-sm text-muted">clients/tasks</span>
+                {/* Octavia's SM8: one unit, and what it does today. */}
+                <p className="text-xs text-muted">
+                  The most active clients this person should carry. Client assignment does not check
+                  it yet.
+                </p>
               </div>
             </div>
             <Checkbox

@@ -45,7 +45,8 @@ const TILES: Tile[] = [
     title: 'Manage Staff Accounts',
     description: 'View, edit, or deactivate staff accounts.',
     icon: UsersThree,
-    href: `#${DIRECTORY_ID}`,
+    // Octavia's SM9: one dedicated directory view, also from Staff Settings.
+    href: '/team/directory',
   },
   {
     title: 'Roles & Permissions',

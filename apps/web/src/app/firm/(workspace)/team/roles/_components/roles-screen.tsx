@@ -20,9 +20,10 @@ import {
   Skeleton,
   Textarea,
 } from '@firmivra/ui';
-import { LockSimple, ShieldCheck } from '@phosphor-icons/react';
+import { ArrowLeft, LockSimple, ShieldCheck } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
@@ -73,10 +74,20 @@ const date = (iso: string) => new Date(iso).toLocaleDateString('en-US', { dateSt
  * firm's custom roles are in the selector too (Owner and Admin edit their grid), and Create
  * Custom Role goes on to Set Permissions (Octavia's review, section 4).
  */
-export function RolesScreen() {
+export function RolesScreen({
+  startCustom = false,
+  back,
+}: {
+  /** Open Create Custom Role at once (Create Staff's shortcut). */
+  startCustom?: boolean;
+  /** Create Staff's page to go back to, with its draft. */
+  back?: string;
+} = {}) {
   const roles = useApiQuery([...ROLES, 'list'], () => api.roles.list());
   const modules = useApiQuery([...ROLES, 'modules'], () => api.roles.modules());
   const [picked, setPicked] = useState<string | null>(null);
+  // Opened once: picking the new role remounts the workspace, which must not open it again.
+  const [openCustom, setOpenCustom] = useState(startCustom);
   const items = roles.data?.items ?? [];
   const choices = roleChoices(roles.data);
   const selected =
@@ -86,6 +97,16 @@ export function RolesScreen() {
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <RolesHeader />
+      {back ? (
+        <Link
+          href={back}
+          data-testid="back-to-staff"
+          className="inline-flex w-fit items-center gap-1.5 text-sm font-semibold text-link hover:underline"
+        >
+          <ArrowLeft aria-hidden weight="bold" className="size-4" />
+          Back to Create Staff (your entries are kept)
+        </Link>
+      ) : null}
       {selected ? (
         // A new role starts clean: the key drops the unsaved boxes of the role before.
         <RoleWorkspace
@@ -96,6 +117,8 @@ export function RolesScreen() {
           modules={modules.data}
           modulesFailed={modules.isError}
           onSelect={setPicked}
+          startCustom={openCustom}
+          onCustomOpened={() => setOpenCustom(false)}
         />
       ) : (
         <RolesFrames loading={roles.isPending} failed={roles.isError} />
@@ -127,7 +150,11 @@ function RoleWorkspace({
   modules,
   modulesFailed,
   onSelect,
+  startCustom = false,
+  onCustomOpened,
 }: {
+  startCustom?: boolean;
+  onCustomOpened?: () => void;
   roles: RoleSummary[];
   choices: RoleChoice[];
   selected: RoleChoice;
@@ -139,7 +166,13 @@ function RoleWorkspace({
   const selected = summaryOf(choice);
   const grid = useApiQuery([...ROLES, 'permissions', choice.key], () => readGrid(choice));
   const [draft, setDraft] = useState<PermissionValue | null>(null);
-  const [dialog, setDialog] = useState<'clear' | 'escalation' | 'custom' | null>(null);
+  const [dialog, setDialog] = useState<'clear' | 'escalation' | 'custom' | null>(
+    startCustom ? 'custom' : null,
+  );
+  // Once: the parent clears the flag, so a remount (the new role picked) opens nothing.
+  useEffect(() => {
+    if (startCustom) onCustomOpened?.();
+  }, [startCustom, onCustomOpened]);
   const save = useApiMutation(
     (body: { grants: PermissionGrant[]; ack?: boolean }) =>
       saveGrid(choice, body.grants, body.ack ?? false),

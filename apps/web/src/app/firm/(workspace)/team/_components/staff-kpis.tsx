@@ -2,6 +2,7 @@
 
 import { IconTile, type KpiTone, Skeleton } from '@firmivra/ui';
 import { ArrowUp, BuildingOffice, type Icon, User, Users } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { NOT_LOADED } from './quiet-card';
@@ -16,6 +17,8 @@ interface Kpi {
   rise?: number;
   note: string;
   noteTone: string;
+  /** Where the card opens (Octavia's SM9): the matching list, or Teams & Departments. */
+  href: string;
 }
 
 const share = (part: number, total: number) => (total > 0 ? Math.round((part / total) * 100) : 0);
@@ -41,6 +44,7 @@ export function StaffKpis() {
       ...(added > 0 ? { rise: added } : {}),
       note: added > 0 ? `+${added} this month` : 'None added this month',
       noteTone: added > 0 ? 'text-success' : 'text-muted',
+      href: '/team/directory',
     },
     {
       id: 'active',
@@ -50,6 +54,7 @@ export function StaffKpis() {
       value: s?.active,
       note: s ? `${share(s.active, s.total)}% active` : '',
       noteTone: 'text-success',
+      href: '/team/directory?status=active',
     },
     {
       id: 'inactive',
@@ -59,6 +64,7 @@ export function StaffKpis() {
       value: s?.inactive,
       note: s ? `${share(s.inactive, s.total)}% inactive` : '',
       noteTone: 'text-muted',
+      href: '/team/directory?status=inactive',
     },
     {
       id: 'departments',
@@ -68,17 +74,19 @@ export function StaffKpis() {
       value: s?.departments,
       note: 'Across your organization',
       noteTone: 'text-link',
+      href: '/team/departments',
     },
   ];
   return (
     <div className="flex flex-col gap-2">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-testid="staff-kpis">
         {cards.map((card) => (
-          <section
+          <Link
             key={card.id}
-            aria-label={card.label}
+            href={card.href}
+            aria-label={`${card.label}${card.value === undefined ? '' : `: ${card.value}`}. Open the list`}
             data-testid={`kpi-${card.id}`}
-            className="flex min-w-0 items-center gap-4 rounded-xl border border-divider bg-surface p-4 shadow-sm"
+            className="flex min-w-0 items-center gap-4 rounded-xl border border-divider bg-surface p-4 shadow-sm transition-colors hover:border-action focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
           >
             <IconTile icon={card.icon} tone={card.tone} />
             <div className="flex min-w-0 flex-col gap-0.5">
@@ -106,7 +114,7 @@ export function StaffKpis() {
                 <p className={`text-sm ${card.noteTone}`}>{card.note}</p>
               ) : null}
             </div>
-          </section>
+          </Link>
         ))}
       </div>
       {failed ? (

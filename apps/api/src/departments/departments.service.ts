@@ -10,7 +10,9 @@ import type {
   Department,
   DepartmentDetail,
   DepartmentListResponse,
+  DepartmentMembers,
   DepartmentSummary,
+  MembershipStatus,
   OrgChart,
   StaffRef,
   StaffTeam,
@@ -27,6 +29,7 @@ import type {
   CreateDepartmentBody,
   CreateTeamBody,
   DepartmentListQ,
+  SetDepartmentMembersBody,
   SetTeamMembersBody,
   TeamListQ,
   UpdateDepartmentBody,
@@ -49,6 +52,9 @@ const STATUS: Record<string, Prisma.EnumStaffGroupStatusFilter | undefined> = {
   inactive: { equals: 'INACTIVE' },
   archived: { equals: 'ARCHIVED' },
 };
+
+/** Staff a department lists and takes: everyone but the deactivated. */
+const LISTED = ['ACTIVE', 'INVITED', 'LOCKED'] as const satisfies readonly MembershipStatus[];
 
 const memberSelect = {
   id: true,
@@ -577,6 +583,110 @@ export class DepartmentsService {
         { teamId: t.id, count: body.members.length, actorUserId: userId },
       );
       return this.teamDetail(tx, businessId, t.id);
+    });
+  }
+
+  // ---------- Department members (Octavia's SM13) ----------
+
+  /** The staff assigned straight to the department, whatever their teams; never the deactivated. */
+  private async departmentPeople(tx: TxClient, businessId: string, departmentId: string) {
+    const rows = await tx.membership.findMany({
+      where: { businessId, status: { in: [...LISTED] }, departments: { some: { departmentId } } },
+      select: memberSelect,
+      orderBy: [{ user: { name: 'asc' } }, { id: 'asc' }],
+    });
+    return rows.map(ref);
+  }
+
+  /** GET .../departments/{id}/members: Manage Members, read as the department is. */
+  departmentMembers(tenant: TenantContext, id: string): Promise<DepartmentMembers> {
+    return this.inFirm(tenant, async (tx) => {
+      const d = await this.loadDepartment(tx, tenant.businessId, id);
+      return { members: await this.departmentPeople(tx, tenant.businessId, d.id) };
+    });
+  }
+
+  /**
+   * PUT .../departments/{id}/members: the department's whole list, with no team needed. Adds and
+   * removes only member_departments rows of this department; a deactivated member keeps theirs.
+   * Taking someone out of their only department is 409 LAST_DEPARTMENT, naming them.
+   */
+  setDepartmentMembers(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof SetDepartmentMembersBody>,
+  ): Promise<DepartmentMembers> {
+    return this.inFirm(tenant, async (tx) => {
+      const businessId = tenant.businessId;
+      const d = await this.loadDepartment(tx, businessId, id);
+      if (d.status !== 'ACTIVE')
+        throw invalid('membershipIds', 'Members join an active department');
+      const wanted = new Set(body.membershipIds);
+      const live = wanted.size
+        ? await tx.membership.findMany({
+            where: { businessId, id: { in: [...wanted] }, status: { in: [...LISTED] } },
+            select: { id: true },
+          })
+        : [];
+      const ok = new Set(live.map((m) => m.id));
+      const bad = body.membershipIds.findIndex((x) => !ok.has(x));
+      if (bad >= 0)
+        throw new ConflictException({
+          code: 'MEMBER_NOT_ACTIVE',
+          message: 'Every member must be an active, invited or locked member of the firm',
+          details: [{ path: `membershipIds[${bad}]` }],
+        });
+      const current = await tx.memberDepartment.findMany({
+        where: { businessId, departmentId: d.id, membership: { status: { in: [...LISTED] } } },
+        select: {
+          membershipId: true,
+          membership: { select: { user: { select: { name: true } } } },
+        },
+      });
+      const have = new Set(current.map((c) => c.membershipId));
+      const removing = current.filter((c) => !wanted.has(c.membershipId));
+      const adding = body.membershipIds.filter((m) => !have.has(m));
+      if (removing.length) {
+        const elsewhere = await tx.memberDepartment.findMany({
+          where: {
+            businessId,
+            membershipId: { in: removing.map((r) => r.membershipId) },
+            departmentId: { not: d.id },
+            department: { status: { not: 'ARCHIVED' } },
+          },
+          select: { membershipId: true },
+        });
+        const kept = new Set(elsewhere.map((e) => e.membershipId));
+        const alone = removing.filter((r) => !kept.has(r.membershipId));
+        if (alone.length)
+          throw new ConflictException({
+            code: 'LAST_DEPARTMENT',
+            message: 'Everyone keeps at least one department',
+            details: alone.map((a) => ({
+              path: 'membershipIds',
+              message: `${a.membership.user.name} has no other department. Add one first.`,
+            })),
+          });
+        await tx.memberDepartment.deleteMany({
+          where: {
+            businessId,
+            departmentId: d.id,
+            membershipId: { in: removing.map((r) => r.membershipId) },
+          },
+        });
+      }
+      if (adding.length)
+        await tx.memberDepartment.createMany({
+          data: adding.map((membershipId) => ({ businessId, membershipId, departmentId: d.id })),
+        });
+      await this.audit.logIn(
+        tx,
+        'department.members_set',
+        { type: 'department', id: d.id },
+        { departmentId: d.id, added: adding.length, removed: removing.length, actorUserId: userId },
+      );
+      return { members: await this.departmentPeople(tx, businessId, d.id) };
     });
   }
 

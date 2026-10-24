@@ -78,6 +78,7 @@ export function AppShell({
         className={`flex min-h-screen flex-col md:[&>header]:pr-4 ${brand ? 'md:pl-61.5' : 'md:pl-72'}`}
       >
         <Header
+          clock
           search={search}
           greeting={greeting}
           bell={bell}
