@@ -1,6 +1,6 @@
 'use client';
 
-import { DOCUMENT_ERRORS } from '@firmivra/types';
+import { DOCUMENT_ERRORS, UPLOAD_LIMITS } from '@firmivra/types';
 import { Button, Modal, PageHeader, Stepper } from '@firmivra/ui';
 import { ArrowLeft, ArrowRight, CaretRight, CheckCircle } from '@phosphor-icons/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -147,6 +147,7 @@ export function UploadDocumentScreen() {
       patchFile(item.key, { state: 'UPLOADING', percent: 0, error: null });
       try {
         await uploadFile(item.file, {
+          maxBytes: UPLOAD_LIMITS.maxBytes,
           start: (facts) =>
             api.documentLibrary.createUpload({
               clientId,
@@ -236,8 +237,8 @@ export function UploadDocumentScreen() {
             <DocumentInfo
               info={info}
               onChange={patchInfo}
-              categories={categories.data}
-              folders={folders.data}
+              categories={categories.isError ? null : categories.data}
+              folders={folders.isError ? null : folders.data}
               fileCount={files.length}
               errors={errors}
               disabled={locked}

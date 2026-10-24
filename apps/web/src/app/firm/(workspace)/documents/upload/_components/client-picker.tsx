@@ -6,6 +6,7 @@ import { CaretDown, MagnifyingGlass } from '@phosphor-icons/react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useState } from 'react';
 import { api } from '../../../../../../lib/api';
+import { formatPhone } from '../../../clients/_components/client-parts';
 
 /** The typed text once it has been still for a moment (one request per pause). */
 function useSettled(text: string, ms = 250) {
@@ -43,7 +44,7 @@ export function ClientPicker({
     placeholderData: keepPreviousData,
   });
   const contact = (client: ClientListItem) =>
-    [client.email, client.phone].filter(Boolean).join('  |  ');
+    [client.email, formatPhone(client.phone)].filter(Boolean).join('  |  ');
 
   return (
     <div

@@ -55,8 +55,9 @@ export function DocumentInfo({
 }: {
   info: SharedInfo;
   onChange: (next: Partial<SharedInfo>) => void;
-  categories: DocumentCategory[] | undefined;
-  folders: DocumentFolder[] | undefined;
+  /** Undefined while loading; null when it could not be read. */
+  categories: DocumentCategory[] | undefined | null;
+  folders: DocumentFolder[] | undefined | null;
   fileCount: number;
   errors: Record<string, string>;
   disabled: boolean;
@@ -126,7 +127,14 @@ export function DocumentInfo({
           disabled={disabled || !categories}
           onChange={(event) => onChange({ categoryId: event.target.value })}
           options={[
-            { value: '', label: categories ? 'Choose a type' : 'Loading…' },
+            {
+              value: '',
+              label: categories
+                ? 'Choose a type'
+                : categories === null
+                  ? 'Not available right now'
+                  : 'Loading…',
+            },
             ...(categories ?? [])
               .filter((c) => !c.archivedAt)
               .map((c) => ({ value: c.id, label: c.name })),
@@ -141,7 +149,14 @@ export function DocumentInfo({
           options={[
             {
               value: '',
-              label: !folders ? 'Loading…' : folders.length ? 'Choose a folder' : 'No folders yet',
+              label:
+                folders === null
+                  ? 'Not available right now'
+                  : !folders
+                    ? 'Loading…'
+                    : folders.length
+                      ? 'Choose a folder'
+                      : 'No folders yet',
             },
             ...folderOptions(folders ?? []),
           ]}
