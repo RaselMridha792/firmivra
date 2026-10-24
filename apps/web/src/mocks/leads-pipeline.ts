@@ -274,6 +274,7 @@ function seed(empty: boolean): Store {
         email: `${first.toLowerCase()}.${last.toLowerCase()}@example.test`,
         phone: `(555) 030-${String(1000 + n)}`,
         avatarUrl: null,
+        duplicates: { leads: [], clients: [] },
         source,
         sourceDetail: detail,
         campaign: source.endsWith('_AD') ? { id: uuid('0c00', n % 3), name: detail } : null,
@@ -501,6 +502,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         email: b.email,
         phone: b.phone,
         avatarUrl: null,
+        duplicates: { leads: [], clients: [] },
         source: 'BEGIN_ONLINE',
         sourceDetail: 'Begin Online',
         campaign: null,
@@ -547,6 +549,23 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
   };
   const view = (l: Lead): LeadProfile => ({
     ...copy(l.profile),
+    // As the API: other open leads with this email or phone (warned and linked, never merged).
+    duplicates: {
+      leads: s.leads
+        .filter(
+          (x) =>
+            x !== l &&
+            visible(x) &&
+            (x.profile.email.toLowerCase() === l.profile.email.toLowerCase() ||
+              (!!l.profile.phone && x.profile.phone === l.profile.phone)),
+        )
+        .slice(0, 5)
+        .map((x) => ({
+          id: x.profile.id,
+          name: `${x.profile.firstName} ${x.profile.lastName}`.trim(),
+        })),
+      clients: [],
+    },
     recentActivity: copy(l.activity.slice(0, 5)),
     upcomingAppointments: copy(l.appointments),
     openTasks: copy(l.tasks.filter((t) => !t.done)),
@@ -680,6 +699,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
           email: input.email,
           phone: input.phone ?? null,
           avatarUrl: null,
+          duplicates: { leads: [], clients: [] },
           source: input.source,
           sourceDetail: input.sourceDetail ?? null,
           campaign: null,
