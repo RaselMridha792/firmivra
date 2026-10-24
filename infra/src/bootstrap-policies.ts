@@ -38,6 +38,9 @@ export const SERVICE_LINKED_ROLES = [
   'email.cognito-idp.amazonaws.com',
   // The ci stack's ECR pull-through cache rule (AWSServiceRoleForECRPullThroughCache).
   'pullthroughcache.ecr.amazonaws.com',
+  // Prod's auto scaling of the api and web services
+  // (AWSServiceRoleForApplicationAutoScaling_ECSService).
+  'ecs.application-autoscaling.amazonaws.com',
 ];
 
 const serviceLinkedRoles = (resource: string): Statement => ({
@@ -149,7 +152,15 @@ export function cfnExecPolicy(account: string, region: string): PolicyDocument {
       {
         Sid: 'Services',
         Effect: 'Allow',
-        Action: ['acm:*', 'cloudfront:*', 'cognito-idp:*', 'ecs:*', 'kms:*', 'ses:*'],
+        Action: [
+          'acm:*',
+          'application-autoscaling:*',
+          'cloudfront:*',
+          'cognito-idp:*',
+          'ecs:*',
+          'kms:*',
+          'ses:*',
+        ],
         Resource: '*',
       },
       // CreateMalwareProtectionPlan has no resource type; the rest take the plan ARN.
@@ -296,6 +307,7 @@ export function permissionsBoundary(account: string, region: string): PolicyDocu
         Effect: 'Allow',
         Action: [
           'acm:*',
+          'application-autoscaling:*',
           'cloudfront:*',
           'cognito-idp:*',
           'ec2:*',
