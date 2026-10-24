@@ -17,9 +17,11 @@ import {
 // A draft is a task that is not live yet: no count, list, calendar, reminder, notification,
 // automation or client portal sees it, and every task route in ./work.ts and ./schemas.ts answers
 // 404 for it. It may have no client: then only its creator sees it, and it has no engagement or
-// attachments. A draft with a client follows the tasks' reach rules (Owner and Admin: every draft
-// of the firm; Staff: drafts of clients assigned to them). Publishing makes it an OPEN task with
-// the same id, and that is when "task created" happens (audit, notifications, automations), once.
+// attachments. A draft with a client follows the tasks' reach rules, whoever made it (Owner and
+// Admin: every draft of the firm; Staff: drafts of clients assigned to them, so a draft whose
+// client is reassigned or changed leaves a creator who no longer reaches it). Publishing makes it
+// an OPEN task with the same id, and that is when "task created" happens (audit, notifications,
+// automations), once.
 // Firm routes under /api/v1/business/tasks/drafts, `@Access('TASKS')` (GET views, POST creates,
 // PATCH edits, DELETE deletes). Responses are plain objects; requests are strict.
 
@@ -29,7 +31,10 @@ const QueryBool = z.union([z.boolean(), z.stringbool()]);
 
 export const TaskDraftId = z.uuid();
 
-/** What publishing still needs. Empty when the draft can be published. */
+/**
+ * What the draft still lacks for publishing (today only a client). Empty does not promise that
+ * publishing succeeds: publishing checks the draft as a new task is checked.
+ */
 export const TaskDraftMissing = z.enum(['clientId']);
 export type TaskDraftMissing = z.infer<typeof TaskDraftMissing>;
 
@@ -120,9 +125,11 @@ const clientFirstError = {
  * POST /business/tasks/drafts: Save as Draft. The fields of CreateTaskDetailRequest, all kept as
  * sent, but only the title is required: the client may come later. Nothing is checked that
  * publishing checks (an assignee's reach, an archived type, reminders without a due date or time,
- * after the due time or at the same moment); the ids sent must still be the firm's (400
- * VALIDATION_FAILED otherwise), and the same reminder twice (or two Custom ones of one length) is
- * 400 INVALID_REMINDER. `templateId` fills the fields the request leaves out, as for a new task,
+ * after the due time or at the same moment). Each id sent must still be one the caller may use,
+ * with the error a new task gives for it (404 for a client out of the caller's reach; 409
+ * ENGAGEMENT_MISMATCH, NOT_A_MEMBER or ATTACHMENT_NOT_ALLOWED; 400 VALIDATION_FAILED naming the
+ * field otherwise), and the same reminder twice (or two Custom ones of one length) is 400
+ * INVALID_REMINDER. `templateId` fills the fields the request leaves out, as for a new task,
  * except that the draft keeps all the template's reminders: publishing checks them as if sent.
  */
 export const SaveTaskDraftRequest = CreateTaskDetailRequest.extend({
