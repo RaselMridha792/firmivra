@@ -309,7 +309,10 @@ describe('the table, the cards and the dropdowns', () => {
     ]);
     expect((await list('?search=facebook')).items.map((i) => i.id)).toEqual([made.overdue!.id]);
     expect((await list('?tag=nothing')).total).toBe(0);
-    const today = new Date().toISOString().slice(0, 10);
+    // The firm's day (New York, the default zone), not the UTC one: they differ for 4 to 5 hours.
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+      new Date(),
+    );
     expect((await list(`?from=${today}&to=${today}`)).total).toBe(7);
     expect((await list('?from=2001-01-01&to=2001-01-02')).total).toBe(0);
     expect((await list(`?campaignId=${randomUUID()}`)).total).toBe(0);
