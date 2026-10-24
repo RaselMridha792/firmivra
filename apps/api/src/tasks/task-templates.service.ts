@@ -21,7 +21,7 @@ import {
   notFound,
   sentFields,
 } from '../workspaces/common.js';
-import { taskErrors } from './task-common.js';
+import { LIVE_TASK, taskErrors } from './task-common.js';
 import { reach } from './task-read.service.js';
 
 type CreateBody = z.output<typeof CreateTaskTemplateRequest>;
@@ -339,7 +339,7 @@ export class TaskTemplatesService {
   ): Promise<TaskTemplate> {
     const made = await this.write(businessId, async (tx) => {
       const task = await tx.task.findFirst({
-        where: { businessId, id: taskId, ...reach(actor) },
+        where: { businessId, id: taskId, ...LIVE_TASK, ...reach(actor) },
         include: {
           taskChecklistItems: { orderBy: { position: 'asc' } },
           taskReminders: { orderBy: [{ daysBefore: 'desc' }, { timeOfDay: 'asc' }] },

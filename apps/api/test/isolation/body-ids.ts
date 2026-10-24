@@ -165,8 +165,8 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   },
   {
     field: 'checklist.id',
-    routes: /^POST \/api\/v1\/business\/tasks$/,
-    why: 'a new task has no checklist steps yet: any step id is refused (400), so the field names no record (R55)',
+    routes: /^POST \/api\/v1\/business\/tasks(\/drafts)?$/,
+    why: 'a new task or draft has no checklist steps yet: any step id is refused (400), so the field names no record (R55, R1)',
   },
   ...[
     [

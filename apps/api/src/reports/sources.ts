@@ -13,6 +13,7 @@ import {
   TaskStatus,
   TaxReturnStatus,
 } from '@firmivra/types';
+import { LIVE_TASK, liveClient } from '../tasks/task-common.js';
 import { memberNames } from '../workspaces/common.js';
 
 // The report catalog: each data source says what a report can show, group, sort and filter on, and
@@ -496,6 +497,7 @@ const tasks: SourceDef = {
       where: {
         businessId: c.businessId,
         archivedAt: null,
+        ...LIVE_TASK,
         createdAt: windowOf(c.from, c.to),
         ...(c.reachOnly ? { client: { assignedUserId: c.actor.userId } } : {}),
       },
@@ -524,7 +526,7 @@ const tasks: SourceDef = {
         id: r.id,
         cells: {
           title: r.title,
-          client: r.client.displayName,
+          client: liveClient(r.client).displayName,
           status: r.status,
           priority: r.priority,
           assignedTo: r.assignedUserId ? (names.get(r.assignedUserId) ?? null) : null,
@@ -533,7 +535,7 @@ const tasks: SourceDef = {
           completedOn: localDay(r.completedAt, c.timezone),
           overdue: !!due && due < today && r.status !== 'DONE' && r.status !== 'CANCELLED',
         },
-        links: [link('TASK', r.id), link('CLIENT', r.clientId)],
+        links: [link('TASK', r.id), link('CLIENT', liveClient(r.clientId))],
       };
     });
   },

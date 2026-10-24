@@ -8,6 +8,7 @@ import type {
 import type { ClientsActor } from '../clients/clients.service.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
+import { LIVE_TASK, liveClient } from '../tasks/task-common.js';
 import { notFound } from '../workspaces/common.js';
 import { sanitize, stripTags } from './html.js';
 import { BUILT_IN_FIELDS, fill, smsLength } from './merge-fields.js';
@@ -236,11 +237,11 @@ export class TemplateRenderService {
     values: Values,
   ) {
     const t = await tx.task.findFirst({
-      where: { businessId, id },
+      where: { businessId, id, ...LIVE_TASK },
       select: { clientId: true, title: true, service: { select: { name: true } } },
     });
     if (!t) throw notFound();
-    await this.reachable(tx, businessId, actor, t.clientId);
+    await this.reachable(tx, businessId, actor, liveClient(t.clientId));
     put(values, 'Task Name', t.title);
     put(values, 'Service Name', t.service?.name);
   }

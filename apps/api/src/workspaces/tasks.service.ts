@@ -5,6 +5,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { LIVE_TASK, liveClient, liveStatus } from '../tasks/task-common.js';
 import {
   assignee,
   checkAssignee,
@@ -51,14 +52,15 @@ const select = {
 type Row = Prisma.TaskGetPayload<{ select: typeof select }>;
 
 function toTask(row: Row, names: Map<string, string>): Task {
+  const client = liveClient(row.client);
   return {
     id: row.id,
-    client: { id: row.client.id, displayName: row.client.displayName },
+    client: { id: client.id, displayName: client.displayName },
     engagementId: row.engagementId,
     title: row.title,
     details: row.details,
     kind: row.kind,
-    status: row.status,
+    status: liveStatus(row.status),
     dueOn: day(row.dueOn),
     assignedTo: assignee(row.assignedMember),
     completedAt: row.completedAt?.toISOString() ?? null,
@@ -73,7 +75,7 @@ function toTask(row: Row, names: Map<string, string>): Task {
  * cleared for any other status. `undefined`: the status does not change, nor does completedAt.
  */
 export function completedAtAfter(
-  current: { status: TaskStatus; completedAt: Date | null },
+  current: { status: string; completedAt: Date | null },
   next: TaskStatus | undefined,
   now: Date,
 ): Date | null | undefined {
@@ -289,11 +291,11 @@ export class TasksService {
       // reassignment of the same client (#104 review). A task never changes client, so its
       // client is read first without a lock.
       const owner = await tx.task.findFirst({
-        where: { businessId, id },
+        where: { businessId, id, ...LIVE_TASK },
         select: { clientId: true },
       });
       if (!owner) throw notFound();
-      const client = await lockClient(tx, businessId, owner.clientId);
+      const client = await lockClient(tx, businessId, liveClient(owner.clientId));
       if (!client || !reachesClient(actor, client)) throw notFound();
       // One change of a task at a time, so the status it replaces is the one read here.
       const [locked] = await tx.$queryRaw<{ id: string }[]>`
@@ -301,7 +303,7 @@ export class TasksService {
         FOR UPDATE`;
       if (!locked) throw notFound();
       const current = await tx.task.findFirst({
-        where: { businessId, id },
+        where: { businessId, id, ...LIVE_TASK },
         select: { clientId: true, kind: true, status: true, completedAt: true },
       });
       if (!current || current.clientId !== owner.clientId) throw notFound();
@@ -356,7 +358,7 @@ export class TasksService {
   }
 
   private async read(tx: TxClient, businessId: string, id: string): Promise<Task> {
-    const row = await tx.task.findFirst({ where: { businessId, id }, select });
+    const row = await tx.task.findFirst({ where: { businessId, id, ...LIVE_TASK }, select });
     if (!row) throw notFound();
     return toTask(row, await memberNames(tx, businessId, [row.createdByUserId]));
   }

@@ -1,0 +1,323 @@
+import { Inject, Injectable } from '@nestjs/common';
+import type { Database, Prisma, Task, TxClient } from '@firmivra/db';
+import type { TaskDetail, TaskDraft, TaskDraftPage } from '@firmivra/types';
+import type { z } from 'zod';
+import { AuditService } from '../audit/audit.service.js';
+import type { ClientsActor } from '../clients/clients.service.js';
+import { DATABASE } from '../database/database.module.js';
+import {
+  lockClient,
+  memberNames,
+  notFound,
+  reachesClient,
+  sentFields,
+} from '../workspaces/common.js';
+import { detailInclude, draftRowInclude, taskErrors, toDraft, toDraftRow } from './task-common.js';
+import type {
+  PublishTaskDraftRequest,
+  SaveTaskDraftRequest,
+  TaskDraftQuery,
+  UpdateTaskDraftRequest,
+} from './task-input.js';
+import { mineOf, reach, TaskReadService } from './task-read.service.js';
+import { TaskWriteService } from './task-write.service.js';
+
+type DraftQuery = z.output<typeof TaskDraftQuery>;
+type SaveBody = z.output<typeof SaveTaskDraftRequest>;
+type UpdateBody = z.output<typeof UpdateTaskDraftRequest>;
+type PublishBody = z.output<typeof PublishTaskDraftRequest>;
+
+const FILTERS = ['search', 'clientId', 'typeId', 'priority', 'assignedUserId', 'mine'] as const;
+/** The fields a draft can hold besides its title: their names go to the audit log, never values. */
+const FIELDS = [
+  'clientId',
+  'engagementId',
+  'details',
+  'dueOn',
+  'assignedUserId',
+  'typeId',
+  'priority',
+  'progress',
+  'serviceId',
+  'startOn',
+  'dueTime',
+  'allDay',
+  'clientVisible',
+  'internalNotes',
+  'blockedReason',
+  'additionalAssigneeIds',
+  'dependsOnTaskId',
+  'reminders',
+  'checklist',
+  'attachments',
+] as const;
+const SAVE_FIELDS = [...FIELDS, 'templateId'] as const;
+const CHANGE_FIELDS = ['title', ...FIELDS] as const;
+
+const SORT: Record<
+  DraftQuery['sort'],
+  (d: 'asc' | 'desc') => Prisma.TaskOrderByWithRelationInput[]
+> = {
+  updated: (d) => [{ updatedAt: d }],
+  title: (d) => [{ title: d }],
+  // A draft without a due date sorts as the latest one.
+  due: (d) => [{ dueOn: { sort: d, nulls: d === 'asc' ? 'last' : 'first' } }],
+  // Low, Medium, High: descending puts High first.
+  priority: (d) => [{ priority: d }],
+  client: (d) => [{ client: { displayName: d } }],
+};
+
+const DRAFT: Prisma.TaskWhereInput = { status: 'DRAFT' };
+
+/**
+ * The drafts the actor sees: their own always, and the drafts with a client they reach by the
+ * tasks' rule (Owner and Admin every client, Staff those assigned to them). A draft without a
+ * client is its creator's alone, even for the Owner.
+ */
+const seen = (actor: ClientsActor): Prisma.TaskWhereInput => ({
+  ...DRAFT,
+  OR: [{ createdByUserId: actor.userId }, { clientId: { not: null }, ...reach(actor) }],
+});
+
+/**
+ * Task drafts (contract in packages/types/src/tasks/drafts.ts; Octavia's Tasks review A2): Save
+ * as Draft, the Drafts tab (search, filters, sort, pages), reopen, edit, publish and discard. A
+ * draft is a task with status DRAFT, kept as sent: only the title is required, and nothing that
+ * publishing checks is checked before (TaskWriteService's `insertNew` and `editDraft` with
+ * `draft`). No other read of tasks sees a draft (LIVE_TASK); publishing checks it as a new task
+ * (`checkAsNew`), makes it OPEN with the same id once, and then "task created" happens as for a
+ * new task. A draft out of sight is 404, as is another firm's. Audited with ids and field names
+ * only, never a title, details, notes, a checklist label or a file name.
+ */
+@Injectable()
+export class TaskDraftsService {
+  constructor(
+    @Inject(DATABASE) private readonly database: Database,
+    private readonly audit: AuditService,
+    private readonly reader: TaskReadService,
+    private readonly writer: TaskWriteService,
+  ) {}
+
+  private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
+    return this.database.withScope({ kind: 'business', businessId }, fn);
+  }
+
+  async list(businessId: string, actor: ClientsActor, q: DraftQuery): Promise<TaskDraftPage> {
+    const page = await this.inFirm(businessId, async (tx) => {
+      const and: Prisma.TaskWhereInput[] = [{ businessId }, seen(actor)];
+      if (q.clientId) and.push({ clientId: q.clientId });
+      if (q.typeId) and.push({ typeId: q.typeId });
+      if (q.priority) and.push({ priority: q.priority });
+      if (q.assignedUserId) and.push(mineOf(q.assignedUserId));
+      if (q.mine === true) and.push({ createdByUserId: actor.userId });
+      if (q.search) {
+        const has = { contains: q.search, mode: 'insensitive' } as const;
+        and.push({
+          OR: [
+            { title: has },
+            { client: { displayName: has } },
+            { type: { name: has } },
+            { service: { name: has } },
+          ],
+        });
+      }
+      const where: Prisma.TaskWhereInput = { AND: and };
+      const [rows, total] = await Promise.all([
+        tx.task.findMany({
+          where,
+          include: draftRowInclude,
+          orderBy: [...SORT[q.sort](q.direction), { id: 'asc' }],
+          skip: (q.page - 1) * q.pageSize,
+          take: q.pageSize,
+        }),
+        tx.task.count({ where }),
+      ]);
+      const names = await memberNames(
+        tx,
+        businessId,
+        rows.map((r) => r.createdByUserId),
+      );
+      return {
+        items: rows.map((r) => toDraftRow(r, names)),
+        total,
+        page: q.page,
+        pageSize: q.pageSize,
+      };
+    });
+    await this.audit.log(
+      'tasks.drafts_listed',
+      { type: 'task' },
+      { count: page.items.length, filters: sentFields(q, FILTERS) },
+    );
+    return page;
+  }
+
+  async get(businessId: string, actor: ClientsActor, id: string): Promise<TaskDraft> {
+    const draft = await this.inFirm(businessId, (tx) => this.read(tx, businessId, actor, id));
+    await this.audit.log(
+      'task.draft_viewed',
+      { type: 'task', id: draft.id },
+      { clientId: draft.client?.id ?? null },
+    );
+    return draft;
+  }
+
+  /** Save as Draft: a new draft of the caller's, with or without a client they reach. */
+  async save(businessId: string, actor: ClientsActor, body: SaveBody): Promise<TaskDraft> {
+    const draft = await this.inFirm(businessId, async (tx) => {
+      let client: { assignedUserId: string | null } | null = null;
+      if (body.clientId) {
+        // As for a new task: a client the caller does not reach is not found.
+        client = await lockClient(tx, businessId, body.clientId);
+        if (!client || !reachesClient(actor, client)) throw notFound();
+      }
+      const id = await this.writer.insertNew(tx, businessId, actor, body, client, true);
+      return this.read(tx, businessId, null, id);
+    }).catch(this.writer.newTaskErrors(body));
+    await this.audit.log(
+      'task.draft_saved',
+      { type: 'task', id: draft.id },
+      {
+        clientId: draft.client?.id ?? null,
+        fields: sentFields(body, SAVE_FIELDS),
+        ...(body.templateId ? { templateId: body.templateId.toLowerCase() } : {}),
+      },
+    );
+    return draft;
+  }
+
+  /** Edits a draft; it stays a draft. `version` guards a concurrent save (409 SAVE_CONFLICT). */
+  async update(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: UpdateBody,
+  ): Promise<TaskDraft> {
+    const { version, ...changes } = body;
+    const draft = await this.inFirm(businessId, async (tx) => {
+      const current = await this.open(tx, businessId, actor, id);
+      if (version !== undefined && version !== current.updatedAt.toISOString()) {
+        throw taskErrors.saveConflict();
+      }
+      await this.writer.editDraft(tx, businessId, actor, current, changes);
+      // The draft as saved, also when the change took it out of the caller's sight (a client
+      // cleared on another member's draft).
+      return this.read(tx, businessId, null, current.id);
+    }).catch(this.writer.mapErrors(changes));
+    await this.audit.log(
+      'task.draft_updated',
+      { type: 'task', id: draft.id },
+      { clientId: draft.client?.id ?? null, fields: sentFields(changes, CHANGE_FIELDS) },
+    );
+    return draft;
+  }
+
+  /**
+   * Save Task on a draft, in one transaction: the fields sent apply as on PATCH, then the draft
+   * is checked as a new task is (400 VALIDATION_FAILED naming `clientId` without one; the errors
+   * of a new task otherwise, and then it stays a draft) and becomes an OPEN task with the same
+   * id, made now. Only while it is still this draft, so a retried publish finds none (404) and
+   * "task created" (create's audit row; create sends no notification and starts no automation)
+   * happens once.
+   */
+  async publish(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: PublishBody,
+  ): Promise<TaskDetail> {
+    const { version, ...changes } = body;
+    const task = await this.inFirm(businessId, async (tx) => {
+      const current = await this.open(tx, businessId, actor, id);
+      if (version !== undefined && version !== current.updatedAt.toISOString()) {
+        throw taskErrors.saveConflict();
+      }
+      if (Object.keys(changes).length > 0) {
+        await this.writer.editDraft(tx, businessId, actor, current, changes);
+      }
+      const draft = await this.writer.checkAsNew(tx, businessId, actor, current.id);
+      const now = new Date();
+      const { count } = await tx.task.updateMany({
+        where: { businessId, id: draft.id, status: 'DRAFT', updatedAt: draft.updatedAt },
+        data: { status: 'OPEN', createdAt: now, updatedAt: now },
+      });
+      if (count !== 1) throw notFound();
+      return this.reader.read(tx, businessId, null, draft.id);
+    }).catch(this.writer.mapErrors(changes));
+    await this.audit.log(
+      'task.created',
+      { type: 'task', id: task.id },
+      {
+        clientId: task.client.id,
+        engagementId: task.engagementId,
+        assignedUserId: task.assignedTo?.userId ?? null,
+        fields: sentFields(changes, CHANGE_FIELDS),
+        fromDraft: true,
+        ...(task.templateId ? { templateId: task.templateId } : {}),
+      },
+    );
+    return task;
+  }
+
+  /** Discards a draft: its checklist, reminders, collaborators and attachments go with it. */
+  async discard(businessId: string, actor: ClientsActor, id: string): Promise<void> {
+    const gone = await this.inFirm(businessId, async (tx) => {
+      const current = await this.open(tx, businessId, actor, id);
+      const { count } = await tx.task.deleteMany({
+        where: { businessId, id: current.id, ...DRAFT },
+      });
+      if (count !== 1) throw notFound();
+      return current;
+    });
+    await this.audit.log(
+      'task.draft_discarded',
+      { type: 'task', id: gone.id },
+      { clientId: gone.clientId },
+    );
+  }
+
+  /**
+   * The draft the actor sees, locked: its client first (FOR SHARE, so its assignee holds), then
+   * the task (FOR UPDATE), the one order everywhere. 404 when it is out of sight or no longer a
+   * draft (published meanwhile).
+   */
+  private async open(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+  ): Promise<Task> {
+    const found = await tx.task.findFirst({
+      where: { businessId, id, ...seen(actor) },
+      select: { clientId: true },
+    });
+    if (!found) throw notFound();
+    if (found.clientId) await lockClient(tx, businessId, found.clientId);
+    const [locked] = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM tasks WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+    if (!locked) throw notFound();
+    const current = await tx.task.findFirst({ where: { businessId, id, ...seen(actor) } });
+    if (!current || current.clientId !== found.clientId) throw notFound();
+    return current;
+  }
+
+  /** One draft with everything the form shows; `actor` null: after the caller's own write. */
+  private async read(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor | null,
+    id: string,
+  ): Promise<TaskDraft> {
+    const row = await tx.task.findFirst({
+      where: { businessId, id, ...(actor ? seen(actor) : DRAFT) },
+      include: detailInclude,
+    });
+    if (!row) throw notFound();
+    const names = await memberNames(tx, businessId, [
+      row.createdByUserId,
+      ...row.taskChecklistItems.map((i) => i.completedByUserId),
+      ...row.taskAttachments.map((a) => a.addedByUserId),
+    ]);
+    return toDraft(row, names);
+  }
+}

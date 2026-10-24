@@ -1,16 +1,43 @@
 import { BadRequestException } from '@nestjs/common';
-import type { Prisma } from '@firmivra/db';
+import type { Prisma, TaskStatus as StoredTaskStatus } from '@firmivra/db';
 import type {
   ChecklistItem,
   MemberRef,
   ReminderRuleOut,
   TaskAttachment,
   TaskDetail,
+  TaskDraft,
+  TaskDraftRow,
   TaskRow,
+  TaskStatus,
   TaskWorkErrorCode,
 } from '@firmivra/types';
 import { assignee, conflict, day, memberRef } from '../workspaces/common.js';
 import { timeOfDayFromDb } from '../appointments/calendar.js';
+
+// ---------- Live tasks and drafts ----------
+
+/**
+ * Every task but a draft (Save as Draft, R1 Oct 24). A draft is not live yet: only the Drafts
+ * routes (task-drafts.service.ts) read it, so every other read of tasks merges this in, unless
+ * its filter already pins a status that is not DRAFT.
+ */
+export const LIVE_TASK: Prisma.TaskWhereInput = { status: { not: 'DRAFT' } };
+
+/** A live task's status as the contract has it: never DRAFT (see LIVE_TASK). */
+export function liveStatus(status: StoredTaskStatus): TaskStatus {
+  if (status === 'DRAFT') throw new Error('A draft is not a live task');
+  return status;
+}
+
+/**
+ * A live task's client, or its id: only a draft may have none (tasks_client_unless_draft), and
+ * every read but the Drafts routes' leaves drafts out (LIVE_TASK).
+ */
+export function liveClient<T>(client: T | null): T {
+  if (client === null) throw new Error('A live task has a client');
+  return client;
+}
 
 /** The errors of the Tasks module beyond TaskErrorCode (codes in packages/types/src/tasks). */
 const code = (c: TaskWorkErrorCode, message: string) => conflict(c, message);
@@ -79,6 +106,16 @@ export const detailInclude = {
 export type RowShape = Prisma.TaskGetPayload<{ include: typeof rowInclude }>;
 export type DetailShape = Prisma.TaskGetPayload<{ include: typeof detailInclude }>;
 
+/** What a row of the Drafts tab is read with. */
+export const draftRowInclude = {
+  client: { select: { id: true, displayName: true } },
+  assignedMember: { select: memberSelect },
+  type: { select: { id: true, name: true } },
+  service: { select: { id: true, name: true } },
+} satisfies Prisma.TaskInclude;
+
+export type DraftRowShape = Prisma.TaskGetPayload<{ include: typeof draftRowInclude }>;
+
 /** Whether an OPEN task is past due in the firm's time zone (`today` is the firm's date). */
 export function isOverdue(
   t: { status: string; dueOn: Date | null; dueTime: Date | null; allDay: boolean },
@@ -103,17 +140,18 @@ export interface RowContext {
 }
 
 export function toRow(t: RowShape, ctx: RowContext): TaskRow {
+  const client = liveClient(t.client);
   return {
     id: t.id,
     title: t.title,
     kind: t.kind,
-    client: { id: t.client.id, displayName: t.client.displayName },
+    client: { id: client.id, displayName: client.displayName },
     type: t.type ? { id: t.type.id, name: t.type.name } : null,
     engagement: t.engagement ? { id: t.engagement.id, title: t.engagement.title } : null,
     service: t.service ? { id: t.service.id, name: t.service.name } : null,
     deadline: t.deadline ? { id: t.deadline.id, name: t.deadline.name } : null,
     priority: t.priority,
-    status: t.status,
+    status: liveStatus(t.status),
     progress: t.progress,
     dueOn: day(t.dueOn),
     dueTime: t.dueTime ? timeOfDayFromDb(t.dueTime) : null,
@@ -130,8 +168,9 @@ export function toRow(t: RowShape, ctx: RowContext): TaskRow {
   };
 }
 
-export function toDetail(t: DetailShape, names: Map<string, string>, ctx: RowContext): TaskDetail {
-  const items: ChecklistItem[] = t.taskChecklistItems.map((i) => ({
+/** A task's checklist, reminders and attachments, as a TaskDetail or a TaskDraft has them. */
+function checklistOut(t: DetailShape, names: Map<string, string>): ChecklistItem[] {
+  return t.taskChecklistItems.map((i) => ({
     id: i.id,
     label: i.label,
     position: i.position,
@@ -140,14 +179,20 @@ export function toDetail(t: DetailShape, names: Map<string, string>, ctx: RowCon
     completedBy: memberRef(names, i.completedByUserId),
     assignedTo: assignee(i.assignedMember),
   }));
-  const reminders: ReminderRuleOut[] = t.taskReminders.map((r) => ({
+}
+
+function remindersOut(t: DetailShape): ReminderRuleOut[] {
+  return t.taskReminders.map((r) => ({
     id: r.id,
     daysBefore: r.daysBefore,
     timeOfDay: r.timeOfDay ? timeOfDayFromDb(r.timeOfDay) : null,
     inApp: r.inApp,
     channels: r.channels,
   }));
-  const attachments: TaskAttachment[] = t.taskAttachments.map((a) => ({
+}
+
+function attachmentsOut(t: DetailShape, names: Map<string, string>): TaskAttachment[] {
+  return t.taskAttachments.map((a) => ({
     id: a.id,
     documentId: a.documentId,
     fileName: a.document.fileName,
@@ -157,6 +202,16 @@ export function toDetail(t: DetailShape, names: Map<string, string>, ctx: RowCon
     addedBy: memberRef(names, a.addedByUserId),
     addedAt: a.createdAt.toISOString(),
   }));
+}
+
+/** The prerequisite: always a live task (a draft is never one). */
+const dependsOnOut = (t: DetailShape) =>
+  t.dependsOn
+    ? { id: t.dependsOn.id, title: t.dependsOn.title, status: liveStatus(t.dependsOn.status) }
+    : null;
+
+export function toDetail(t: DetailShape, names: Map<string, string>, ctx: RowContext): TaskDetail {
+  const items = checklistOut(t, names);
   const withTotals: RowContext = {
     ...ctx,
     done: new Map([[t.id, items.filter((i) => i.completedAt).length]]),
@@ -170,11 +225,9 @@ export function toDetail(t: DetailShape, names: Map<string, string>, ctx: RowCon
     assignedUserId: t.assignedUserId,
     additionalAssignees: t.assignees.map((a): MemberRef => assignee(a.member)!),
     checklistItems: items,
-    reminders,
-    attachments,
-    dependsOn: t.dependsOn
-      ? { id: t.dependsOn.id, title: t.dependsOn.title, status: t.dependsOn.status }
-      : null,
+    reminders: remindersOut(t),
+    attachments: attachmentsOut(t, names),
+    dependsOn: dependsOnOut(t),
     blockedReason: t.blockedReason,
     internalNotes: t.internalNotes,
     templateId: t.templateId,
@@ -185,6 +238,50 @@ export function toDetail(t: DetailShape, names: Map<string, string>, ctx: RowCon
     completedBy: memberRef(names, t.completedByUserId),
     createdBy: memberRef(names, t.createdByUserId),
     createdAt: t.createdAt.toISOString(),
+    version: t.updatedAt.toISOString(),
+  };
+}
+
+/** One row of the Drafts tab (contract in packages/types/src/tasks/drafts.ts). */
+export function toDraftRow(t: DraftRowShape, names: Map<string, string>): TaskDraftRow {
+  return {
+    id: t.id,
+    title: t.title,
+    client: t.client ? { id: t.client.id, displayName: t.client.displayName } : null,
+    type: t.type ? { id: t.type.id, name: t.type.name } : null,
+    service: t.service ? { id: t.service.id, name: t.service.name } : null,
+    priority: t.priority,
+    dueOn: day(t.dueOn),
+    assignedTo: assignee(t.assignedMember),
+    createdBy: memberRef(names, t.createdByUserId),
+    // Publishing needs a client; everything else a draft holds can be published as it is checked.
+    missing: t.clientId ? [] : ['clientId'],
+    createdAt: t.createdAt.toISOString(),
+    updatedAt: t.updatedAt.toISOString(),
+  };
+}
+
+/** A draft with everything the Create Task form shows. */
+export function toDraft(t: DetailShape, names: Map<string, string>): TaskDraft {
+  return {
+    ...toDraftRow(t, names),
+    status: 'DRAFT',
+    details: t.details,
+    engagement: t.engagement ? { id: t.engagement.id, title: t.engagement.title } : null,
+    progress: t.progress,
+    startOn: day(t.startOn),
+    dueTime: t.dueTime ? timeOfDayFromDb(t.dueTime) : null,
+    allDay: t.allDay,
+    clientVisible: t.clientVisible,
+    internalNotes: t.internalNotes,
+    blockedReason: t.blockedReason,
+    assignedUserId: t.assignedUserId,
+    additionalAssignees: t.assignees.map((a): MemberRef => assignee(a.member)!),
+    checklistItems: checklistOut(t, names),
+    reminders: remindersOut(t),
+    attachments: attachmentsOut(t, names),
+    dependsOn: dependsOnOut(t),
+    templateId: t.templateId,
     version: t.updatedAt.toISOString(),
   };
 }

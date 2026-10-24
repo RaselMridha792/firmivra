@@ -1,4 +1,5 @@
 import type { TxClient } from '@firmivra/db';
+import { liveClient } from '../tasks/task-common.js';
 import type { FieldValue } from './logic.js';
 
 // The records an event can start a rule for. Each event reads the firm's own tables (the
@@ -170,19 +171,23 @@ const LOADERS: Record<string, Loader> = {
       orderBy: [{ dueOn: 'asc' }, { id: 'asc' }],
       take: s.limit ?? LIMIT,
     });
-    return rows.map((t) => ({
-      recordKind: 'task',
-      recordId: t.id,
-      clientId: t.client.id,
-      label: t.title,
-      at: t.dueOn,
-      occurrence: t.dueOn ? dayOf(t.dueOn) : 'undated',
-      fields: {
-        clientType: t.client.accountType,
-        priority: t.priority,
-        daysOverdue: t.dueOn ? daysBetween(s.today, t.dueOn) : null,
-      },
-    }));
+    return rows.map((t) => {
+      // An OPEN task is never a draft, so it has its client.
+      const client = liveClient(t.client);
+      return {
+        recordKind: 'task',
+        recordId: t.id,
+        clientId: client.id,
+        label: t.title,
+        at: t.dueOn,
+        occurrence: t.dueOn ? dayOf(t.dueOn) : 'undated',
+        fields: {
+          clientType: client.accountType,
+          priority: t.priority,
+          daysOverdue: t.dueOn ? daysBetween(s.today, t.dueOn) : null,
+        },
+      };
+    });
   },
   'appointment.upcoming': async (tx, s) => {
     const rows = await tx.appointment.findMany({

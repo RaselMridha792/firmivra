@@ -5,6 +5,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { LIVE_TASK } from '../tasks/task-common.js';
 import { TasksService } from '../workspaces/tasks.service.js';
 import { completedIn, dueTasks, kpi, revenueOf, type RevenueRow } from './dashboard-math.js';
 
@@ -168,7 +169,7 @@ export class DashboardService {
     const priorities = new Map(
       (
         await this.database.forBusiness(businessId).task.findMany({
-          where: { businessId, id: { in: open.items.map((t) => t.id) } },
+          where: { businessId, id: { in: open.items.map((t) => t.id) }, ...LIVE_TASK },
           select: { id: true, priority: true },
         })
       ).map((t): [string, TaskPriority] => [t.id, t.priority]),

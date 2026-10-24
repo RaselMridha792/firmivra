@@ -20,6 +20,7 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { LIVE_TASK } from '../tasks/task-common.js';
 import {
   checkAssignee,
   isUniqueViolation,
@@ -593,7 +594,7 @@ export class ComplianceDeadlineActionsService {
     const template = templateId ? await this.requireTemplate(tx, businessId, templateId) : null;
     if (template) {
       const existing = await tx.task.findFirst({
-        where: { businessId, deadlineId, templateId: template.id },
+        where: { businessId, deadlineId, templateId: template.id, ...LIVE_TASK },
         select: { id: true },
       });
       if (existing) return existing.id;
@@ -627,7 +628,7 @@ export class ComplianceDeadlineActionsService {
     } catch (error) {
       if (isUniqueViolation(error) && template) {
         const existing = await tx.task.findFirst({
-          where: { businessId, deadlineId, templateId: template.id },
+          where: { businessId, deadlineId, templateId: template.id, ...LIVE_TASK },
           select: { id: true },
         });
         if (existing) return existing.id;
@@ -671,7 +672,7 @@ export class ComplianceDeadlineActionsService {
       if (!current) throw errors.notFound();
       if (current.archivedAt) throw errors.deadlineState('This deadline is archived');
       const task = await tx.task.findFirst({
-        where: { businessId, id: body.taskId },
+        where: { businessId, id: body.taskId, ...LIVE_TASK },
         select: { clientId: true, deadlineId: true },
       });
       if (!task || task.clientId !== current.clientId) throw errors.notThisClients('task');
@@ -698,7 +699,7 @@ export class ComplianceDeadlineActionsService {
       });
       if (!current) throw errors.notFound();
       const { count } = await tx.task.updateMany({
-        where: { businessId, id: taskId, deadlineId: id },
+        where: { businessId, id: taskId, deadlineId: id, ...LIVE_TASK },
         data: { deadlineId: null },
       });
       if (count === 0) throw errors.notFound();

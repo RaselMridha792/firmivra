@@ -1,5 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Database, Prisma, TxClient } from '@firmivra/db';
+import type {
+  Database,
+  Prisma,
+  Task,
+  TaskStatus as StoredTaskStatus,
+  TxClient,
+} from '@firmivra/db';
 import type {
   ReorderChecklistRequest,
   TaskAttachment,
@@ -8,12 +14,13 @@ import type {
   TaskStatus,
 } from '@firmivra/types';
 import type { z } from 'zod';
-import { addDays, timeOfDayToDb } from '../appointments/calendar.js';
+import { addDays, timeOfDayFromDb, timeOfDayToDb } from '../appointments/calendar.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import {
   checkAssignee,
+  checkMember,
   conflict,
   isForeignKeyViolation,
   isUniqueViolation,
@@ -25,14 +32,26 @@ import {
   toDay,
 } from '../workspaces/common.js';
 import { completedAtAfter } from '../workspaces/tasks.service.js';
-import { taskErrors } from './task-common.js';
-import type { CreateTaskDetailRequest, UpdateTaskDetailRequest } from './task-input.js';
+import { LIVE_TASK, liveClient, taskErrors } from './task-common.js';
+import type {
+  CreateTaskDetailRequest,
+  SaveTaskDraftRequest,
+  UpdateTaskDetailRequest,
+  UpdateTaskDraftRequest,
+} from './task-input.js';
 import { firmClock, reach, TaskReadService } from './task-read.service.js';
 
 type CreateBody = z.output<typeof CreateTaskDetailRequest>;
 type UpdateBody = z.output<typeof UpdateTaskDetailRequest>;
+/** A new task's body, or a new draft's (Save as Draft: the client may come later). */
+type NewTaskBody = CreateBody | z.output<typeof SaveTaskDraftRequest>;
+/** A draft's changes (PATCH, or the fields sent with publish), without `version`. */
+export type DraftChanges = Omit<z.output<typeof UpdateTaskDraftRequest>, 'version'>;
+/** The fields a live task's change and a draft's change have in common. */
+type FieldChanges = Omit<UpdateBody, 'status' | 'version'>;
 type Reminder = NonNullable<CreateBody['reminders']>[number];
 type ChecklistInput = NonNullable<CreateBody['checklist']>[number];
+type Prerequisite = { id: string; status: StoredTaskStatus } | null;
 
 const CREATE_FIELDS = [
   'details',
@@ -83,6 +102,8 @@ const nameChangePending = () =>
 const engagementMismatch = () =>
   conflict('ENGAGEMENT_MISMATCH', "The engagement is not this client's");
 const taskClosed = () => conflict('TASK_CLOSED', 'Reopen or restore the task before changing it');
+/** The engagement and the attachments are the client's: a draft without one takes neither. */
+const chooseClientFirst = () => taskErrors.invalid('clientId', 'Choose the client first');
 
 interface Shape {
   dueOn: string | null;
@@ -97,6 +118,13 @@ interface Shape {
   reminders: Reminder[];
 }
 
+/** What a draft is read with to be checked before it goes live. */
+const publishInclude = {
+  assignees: { select: { userId: true } },
+  taskChecklistItems: { select: { assignedUserId: true } },
+  taskAttachments: { select: { documentId: true, clientVisible: true } },
+} satisfies Prisma.TaskInclude;
+
 /**
  * Creating and changing tasks (contract in packages/types/src/tasks): the older fields with the
  * older rules (Staff reach only their assigned clients' tasks, a Staff assignee only on their own
@@ -104,6 +132,8 @@ interface Shape {
  * visibility, notes, collaborators, checklist, reminders, prerequisite and attachments. Every
  * change locks the client and then the task, as the older service did. Audited with ids,
  * statuses and field names only: never a title, details, notes, a checklist label or a file name.
+ * Drafts (task-drafts.service.ts) are saved, edited and checked before they go live with the same
+ * pieces: `insertNew`, `editDraft` and `checkAsNew`.
  */
 @Injectable()
 export class TaskWriteService {
@@ -123,95 +153,9 @@ export class TaskWriteService {
     const task = await this.inFirm(businessId, async (tx) => {
       const client = await lockClient(tx, businessId, body.clientId);
       if (!client || !reachesClient(actor, client)) throw notFound();
-      const clock = await firmClock(tx, businessId);
-      const tpl = body.templateId ? await this.template(tx, businessId, body.templateId) : null;
-      if (body.engagementId) {
-        const engagement = await tx.engagement.findFirst({
-          where: { businessId, id: body.engagementId, clientId: body.clientId },
-          select: { id: true },
-        });
-        if (!engagement) throw engagementMismatch();
-      }
-      const typeId = body.typeId !== undefined ? body.typeId : await this.liveType(tx, tpl?.typeId);
-      const serviceId = body.serviceId !== undefined ? body.serviceId : (tpl?.serviceId ?? null);
-      await this.checkType(tx, businessId, typeId);
-      await this.checkService(tx, businessId, serviceId);
-      const assignedUserId =
-        body.assignedUserId ?? (await this.templateAssignee(tx, businessId, tpl, client));
-      if (body.assignedUserId) await checkAssignee(tx, businessId, body.assignedUserId, client);
-      const dueOn =
-        body.dueOn ?? (tpl?.dueOffsetDays != null ? addDays(clock.today, tpl.dueOffsetDays) : null);
-      const dueTime = body.dueTime ?? null;
-      const prerequisite = await this.prerequisite(
-        tx,
-        businessId,
-        actor,
-        null,
-        body.dependsOnTaskId,
-      );
-      const reminders = body.reminders ?? reminderRules(tpl?.reminders);
-      const checklist = body.checklist ?? checklistRules(tpl?.checklist);
-      const shape: Shape = {
-        dueOn,
-        startOn: body.startOn ?? null,
-        dueTime,
-        allDay: body.allDay ?? dueTime === null,
-        progress:
-          body.progress ??
-          (prerequisite?.status === 'DONE' || !prerequisite ? 'PENDING' : 'BLOCKED'),
-        blockedReason: body.blockedReason ?? null,
-        dependsOnTaskId: prerequisite?.id ?? null,
-        dependencyOpen: prerequisite !== null && prerequisite.status !== 'DONE',
-        reminders,
-      };
-      this.checkShape(shape);
-      const created = await tx.task.create({
-        data: {
-          businessId,
-          clientId: body.clientId,
-          engagementId: body.engagementId ?? null,
-          title: body.title,
-          details: body.details !== undefined ? body.details : (tpl?.description ?? null),
-          dueOn: dueOn ? toDay(dueOn) : null,
-          assignedUserId: assignedUserId ?? null,
-          createdByUserId: actor.userId,
-          typeId,
-          serviceId,
-          priority: body.priority ?? tpl?.priority ?? 'MEDIUM',
-          progress: shape.progress,
-          startOn: shape.startOn ? toDay(shape.startOn) : null,
-          dueTime: dueTime ? timeOfDayToDb(dueTime) : null,
-          allDay: shape.allDay,
-          clientVisible: body.clientVisible ?? tpl?.clientVisibleDefault ?? false,
-          internalNotes: body.internalNotes ?? null,
-          blockedReason: shape.blockedReason,
-          dependsOnTaskId: shape.dependsOnTaskId,
-          templateId: tpl?.id ?? null,
-        },
-        select: { id: true },
-      });
-      await this.saveAssignees(
-        tx,
-        businessId,
-        created.id,
-        body.additionalAssigneeIds,
-        assignedUserId,
-      );
-      await this.saveChecklist(tx, businessId, created.id, checklist);
-      await this.saveReminders(tx, businessId, created.id, reminders);
-      await this.addAttachments(
-        tx,
-        businessId,
-        actor,
-        created.id,
-        body.clientId,
-        body.attachments ?? [],
-      );
-      return this.reader.read(tx, businessId, null, created.id);
-    }).catch((error: unknown) => {
-      if (body.assignedUserId && isForeignKeyViolation(error)) throw notAMember();
-      throw error;
-    });
+      const id = await this.insertNew(tx, businessId, actor, body, client);
+      return this.reader.read(tx, businessId, null, id);
+    }).catch(this.newTaskErrors(body));
     await this.audit.log(
       'task.created',
       { type: 'task', id: task.id },
@@ -224,6 +168,106 @@ export class TaskWriteService {
       },
     );
     return task;
+  }
+
+  /** Backstop of a new task or draft: the assignee's membership went away before the insert. */
+  newTaskErrors(body: { assignedUserId?: string | null | undefined }) {
+    return (error: unknown): never => {
+      if (body.assignedUserId && isForeignKeyViolation(error)) throw notAMember();
+      throw error;
+    };
+  }
+
+  /**
+   * A new task, or with `draft` a new draft (Save as Draft), from the request and its template:
+   * the template fills every field the request leaves out, then the fields are checked in
+   * create's order and the task is saved with its collaborators, checklist, reminders and
+   * attachments. `client`: the request's client, locked and reached by the actor; a draft may
+   * have none yet. A draft is kept as sent: its ids must be the firm's and it must be storable,
+   * but what only publishing checks (the assignee's reach, an archived type, the reminders and
+   * stage a live task needs) waits for `checkAsNew`. The new task's id.
+   */
+  async insertNew(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    body: NewTaskBody,
+    client: { assignedUserId: string | null } | null,
+    draft = false,
+  ): Promise<string> {
+    const clientId = body.clientId ?? null;
+    const clock = await firmClock(tx, businessId);
+    const tpl = body.templateId ? await this.template(tx, businessId, body.templateId) : null;
+    await this.checkEngagement(tx, businessId, clientId, body.engagementId);
+    const typeId = body.typeId !== undefined ? body.typeId : await this.liveType(tx, tpl?.typeId);
+    const serviceId = body.serviceId !== undefined ? body.serviceId : (tpl?.serviceId ?? null);
+    await this.checkType(tx, businessId, typeId, draft);
+    await this.checkService(tx, businessId, serviceId);
+    const assignedUserId =
+      body.assignedUserId ?? (await this.templateAssignee(tx, businessId, tpl, client));
+    if (body.assignedUserId) {
+      await this.checkAssigned(tx, businessId, body.assignedUserId, client, draft);
+    }
+    const dueOn =
+      body.dueOn ?? (tpl?.dueOffsetDays != null ? addDays(clock.today, tpl.dueOffsetDays) : null);
+    const dueTime = body.dueTime ?? null;
+    const prerequisite = await this.prerequisite(tx, businessId, actor, null, body.dependsOnTaskId);
+    const reminders = body.reminders ?? reminderRules(tpl?.reminders);
+    const checklist = body.checklist ?? checklistRules(tpl?.checklist);
+    const shape: Shape = {
+      dueOn,
+      startOn: body.startOn ?? null,
+      dueTime,
+      allDay: body.allDay ?? dueTime === null,
+      progress:
+        body.progress ?? (prerequisite?.status === 'DONE' || !prerequisite ? 'PENDING' : 'BLOCKED'),
+      blockedReason: body.blockedReason ?? null,
+      dependsOnTaskId: prerequisite?.id ?? null,
+      dependencyOpen: prerequisite !== null && prerequisite.status !== 'DONE',
+      reminders,
+    };
+    this.checkShape(shape, draft);
+    const attachments = body.attachments ?? [];
+    if (attachments.length > 0 && !clientId) throw chooseClientFirst();
+    const created = await tx.task.create({
+      data: {
+        businessId,
+        clientId,
+        ...(draft ? { status: 'DRAFT' as const } : {}),
+        engagementId: body.engagementId ?? null,
+        title: body.title,
+        details: body.details !== undefined ? body.details : (tpl?.description ?? null),
+        dueOn: dueOn ? toDay(dueOn) : null,
+        assignedUserId: assignedUserId ?? null,
+        createdByUserId: actor.userId,
+        typeId,
+        serviceId,
+        priority: body.priority ?? tpl?.priority ?? 'MEDIUM',
+        progress: shape.progress,
+        startOn: shape.startOn ? toDay(shape.startOn) : null,
+        dueTime: dueTime ? timeOfDayToDb(dueTime) : null,
+        allDay: shape.allDay,
+        clientVisible: body.clientVisible ?? tpl?.clientVisibleDefault ?? false,
+        internalNotes: body.internalNotes ?? null,
+        blockedReason: shape.blockedReason,
+        dependsOnTaskId: shape.dependsOnTaskId,
+        templateId: tpl?.id ?? null,
+      },
+      select: { id: true },
+    });
+    await this.saveAssignees(
+      tx,
+      businessId,
+      created.id,
+      body.additionalAssigneeIds,
+      assignedUserId,
+    );
+    await this.saveChecklist(tx, businessId, created.id, checklist);
+    await this.saveReminders(tx, businessId, created.id, reminders);
+    if (clientId) {
+      await this.addAttachments(tx, businessId, actor, created.id, clientId, attachments);
+    }
+    return created.id;
   }
 
   // ---------- Update ----------
@@ -257,32 +301,7 @@ export class TaskWriteService {
         changes.dependsOnTaskId === undefined
           ? await this.currentPrerequisite(tx, businessId, current.dependsOnTaskId)
           : await this.prerequisite(tx, businessId, actor, id, changes.dependsOnTaskId);
-      const dueOn = changes.dueOn !== undefined ? changes.dueOn : day(current.dueOn);
-      const allDayAsked = changes.allDay;
-      const dueTime =
-        changes.dueTime !== undefined
-          ? changes.dueTime
-          : dueOn === null
-            ? null
-            : current.dueTime
-              ? current.dueTime.toISOString().slice(11, 16)
-              : null;
-      const shape: Shape = {
-        dueOn,
-        startOn: changes.startOn !== undefined ? changes.startOn : day(current.startOn),
-        dueTime: dueOn === null ? null : dueTime,
-        allDay:
-          allDayAsked ??
-          (changes.dueTime !== undefined ? changes.dueTime === null : current.allDay) ??
-          true,
-        progress: changes.progress ?? current.progress,
-        blockedReason:
-          changes.blockedReason !== undefined ? changes.blockedReason : current.blockedReason,
-        dependsOnTaskId: prerequisite?.id ?? null,
-        dependencyOpen: prerequisite !== null && prerequisite.status !== 'DONE',
-        reminders: changes.reminders ?? (await this.storedReminders(tx, id)),
-      };
-      if (dueOn === null) shape.allDay = true;
+      const shape = await this.shapeAfter(tx, current, changes, prerequisite);
       // A task cannot be worked while its prerequisite is open.
       if (
         shape.dependencyOpen &&
@@ -311,30 +330,7 @@ export class TaskWriteService {
         });
         if (open) throw nameChangePending();
       }
-      const data: Prisma.TaskUncheckedUpdateInput = {};
-      if (changes.title !== undefined) data.title = changes.title;
-      if (changes.details !== undefined) data.details = changes.details;
-      if (changes.dueOn !== undefined)
-        data.dueOn = changes.dueOn === null ? null : toDay(changes.dueOn);
-      if (changes.assignedUserId !== undefined) data.assignedUserId = changes.assignedUserId;
-      if (changes.typeId !== undefined) data.typeId = changes.typeId;
-      if (changes.priority !== undefined) data.priority = changes.priority;
-      if (changes.serviceId !== undefined) data.serviceId = changes.serviceId;
-      if (changes.startOn !== undefined)
-        data.startOn = changes.startOn === null ? null : toDay(changes.startOn);
-      if (changes.clientVisible !== undefined) data.clientVisible = changes.clientVisible;
-      if (changes.internalNotes !== undefined) data.internalNotes = changes.internalNotes;
-      if (changes.blockedReason !== undefined) data.blockedReason = changes.blockedReason;
-      if (changes.dependsOnTaskId !== undefined) data.dependsOnTaskId = shape.dependsOnTaskId;
-      if (changes.progress !== undefined) data.progress = changes.progress;
-      if (
-        changes.dueOn !== undefined ||
-        changes.dueTime !== undefined ||
-        changes.allDay !== undefined
-      ) {
-        data.dueTime = shape.dueTime ? timeOfDayToDb(shape.dueTime) : null;
-        data.allDay = shape.allDay;
-      }
+      const data = this.fieldsOf(changes, shape);
       if (changes.status !== undefined) {
         await this.checkCanSet(tx, businessId, current, changes.status);
         data.status = changes.status;
@@ -388,6 +384,196 @@ export class TaskWriteService {
     return task;
   }
 
+  /** The dates, time, stage and reminders a stored task has once `changes` apply. */
+  private async shapeAfter(
+    tx: TxClient,
+    current: Task,
+    changes: FieldChanges,
+    prerequisite: Prerequisite,
+  ): Promise<Shape> {
+    const dueOn = changes.dueOn !== undefined ? changes.dueOn : day(current.dueOn);
+    const allDayAsked = changes.allDay;
+    const dueTime =
+      changes.dueTime !== undefined
+        ? changes.dueTime
+        : dueOn === null
+          ? null
+          : current.dueTime
+            ? current.dueTime.toISOString().slice(11, 16)
+            : null;
+    const shape: Shape = {
+      dueOn,
+      startOn: changes.startOn !== undefined ? changes.startOn : day(current.startOn),
+      dueTime: dueOn === null ? null : dueTime,
+      allDay:
+        allDayAsked ??
+        (changes.dueTime !== undefined ? changes.dueTime === null : current.allDay) ??
+        true,
+      progress: changes.progress ?? current.progress,
+      blockedReason:
+        changes.blockedReason !== undefined ? changes.blockedReason : current.blockedReason,
+      dependsOnTaskId: prerequisite?.id ?? null,
+      dependencyOpen: prerequisite !== null && prerequisite.status !== 'DONE',
+      reminders: changes.reminders ?? (await this.storedReminders(tx, current.id)),
+    };
+    if (dueOn === null) shape.allDay = true;
+    return shape;
+  }
+
+  /** The columns `changes` set; `null` clears. */
+  private fieldsOf(changes: FieldChanges, shape: Shape): Prisma.TaskUncheckedUpdateInput {
+    const data: Prisma.TaskUncheckedUpdateInput = {};
+    if (changes.title !== undefined) data.title = changes.title;
+    if (changes.details !== undefined) data.details = changes.details;
+    if (changes.dueOn !== undefined)
+      data.dueOn = changes.dueOn === null ? null : toDay(changes.dueOn);
+    if (changes.assignedUserId !== undefined) data.assignedUserId = changes.assignedUserId;
+    if (changes.typeId !== undefined) data.typeId = changes.typeId;
+    if (changes.priority !== undefined) data.priority = changes.priority;
+    if (changes.serviceId !== undefined) data.serviceId = changes.serviceId;
+    if (changes.startOn !== undefined)
+      data.startOn = changes.startOn === null ? null : toDay(changes.startOn);
+    if (changes.clientVisible !== undefined) data.clientVisible = changes.clientVisible;
+    if (changes.internalNotes !== undefined) data.internalNotes = changes.internalNotes;
+    if (changes.blockedReason !== undefined) data.blockedReason = changes.blockedReason;
+    if (changes.dependsOnTaskId !== undefined) data.dependsOnTaskId = shape.dependsOnTaskId;
+    if (changes.progress !== undefined) data.progress = changes.progress;
+    if (
+      changes.dueOn !== undefined ||
+      changes.dueTime !== undefined ||
+      changes.allDay !== undefined
+    ) {
+      data.dueTime = shape.dueTime ? timeOfDayToDb(shape.dueTime) : null;
+      data.allDay = shape.allDay;
+    }
+    return data;
+  }
+
+  // ---------- Drafts ----------
+
+  /**
+   * A draft's changes (PATCH, and the fields sent with publish), kept as sent as on Save as
+   * Draft: only what is sent changes, `null` clears, a list replaces the stored one (a checklist
+   * step with its `id` keeps its row). The ids must be the firm's and the draft storable; what
+   * only publishing checks waits for `checkAsNew`. Setting, changing or clearing the client
+   * clears the engagement and the attachments unless new ones (the new client's) are sent; a
+   * Staff member sets only a client they reach (404). `current`: the draft, locked.
+   */
+  async editDraft(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    current: Task,
+    changes: DraftChanges,
+  ): Promise<void> {
+    const id = current.id;
+    const clientId =
+      changes.clientId === undefined ? current.clientId : (changes.clientId?.toLowerCase() ?? null);
+    const clientChanged = clientId !== current.clientId;
+    if (clientChanged && clientId) {
+      const client = await lockClient(tx, businessId, clientId);
+      if (!client || !reachesClient(actor, client)) throw notFound();
+    }
+    if (changes.engagementId !== undefined) {
+      await this.checkEngagement(tx, businessId, clientId, changes.engagementId);
+    }
+    if (changes.attachments?.length && !clientId) throw chooseClientFirst();
+    if (changes.assignedUserId) await checkMember(tx, businessId, changes.assignedUserId);
+    if (changes.typeId !== undefined && changes.typeId !== current.typeId) {
+      await this.checkType(tx, businessId, changes.typeId, true);
+    }
+    if (changes.serviceId) await this.checkService(tx, businessId, changes.serviceId);
+    const prerequisite =
+      changes.dependsOnTaskId === undefined
+        ? await this.currentPrerequisite(tx, businessId, current.dependsOnTaskId)
+        : await this.prerequisite(tx, businessId, actor, id, changes.dependsOnTaskId);
+    const shape = await this.shapeAfter(tx, current, changes, prerequisite);
+    this.checkShape(shape, true);
+    const data = this.fieldsOf(changes, shape);
+    if (clientChanged) data.clientId = clientId;
+    if (clientChanged || changes.engagementId !== undefined) {
+      data.engagementId = changes.engagementId ?? null;
+    }
+    // The old client's documents go before the task takes another client.
+    if (clientChanged || changes.attachments !== undefined) {
+      await tx.taskAttachment.deleteMany({ where: { businessId, taskId: id } });
+    }
+    await tx.task.update({
+      where: { id },
+      data: { ...data, updatedAt: new Date() },
+      select: { id: true },
+    });
+    if (changes.additionalAssigneeIds !== undefined) {
+      await this.saveAssignees(
+        tx,
+        businessId,
+        id,
+        changes.additionalAssigneeIds,
+        changes.assignedUserId !== undefined ? changes.assignedUserId : current.assignedUserId,
+      );
+    }
+    if (changes.checklist !== undefined) {
+      await this.saveChecklist(tx, businessId, id, changes.checklist, true);
+    }
+    if (changes.reminders !== undefined) {
+      await this.saveReminders(tx, businessId, id, changes.reminders);
+    }
+    if (clientId && changes.attachments?.length) {
+      await this.addAttachments(tx, businessId, actor, id, clientId, changes.attachments);
+    }
+  }
+
+  /**
+   * A draft about to go live, checked as `create` checks a new task and in its order: a client
+   * (400 VALIDATION_FAILED naming `clientId` without one) the actor reaches (404), its
+   * engagement, type, service, assignee, prerequisite and shape, then its collaborators,
+   * checklist assignees and attachments. The draft as checked (its `updatedAt` guards the flip).
+   */
+  async checkAsNew(tx: TxClient, businessId: string, actor: ClientsActor, id: string) {
+    const draft = await tx.task.findFirst({
+      where: { businessId, id, status: 'DRAFT' },
+      include: publishInclude,
+    });
+    if (!draft) throw notFound();
+    if (!draft.clientId) throw taskErrors.invalid('clientId', 'Choose a client');
+    const client = await lockClient(tx, businessId, draft.clientId);
+    if (!client || !reachesClient(actor, client)) throw notFound();
+    await this.checkEngagement(tx, businessId, draft.clientId, draft.engagementId);
+    await this.checkType(tx, businessId, draft.typeId);
+    await this.checkService(tx, businessId, draft.serviceId);
+    if (draft.assignedUserId) {
+      await this.checkAssigned(tx, businessId, draft.assignedUserId, client, false);
+    }
+    const prerequisite = await this.prerequisite(
+      tx,
+      businessId,
+      actor,
+      draft.id,
+      draft.dependsOnTaskId,
+    );
+    this.checkShape({
+      dueOn: day(draft.dueOn),
+      startOn: day(draft.startOn),
+      dueTime: draft.dueTime ? timeOfDayFromDb(draft.dueTime) : null,
+      allDay: draft.allDay,
+      progress: draft.progress,
+      blockedReason: draft.blockedReason,
+      dependsOnTaskId: prerequisite?.id ?? null,
+      dependencyOpen: prerequisite !== null && prerequisite.status !== 'DONE',
+      reminders: await this.storedReminders(tx, draft.id),
+    });
+    await this.checkMembers(
+      tx,
+      businessId,
+      draft.assignees.map((a) => a.userId),
+    );
+    for (const item of draft.taskChecklistItems) {
+      if (item.assignedUserId) await this.checkMembers(tx, businessId, [item.assignedUserId]);
+    }
+    await this.checkAttachments(tx, businessId, draft.clientId, draft.taskAttachments);
+    return draft;
+  }
+
   // ---------- Actions ----------
 
   complete(businessId: string, actor: ClientsActor, id: string) {
@@ -430,7 +616,7 @@ export class TaskWriteService {
       const blocked = current.dependsOnTaskId
         ? ((
             await tx.task.findFirst({
-              where: { businessId, id: current.dependsOnTaskId },
+              where: { businessId, id: current.dependsOnTaskId, ...LIVE_TASK },
               select: { status: true },
             })
           )?.status ?? 'DONE') !== 'DONE'
@@ -708,9 +894,9 @@ export class TaskWriteService {
     body: { documentId: string; clientVisible?: boolean },
   ): Promise<TaskAttachment> {
     const attachment = await this.inFirm(businessId, async (tx) => {
-      const { current } = await this.open(tx, businessId, actor, id);
+      const { clientId, current } = await this.open(tx, businessId, actor, id);
       if (current.archivedAt) throw taskClosed();
-      await this.addAttachments(tx, businessId, actor, id, current.clientId, [body]);
+      await this.addAttachments(tx, businessId, actor, id, clientId, [body]);
       await tx.task.update({
         where: { id },
         data: { updatedAt: new Date() },
@@ -802,28 +988,32 @@ export class TaskWriteService {
 
   // ---------- Pieces shared with bulk and the series ----------
 
-  /** The client, then the task, both locked: the one order everywhere. 404 when out of reach. */
+  /**
+   * The client, then the task, both locked: the one order everywhere. 404 when out of reach, and
+   * for a draft (only the Drafts routes change a draft).
+   */
   async open(tx: TxClient, businessId: string, actor: ClientsActor, id: string) {
     const owner = await tx.task.findFirst({
-      where: { businessId, id },
+      where: { businessId, id, ...LIVE_TASK },
       select: { clientId: true },
     });
     if (!owner) throw notFound();
-    const client = await lockClient(tx, businessId, owner.clientId);
+    const clientId = liveClient(owner.clientId);
+    const client = await lockClient(tx, businessId, clientId);
     if (!client || !reachesClient(actor, client)) throw notFound();
     const [locked] = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM tasks WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid FOR UPDATE`;
     if (!locked) throw notFound();
-    const current = await tx.task.findFirst({ where: { businessId, id } });
-    if (!current || current.clientId !== owner.clientId) throw notFound();
-    return { client, current };
+    const current = await tx.task.findFirst({ where: { businessId, id, ...LIVE_TASK } });
+    if (!current || current.clientId !== clientId) throw notFound();
+    return { client, clientId, current };
   }
 
   /** What the task needs before it can take this status: done needs its steps and prerequisite. */
   async checkCanSet(
     tx: TxClient,
     businessId: string,
-    current: { id: string; status: TaskStatus; dependsOnTaskId: string | null },
+    current: { id: string; status: StoredTaskStatus; dependsOnTaskId: string | null },
     next: TaskStatus,
   ): Promise<void> {
     if (next !== 'DONE' || current.status === 'DONE') return;
@@ -867,17 +1057,22 @@ export class TaskWriteService {
 
   // ---------- Checks ----------
 
-  private checkShape(s: Shape): void {
+  /**
+   * The shape a task must have. A draft (`draft`) only needs what the database can hold (the
+   * start before the due date, a time with a due date and "all day" off, each reminder once);
+   * the stage and the reminders' timing are checked when it is published.
+   */
+  private checkShape(s: Shape, draft = false): void {
     if (s.startOn && s.dueOn && s.startOn > s.dueOn) {
       throw taskErrors.invalid('startOn', 'Start on or before the due date');
     }
     if (s.dueTime && (s.dueOn === null || s.allDay)) {
       throw taskErrors.invalid('dueTime', 'A time needs a due date and "all day" off');
     }
-    if (s.progress === 'BLOCKED' && !s.blockedReason && !s.dependencyOpen) {
+    if (!draft && s.progress === 'BLOCKED' && !s.blockedReason && !s.dependencyOpen) {
       throw taskErrors.invalid('progress', 'Say why it is blocked, or choose a prerequisite');
     }
-    if (s.reminders.length > 0 && s.dueOn === null) {
+    if (!draft && s.reminders.length > 0 && s.dueOn === null) {
       throw taskErrors.bad('INVALID_REMINDER', 'Set a due date before adding reminders');
     }
     const seen = new Set<string>();
@@ -887,20 +1082,45 @@ export class TaskWriteService {
         throw taskErrors.bad('INVALID_REMINDER', 'Each reminder can be added once');
       seen.add(key);
       // On the due day itself, a reminder after the due time is too late.
-      if (r.daysBefore === 0 && r.timeOfDay && s.dueTime && r.timeOfDay > s.dueTime) {
+      if (!draft && r.daysBefore === 0 && r.timeOfDay && s.dueTime && r.timeOfDay > s.dueTime) {
         throw taskErrors.bad('INVALID_REMINDER', 'A reminder cannot be after the due time');
       }
     }
   }
 
-  private async checkType(tx: TxClient, businessId: string, typeId: string | null | undefined) {
+  /** The engagement must be the client's (409 ENGAGEMENT_MISMATCH); without a client, none. */
+  private async checkEngagement(
+    tx: TxClient,
+    businessId: string,
+    clientId: string | null,
+    engagementId: string | null | undefined,
+  ): Promise<void> {
+    if (!engagementId) return;
+    if (!clientId) throw chooseClientFirst();
+    const engagement = await tx.engagement.findFirst({
+      where: { businessId, id: engagementId, clientId },
+      select: { id: true },
+    });
+    if (!engagement) throw engagementMismatch();
+  }
+
+  /**
+   * The type must be the firm's (400) and in use (409 TYPE_ARCHIVED); a draft may keep an
+   * archived one until it is published.
+   */
+  private async checkType(
+    tx: TxClient,
+    businessId: string,
+    typeId: string | null | undefined,
+    draft = false,
+  ) {
     if (!typeId) return;
     const type = await tx.taskType.findFirst({
       where: { businessId, id: typeId },
       select: { archivedAt: true },
     });
     if (!type) throw taskErrors.invalid('typeId', 'Choose a task type');
-    if (type.archivedAt) throw taskErrors.typeArchived();
+    if (type.archivedAt && !draft) throw taskErrors.typeArchived();
   }
 
   private async checkService(
@@ -916,6 +1136,31 @@ export class TaskWriteService {
     if (!service) throw taskErrors.invalid('serviceId', 'Choose a service');
   }
 
+  /**
+   * The assignee a request names: an active member who may take the client's tasks; a draft's
+   * (or one with no client yet) only an active member, the client's reach waiting for publishing.
+   */
+  private async checkAssigned(
+    tx: TxClient,
+    businessId: string,
+    userId: string,
+    client: { assignedUserId: string | null } | null,
+    draft: boolean,
+  ): Promise<void> {
+    if (draft || !client) await checkMember(tx, businessId, userId);
+    else await checkAssignee(tx, businessId, userId, client);
+  }
+
+  /** Active members of the firm, every one (409 NOT_A_MEMBER otherwise). */
+  private async checkMembers(tx: TxClient, businessId: string, ids: string[]): Promise<void> {
+    const wanted = [...new Set(ids.map((i) => i.toLowerCase()))];
+    if (wanted.length === 0) return;
+    const members = await tx.membership.count({
+      where: { businessId, userId: { in: wanted }, status: 'ACTIVE' },
+    });
+    if (members !== wanted.length) throw notAMember();
+  }
+
   /** The type when it is still in use (a template's archived type is dropped, not an error). */
   private async liveType(tx: TxClient, typeId: string | null | undefined): Promise<string | null> {
     if (!typeId) return null;
@@ -926,20 +1171,23 @@ export class TaskWriteService {
     return type && !type.archivedAt ? typeId : null;
   }
 
-  /** The prerequisite the actor reaches (else 400), checked for a loop. Null clears it. */
+  /**
+   * The prerequisite: a live task the actor reaches (else 400; never a draft), checked for a
+   * loop. Null clears it.
+   */
   private async prerequisite(
     tx: TxClient,
     businessId: string,
     actor: ClientsActor,
     taskId: string | null,
     prerequisiteId: string | null | undefined,
-  ): Promise<{ id: string; status: TaskStatus } | null> {
+  ): Promise<Prerequisite> {
     if (!prerequisiteId) return null;
     if (taskId && prerequisiteId.toLowerCase() === taskId.toLowerCase()) {
       throw taskErrors.bad('DEPENDENCY_CYCLE', 'A task cannot wait for itself');
     }
     const found = await tx.task.findFirst({
-      where: { businessId, id: prerequisiteId, ...reach(actor) },
+      where: { businessId, id: prerequisiteId, ...LIVE_TASK, ...reach(actor) },
       select: { id: true, status: true },
     });
     if (!found) throw taskErrors.invalid('dependsOnTaskId', 'Choose a task of this firm');
@@ -960,7 +1208,10 @@ export class TaskWriteService {
 
   private async currentPrerequisite(tx: TxClient, businessId: string, id: string | null) {
     if (!id) return null;
-    return tx.task.findFirst({ where: { businessId, id }, select: { id: true, status: true } });
+    return tx.task.findFirst({
+      where: { businessId, id, ...LIVE_TASK },
+      select: { id: true, status: true },
+    });
   }
 
   private async storedReminders(tx: TxClient, taskId: string): Promise<Reminder[]> {
@@ -979,22 +1230,27 @@ export class TaskWriteService {
     return tpl;
   }
 
-  /** A template's assignment rule: its person, or the client's own assignee, if they can take it. */
+  /**
+   * A template's assignment rule: its person, or the client's own assignee, if they can take it.
+   * A draft with no client yet keeps its person while they are an active member (publishing
+   * checks the client's reach) and has no client assignee.
+   */
   private async templateAssignee(
     tx: TxClient,
     businessId: string,
     tpl: { assignmentRule: string; assignedUserId: string | null } | null,
-    client: { assignedUserId: string | null },
+    client: { assignedUserId: string | null } | null,
   ): Promise<string | null> {
     const wanted =
       tpl?.assignmentRule === 'SPECIFIC_USER'
         ? tpl.assignedUserId
         : tpl?.assignmentRule === 'CLIENT_TEAM'
-          ? client.assignedUserId
+          ? (client?.assignedUserId ?? null)
           : null;
     if (!wanted) return null;
     try {
-      await checkAssignee(tx, businessId, wanted, client);
+      if (client) await checkAssignee(tx, businessId, wanted, client);
+      else await checkMember(tx, businessId, wanted);
       return wanted;
     } catch {
       return null;
@@ -1015,12 +1271,7 @@ export class TaskWriteService {
     const wanted = [...new Set(ids.map((i) => i.toLowerCase()))].filter(
       (i) => i !== primary?.toLowerCase(),
     );
-    if (wanted.length > 0) {
-      const members = await tx.membership.count({
-        where: { businessId, userId: { in: wanted }, status: 'ACTIVE' },
-      });
-      if (members !== wanted.length) throw notAMember();
-    }
+    await this.checkMembers(tx, businessId, wanted);
     await tx.taskAssignee.deleteMany({ where: { taskId, userId: { notIn: wanted } } });
     await tx.taskAssignee.createMany({
       data: wanted.map((userId) => ({ businessId, taskId, userId })),
@@ -1046,12 +1297,7 @@ export class TaskWriteService {
     const keep: string[] = [];
     for (const [position, raw] of items.entries()) {
       const item = raw as ChecklistInput;
-      if (item.assignedUserId) {
-        const member = await tx.membership.count({
-          where: { businessId, userId: item.assignedUserId, status: 'ACTIVE' },
-        });
-        if (member === 0) throw notAMember();
-      }
+      if (item.assignedUserId) await this.checkMembers(tx, businessId, [item.assignedUserId]);
       if (item.id && !known.has(item.id.toLowerCase())) {
         throw taskErrors.invalid(`checklist.${position}.id`, 'Unknown step');
       }
@@ -1095,11 +1341,9 @@ export class TaskWriteService {
   }
 
   /** The client's own documents only; an internal one is never client-visible. */
-  private async addAttachments(
+  private async checkAttachments(
     tx: TxClient,
     businessId: string,
-    actor: ClientsActor,
-    taskId: string,
     clientId: string,
     list: { documentId: string; clientVisible?: boolean }[],
   ): Promise<void> {
@@ -1116,6 +1360,18 @@ export class TaskWriteService {
         throw taskErrors.attachmentNotAllowed();
       }
     }
+  }
+
+  private async addAttachments(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    taskId: string,
+    clientId: string,
+    list: { documentId: string; clientVisible?: boolean }[],
+  ): Promise<void> {
+    if (list.length === 0) return;
+    await this.checkAttachments(tx, businessId, clientId, list);
     for (const a of list) {
       try {
         await tx.taskAttachment.create({
