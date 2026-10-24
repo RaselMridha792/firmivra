@@ -37,8 +37,6 @@ const APPLIED = 'business.profile_change_applied';
 const PREFIXES = Object.values(PROFILE_CHANGE_KIND_LABELS).map((t) => `${t} change request: `);
 /** Encryption failures that mean "not now": no key for the firm yet, or KMS down or refusing. */
 const UNAVAILABLE = new Set(['KEY_NOT_PROVISIONED', 'KMS_UNAVAILABLE', 'KEY_ACCESS_DENIED']);
-/** Past setup: the firm edits these itself while Pending Setup; a closed firm stays as it was. */
-const LIVE = new Set(['ACTIVE', 'SUSPENDED']);
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const conflict = (code: FirmProfileErrorCode, message: string) =>
@@ -141,8 +139,9 @@ export class AdminFirmProfileService {
       if (!firm || !ticket || !asked) throw notFound();
       if (ticket.status === 'CLOSED')
         throw conflict('TICKET_CLOSED', 'This request is closed. Reopen the ticket to apply it.');
-      if (!LIVE.has(firm.status))
-        throw conflict('FIRM_NOT_ACTIVE', 'The firm is in setup or closed.');
+      // ACTIVE only, as R1's function: in setup the firm edits these itself, and a suspended or
+      // closed firm stays as it was. Checked here so the answer is this 409, not a database error.
+      if (firm.status !== 'ACTIVE') throw conflict('FIRM_NOT_ACTIVE', 'The firm is not active.');
       const stray = fields.filter((f) => !asked.fields.includes(f));
       if (stray.length)
         throw new BadRequestException({

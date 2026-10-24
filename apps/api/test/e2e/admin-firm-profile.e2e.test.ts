@@ -210,7 +210,8 @@ describe('GET /admin/firms/:id/profile-changes', () => {
       kind: 'COMPANY',
       fields: ['legalName', 'ein'],
       current: { legalName: LEGAL_NAME, ein: 'Ending in 6789' },
-      proposed: { legalName: NEW_NAME, ein: NEW_EIN },
+      // R60's ticket keeps only the proposed EIN's last four digits (#1101).
+      proposed: { legalName: NEW_NAME, ein: `Ending in ${NEW_EIN.slice(-4)}` },
       reason: 'Fake: the state approved the change.',
       applied: null,
     });
@@ -267,13 +268,22 @@ describe('POST /admin/firms/:id/profile-changes/:ticketId/apply', () => {
     expect([licence.status, codeOf(licence)]).toEqual([400, 'VALIDATION_FAILED']);
   });
 
-  it("never applies to another firm's ticket, a firm in setup or a closed ticket", async () => {
+  it("never applies to another firm's ticket, a firm not active or a closed ticket", async () => {
     const other = await apply(firms.a.id, tickets.other, { legalName: 'Fake Cross LLC' });
     expect([other.status, codeOf(other)]).toEqual([404, 'NOT_FOUND']);
     const none = await apply(firms.a.id, randomUUID(), { legalName: 'Fake None LLC' });
     expect([none.status, codeOf(none)]).toEqual([404, 'NOT_FOUND']);
     const setup = await apply(firms.pending.id, tickets.pending, { legalName: 'Fake Setup LLC' });
     expect([setup.status, codeOf(setup)]).toEqual([409, 'FIRM_NOT_ACTIVE']);
+    // Suspended: the API's own 409, never the database function's refusal.
+    const setStatus = (status: 'ACTIVE' | 'SUSPENDED') =>
+      asOwner({ kind: 'platform' }, (tx) =>
+        tx.business.update({ where: { id: firms.b.id }, data: { status } }),
+      );
+    await setStatus('SUSPENDED');
+    const suspended = await apply(firms.b.id, tickets.other, { legalName: 'Fake Suspended LLC' });
+    expect([suspended.status, codeOf(suspended)]).toEqual([409, 'FIRM_NOT_ACTIVE']);
+    await setStatus('ACTIVE');
 
     await asOwner({ kind: 'platform' }, (tx) =>
       tx.supportTicket.update({

@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 // R56: applying a firm's Company Profile Request Change on the Super Admin's firm page (Rasel,
 // Oct 24; R60's Request Change raises the ticket). Mock mode (`api.adminFirmProfile` contract
 // mock): the firm's requests with the ticket's values; licensing waits for its records; the
-// values are prefilled, checked before sending, applied, and the row says so.
+// legal name is prefilled, the EIN typed, both checked before sending, applied, and the row says so.
 const port = Number(process.env['WEB_PORT'] ?? '3000') + 1;
 const firm = '00000000-0000-4000-8000-000000000001';
 
@@ -29,8 +29,9 @@ test('a firm’s change requests: apply the legal name and EIN, licensing waits'
   await company.getByRole('button', { name: /Apply/ }).click();
   const dialog = page.getByTestId('apply-profile-change');
   await expect(dialog.getByLabel('Legal Company Name')).toHaveValue('Sample Firm Holdings LLC');
-  await expect(dialog.getByLabel('EIN (Tax ID)')).toHaveValue('98-7654321');
-  await expect(dialog).toContainText('Now: Ending in 6789');
+  // The ticket keeps the last four digits only (R60): the EIN is entered from the firm's papers.
+  await expect(dialog.getByLabel('EIN (Tax ID)')).toHaveValue('');
+  await expect(dialog).toContainText('Now: Ending in 6789. Asked for: Ending in 4321');
   await expect(dialog).toContainText('We merged with the holding company.');
 
   // Checked before anything is sent.

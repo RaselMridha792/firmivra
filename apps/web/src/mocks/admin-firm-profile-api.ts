@@ -38,7 +38,7 @@ function requestsFor(firmId: string): FirmProfileChangeRequest[] {
       status: 'IN_PROGRESS',
       submittedAt: at(3),
       current: { legalName: 'Sample Firm LLC', ein: 'Ending in 6789' },
-      proposed: { legalName: 'Sample Firm Holdings LLC', ein: '98-7654321' },
+      proposed: { legalName: 'Sample Firm Holdings LLC', ein: 'Ending in 4321' },
       reason: 'We merged with the holding company. The IRS letter is attached.',
       applied: null,
     },

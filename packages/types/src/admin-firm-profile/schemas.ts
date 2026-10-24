@@ -87,7 +87,7 @@ export type AppliedProfileChange = z.infer<typeof AppliedProfileChange>;
 
 /** Stable `error.code` values of this module, besides the generic ones in ApiError. */
 export const FirmProfileErrorCode = z.enum([
-  /** 409: the firm is still in setup (it edits these itself) or closed. */
+  /** 409: the firm is not ACTIVE: in setup (it edits these itself), suspended or closed. */
   'FIRM_NOT_ACTIVE',
   /** 409: the ticket is closed; reopen it first. */
   'TICKET_CLOSED',
@@ -103,7 +103,7 @@ export type FirmProfileErrorCode = z.infer<typeof FirmProfileErrorCode>;
 /** The screen's words for this module's errors (`errorMessage(error, FIRM_PROFILE_ERRORS)`). */
 export const FIRM_PROFILE_ERRORS: Readonly<Record<string, string>> = {
   FIRM_NOT_ACTIVE:
-    'This firm is still in setup or closed. It changes these details itself in setup.',
+    'Changes apply only to an active firm. In setup, the firm changes these details itself.',
   TICKET_CLOSED: 'This request is closed. Reopen the ticket to apply it.',
   NOT_REQUESTED: 'Apply only what the request asks for.',
   DUPLICATE_EIN: "Another firm's application has this EIN. Check it with the firm before applying.",

@@ -35,7 +35,8 @@ const labels = (fields: readonly string[]) =>
 
 /** Why a request cannot be applied here, or null when it can. */
 function blocked(r: FirmProfileChangeRequest, live: boolean): string | null {
-  if (!live) return 'The firm is in setup or closed: it changes these itself in setup.';
+  if (!live)
+    return 'Changes apply only to an active firm. In setup, the firm changes these itself.';
   if (r.status === 'CLOSED') return 'Closed. Reopen the ticket to apply it.';
   if (!r.fields.some((f) => APPLICABLE.includes(f)))
     return 'Licensing details can be applied once their records are added.';
@@ -54,7 +55,7 @@ export function ProfileChanges({ firmId }: { firmId: string }) {
   const [open, setOpen] = useState<FirmProfileChangeRequest | null>(null);
   const [done, setDone] = useState('');
   const data = query.data;
-  const live = data?.firm.status === 'ACTIVE' || data?.firm.status === 'SUSPENDED';
+  const live = data?.firm.status === 'ACTIVE';
   return (
     <Card className="!p-4" data-testid="profile-changes">
       <CardHeading icon={FilePenLine}>Company Profile Change Requests</CardHeading>
