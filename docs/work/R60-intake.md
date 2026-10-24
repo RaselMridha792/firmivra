@@ -512,6 +512,15 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   review) and invoice dialogs. Billing e2e 8 of 8, profile-changes 6 of 6, unit 3 of 3, contract
   3 of 3, `tumit-settings-billing` 3 of 3 (rewritten) and `r56-settings-shell`; sheet shot on the
   real API. Question 4 for Rasel.
+- Oct 24 (fourth session, Rasel's "Fresh R60 v2"): `rasel/R60-payments` was 16 commits ahead of
+  origin (the Billing merge and `main`); pushed first. #1073 (Billing): its CI failed once on
+  `workspaces.e2e.test.ts` (q5, a 100 ms race, not Billing's) and passed on a rerun; merged. On
+  Payments: the automations test's `day()` takes the firm's New York date (Rasel's word; 17 of 17
+  locally) and the notes take Rasel's decisions (Billing by request, R56 applies a Request
+  Change, column items 7 to 11 approved with R60's order). #1076 (Payments) opened; CI green.
+  Staff (`rasel/R60-staff-sm8-13`) merged `main` (with #1073 and R1's #1074): API and web `tsc` 0
+  errors, departments and staff e2e 20 of 20, Staff mock specs 54 of 54; its PR opened in the
+  slot #1073 freed.
 - Oct 24: item 4, Payments (`rasel/R60-payments`, stacked on billing, local), web only: the page on
   her design (Stripe, Square, PayPal; Accepted Client Payments; Payout Settings; the Invoices &
   Payments link). Stripe keeps every state and test id of `r19-payments-settings`; Square and

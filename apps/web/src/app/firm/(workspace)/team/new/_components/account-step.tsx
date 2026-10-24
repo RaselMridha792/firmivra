@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  FIRM_ROLE_LABELS,
   type MembershipRole,
   type StaffAccessLevel,
   StaffAccountInput,
@@ -14,6 +15,7 @@ import {
   FileText,
   Info,
   LockSimple,
+  PlusCircle,
   ShieldCheck,
   User,
 } from '@phosphor-icons/react';
@@ -45,6 +47,8 @@ interface Form {
   departmentIds: string[];
   jobTitle: string;
   role: MembershipRole | '';
+  /** A firm's own role (Create Custom Role); `role` is then the role it is based on. */
+  customRoleId: string;
   serviceAreas: string[];
   accessLevel: StaffAccessLevel | '';
   accessStartsOn: string;
@@ -57,6 +61,9 @@ interface Form {
   supervisorId: string;
   timeZone: string;
 }
+
+/** The Role choice of a custom role: this prefix and its id. */
+const CUSTOM_ROLE = 'custom:';
 
 const FIELD_ERRORS: Record<string, string> = {
   firstName: 'Enter a first name.',
@@ -79,6 +86,7 @@ function fromDraft(d: StaffDraftData): Form {
     departmentIds: a.departmentIds ?? [],
     jobTitle: a.jobTitle ?? '',
     role: a.role ?? '',
+    customRoleId: a.customRoleId ?? '',
     serviceAreas: a.serviceAreas ?? [],
     accessLevel: a.accessLevel ?? '',
     accessStartsOn: a.accessStartsOn ?? '',
@@ -103,6 +111,7 @@ function toAccount(f: Form) {
     departmentIds: f.departmentIds,
     jobTitle: f.jobTitle.trim(),
     role: f.role as MembershipRole,
+    ...(f.customRoleId ? { customRoleId: f.customRoleId } : {}),
     serviceAreas: f.serviceAreas,
     accessLevel: f.accessLevel || levelForRole(f.role),
     accessStartsOn: f.accessStartsOn || null,
@@ -249,8 +258,27 @@ function AccountForm({
   const nameOf = (list: { value: string; label: string }[], value: string) =>
     list.find((x) => x.value === value)?.label ?? '';
   const departments = (o?.departments ?? []).map((d) => ({ value: d.id, label: d.name }));
-  const roles = (o?.roles ?? []).map((r) => ({ value: r.role, label: r.label }));
-  const role = o?.roles.find((r) => r.role === form.role);
+  // The roles this person may give, then the firm's custom roles (Octavia's SM11).
+  const customRoles = o?.customRoles ?? [];
+  const roles = [
+    ...(o?.roles ?? []).map((r) => ({ value: r.role, label: r.label })),
+    ...customRoles.map((c) => ({
+      value: `${CUSTOM_ROLE}${c.id}`,
+      label: `${c.name} (custom role)`,
+    })),
+  ];
+  const custom = customRoles.find((c) => c.id === form.customRoleId);
+  const role = custom
+    ? {
+        description:
+          custom.description ?? `A custom role based on ${FIRM_ROLE_LABELS[custom.basedOn]}.`,
+      }
+    : o?.roles.find((r) => r.role === form.role);
+  // Create Custom Role: keep what is typed as a draft, open the roles page, and come back to it.
+  const onCustomRole = () =>
+    draft((id) =>
+      router.push(`/team/roles?create=custom&back=${encodeURIComponent(stepHref('account', id))}`),
+    );
   const loadNote = options.isError
     ? 'The choices could not be loaded right now. They fill in once the data is available.'
     : undefined;
@@ -363,13 +391,18 @@ function AccountForm({
                 <Select
                   label="Role *"
                   options={[{ value: '', label: 'Select a role' }, ...roles]}
-                  value={form.role}
+                  value={form.customRoleId ? `${CUSTOM_ROLE}${form.customRoleId}` : form.role}
                   error={errors.role}
                   onChange={(e) => {
-                    const next = e.target.value as MembershipRole | '';
+                    const value = e.target.value;
+                    const picked = value.startsWith(CUSTOM_ROLE)
+                      ? customRoles.find((c) => `${CUSTOM_ROLE}${c.id}` === value)
+                      : undefined;
+                    const next = (picked ? picked.basedOn : value) as MembershipRole | '';
                     setForm((f) => ({
                       ...f,
                       role: next,
+                      customRoleId: picked?.id ?? '',
                       // The level follows the role unless someone picked another one.
                       accessLevel:
                         f.accessLevel && f.accessLevel !== levelForRole(f.role)
@@ -379,13 +412,25 @@ function AccountForm({
                   }}
                 />
                 {role ? <p className={hint}>{role.description}</p> : null}
-                <Link
-                  href="/team/roles"
-                  className="inline-flex min-h-8 items-center gap-1.5 self-end text-sm font-semibold text-link hover:underline"
-                >
-                  <ArrowSquareOut aria-hidden weight="bold" className="size-4" />
-                  View Role Permissions
-                </Link>
+                <div className="flex flex-wrap justify-end gap-x-4">
+                  <button
+                    type="button"
+                    data-testid="create-custom-role"
+                    disabled={pending}
+                    onClick={onCustomRole}
+                    className="inline-flex min-h-8 items-center gap-1.5 text-sm font-semibold text-link hover:underline disabled:opacity-50"
+                  >
+                    <PlusCircle aria-hidden weight="fill" className="size-4" />
+                    Create Custom Role
+                  </button>
+                  <Link
+                    href="/team/roles"
+                    className="inline-flex min-h-8 items-center gap-1.5 text-sm font-semibold text-link hover:underline"
+                  >
+                    <ArrowSquareOut aria-hidden weight="bold" className="size-4" />
+                    View Role Permissions
+                  </Link>
+                </div>
               </div>
               <div className="flex min-w-0 flex-col gap-1">
                 <MultiPick
