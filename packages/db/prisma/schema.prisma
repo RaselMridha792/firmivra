@@ -878,7 +878,9 @@ model Business {
   intakeSettings           IntakeSettings?
   intakeTemplates          IntakeTemplate[]
   staffJobTitles           StaffJobTitle[]
+  staffWorkSchedules       StaffWorkSchedule[]
   staffSecurityDefaults    StaffSecurityDefaults?
+  firmLicenses             FirmLicense[]
   documentFolders          DocumentFolder[]
   firmOffices              FirmOffice[]
   firmOfficeServices       FirmOfficeService[]
@@ -930,14 +932,17 @@ model Business {
 /// A person who signs in. One row per Cognito user: staff have one user across firms,
 /// clients have one user per firm (docs/AUTH-DESIGN.md), so email is not unique.
 model User {
-  id         String       @id @default(uuid(7)) @db.Uuid
-  cognitoSub String       @unique @map("cognito_sub")
-  pool       IdentityPool
-  email      String
-  name       String
-  phone      String?
-  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id              String       @id @default(uuid(7)) @db.Uuid
+  cognitoSub      String       @unique @map("cognito_sub")
+  pool            IdentityPool
+  email           String
+  name            String
+  phone           String?
+  /// When the person proved they hold `phone` (a code by text); cleared by the database whenever
+  /// `phone` changes unless that change sets it too (users_phone_verified_reset). R60's request 9.
+  phoneVerifiedAt DateTime?    @map("phone_verified_at") @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   memberships              Membership[]
   clientAccount            ClientAccount?
@@ -1094,6 +1099,7 @@ model Membership {
 
   staffJobTitlesCreated        StaffJobTitle[]         @relation("StaffJobTitleCreatedBy")
   staffSecurityDefaultsUpdated StaffSecurityDefaults[] @relation("StaffSecurityDefaultsUpdatedBy")
+  staffWorkSchedulesCreated    StaffWorkSchedule[]     @relation("StaffWorkScheduleCreatedBy")
 
   permissionsSet         MemberPermission[] @relation("MemberPermissionSubject")
   permissionsChanged     MemberPermission[] @relation("MemberPermissionChangedBy")
@@ -1224,8 +1230,43 @@ model PlatformAdmin {
   investigationNotes     AuditInvestigationNote[] @relation("AuditInvestigationNoteAuthor")
   /// R0 stage B9: this team member's saved reports.
   savedReports           PlatformSavedReport[]    @relation("PlatformSavedReportOwner")
+  /// R60's request 7: the firm licenses this Super Admin verified.
+  firmLicensesVerified   FirmLicense[]
 
   @@map("platform_admins")
+}
+
+/// A firm license's standing (R60's request 7).
+enum FirmLicenseStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  REVOKED
+}
+
+/// Company Profile, professional licensing (R60's request 7): a firm's licenses, one row each (a
+/// firm may hold several). The firm reads its own; only a Super Admin (admin scope) or the platform
+/// scope writes them, when Firmivra applies an approved Request Change. Never deleted: a license
+/// ends as EXPIRED, SUSPENDED or REVOKED. Verified by and at come together (SQL only).
+model FirmLicense {
+  id               String            @id @default(uuid(7)) @db.Uuid
+  businessId       String            @map("business_id") @db.Uuid
+  regulatoryBody   String            @map("regulatory_body")
+  licenseType      String            @map("license_type")
+  licenseNumber    String            @map("license_number")
+  expiresOn        DateTime?         @map("expires_on") @db.Date
+  status           FirmLicenseStatus @default(ACTIVE)
+  verifiedByUserId String?           @map("verified_by_user_id") @db.Uuid
+  verifiedAt       DateTime?         @map("verified_at") @db.Timestamptz(3)
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business   Business       @relation(fields: [businessId], references: [id])
+  verifiedBy PlatformAdmin? @relation(fields: [verifiedByUserId], references: [userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@index([businessId])
+  @@map("firm_licenses")
 }
 
 // ==================== R0 stage A: platform team hierarchy and plans (Oct 16) ====================
@@ -8542,6 +8583,8 @@ model StaffProfile {
   /// The office or branch, up to 100 characters.
   office            String?
   hireDate          DateTime?            @map("hire_date") @db.Date
+  /// The day the person starts work, apart from hireDate and accessStartsOn (R60's request 10, SM11).
+  workStartDate     DateTime?            @map("work_start_date") @db.Date
   endDate           DateTime?            @map("end_date") @db.Date
   supervisorId      String?              @map("supervisor_membership_id") @db.Uuid
   timeZone          String?              @map("time_zone")
@@ -8635,6 +8678,27 @@ model StaffJobTitle {
   @@unique([businessId, id])
   @@index([businessId])
   @@map("staff_job_titles")
+}
+
+/// SM8 (R60's request 11): a firm's saved work schedules, offered on Create Staff, like the saved
+/// job titles. Owner and Admin add, rename and archive them; members read. A staff record keeps its
+/// own work_schedule text. Unique by name ignoring case among the ones not archived (SQL only).
+/// Filled once from the firm's staff records.
+model StaffWorkSchedule {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  name            String
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business    @relation(fields: [businessId], references: [id])
+  createdBy Membership? @relation("StaffWorkScheduleCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@index([businessId])
+  @@map("staff_work_schedules")
 }
 
 /// SM3: the security settings a new staff account starts from (Create Staff step 3), one row per

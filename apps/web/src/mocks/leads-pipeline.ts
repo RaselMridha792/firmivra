@@ -4,6 +4,7 @@ import {
   CompleteFollowUpRequest,
   ConfirmEmailImageUploadRequest,
   CreateEmailImageUploadRequest,
+  BulkConvertLeadsRequest,
   ConvertLeadToClientRequest,
   CreateLeadRequest,
   EMAIL_SIGNATURE_MAX,
@@ -577,24 +578,23 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
     list: async (query = {}) => {
       await mockDelay();
       const q = parseInput(LeadPipelineQuery, query);
-      const search = q.search?.toLowerCase() ?? '';
+      // As the API: every word of the search must match one of the fields.
+      const words = (q.search?.toLowerCase() ?? '').split(/\s+/).filter(Boolean);
       const rows = s.leads
         .filter(q.archived ? archived : visible)
         .filter((l) => {
           const p = l.profile;
-          if (
-            search &&
-            ![
-              `${p.firstName} ${p.lastName}`,
-              p.email,
-              p.phone ?? '',
-              p.source,
-              p.sourceDetail ?? '',
-              p.campaign?.name ?? '',
-              ...l.notes.map((n) => n.text),
-            ].some((t) => t.toLowerCase().includes(search))
-          )
-            return false;
+          const fields = [
+            p.firstName,
+            p.lastName,
+            p.email,
+            p.phone ?? '',
+            p.source,
+            p.sourceDetail ?? '',
+            p.campaign?.name ?? '',
+            ...l.notes.map((n) => n.text),
+          ].map((t) => t.toLowerCase());
+          if (!words.every((w) => fields.some((t) => t.includes(w)))) return false;
           if (q.source && p.source !== q.source) return false;
           if (q.serviceId && !p.services.some((x) => x.id === q.serviceId)) return false;
           if (q.stage && p.stage !== q.stage) return false;
@@ -987,6 +987,49 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
           intakeForms: c.intakeForms && l.profile.beginOnline ? 1 : 0,
         },
       };
+    },
+    // As the API: each lead from its own record, or skipped with the reason.
+    async bulkConvert(body) {
+      await mockDelay();
+      const input = parseInput(BulkConvertLeadsRequest, body);
+      const converted: { leadId: string; name: string; clientId: string }[] = [];
+      const skipped: { leadId: string; name: string; reason: string }[] = [];
+      for (const leadId of [...new Set(input.ids)]) {
+        const l = s.leads.find((x) => x.profile.id === leadId);
+        if (!l || !visible(l)) {
+          skipped.push({ leadId, name: '', reason: 'Not found, archived, or not one of yours' });
+          continue;
+        }
+        const p = l.profile;
+        const name = `${p.firstName} ${p.lastName}`.trim();
+        const reason = !p.phone
+          ? 'No phone number: convert it on its own'
+          : !p.services.length
+            ? 'No service of interest: convert it on its own'
+            : p.stage === 'CONVERTED'
+              ? 'Already a client'
+              : p.email === TAKEN
+                ? 'A client already has this email: convert it on its own to choose that client'
+                : null;
+        if (reason) {
+          skipped.push({ leadId, name, reason });
+          continue;
+        }
+        const done = await this.convertToClient(leadId, {
+          // One key per lead, the same on a retry of the same bulk.
+          idempotencyKey: `${input.idempotencyKey.slice(0, 24)}${leadId.slice(24)}`,
+          accountType: p.businessName ? 'BUSINESS' : 'INDIVIDUAL',
+          fullName: name,
+          businessName: p.businessName,
+          email: p.email,
+          phone: p.phone!,
+          serviceIds: p.services.map((x) => x.id),
+          primaryStaffUserId: input.primaryStaffUserId ?? p.assignedTo?.userId ?? me.userId,
+          sendPortalInvite: input.sendPortalInvite,
+        });
+        converted.push({ leadId, name, clientId: done.clientId });
+      }
+      return { converted, skipped };
     },
   };
 }

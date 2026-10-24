@@ -15,14 +15,14 @@ import {
   DB_CONNECTION_HEADROOM,
   DB_MAX_CONNECTIONS,
   type EnvConfig,
-  PENDING_ZONE_ID,
+  FIRMIVRA_COM,
 } from '../src/config';
 import { addNagSuppressions } from '../src/nag';
 import { createStacks } from '../src/stacks';
 
 function build(overrides: Partial<EnvConfig> = {}) {
   const app = new App({ context: { ...cdkJsonContext(), env: 'prod' } });
-  const config = configFor('prod', overrides, { allowPending: true });
+  const config = configFor('prod', overrides);
   const stacks = createStacks(app, config);
   addNagSuppressions(stacks, config);
   Validations.of(app).addPlugins(new AwsSolutionsChecks(app));
@@ -36,9 +36,9 @@ const t = (stack: Stack | undefined) => {
 };
 
 describe('prod config', () => {
-  it('cannot be used to deploy until firmivra.com has its Route 53 zone id', () => {
-    expect(() => configFor('prod')).toThrow(/no Route 53 zone id yet/);
-    expect(config.customDomain?.hostedZoneId).toBe(PENDING_ZONE_ID);
+  it("uses firmivra.com's Route 53 zone (made and delegated on Oct 24)", () => {
+    expect(config.customDomain).toBe(FIRMIVRA_COM);
+    expect(config.customDomain?.hostedZoneId).toBe('Z06906951XI9J0KSHI8TO');
     expect(config.customDomain?.hosts).toEqual({
       admin: 'admin.firmivra.com',
       app: 'app.firmivra.com',
@@ -56,9 +56,7 @@ describe('prod config', () => {
       DB_MAX_CONNECTIONS['t3.small']!,
     );
     const tooMany = { ...config.task, autoScaling: { min: 2, max: 8, cpuPercent: 55 } };
-    expect(() => configFor('prod', { task: tooMany }, { allowPending: true })).toThrow(
-      /exceed db\.t3\.small/,
-    );
+    expect(() => configFor('prod', { task: tooMany })).toThrow(/exceed db\.t3\.small/);
     // Dev's single task fits its t3.micro too.
     expect(apiConnectionPeak(configFor('dev')) + DB_CONNECTION_HEADROOM).toBeLessThanOrEqual(
       DB_MAX_CONNECTIONS['t3.micro']!,
@@ -163,6 +161,17 @@ describe('prod stacks', () => {
   });
 });
 
+describe('prod email', () => {
+  it("writes no DMARC record: firmivra.com keeps its own (the company mail's)", () => {
+    expect(config.dmarcRecord).toBe(false);
+    const email = t(stacks.email);
+    const txt = Object.values(email.findResources('AWS::Route53::RecordSet'))
+      .map((r) => r['Properties'] as { Name?: string; Type?: string })
+      .filter((p) => p.Type === 'TXT' && String(p.Name).startsWith('_dmarc'));
+    expect(txt).toEqual([]);
+  });
+});
+
 describe('dev keeps its settings', () => {
   const dev = createStacks(
     new App({ context: { ...cdkJsonContext(), env: 'dev' } }),
@@ -174,6 +183,14 @@ describe('dev keeps its settings', () => {
     ci.resourceCountIs('AWS::ECR::PullThroughCacheRule', 1);
     expect(dev.ci.pullRequestRole).toBeDefined();
     ci.resourceCountIs('AWS::IAM::Role', 2);
+  });
+
+  it('writes its own DMARC record on dev.firmivra.com', () => {
+    expect(configFor('dev').dmarcRecord).toBe(true);
+    Template.fromStack(dev.email!).hasResourceProperties('AWS::Route53::RecordSet', {
+      Name: '_dmarc.dev.firmivra.com.',
+      Type: 'TXT',
+    });
   });
 
   it('runs one task per service on Spot, with no auto scaling', () => {

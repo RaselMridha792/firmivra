@@ -36,7 +36,9 @@ export class UsersController {
     return this.users.summary(tenant);
   }
 
+  /** Staff Management's Export, so a firm can close it for Admins (SM6). */
   @Get('export')
+  @Access('STAFF_MANAGEMENT', 'EXPORT')
   @Header('Content-Disposition', 'attachment; filename="users.csv"')
   async export(
     @CurrentAuth() auth: AuthContext,

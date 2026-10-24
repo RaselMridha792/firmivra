@@ -2,7 +2,6 @@ import type { DocumentCategory } from '@firmivra/types';
 import { Card } from '@firmivra/ui';
 import { Folder, FolderOpen, Plus, Trash } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { moduleHref } from '../../../../../lib/firm-modules';
 
 export interface FolderFilter {
   id: string;
@@ -36,7 +35,7 @@ export function FoldersPanel({
         <h2 className="text-lg font-bold text-heading">Folders</h2>
         {/* Add Folder opens Frame 6 (Document Settings), not built yet. */}
         <Link
-          href={moduleHref('document-requests')}
+          href="/documents/requests"
           className="inline-flex size-9 items-center justify-center rounded-control border border-border text-text hover:bg-canvas"
           aria-label="Add folder"
           data-testid="add-folder"

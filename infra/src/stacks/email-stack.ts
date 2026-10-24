@@ -45,12 +45,16 @@ export class EmailStack extends Stack {
       configurationSet: this.configurationSet,
     });
 
-    new route53.TxtRecord(this, 'Dmarc', {
-      zone,
-      recordName: `_dmarc.${domain.zoneName}`,
-      values: ['v=DMARC1; p=quarantine; adkim=s; aspf=s'],
-      ttl: Duration.hours(1),
-    });
+    // Only where the zone has no DMARC record of its own (config.dmarcRecord): firmivra.com keeps
+    // the domain owner's, which its company mail uses.
+    if (config.dmarcRecord) {
+      new route53.TxtRecord(this, 'Dmarc', {
+        zone,
+        recordName: `_dmarc.${domain.zoneName}`,
+        values: ['v=DMARC1; p=quarantine; adkim=s; aspf=s'],
+        ttl: Duration.hours(1),
+      });
+    }
 
     this.fromAddress = `no-reply@${domain.zoneName}`;
   }

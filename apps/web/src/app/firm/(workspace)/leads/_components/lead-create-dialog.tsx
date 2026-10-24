@@ -15,6 +15,12 @@ import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
 import { LEAD_PIPELINE_KEY, PRIORITIES, SOURCES, STAGES } from './lead-shared';
 
+/**
+ * "No campaign" and "Unassigned" are empty choices: none, not an id. Without this the form
+ * refused itself without a word whenever either was left empty.
+ */
+const noneIfEmpty = (value: string) => value || undefined;
+
 const CHANNELS = [
   { value: 'PHONE', label: 'Phone' },
   { value: 'EMAIL', label: 'Email' },
@@ -177,7 +183,7 @@ export function LeadCreateDialog({
                   label: campaign.name,
                 })),
               ]}
-              {...register('campaignId')}
+              {...register('campaignId', { setValueAs: noneIfEmpty })}
             />
           ) : null}
           <fieldset className="flex flex-col gap-1">
@@ -241,7 +247,7 @@ export function LeadCreateDialog({
                   label: member.name,
                 })) ?? []),
               ]}
-              {...register('assignedUserId')}
+              {...register('assignedUserId', { setValueAs: noneIfEmpty })}
             />
           </div>
         </section>

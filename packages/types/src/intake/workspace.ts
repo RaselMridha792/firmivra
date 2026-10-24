@@ -488,6 +488,38 @@ export type FormFileLink = z.infer<typeof FormFileLink>;
 
 // ---------- Intake Form Settings (Frame 5) ----------
 
+/**
+ * The first and final reminder choices, in minutes after the form is sent (Octavia's I8): 5, 10,
+ * 15 and 30 minutes; 1, 2, 3, 6 and 12 hours; 1, 2, 3, 5, 7, 10, 14, 21 and 30 days. The final
+ * reminder comes after the first. A saved time that is not one of these is shown as it is.
+ */
+export const INTAKE_REMINDER_MINUTES = [
+  5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 2880, 4320, 7200, 10080, 14400, 20160, 30240, 43200,
+] as const;
+
+/**
+ * The expiration alert choices, in minutes before the form expires (Octavia's I9): 30 minutes;
+ * 1, 2, 3, 5, 6, 10, 12, 24, 42 and 72 hours (42 as she saw it, not 48). Null is No alert.
+ */
+export const INTAKE_ALERT_MINUTES = [
+  30, 60, 120, 180, 300, 360, 600, 720, 1440, 2520, 4320,
+] as const;
+
+/** "30 minutes", "1 hour", "42 hours": an alert time in words, in hours as her list has them. */
+export function intakeAlertWords(minutes: number): string {
+  if (minutes % 60 !== 0) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  const hours = minutes / 60;
+  return `${hours} hour${hours === 1 ? '' : 's'}`;
+}
+
+/** "30 minutes", "1 hour", "12 hours", "1 day", "3 days": a reminder time in words. */
+export function intakeDurationWords(minutes: number): string {
+  const unit = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  if (minutes % 1440 === 0) return unit(minutes / 1440, 'day');
+  if (minutes % 60 === 0) return unit(minutes / 60, 'hour');
+  return unit(minutes, 'minute');
+}
+
 export const IntakeSettings = z.object({
   general: z.object({
     defaultExpirationDays: z.number().int().nullable(),
@@ -506,9 +538,14 @@ export const IntakeSettings = z.object({
   notifications: z.object({
     sendClientConfirmation: z.boolean(),
     notifyAssignedStaff: z.boolean(),
-    firstReminderAfterDays: z.number().int().nullable(),
-    finalReminderAfterDays: z.number().int().nullable(),
-    expirationAlertHours: z.number().int().nullable(),
+    /**
+     * Minutes after sending (INTAKE_REMINDER_MINUTES). Null for both: no reminders (each new
+     * send's default is off). There is no first reminder without a final one.
+     */
+    firstReminderAfterMinutes: z.number().int().nullable(),
+    finalReminderAfterMinutes: z.number().int().nullable(),
+    /** Minutes before the form expires (INTAKE_ALERT_MINUTES); null is No alert. */
+    expirationAlertMinutes: z.number().int().nullable(),
   }),
   automation: z.object({
     /** Trigger not defined yet (Octavia): kept off until it is. */
@@ -567,9 +604,12 @@ export const UpdateIntakeSettingsRequest = z.strictObject({
     .strictObject({
       sendClientConfirmation: z.boolean(),
       notifyAssignedStaff: z.boolean(),
-      firstReminderAfterDays: z.number().int().min(1).max(60).nullable(),
-      finalReminderAfterDays: z.number().int().min(1).max(90).nullable(),
-      expirationAlertHours: z.number().int().min(1).max(168).nullable(),
+      /** 5 minutes to 30 days; null turns reminders off (the final then goes null too). */
+      firstReminderAfterMinutes: z.number().int().min(5).max(43200).nullable(),
+      /** After the first, at most 60 days (400 VALIDATION_FAILED otherwise). */
+      finalReminderAfterMinutes: z.number().int().min(5).max(86400).nullable(),
+      /** 30 minutes to 7 days before expiry; null is No alert. */
+      expirationAlertMinutes: z.number().int().min(30).max(10080).nullable(),
     })
     .partial()
     .optional(),

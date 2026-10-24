@@ -454,7 +454,7 @@ describe('the settings', () => {
         await call('put', '/intake-settings', ownerA, {
           version: first.version,
           general: { defaultExpirationDays: 30, defaultOwnerUserId: adminA.id },
-          notifications: { firstReminderAfterDays: 2, finalReminderAfterDays: 5 },
+          notifications: { firstReminderAfterMinutes: 2880, finalReminderAfterMinutes: 7200 },
           security: { acceptedFileTypes: ['PDF', 'DOCX'], maxFileSizeMb: 5 },
           clientExperience: { thankYouMessage: 'Thanks!' },
         }),
@@ -463,8 +463,8 @@ describe('the settings', () => {
     expect(saved.general.defaultExpirationDays).toBe(30);
     expect(saved.general.defaultOwner?.userId).toBe(adminA.id);
     expect(saved.notifications).toMatchObject({
-      firstReminderAfterDays: 2,
-      finalReminderAfterDays: 5,
+      firstReminderAfterMinutes: 2880,
+      finalReminderAfterMinutes: 7200,
     });
     expect(saved.security.acceptedFileTypes.sort()).toEqual(['DOCX', 'PDF']);
     expect(saved.security.maxFileSizeMb).toBe(5);
@@ -486,8 +486,11 @@ describe('the settings', () => {
     expect((await next(tooBig)).status).toBe(400);
     expect((await next({ clientExperience: { redirectAfterCompletion: true } })).status).toBe(400);
     expect(
-      (await next({ notifications: { firstReminderAfterDays: 9, finalReminderAfterDays: 4 } }))
-        .status,
+      (
+        await next({
+          notifications: { firstReminderAfterMinutes: 12960, finalReminderAfterMinutes: 5760 },
+        })
+      ).status,
     ).toBe(400);
     expect((await next({ general: { defaultOwnerUserId: randomUUID() } })).status).toBe(400);
     expect((await next({})).status).toBe(200);
@@ -498,54 +501,106 @@ describe('the settings', () => {
     const put = (version: string, notifications: object) =>
       call('put', '/intake-settings', ownerA, { version, notifications });
     const off = IntakeSettings.parse(
-      ok(await put(at.version, { firstReminderAfterDays: null, finalReminderAfterDays: null })),
+      ok(
+        await put(at.version, { firstReminderAfterMinutes: null, finalReminderAfterMinutes: null }),
+      ),
     );
     expect(off.notifications).toMatchObject({
-      firstReminderAfterDays: null,
-      finalReminderAfterDays: null,
+      firstReminderAfterMinutes: null,
+      finalReminderAfterMinutes: null,
     });
     const row = () =>
       inFirm('a', (tx) =>
         tx.intakeSettings.findUniqueOrThrow({
           where: { businessId: firms.a },
-          select: { remindersEnabled: true, firstReminderDays: true, finalReminderDays: true },
+          select: {
+            remindersEnabled: true,
+            firstReminderMinutes: true,
+            finalReminderMinutes: true,
+            firstReminderDays: true,
+            finalReminderDays: true,
+          },
         }),
       );
-    // Off for new sends; the days stay for when reminders are turned on again.
+    // Off for new sends; the times stay for when reminders are turned on again.
     expect(await row()).toEqual({
       remindersEnabled: false,
+      firstReminderMinutes: 2880,
+      finalReminderMinutes: 7200,
       firstReminderDays: 2,
       finalReminderDays: 5,
     });
+    // Octavia's I8: minutes and hours too. The old day columns follow, rounded up to whole days,
+    // the final still after the first (their own rules hold until a migration drops them).
     const on = IntakeSettings.parse(
-      ok(await put(off.version, { firstReminderAfterDays: 1, finalReminderAfterDays: 2 })),
+      ok(await put(off.version, { firstReminderAfterMinutes: 30, finalReminderAfterMinutes: 120 })),
     );
     expect(on.notifications).toMatchObject({
-      firstReminderAfterDays: 1,
-      finalReminderAfterDays: 2,
+      firstReminderAfterMinutes: 30,
+      finalReminderAfterMinutes: 120,
     });
-    expect((await row()).remindersEnabled).toBe(true);
-    // A final reminder on the first's day, no final reminder while they are on, and no alert are
-    // refused at their fields (no column holds the last two).
+    expect(await row()).toEqual({
+      remindersEnabled: true,
+      firstReminderMinutes: 30,
+      finalReminderMinutes: 120,
+      firstReminderDays: 1,
+      finalReminderDays: 2,
+    });
+    const longest = IntakeSettings.parse(
+      ok(
+        await put(on.version, {
+          firstReminderAfterMinutes: 43200,
+          finalReminderAfterMinutes: 86400,
+        }),
+      ),
+    );
+    expect(await row()).toMatchObject({ firstReminderDays: 30, finalReminderDays: 60 });
+    const back = IntakeSettings.parse(
+      ok(
+        await put(longest.version, { firstReminderAfterMinutes: 5, finalReminderAfterMinutes: 10 }),
+      ),
+    );
+    expect(back.notifications).toMatchObject({
+      firstReminderAfterMinutes: 5,
+      finalReminderAfterMinutes: 10,
+    });
+    // A final reminder at the first's time, no final reminder while they are on, and times out of
+    // range are refused at their fields.
     for (const [body, path] of [
       [
-        { firstReminderAfterDays: 3, finalReminderAfterDays: 3 },
-        'notifications.finalReminderAfterDays',
+        { firstReminderAfterMinutes: 4320, finalReminderAfterMinutes: 4320 },
+        'notifications.finalReminderAfterMinutes',
       ],
-      [{ finalReminderAfterDays: null }, 'notifications.finalReminderAfterDays'],
-      [{ expirationAlertHours: null }, 'notifications.expirationAlertHours'],
+      [{ finalReminderAfterMinutes: null }, 'notifications.finalReminderAfterMinutes'],
+      [{ firstReminderAfterMinutes: 4 }, 'notifications.firstReminderAfterMinutes'],
+      [{ finalReminderAfterMinutes: 86401 }, 'notifications.finalReminderAfterMinutes'],
+      [{ expirationAlertMinutes: 29 }, 'notifications.expirationAlertMinutes'],
+      [{ expirationAlertMinutes: 10081 }, 'notifications.expirationAlertMinutes'],
     ] as const) {
-      const res = await put(on.version, body);
+      const res = await put(back.version, body);
       expectError(res, 400, 'VALIDATION_FAILED');
       expect(JSON.stringify(res.body)).toContain(path);
     }
-    // The hours Octavia asked for fit the column (1 to 168): 1 hour and 42 hours.
-    for (const hours of [1, 42]) {
+    // Octavia's I9: 30 minutes and her hours (42, not 48), and No alert. The old hour column
+    // follows, rounded up, and keeps its value under No alert.
+    const alertRow = () =>
+      inFirm('a', (tx) =>
+        tx.intakeSettings.findUniqueOrThrow({
+          where: { businessId: firms.a },
+          select: { expiryAlertMinutes: true, expiryAlertHours: true },
+        }),
+      );
+    for (const [minutes, hours] of [
+      [30, 1],
+      [2520, 42],
+      [null, 42],
+    ] as const) {
       const now = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
       expect(
-        IntakeSettings.parse(ok(await put(now.version, { expirationAlertHours: hours })))
-          .notifications.expirationAlertHours,
-      ).toBe(hours);
+        IntakeSettings.parse(ok(await put(now.version, { expirationAlertMinutes: minutes })))
+          .notifications.expirationAlertMinutes,
+      ).toBe(minutes);
+      expect(await alertRow()).toEqual({ expiryAlertMinutes: minutes, expiryAlertHours: hours });
     }
   });
 
@@ -561,6 +616,11 @@ describe('the settings', () => {
       ok(await call('post', '/intake-settings/reset', ownerA, { confirm: true })),
     );
     expect(back.general.defaultExpirationDays).toBe(14);
+    expect(back.notifications).toMatchObject({
+      firstReminderAfterMinutes: 4320,
+      finalReminderAfterMinutes: 10080,
+      expirationAlertMinutes: 1440,
+    });
     expect(back.clientExperience.thankYouMessage).toBeNull();
     expect(
       IntakeSettingsChangeList.parse(ok(await call('get', '/intake-settings/changes', ownerA)))

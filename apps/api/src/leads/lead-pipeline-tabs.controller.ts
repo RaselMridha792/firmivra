@@ -2,6 +2,8 @@ import { Body, Controller, Get, HttpCode, Param, Post, Put, Query } from '@nestj
 import type { z } from 'zod';
 import {
   AddLeadNoteRequest,
+  BulkConvertLeadsRequest,
+  type BulkConvertLeadsResult,
   CompleteFollowUpRequest,
   ConvertLeadToClientRequest,
   type ConvertLeadToClientResult,
@@ -125,6 +127,18 @@ export class LeadPipelineTabsController {
     @Param('id', idPipe) id: string,
   ): Promise<LeadDocumentsAndForms> {
     return this.tabs.documentsAndForms(tenant.businessId, pipelineActor(auth, tenant), id);
+  }
+
+  /** Convert to Client from the bulk bar (L12): each lead converted or skipped with the reason. */
+  @Post('bulk-convert')
+  @HttpCode(200)
+  bulkConvert(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(BulkConvertLeadsRequest))
+    body: z.output<typeof BulkConvertLeadsRequest>,
+  ): Promise<BulkConvertLeadsResult> {
+    return this.converts.convertMany(tenant.businessId, pipelineActor(auth, tenant), body);
   }
 
   @Post(':id/convert-to-client')
