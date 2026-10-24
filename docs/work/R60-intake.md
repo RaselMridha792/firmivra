@@ -223,7 +223,7 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 
 ## Needs from others
 
-- **From R1 (Oct 24): column requests 7 to 11 are built**, one PR on R1's branch `rasel/R1-r60-columns-2`. Its PR opened on Oct 24 after the idempotency PR (#1084) merged, one migration PR at a time; not merged yet. Build on these names once it merges:
+- **From R1 (Oct 24): column requests 7 to 11 are built** (merged as #1095 on Oct 24), one PR on R1's branch `rasel/R1-r60-columns-2`. Its PR opened on Oct 24 after the idempotency PR (#1084) merged, one migration PR at a time; not merged yet. Build on these names once it merges:
   - **7, `firm_licenses`:**
     - Columns: `regulatory_body` (1 to 120), `license_type` (1 to 80), `license_number` (1 to 60), each trimmed, something visible and no control characters; `expires_on`; `status` (`FirmLicenseStatus`: ACTIVE, EXPIRED, SUSPENDED or REVOKED, default ACTIVE); `verified_by_user_id` with `verified_at`.
     - Who may write: the firm reads only its own rows. Only the admin scope (a Super Admin, `forAdmin`) or the platform scope inserts or updates, so the firm-side API can only read, and a firm can never verify its own license.
@@ -612,3 +612,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   ("Proposed: Ending in 4321"); the full number is in no ticket, audit row, log or answer (the
   e2e checks the stored ticket, the POST and GET answers and Super Admin's detail). The dialog says
   so under New EIN. Profile-changes e2e 6 of 6, `r60-profile-request-change` 2 of 2.
+- Oct 24 (fourth session): I9 (`rasel/R60-intake-expiry-alert`, stacked on I8, which merged as #1094): the
+  expiration alert in minutes (`expirationAlertMinutes`; 30 minutes and 1, 2, 3, 5, 6, 10, 12, 24,
+  42 and 72 hours) and No alert (null, now taken), the old hour column following (rounded up,
+  kept under No alert), the Send page's schedule saying it. Intake workspace e2e 17 of 17, types
+  unit 12 of 12, the Intake Forms mock specs 39 of 39; sheet shot on the real API.
