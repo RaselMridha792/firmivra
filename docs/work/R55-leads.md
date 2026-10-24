@@ -86,6 +86,30 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
   - Closing the panel keeps the filters and selection.
   - Mock spec `r55-create-campaign` (2).
 
+## L5 and L6: tags (Oct 24)
+
+- **Reproduced on main:**
+  - Leads' Tags dialog was free text separated by commas, with the existing tags as plain text.
+  - Edit Lead had no tags field, so "+ Add Tag" and the Campaigns tab's hint were dead ends.
+  - Clients had no tags at all; only Convert to Client wrote `client_tags`.
+  - The database already keeps one `tags` table for both, unique per firm ignoring case.
+- **Decided (Rasel, Oct 23):** build client tags too.
+- **Contract #1048:**
+  - `GET` and `POST /business/tags`;
+  - `GET` and `PUT /business/clients/{id}/tags`;
+  - `api.tags`;
+  - mocks share one tag list.
+- **API #1050** (stacked on #1048):
+  - a tags module;
+  - Owner and Admin add tags; 409 `TAG_EXISTS` for a name in any case;
+  - client tags under the client's row lock: Staff only their own clients, 400 `UNKNOWN_TAG` for a new name, 409 for an archived client;
+  - e2e (7) and isolation cases.
+- **Web, L5** (`rasel/R55-tags-web`, stacked on #1050):
+  - `components/tag-picker.tsx` in the Leads Tags dialog, Edit Lead (Tags field) and a Tags card on the client Overview;
+  - live: a name in another case is the same tag, and the counts follow.
+- **Web, L6** (`rasel/R55-tags-add`, stacked on L5): Add New Tag beside Add New Lead (Owner and Admin) adds to the one list and shows where each tag is used.
+- `r23-client-record` (4 cases) already fails on main without these changes; not changed here.
+
 ## Decisions
 
 1. L1: the Overview is built from `api.leadPipeline.profile` and the existing tab cards (Upcoming Appointments, Next Action / Follow-Up and Open Tasks are the same components as their tabs). Lead Score keeps its frame with "Not scored yet" while no scoring exists (contract: optional).
