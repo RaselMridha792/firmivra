@@ -5,8 +5,8 @@ import { Button, Input, Modal, Select, Textarea } from '@firmivra/ui';
 import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { scheduleErrorText } from './lead-appointment';
 import { LEAD_PIPELINE_KEY } from './lead-shared';
 
 function zonedDateTimeToIso(value: string, timeZone: string) {
@@ -114,6 +114,17 @@ export function LeadAppointmentDialog({ lead, onClose }: { lead: LeadRow; onClos
                 );
               }}
             >
+              {/* The lead's saved contact details, as the booking uses them (L12). */}
+              <dl aria-label="Lead contact" className="grid gap-3 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-muted">Phone</dt>
+                  <dd className="text-text">{lead.phone ?? 'Not on file'}</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-muted">Email</dt>
+                  <dd className="break-all text-text">{lead.email}</dd>
+                </div>
+              </dl>
               <Select
                 label="Appointment type"
                 value={typeId}
@@ -160,7 +171,7 @@ export function LeadAppointmentDialog({ lead, onClose }: { lead: LeadRow; onClos
               />
               {schedule.error ? (
                 <p role="alert" className="text-sm text-danger">
-                  {errorMessage(schedule.error)}
+                  {scheduleErrorText(schedule.error)}
                 </p>
               ) : null}
             </form>
