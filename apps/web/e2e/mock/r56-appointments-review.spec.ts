@@ -245,3 +245,28 @@ test('A5: Save Client saves the typed contact as a client and chooses it; entrie
   await expect(page.getByLabel('Internal Notes')).toHaveValue('Bring last year return');
   await expect(page.getByLabel('Appointment Type *')).not.toHaveValue('');
 });
+
+test("Schedule Appointment starts from the chosen type's reminders; edits by hand stay", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  const card = page.getByTestId('client-reminders');
+
+  // The mock's types start with one default: an email a day before.
+  await page.getByLabel('Appointment Type *').selectOption({ index: 1 });
+  await expect(card.getByTestId('reminder-defaults-note')).toContainText("'s default reminders.");
+  await expect(card.getByLabel('Email Reminder', { exact: true })).toBeChecked();
+  await expect(card.getByLabel('Email Reminder amount')).toHaveValue('1');
+  await expect(card.getByLabel('Email Reminder unit')).toHaveValue('DAYS');
+  await expect(card.getByLabel('SMS Reminder', { exact: true })).not.toBeChecked();
+  await expect(card.getByLabel('Portal Notification', { exact: true })).not.toBeChecked();
+
+  // Changed by hand, the rows stay when another type is chosen.
+  await card.getByLabel('Email Reminder amount').selectOption('2');
+  await expect(card.getByTestId('reminder-defaults-note')).toHaveCount(0);
+  await page.getByLabel('Appointment Type *').selectOption({ index: 2 });
+  await expect(card.getByLabel('Email Reminder amount')).toHaveValue('2');
+  await expect(card.getByTestId('reminder-defaults-note')).toHaveCount(0);
+});

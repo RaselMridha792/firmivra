@@ -1,5 +1,6 @@
 import {
   AppointmentsQuery,
+  BlockConflictsQuery,
   BlockedTimesQuery,
   BookAppointmentRequest,
   BookMyAppointmentRequest,
@@ -88,7 +89,11 @@ export const UpdateTypeBody =
 export const BlocksQuery = BlockedTimesQuery.superRefine(refine(['from', 'to'])).transform(
   lowerIds,
 );
-/** POST /business/blocked-times */
+/** GET /business/blocked-times/conflicts */
+export const ConflictsQuery = BlockConflictsQuery.superRefine(
+  refine(['startsAt', 'endsAt']),
+).transform(lowerIds);
+/** POST /business/blocked-times and /business/blocked-times/free-slots */
 export const CreateBlockBody = CreateBlockedTimeRequest.superRefine(refine(['startsAt', 'endsAt']))
   .superRefine(endsInFuture)
   .transform(lowerIds);
