@@ -18,6 +18,7 @@ info:
     | --- | --- |
     | `/setup` (5 steps) | `getSetup`; each step's fields with `update` (Save Draft); Next: `completeStep(step)`; Finish: `finishSetup` |
     | `/settings/profile`, `/branding`, `/portal` | `get`, `update` |
+    | `/settings/billing` | `api.firmBilling`: `overview`, `invoices`, `invoice`, `invoicePdfUrl`, `request` |
     | `/settings/profile` (Request Change) | `api.profileChanges`: `list`, `create` (`packages/types/src/settings/profile-changes.ts`) |
     | `/settings/legal` | `getLegal(kind)`, `getLegalVersion(kind, n)`, `publishLegal(kind, { body })` |
 
@@ -34,6 +35,13 @@ info:
       same `requestId` again answers the first request. `GET` lists the firm's requests with
       their status and Firmivra's latest reply. Nothing on the profile changes until Firmivra
       applies it; the audit entry names the fields, never the values.
+    - **Billing** (Settings > Billing & Subscriptions, `api.firmBilling`,
+      `packages/types/src/settings/firm-billing.ts`): the firm reads its own subscription, the
+      plans, its issued invoices with their lines and payments, and its billing profile (R0's
+      policies; it writes none of them). A plan change or a new billing contact is a support
+      ticket for the Super Admin team, as Request Change; a plan that does not fit today's usage
+      is refused with the reason. No payment method is stored: card payments to Firmivra are not
+      set up.
     - **Clearing:** an empty text field is sent as `null` and clears the setting (`null` colours
       and portal texts mean Firmivra's default). Name, country and time zone cannot be cleared.
     - **Not yet here:** the logo (`logoUrl` is null until R5 adds upload and signed URLs) and the
@@ -129,6 +137,98 @@ paths:
           description: '`CONFLICT`: the requestId belongs to another ticket'
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '503':
+          description: '`SUPPORT_UNAVAILABLE`: the support queue has no active category or priority'
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+
+  /business/billing:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [settings]
+      operationId: getFirmBilling
+      summary: The firm's subscription, usage, billing details, last payment, plans and requests
+      responses:
+        '200':
+          description: '`FirmBillingOverview` (packages/types/src/settings/firm-billing.ts). `subscription` is null when none is connected'
+          content: { application/json: { schema: { type: object } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /business/billing/invoices:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [settings]
+      operationId: listFirmInvoices
+      summary: Issued Firmivra invoices (never a draft), newest first
+      parameters:
+        - { name: range, in: query, schema: { type: string, enum: ['3M', '6M', '12M', ALL], default: '6M' } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 10 } }
+      responses:
+        '200':
+          description: '`FirmBillingInvoicePage`'
+          content: { application/json: { schema: { type: object } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /business/billing/invoices/{id}:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [settings]
+      operationId: getFirmInvoice
+      summary: One issued invoice with its lines and payments
+      responses:
+        '200':
+          description: '`FirmBillingInvoice`'
+          content: { application/json: { schema: { type: object } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /business/billing/invoices/{id}/pdf:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [settings]
+      operationId: getFirmInvoicePdf
+      summary: The invoice as a PDF attachment ("INV-1026.pdf"); audited with its number
+      responses:
+        '200':
+          description: The PDF
+          content: { application/pdf: { schema: { type: string, format: binary } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /business/billing/requests:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    post:
+      tags: [settings]
+      operationId: createFirmBillingRequest
+      summary: Ask Firmivra for a plan change or a new billing contact (a support ticket)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              description: '`CreateFirmBillingRequest`: `{ requestId, kind: PLAN_CHANGE, planCode, billingCycle, note? }` or `{ requestId, kind: BILLING_CONTACT, contactName?, contactEmail?, note? }`'
+              type: object
+      responses:
+        '201':
+          description: '`FirmBillingRequest` (or the first one with this requestId)'
+          content: { application/json: { schema: { type: object } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`PLAN_NOT_AVAILABLE` (inactive, the current plan on the same cycle, or blocked by usage: `details` say why), `NO_SUBSCRIPTION` (a plan change with none) or `CONFLICT` (the requestId belongs to another ticket)'
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
         '503':
           description: '`SUPPORT_UNAVAILABLE`: the support queue has no active category or priority'
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }

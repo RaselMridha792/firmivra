@@ -32,7 +32,8 @@ to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/
 | # | Branch | State |
 | --- | --- | --- |
 | 1 | `rasel/R60-profile-request-change` | #1063 (open): `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
-| 2 | `rasel/R60-notifications-email` (stacked on #1063) | Built: staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
+| 2 | `rasel/R60-notifications-email` (stacked on #1063) | #1065 (open): staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
+| 3 | `rasel/R60-billing` (stacked on #1065, local until a PR slot frees) | Built: `api.firmBilling` (overview, invoices, invoice, PDF, requests), the Billing page on her design with the plan, usage, details and invoice dialogs; plan and contact changes as support requests. Notes below ("Billing") |
 
 ### State (Oct 23, second session): open PRs and branches waiting
 
@@ -241,6 +242,19 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
      (QUEUED, SENT, FAILED, SKIPPED, the provider's id); no screen shows them yet.
   5. *Portal:* the client portal keeps its own preferences (email may be switched off there);
      her guide leaves the portal to its own review.
+- **Billing (built, `rasel/R60-billing`): what it cannot do yet.**
+  1. *Self-serve plan changes:* the firm's scope reads its subscription but writes none of the
+     platform's billing rows (R0's policies), and there is no provider quote or payment for
+     Firmivra's own subscription. So Upgrade and Downgrade go through her catalog and Review
+     (with the blockers and an estimate at today's usage) and send a request to the Super Admin
+     team, who apply it in Subscriptions (question 4).
+  2. *Payment methods:* no card or account is stored for Firmivra's subscription (no Stripe
+     customer for platform billing). The card shows the latest recorded payment and no
+     Add, Update, Set as Default or Remove buttons, rather than dead ones (question 4).
+  3. *Storage and "Monthly usage":* the plans measure staff seats and locations only, so those
+     two show; her design's storage and monthly rows have no measure behind them.
+  4. *Billing address:* the billing profile keeps a contact, not an address; the card shows the
+     company address from Company Profile.
 - **Staff Management SM3 is blocked (handoff item 5):** each wrong route needs a destination that
   does not exist. Offices & Job Titles needs R1's Locations API and the saved job titles; New
   Accounts & Security needs the staff security defaults (both in "Column request for R1"). The
@@ -281,6 +295,11 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 3. **Applying a Request Change** (Company Profile): R60 proposes a Super Admin action on the
    firm's detail ("Edit legal details": legal name, EIN, and licensing once item 7 lands), admin
    scope, audited in both logs, linked from the ticket. Who builds it, and may R60?
+4. **Billing: requests or self-serve?** R60 made Upgrade, Downgrade and Edit Billing Details
+   requests to the Super Admin team (the Request Change pattern), with the eligibility checks
+   and estimates on the firm's side. Self-serve changes and saved payment methods need Stripe
+   Billing for Firmivra's own subscriptions (a customer per firm, a price per plan, webhooks) and
+   a write path the firm may use: R1's call, and a column or two. Keep requests for now?
 
 ## Column request for R1 (approved by Rasel, Oct 24)
 
