@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import type { Prisma, TaskStatus as StoredTaskStatus } from '@firmivra/db';
+import type { Database, Prisma, TaskStatus as StoredTaskStatus, TxClient } from '@firmivra/db';
 import {
   reminderMinutes,
   TASK_REMINDER_MAX_MINUTES,
@@ -21,7 +21,16 @@ import type {
   TaskWorkErrorCode,
 } from '@firmivra/types';
 import type { z } from 'zod';
-import { assignee, conflict, day, memberRef } from '../workspaces/common.js';
+import type { ClientsActor } from '../clients/clients.service.js';
+import {
+  assignee,
+  conflict,
+  day,
+  isUniqueViolation,
+  memberRef,
+  notFound,
+  violatedIndex,
+} from '../workspaces/common.js';
 import { minutesOf, timeOfDayFromDb, timeOfDayToDb } from '../appointments/calendar.js';
 
 // ---------- Live tasks and drafts ----------
@@ -67,6 +76,11 @@ export const taskErrors = {
     ),
   seriesNotActive: () => code('SERIES_NOT_ACTIVE', 'This recurring task is not active'),
   occurrenceClosed: () => code('OCCURRENCE_CLOSED', 'This occurrence is already made or skipped'),
+  keyReused: () =>
+    code(
+      'IDEMPOTENCY_KEY_REUSED',
+      'This request key was already used for another save. Try again.',
+    ),
   /** 400 with one of TaskWorkErrorCode's codes (the request is well formed but cannot be kept). */
   bad: (c: 'DEPENDENCY_CYCLE' | 'INVALID_REMINDER' | 'INVALID_RECURRENCE', message: string) =>
     new BadRequestException({ code: c, message }),
@@ -313,6 +327,105 @@ export function inFiringOrder<T extends { rule: Reminder }>(
       Number(a.rule.unit !== null) - Number(b.rule.unit !== null) ||
       (a.rule.timeOfDay ?? '24:00').localeCompare(b.rule.timeOfDay ?? '24:00'),
   );
+}
+
+// ---------- Idempotency keys ----------
+
+/** The keys' unique indexes on (business_id, idempotency_key) (migration r1_task_idempotency_keys). */
+export const TASK_KEY_INDEX = 'tasks_business_id_idempotency_key_key';
+export const SERIES_KEY_INDEX = 'task_series_business_id_idempotency_key_key';
+
+/**
+ * Where a key was used, kept beside it: the route, and for Duplicate and Convert the task in the
+ * URL, in lower case as ids are stored. Tasks take 'create', 'draft' and 'duplicate:<id>', series
+ * 'series' and 'convert:<id>' (the migration's CHECKs).
+ */
+export const keyScope = {
+  create: 'create',
+  draft: 'draft',
+  duplicate: (sourceId: string) => `duplicate:${sourceId.toLowerCase()}`,
+  series: 'series',
+  convert: (taskId: string) => `convert:${taskId.toLowerCase()}`,
+} as const;
+
+/** The key's columns for a new row: the key with its scope, or neither without a key. */
+export function keyColumns(key: string | undefined, scope: string) {
+  return key ? { idempotencyKey: key, idempotencyScope: scope } : {};
+}
+
+/**
+ * The record a key already made in this firm, for a retry of the same save: its id when the same
+ * member used the key on the same route for the same task (and, on Save as Draft, while the row
+ * is still a draft); null when the key is new. Any other use of the key, on a task or a series,
+ * is 409 IDEMPOTENCY_KEY_REUSED, and nothing of the record is shown.
+ */
+export async function firstByKey(
+  tx: TxClient,
+  businessId: string,
+  actor: ClientsActor,
+  key: string,
+  scope: string,
+): Promise<string | null> {
+  const where = { businessId, idempotencyKey: key };
+  const keyed = { id: true, createdByUserId: true, idempotencyScope: true } as const;
+  const [task, series] = await Promise.all([
+    tx.task.findFirst({ where, select: { ...keyed, status: true } }),
+    tx.taskSeries.findFirst({ where, select: keyed }),
+  ]);
+  const found = [...(task ? [task] : []), ...(series ? [{ ...series, status: null }] : [])];
+  if (found.length === 0) return null;
+  const member = actor.userId.toLowerCase();
+  const same = found.find(
+    (row) =>
+      row.idempotencyScope === scope &&
+      row.createdByUserId === member &&
+      (scope !== keyScope.draft || row.status === 'DRAFT'),
+  );
+  if (!same) throw taskErrors.keyReused();
+  return same.id;
+}
+
+/**
+ * A save that makes a task or a series, retry-safe by the request's idempotency key (R1, Oct 24;
+ * the contract's IdempotencyKey):
+ * - the key is looked up first, before any check that can change between two tries (an archived
+ *   type or template, an assignee gone, a task already recurring): the same member's retry on the
+ *   same route and task gets `read` of the record the first save made, as it is now and as they
+ *   reach it, with nothing written or audited; any other use of the key is 409 (firstByKey);
+ * - a new key runs `create`, which stores the key with `scope`;
+ * - two requests with one key at once: the second's insert waits on the key's unique `index` and
+ *   fails once the first commits. Its transaction is aborted, so it is answered as a retry in a
+ *   new one. This is checked before any other error is mapped (`otherwise`).
+ * Without a key, only `create`.
+ */
+export async function keyedSave<T>(
+  database: Database,
+  businessId: string,
+  actor: ClientsActor,
+  keyed: { key: string | undefined; scope: string; index: string },
+  read: (tx: TxClient, id: string) => Promise<T>,
+  create: (tx: TxClient) => Promise<T>,
+  otherwise: (error: unknown) => never,
+): Promise<T> {
+  const { key, scope, index } = keyed;
+  const inFirm = <R>(fn: (tx: TxClient) => Promise<R>) =>
+    database.withScope({ kind: 'business', businessId }, fn);
+  try {
+    return await inFirm(async (tx) => {
+      const first = key ? await firstByKey(tx, businessId, actor, key, scope) : null;
+      return first === null ? create(tx) : read(tx, first);
+    });
+  } catch (error) {
+    if (!key || !isUniqueViolation(error) || violatedIndex(error) !== index) {
+      return otherwise(error);
+    }
+    return inFirm(async (tx) => {
+      const first = await firstByKey(tx, businessId, actor, key, scope);
+      // Gone already (a draft discarded at once): as for a record the member no longer reaches.
+      if (first === null) throw notFound();
+      return read(tx, first);
+    });
+  }
 }
 
 // ---------- What a task is read with ----------

@@ -22,6 +22,7 @@ import { DATABASE } from '../database/database.module.js';
 import {
   assignee,
   day,
+  isUniqueViolation,
   lockClient,
   memberNames,
   memberRef,
@@ -30,11 +31,15 @@ import {
   reachesClient,
   sentFields,
   toDay,
+  violatedIndex,
 } from '../workspaces/common.js';
 import {
   checkReminders,
   fitReminders,
   inFiringOrder,
+  keyColumns,
+  keyedSave,
+  keyScope,
   LIVE_TASK,
   liveClient,
   type Reminder,
@@ -42,6 +47,7 @@ import {
   reminderFromRow,
   remindersFromJson,
   remindersJson,
+  SERIES_KEY_INDEX,
   taskErrors,
 } from './task-common.js';
 import { remindersOf } from './task-templates.service.js';
@@ -56,6 +62,13 @@ export const HORIZON_DAYS = 120;
 const UPCOMING = 6;
 /** The skip reason of an occurrence the firm's new settings no longer give. */
 const REPLACED = 'Replaced by new settings';
+/** One series per task: the unique index on task_occurrences (business_id, task_id). */
+const OCCURRENCE_TASK_INDEX = 'task_occurrences_business_id_task_id_key';
+const alreadyRecurring = () =>
+  taskErrors.invalid('id', 'This task already belongs to a recurring task');
+const rethrow = (error: unknown): never => {
+  throw error;
+};
 const FIELDS = [
   'title',
   'details',
@@ -158,8 +171,10 @@ const occurrenceOut = (o: {
  * date), so generation is idempotent: a retry finds the row. A later edit changes the definition
  * and the occurrences not made yet, never a task already made (and with scope ENTIRE only the
  * still-open ones, in a few fields). The client and the start date never change. Owner and Admin
- * manage series; everyone with the Tasks view reads those of the clients they reach. Audited with
- * ids, field names and the series' wording, never a title, details or a step.
+ * manage series; everyone with the Tasks view reads those of the clients they reach. Making a
+ * series (Set Up Recurring, Convert) is retry-safe by the request's idempotency key (keyedSave)
+ * and audited in its transaction. Audited with ids, field names and the series' wording, never a
+ * title, details or a step.
  */
 @Injectable()
 export class TaskSeriesService {
@@ -282,70 +297,89 @@ export class TaskSeriesService {
 
   // ---------- Create ----------
 
+  /** Set Up Recurring Task; with `idempotencyKey`, a retry returns the series the first save made. */
   async create(
     businessId: string,
     actor: ClientsActor,
     body: CreateBody,
   ): Promise<TaskSeriesDetail> {
-    const series = await this.inFirm(businessId, async (tx) => {
-      const client = await lockClient(tx, businessId, body.clientId);
-      if (!client || !reachesClient(actor, client)) throw notFound();
-      const tpl = body.templateId
-        ? await tx.taskTemplate.findFirst({ where: { businessId, id: body.templateId } })
-        : null;
-      if (body.templateId && (!tpl || tpl.archivedAt)) {
-        throw taskErrors.invalid('templateId', 'Choose a template');
-      }
-      const rule = body.recurrence as RecurrenceRule;
-      checkRule(rule);
-      const fields = await this.fields(tx, businessId, {
-        ...body,
-        priority: body.priority ?? tpl?.priority,
-        typeId: body.typeId !== undefined ? body.typeId : tpl?.typeId,
-        serviceId: body.serviceId !== undefined ? body.serviceId : tpl?.serviceId,
-        assignmentRule:
-          body.assignmentRule ??
-          (body.assignedUserId ? 'SPECIFIC_USER' : (tpl?.assignmentRule ?? 'UNASSIGNED')),
-        assignedUserId:
-          body.assignedUserId !== undefined ? body.assignedUserId : (tpl?.assignedUserId ?? null),
-        clientVisible: body.clientVisible ?? tpl?.clientVisibleDefault,
-        checklist:
-          body.checklist ??
-          (Array.isArray(tpl?.checklist)
-            ? (tpl.checklist as { label: string; required: boolean }[])
-            : undefined),
-        // The request's reminders are checked; the template's that do not fit are left out.
-        reminders:
-          body.reminders?.map(reminderFrom) ??
-          (tpl ? fitReminders(remindersFromJson(tpl.reminders), body.dueTime ?? null) : undefined),
-      });
-      if (body.engagementId) {
-        const engagement = await tx.engagement.findFirst({
-          where: { businessId, id: body.engagementId, clientId: body.clientId },
-          select: { id: true },
-        });
-        if (!engagement)
-          throw taskErrors.invalid('engagementId', "Choose one of this client's services");
-      }
-      const created = await tx.taskSeries.create({
-        data: {
-          businessId,
-          clientId: body.clientId,
-          engagementId: body.engagementId ?? null,
-          createdByUserId: actor.userId,
-          startOn: toDay(rule.startOn),
-          ...this.ruleColumns(rule),
-          ...fields,
-          title: body.title,
-        },
+    return keyedSave(
+      this.database,
+      businessId,
+      actor,
+      { key: body.idempotencyKey, scope: keyScope.series, index: SERIES_KEY_INDEX },
+      (tx, id) => this.read(tx, businessId, actor, id),
+      (tx) => this.make(tx, businessId, actor, body),
+      rethrow,
+    );
+  }
+
+  /** A new series with its occurrences ahead and its key's columns, audited in its transaction. */
+  private async make(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    body: CreateBody,
+  ): Promise<TaskSeriesDetail> {
+    const client = await lockClient(tx, businessId, body.clientId);
+    if (!client || !reachesClient(actor, client)) throw notFound();
+    const tpl = body.templateId
+      ? await tx.taskTemplate.findFirst({ where: { businessId, id: body.templateId } })
+      : null;
+    if (body.templateId && (!tpl || tpl.archivedAt)) {
+      throw taskErrors.invalid('templateId', 'Choose a template');
+    }
+    const rule = body.recurrence as RecurrenceRule;
+    checkRule(rule);
+    const fields = await this.fields(tx, businessId, {
+      ...body,
+      priority: body.priority ?? tpl?.priority,
+      typeId: body.typeId !== undefined ? body.typeId : tpl?.typeId,
+      serviceId: body.serviceId !== undefined ? body.serviceId : tpl?.serviceId,
+      assignmentRule:
+        body.assignmentRule ??
+        (body.assignedUserId ? 'SPECIFIC_USER' : (tpl?.assignmentRule ?? 'UNASSIGNED')),
+      assignedUserId:
+        body.assignedUserId !== undefined ? body.assignedUserId : (tpl?.assignedUserId ?? null),
+      clientVisible: body.clientVisible ?? tpl?.clientVisibleDefault,
+      checklist:
+        body.checklist ??
+        (Array.isArray(tpl?.checklist)
+          ? (tpl.checklist as { label: string; required: boolean }[])
+          : undefined),
+      // The request's reminders are checked; the template's that do not fit are left out.
+      reminders:
+        body.reminders?.map(reminderFrom) ??
+        (tpl ? fitReminders(remindersFromJson(tpl.reminders), body.dueTime ?? null) : undefined),
+    });
+    if (body.engagementId) {
+      const engagement = await tx.engagement.findFirst({
+        where: { businessId, id: body.engagementId, clientId: body.clientId },
         select: { id: true },
       });
-      const row = await tx.taskSeries.findFirstOrThrow({ where: { id: created.id }, include });
-      const clock = await firmClock(tx, businessId);
-      await this.syncOccurrences(tx, businessId, row, clock.today);
-      return this.read(tx, businessId, null, created.id);
+      if (!engagement)
+        throw taskErrors.invalid('engagementId', "Choose one of this client's services");
+    }
+    const created = await tx.taskSeries.create({
+      data: {
+        businessId,
+        clientId: body.clientId,
+        engagementId: body.engagementId ?? null,
+        createdByUserId: actor.userId,
+        startOn: toDay(rule.startOn),
+        ...this.ruleColumns(rule),
+        ...fields,
+        title: body.title,
+        ...keyColumns(body.idempotencyKey, keyScope.series),
+      },
+      select: { id: true },
     });
-    await this.audit.log(
+    const row = await tx.taskSeries.findFirstOrThrow({ where: { id: created.id }, include });
+    const clock = await firmClock(tx, businessId);
+    await this.syncOccurrences(tx, businessId, row, clock.today);
+    const series = await this.read(tx, businessId, null, created.id);
+    await this.audit.logIn(
+      tx,
       'task_series.created',
       { type: 'task_series', id: series.id },
       {
@@ -569,93 +603,119 @@ export class TaskSeriesService {
 
   // ---------- A task becomes a series ----------
 
-  /** The task becomes the first occurrence of a new series that starts on its due date. */
+  /**
+   * The task becomes the first occurrence of a new series that starts on its due date. With
+   * `idempotencyKey`, a retry returns the series the first one made (the key is kept with the
+   * task's id: on another task it is 409). A task already in a series is 400, also when two
+   * conversions run at once: the second's occurrence then fails on the task's unique index.
+   */
   async convert(
     businessId: string,
     actor: ClientsActor,
     taskId: string,
     body: z.output<typeof ConvertToRecurringRequest>,
   ): Promise<TaskSeriesDetail> {
-    const series = await this.inFirm(businessId, async (tx) => {
-      const task = await tx.task.findFirst({
-        where: {
-          businessId,
-          id: taskId,
-          ...LIVE_TASK,
-          ...(actor.role === 'STAFF' ? { client: { assignedUserId: actor.userId } } : {}),
-        },
-        include: {
-          taskChecklistItems: { orderBy: { position: 'asc' } },
-          taskReminders: { orderBy: [{ daysBefore: 'desc' }, { timeOfDay: 'asc' }, { id: 'asc' }] },
-          assignees: { select: { userId: true } },
-          taskOccurrence: { select: { id: true } },
-        },
-      });
-      if (!task) throw notFound();
-      if (!task.dueOn)
-        throw taskErrors.bad('INVALID_RECURRENCE', 'Set a due date first: it starts the series');
-      if (task.taskOccurrence)
-        throw taskErrors.invalid('id', 'This task already belongs to a recurring task');
-      const startOn = day(task.dueOn)!;
-      const rule: RecurrenceRule = {
-        ...(body.recurrence as Omit<RecurrenceRule, 'startOn'>),
-        startOn,
-      };
-      checkRule(rule);
-      const created = await tx.taskSeries.create({
-        data: {
-          businessId,
-          clientId: liveClient(task.clientId),
-          engagementId: task.engagementId,
-          createdByUserId: actor.userId,
-          startOn: task.dueOn,
-          ...this.ruleColumns(rule),
-          title: task.title,
-          details: task.details,
-          serviceId: task.serviceId,
-          typeId: task.typeId,
-          priority: task.priority,
-          assignmentRule: task.assignedUserId ? 'SPECIFIC_USER' : 'UNASSIGNED',
-          assignedUserId: task.assignedUserId,
-          extraAssigneeIds: task.assignees.map((a) => a.userId),
-          dueTime: task.dueTime,
-          clientVisible: task.clientVisible,
-          checklist: task.taskChecklistItems.map((i) => ({ label: i.label, required: i.required })),
-          // Custom ones too, in the order they fire (the series keeps the task's due time).
-          reminders: remindersJson(
-            inFiringOrder(
-              task.taskReminders.map((r) => ({ rule: reminderFromRow(r) })),
-              task.dueTime && !task.allDay ? timeOfDayFromDb(task.dueTime) : null,
-            ).map((r) => r.rule),
-          ),
-        },
-        select: { id: true },
-      });
-      // The task is the first occurrence: its date is the series' start.
-      await tx.taskOccurrence.create({
-        data: {
-          businessId,
-          seriesId: created.id,
-          scheduledOn: task.dueOn,
-          dueOn: task.dueOn,
-          state: 'GENERATED',
-          taskId: task.id,
-          generatedAt: new Date(),
-        },
-      });
-      const row = await tx.taskSeries.findFirstOrThrow({ where: { id: created.id }, include });
-      const clock = await firmClock(tx, businessId);
-      await this.syncOccurrences(tx, businessId, row, clock.today);
-      return this.read(tx, businessId, null, created.id);
+    const scope = keyScope.convert(taskId);
+    return keyedSave(
+      this.database,
+      businessId,
+      actor,
+      { key: body.idempotencyKey, scope, index: SERIES_KEY_INDEX },
+      (tx, id) => this.read(tx, businessId, actor, id),
+      (tx) => this.fromTask(tx, businessId, actor, taskId, body, scope),
+      (error) => {
+        if (isUniqueViolation(error) && violatedIndex(error) === OCCURRENCE_TASK_INDEX) {
+          throw alreadyRecurring();
+        }
+        throw error;
+      },
+    );
+  }
+
+  /** Convert's series, with the task as its first occurrence, audited in its transaction. */
+  private async fromTask(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    taskId: string,
+    body: z.output<typeof ConvertToRecurringRequest>,
+    scope: string,
+  ): Promise<TaskSeriesDetail> {
+    const task = await tx.task.findFirst({
+      where: {
+        businessId,
+        id: taskId,
+        ...LIVE_TASK,
+        ...(actor.role === 'STAFF' ? { client: { assignedUserId: actor.userId } } : {}),
+      },
+      include: {
+        taskChecklistItems: { orderBy: { position: 'asc' } },
+        taskReminders: { orderBy: [{ daysBefore: 'desc' }, { timeOfDay: 'asc' }, { id: 'asc' }] },
+        assignees: { select: { userId: true } },
+        taskOccurrence: { select: { id: true } },
+      },
     });
-    await this.audit.log(
+    if (!task) throw notFound();
+    if (!task.dueOn)
+      throw taskErrors.bad('INVALID_RECURRENCE', 'Set a due date first: it starts the series');
+    if (task.taskOccurrence) throw alreadyRecurring();
+    const startOn = day(task.dueOn)!;
+    const rule: RecurrenceRule = {
+      ...(body.recurrence as Omit<RecurrenceRule, 'startOn'>),
+      startOn,
+    };
+    checkRule(rule);
+    const created = await tx.taskSeries.create({
+      data: {
+        businessId,
+        clientId: liveClient(task.clientId),
+        engagementId: task.engagementId,
+        createdByUserId: actor.userId,
+        startOn: task.dueOn,
+        ...this.ruleColumns(rule),
+        title: task.title,
+        details: task.details,
+        serviceId: task.serviceId,
+        typeId: task.typeId,
+        priority: task.priority,
+        assignmentRule: task.assignedUserId ? 'SPECIFIC_USER' : 'UNASSIGNED',
+        assignedUserId: task.assignedUserId,
+        extraAssigneeIds: task.assignees.map((a) => a.userId),
+        dueTime: task.dueTime,
+        clientVisible: task.clientVisible,
+        checklist: task.taskChecklistItems.map((i) => ({ label: i.label, required: i.required })),
+        // Custom ones too, in the order they fire (the series keeps the task's due time).
+        reminders: remindersJson(
+          inFiringOrder(
+            task.taskReminders.map((r) => ({ rule: reminderFromRow(r) })),
+            task.dueTime && !task.allDay ? timeOfDayFromDb(task.dueTime) : null,
+          ).map((r) => r.rule),
+        ),
+        ...keyColumns(body.idempotencyKey, scope),
+      },
+      select: { id: true },
+    });
+    // The task is the first occurrence: its date is the series' start.
+    await tx.taskOccurrence.create({
+      data: {
+        businessId,
+        seriesId: created.id,
+        scheduledOn: task.dueOn,
+        dueOn: task.dueOn,
+        state: 'GENERATED',
+        taskId: task.id,
+        generatedAt: new Date(),
+      },
+    });
+    const row = await tx.taskSeries.findFirstOrThrow({ where: { id: created.id }, include });
+    const clock = await firmClock(tx, businessId);
+    await this.syncOccurrences(tx, businessId, row, clock.today);
+    const series = await this.read(tx, businessId, null, created.id);
+    await this.audit.logIn(
+      tx,
       'task_series.created',
       { type: 'task_series', id: series.id },
-      {
-        clientId: series.client.id,
-        fromTask: taskId.toLowerCase(),
-        frequency: series.summary,
-      },
+      { clientId: series.client.id, fromTask: task.id, frequency: series.summary },
     );
     return series;
   }

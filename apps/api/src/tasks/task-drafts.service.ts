@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Database, Prisma, Task, TxClient } from '@firmivra/db';
 import type { TaskDetail, TaskDraft, TaskDraftPage } from '@firmivra/types';
 import type { z } from 'zod';
@@ -12,7 +12,17 @@ import {
   reachesClient,
   sentFields,
 } from '../workspaces/common.js';
-import { detailInclude, draftRowInclude, taskErrors, toDraft, toDraftRow } from './task-common.js';
+import {
+  detailInclude,
+  draftRowInclude,
+  keyedSave,
+  keyScope,
+  LIVE_TASK,
+  TASK_KEY_INDEX,
+  taskErrors,
+  toDraft,
+  toDraftRow,
+} from './task-common.js';
 import type {
   PublishTaskDraftRequest,
   SaveTaskDraftRequest,
@@ -68,6 +78,8 @@ const SORT: Record<
 };
 
 const DRAFT: Prisma.TaskWhereInput = { status: 'DRAFT' };
+/** A publish's audit action: "task created", as for a new task (with `fromDraft`). */
+const PUBLISHED = 'task.created';
 
 /**
  * The drafts the actor sees: their own drafts without a client (even the Owner sees no one
@@ -92,8 +104,10 @@ const seen = (actor: ClientsActor): Prisma.TaskWhereInput => ({
  * template's included, are only kept once each until publishing checks them against the due date
  * and time. No other read of tasks sees a draft (LIVE_TASK); publishing checks it as a new task
  * (`checkAsNew`), makes it OPEN with the same id once, and then "task created" happens as for a
- * new task. A draft out of sight is 404, as is another firm's. Audited with ids and field names
- * only, never a title, details, notes, a checklist label or a file name.
+ * new task. A draft out of sight is 404, as is another firm's. Save as Draft is retry-safe by the
+ * request's idempotency key (keyedSave), and a publish retried after it went through answers the
+ * task it made; both audit in the transaction that writes. Audited with ids and field names only,
+ * never a title, details, notes, a checklist label or a file name.
  */
 @Injectable()
 export class TaskDraftsService {
@@ -168,28 +182,41 @@ export class TaskDraftsService {
     return draft;
   }
 
-  /** Save as Draft: a new draft of the caller's, with or without a client they reach. */
+  /**
+   * Save as Draft: a new draft of the caller's, with or without a client they reach. With
+   * `idempotencyKey`, a retry returns the draft the first save made while it is still a draft
+   * (409 once it is published).
+   */
   async save(businessId: string, actor: ClientsActor, body: SaveBody): Promise<TaskDraft> {
-    const draft = await this.inFirm(businessId, async (tx) => {
-      let client: { assignedUserId: string | null } | null = null;
-      if (body.clientId) {
-        // As for a new task: a client the caller does not reach is not found.
-        client = await lockClient(tx, businessId, body.clientId);
-        if (!client || !reachesClient(actor, client)) throw notFound();
-      }
-      const id = await this.writer.insertNew(tx, businessId, actor, body, client, true);
-      return this.read(tx, businessId, null, id);
-    }).catch(this.writer.newTaskErrors(body));
-    await this.audit.log(
-      'task.draft_saved',
-      { type: 'task', id: draft.id },
-      {
-        clientId: draft.client?.id ?? null,
-        fields: sentFields(body, SAVE_FIELDS),
-        ...(body.templateId ? { templateId: body.templateId.toLowerCase() } : {}),
+    return keyedSave(
+      this.database,
+      businessId,
+      actor,
+      { key: body.idempotencyKey, scope: keyScope.draft, index: TASK_KEY_INDEX },
+      (tx, id) => this.read(tx, businessId, actor, id),
+      async (tx) => {
+        let client: { assignedUserId: string | null } | null = null;
+        if (body.clientId) {
+          // As for a new task: a client the caller does not reach is not found.
+          client = await lockClient(tx, businessId, body.clientId);
+          if (!client || !reachesClient(actor, client)) throw notFound();
+        }
+        const id = await this.writer.insertNew(tx, businessId, actor, body, client, true);
+        const draft = await this.read(tx, businessId, null, id);
+        await this.audit.logIn(
+          tx,
+          'task.draft_saved',
+          { type: 'task', id: draft.id },
+          {
+            clientId: draft.client?.id ?? null,
+            fields: sentFields(body, SAVE_FIELDS),
+            ...(body.templateId ? { templateId: body.templateId.toLowerCase() } : {}),
+          },
+        );
+        return draft;
       },
+      this.writer.newTaskErrors(body),
     );
-    return draft;
   }
 
   /** Edits a draft; it stays a draft. `version` guards a concurrent save (409 SAVE_CONFLICT). */
@@ -222,9 +249,11 @@ export class TaskDraftsService {
    * Save Task on a draft, in one transaction: the fields sent apply as on PATCH, then the draft
    * is checked as a new task is (400 VALIDATION_FAILED naming `clientId` without one; the errors
    * of a new task otherwise, and then it stays a draft) and becomes an OPEN task with the same
-   * id, made now. Only while it is still this draft, so a retried publish finds none (404) and
-   * "task created" (create's audit row; create sends no notification and starts no automation)
-   * happens once.
+   * id, made now. Only while it is still this draft, so "task created" (create's audit row,
+   * written in the same transaction; create sends no notification and starts no automation)
+   * happens once. A publish retried after it went through (its answer lost, or two at once)
+   * finds no draft: it answers the task as it is now when the caller published it and still
+   * reaches it, without publishing or auditing again (`published`); anyone else gets 404.
    */
   async publish(
     businessId: string,
@@ -233,8 +262,18 @@ export class TaskDraftsService {
     body: PublishBody,
   ): Promise<TaskDetail> {
     const { version, ...changes } = body;
-    const task = await this.inFirm(businessId, async (tx) => {
-      const current = await this.open(tx, businessId, actor, id);
+    return this.inFirm(businessId, async (tx) => {
+      let current: Task;
+      try {
+        current = await this.open(tx, businessId, actor, id);
+      } catch (error) {
+        const live =
+          error instanceof NotFoundException
+            ? await this.published(tx, businessId, actor, id)
+            : null;
+        if (live) return live;
+        throw error;
+      }
       if (version !== undefined && version !== current.updatedAt.toISOString()) {
         throw taskErrors.saveConflict();
       }
@@ -252,21 +291,53 @@ export class TaskDraftsService {
         data: { status: 'OPEN', createdAt: now, updatedAt: now },
       });
       if (count !== 1) throw notFound();
-      return this.reader.read(tx, businessId, null, draft.id);
+      const task = await this.reader.read(tx, businessId, null, draft.id);
+      // With the publish: `published` reads who published from this row.
+      await this.audit.logIn(
+        tx,
+        PUBLISHED,
+        { type: 'task', id: task.id },
+        {
+          clientId: task.client.id,
+          engagementId: task.engagementId,
+          assignedUserId: task.assignedTo?.userId ?? null,
+          fields: sentFields(changes, CHANGE_FIELDS),
+          fromDraft: true,
+          ...(task.templateId ? { templateId: task.templateId } : {}),
+        },
+      );
+      return task;
     }).catch(this.writer.mapErrors(changes));
-    await this.audit.log(
-      'task.created',
-      { type: 'task', id: task.id },
-      {
-        clientId: task.client.id,
-        engagementId: task.engagementId,
-        assignedUserId: task.assignedTo?.userId ?? null,
-        fields: sentFields(changes, CHANGE_FIELDS),
-        fromDraft: true,
-        ...(task.templateId ? { templateId: task.templateId } : {}),
+  }
+
+  /**
+   * The task a draft became, for a publish retried after it went through: when the caller
+   * published it (the publish's audit row, written with it, says who did) and still reaches it.
+   * Null otherwise, so the 404 stands.
+   */
+  private async published(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+  ): Promise<TaskDetail | null> {
+    const live = await tx.task.findFirst({
+      where: { businessId, id, ...LIVE_TASK, ...reach(actor) },
+      select: { id: true },
+    });
+    if (!live) return null;
+    const mine = await tx.auditLog.findFirst({
+      where: {
+        businessId,
+        entityType: 'task',
+        entityId: live.id,
+        action: PUBLISHED,
+        actorUserId: actor.userId,
+        metadata: { path: ['fromDraft'], equals: true },
       },
-    );
-    return task;
+      select: { id: true },
+    });
+    return mine ? this.reader.read(tx, businessId, actor, live.id) : null;
   }
 
   /** Discards a draft: its checklist, reminders, collaborators and attachments go with it. */

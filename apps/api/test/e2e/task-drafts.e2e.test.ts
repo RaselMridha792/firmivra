@@ -873,8 +873,9 @@ describe('publish', () => {
     });
     expect(TaskDetail.parse(ok(await call('get', `/tasks/${d.id}`, people.ownerA)))).toEqual(task);
     expect(Date.parse(task.createdAt)).toBeGreaterThanOrEqual(Date.parse(d.createdAt));
-    // Not a draft any more: a second publish, an edit or a discard finds none.
-    expectError(await publish(d.id), 404, 'NOT_FOUND');
+    // Not a draft any more: a second publish by its publisher is a retry and answers the task
+    // (see "idempotency keys and retries"); an edit or a discard finds none.
+    expect(detailOf(await publish(d.id))).toEqual(task);
     expectError(await call('get', `/tasks/drafts/${d.id}`, people.ownerA), 404, 'NOT_FOUND');
     expectError(
       await call('patch', `/tasks/drafts/${d.id}`, people.ownerA, { title: 'x' }),
@@ -1084,6 +1085,156 @@ describe('discard', () => {
     // A live task is not a draft to discard.
     const live = await createTask({ clientId: clients.c1, title: mark('Live') });
     expectError(await call('delete', `/tasks/drafts/${live.id}`, people.ownerA), 404, 'NOT_FOUND');
+  });
+});
+
+// R1 (Oct 24): Save as Draft is retry-safe by the screen's idempotency key (contract: work.ts
+// IdempotencyKey), only while the row is still a draft; edits and publishing take no key, and a
+// publish retried after it went through answers the task it made.
+describe('idempotency keys and retries', () => {
+  /** Firm A's rows with this key (read as the owner role, so by firm). */
+  const keyed = (key: string) =>
+    inFirm('a', (tx) =>
+      tx.task.findMany({
+        where: { businessId: firms.a, idempotencyKey: key },
+        select: { id: true, status: true, idempotencyScope: true },
+      }),
+    );
+  const audits = (id: string, action: string) =>
+    inFirm('a', (tx) => tx.auditLog.count({ where: { entityId: id, action } }));
+
+  it('Save as Draft twice with one key, one after the other or at once, keeps one draft', async () => {
+    const key = randomUUID();
+    const body = {
+      title: mark('Keyed draft'),
+      checklist: [{ label: 'Step' }],
+      idempotencyKey: key,
+    };
+    const first = await save(body);
+    // A changed body gets the first draft as it is.
+    expect(await save({ ...body, title: mark('Changed'), priority: 'HIGH' })).toEqual(first);
+    expect(await keyed(key)).toEqual([
+      { id: first.id, status: 'DRAFT', idempotencyScope: 'draft' },
+    ]);
+    expect(await audits(first.id, 'task.draft_saved')).toBe(1);
+
+    const atOnce = { ...body, title: mark('At once'), idempotencyKey: randomUUID() };
+    const answers = await Promise.all(
+      [1, 2, 3].map(() => call('post', '/tasks/drafts', people.ownerA, atOnce)),
+    );
+    const ids = answers.map((r) => draftOf(r, 201).id);
+    expect(new Set(ids).size).toBe(1);
+    const [id] = ids as [string];
+    expect((await keyed(atOnce.idempotencyKey)).map((d) => d.id)).toEqual([id]);
+    expect(await audits(id, 'task.draft_saved')).toBe(1);
+    expect((await getDraft(id)).checklistItems).toHaveLength(1);
+  });
+
+  it('another member, Create Task, or the draft once published: 409; a discarded draft frees its key', async () => {
+    const key = randomUUID();
+    const d = await save({ title: mark('Mine'), clientId: clients.c1, idempotencyKey: key });
+    for (const res of [
+      await call('post', '/tasks/drafts', people.adminA, { title: 'Theirs', idempotencyKey: key }),
+      await call('post', '/tasks', people.ownerA, {
+        clientId: clients.c1,
+        title: 'A task',
+        idempotencyKey: key,
+      }),
+    ]) {
+      expectError(res, 409, 'IDEMPOTENCY_KEY_REUSED');
+      expect(JSON.stringify(res.body)).not.toContain(d.id);
+    }
+    detailOf(await publish(d.id));
+    // Published, the key no longer gives a draft back (and never the task).
+    const after = await call('post', '/tasks/drafts', people.ownerA, {
+      title: 'Again',
+      idempotencyKey: key,
+    });
+    expectError(after, 409, 'IDEMPOTENCY_KEY_REUSED');
+    expect(JSON.stringify(after.body)).not.toContain(d.id);
+    expect(await keyed(key)).toEqual([{ id: d.id, status: 'OPEN', idempotencyScope: 'draft' }]);
+
+    const free = randomUUID();
+    const gone = await save({ title: mark('Gone'), idempotencyKey: free });
+    ok(await call('delete', `/tasks/drafts/${gone.id}`, people.ownerA));
+    const fresh = await save({ title: mark('Fresh'), idempotencyKey: free });
+    expect(fresh.id).not.toBe(gone.id);
+  });
+
+  it('an edit or a publish takes no key (400)', async () => {
+    const d = await save({ title: mark('No key here') });
+    expectError(
+      await call('patch', `/tasks/drafts/${d.id}`, people.ownerA, {
+        title: 'Renamed',
+        idempotencyKey: randomUUID(),
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await publish(d.id, { clientId: clients.c1, idempotencyKey: randomUUID() }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect(await getDraft(d.id)).toEqual(d);
+  });
+
+  it('a publish retried after it went through answers the task, published and audited once', async () => {
+    const d = await save({
+      title: mark('Publish twice'),
+      clientId: clients.c1,
+      dueOn: '2031-07-01',
+    });
+    const task = detailOf(await publish(d.id, { version: d.version }));
+    // The answer was lost: the same caller sends the same publish again.
+    expect(detailOf(await publish(d.id, { version: d.version }))).toEqual(task);
+    expect(detailOf(await publish(d.id.toUpperCase()))).toEqual(task);
+    expect(await audits(d.id, 'task.created')).toBe(1);
+    // Anyone who did not publish it finds no draft, as before.
+    expectError(await publish(d.id, {}, people.adminA), 404, 'NOT_FOUND');
+    expectError(await publish(d.id, {}, people.staffA), 404, 'NOT_FOUND');
+
+    // Two at once by one caller: both answer the task; it is published and audited once.
+    const e = await save({ title: mark('Publish at once'), clientId: clients.c1 });
+    const both = await Promise.all([publish(e.id), publish(e.id)]);
+    expect(both.map((r) => detailOf(r).id)).toEqual([e.id, e.id]);
+    expect(await audits(e.id, 'task.created')).toBe(1);
+  });
+
+  it('a publish retried after the caller lost the client is 404', async () => {
+    // A client of this test's own, so moving it touches no other test.
+    const own = await inFirm('a', (tx) =>
+      tx.client.create({
+        data: {
+          businessId: firms.a,
+          displayName: 'Publish Client (fake)',
+          assignedUserId: people.staffA.id,
+        },
+        select: { id: true },
+      }),
+    );
+    const d = await save({ title: mark('Staff publish'), clientId: own.id }, people.staffA);
+    detailOf(await publish(d.id, {}, people.staffA));
+    expect(detailOf(await publish(d.id, {}, people.staffA)).id).toBe(d.id);
+    await inFirm('a', (tx) =>
+      tx.client.update({ where: { id: own.id }, data: { assignedUserId: people.staffA2.id } }),
+    );
+    expectError(await publish(d.id, {}, people.staffA), 404, 'NOT_FOUND');
+  });
+
+  it('firm B with firm A’s key keeps its own draft; firm A’s task is never firm B’s to publish', async () => {
+    const key = randomUUID();
+    const a = await save({
+      title: mark('Firm A keyed'),
+      clientId: clients.c1,
+      idempotencyKey: key,
+    });
+    const b = await save({ title: mark('Firm B keyed'), idempotencyKey: key }, people.ownerB, 'b');
+    expect(b.id).not.toBe(a.id);
+    expect((await save({ title: 'Again', idempotencyKey: key }, people.ownerB, 'b')).id).toBe(b.id);
+    detailOf(await publish(a.id));
+    expectError(await publish(a.id, {}, people.ownerB, 'b'), 404, 'NOT_FOUND');
+    expect(await keyed(key)).toEqual([{ id: a.id, status: 'OPEN', idempotencyScope: 'draft' }]);
   });
 });
 

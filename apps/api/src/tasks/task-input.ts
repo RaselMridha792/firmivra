@@ -4,6 +4,7 @@ import {
   CreateTaskDetailRequest as CreateContract,
   CreateTaskSeriesRequest as CreateSeriesContract,
   CreateTaskTemplateRequest as CreateTemplateContract,
+  DuplicateTaskRequest as DuplicateContract,
   PublishTaskDraftRequest as PublishDraftContract,
   SaveTaskAsTemplateRequest as SaveAsTemplateContract,
   SaveTaskDraftRequest as SaveDraftContract,
@@ -60,6 +61,8 @@ const clean = <S extends z.ZodType>(schema: S): S =>
 export const CreateTaskDetailRequest = clean(CreateContract);
 /** PATCH /business/tasks/{id} */
 export const UpdateTaskDetailRequest = clean(UpdateContract);
+/** POST /business/tasks/{id}/duplicate (the body is optional) */
+export const DuplicateTaskRequest = clean(DuplicateContract);
 /** GET /business/tasks/overview */
 export const TaskOverviewQuery = clean(OverviewContract);
 /** GET /business/tasks/calendar */

@@ -659,6 +659,49 @@ describe('audit', () => {
   });
 });
 
+// R1 (Oct 24): the older Create Task (`api.tasks.create`, used by the tax-returns and workspace
+// forms) posts to the same route and takes the same optional idempotency key.
+describe('idempotency key', () => {
+  const keyed = (key: string) =>
+    inA((tx) =>
+      tx.task.findMany({
+        where: { businessId: firms.a.id, idempotencyKey: key },
+        select: { id: true, idempotencyScope: true },
+      }),
+    );
+
+  it('a retry of Create Task with its key returns the first task; another member gets 409', async () => {
+    const key = randomUUID();
+    const body = { clientId: clients.c3, title: `Keyed ${run}`, idempotencyKey: key };
+    const first = await create(body);
+    expect(await create({ ...body, details: 'Changed on the retry' })).toEqual(first);
+    expect(await keyed(key)).toEqual([{ id: first.id, idempotencyScope: 'create' }]);
+
+    const atOnce = { ...body, idempotencyKey: randomUUID() };
+    const both = await Promise.all([1, 2].map(() => call('post', '', people.ownerA, 'a', atOnce)));
+    const ids = both.map((r) => taskOf(ok(r, 201).body).id);
+    expect(ids[0]).toBe(ids[1]);
+    expect(await keyed(atOnce.idempotencyKey)).toHaveLength(1);
+
+    const theirs = await call('post', '', people.adminA, 'a', body);
+    expect([theirs.status, codeOf(theirs)]).toEqual([409, 'IDEMPOTENCY_KEY_REUSED']);
+    expect(JSON.stringify(theirs.body)).not.toContain(first.id);
+    // Firm B's own key space: the same key makes firm B's task.
+    const b = await create(
+      { clientId: clients.cB, title: `Keyed B ${run}`, idempotencyKey: key },
+      people.ownerB,
+      'b',
+    );
+    expect(b.id).not.toBe(first.id);
+    // A key is not a change's field.
+    const res = await call('patch', `/${first.id}`, people.ownerA, 'a', {
+      title: 'x',
+      idempotencyKey: key,
+    });
+    expect([res.status, codeOf(res)]).toEqual([400, 'VALIDATION_FAILED']);
+  });
+});
+
 describe("a client's new assignee (R12's rule, for R10's reassign path)", () => {
   it("moves the old Staff assignee's open tasks to the new one or to nobody; Owner and Admin keep theirs", async () => {
     const businessId = firms.a.id;
