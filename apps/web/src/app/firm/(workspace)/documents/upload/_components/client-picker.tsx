@@ -27,11 +27,13 @@ export function ClientPicker({
   onChange,
   error,
   disabled,
+  label = 'Client / Lead',
 }: {
   value: ClientListItem | null;
   onChange: (client: ClientListItem) => void;
   error?: string;
   disabled: boolean;
+  label?: string;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -53,7 +55,8 @@ export function ClientPicker({
       onBlur={(event) => !event.currentTarget.contains(event.relatedTarget) && setOpen(false)}
     >
       <span id={`${id}-label`} className="text-sm font-semibold text-heading">
-        Client / Lead<span className="text-danger"> *</span>
+        {label}
+        <span className="text-danger"> *</span>
       </span>
       <button
         type="button"
