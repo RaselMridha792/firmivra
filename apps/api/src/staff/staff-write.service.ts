@@ -39,11 +39,14 @@ interface Created {
   invitation: InvitationOutcome;
 }
 
+const DATE_KEYS = new Set<string>(['hireDate', 'workStartDate', 'endDate']);
+
 const PROFILE_KEYS = [
   'employmentType',
   'workSchedule',
   'office',
   'hireDate',
+  'workStartDate',
   'endDate',
   'supervisorId',
   'timeZone',
@@ -67,7 +70,7 @@ function profileData(
     const value = details?.[key];
     if (value === undefined) continue;
     (data as Record<string, unknown>)[key] =
-      (key === 'hireDate' || key === 'endDate') && typeof value === 'string' ? toDay(value) : value;
+      DATE_KEYS.has(key) && typeof value === 'string' ? toDay(value) : value;
   }
   return data;
 }

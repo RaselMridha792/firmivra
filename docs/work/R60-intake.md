@@ -743,6 +743,11 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   answer; `intake-workspace/submitted-notice.ts`, called after the Notifier in the portal submit).
   Intake workspace and intakes e2e 45 of 45, notify templates unit 75 of 75, the Intake Forms mock
   specs 40 of 40; sheet shot on the real API with the email as rendered.
+- Oct 24 (fourth session): I12 (`rasel/R60-intake-retention`, stacked on I7, local): Data
+  retention period in Security & Compliance (`dataRetentionYears`: 1 to 100 whole years, or not
+  set), saved and shown only; the e2e checks that saving one deletes no intake, submission or
+  document. Intake workspace e2e 19 of 19, types unit 13 of 13, the Intake Forms mock specs 41 of
+  41 (one cold-start failure passed on rerun); sheet shot on the real API.
 - Oct 25 (fourth session): Rasel's answers. I7: the firm's contact email starts Notify additional
   emails for a new settings row and on Reset Defaults (existing rows: column request item 12);
   intake workspace e2e 19 of 19, `r60-intake-settings` 14 of 14. Needs: R55's one line in the
@@ -753,3 +758,11 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   tested and pushed (`rasel/R60-staff-schedules`, `rasel/R60-firm-licenses`), waiting for a PR
   slot. (c) blocked on column request item 13 (staff phone codes). The duplicate item 12 (the
   unapproved draft) is removed; item 12 is R1's #1121.
+- Oct 25 (fifth session): #1116 (I12) merged `origin/main` after #1115: the stale
+  `intake.submitted-notice` line in `ALWAYS_SENT` (main's CI fix had removed it) dropped again;
+  API unit 1724 of 1724, typecheck 0; head `c02c020`, CI green. (a) SM11 Work Start Date
+  (`rasel/R60-staff-work-start`): `workStartDate` in `StaffDetailsInput` and
+  `StaffProfileDetails`, saved and read by the staff API; step 4 shows it under Hire Date; the
+  design's "Start Date" (step 1 card 4 and Edit Staff card 4) now saves it, and Edit Staff gains
+  Hire Date so it stays editable; the Success page's Start Date reads it first. staff-write e2e
+  23 of 23, types 22 of 22, staff mock specs 18 of 18; sheet shot on the real API.
