@@ -735,7 +735,8 @@ export const StaffImportRowError = z.object({
 export type StaffImportRowError = z.infer<typeof StaffImportRowError>;
 
 export const StaffImportPreview = z.object({
-  previewToken: z.string(),
+  /** For import; null when no row can be imported (then only `errors` to fix). */
+  previewToken: z.string().nullable(),
   toCreate: z.number().int(),
   toUpdate: z.number().int(),
   invalid: z.number().int(),
