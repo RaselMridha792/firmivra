@@ -37,6 +37,14 @@ to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/
 | 4 | `rasel/R60-payments` (stacked on billing, local) | Built: the Payments page on her design (web only); Stripe keeps every existing state; Manage Connection, Manage Bank Account and Check Eligibility open the firm's own Stripe Dashboard. Notes below ("Payments") |
 | 5 | `rasel/R60-staff-sm8-13` (from `main`, independent; local until a slot frees) | Built: SM9 cards and `/team/directory`, SM13 department Manage Members (`GET`/`PUT /business/departments/{id}/members`), SM11 custom roles in Create Staff and the Create Custom Role shortcut with Back, SM8 custom schedules and the workload unit, SM10 the header clock. Notes below ("Staff") |
 
+Open: #1063 and #1065, CI green (Oct 24, 04:10 UTC). Waiting for a slot, in this order: Billing
+(stacked on #1065), Payments (stacked on Billing; carries this file), Staff (from `main`). Their PR
+bodies are ready in the third session's scratchpad:
+`C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/fd07679c-e53b-4b16-8968-b670b5107292/scratchpad/`
+(`pr-billing.md`, `pr-payments.md`, `pr-staff.md`; replace SHEET with the sheet's blob link
+pinned to the branch head). Shot helpers there: `shots-profile.cjs`, `shots-notifications.cjs`,
+`shots-billing.cjs`, `shots-payments.cjs`, `shots-staff.cjs`, `compose.cjs`, `spec-*.json`.
+
 ### State (Oct 23, second session): open PRs and branches waiting
 
 #1028, #1031, #1033 and #1034 merged on Oct 23; #1038, #1039, #1045 and #1047 merged on Oct 23
