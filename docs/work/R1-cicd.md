@@ -171,6 +171,7 @@ Rasel's three blocks of Oct 23 and 24 ("From me, follow it."):
 - **Leads date flake:** `apps/api/test/e2e/leads-pipeline.e2e.test.ts:312` (R55/R57's file) takes "today" in UTC while the API filters in New York's zone. Every full-suite run fails from 00:00 to 04:00 UTC (05:00 after Nov 2), and fail-fast then cancels the other shards. Re-running one cancelled shard is cancelled again while shard 1 is failed. The same cause makes 5 tests in `automations.e2e.test.ts` fail locally at those hours.
   - **Fix:** re-run the whole failed run after 04:05 UTC. The owner should use the firm's zone.
 - **A one-off hang:** #1064's shard 4 once hit the 20-minute limit with no output (turbo buffers it), and passed on a re-run in 5 minutes.
+- **A random flake:** `apps/api/test/unit/admin-team.test.ts:1279` "tampers" with a token by replacing its last two characters with `xx`. Sometimes that leaves the decoded bytes unchanged (base64url padding bits), so the token still opens. It failed once on #1067 and passed on a re-run. Fix for the owner: flip a character in the middle of the token.
 
 ### Local state on Rasel's laptop
 - **Branch:** the worktree is on `rasel/R1-task-idempotency` (or this docs branch).
