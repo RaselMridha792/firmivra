@@ -223,6 +223,20 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 
 ## Needs from others
 
+- **From R1 (Oct 24): column requests 7 to 11 are built**, one PR on R1's branch `rasel/R1-r60-columns-2`. Its PR opened on Oct 24 after the idempotency PR (#1084) merged, one migration PR at a time; not merged yet. Build on these names once it merges:
+  - **7, `firm_licenses`:**
+    - Columns: `regulatory_body` (1 to 120), `license_type` (1 to 80), `license_number` (1 to 60), each trimmed, something visible and no control characters; `expires_on`; `status` (`FirmLicenseStatus`: ACTIVE, EXPIRED, SUSPENDED or REVOKED, default ACTIVE); `verified_by_user_id` with `verified_at`.
+    - Who may write: the firm reads only its own rows. Only the admin scope (a Super Admin, `forAdmin`) or the platform scope inserts or updates, so the firm-side API can only read, and a firm can never verify its own license.
+    - The verifier is a `platform_admins` row, and both verify fields come together.
+    - No DELETE: a license ends by its status.
+  - **8:** a data-only migration. Every firm member's `notification_preferences.email` that was off is now on; clients' rows are untouched.
+  - **9, `users.phone_verified_at`:**
+    - The database clears it whenever `phone` changes, unless the same update sets it too, so "verify and save the new number" works in one update.
+    - It is never set without a phone.
+    - Your `Notifier.phoneChanged` can still clear the SMS choices in the same transaction.
+  - **10, `staff_profiles.work_start_date`:** a nullable date, apart from `hire_date` and `access_starts_on`.
+  - **11, `staff_work_schedules`:** like `staff_job_titles`. Name trimmed, 1 to 80 characters, unique ignoring case while not archived; archived, never deleted (no DELETE grant); `created_by_user_id` must be a member of the firm. It was filled once from each firm's distinct `staff_profiles.work_schedule` (first spelling wins, case ignored), and a staff record keeps its own text.
+  - **Five migrations, one per busy table,** so none holds one table while it waits for another. Tests: `packages/db/test/r60-columns-2.test.ts`.
 - **R1 (columns, items 1 to 11):** all approved by Rasel on Oct 24 (1 to 6 in the morning, 7 to 11
   in the afternoon); the exact request and what R60 builds on each are "Column request for R1"
   below. Items 1 to 6 landed in #1074 (Oct 24); R60 builds on them next. Items 7 to 11 are R1's
