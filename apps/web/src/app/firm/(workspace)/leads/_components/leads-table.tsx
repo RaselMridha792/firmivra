@@ -30,6 +30,13 @@ import {
   stageTone,
 } from './lead-shared';
 
+/** Preferred contact methods, as Add New Lead names them. */
+const CHANNEL_LABELS: Record<LeadRow['preferredContact'][number], string> = {
+  PHONE: 'Phone',
+  EMAIL: 'Email',
+  SMS: 'SMS',
+};
+
 export type LeadRowAction = 'APPOINTMENT' | 'ASSIGN' | 'ARCHIVE' | 'EDIT' | 'STAGE' | 'TAGS';
 
 interface LeadsTableProps {
@@ -76,7 +83,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'contact',
     label: 'Contact Info',
-    className: 'w-31',
+    className: 'w-28',
     cell: (lead) => (
       <span className="block min-w-0">
         {lead.phone ? (
@@ -91,7 +98,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'source',
     label: 'Lead Source / Campaign',
-    className: 'w-27',
+    className: 'w-25',
     cell: (lead) => (
       <span className="block min-w-0">
         <span className="block truncate text-xs font-semibold text-navigation">
@@ -111,7 +118,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'services',
     label: 'Services Interested In',
-    className: 'w-32',
+    className: 'w-30',
     cell: (lead) => (
       <span className="flex min-w-0 flex-wrap gap-1">
         {lead.services.length ? (
@@ -164,7 +171,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'nextAction',
     label: 'Next Action',
-    className: 'w-25',
+    className: 'w-21',
     cell: (lead) => {
       const action = lead.nextAction;
       if (!action) return <span className="min-w-28 text-muted">No further action</span>;
@@ -204,10 +211,26 @@ const columns: Column<LeadRow>[] = [
         <span className="text-muted">Unassigned</span>
       ),
   },
+  // Her written spec's Preferred column (Rasel, Oct 24): the contact methods the lead chose.
+  {
+    id: 'preferred',
+    label: 'Preferred',
+    className: 'w-14',
+    cell: (lead) =>
+      lead.preferredContact.length ? (
+        <span className="flex flex-col text-xs">
+          {lead.preferredContact.map((channel) => (
+            <span key={channel}>{CHANNEL_LABELS[channel]}</span>
+          ))}
+        </span>
+      ) : (
+        <span className="text-xs text-muted">Not set</span>
+      ),
+  },
   {
     id: 'createdAt',
     label: 'Date Added',
-    className: 'w-17',
+    className: 'w-16',
     cell: (lead) => (
       <time dateTime={lead.createdAt} className="block truncate" title={dateLabel(lead.createdAt)}>
         {dateLabel(lead.createdAt)}
