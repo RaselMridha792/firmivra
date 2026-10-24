@@ -325,7 +325,7 @@ describe('api.roles', () => {
 });
 
 describe('security defaults for new accounts (New Accounts & Security)', () => {
-  const settings = {
+  const settings: SaveStaffSecurityDefaultsRequest = {
     version: 'none',
     allowedAuthMethods: ['AUTHENTICATOR_APP', 'BACKUP_CODES'],
     restrictDevices: false,
@@ -343,7 +343,7 @@ describe('security defaults for new accounts (New Accounts & Security)', () => {
       securityAlerts: true,
       lockouts: true,
     },
-  } as const;
+  };
   const answer = {
     ...settings,
     existingAccounts: 4,
