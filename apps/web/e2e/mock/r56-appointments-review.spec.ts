@@ -165,3 +165,108 @@ test('A6: the video link has its own full-width row, the toggle on its label lin
   await link.fill('https://meet.example.test/abc-defg');
   await expect(copy).toBeEnabled();
 });
+
+test('A7: several default reminders, each with its channels, kept after reopening', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/types'));
+  const box = page.getByTestId('type-reminders');
+  await expect(box).toBeVisible({ timeout: 60_000 });
+  const rows = box.getByTestId('type-reminder');
+  await expect(rows).toHaveCount(1);
+  await expect(page.getByLabel('Reminder 1 unit')).toHaveValue('DAYS');
+
+  // A second reminder, 2 hours before, by SMS and Portal only.
+  await box.getByRole('button', { name: 'Add Reminder' }).click();
+  await page.getByLabel('Reminder 2 amount').fill('2');
+  const second = box.getByRole('group', { name: 'Reminder 2 channels' });
+  await second.getByLabel('Email').uncheck();
+  await second.getByLabel('SMS').check();
+  await second.getByLabel('Portal').check();
+
+  // A third with no channel is refused before anything is sent.
+  await box.getByRole('button', { name: 'Add Reminder' }).click();
+  await box.getByRole('group', { name: 'Reminder 3 channels' }).getByLabel('Email').uncheck();
+  await page.getByRole('button', { name: 'Save Settings' }).click();
+  await expect(box).toContainText('Choose Email, SMS or Portal for reminder 3.');
+  await expect(page.getByTestId('type-settings-saved')).toHaveCount(0);
+  await box.getByRole('button', { name: 'Remove reminder 3' }).click();
+  await page.getByRole('button', { name: 'Save Settings' }).click();
+  await expect(page.getByTestId('type-settings-saved')).toHaveText('Settings saved.');
+
+  // Another type and back: both reminders as they were saved.
+  const types = page.locator('button[aria-pressed]');
+  await types.nth(1).click();
+  await expect(types.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await types.nth(0).click();
+  await expect(rows).toHaveCount(2);
+  await expect(page.getByLabel('Reminder 1 amount')).toHaveValue('1');
+  await expect(page.getByLabel('Reminder 1 unit')).toHaveValue('DAYS');
+  await expect(page.getByLabel('Reminder 2 amount')).toHaveValue('2');
+  await expect(page.getByLabel('Reminder 2 unit')).toHaveValue('HOURS');
+  const back = box.getByRole('group', { name: 'Reminder 2 channels' });
+  await expect(back.getByLabel('Email')).not.toBeChecked();
+  await expect(back.getByLabel('SMS')).toBeChecked();
+  await expect(back.getByLabel('Portal')).toBeChecked();
+});
+
+test('A5: Save Client saves the typed contact as a client and chooses it; entries stay', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  // Scheduling details first, so they can be checked afterwards.
+  await page.getByLabel('Appointment Type *').selectOption({ index: 1 });
+  await page.getByLabel('Date *').fill('2026-12-03');
+  await page.getByLabel('Internal Notes').fill('Bring last year return');
+
+  await page.getByRole('button', { name: 'Add a new contact' }).click();
+  const info = page.getByTestId('client-information');
+  await info.getByRole('button', { name: 'Save Client' }).click();
+  await expect(page.getByTestId('save-client-note')).toHaveText('Enter the name first.');
+
+  await info.getByLabel('Name *').fill('Riley Sample');
+  await info.getByLabel('Email *').fill('jamie.sample@example.test');
+  await info.getByRole('button', { name: 'Save Client' }).click();
+  await expect(page.getByTestId('save-client-error')).toContainText(
+    'Another client already has this email',
+  );
+
+  await info.getByLabel('Email *').fill('riley.sample@example.test');
+  await info.getByRole('button', { name: 'Save Client' }).click();
+  await expect(page.getByTestId('save-client-note')).toHaveText(
+    'Riley Sample is saved as a client and chosen for this appointment.',
+  );
+  await expect(page.getByLabel('Client / Lead *')).toHaveValue('Riley Sample');
+  await expect(info.getByRole('link', { name: 'View Client Profile' })).toBeVisible();
+  await expect(page.getByLabel('Date *')).toHaveValue('2026-12-03');
+  await expect(page.getByLabel('Internal Notes')).toHaveValue('Bring last year return');
+  await expect(page.getByLabel('Appointment Type *')).not.toHaveValue('');
+});
+
+test("Schedule Appointment starts from the chosen type's reminders; edits by hand stay", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  const card = page.getByTestId('client-reminders');
+
+  // The mock's types start with one default: an email a day before.
+  await page.getByLabel('Appointment Type *').selectOption({ index: 1 });
+  await expect(card.getByTestId('reminder-defaults-note')).toContainText("'s default reminders.");
+  await expect(card.getByLabel('Email Reminder', { exact: true })).toBeChecked();
+  await expect(card.getByLabel('Email Reminder amount')).toHaveValue('1');
+  await expect(card.getByLabel('Email Reminder unit')).toHaveValue('DAYS');
+  await expect(card.getByLabel('SMS Reminder', { exact: true })).not.toBeChecked();
+  await expect(card.getByLabel('Portal Notification', { exact: true })).not.toBeChecked();
+
+  // Changed by hand, the rows stay when another type is chosen.
+  await card.getByLabel('Email Reminder amount').selectOption('2');
+  await expect(card.getByTestId('reminder-defaults-note')).toHaveCount(0);
+  await page.getByLabel('Appointment Type *').selectOption({ index: 2 });
+  await expect(card.getByLabel('Email Reminder amount')).toHaveValue('2');
+  await expect(card.getByTestId('reminder-defaults-note')).toHaveCount(0);
+});

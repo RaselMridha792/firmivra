@@ -179,7 +179,7 @@ export function StaffSettingsScreen() {
           title="Staff Directory"
           subtitle="Who has an account, and who still has to accept their invitation."
           icon={UsersThree}
-          href="/team"
+          href="/team/directory"
           action="Open Staff Directory"
           testId="settings-directory"
         >
@@ -221,10 +221,10 @@ export function StaffSettingsScreen() {
 
         <Card
           title="Offices & Job Titles"
-          subtitle="The offices and titles your staff records use, offered when you create or edit staff."
+          subtitle="Your firm's locations and saved job titles, offered when you create or edit staff."
           icon={Briefcase}
-          href="/team/new"
-          action="Add a Staff Member"
+          href="/team/settings/offices-titles"
+          action="Manage Offices & Job Titles"
           testId="settings-offices"
         >
           <Body query={options}>
@@ -233,13 +233,13 @@ export function StaffSettingsScreen() {
                 <div>
                   <p className="text-sm font-semibold text-heading">Offices</p>
                   <p className="text-sm text-text">
-                    {o.offices.length ? o.offices.join(', ') : 'No offices on staff records yet.'}
+                    {o.offices.length ? o.offices.join(', ') : 'No active locations yet.'}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-heading">Job titles</p>
                   <p className="text-sm text-text">
-                    {o.jobTitles.length ? o.jobTitles.join(', ') : 'No job titles yet.'}
+                    {o.jobTitles.length ? o.jobTitles.join(', ') : 'No saved job titles yet.'}
                   </p>
                 </div>
               </div>

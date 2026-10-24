@@ -14,3 +14,5 @@ export {
   type UsersClient,
 } from './admin-client.js';
 export { createLocationsClient, type LocationsClient } from './locations-client.js';
+export * from './profile-changes.js';
+export * from './firm-billing.js';

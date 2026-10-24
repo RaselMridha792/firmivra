@@ -385,29 +385,36 @@ function pricing(
   const included = input.services
     .filter((x) => x.included)
     .map((x) => s.services.find((sv) => sv.id === x.serviceId));
+  // As the API (catalog.shared.ts `packagePricing`): a quote-required service leaves the total
+  // unknown, never $0, and with it a price worked out from a discount and the savings.
   const variablePrice = included.some(
     (sv) => !sv || (sv.price.type !== 'FIXED' && sv.price.type !== 'RECURRING'),
   );
-  const total = included.reduce((sum, sv) => sum + (sv?.basePriceCents ?? 0), 0);
+  const quoteRequired = included.some((sv) => sv?.price.type === 'CUSTOM_QUOTE');
+  const total = included.some((sv) => !sv || sv.totalPriceCents === null)
+    ? null
+    : included.reduce((sum, sv) => sum + (sv?.totalPriceCents ?? 0), 0);
   let price = input.packagePriceCents;
   if (price === null && input.discountType !== 'NONE' && input.discountValue !== null) {
-    price =
-      input.discountType === 'PERCENTAGE'
-        ? Math.round(total * (1 - input.discountValue / 10_000))
-        : total - input.discountValue;
+    if (total !== null)
+      price =
+        input.discountType === 'PERCENTAGE'
+          ? Math.round(total * (1 - input.discountValue / 10_000))
+          : total - input.discountValue;
   }
   if (price !== null && price < 0)
-    throw fail(400, 'INVALID_DISCOUNT', 'The discount makes the price negative');
-  const savings = price === null ? null : total - price;
+    throw fail(400, 'INVALID_DISCOUNT', 'The discount is more than the services cost');
+  const known = price !== null && total !== null && !variablePrice && included.length > 0;
+  const savings = known ? Math.max(0, (total ?? 0) - (price ?? 0)) : null;
   return {
     totalSelectedCents: total,
     packagePriceCents: price,
     discountType: input.discountType,
-    discountValue: input.discountValue,
+    discountValue: input.discountType === 'NONE' ? null : input.discountValue,
     savingsCents: savings,
-    savingsPercent:
-      savings !== null && total > 0 ? Math.round((savings / total) * 1000) / 10 : null,
+    savingsPercent: savings !== null && total ? Math.round((savings / total) * 10_000) / 100 : null,
     variablePrice,
+    quoteRequired,
   };
 }
 
@@ -450,7 +457,7 @@ function buildPackage(
         name: sv?.name ?? 'Service',
         icon: sv?.icon ?? null,
         category: sv?.category ?? null,
-        individualPriceCents: sv?.basePriceCents ?? null,
+        individualPriceCents: sv?.totalPriceCents ?? null,
         pricingType: sv?.price.type ?? 'FIXED',
         included,
         inactive: sv?.status !== 'ACTIVE',
@@ -604,12 +611,15 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
         linkedServiceId: a.linkedServiceId ?? null,
       }));
     }
-    sv.price.amountCents = sv.price.type === 'CUSTOM_QUOTE' ? null : sv.basePriceCents;
-    sv.price.frequency = sv.billingFrequency;
+    // As the API (`serviceTotalCents`): ADDITIVE line items add to the base price (S6).
     sv.totalPriceCents =
-      sv.lineItemsMode === 'ADDITIVE' && sv.lineItems.length
-        ? sv.lineItems.reduce((n, li) => n + li.totalCents, 0)
-        : sv.basePriceCents;
+      sv.price.type === 'CUSTOM_QUOTE'
+        ? null
+        : sv.lineItemsMode === 'ADDITIVE' && sv.lineItems.length
+          ? (sv.basePriceCents ?? 0) + sv.lineItems.reduce((n, li) => n + li.totalCents, 0)
+          : sv.basePriceCents;
+    sv.price.amountCents = sv.totalPriceCents;
+    sv.price.frequency = sv.billingFrequency;
     sv.updatedBy = 'You';
   };
   const usedBy = (id: string) =>
@@ -627,7 +637,7 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
           name: sv.name,
           icon: sv.icon,
           category: sv.category,
-          individualPriceCents: sv.basePriceCents,
+          individualPriceCents: sv.totalPriceCents,
           pricingType: sv.price.type,
           included: included ?? true,
           inactive: sv.status !== 'ACTIVE',
@@ -960,6 +970,7 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
           savingsCents: null,
           savingsPercent: null,
           variablePrice: false,
+          quoteRequired: false,
         },
         addOns: [],
         visibleToClients: false,

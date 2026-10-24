@@ -34,7 +34,7 @@ const STATUSES: { value: StaffStatusFilter; label: string }[] = [
 ];
 /** Create Staff's saved drafts: not people yet, so their own list (Owner and Admin). */
 const DRAFTS = 'drafts';
-type DirectoryStatus = StaffStatusFilter | typeof DRAFTS;
+export type DirectoryStatus = StaffStatusFilter | typeof DRAFTS;
 
 type Dialog =
   | { kind: 'action'; action: StaffAction; member: StaffListItem }
@@ -53,9 +53,12 @@ const managesMember = (role: MembershipRole | undefined, m: StaffListItem) =>
 export function StaffDirectory({
   selected,
   onSelect,
+  initialView = 'all',
 }: {
   selected: string[];
   onSelect: (ids: string[]) => void;
+  /** The status a summary card opened the directory with (Octavia's SM9). */
+  initialView?: DirectoryStatus;
 }) {
   const router = useRouter();
   const { role } = useFirm();
@@ -63,7 +66,7 @@ export function StaffDirectory({
   const [search, setSearch] = useState('');
   const term = useDeferredValue(search.trim());
   const [departmentId, setDepartmentId] = useState('');
-  const [view, setView] = useState<DirectoryStatus>('all');
+  const [view, setView] = useState<DirectoryStatus>(initialView);
   const drafts = view === DRAFTS;
   const status: StaffStatusFilter = drafts ? 'all' : view;
   const [page, setPage] = useState(1);

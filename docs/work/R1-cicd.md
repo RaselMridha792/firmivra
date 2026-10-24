@@ -110,6 +110,119 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 15. Prod data: the Super Admin (step 9), LVP and its KMS key (`create-firm-key`, then `--check`), set-module for LVP with reasons.
 16. Smoke test: the three sites answer 200, staff sign-in with MFA, a password reset email arrives, a portal sign-in, a document upload turns CLEAN.
 
+## Handoff (R1 session, Oct 24)
+
+This is newer than every handoff below, so read it first. Where they differ, this one wins.
+
+**Update (Oct 24, 13:40 UTC). This wins over everything below.**
+- **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
+- **Open:** #1084 (the task idempotency key), green. It is the only migration PR open.
+- **Queue, one PR at a time,** each after the one before merges, with `origin/main` merged in first:
+  1. `rasel/R1-r60-columns-2`: R60's requests 7 to 11. PR text in the scratchpad, `r60b/pr.md`.
+  2. `rasel/R1-prod-bootstrap`: Rasel's item of 12:30 UTC, the prod bootstrap one-off (`packages/db/scripts/bootstrap-prod.mjs`). It has no migration. PR text in the scratchpad, `pr-prod-bootstrap.md`; PR title "feat: prod bootstrap one-off for the first Super Admin and LVP (R1)". Nothing runs in prod from R1.
+- **Merging `main` into a stacked branch after its base was squash-merged:** for each conflicted file, compare `main` with the merged PR's head commit. Where they are equal, keep the branch's version (it is the base plus this PR).
+- **Before testing a branch locally:** regenerate the Prisma client, then build `@firmivra/db` and `@firmivra/types` on that branch. A client generated on another branch gives P2022 "column does not exist".
+
+**Update (Oct 24, 11:30 UTC). This wins over the tables below.**
+- **Merged by Rasel:** #1053, #1057, #1064, #1066, #1067 and #1071. #1064's two drafts migrations ran on dev in Deploy dev run 40084265063 (success).
+- **Open:** #1074, item 3 (R60's columns), green. It is the only migration PR open.
+- **Queue, one migration PR at a time.** Each opens after the one before merges, with `origin/main` merged in first:
+  1. `rasel/R1-task-reminders` (Tasks A, Custom reminders).
+  2. `rasel/R1-task-idempotency` (Tasks B, the idempotency key).
+  3. `rasel/R1-r60-columns-2` (R60's requests 7 to 11, Rasel's block of Oct 24).
+- **PR texts** in the session scratchpad: `design/pr-reminders.md`, `design/pr-idempotency.md` and `r60b/pr.md`.
+- **R60's requests 7 to 11** come as five migrations, one per busy table:
+  - `firm_licenses`: the firm reads its own; only the admin or platform scope writes.
+  - The staff email preferences set on (data only).
+  - `users.phone_verified_at`, cleared when the phone changes.
+  - `staff_profiles.work_start_date`.
+  - `staff_work_schedules`.
+  - R60 is told at the top of its "Needs from others" (on that branch).
+- **Docker Desktop had stopped** (Oct 24 morning). Its Postgres recovered after a restart (crash recovery took about 3 minutes). Start the existing containers with `docker start firmivra-postgres-1 firmivra-s3-1 firmivra-mailpit-1`; `docker compose up` from this worktree would make a second set.
+
+Rasel's three blocks of Oct 23 and 24 ("From me, follow it."):
+1. `packages/db` items 1 to 3.
+2. The prod items 1 to 3. No AWS, no GoDaddy, no Stripe live key, no Deploy dev.
+3. Two more Tasks items for `packages/db`: reminders in minutes or hours, and an idempotency key.
+
+### Where each item stands
+
+| Item | PR or branch | State |
+| --- | --- | --- |
+| 1. Valid UUIDs for LVP's seeded work rows; tests on every seeded id | #1053 | merged |
+| 2. Task drafts contract | #1057 | merged (before its review fix; #1064 carries the fix) |
+| 2. Task drafts: DRAFT migrations, RLS and isolation tests, the drafts API | #1064, `rasel/R1-task-drafts` | open, green, `main` merged in |
+| 3. R60's columns (I7, I8, I9, I12, SM3) | `rasel/R1-intake-staff-settings` | pushed, no PR. Opens after #1064 merges. PR text: scratchpad `item3/pr.md` |
+| Tasks A: Custom reminders (minutes, hours or days before the due time) | `rasel/R1-task-reminders` | pushed, no PR. Opens after item 3 merges. PR text: scratchpad `design/pr-reminders.md` |
+| Tasks B: idempotency key on tasks and series | `rasel/R1-task-idempotency` | pushed, no PR. Opens after A merges. PR text: scratchpad `design/pr-idempotency.md` |
+| Prod 1: prod config, auto scaling 2 to 6 on CPU 55%, t3.small, 14 days, single-AZ, CI reuse | #1066 | merged |
+| Prod 2: `deploy-prod.yml`; each deploy role trusts only its own environment | #1067, `rasel/R1-deploy-prod` | open, green, `main` merged in |
+| Prod 3: `docs/work/R1-prod-morning.md` (SES text, zone plan, GoDaddy list, SMS, Super Admin and LVP request) | #1071 | open |
+
+**How the stack fits together:**
+- Item 3, A and B are stacked in that order on #1064's branch, each with `main` merged in, so the migrations stay in queue order. Their queue lines are already on their branches in `docs/work/R0-schema.md`.
+- **One migration PR at a time.** Before opening each one, merge `origin/main` in. If another session's migration landed meanwhile, regenerate this one's folder so it sorts last, and update its checksum in the local `firmivra_r1c`, `firmivra_r1c_test` and `firmivra_r1c_test_api`. Prisma refuses `migrate reset` when Claude runs it.
+
+### Decisions and facts
+- **Dev LVP needs no re-seed for #1053.** `seed.ts` never ran on dev; dev's LVP was made by `link-dev-users` (the `businesses` row only). This is from the code and docs, not an AWS read.
+- **Drafts (#1064):**
+  - A clientless draft is its creator's alone; a draft with a client follows the tasks' reach, whoever made it (a review fix).
+  - Publish makes the same id OPEN, once.
+  - `LIVE_TASK` hides drafts from every other task read.
+  - Completing a prerequisite releases drafts too.
+- **Item 3:** the backfills (intake minutes, job titles) loop per firm, because RLS is forced and the migration role doesn't bypass it on RDS. One migration touches several tables; their lock-order risk is small because the app rarely writes them.
+- **A (reminders):**
+  - Custom rules are stored as `minutes_before` plus `unit`, and a Custom rule's `days_before` is its whole days.
+  - Existing rows stay days rules.
+  - The API's checks count plain clock minutes. Nothing sends task reminders yet (test T17).
+  - There is no `lock_timeout`, because Prisma would record a timed-out migration as failed (P3009).
+- **B (idempotency):**
+  - The key carries its scope (route and target).
+  - The migrations are split per table (`tasks`, then `task_series`) to avoid a lock-order deadlock with old API tasks.
+  - A per-firm advisory lock serialises saves with one key.
+  - A retried publish returns the task (200).
+  - Automation and compliance retries remain a follow-up.
+- **Prod (#1066):**
+  - Prod's zone id is `PENDING-firmivra-com`, so prod synthesizes only with `-c allowPending=true`. Deploy and `deploy-prod.yml` stop until the zone exists.
+  - `configFor` refuses connection-unsafe settings: a pool of 10 per API task, doubled during a rollout, plus 30 headroom, must fit the class's connections.
+  - The bootstrap policies need re-applying (Rasel, SSO) for `application-autoscaling` before any prod app deploy.
+  - Dev's templates are unchanged, and the dev deploy after the merge succeeded.
+- **Two or more tasks:** the audit is in #1066's description. Follow-ups for the API owners:
+  - the throttler counts per task;
+  - campaign delivery should claim recipients before sending;
+  - the Begin Online sweep's 45 s budget is longer than the 30 s transaction cap;
+  - the firm key job can make a spare KMS key.
+
+### CI notes
+- **Leads date flake:** `apps/api/test/e2e/leads-pipeline.e2e.test.ts:312` (R55/R57's file) takes "today" in UTC while the API filters in New York's zone. Every full-suite run fails from 00:00 to 04:00 UTC (05:00 after Nov 2), and fail-fast then cancels the other shards. Re-running one cancelled shard is cancelled again while shard 1 is failed. The same cause makes 5 tests in `automations.e2e.test.ts` fail locally at those hours.
+  - **Fix:** re-run the whole failed run after 04:05 UTC. The owner should use the firm's zone.
+- **A one-off hang:** #1064's shard 4 once hit the 20-minute limit with no output (turbo buffers it), and passed on a re-run in 5 minutes.
+- **A random flake:** `apps/api/test/unit/admin-team.test.ts:1279` "tampers" with a token by replacing its last two characters with `xx`. Sometimes that leaves the decoded bytes unchanged (base64url padding bits), so the token still opens. It failed once on #1067 and passed on a re-run. Fix for the owner: flip a character in the middle of the token.
+
+### Local state on Rasel's laptop
+- **Branch:** the worktree is on `rasel/R1-task-idempotency` (or this docs branch).
+- **Database:** `.env` → `firmivra_r1c`. It has every migration up to B's two applied.
+  - It was seeded before #1053, with the old work-module ids, so `pnpm db:seed` there now stops with the reset message, by design. Use a new database to seed again.
+- **Scratchpad** (`C:\Users\RASEL\AppData\Local\Temp\claude\f--firmivra-R1\b55e2fe1-8b57-4dca-805b-280096235519\scratchpad\`):
+  - `design/`: the reminders and idempotency design, critique, decisions, build reports, and both PR texts;
+  - `item3/`: item 3's PR text;
+  - `prod/`: synth outputs and the multi-task audit;
+  - `plumb.py`: commits file edits to a branch without touching the working tree;
+  - `review1064.json`.
+- **Untracked:** the screenshot configs in `apps/web` are unchanged.
+
+### Needs from Rasel
+- **Merges:**
+  1. #1064.
+  2. Then item 3, A and B, one at a time. R1 opens each when the one before has merged.
+  3. #1067, and the docs PRs #1071 and this one.
+- **The morning doc's answers:**
+  - the SES request (submit it);
+  - the GoDaddy zone export;
+  - whether to register a toll-free number now, with the company details and volume;
+  - a yes for the Super Admin and LVP one-off.
+- **Before any prod deploy:** re-apply the bootstrap policies (SSO). Then the prod stacks in order, each `cdk diff` shown first.
+
 ## Handoff (R1 session, Oct 23)
 
 This is newer than every handoff below, so read it first. Where they differ, this one wins.

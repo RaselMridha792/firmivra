@@ -11,6 +11,7 @@ import {
   SetStaffTeamMembersRequest,
   StaffAccessInput,
   StaffDraftData,
+  StaffJobTitleListQuery,
   UpdateCustomRoleRequest,
   UpdateStaffRequest,
 } from '../../src/index.js';
@@ -320,5 +321,50 @@ describe('api.roles', () => {
     expect(
       UpdateStaffRequest.safeParse({ version: 'v1', account: { customRoleId: 'x' } }).success,
     ).toBe(false);
+  });
+});
+
+describe('saved job titles (Offices & Job Titles)', () => {
+  const title = {
+    id,
+    name: 'Tax Preparer',
+    staffCount: 2,
+    archivedAt: null,
+    createdAt: at,
+    updatedAt: at,
+  };
+
+  it('lists, adds, renames, archives and restores on their own routes', async () => {
+    const list = fakeFetch(200, { items: [title] });
+    expect(await staff(list.fn).jobTitles()).toEqual([title]);
+    expect(list.calls[0]?.url).toBe('/api/v1/business/staff-job-titles');
+    const all = fakeFetch(200, { items: [] });
+    await staff(all.fn).jobTitles(true);
+    expect(all.calls[0]?.url).toBe('/api/v1/business/staff-job-titles?includeArchived=true');
+
+    const one = fakeFetch(200, title);
+    await staff(one.fn).createJobTitle({ name: '  Tax Preparer ' });
+    await staff(one.fn).renameJobTitle(id, { name: 'Senior Tax Preparer' });
+    await staff(one.fn).archiveJobTitle(id);
+    await staff(one.fn).restoreJobTitle(id);
+    expect(one.calls.map((c) => [c.init.method, c.url, bodyOf(c.init)])).toEqual([
+      ['POST', '/api/v1/business/staff-job-titles', { name: 'Tax Preparer' }],
+      ['PATCH', `/api/v1/business/staff-job-titles/${id}`, { name: 'Senior Tax Preparer' }],
+      ['POST', `/api/v1/business/staff-job-titles/${id}/archive`, undefined],
+      ['POST', `/api/v1/business/staff-job-titles/${id}/restore`, undefined],
+    ]);
+  });
+
+  it('refuses an empty, long or multi-line name and a bad id before sending', async () => {
+    const { fn, calls } = fakeFetch(200, title);
+    for (const name of ['', '   ', 'x'.repeat(81), 'Two\nlines']) {
+      await expect(staff(fn).createJobTitle({ name })).rejects.toBeInstanceOf(ApiRequestError);
+    }
+    await expect(staff(fn).archiveJobTitle('not-a-uuid')).rejects.toBeInstanceOf(ApiRequestError);
+    expect(calls).toEqual([]);
+    expect(StaffJobTitleListQuery.parse({ includeArchived: 'true' })).toEqual({
+      includeArchived: true,
+    });
+    expect(StaffJobTitleListQuery.parse({})).toEqual({ includeArchived: false });
   });
 });

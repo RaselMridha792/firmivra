@@ -1,14 +1,19 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type {
-  Availability,
-  BlockedTime,
-  BlockedTimesQuery,
-  CreateBlockedTimeRequest,
-  MemberAvailability,
-  MemberRef,
-  SetMeetingLinkRequest,
-  SetWorkingHoursRequest,
+import {
+  type Availability,
+  type BlockConflict,
+  type BlockConflictsQuery,
+  type BlockedTime,
+  type BlockedTimesQuery,
+  busyRanges,
+  type CreateBlockedTimeRequest,
+  type FreeSlotsBlockResult,
+  freeRanges,
+  type MemberAvailability,
+  type MemberRef,
+  type SetMeetingLinkRequest,
+  type SetWorkingHoursRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -28,6 +33,7 @@ import { linkOf, MEETING_LINKS, type MeetingLinkStore } from './meeting-links.js
 
 type BlocksQuery = z.output<typeof BlockedTimesQuery>;
 type BlockBody = z.output<typeof CreateBlockedTimeRequest>;
+type ConflictsQuery = z.output<typeof BlockConflictsQuery>;
 type HoursBody = z.output<typeof SetWorkingHoursRequest>;
 type LinkBody = z.output<typeof SetMeetingLinkRequest>;
 
@@ -67,6 +73,65 @@ function mayChange(actor: FirmActor, userId: string | null): void {
   if (actor.role === 'STAFF' && userId?.toLowerCase() !== actor.userId.toLowerCase()) {
     throw errors.forbidden();
   }
+}
+
+/** Staff blocking their own time say why (Octavia's Availability guide, items 6 and 9). */
+function needsReason(actor: FirmActor, body: BlockBody): void {
+  if (actor.role === 'STAFF' && !body.reason) throw errors.reasonRequired();
+}
+
+/** Scheduled appointments overlapping [startsAt, endsAt): one member's, or anyone's (null). */
+const scheduledIn = (userId: string | null, startsAt: Date, endsAt: Date) => ({
+  status: 'SCHEDULED' as const,
+  startsAt: { lt: endsAt },
+  endsAt: { gt: startsAt },
+  ...(userId ? { staffUserId: userId } : {}),
+});
+
+/** The appointments a block would cover, with who they are with, in time order. */
+async function scheduledConflicts(
+  tx: TxClient,
+  businessId: string,
+  userId: string | null,
+  startsAt: Date,
+  endsAt: Date,
+): Promise<BlockConflict[]> {
+  const rows = await tx.appointment.findMany({
+    where: { businessId, ...scheduledIn(userId, startsAt, endsAt) },
+    orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+    select: {
+      id: true,
+      startsAt: true,
+      endsAt: true,
+      staffUserId: true,
+      client: { select: { displayName: true } },
+    },
+  });
+  const names = await memberNames(tx, businessId, [...new Set(rows.map((r) => r.staffUserId))]);
+  return rows.map((r) => ({
+    id: r.id,
+    startsAt: r.startsAt.toISOString(),
+    endsAt: r.endsAt.toISOString(),
+    member: { userId: r.staffUserId, name: names.get(r.staffUserId) ?? 'Former member' },
+    clientName: r.client.displayName,
+  }));
+}
+
+/** One block row, within the calendar's limit of open blocks. */
+async function insertBlock(
+  tx: TxClient,
+  businessId: string,
+  actor: FirmActor,
+  block: { userId: string | null; startsAt: Date; endsAt: Date; reason: string | null },
+): Promise<BlockRow> {
+  const open = await tx.blockedTime.count({
+    where: { businessId, userId: block.userId, endsAt: { gt: new Date() } },
+  });
+  if (open >= BLOCK_LIMITS.perCalendar) throw errors.blockLimit();
+  return tx.blockedTime.create({
+    data: { businessId, ...block, createdByUserId: actor.userId },
+    select: blockSelect,
+  });
 }
 
 /**
@@ -200,6 +265,7 @@ export class AvailabilityService {
 
   async block(businessId: string, actor: FirmActor, body: BlockBody): Promise<BlockedTime> {
     mayChange(actor, body.userId);
+    needsReason(actor, body);
     const startsAt = new Date(body.startsAt);
     const endsAt = new Date(body.endsAt);
     const row = await this.inFirm(businessId, async (tx) => {
@@ -208,34 +274,101 @@ export class AvailabilityService {
       // shared, so a booking and a block can never both pass their checks (calendar-locks.ts).
       await lockForBlock(tx, businessId, body.userId);
       const covered = await tx.appointment.findFirst({
-        where: {
-          businessId,
-          status: 'SCHEDULED',
-          startsAt: { lt: endsAt },
-          endsAt: { gt: startsAt },
-          ...(body.userId ? { staffUserId: body.userId } : {}),
-        },
+        where: { businessId, ...scheduledIn(body.userId, startsAt, endsAt) },
         select: { id: true },
       });
       if (covered) throw errors.blocksAppointment();
-      const open = await tx.blockedTime.count({
-        where: { businessId, userId: body.userId, endsAt: { gt: new Date() } },
-      });
-      if (open >= BLOCK_LIMITS.perCalendar) throw errors.blockLimit();
-      const created = await tx.blockedTime.create({
-        data: {
-          businessId,
-          userId: body.userId,
-          startsAt,
-          endsAt,
-          reason: body.reason ?? null,
-          createdByUserId: actor.userId,
-        },
-        select: blockSelect,
+      const created = await insertBlock(tx, businessId, actor, {
+        userId: body.userId,
+        startsAt,
+        endsAt,
+        reason: body.reason ?? null,
       });
       const ids = [created.userId, created.createdByUserId].filter((id): id is string => !!id);
       return toBlockedTime(created, await memberNames(tx, businessId, ids));
     });
+    await this.auditCreated(row, false);
+    return row;
+  }
+
+  /**
+   * The scheduled appointments a block over [startsAt, endsAt) would cover: one member's, or
+   * anyone's for a whole-firm block (Octavia's Availability guide, items 8 and 10).
+   */
+  async blockConflicts(
+    businessId: string,
+    actor: FirmActor,
+    q: ConflictsQuery,
+  ): Promise<BlockConflict[]> {
+    const userId = q.userId ?? null;
+    mayChange(actor, userId);
+    return this.inFirm(businessId, async (tx) => {
+      if (userId) await activeMember(tx, businessId, userId);
+      return scheduledConflicts(tx, businessId, userId, new Date(q.startsAt), new Date(q.endsAt));
+    });
+  }
+
+  /**
+   * "Block available slots only" (guide item 8): the block is saved around the scheduled
+   * appointments it would cover, which stay as they are. A whole-firm block becomes whole-firm
+   * blocks where nobody is booked, and each member's own blocks inside the busy windows.
+   */
+  async blockFreeSlots(
+    businessId: string,
+    actor: FirmActor,
+    body: BlockBody,
+  ): Promise<FreeSlotsBlockResult> {
+    mayChange(actor, body.userId);
+    needsReason(actor, body);
+    const range = {
+      startsAt: new Date(body.startsAt).toISOString(),
+      endsAt: new Date(body.endsAt).toISOString(),
+    };
+    const result = await this.inFirm(businessId, async (tx) => {
+      if (body.userId) await activeMember(tx, businessId, body.userId);
+      await lockForBlock(tx, businessId, body.userId);
+      const kept = await scheduledConflicts(
+        tx,
+        businessId,
+        body.userId,
+        new Date(range.startsAt),
+        new Date(range.endsAt),
+      );
+      const pieces = freeRanges(range, kept).map((r) => ({ ...r, userId: body.userId }));
+      if (body.userId === null) {
+        const members = await activeMembers(tx, businessId);
+        for (const window of busyRanges(range, kept)) {
+          for (const m of members) {
+            const theirs = kept.filter((k) => k.member.userId === m.userId);
+            for (const r of freeRanges(window, theirs)) pieces.push({ ...r, userId: m.userId });
+          }
+        }
+      }
+      if (pieces.length === 0) throw errors.nothingFree();
+      const rows: BlockRow[] = [];
+      for (const p of pieces) {
+        rows.push(
+          await insertBlock(tx, businessId, actor, {
+            userId: p.userId,
+            startsAt: new Date(p.startsAt),
+            endsAt: new Date(p.endsAt),
+            reason: body.reason ?? null,
+          }),
+        );
+      }
+      const ids = rows.flatMap((r) => [r.userId, r.createdByUserId]);
+      const names = await memberNames(
+        tx,
+        businessId,
+        [...new Set(ids)].filter((id): id is string => !!id),
+      );
+      return { items: rows.map((r) => toBlockedTime(r, names)), kept };
+    });
+    for (const row of result.items) await this.auditCreated(row, true);
+    return result;
+  }
+
+  private async auditCreated(row: BlockedTime, freeSlots: boolean): Promise<void> {
     await this.audit.log(
       'blocked_time.created',
       { type: 'blocked_time', id: row.id },
@@ -244,9 +377,9 @@ export class AvailabilityService {
         startsAt: row.startsAt,
         endsAt: row.endsAt,
         reasonGiven: row.reason !== null,
+        ...(freeSlots ? { freeSlots } : {}),
       },
     );
-    return row;
   }
 
   async unblock(businessId: string, actor: FirmActor, id: string): Promise<{ ok: true }> {

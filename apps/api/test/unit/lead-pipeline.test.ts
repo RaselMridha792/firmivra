@@ -7,6 +7,7 @@ import {
   PIPELINE_STATUSES,
   type RowData,
   toE164,
+  requireFirmAdmin,
   toRow,
 } from '../../src/leads/pipeline.shared.js';
 
@@ -32,6 +33,7 @@ const base = {
   service: { id: '0196a000-0000-7000-8000-0000000000a1', name: 'Annual Tax' },
   services: [],
   tags: [{ tag: { name: 'Hot' } }],
+  commAudience: [],
   assignedMember: null,
   activities: [],
 } as unknown as RowData;
@@ -121,5 +123,28 @@ describe('statuses', () => {
     expect(PIPELINE_STATUSES).not.toContain('DRAFT');
     expect(PIPELINE_STATUSES).not.toContain('EXPIRED');
     expect(CLOSED_STATUSES).toEqual(['CONVERTED', 'DECLINED', 'LOST']);
+  });
+});
+
+describe('requireFirmAdmin (L11)', () => {
+  it('lets the Owner and the Admin delete and restore leads, nobody else', () => {
+    const actor = (role: string) =>
+      ({ userId: 'u', role }) as Parameters<typeof requireFirmAdmin>[0];
+    expect(() => requireFirmAdmin(actor('OWNER'))).not.toThrow();
+    expect(() => requireFirmAdmin(actor('ADMIN'))).not.toThrow();
+    for (const role of ['MANAGER', 'STAFF', 'BOOKKEEPER', 'TAX_PREPARER', 'CLIENT_SUPPORT']) {
+      expect(() => requireFirmAdmin(actor(role)), role).toThrow(/Only an Owner or Admin/);
+    }
+  });
+});
+
+describe('toRow campaign (L7)', () => {
+  it('shows the Communications campaign the lead joined last, or none', () => {
+    const campaign = { id: '0196a000-0000-7000-8000-0000000000c1', name: 'Spring Email' };
+    expect(toRow(base).campaign).toBeNull();
+    expect(
+      toRow({ ...base, commAudience: [{ communication: campaign }] } as unknown as RowData)
+        .campaign,
+    ).toEqual(campaign);
   });
 });

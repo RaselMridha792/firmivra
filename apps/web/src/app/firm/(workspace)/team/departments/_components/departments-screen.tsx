@@ -23,13 +23,14 @@ import { NeedHelpCard } from '../../_components/need-help-card';
 import { NOT_LOADED, QuietCard } from '../../_components/quiet-card';
 import { BackToWorkflow } from '../../../settings/workflow/_components/back-to-workflow';
 import { RowMenu } from '../../_components/row-menu';
+import { DepartmentMembersModal } from './department-members';
 import { DepartmentDetails } from './department-details';
 
 const PAGE_SIZE = 10;
 
 type Dialog =
   | { kind: 'add' }
-  | { kind: 'edit' | 'head'; department: Department }
+  | { kind: 'edit' | 'head' | 'members'; department: Department }
   | { kind: 'status'; department: Department; action: 'Deactivate' | 'Archive' };
 
 /**
@@ -203,6 +204,14 @@ export function DepartmentsScreen({ fromWorkflow = false }: { fromWorkflow?: boo
                         },
                       ]
                     : []),
+                  ...(canChange && d.status === 'ACTIVE'
+                    ? [
+                        {
+                          label: 'Manage Members',
+                          onSelect: () => open({ kind: 'members', department: d }),
+                        },
+                      ]
+                    : []),
                   {
                     label: 'Manage Teams',
                     onSelect: () => router.push(`/team/teams?departmentId=${d.id}`),
@@ -320,6 +329,9 @@ export function DepartmentsScreen({ fromWorkflow = false }: { fromWorkflow?: boo
             update.mutate({ id: dialog.department.id, body: { headMembershipId } }, done)
           }
         />
+      ) : null}
+      {dialog?.kind === 'members' ? (
+        <DepartmentMembersModal department={dialog.department} onClose={close} />
       ) : null}
       {dialog?.kind === 'status' ? (
         <StatusModal

@@ -331,8 +331,9 @@ export type BlockedTimesQuery = z.input<typeof BlockedTimesQuery>;
 
 /**
  * POST /business/blocked-times. `userId` null blocks the whole firm (Owner and Admin). Staff
- * block only themselves. A block over a scheduled appointment is 409 BLOCKS_APPOINTMENT: move or
- * cancel the appointment first.
+ * block only themselves, and give a reason (400 on `reason` otherwise). A block over a scheduled
+ * appointment is 409 BLOCKS_APPOINTMENT: list them (`conflicts`), block only the free time
+ * (`free-slots`), or move the appointment first.
  */
 export const CreateBlockedTimeRequest = z
   .strictObject({
@@ -347,6 +348,82 @@ export const CreateBlockedTimeRequest = z
     'A block lasts at most 366 days',
   );
 export type CreateBlockedTimeRequest = z.input<typeof CreateBlockedTimeRequest>;
+
+/**
+ * One scheduled appointment a proposed block covers: listed before saving, and kept as it is when
+ * the block takes only the free time (Octavia's Availability guide, items 8 and 10).
+ */
+export const BlockConflict = z.object({
+  id: z.uuid(),
+  startsAt: DateTime,
+  endsAt: DateTime,
+  member: MemberRef,
+  clientName: z.string(),
+});
+export type BlockConflict = z.infer<typeof BlockConflict>;
+
+export const BlockConflictList = z.object({ items: z.array(BlockConflict) });
+export type BlockConflictList = z.infer<typeof BlockConflictList>;
+
+/**
+ * GET /business/blocked-times/conflicts: the scheduled appointments in [startsAt, endsAt) for one
+ * member, or for anyone when `userId` is left out (a whole-firm block). Who may ask is who may
+ * block: Staff only about themselves (403 otherwise).
+ */
+export const BlockConflictsQuery = z
+  .strictObject({ userId: MemberId.optional(), startsAt: DateTime, endsAt: DateTime })
+  .refine((q) => Date.parse(q.startsAt) < Date.parse(q.endsAt), 'The end must be after the start')
+  .refine(
+    (q) => Date.parse(q.endsAt) - Date.parse(q.startsAt) <= 366 * DAY_MS,
+    'A block lasts at most 366 days',
+  );
+export type BlockConflictsQuery = z.input<typeof BlockConflictsQuery>;
+
+/**
+ * POST /business/blocked-times/free-slots: the body of a block, saved only around the scheduled
+ * appointments it would cover; those stay as they are, never cancelled. For one member, blocks in
+ * that member's free time; for the whole firm, whole-firm blocks where nobody is booked and each
+ * member's own blocks around their bookings. 409 NOTHING_FREE when every minute is booked.
+ */
+export const FreeSlotsBlockResult = z.object({
+  items: z.array(BlockedTime),
+  kept: z.array(BlockConflict),
+});
+export type FreeSlotsBlockResult = z.infer<typeof FreeSlotsBlockResult>;
+
+/** The parts of `range` outside the `busy` ranges, in order: the free time a block may take. */
+export function freeRanges(range: TimeRange, busy: readonly TimeRange[]): TimeRange[] {
+  const end = Date.parse(range.endsAt);
+  let at = Date.parse(range.startsAt);
+  const out: TimeRange[] = [];
+  const iso = (ms: number) => new Date(ms).toISOString();
+  for (const b of [...busy].sort((x, y) => Date.parse(x.startsAt) - Date.parse(y.startsAt))) {
+    const s = Date.parse(b.startsAt);
+    const e = Date.parse(b.endsAt);
+    if (e <= at || s >= end) continue;
+    if (s > at) out.push({ startsAt: iso(at), endsAt: iso(s) });
+    at = Math.max(at, e);
+    if (at >= end) return out;
+  }
+  if (at < end) out.push({ startsAt: iso(at), endsAt: iso(end) });
+  return out;
+}
+
+/** The busy parts of `range`: the `busy` ranges inside it, overlapping ones merged. */
+export function busyRanges(range: TimeRange, busy: readonly TimeRange[]): TimeRange[] {
+  const free = freeRanges(range, busy);
+  const out: TimeRange[] = [];
+  let at = range.startsAt;
+  for (const f of free) {
+    if (Date.parse(f.startsAt) > Date.parse(at)) out.push({ startsAt: at, endsAt: f.startsAt });
+    at = f.endsAt;
+  }
+  if (Date.parse(at) < Date.parse(range.endsAt)) out.push({ startsAt: at, endsAt: range.endsAt });
+  return out.map((r) => ({
+    startsAt: new Date(r.startsAt).toISOString(),
+    endsAt: new Date(r.endsAt).toISOString(),
+  }));
+}
 
 // ---------- Appointments (firm) ----------
 export const ClientRef = z.object({ id: z.uuid(), displayName: z.string() });
@@ -624,6 +701,8 @@ export const AppointmentErrorCode = z.enum([
    * firm's): delete some first.
    */
   'BLOCK_LIMIT',
+  /** 409: a free-slots block found every minute of its range booked, so it blocked nothing. */
+  'NOTHING_FREE',
   /** 409: the firm already has an appointment type with this name. */
   'DUPLICATE_NAME',
   /**
