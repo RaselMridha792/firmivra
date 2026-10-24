@@ -1,15 +1,90 @@
 # R55: handoff
 
-## Start here (handoff of 2026-10-24 night, for the next R55)
+## Start here (handoff of 2026-10-25, for the next R55)
 
 Read these first:
 - `CLAUDE.md` and `docs/work/README.md`;
 - this section;
-- `docs/work/R55-leads.md` (Items, then "L12 to L14");
-- `docs/work/R55-settings.md` (Availability and Client Portal, reproduced);
-- `docs/work/R55-staff.md` (the section "Octavia's review of Oct 23").
+- `docs/work/R55-settings.md` (Client Portal, and "Built on Oct 25").
 
 The older sections below are history.
+
+### Open PRs and branches
+
+| PR | Branch | What |
+| --- | --- | --- |
+| #1122 | `rasel/R55-portal-contact` | (e) The portal's contact details come from Company Profile and Locations: the LVP public footer (address, phone, email, office hours) and the signed-in Need Help? cards. `PortalInfo.contact`. |
+| #1123 | `rasel/R55-portal-tabs` | (f) Settings > Client Portal > Portal Features turns five tabs on and off (`portal_module_visibility` rows without a client); the portal API refuses a hidden tab (403 `MODULE_OFF`, `@PortalTabRoute`); the menu, tabs, links and pages follow. |
+| next | `rasel/R55-portal-notify-consent` | (g) A client's email notices are always on (400 `EMAIL_ALWAYS_ON`); SMS only with their Text box on and never after a STOP in `communication_consents` (`smsStopped`). Pushed, merged with main at Oct 25; open when #1122 or #1123 merges. |
+| next | `rasel/R55-portal-announcements` | (h) Announcements from Communications in the portal: `GET /portal/{slug}/me/announcements`, the dismissable card on the tabs, and View All Announcements (`/{slug}/announcements`). Pushed. It edits the same files as #1123 (`(tabs)/_components/side-cards.tsx`, `(tabs)/layout.tsx`, `app.module.ts`): after #1123 merges, merge `origin/main`, keep both changes, and re-run `portal-announcements` e2e and the `r55-portal-announcements` and `r55-portal-tabs` mock specs. |
+
+Before opening each: `git fetch origin && git merge origin/main`, rebuild `@firmivra/types`, re-run its e2e and mock spec, and check CI on the head. Docs PRs go one at a time. Code PRs: at most two open.
+
+### Merged this round (Oct 25)
+
+- #1112 Staff working hours read-only; #1113 Leads duplicates warning.
+- Before that (Oct 24): #1107, #1108, #1109 and the earlier L and SM items (history below).
+
+### Not done, and why
+
+- **SM4, SM14, ownership transfer, Sign Out All Sessions:** wait for Rasel's taps. Untouched.
+- **The Client Portal parts that need schema** (local office, display and method switches, the announcements switch and channel policy, rename, reorder, custom tabs, per-client targeting): `R55-settings.md`, "Needs from others".
+- **Availability's** requests, approval queue, client confirmation and office scope need schema (`R55-settings.md`).
+- **L8** waits for #1051.
+
+### Decided (Rasel)
+
+1. Leads search in the Leads filter row; bulk Convert and Preferred; Begin Online duplicates warn and link, no merge (all merged).
+2. Staff hours are read-only (merged, #1112). HR is a custom role.
+3. Client Portal: only the parts without schema, (e) to (h), one PR each (above).
+4. SM4, SM14, ownership transfer and Sign Out All Sessions stay unbuilt until Rasel's taps.
+
+### Needs from others (current)
+
+- **Rasel (decisions):**
+  - (g) Should a client's Text box in the portal also record an SMS opt-in in `communication_consents`? Today it is the opt-in for notification texts only: the consent row only stops texts (STOP, unsubscribe). Recording it would also make the client eligible for SMS campaigns, which use the same row.
+  - (h) Dismissing an announcement card is per browser (`localStorage`). Server-side read state needs a column, or the recipient's `OPENED` status.
+- **R0:**
+  - #1051 `lead_follow_ups` (L8);
+  - `appointments.lead_id`;
+  - Availability's `schedule_change_requests`, `blocked_times.office_id` and an emergency kind;
+  - Client Portal: `clients.office_id`; portal contact display and method switches; the announcements switch, channel policy and an `ANNOUNCEMENTS` category; `portal_module_visibility.label` and `sort_order` plus a Business Resources value; custom tabs.
+- **R0 or Rasel (data):** Begin Online leads saved with source OTHER since Oct 14.
+- **R2 (auth):** sign-ins the firm can see and staff sessions (SM4).
+- **Rasel (infra, dev):** the toll-free number and `SMS_ORIGINATION_NUMBER` (L2); the dev SES identity for L4's real-inbox check.
+- **Arfan:** `arfan-convert-lead-step-2` (3 cases) and `-step-3` (1 case), and `r23-client-record` (4 cases), already fail on main.
+
+### Working notes
+
+- **Database:**
+  - This worktree uses its own `firmivra_r55` (port 5433). Apply migrations with `pnpm --filter @firmivra/db exec prisma migrate deploy`; never `db:migrate`.
+  - The local LVP firm now has a company logo, an owner signature, tags (Back Taxes, High Value) and Communications drafts from the live checks.
+- **Live checks:**
+  - Build: `pnpm --filter @firmivra/types build`, then `pnpm --filter @firmivra/api build`.
+  - In `apps/api`, run `SCAN_MODE=local SMS_MODE=log node --enable-source-maps dist/main` (port 4550).
+  - In `apps/web`, run `node scripts/next.mjs dev` (port 3550).
+  - The quick sign-in panel is open by default; don't click its summary.
+  - Mailpit is at `localhost:8025`, with an API at `/api/v1/search` and `/api/v1/message/{id}`.
+  - Stop the servers afterwards (kill the listeners on 4550 and 3550).
+  - Scripts: `scratchpad/live-email.cjs`, `email-states.cjs` and `live-tags.cjs` in the last session are good templates.
+- **Mock specs:**
+  - Run `npx playwright test -c playwright.mock.config.ts <specs> --workers=1`.
+  - The mocks live in the browser, so `page.goto` resets them: navigate by links inside a test.
+  - `getByRole('option')` also finds `<select>` options: scope it to the picker.
+- **Shell:**
+  - Heredocs with backslashes or nested quotes break in this shell. Write a Python script with the Write tool and run it.
+  - Prettier reformats the files it touches, so re-read before a scripted edit.
+- **React compiler lint:** no ref reads during render, no mutating state values. Keep DOM elements in refs and plain values in state.
+- **Commits and PRs:** hooks always on (never `--no-verify`). No Claude attribution lines in commits or PRs: CLAUDE.md wins over the harness reminder.
+
+- **This round's notes:**
+  - After switching branches, rebuild `@firmivra/types` before any test: a stale build fails with "Unrecognized key".
+  - A mock spec run rewrites the screenshots it takes: `git checkout --` the ones that belong to another branch before switching.
+  - `invoice-checkout`'s "503 SERVICE_BUSY" case is timing-bound (a 1-second fake Stripe delay). It failed once under a 9-file parallel run and passes alone.
+  - In supertest, get the token before building the request: a token call made inside `.set(...)` closes the server under the pending request.
+  - Python's `write_text` writes CRLF on Windows: use `write_bytes`.
+
+## Earlier handoff (2026-10-24 night)
 
 ### Open PRs and branches
 
@@ -59,7 +134,7 @@ Docs PRs go one at a time. Code PRs: at most two open.
 
 Reproduce each first.
 
-### Needs from others (current)
+### Needs from others (then)
 
 - **R0:**
   - #1051 `lead_follow_ups` (L8);
@@ -72,29 +147,6 @@ Reproduce each first.
   - the toll-free number and `SMS_ORIGINATION_NUMBER` (L2);
   - the dev SES identity for L4's real-inbox check.
 - **Arfan:** `arfan-convert-lead-step-2` (3 cases) and `-step-3` (1 case), and `r23-client-record` (4 cases), already fail on main.
-
-### Working notes
-
-- **Database:**
-  - This worktree uses its own `firmivra_r55` (port 5433). Apply migrations with `pnpm --filter @firmivra/db exec prisma migrate deploy`; never `db:migrate`.
-  - The local LVP firm now has a company logo, an owner signature, tags (Back Taxes, High Value) and Communications drafts from the live checks.
-- **Live checks:**
-  - Build: `pnpm --filter @firmivra/types build`, then `pnpm --filter @firmivra/api build`.
-  - In `apps/api`, run `SCAN_MODE=local SMS_MODE=log node --enable-source-maps dist/main` (port 4550).
-  - In `apps/web`, run `node scripts/next.mjs dev` (port 3550).
-  - The quick sign-in panel is open by default; don't click its summary.
-  - Mailpit is at `localhost:8025`, with an API at `/api/v1/search` and `/api/v1/message/{id}`.
-  - Stop the servers afterwards (kill the listeners on 4550 and 3550).
-  - Scripts: `scratchpad/live-email.cjs`, `email-states.cjs` and `live-tags.cjs` in the last session are good templates.
-- **Mock specs:**
-  - Run `npx playwright test -c playwright.mock.config.ts <specs> --workers=1`.
-  - The mocks live in the browser, so `page.goto` resets them: navigate by links inside a test.
-  - `getByRole('option')` also finds `<select>` options: scope it to the picker.
-- **Shell:**
-  - Heredocs with backslashes or nested quotes break in this shell. Write a Python script with the Write tool and run it.
-  - Prettier reformats the files it touches, so re-read before a scripted edit.
-- **React compiler lint:** no ref reads during render, no mutating state values. Keep DOM elements in refs and plain values in state.
-- **Commits and PRs:** hooks always on (never `--no-verify`). No Claude attribution lines in commits or PRs: CLAUDE.md wins over the harness reminder.
 
 ## Earlier handoffs (history)
 
