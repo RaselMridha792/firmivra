@@ -110,6 +110,62 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 15. Prod data: the Super Admin (step 9), LVP and its KMS key (`create-firm-key`, then `--check`), set-module for LVP with reasons.
 16. Smoke test: the three sites answer 200, staff sign-in with MFA, a password reset email arrives, a portal sign-in, a document upload turns CLEAN.
 
+## Handoff (R1 session, Oct 24 evening)
+
+This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session stopped at about 95% context, on Rasel's word, before the prod stacks.
+
+### Open PRs (Rasel merges)
+- **#1097:** docs, the prod log and this handoff.
+- **#1103:** infra, step 3.
+  - Prod uses firmivra.com (zone `Z06906951XI9J0KSHI8TO`).
+  - `HOSTED_ZONE_IDS` has the prod zone.
+  - `config.dmarcRecord`: the prod email stack writes no `_dmarc`, because the domain keeps its company mail's record.
+  - **Merge it before step 5**, or the prod stacks can't use the zone.
+- **#1104:** the prod bootstrap one-off (`packages/db/scripts/bootstrap-prod.mjs`, no migration). Run it only after the prod stacks are up, on Rasel's go.
+- **#1105:** the migration `app_admin_apply_profile_change` (from R56's draft, reviewed). When it merges, Rasel tells R56:
+  - its PR (`rasel/R56-admin-apply-profile-change`) can open;
+  - its `LIVE` set should be ACTIVE only: the function refuses SUSPENDED, per Rasel's card.
+
+### Merged today (all applied on dev, every Deploy dev run checked)
+| PR | What |
+| --- | --- |
+| #1053 | Seed ids |
+| #1057, #1064 | Task drafts |
+| #1066, #1067 | Prod config, `deploy-prod.yml` |
+| #1071, #1077, #1087 | Docs |
+| #1074 | R60's columns, item 3 |
+| #1081 | Custom reminders |
+| #1084 | Idempotency keys |
+| #1095 | R60's requests 7 to 11 |
+
+### Prod: where it stands
+Rasel's add-on 4: every AWS change happens on his yes. Step by step in the "Prod log" above.
+- **1. SES:** production access granted (also for dev).
+- **2. DNS:** firmivra.com is in Route 53, every GoDaddy record is copied and checked, and it is delegated at GoDaddy. The `.com` registry lists the 4 AWS name servers, and dev still works.
+- **3. Infra:** #1103, open.
+- **4. Bootstrap policies:** applied. Boundary v5, CloudFormation execution policy v6; v1 deleted. The execution policy now has 5 of 5 versions, so delete its oldest non-default version before the next change.
+- **Next for a fresh R1** (each command or `cdk diff` shown to Rasel first; never `cdk destroy`; never touch dev's stacks except 6):
+  - **5.** After #1103 merges: `cdk diff -c env=prod`, then deploy, for network, data, auth, email and ci, in that order. Stop at the first problem.
+  - **6.** `cdk deploy firmivra-dev-ci -c env=dev`. It narrows dev's deploy role to the dev environment.
+  - **7.** The app stack and the first release go through a `v*` tag that only Rasel creates. Then `firmivra/prod/stripe` (live keys, Rasel), the bootstrap one-off (#1104), `create-firm-key lvp`, and `set-module`.
+
+### Private files (outside the repo; never into the repo, a PR or a reply)
+`F:/firmivra-private/` holds:
+- the GoDaddy export (`firmivra.com.txt`);
+- the change batch;
+- the two verification outputs.
+
+### Local state and lessons
+- **Branches:** every R1 branch above is pushed. The worktree is on `rasel/R1-prod-log`.
+- **Postgres:** if Docker's Postgres is down, run `docker start firmivra-postgres-1 firmivra-s3-1 firmivra-mailpit-1`. Don't run compose from this worktree.
+- **Before testing a branch:** regenerate the Prisma client, then build `@firmivra/db` and `@firmivra/types` there. A client from another branch gives P2022.
+- **Merging `main` into a stacked branch:** where `main` equals the merged PR's head, keep the branch's version.
+- **Before checking out another ref's files, commit your edits.** A checkout over uncommitted edits loses them; this happened once in this session, and the edits were re-applied.
+- **CI flakes, not ours:**
+  - `leads-pipeline.e2e.test.ts:312` fails from 00:00 to 04:00 UTC;
+  - `admin-team.test.ts:1279` fails at random.
+  - Re-run the whole failed run.
+
 ## Handoff (R1 session, Oct 24)
 
 This is newer than every handoff below, so read it first. Where they differ, this one wins.
