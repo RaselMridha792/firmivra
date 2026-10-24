@@ -28,6 +28,7 @@ import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { accountOf, actorOf } from './messages.controller.js';
 import { NotesService } from './notes.service.js';
+import { PortalTabRoute } from '../client-portal/portal-tabs.js';
 
 const clientPipe = new ZodValidationPipe(ClientId);
 const idPipe = new ZodValidationPipe(InternalNoteId);
@@ -100,6 +101,7 @@ export class NotesController {
 /** The signed-in login's private note (R20 step 5). Only that login ever sees it. */
 @Controller('portal/:firmSlug/me/notes')
 @Roles('CLIENT')
+@PortalTabRoute('MESSAGES')
 export class MyNotesController {
   constructor(private readonly notes: NotesService) {}
 
