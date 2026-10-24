@@ -18,7 +18,7 @@ export function DocumentRequestsCard() {
       </div>
       <ButtonLink
         variant="outline"
-        href={moduleHref('document-requests')}
+        href={moduleHref('document-request-create')}
         className="mt-4 w-full"
         data-testid="create-document-request"
       >

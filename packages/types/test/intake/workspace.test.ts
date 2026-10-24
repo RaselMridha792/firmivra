@@ -5,7 +5,9 @@ import {
   createRequest,
   INTAKE_FILE_SIZE_CHOICES,
   INTAKE_MAX_FILE_SIZE_MB,
+  INTAKE_ALERT_MINUTES,
   INTAKE_REMINDER_MINUTES,
+  intakeAlertWords,
   intakeDurationWords,
   IntakeFormKey,
   publicEmbedCode,
@@ -176,5 +178,36 @@ describe('reminder times (I8)', () => {
     expect(ok({ firstReminderAfterMinutes: 43201 })).toBe(false);
     expect(ok({ finalReminderAfterMinutes: 86401 })).toBe(false);
     expect(ok({ firstReminderAfterDays: 3 })).toBe(false);
+  });
+});
+
+describe('the expiration alert (I9)', () => {
+  it('offers 30 minutes and her hours, 42 as she saw it, in hours', () => {
+    expect(INTAKE_ALERT_MINUTES.map(intakeAlertWords)).toEqual([
+      '30 minutes',
+      '1 hour',
+      '2 hours',
+      '3 hours',
+      '5 hours',
+      '6 hours',
+      '10 hours',
+      '12 hours',
+      '24 hours',
+      '42 hours',
+      '72 hours',
+    ]);
+  });
+
+  it('takes 30 minutes to 7 days, or no alert', () => {
+    const ok = (expirationAlertMinutes: unknown) =>
+      UpdateIntakeSettingsRequest.safeParse({
+        version: 'v',
+        notifications: { expirationAlertMinutes },
+      }).success;
+    expect(ok(30)).toBe(true);
+    expect(ok(10080)).toBe(true);
+    expect(ok(null)).toBe(true);
+    expect(ok(29)).toBe(false);
+    expect(ok(10081)).toBe(false);
   });
 });

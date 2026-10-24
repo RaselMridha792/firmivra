@@ -579,7 +579,7 @@ export function DocumentsTab({ clientId }: { clientId: string | undefined }) {
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="font-display text-lg font-bold text-heading">Payroll Documents</h2>
         <div className="flex gap-2">
-          <Link href="/modules/document-requests" className={outlined}>
+          <Link href="/documents/requests" className={outlined}>
             Request Documents
           </Link>
           {clientId ? (

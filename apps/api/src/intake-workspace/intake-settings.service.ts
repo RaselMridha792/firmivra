@@ -112,7 +112,7 @@ export class IntakeSettingsService {
         // No reminders (reminders off for new sends) reads as no first and no final reminder.
         firstReminderAfterMinutes: r.remindersEnabled ? r.firstReminderMinutes : null,
         finalReminderAfterMinutes: r.remindersEnabled ? r.finalReminderMinutes : null,
-        expirationAlertHours: r.expiryAlertHours,
+        expirationAlertMinutes: r.expiryAlertMinutes,
       },
       automation: {
         autoCreateClient: r.autoCreateClient,
@@ -205,7 +205,7 @@ export class IntakeSettingsService {
         if (n.notifyAssignedStaff !== undefined) data.notifyAssignedStaff = n.notifyAssignedStaff;
         // No first reminder turns reminders off (each new send's default); the times are kept
         // for when they are turned on again. There is no column for a first reminder without a
-        // final one, or for no expiration alert, so neither is taken.
+        // final one, so that is not taken.
         if (n.firstReminderAfterMinutes !== undefined) {
           data.remindersEnabled = n.firstReminderAfterMinutes !== null;
           if (n.firstReminderAfterMinutes !== null)
@@ -213,12 +213,14 @@ export class IntakeSettingsService {
         }
         if (n.finalReminderAfterMinutes !== undefined && n.finalReminderAfterMinutes !== null)
           data.finalReminderMinutes = n.finalReminderAfterMinutes;
-        if (n.expirationAlertHours === null)
-          throw invalid(
-            'notifications.expirationAlertHours',
-            'Choose how long before expiry the alert goes',
-          );
-        if (n.expirationAlertHours !== undefined) data.expiryAlertHours = n.expirationAlertHours;
+        // Octavia's I9: minutes too, and No alert (null). The old whole-hour column keeps its own
+        // rule (1 to 168) until a later migration drops it: it follows, rounded up, and keeps its
+        // value under No alert.
+        if (n.expirationAlertMinutes !== undefined) {
+          data.expiryAlertMinutes = n.expirationAlertMinutes;
+          if (n.expirationAlertMinutes !== null)
+            data.expiryAlertHours = Math.min(168, Math.ceil(n.expirationAlertMinutes / 60));
+        }
       }
       const enabled = (data.remindersEnabled as boolean | undefined) ?? current.remindersEnabled;
       if (enabled && n?.finalReminderAfterMinutes === null)
@@ -331,6 +333,7 @@ export class IntakeSettingsService {
           finalReminderMinutes: 10080,
           firstReminderDays: 3,
           finalReminderDays: 7,
+          expiryAlertMinutes: 1440,
           expiryAlertHours: 24,
           autoCreateClient: false,
           autoCreateFollowUpTask: false,

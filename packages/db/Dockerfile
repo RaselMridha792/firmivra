@@ -53,6 +53,7 @@ COPY --from=build --chown=node:node /repo/packages/db/prisma.config.ts ./prisma.
 COPY --from=build --chown=node:node /repo/packages/db/scripts/migrate-deploy.mjs ./scripts/migrate-deploy.mjs
 COPY --from=build --chown=node:node /repo/packages/db/scripts/set-module.mjs ./scripts/set-module.mjs
 COPY --from=build --chown=node:node /repo/packages/db/scripts/link-dev-users.mjs ./scripts/link-dev-users.mjs
+COPY --from=build --chown=node:node /repo/packages/db/scripts/bootstrap-prod.mjs ./scripts/bootstrap-prod.mjs
 ADD --chown=node:node https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/rds-ca.pem
 ENV NODE_EXTRA_CA_CERTS=/app/rds-ca.pem
 USER node

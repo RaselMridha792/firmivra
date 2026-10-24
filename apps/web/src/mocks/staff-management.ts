@@ -42,6 +42,8 @@ import {
   type StaffDraft,
   type StaffJobTitle,
   SaveStaffJobTitleRequest,
+  type StaffSecurityDefaults,
+  SaveStaffSecurityDefaultsRequest,
   StaffListQuery,
   type StaffListItem,
   type StaffLoginEvent,
@@ -126,6 +128,8 @@ interface Store {
   drafts: StaffDraft[];
   /** Offices & Job Titles: the saved titles (staff_job_titles). */
   jobTitles: Omit<StaffJobTitle, 'staffCount'>[];
+  /** New Accounts & Security: Firmivra's defaults until the firm saves its own. */
+  securityDefaults: Omit<StaffSecurityDefaults, 'existingAccounts'>;
   created: Map<string, string>;
   uploads: Map<string, { memberId: string; body: CreateStaffDocumentUploadRequest }>;
   imports: Map<string, { create: number; update: number }>;
@@ -229,6 +233,27 @@ function seed(empty: boolean): Store {
     roleOverrides: new Map(),
     drafts: [],
     jobTitles: [],
+    securityDefaults: {
+      allowedAuthMethods: ['AUTHENTICATOR_APP', 'BACKUP_CODES'],
+      restrictDevices: false,
+      autoLogoutMinutes: null,
+      accessLocation: 'ANYWHERE',
+      allowedIps: [],
+      allowedCountries: [],
+      maxConcurrentSessions: 1,
+      signOutOtherSessions: false,
+      allowTrustedDevices: false,
+      notices: {
+        newDeviceLogin: true,
+        failedLogins: true,
+        passwordChanges: true,
+        securityAlerts: true,
+        lockouts: true,
+      },
+      updatedAt: null,
+      updatedBy: null,
+      version: 'none',
+    },
     created: new Map(),
     uploads: new Map(),
     imports: new Map(),
@@ -1438,6 +1463,27 @@ export function createStaffMock(options: Options = {}): StaffClient {
         row.updatedAt = new Date().toISOString();
       }
       return jobTitleView(row);
+    },
+    securityDefaults: async () => {
+      await g.allowed();
+      ownerOrAdmin();
+      return copy({ ...s.securityDefaults, existingAccounts: s.members.length });
+    },
+    saveSecurityDefaults: async (body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const { version, ...settings } = parseInput(SaveStaffSecurityDefaultsRequest, body);
+      if (version !== s.securityDefaults.version)
+        throw fail(409, 'SAVE_CONFLICT', 'Someone saved these defaults after you opened them.');
+      const at = new Date().toISOString();
+      const you = s.members.find((m) => m.detail.isYou);
+      s.securityDefaults = {
+        ...settings,
+        updatedAt: at,
+        updatedBy: you?.detail.name ?? null,
+        version: at,
+      };
+      return copy({ ...s.securityDefaults, existingAccounts: s.members.length });
     },
 
     importTemplateUrl: () =>

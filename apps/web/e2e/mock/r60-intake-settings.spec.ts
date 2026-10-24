@@ -175,7 +175,8 @@ test('a panel’s Cancel puts its changes back; Save Changes saves and closes it
 });
 
 // Octavia's review of Oct 20 (I8, I9): reminders count from sending, in minutes, hours and days, and
-// the final one follows the first; the expiration alert offers her hours (42, not 48).
+// the final one follows the first; the expiration alert offers 30 minutes and her hours (42, not
+// 48), and No alert.
 const MINUTES = ['5 minutes', '10 minutes', '15 minutes', '30 minutes'];
 const HOURS = ['1 hour', '2 hours', '3 hours', '6 hours', '12 hours'];
 const DAYS = ['1 day', '2 days', '3 days', '5 days', '7 days', '10 days', '14 days', '21 days'];
@@ -195,11 +196,12 @@ test('reminders count from sending, the final follows the first, and No reminder
   await expect(final.locator('option')).toHaveText(
     after(['5 days', '7 days', '10 days', '14 days', '21 days', '30 days']),
   );
-  await expect(alert.locator('option')).toHaveText(
-    [1, 2, 3, 5, 6, 10, 12, 24, 42, 72].map(
-      (h) => `${h} ${h === 1 ? 'hour' : 'hours'} before expiry`,
-    ),
-  );
+  await expect(alert.locator('option')).toHaveText([
+    'No alert',
+    ...['30 minutes', '1 hour', '2 hours', '3 hours', '5 hours', '6 hours', '10 hours']
+      .concat(['12 hours', '24 hours', '42 hours', '72 hours'])
+      .map((t) => `${t} before expiry`),
+  ]);
 
   // A later first reminder moves the final one after it.
   await first.selectOption('14400');
@@ -214,6 +216,18 @@ test('reminders count from sending, the final follows the first, and No reminder
   await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
   await expect(first).toHaveValue('');
   await expect(final).toBeDisabled();
+});
+
+test('No alert and an alert 30 minutes before expiry save (I9)', async ({ page }) => {
+  await openSettings(page);
+  const alert = page.getByRole('combobox', { name: 'Expiration alert' });
+  await alert.selectOption({ label: 'No alert' });
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
+  await expect(alert).toHaveValue('');
+  await alert.selectOption({ label: '30 minutes before expiry' });
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(alert).toHaveValue('30');
 });
 
 test('a reminder in minutes and one in hours save (I8)', async ({ page }) => {
