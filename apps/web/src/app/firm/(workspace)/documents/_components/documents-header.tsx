@@ -1,5 +1,4 @@
 import { Envelope, UploadSimple } from '@phosphor-icons/react';
-import { moduleHref } from '../../../../../lib/firm-modules';
 import { ButtonLink } from './button-link';
 
 /**
@@ -20,7 +19,7 @@ export function DocumentsHeader() {
       <div className="flex shrink-0 gap-3">
         <ButtonLink
           variant="secondary"
-          href={moduleHref('document-requests')}
+          href="/documents/requests"
           data-testid="open-document-requests"
         >
           <Envelope weight="regular" className="size-5" aria-hidden="true" />
