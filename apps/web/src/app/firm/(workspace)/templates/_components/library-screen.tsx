@@ -19,6 +19,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { TemplateMenu } from './template-actions';
+import { templateUseHref } from './use-template';
 import { CategoriesDialog, ImportDialog, PreviewDialog } from './template-dialogs';
 import {
   KindTile,
@@ -459,13 +460,15 @@ export function LibraryScreen({ slug }: { slug: string }) {
                   >
                     <Eye aria-hidden weight="fill" className="size-4" /> Preview
                   </button>
-                  <Link
-                    href={`/modules/communications?template=${r.id}`}
-                    aria-label={`Use ${r.name}`}
-                    className="inline-flex min-h-9 items-center rounded-control bg-gold px-4 text-sm font-semibold text-on-action hover:opacity-90"
-                  >
-                    Use
-                  </Link>
+                  {templateUseHref(r.kind, r.id) ? (
+                    <Link
+                      href={templateUseHref(r.kind, r.id)!}
+                      aria-label={`Use ${r.name}`}
+                      className="inline-flex min-h-9 items-center rounded-control bg-gold px-4 text-sm font-semibold text-on-action hover:opacity-90"
+                    >
+                      Use
+                    </Link>
+                  ) : null}
                   <TemplateMenu row={r} onNotice={notice} />
                 </span>
               )}

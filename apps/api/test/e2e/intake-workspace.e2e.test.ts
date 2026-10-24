@@ -604,6 +604,42 @@ describe('the settings', () => {
     }
   });
 
+  it("starts the list with the firm's contact email; the firm may remove it (Rasel, Oct 25)", async () => {
+    await inFirm('b', async (tx) => {
+      await tx.intakeSettings.deleteMany({ where: { businessId: firms.b } });
+      await tx.businessSettings.upsert({
+        where: { businessId: firms.b },
+        create: { businessId: firms.b, contactEmail: 'office@firmb.test' },
+        update: { contactEmail: 'office@firmb.test' },
+      });
+    });
+    const first = IntakeSettings.parse(
+      ok(await call('get', '/intake-settings', ownerB, undefined, 'b')),
+    );
+    expect(first.notifications.additionalEmails).toEqual(['office@firmb.test']);
+    const removed = IntakeSettings.parse(
+      ok(
+        await call(
+          'put',
+          '/intake-settings',
+          ownerB,
+          { version: first.version, notifications: { additionalEmails: [] } },
+          'b',
+        ),
+      ),
+    );
+    expect(removed.notifications.additionalEmails).toEqual([]);
+    // A later read keeps the firm's choice; Reset Defaults puts the contact email back.
+    expect(
+      IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerB, undefined, 'b')))
+        .notifications.additionalEmails,
+    ).toEqual([]);
+    const reset = IntakeSettings.parse(
+      ok(await call('post', '/intake-settings/reset', ownerB, { confirm: true }, 'b')),
+    );
+    expect(reset.notifications.additionalEmails).toEqual(['office@firmb.test']);
+  });
+
   it('keeps the additional emails to notify: lower case, each once, at most 10 (I7)', async () => {
     const at = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
     expect(at.notifications.additionalEmails).toEqual([]);

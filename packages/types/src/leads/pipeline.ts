@@ -469,6 +469,28 @@ export const ConvertLeadToClientResult = z.object({
 });
 export type ConvertLeadToClientResult = z.infer<typeof ConvertLeadToClientResult>;
 
+/**
+ * POST /business/leads/bulk-convert: Convert to Client from the bulk bar (her written spec, L12).
+ * Each selected lead goes through the same conversion with what its own record holds: the client
+ * type from its business name, its contact details, its services of interest, and its assigned
+ * staff member (or `primaryStaffUserId` for all; Staff are always their own), with all of its
+ * history carried over. A lead the record cannot convert alone (no phone, no service, a client
+ * already has its email) is skipped with the reason, to convert on its own. Retry-safe.
+ */
+export const BulkConvertLeadsRequest = z.strictObject({
+  idempotencyKey: z.uuid(),
+  ids: z.array(z.uuid()).min(1).max(25),
+  primaryStaffUserId: z.uuid().optional(),
+  sendPortalInvite: z.boolean(),
+});
+export type BulkConvertLeadsRequest = z.input<typeof BulkConvertLeadsRequest>;
+
+export const BulkConvertLeadsResult = z.object({
+  converted: z.array(z.object({ leadId: z.uuid(), name: z.string(), clientId: z.uuid() })),
+  skipped: z.array(z.object({ leadId: z.uuid(), name: z.string(), reason: z.string() })),
+});
+export type BulkConvertLeadsResult = z.infer<typeof BulkConvertLeadsResult>;
+
 export const LeadPipelineErrorCode = z.enum([
   /** 409: a lead or client with this email or phone exists; resend with allowDuplicate. */
   'POSSIBLE_DUPLICATE',

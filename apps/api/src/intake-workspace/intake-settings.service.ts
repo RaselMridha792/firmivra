@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
+  Email,
   INTAKE_FILE_SIZE_CHOICES,
   intakeDurationWords,
   type IntakeSettings,
@@ -74,12 +75,30 @@ export class IntakeSettingsService {
     if (tenant.role !== 'OWNER' && tenant.role !== 'ADMIN') throw forbidden();
   }
 
+  /**
+   * Rasel (Oct 25): the firm's own contact email (Company Profile, `business_settings`) hears of a
+   * submit by default ("the firm master email" in her text), as the first of the additional
+   * emails; the firm removes it from the list to stop it. A firm without a valid contact email
+   * starts with none.
+   */
+  private async firmContact(tx: TxClient, businessId: string): Promise<string[]> {
+    const firm = await tx.businessSettings.findUnique({
+      where: { businessId },
+      select: { contactEmail: true },
+    });
+    const email = Email.safeParse(firm?.contactEmail ?? '');
+    return email.success ? [email.data] : [];
+  }
+
   private async row(tx: TxClient, businessId: string) {
+    const include = { defaultOwner: MEMBER, followUpOwner: MEMBER };
+    const found = await tx.intakeSettings.findUnique({ where: { businessId }, include });
+    if (found) return found;
     return tx.intakeSettings.upsert({
       where: { businessId },
-      create: { businessId },
+      create: { businessId, notifyAdditionalEmails: await this.firmContact(tx, businessId) },
       update: {},
-      include: { defaultOwner: MEMBER, followUpOwner: MEMBER },
+      include,
     });
   }
 
@@ -340,7 +359,7 @@ export class IntakeSettingsService {
           finalReminderDays: 7,
           expiryAlertMinutes: 1440,
           expiryAlertHours: 24,
-          notifyAdditionalEmails: [],
+          notifyAdditionalEmails: await this.firmContact(tx, businessId),
           autoCreateClient: false,
           autoCreateFollowUpTask: false,
           routeByService: false,

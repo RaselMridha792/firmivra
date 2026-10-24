@@ -264,7 +264,8 @@ function AdditionalEmails({
         Notify additional emails
       </p>
       <p className="text-xs text-muted">
-        They hear when a client submits a form: its title only, never the answers.
+        They hear when a client submits a form: its title only, never the answers. Your firm&apos;s
+        contact email is on the list unless you remove it.
       </p>
       {emails.length ? (
         <ul aria-labelledby={`${id}-label`} className="flex flex-wrap gap-2">

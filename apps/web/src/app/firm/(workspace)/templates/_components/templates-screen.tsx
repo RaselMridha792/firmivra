@@ -43,6 +43,7 @@ import {
   quiet,
   type KindMeta,
 } from './templates-shared';
+import { templateUseHref } from './use-template';
 
 const TABS = [
   { id: 'all', label: 'All Templates' },
@@ -394,12 +395,14 @@ export function TemplatesScreen() {
                   <span className="hidden w-24 shrink-0 truncate text-text 2xl:block">
                     {r.updatedBy?.name ?? r.owner.name}
                   </span>
-                  <Link
-                    href={`/modules/communications?template=${r.id}`}
-                    className="inline-flex min-h-9 items-center rounded-control bg-info-soft px-4 text-sm font-semibold text-action hover:bg-accent-soft"
-                  >
-                    Use<span className="sr-only"> {r.name}</span>
-                  </Link>
+                  {templateUseHref(r.kind, r.id) ? (
+                    <Link
+                      href={templateUseHref(r.kind, r.id)!}
+                      className="inline-flex min-h-9 items-center rounded-control bg-info-soft px-4 text-sm font-semibold text-action hover:bg-accent-soft"
+                    >
+                      Use<span className="sr-only"> {r.name}</span>
+                    </Link>
+                  ) : null}
                   <TemplateMenu row={r} onNotice={notice} />
                 </li>
               ))}

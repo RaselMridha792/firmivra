@@ -258,9 +258,13 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 - **R56 (I3):** done in #1020 (`PublicLink`, `PublicLinkBlock`); R60 builds I3's link next.
 - **Secure link page (I2):** a form for a lead or a new contact needs the secure link page
   (`LEAD_LINK_UNAVAILABLE` today). Owner to be named by Rasel.
-- **Intake reminders (R6 or Rasel to name):** there is no intake reminder job and no intake
-  reminder email template. The test reminder (#1033) uses the firm's message email
-  (`lead.message-email`), which joins paragraphs; the job and a template of its own come together.
+- **Intake reminders and expiry alerts (Rasel, Oct 25: record, do not build now; owner to be
+  named):** no job sends the first and final reminders (I8, `first_reminder_minutes`,
+  `final_reminder_minutes`, minutes after sending) or the expiration alert (I9,
+  `expiry_alert_minutes` before `expires_at`, null for none), and there is no reminder or alert
+  email template. Each send keeps `intakes.reminders_enabled`. Her stop rules: none after the form
+  is submitted, completed or expired; an expiration change reschedules. The test reminder (#1033)
+  uses the firm's message email (`lead.message-email`) until the template exists.
 - **Settings areas (handoff item 4): Rasel's defaults (Oct 24, Scrum thread), until he says
   otherwise.** From `docs/specs/settings-review-2026-10-20/CHANGE-LIST.md` P3 and her Company
   Profile guide:
@@ -345,10 +349,20 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   titles (#1074) and Location Management's locations (`rasel/R60-sm3-job-titles`); New Accounts &
   Security comes next on the security defaults (#1074). The Reports shortcut still needs a Staff
   and Team report in Reports (its owner to name), so that card stays as it is.
-- **The Locations screen (R1 or Rasel to name):** R1 built Location Management's API
+- **The Locations screen (Rasel, Oct 25: record, do not build now; owner to be named):** R1 built Location Management's API
   (`/business/locations`), but the web has no Settings > Locations page (`/settings/locations`, which
   Billing's dialog already links to, answers 404). Offices & Job Titles lists the firm's active
   locations and says they come from Location Management, without a link until the page exists.
+- **New Accounts & Security (built, `rasel/R60-sm3-security-defaults`): what it cannot do yet.**
+  1. *Firm setup's Team step* invites through `POST /auth/invites`
+     (`apps/api/src/auth/invites.controller.ts`, outside R60's paths), which creates an account
+     with no security row; the row is made later with the columns' own defaults, not the firm's.
+     Create Staff and Bulk Upload Staff start from the firm's defaults. **R55 (Rasel, Oct 25)**
+     adds the one-line call when the invite creates the member: `newAccountSecurity(tx,
+     businessId)` (`apps/api/src/staff/staff-security-defaults.service.ts`) as the start of its
+     `staff_security_settings` row. R60 does not touch the sign-in code.
+  2. *Enforcement:* sign-in does not enforce any staff security setting yet (Settings checks,
+     check 6), so the defaults, like each account's own settings, are stored and shown only.
 - **SM5 (Rasel's default, Oct 24):** pay is not kept in a staff draft (her own text says "pay is
   not kept"); the note says so. Per-file Save of a draft's attachments needs storage for draft
   files (an API and maybe a table): not built; the chosen files stay only while the tab is open.
@@ -366,10 +380,10 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   (`apps/api/src/begin-online/begin-online.service.ts`) checks only `beginOnline` and not archived,
   so a service set Inactive or Draft in Services & Pricing still takes Begin Online submissions.
   The public link says INACTIVE then (Rasel's rule); `serviceFor` should also require ACTIVE.
-- **I7, the firm's own address on submit (Rasel's call):** her text keeps "the firm master email"
-  notified after a submission. Nothing is emailed to the firm's contact address
-  (`businesses.contact_email`) on submit, before or after I7; a firm can add it to Notify
-  additional emails. Sending to it by default is for Rasel to decide.
+- **I7, the firm's own address on submit (Rasel, Oct 25: yes, by default):** a new settings row
+  and Reset Defaults start Notify additional emails with the firm's contact email
+  (`business_settings.contact_email`); the firm removes it to stop it. Firms whose settings row
+  already exists need column request item 12 (a data change) to get it.
 - **Decisions she left open (do not guess):** Submitted vs Completed, due date vs expiration, staff
   Edit vs Request Revision, import template file types, the auto-create client trigger.
 - **Begin Online (seen, not changed):** `newestForm` picks the highest version number of any
@@ -468,6 +482,18 @@ merges. Old columns stay until R60's API reads the new ones, then a later migrat
     `archived_at timestamptz NULL`, `created_by_user_id`, `created_at`, `updated_at`; unique
     `(business_id, lower(name)) WHERE archived_at IS NULL`; filled once from the distinct
     `staff_profiles.work_schedule`. A staff record keeps its own text.
+
+12. **I7, the firm's contact email in the existing lists (Oct 25, a data change only, not yet
+    approved).** One data migration, per firm as #1074's backfill: `UPDATE intake_settings s SET
+    notify_additional_emails = ARRAY[lower(b.contact_email)] FROM business_settings b WHERE
+    b.business_id = s.business_id AND b.contact_email IS NOT NULL AND
+    cardinality(s.notify_additional_emails) = 0`. New rows already start with it (the API).
+
+**Schema request, for Rasel to decide later (Oct 25, not a PR):** per-send reminder times. The
+Send page shows the firm's times ("View Schedule", read-only) because a send keeps only
+`intakes.reminders_enabled`. Times of its own would need `intakes.first_reminder_minutes`,
+`final_reminder_minutes` and `expiry_alert_minutes` (nullable: null takes the firm's), with
+the same ranges as `intake_settings`; the Send page's Edit Schedule would then save them.
 
 Offices need no column: they are R1's Locations API (`firm_offices`).
 
@@ -594,6 +620,14 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   the firm's times (a send keeps only on or off; "View Schedule" instead of fields the API never
   kept). Intake workspace e2e 17 of 17, unit 11 and 10, the Intake Forms mock specs 38 of 38;
   sheet shot on the real API.
+- Oct 24 (fourth session): SM3 New Accounts & Security (`rasel/R60-sm3-security-defaults`, from
+  `main`): `api.staff.securityDefaults` and `saveSecurityDefaults` (Owner and Admin; version and
+  409 `SAVE_CONFLICT`; the lists with their access choice; the audit row names the changed
+  settings), the page at `/team/settings/security` (who it affects, a confirm before saving), Staff
+  Settings' card showing them, Create Staff step 3 and every new account (Bulk Upload too)
+  starting from them, step 3's choices winning. Defaults e2e 6 of 6, staff write and security e2e
+  34 of 34, contract unit 20 of 20, the Staff mock specs 55 of 55, API and web `tsc` 0 errors.
+  Sheet shot on the real API. Firm setup's invite (`/auth/invites`) is outside R60's paths (Needs).
 - Oct 24 (fourth session): Rasel's fix before the next feature (`rasel/R60-profile-ein-last4`,
   from `main`): Request Change keeps only the proposed EIN's last four digits in the ticket
   ("Proposed: Ending in 4321"); the full number is in no ticket, audit row, log or answer (the
@@ -616,3 +650,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   set), saved and shown only; the e2e checks that saving one deletes no intake, submission or
   document. Intake workspace e2e 19 of 19, types unit 13 of 13, the Intake Forms mock specs 41 of
   41 (one cold-start failure passed on rerun); sheet shot on the real API.
+- Oct 25 (fourth session): Rasel's answers. I7: the firm's contact email starts Notify additional
+  emails for a new settings row and on Reset Defaults (existing rows: column request item 12);
+  intake workspace e2e 19 of 19, `r60-intake-settings` 14 of 14. Needs: R55's one line in the
+  firm setup invite; the reminder and alert sender and the Locations page recorded, not built;
+  per-send reminder times written as a schema request.

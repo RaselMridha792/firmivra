@@ -25,7 +25,7 @@ type Resources = Record<string, { Type: string; Properties?: Record<string, unkn
 const configs = [
   configFor('dev', { customDomain: undefined }),
   configFor('dev', { customDomain: DEV_FIRMIVRA_COM }),
-  configFor('prod', {}, { allowPending: true }),
+  configFor('prod'),
 ];
 const templates = configs.flatMap((config) => {
   const app = new App({ context: { ...cdkJsonContext(), env: config.envName } });

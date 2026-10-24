@@ -14,6 +14,7 @@ import {
   dateText,
   NoApplicationPermission,
 } from '../../applications/_components/application-ui';
+import { ProfileChanges } from './profile-changes';
 
 const BACK = { href: '/firms', label: 'Back to Firms' };
 const STATUS: Record<string, { label: string; tone: string }> = {
@@ -90,19 +91,23 @@ function FirmContent({ id, appBaseUrl }: { id: string; appBaseUrl: string }) {
   if (!me.platformAdmin) return <NoApplicationPermission />;
   return (
     <ApplicationPageState query={firm}>
-      {(record) =>
-        record.application ? (
-          <ApplicationRecord
-            key={record.application.id}
-            application={record.application}
-            appBaseUrl={appBaseUrl}
-            back={BACK}
-            onStale={() => void firm.refetch()}
-          />
-        ) : (
-          <FirmOnly firm={record} appBaseUrl={appBaseUrl} />
-        )
-      }
+      {(record) => (
+        <div className="flex flex-col gap-5">
+          {record.application ? (
+            <ApplicationRecord
+              key={record.application.id}
+              application={record.application}
+              appBaseUrl={appBaseUrl}
+              back={BACK}
+              onStale={() => void firm.refetch()}
+            />
+          ) : (
+            <FirmOnly firm={record} appBaseUrl={appBaseUrl} />
+          )}
+          {/* After activation the firm asks Firmivra to change its legal name, EIN or licensing. */}
+          <ProfileChanges firmId={record.id} />
+        </div>
+      )}
     </ApplicationPageState>
   );
 }

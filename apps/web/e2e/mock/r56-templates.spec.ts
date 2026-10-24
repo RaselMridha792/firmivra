@@ -21,7 +21,9 @@ test('Home: sixteen kinds with counts, recent templates, tools and tips', async 
   );
   await expect(page.getByTestId('kind-cards').getByRole('listitem')).toHaveCount(16);
   await expect(page.getByTestId('kind-email')).toContainText('templates');
-  await expect(page.getByTestId('recent').getByRole('link', { name: /^Use / })).toHaveCount(5);
+  // Use opens a Communications draft: Email and SMS templates only (two of the five are other
+  // kinds: a signature request and a document request).
+  await expect(page.getByTestId('recent').getByRole('link', { name: /^Use / })).toHaveCount(3);
   await expect(page.getByTestId('recent')).toContainText('Recent Templates');
   await expect(page.getByTestId('tools').getByRole('button')).toHaveCount(4);
   await expect(page.getByTestId('tips')).toContainText('merge fields');
@@ -191,4 +193,12 @@ test('No sideways scroll at 375 px', async ({ page }) => {
     );
     expect(over, path || 'home').toBeLessThanOrEqual(1);
   }
+});
+
+test('Use on an Email template starts a Communications draft copied from it', async ({ page }) => {
+  await page.goto(base);
+  const use = page.getByTestId('recent').getByRole('link', { name: /^Use / }).first();
+  await expect(use).toHaveAttribute('href', /\/communications\/new\?channel=(EMAIL|SMS)&template=/);
+  await use.click();
+  await expect(page).toHaveURL(/\/communications\/[0-9a-f-]{36}\/edit$/, { timeout: 30_000 });
 });

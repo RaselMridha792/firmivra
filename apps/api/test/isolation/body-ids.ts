@@ -135,8 +135,8 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   },
   {
     field: 'ids',
-    routes: /^POST \/api\/v1\/business\/leads\/(bulk|messages)$/,
-    why: 'the leads the member selected: by contract (LeadBulkResult) a lead that is not found or not theirs is counted as skipped (200), not refused; leads-pipeline.e2e.test.ts checks that another firm changes and messages none (R57)',
+    routes: /^POST \/api\/v1\/business\/leads\/(bulk|messages|bulk-convert)$/,
+    why: 'the leads the member selected: by contract (LeadBulkResult, BulkConvertLeadsResult) a lead that is not found or not theirs is skipped (200), not refused; leads-pipeline.e2e.test.ts checks that another firm changes and messages none (R57), and leads-bulk-convert.e2e.test.ts that it converts none (R55)',
   },
   {
     field: 'idempotencyKey',
