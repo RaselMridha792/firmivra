@@ -884,16 +884,19 @@ function FormBody({
                   : 'Generate Zoom Link (connect video first)'}
               </span>
             </span>
-            <span className="flex min-w-0 items-stretch gap-2">
-              <Input
-                label="Video Meeting Link"
-                hideLabel
-                placeholder={form.generateVideoLink ? 'Made when you schedule' : 'https://'}
-                disabled={form.method !== 'VIDEO' || form.generateVideoLink}
-                value={form.generateVideoLink ? '' : form.videoUrl}
-                error={errors.videoUrl}
-                onChange={(e) => set('videoUrl', e.target.value)}
-              />
+            <div className="flex min-w-0 items-stretch gap-2">
+              {/* The kit Input does not grow in a row: this box takes the row's width. */}
+              <div className="min-w-0 flex-1">
+                <Input
+                  label="Video Meeting Link"
+                  hideLabel
+                  placeholder={form.generateVideoLink ? 'Made when you schedule' : 'https://'}
+                  disabled={form.method !== 'VIDEO' || form.generateVideoLink}
+                  value={form.generateVideoLink ? '' : form.videoUrl}
+                  error={errors.videoUrl}
+                  onChange={(e) => set('videoUrl', e.target.value)}
+                />
+              </div>
               <button
                 type="button"
                 aria-label="Copy the video link"
@@ -908,7 +911,7 @@ function FormBody({
               >
                 <Copy aria-hidden weight="bold" className="size-4" />
               </button>
-            </span>
+            </div>
           </div>
           {form.method === 'PHONE' || form.method === 'OTHER' ? (
             <Input
