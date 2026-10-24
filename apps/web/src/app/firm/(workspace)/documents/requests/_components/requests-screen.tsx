@@ -134,7 +134,12 @@ export function RequestsScreen() {
       sortable: true,
       cell: (r) => (
         <span className="flex min-w-[8rem] flex-col" title={r.reference}>
-          <span className="font-semibold text-heading">{r.title}</span>
+          <Link
+            href={`/documents/requests/${r.id}`}
+            className="font-semibold text-heading hover:text-action hover:underline"
+          >
+            {r.title}
+          </Link>
           <span className="text-xs text-muted">{r.service.title}</span>
         </span>
       ),
