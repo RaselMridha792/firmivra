@@ -15,6 +15,9 @@ test('the Overview warns of a lead with the same email and links to it', async (
   await dialog.getByLabel('Last name').fill('Fakeperson');
   await dialog.getByRole('textbox', { name: 'Email' }).fill('bruno.sandoval@example.test');
   await dialog.getByLabel('Assigned staff').selectOption({ label: 'Hana Kim' });
+  await dialog
+    .getByLabel('Campaign', { exact: true })
+    .selectOption({ label: 'Back Taxes Campaign' });
   await dialog.getByRole('button', { name: 'Save Lead' }).click();
   await dialog
     .getByLabel('Create this lead anyway if the matching email or phone is correct')
@@ -23,7 +26,11 @@ test('the Overview warns of a lead with the same email and links to it', async (
   await expect(dialog).toHaveCount(0);
 
   const table = page.getByRole('table', { name: 'Leads' });
-  await table.getByRole('row', { name: /Twin Fakeperson/ }).getByRole('link').first().click();
+  await table
+    .getByRole('row', { name: /Twin Fakeperson/ })
+    .getByRole('link')
+    .first()
+    .click();
   const warning = page.getByTestId('lead-duplicates');
   await expect(warning).toContainText('Possible duplicate');
   await expect(warning.getByRole('link', { name: 'Bruno Sandoval (lead)' })).toHaveAttribute(
