@@ -312,8 +312,11 @@ export function CreateRequestScreen() {
               >
                 Create Another Request
               </Button>
-              <Button onClick={() => router.push('/documents/requests')}>
+              <Button variant="secondary" onClick={() => router.push('/documents/requests')}>
                 Back to Document Requests
+              </Button>
+              <Button onClick={() => router.push(`/documents/requests/${done.id}`)}>
+                View Request
               </Button>
             </div>
           </div>
