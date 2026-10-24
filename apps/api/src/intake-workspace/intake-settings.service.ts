@@ -113,6 +113,7 @@ export class IntakeSettingsService {
         firstReminderAfterMinutes: r.remindersEnabled ? r.firstReminderMinutes : null,
         finalReminderAfterMinutes: r.remindersEnabled ? r.finalReminderMinutes : null,
         expirationAlertMinutes: r.expiryAlertMinutes,
+        additionalEmails: r.notifyAdditionalEmails,
       },
       automation: {
         autoCreateClient: r.autoCreateClient,
@@ -216,6 +217,7 @@ export class IntakeSettingsService {
         // Octavia's I9: minutes too, and No alert (null). The old whole-hour column keeps its own
         // rule (1 to 168) until a later migration drops it: it follows, rounded up, and keeps its
         // value under No alert.
+        if (n.additionalEmails !== undefined) data.notifyAdditionalEmails = n.additionalEmails;
         if (n.expirationAlertMinutes !== undefined) {
           data.expiryAlertMinutes = n.expirationAlertMinutes;
           if (n.expirationAlertMinutes !== null)
@@ -335,6 +337,7 @@ export class IntakeSettingsService {
           finalReminderDays: 7,
           expiryAlertMinutes: 1440,
           expiryAlertHours: 24,
+          notifyAdditionalEmails: [],
           autoCreateClient: false,
           autoCreateFollowUpTask: false,
           routeByService: false,

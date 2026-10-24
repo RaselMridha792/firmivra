@@ -579,3 +579,10 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   42 and 72 hours) and No alert (null, now taken), the old hour column following (rounded up,
   kept under No alert), the Send page's schedule saying it. Intake workspace e2e 17 of 17, types
   unit 12 of 12, the Intake Forms mock specs 39 of 39; sheet shot on the real API.
+- Oct 24 (fourth session): I7 (`rasel/R60-intake-additional-emails`, stacked on I9, local): Notify
+  additional emails (`additionalEmails`: up to 10, lower case, each once; the editor under
+  Notifications & Reminders), and on each client submit a no-content notice to them (the new
+  `intake.submitted-notice` template: the form's title and the Intake Forms link, no name or
+  answer; `intake-workspace/submitted-notice.ts`, called after the Notifier in the portal submit).
+  Intake workspace and intakes e2e 45 of 45, notify templates unit 75 of 75, the Intake Forms mock
+  specs 40 of 40; sheet shot on the real API with the email as rendered.

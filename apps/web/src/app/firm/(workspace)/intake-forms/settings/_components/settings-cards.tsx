@@ -1,8 +1,8 @@
 'use client';
 
-import { Bell, GearSix, Lightning, Palette, ShieldCheck, User } from '@phosphor-icons/react';
-import { intakeAlertWords, intakeDurationWords, type PortalInfo } from '@firmivra/types';
-import { Button, Checkbox, Modal, normalizeHex } from '@firmivra/ui';
+import { Bell, GearSix, Lightning, Palette, ShieldCheck, User, X } from '@phosphor-icons/react';
+import { Email, intakeAlertWords, intakeDurationWords, type PortalInfo } from '@firmivra/types';
+import { Button, Checkbox, Input, Modal, normalizeHex } from '@firmivra/ui';
 import Image from 'next/image';
 import { useId, useState } from 'react';
 import {
@@ -229,6 +229,105 @@ export function NotificationsCard(props: CardProps) {
   );
 }
 
+const MAX_ADDITIONAL = 10;
+
+/**
+ * Notify additional emails (Octavia's I7): up to 10 more addresses told when a client submits a
+ * form, with the form's title only. Added one at a time; each once, letter case ignored.
+ */
+function AdditionalEmails({
+  emails,
+  readOnly,
+  error,
+  onChange,
+}: {
+  emails: string[];
+  readOnly: boolean;
+  error?: string;
+  onChange: (emails: string[]) => void;
+}) {
+  const id = useId();
+  const [text, setText] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
+  const add = () => {
+    const parsed = Email.safeParse(text);
+    if (!parsed.success) return setProblem('Enter a valid email address');
+    if (emails.includes(parsed.data)) return setProblem('This address is already on the list');
+    if (emails.length >= MAX_ADDITIONAL) return setProblem('Add at most 10 addresses');
+    onChange([...emails, parsed.data]);
+    setText('');
+    setProblem(null);
+  };
+  return (
+    <div className="flex flex-col gap-2 py-2" data-testid="additional-emails">
+      <p id={`${id}-label`} className="text-sm text-text">
+        Notify additional emails
+      </p>
+      <p className="text-xs text-muted">
+        They hear when a client submits a form: its title only, never the answers.
+      </p>
+      {emails.length ? (
+        <ul aria-labelledby={`${id}-label`} className="flex flex-wrap gap-2">
+          {emails.map((e) => (
+            <li
+              key={e}
+              className="inline-flex items-center gap-1 rounded-full bg-subtle py-1 pr-1 pl-3 text-sm text-text"
+            >
+              {e}
+              {readOnly ? null : (
+                <button
+                  type="button"
+                  aria-label={`Remove ${e}`}
+                  onClick={() => onChange(emails.filter((x) => x !== e))}
+                  className="flex size-6 items-center justify-center rounded-full text-muted hover:bg-divider hover:text-text"
+                >
+                  <X aria-hidden weight="bold" className="size-3.5" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-muted">No additional emails.</p>
+      )}
+      {readOnly ? null : (
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <Input
+              label="Add an email to notify"
+              hideLabel
+              type="email"
+              placeholder="name@example.com"
+              value={text}
+              error={problem ?? error}
+              disabled={emails.length >= MAX_ADDITIONAL}
+              onChange={(event) => {
+                setText(event.target.value);
+                setProblem(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  add();
+                }
+              }}
+              className="min-h-9 py-1! text-sm!"
+            />
+          </div>
+          <Button
+            variant="secondary"
+            disabled={!text.trim() || emails.length >= MAX_ADDITIONAL}
+            onClick={add}
+            className="min-h-9! py-1!"
+          >
+            Add
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProps) {
   const n = draft?.notifications;
   const first = n?.firstReminderAfterMinutes ?? null;
@@ -320,6 +419,12 @@ export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProp
             onChange={(v) =>
               set('notifications', { expirationAlertMinutes: v === '' ? null : Number(v) })
             }
+          />
+          <AdditionalEmails
+            emails={n.additionalEmails}
+            readOnly={readOnly}
+            error={errors['notifications.additionalEmails']}
+            onChange={(additionalEmails) => set('notifications', { additionalEmails })}
           />
         </>
       ) : null}

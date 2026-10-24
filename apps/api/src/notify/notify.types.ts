@@ -52,6 +52,12 @@ export interface NotifyTemplates {
   'lead.confirmation': IgnoredFirmName & { serviceName: string };
   /** To the firm's owner and admins: a new Begin Online request. No answers and no names. */
   'lead.received': IgnoredFirmName & { serviceName: string; link: string };
+  /**
+   * To the extra addresses a firm lists under Intake Form Settings > Notify additional emails
+   * (Octavia's I7): a client submitted an intake form. The form's title only: no client name, no
+   * answers (the address may be anyone's). `link`: the workspace's Intake Forms.
+   */
+  'intake.submitted-notice': IgnoredFirmName & { formTitle: string; link: string };
   /** The firm converted the lead: an invitation to sign up on the client portal. */
   'client.portal-invite': IgnoredFirmName & { name: string; signUpLink: string };
   /** A new message in a thread. Never the message text: the reader opens the link. */
@@ -216,6 +222,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'begin-online.resume-link': 'email',
   'lead.confirmation': 'email',
   'lead.received': 'email',
+  'intake.submitted-notice': 'email',
   'client.portal-invite': 'email',
   'message.received': 'email',
   'lead.message-email': 'email',
@@ -260,6 +267,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'begin-online.resume-link': 'firm',
   'lead.confirmation': 'firm',
   'lead.received': 'firm',
+  'intake.submitted-notice': 'firm',
   'client.portal-invite': 'firm',
   'message.received': 'firm',
   'lead.message-email': 'firm',
@@ -295,6 +303,8 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   // A lead has no account, so no preferences to switch it off; the member chose to send it.
   'lead.message-email',
   'lead.message-sms',
+  // An address the firm added to its intake notifications has no account, so no preferences.
+  'intake.submitted-notice',
   // The team member chose to write to this person (B6); there is no preference to switch it off.
   'platform.message-email',
   'platform.message-sms',
@@ -334,6 +344,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'begin-online.resume-link': 'ACCOUNT',
   'lead.confirmation': 'ACCOUNT',
   'lead.received': 'INTAKE',
+  'intake.submitted-notice': 'INTAKE',
   'client.portal-invite': 'ACCOUNT',
   'message.received': 'MESSAGES',
   'lead.message-email': 'ACCOUNT',

@@ -604,6 +604,36 @@ describe('the settings', () => {
     }
   });
 
+  it('keeps the additional emails to notify: lower case, each once, at most 10 (I7)', async () => {
+    const at = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
+    expect(at.notifications.additionalEmails).toEqual([]);
+    const put = (version: string, additionalEmails: string[]) =>
+      call('put', '/intake-settings', ownerA, { version, notifications: { additionalEmails } });
+    const saved = IntakeSettings.parse(
+      ok(await put(at.version, [' Office@Example.test ', 'partner@example.test'])),
+    );
+    expect(saved.notifications.additionalEmails).toEqual([
+      'office@example.test',
+      'partner@example.test',
+    ]);
+    const many = Array.from({ length: 11 }, (_, i) => `person${i}@example.test`);
+    for (const list of [['office@example.test', 'OFFICE@example.test'], many, ['not-an-email']]) {
+      const res = await put(saved.version, list);
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(JSON.stringify(res.body)).toContain('notifications.additionalEmails');
+    }
+    const ten = IntakeSettings.parse(ok(await put(saved.version, many.slice(0, 10))));
+    expect(ten.notifications.additionalEmails).toHaveLength(10);
+    // The audit row names the section, never an address.
+    const rows = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a, action: 'intake_settings.updated' },
+        select: { metadata: true },
+      }),
+    );
+    expect(JSON.stringify(rows)).not.toContain('@example.test');
+  });
+
   it('lists the recent changes without their values, and resets to the defaults', async () => {
     const changes = IntakeSettingsChangeList.parse(
       ok(await call('get', '/intake-settings/changes', adminA)),
@@ -620,6 +650,7 @@ describe('the settings', () => {
       firstReminderAfterMinutes: 4320,
       finalReminderAfterMinutes: 10080,
       expirationAlertMinutes: 1440,
+      additionalEmails: [],
     });
     expect(back.clientExperience.thankYouMessage).toBeNull();
     expect(

@@ -126,6 +126,7 @@ function defaultSettings(): IntakeSettings {
       firstReminderAfterMinutes: 4320,
       finalReminderAfterMinutes: 10080,
       expirationAlertMinutes: 1440,
+      additionalEmails: [],
     },
     automation: {
       autoCreateClient: false,
