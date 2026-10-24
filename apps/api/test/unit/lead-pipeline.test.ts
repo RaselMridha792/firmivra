@@ -32,6 +32,7 @@ const base = {
   service: { id: '0196a000-0000-7000-8000-0000000000a1', name: 'Annual Tax' },
   services: [],
   tags: [{ tag: { name: 'Hot' } }],
+  commAudience: [],
   assignedMember: null,
   activities: [],
 } as unknown as RowData;
@@ -121,5 +122,16 @@ describe('statuses', () => {
     expect(PIPELINE_STATUSES).not.toContain('DRAFT');
     expect(PIPELINE_STATUSES).not.toContain('EXPIRED');
     expect(CLOSED_STATUSES).toEqual(['CONVERTED', 'DECLINED', 'LOST']);
+  });
+});
+
+describe('toRow campaign (L7)', () => {
+  it('shows the Communications campaign the lead joined last, or none', () => {
+    const campaign = { id: '0196a000-0000-7000-8000-0000000000c1', name: 'Spring Email' };
+    expect(toRow(base).campaign).toBeNull();
+    expect(
+      toRow({ ...base, commAudience: [{ communication: campaign }] } as unknown as RowData)
+        .campaign,
+    ).toEqual(campaign);
   });
 });

@@ -22,6 +22,7 @@ import {
   Clock,
   ClockCountdown,
   Handshake,
+  Megaphone,
   Plus,
   Tag,
   Trash,
@@ -41,6 +42,7 @@ import { LeadAppointmentDialog } from './lead-appointment-dialog';
 import { LeadsActionLegend } from './leads-action-legend';
 import { useFirm } from '../../../../../components/firm-context';
 import { AddTagDialog } from './add-tag-dialog';
+import { CreateCampaignPanel } from './create-campaign-panel';
 import { LeadCreateDialog } from './lead-create-dialog';
 import { LeadEditDialog } from './lead-edit-dialog';
 import { LeadMessageDialog, type MessageRecipient, recipientOf } from './lead-message-dialog';
@@ -294,6 +296,8 @@ export function LeadsScreen() {
   const [pageSize, setPageSize] = useState(8);
   const [selected, setSelected] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  // Create Campaign (L7): the Communications builder in a panel over this page.
+  const [campaignOpen, setCampaignOpen] = useState(false);
   // Add New Tag (L6): Owner and Admin add to the firm's one tag list.
   const [tagOpen, setTagOpen] = useState(false);
   const { role } = useFirm();
@@ -525,6 +529,14 @@ export function LeadsScreen() {
               Add New Tag
             </Button>
           ) : null}
+          <Button
+            variant="secondary"
+            onClick={() => setCampaignOpen(true)}
+            data-testid="create-campaign"
+          >
+            <Megaphone aria-hidden weight="fill" className="size-4" />
+            Create Campaign
+          </Button>
           <Button onClick={() => setCreateOpen(true)} data-testid="add-lead">
             <Plus aria-hidden weight="fill" className="size-4" />
             Add New Lead
@@ -564,6 +576,7 @@ export function LeadsScreen() {
 
       <LeadsActionLegend />
       {tagOpen ? <AddTagDialog onClose={() => setTagOpen(false)} /> : null}
+      {campaignOpen ? <CreateCampaignPanel onClose={() => setCampaignOpen(false)} /> : null}
       {createOpen ? (
         <LeadCreateDialog open options={options.data} onClose={() => setCreateOpen(false)} />
       ) : null}

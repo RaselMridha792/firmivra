@@ -18,6 +18,19 @@ export const isLockedCategory = (category: NotificationCategory) =>
  * security shows nothing of another firm). NotifyService asks it before sending a message that is
  * not ALWAYS_SENT; the notification preferences routes show the same choices.
  */
+/** An active member of the firm (Owner, Admin or Staff), as opposed to a client login. */
+async function isStaff(
+  scope: ReturnType<Database['forBusiness']>,
+  businessId: string,
+  userId: string,
+): Promise<boolean> {
+  const member = await scope.membership.findFirst({
+    where: { businessId, userId, status: 'ACTIVE' },
+    select: { userId: true },
+  });
+  return member !== null;
+}
+
 export class PreferenceSource {
   constructor(private readonly db: Pick<Database, 'forBusiness'>) {}
 
@@ -32,7 +45,10 @@ export class PreferenceSource {
 
   /**
    * Whether the person wants this category on this channel. A locked category (ACCOUNT) always
-   * goes out. A client login that is not this firm's has no choices here: the defaults apply.
+   * goes out. The firm's staff always get the email, whatever a stored row says (Octavia's
+   * Notifications review of Oct 18; older rows switched off count as on), and no text until a
+   * verified mobile number exists for staff logins (Rasel, Oct 24; none is recorded yet). A
+   * client login that is not this firm's has no choices here: the defaults apply.
    */
   async allows(
     businessId: string,
@@ -42,6 +58,8 @@ export class PreferenceSource {
   ): Promise<boolean> {
     if (isLockedCategory(category)) return true;
     const scope = this.db.forBusiness(businessId);
+    if ('userId' in recipient && (await isStaff(scope, businessId, recipient.userId)))
+      return channel === 'email';
     const userId =
       'userId' in recipient
         ? recipient.userId

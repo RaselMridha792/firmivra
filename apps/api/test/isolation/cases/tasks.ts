@@ -1,6 +1,7 @@
 // Tasks on an engagement, and the Tasks module (R55): detail, actions, checklist, attachments,
-// bulk actions and task types. Each route that changes a task gets a record of its own, so one
-// case never breaks the next (a completed task cannot take a stage, an archived one no edit).
+// bulk actions, task types and drafts (R1). Each route that changes a task gets a record of its
+// own, so one case never breaks the next (a completed task cannot take a stage, an archived one
+// no edit, a published draft is no longer one).
 import { randomUUID } from 'node:crypto';
 import type { CaseModule, RecordDef, SeedContext } from '../world.js';
 
@@ -27,6 +28,34 @@ const task = (
         title: 'Fake task',
         ...(await extra(ctx)),
       },
+    });
+    return row.id;
+  },
+});
+
+/** A draft of client X, saved by the firm's Owner (who sees every draft with a client). */
+const draft = (): RecordDef => ({
+  clientPrivate: true,
+  async create({ tx, businessId, owner, get }) {
+    const row = await tx.task.create({
+      data: {
+        businessId,
+        clientId: await get('client'),
+        status: 'DRAFT',
+        createdByUserId: owner.id,
+        title: 'Fake draft',
+      },
+    });
+    return row.id;
+  },
+});
+
+/** The one checklist step of the draft `of`. */
+const draftStep = (of: string): RecordDef => ({
+  clientPrivate: true,
+  async create({ tx, businessId, get }) {
+    const row = await tx.taskChecklistItem.create({
+      data: { businessId, taskId: await get(of), label: 'Fake draft step', position: 0 },
     });
     return row.id;
   },
@@ -153,6 +182,13 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  // Drafts: one to read, and one each to edit, publish and discard (with a step to keep).
+  taskDraft: draft(),
+  taskDraftPatch: draft(),
+  taskDraftPatchStep: draftStep('taskDraftPatch'),
+  taskDraftPublish: draft(),
+  taskDraftPublishStep: draftStep('taskDraftPublish'),
+  taskDraftDiscard: draft(),
 };
 
 const BASE = '/api/v1/business';
@@ -170,6 +206,24 @@ const NEW_TASK_IDS = {
   'attachments.documentId': 'document',
 };
 const PLACEHOLDER = randomUUID();
+/** The ids a draft's change (PATCH, publish) can name; `step` is a checklist step of the draft. */
+const draftChangeIds = (step: string) => ({
+  clientId: 'client',
+  engagementId: 'engagement',
+  assignedUserId: 'adminUser',
+  typeId: 'taskType',
+  serviceId: 'service',
+  dependsOnTaskId: 'task',
+  additionalAssigneeIds: 'adminUser',
+  'checklist.id': step,
+  'checklist.assignedUserId': 'adminUser',
+  'attachments.documentId': 'document',
+});
+const draftChange = {
+  title: 'Fake renamed draft',
+  checklist: [{ id: PLACEHOLDER, label: 'Fake draft step', assignedUserId: PLACEHOLDER }],
+  attachments: [{ documentId: PLACEHOLDER }],
+};
 
 export const cases: CaseModule['cases'] = {
   [`POST ${BASE}/tasks`]: {
@@ -235,6 +289,29 @@ export const cases: CaseModule['cases'] = {
     bodyIds: { ids: 'taskBulk', assignedUserId: 'adminUser' },
     body: { action: 'REASSIGN' },
   },
+  // ---------- Drafts ----------
+  [`POST ${BASE}/tasks/drafts`]: {
+    params: {},
+    bodyIds: NEW_TASK_IDS,
+    body: {
+      title: 'Fake draft',
+      checklist: [{ label: 'Fake step', assignedUserId: PLACEHOLDER }],
+      attachments: [{ documentId: PLACEHOLDER }],
+    },
+  },
+  [`GET ${BASE}/tasks/drafts/:id`]: { params: { id: 'taskDraft' } },
+  [`PATCH ${BASE}/tasks/drafts/:id`]: {
+    params: { id: 'taskDraftPatch' },
+    bodyIds: draftChangeIds('taskDraftPatchStep'),
+    body: draftChange,
+  },
+  // Published with every field the body names: a new task's checks pass with the firm's own.
+  [`POST ${BASE}/tasks/drafts/:id/publish`]: {
+    params: { id: 'taskDraftPublish' },
+    bodyIds: draftChangeIds('taskDraftPublishStep'),
+    body: draftChange,
+  },
+  [`DELETE ${BASE}/tasks/drafts/:id`]: { params: { id: 'taskDraftDiscard' } },
   [`PUT ${BASE}/task-types/:id`]: {
     params: { id: 'taskTypeEdit' },
     body: () => ({ name: `Fake renamed type ${tag()}` }),

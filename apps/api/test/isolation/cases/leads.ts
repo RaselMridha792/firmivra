@@ -132,8 +132,8 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'lead', uploadId: 'leadUpload' },
     expect: 503,
   },
-  // The Leads pipeline (R57). `campaignId` and the bulk and message `ids` are in body-ids.ts'
-  // NOT_RECORDS; the e2e tests (leads-pipeline.e2e.test.ts) cover those.
+  // The Leads pipeline (R57). The bulk bar's `campaignId` and the bulk and message `ids` are in
+  // body-ids.ts' NOT_RECORDS; the e2e tests (leads-pipeline, lead-campaigns) cover those.
   'POST /api/v1/business/leads': {
     params: {},
     body: {
@@ -143,7 +143,11 @@ export const cases: CaseModule['cases'] = {
       source: 'REFERRAL',
       allowDuplicate: true,
     },
-    bodyIds: { serviceIds: 'leadService', assignedUserId: 'staffUser' },
+    bodyIds: {
+      serviceIds: 'leadService',
+      assignedUserId: 'staffUser',
+      campaignId: 'communication',
+    },
   },
   'POST /api/v1/business/leads/bulk': {
     params: {},
@@ -154,7 +158,11 @@ export const cases: CaseModule['cases'] = {
   'PATCH /api/v1/business/leads/:id': {
     params: { id: 'leadConvert' },
     body: { priority: 'COLD' },
-    bodyIds: { serviceIds: 'leadService', assignedUserId: 'staffUser' },
+    bodyIds: {
+      serviceIds: 'leadService',
+      assignedUserId: 'staffUser',
+      campaignId: 'communication',
+    },
   },
   // Lead Profile tabs and Convert Lead to Client (R57 part 2).
   'PUT /api/v1/business/leads/:id/follow-up': {
