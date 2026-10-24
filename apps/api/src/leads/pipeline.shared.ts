@@ -89,6 +89,19 @@ export function requireCapability(actor: PipelineActor, capability: PermissionCa
   }
 }
 
+/**
+ * Delete (the archive) and Restore: Firm Admin only, the Owner and the Admin, over and above the
+ * grid (L11 of Octavia's Leads review; Rasel, Oct 24). 403 for everyone else.
+ */
+export function requireFirmAdmin(actor: PipelineActor): void {
+  if (actor.role !== 'OWNER' && actor.role !== 'ADMIN') {
+    throw new ForbiddenException({
+      code: 'FORBIDDEN',
+      message: 'Only an Owner or Admin can delete or restore leads',
+    });
+  }
+}
+
 export const invalid = (message: string, code = 'VALIDATION_FAILED') =>
   new BadRequestException({ code, message });
 

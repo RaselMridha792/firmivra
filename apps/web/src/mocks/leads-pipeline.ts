@@ -748,6 +748,9 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
     bulk: async (body) => {
       await mockDelay();
       const input = parseInput(LeadBulkRequest, body);
+      // Delete (the archive) and Restore: Firm Admin only, as the API (L11).
+      if ((input.action === 'ARCHIVE' || input.action === 'RESTORE') && role === 'STAFF')
+        throw fail(403, 'FORBIDDEN', 'Only an Owner or Admin can delete or restore leads');
       let changed = 0;
       for (const id of input.ids) {
         const l = s.leads.find((x) => x.profile.id === id);

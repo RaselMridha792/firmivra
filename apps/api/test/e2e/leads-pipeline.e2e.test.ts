@@ -40,6 +40,8 @@ const people = {
   ownerA: person('owner-a'),
   staffA: person('staff-a'),
   supportA: person('support-a'),
+  managerA: person('manager-a'),
+  adminA: person('admin-a'),
   ownerB: person('owner-b'),
 };
 const ids = { firmA: '', firmB: '', tax: '', books: '', taxB: '' };
@@ -121,6 +123,8 @@ beforeAll(async () => {
       [people.ownerA.id, 'OWNER'],
       [people.staffA.id, 'STAFF'],
       [people.supportA.id, 'CLIENT_SUPPORT'],
+      [people.managerA.id, 'MANAGER'],
+      [people.adminA.id, 'ADMIN'],
     ] as const) {
       await tx.membership.create({ data: { ...A, userId, role, status: 'ACTIVE' } });
     }
@@ -342,7 +346,13 @@ describe('the table, the cards and the dropdowns', () => {
     const options = Options.parse(ok(await call('get', '/options', people.ownerA)));
     expect(options.services.map((s) => s.id).sort()).toEqual([ids.tax, ids.books].sort());
     expect(options.staff.map((s) => s.userId).sort()).toEqual(
-      [people.ownerA.id, people.staffA.id, people.supportA.id].sort(),
+      [
+        people.ownerA.id,
+        people.staffA.id,
+        people.supportA.id,
+        people.managerA.id,
+        people.adminA.id,
+      ].sort(),
     );
     expect(options.tags).toEqual([`Hot ${run}`]);
     const b = Options.parse(ok(await call('get', '/options', people.ownerB, undefined, ids.firmB)));
@@ -775,7 +785,7 @@ describe('Archived Leads and Restore (L10)', () => {
     expect(profile.recentActivity.map((a) => a.label)[0]).toMatch(/^Lead created/);
   });
 
-  it('Staff cannot restore (the grid’s Delete), and firm B restores none of firm A’s', async () => {
+  it('Staff cannot restore (Firm Admin only, L11), and firm B restores none of firm A’s', async () => {
     const lead = await create(people.ownerA, { assignedUserId: people.staffA.id });
     ok(await bulk('ARCHIVE', [lead.id]));
     expect((await bulk('RESTORE', [lead.id], people.staffA)).status).toBe(403);
@@ -788,5 +798,40 @@ describe('Archived Leads and Restore (L10)', () => {
     );
     expect(Result.parse(ok(other))).toEqual({ changed: 0, skipped: 1 });
     expect((await page('?archived=true&pageSize=100')).items.map((r) => r.id)).toContain(lead.id);
+  });
+});
+
+describe('Delete is Firm Admin only (L11)', () => {
+  it('Staff and a Manager get 403 on delete and restore by direct request; Owner and Admin may', async () => {
+    const lead = await create(people.ownerA, { assignedUserId: people.managerA.id });
+    const bulk = (action: 'ARCHIVE' | 'RESTORE', who: { email: string }) =>
+      call('post', '/bulk', who, { action, ids: [lead.id] });
+    for (const who of [people.staffA, people.managerA]) {
+      const refused = await bulk('ARCHIVE', who);
+      expect(refused.status).toBe(403);
+      expect(codeOf(refused)).toBe('FORBIDDEN');
+    }
+    expect(Result.parse(ok(await bulk('ARCHIVE', people.adminA)))).toEqual({
+      changed: 1,
+      skipped: 0,
+    });
+    for (const who of [people.staffA, people.managerA])
+      expect((await bulk('RESTORE', who)).status).toBe(403);
+    expect(Result.parse(ok(await bulk('RESTORE', people.ownerA)))).toEqual({
+      changed: 1,
+      skipped: 0,
+    });
+    // Everything else stays as it was for a Manager: changing the status, for one.
+    expect(
+      Result.parse(
+        ok(
+          await call('post', '/bulk', people.managerA, {
+            action: 'STAGE',
+            ids: [lead.id],
+            stage: 'CONTACTED',
+          }),
+        ),
+      ).changed,
+    ).toBe(1);
   });
 });
