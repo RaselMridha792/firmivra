@@ -10,8 +10,10 @@ import {
   DepartmentId,
   DepartmentListQuery,
   DepartmentListResponse,
+  DepartmentMembers,
   DepartmentSummary,
   OrgChart,
+  SetDepartmentMembersRequest,
   SetStaffTeamMembersRequest,
   StaffTeam,
   StaffTeamDetail,
@@ -338,6 +340,20 @@ export function createDepartmentsClient(request: ApiRequest) {
         StaffTeamDetail,
         `${team(id)}/members`,
         put(parseInput(SetStaffTeamMembersRequest, body)),
+      ),
+
+    /** The staff assigned straight to the department (Manage Members). */
+    departmentMembers: async (id: string): Promise<DepartmentMembers> =>
+      request(DepartmentMembers, `${department(id)}/members`),
+    /** The whole list; 409 LAST_DEPARTMENT for someone whose only department it is. */
+    setDepartmentMembers: async (
+      id: string,
+      body: SetDepartmentMembersRequest,
+    ): Promise<DepartmentMembers> =>
+      request(
+        DepartmentMembers,
+        `${department(id)}/members`,
+        put(parseInput(SetDepartmentMembersRequest, body)),
       ),
 
     orgChart: async (): Promise<OrgChart> => request(OrgChart, '/business/org-chart'),
