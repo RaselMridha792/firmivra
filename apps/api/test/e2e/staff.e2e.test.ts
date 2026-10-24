@@ -163,6 +163,7 @@ beforeAll(async () => {
         businessId,
         membershipId: member.staffA,
         office: `Main Office ${run}`,
+        workSchedule: `Mon-Thu ${run}`,
         supervisorId: member.managerA,
         employeeId: 'E-77',
         serviceAreas: ['TAX_PREPARATION'],
@@ -295,7 +296,10 @@ describe('summary, options and the template', () => {
     expect(o.jobTitles).toContain('Senior Preparer');
     expect(o.offices).toContain(`Main Office ${run}`);
     expect(o.serviceAreas.map((s) => s.code)).toContain('TAX_PREPARATION');
-    expect(o.workSchedules.length).toBeGreaterThan(0);
+    // The presets first, then the firm's own schedules already given (Octavia's SM8).
+    expect(o.workSchedules.slice(0, 5)).toContain('Flexible');
+    expect(o.workSchedules).toContain(`Mon-Thu ${run}`);
+    expect(o.workSchedules.indexOf(`Mon-Thu ${run}`)).toBeGreaterThanOrEqual(5);
   });
 
   it('serves the import template as a CSV file', async () => {
