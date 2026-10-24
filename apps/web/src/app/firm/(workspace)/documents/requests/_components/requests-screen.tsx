@@ -40,7 +40,6 @@ import { useDeferredValue, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
-import { moduleHref } from '../../../../../../lib/firm-modules';
 import { useApiQuery } from '../../../../../../lib/query';
 import { RowMenu } from '../../../team/_components/row-menu';
 import { RequestsRail } from './requests-rail';
@@ -126,7 +125,7 @@ export function RequestsScreen() {
     completed: s?.completed,
     overdue: s?.overdue,
   };
-  const createHref = moduleHref('document-request-create');
+  const createHref = '/documents/requests/new';
 
   const columns: Column<RequestPacketRow>[] = [
     {
@@ -135,7 +134,12 @@ export function RequestsScreen() {
       sortable: true,
       cell: (r) => (
         <span className="flex min-w-[8rem] flex-col" title={r.reference}>
-          <span className="font-semibold text-heading">{r.title}</span>
+          <Link
+            href={`/documents/requests/${r.id}`}
+            className="font-semibold text-heading hover:text-action hover:underline"
+          >
+            {r.title}
+          </Link>
           <span className="text-xs text-muted">{r.service.title}</span>
         </span>
       ),

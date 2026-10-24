@@ -278,6 +278,36 @@ export async function loadProfile(
     take: 10,
     select: activitySelect,
   });
+  // Possible duplicates (L13): the same email or phone on another lead or client the member
+  // reaches. Warned and linked on screen, never merged.
+  const same = [
+    { email: { equals: r.email, mode: 'insensitive' as const } },
+    ...(r.phone ? [{ phone: r.phone }] : []),
+  ];
+  const ownClient = r.engagement?.client.id;
+  const [twinLeads, twinClients] = await Promise.all([
+    tx.lead.findMany({
+      where: {
+        AND: [visibleLead(businessId), reach(actor), { archivedAt: null, id: { not: id } }],
+        OR: same,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 5,
+      select: { id: true, firstName: true, lastName: true },
+    }),
+    tx.client.findMany({
+      where: {
+        businessId,
+        archivedAt: null,
+        ...(ownClient ? { id: { not: ownClient } } : {}),
+        ...(legacyFirmRole(actor.role) === 'STAFF' ? { assignedUserId: actor.userId } : {}),
+        OR: same,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 5,
+      select: { id: true, displayName: true },
+    }),
+  ]);
   const address = [
     r.addressLine1,
     r.addressLine2,
@@ -299,6 +329,10 @@ export async function loadProfile(
       ? { id: r.engagement.client.id, name: r.engagement.client.displayName }
       : null,
     beginOnline: r._count.intakes > 0,
+    duplicates: {
+      leads: twinLeads.map((l) => ({ id: l.id, name: `${l.firstName} ${l.lastName}`.trim() })),
+      clients: twinClients.map((c) => ({ id: c.id, name: c.displayName })),
+    },
     archivedAt: r.archivedAt?.toISOString() ?? null,
     version: r.updatedAt.toISOString(),
   };

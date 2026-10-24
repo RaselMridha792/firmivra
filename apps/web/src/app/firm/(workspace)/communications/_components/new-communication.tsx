@@ -8,7 +8,14 @@ import { errorMessage } from '../../../../../lib/errors';
 import { COMM_ERRORS, quiet } from './communications-shared';
 
 /** /communications/new?channel=: makes the draft, then opens the composer on it. */
-export function NewCommunication({ channel }: { channel: 'EMAIL' | 'SMS' | 'ANNOUNCEMENT' }) {
+export function NewCommunication({
+  channel,
+  templateId,
+}: {
+  channel: 'EMAIL' | 'SMS' | 'ANNOUNCEMENT';
+  /** Started from a template's Use: the API copies the template into the draft. */
+  templateId?: string;
+}) {
   const router = useRouter();
   const [error, setError] = useState<string>();
   const startedRef = useRef(false);
@@ -16,10 +23,10 @@ export function NewCommunication({ channel }: { channel: 'EMAIL' | 'SMS' | 'ANNO
     if (startedRef.current) return;
     startedRef.current = true;
     api.communications
-      .create({ channel })
+      .create({ channel, ...(templateId ? { templateId } : {}) })
       .then((c) => router.replace(`/communications/${c.id}/edit`))
       .catch((e: unknown) => setError(errorMessage(e, COMM_ERRORS)));
-  }, [channel, router]);
+  }, [channel, templateId, router]);
   return error ? (
     <div className="flex flex-col gap-3">
       <p role="alert" className={quiet}>

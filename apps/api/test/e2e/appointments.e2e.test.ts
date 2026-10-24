@@ -544,7 +544,7 @@ describe('working hours', () => {
     expect(byId.get(people.ownerA.id)?.hours).toEqual([]);
   });
 
-  it('Owner and Admin set anyone; Staff only themselves (403); a former or unknown member is 404', async () => {
+  it('Owner and Admin set anyone; Staff no one, themselves included (403); a former or unknown member is 404', async () => {
     const mine = exact(
       MemberAvailability,
       await call('put', `/availability/${people.adminA.id}/working-hours`, people.adminA, {
@@ -586,6 +586,19 @@ describe('working hours', () => {
       }),
       403,
       'FORBIDDEN',
+    );
+    // Staff hours are read-only, their own included (Rasel, Oct 24); they still read them.
+    const own = await call(
+      'put',
+      `/availability/${people.staffA.id}/working-hours`,
+      people.staffA,
+      {
+        hours: [{ weekday: 2, startsAt: '10:00', endsAt: '11:30' }],
+      },
+    );
+    expectError(own, 403, 'FORBIDDEN');
+    expect((own.body as { error: { message: string } }).error.message).toBe(
+      'Working hours are set by an Owner or Admin. Ask them for a change.',
     );
     for (const userId of [people.formerA.id, people.ownerB.id, randomUUID()]) {
       expectError(

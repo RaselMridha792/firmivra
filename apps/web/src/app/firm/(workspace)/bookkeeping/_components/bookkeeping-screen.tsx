@@ -432,7 +432,7 @@ export function BookkeepingScreen() {
             <h2 className="font-display text-lg font-bold text-heading">
               Connected Accounting Software
             </h2>
-            <Link href="/modules/integrations" className={linkBtn}>
+            <Link href="/integrations" className={linkBtn}>
               Manage Integrations
             </Link>
           </div>
