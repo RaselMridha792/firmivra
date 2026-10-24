@@ -55,7 +55,9 @@ export interface NotifyTemplates {
   /**
    * To the extra addresses a firm lists under Intake Form Settings > Notify additional emails
    * (Octavia's I7): a client submitted an intake form. The form's title only: no client name, no
-   * answers (the address may be anyone's). `link`: the workspace's Intake Forms.
+   * answers (the address may be anyone's). `link`: the workspace's Intake Forms. An INTAKE notice,
+   * not an always-sent one: it is sent with no `recipient` (the address has no account), so no
+   * preference applies to it.
    */
   'intake.submitted-notice': IgnoredFirmName & { formTitle: string; link: string };
   /** The firm converted the lead: an invitation to sign up on the client portal. */
@@ -303,8 +305,6 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   // A lead has no account, so no preferences to switch it off; the member chose to send it.
   'lead.message-email',
   'lead.message-sms',
-  // An address the firm added to its intake notifications has no account, so no preferences.
-  'intake.submitted-notice',
   // The team member chose to write to this person (B6); there is no preference to switch it off.
   'platform.message-email',
   'platform.message-sms',
