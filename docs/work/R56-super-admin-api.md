@@ -164,6 +164,11 @@ The contract keeps Tumit's method names and field names, so his screens switch w
   - Task detail (task-detail-screen.tsx 236) keys each reminder by its `daysBefore` and `timeOfDay` and shows only days. Custom rules repeat that key: 30 MINUTES, 2 HOURS and a same-day rule are three `0-null` items, all "Same day", and React's duplicate keys can drop or reuse rows on a re-render. Key by `r.id` and show "`amount` `unit` before" when `unit` is set.
   - Order: a task's reminders read in the order they fire; a template's and a series' in the order saved. A draft keeps Custom rules (a template's too) until publish checks them.
   - Offer Custom only once this API is deployed (an older API refuses `amount` and `unit`). The Tasks mock now keeps them and refuses Custom without a due time; your #1060 edits the same mock lines (`templateReminders`).
+- **From R1 (Oct 24): idempotency keys on the Tasks saves that create something**, on R1's branch `rasel/R1-task-idempotency` (after the Custom reminders PR), not merged yet. A retry after a lost answer (a network error or a timeout) no longer makes a second task or series:
+  - Send `idempotencyKey` (`crypto.randomUUID()`) in the body of Create Task (`api.taskWork.create`, and `api.tasks.create` on the tax-returns and workspace forms), Save as Draft, Duplicate (`duplicate(id, { idempotencyKey })`, a new optional body), Set Up Recurring and Convert. Reuse it only to retry the same body; make a new one after a success (Save & Create Another), after any change to the form, and after a 409. Never on an edit or a publish (400).
+  - A retry with the key answers the first record as it is now (201, or the route's code), with nothing saved or audited again, even if the body changed. The key is unique per firm, not per member as you asked: another member's use of it, or the key on another route or task (or a draft's key once it is published), is 409 `IDEMPOTENCY_KEY_REUSED` and shows nothing; make a new key and save again.
+  - A publish retried after it went through answers 200 with the task (no longer 404) when the same person published it.
+  - Send keys only once this API is deployed: an older API refuses the unknown field (400). The Tasks mock already keeps them.
 
 ## Progress log
 
