@@ -6,12 +6,13 @@
 -- rows are days rules (unit NULL): they stay valid with no backfill and no row rewritten. Each
 -- rule once: equal days rules (an empty time counted once, which the old unique index let
 -- through) and equal Custom lengths are refused. task_reminders keeps its policy and grants.
--- Safe on dev: lock_timeout makes it fail fast instead of making app requests wait; the new
--- columns have no default (no rewrite); every existing row has unit NULL and passes the CHECK;
+-- Safe on dev: no lock_timeout, because Prisma would record a timed-out migration as failed and
+-- stop every later deploy (P3009) until someone resolves it by hand; the API's transactions end
+-- within 30 s, so the short locks here wait at most that long. The new columns have no default
+-- (no rewrite); every existing row has unit NULL and passes the CHECK;
 -- the API has always refused equal days rules and the seeds use distinct days, so the days index
 -- builds; validating the CHECK and building the indexes read every row whatever the RLS policy;
 -- a type is usable in the transaction that creates it (only ADD VALUE waits for a commit).
-SET LOCAL lock_timeout = '10s';
 
 -- CreateEnum
 CREATE TYPE "TaskReminderUnit" AS ENUM ('MINUTES', 'HOURS', 'DAYS');
