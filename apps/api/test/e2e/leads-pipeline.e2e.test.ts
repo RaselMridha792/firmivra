@@ -838,3 +838,41 @@ describe('Delete is Firm Admin only (L11)', () => {
     ).toBe(1);
   });
 });
+
+describe('possible duplicates (Begin Online, L13; Rasel, Oct 24: warn and link, never merge)', () => {
+  const asOwnerA = async <T>(fn: Parameters<typeof runInScope<T>>[2]): Promise<T> => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      return await runInScope(owner, { kind: 'business', businessId: ids.firmA }, fn);
+    } finally {
+      await owner.$disconnect();
+    }
+  };
+
+  it('lists the other leads and clients with the same email or phone, as far as the member reaches', async () => {
+    const email = `twin-${run}@example.test`;
+    const first = await create(people.ownerA, { email, assignedUserId: people.staffA.id });
+    const second = await create(people.ownerA, {
+      email: email.toUpperCase(),
+      allowDuplicate: true,
+    });
+    const byPhone = await create(people.ownerA, { phone: first.phone, allowDuplicate: true });
+    const client = await asOwnerA((tx) =>
+      tx.client.create({
+        data: { businessId: ids.firmA, displayName: `Twin Client ${run}`, email },
+        select: { id: true },
+      }),
+    );
+    const profile = async (id: string, who = people.ownerA) =>
+      Profile.parse(ok(await call('get', `/${id}/profile`, who))).duplicates;
+    expect(await profile(second.id)).toEqual({
+      leads: [{ id: first.id, name: `Pat ${first.lastName}` }],
+      clients: [{ id: client.id, name: `Twin Client ${run}` }],
+    });
+    expect((await profile(first.id)).leads.map((l) => l.id).sort()).toEqual(
+      [second.id, byPhone.id].sort(),
+    );
+    // Staff see only their own: the other leads and the unassigned client are not theirs.
+    expect(await profile(first.id, people.staffA)).toEqual({ leads: [], clients: [] });
+  });
+});
