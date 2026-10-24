@@ -412,4 +412,4 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Change, column items 7 to 11 approved with R60's order). #1076 (Payments) opened, stacked on
   #1073; both CI green. Staff (`rasel/R60-staff-sm8-13`) merged `main`: API and web `tsc` 0
   errors, departments and staff e2e 20 of 20, Staff mock specs 54 of 54. Its PR waits for a slot
-  (two open); body in this session's scratchpad (`pr-staff.md`).
+  (two open); body ready (SHEET to pin): `C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/aa63cad8-4ccf-4508-ba07-6873392c6ec3/scratchpad/pr-staff.md`.
