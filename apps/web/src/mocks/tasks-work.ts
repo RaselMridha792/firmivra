@@ -593,9 +593,9 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     createdAt: x.createdAt,
     updatedAt: x.updatedAt,
   });
-  /** Its creator always; others by the tasks' reach, and never a draft without a client. */
+  /** Without a client, its creator's alone; with one, by the tasks' reach, whoever made it. */
   const seesDraft = (x: StoredDraft) =>
-    x.t.createdBy?.userId === me.userId || (x.client !== null && sees(x.t));
+    x.client === null ? x.t.createdBy?.userId === me.userId : sees(x.t);
   const findDraft = (id: string) => {
     const x = s.drafts.find((y) => y.t.id === id);
     if (!x || !seesDraft(x)) throw fail(404, 'NOT_FOUND', 'Not found');

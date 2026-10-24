@@ -72,10 +72,27 @@ export async function lockClient(
 }
 
 /**
- * A task's assignee (Rasel, Oct 8, q5): an active member of this firm (409 NOT_A_MEMBER otherwise:
- * another firm's, a former member, an open invite or a client login), and a Staff member only
- * when the task's client is assigned to them (409 CLIENT_NOT_ASSIGNED; Owner and Admin always
- * may be). FOR SHARE keeps their status and role until the change commits.
+ * An active member of this firm (409 NOT_A_MEMBER otherwise: another firm's, a former member, an
+ * open invite or a client login). FOR SHARE keeps their status and role until the change commits.
+ * Their role.
+ */
+export async function checkMember(
+  tx: TxClient,
+  businessId: string,
+  userId: string,
+): Promise<string> {
+  const [member] = await tx.$queryRaw<{ role: string; status: string }[]>`
+    SELECT role::text AS role, status::text AS status FROM memberships
+    WHERE business_id = ${businessId}::uuid AND user_id = ${userId}::uuid
+    FOR SHARE`;
+  if (!member || member.status !== 'ACTIVE') throw notAMember();
+  return member.role;
+}
+
+/**
+ * A task's assignee (Rasel, Oct 8, q5): an active member of this firm (checkMember), and a Staff
+ * member only when the task's client is assigned to them (409 CLIENT_NOT_ASSIGNED; Owner and
+ * Admin always may be).
  */
 export async function checkAssignee(
   tx: TxClient,
@@ -83,12 +100,8 @@ export async function checkAssignee(
   userId: string,
   client: { assignedUserId: string | null },
 ): Promise<void> {
-  const [member] = await tx.$queryRaw<{ role: string; status: string }[]>`
-    SELECT role::text AS role, status::text AS status FROM memberships
-    WHERE business_id = ${businessId}::uuid AND user_id = ${userId}::uuid
-    FOR SHARE`;
-  if (!member || member.status !== 'ACTIVE') throw notAMember();
-  if (member.role === 'STAFF' && client.assignedUserId !== userId.toLowerCase()) {
+  const role = await checkMember(tx, businessId, userId);
+  if (role === 'STAFF' && client.assignedUserId !== userId.toLowerCase()) {
     throw clientNotAssigned();
   }
 }

@@ -117,6 +117,13 @@ export const rowSelect = {
     select: { service: { select: { id: true, name: true } } },
   },
   tags: { orderBy: { tag: { name: 'asc' } }, select: { tag: { select: { name: true } } } },
+  // The campaign the lead joined last (a Communications campaign's audience, L7).
+  commAudience: {
+    where: { kind: 'LEAD', communication: { archivedAt: null } },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: { communication: { select: { id: true, name: true } } },
+  },
   assignedMember: { select: { userId: true, user: { select: { name: true } } } },
   activities: {
     where: { kind: { in: [...CONTACT_KINDS] } },
@@ -140,8 +147,7 @@ export function toRow(r: RowData, now = new Date()): LeadRow {
     phone: r.phone,
     source: r.source,
     sourceDetail: r.sourceDetail,
-    // No campaign link on leads yet (see the PR's gaps).
-    campaign: null,
+    campaign: r.commAudience[0]?.communication ?? null,
     // The services chosen for the lead; a Begin Online lead has only its own service.
     services: r.services.length ? r.services.map((s) => s.service) : [r.service],
     // Begin Online leads have no priority; the pipeline shows them as Warm, the default for a new lead.
