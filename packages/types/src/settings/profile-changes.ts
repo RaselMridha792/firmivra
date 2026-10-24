@@ -58,6 +58,10 @@ export const CreateProfileChangeRequest = z
     kind: ProfileChangeKind,
     changes: z.strictObject({
       legalName: ticketText(200).optional(),
+      /**
+       * The new EIN, checked as 9 digits. Only its last four digits are kept ("Ending in 6789" in
+       * the request); Firmivra confirms the full number with the firm when it applies the change.
+       */
       ein: Ein.optional(),
       regulatoryBody: ticketText(120).optional(),
       licenseType: ticketText(80).optional(),

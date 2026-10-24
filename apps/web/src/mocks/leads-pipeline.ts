@@ -578,24 +578,23 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
     list: async (query = {}) => {
       await mockDelay();
       const q = parseInput(LeadPipelineQuery, query);
-      const search = q.search?.toLowerCase() ?? '';
+      // As the API: every word of the search must match one of the fields.
+      const words = (q.search?.toLowerCase() ?? '').split(/\s+/).filter(Boolean);
       const rows = s.leads
         .filter(q.archived ? archived : visible)
         .filter((l) => {
           const p = l.profile;
-          if (
-            search &&
-            ![
-              `${p.firstName} ${p.lastName}`,
-              p.email,
-              p.phone ?? '',
-              p.source,
-              p.sourceDetail ?? '',
-              p.campaign?.name ?? '',
-              ...l.notes.map((n) => n.text),
-            ].some((t) => t.toLowerCase().includes(search))
-          )
-            return false;
+          const fields = [
+            p.firstName,
+            p.lastName,
+            p.email,
+            p.phone ?? '',
+            p.source,
+            p.sourceDetail ?? '',
+            p.campaign?.name ?? '',
+            ...l.notes.map((n) => n.text),
+          ].map((t) => t.toLowerCase());
+          if (!words.every((w) => fields.some((t) => t.includes(w)))) return false;
           if (q.source && p.source !== q.source) return false;
           if (q.serviceId && !p.services.some((x) => x.id === q.serviceId)) return false;
           if (q.stage && p.stage !== q.stage) return false;

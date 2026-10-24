@@ -30,12 +30,12 @@ Sessions stay unbuilt. #1073 and #1076 merged.
 
 | # | Branch (from `main`) | What | State |
 | --- | --- | --- | --- |
-| 1 | `rasel/R60-sm3-job-titles` | SM3 Offices & Job Titles: `api.staff` job titles (list, add, rename, archive, restore; 409 `JOB_TITLE_EXISTS`), the editor at `/team/settings/offices-titles`; Create and Edit Staff offer the saved titles and Location Management's active locations | PR |
-| 2 | `rasel/R60-sm3-security-defaults` | SM3 New Accounts & Security: the firm's defaults for new accounts (`staff_security_defaults`), a policy page that says existing accounts keep their own and confirms the save; Create Staff (and import) start from them | Next |
-| 3 | `rasel/R60-intake-reminders` | I8: first and final reminders in minutes (5 minutes to 30 days, "after sending"); the old day columns kept valid; the Send page's schedule shows the firm's timing (a send keeps only on or off) | Next |
+| 1 | `rasel/R60-sm3-job-titles` | SM3 Offices & Job Titles: `api.staff` job titles (list, add, rename, archive, restore; 409 `JOB_TITLE_EXISTS`), the editor at `/team/settings/offices-titles`; Create and Edit Staff offer the saved titles and Location Management's active locations | #1088 (merged Oct 24) |
+| 2 | `rasel/R60-sm3-security-defaults` | SM3 New Accounts & Security: the firm's defaults for new accounts (`staff_security_defaults`), a policy page that says existing accounts keep their own and confirms the save; Create Staff (and import) start from them | #1093 |
+| 3 | `rasel/R60-intake-reminders` | I8: first and final reminders in minutes (5 minutes to 30 days, "after sending"); the old day columns kept valid; the Send page's schedule shows the firm's timing (a send keeps only on or off) | PR (Oct 24) |
 | 4 | stacked on 3 | I9: the expiration alert in minutes (30 minutes; 1, 2, 3, 5, 6, 10, 12, 24, 42, 72 hours) and No alert | Next |
-| 5 | from `main` | I7: Notify additional emails (up to 10) and a no-content "form submitted" email to them | Next |
-| 6 | from `main` | I12: Data retention period in years (1 to 100, or not set); saving deletes nothing | Next |
+| 5 | stacked on 4 (the same settings) | I7: Notify additional emails (up to 10) and a no-content "form submitted" email to them | Next |
+| 6 | stacked on 5 | I12: Data retention period in years (1 to 100, or not set); saving deletes nothing | Next |
 
 ### Oct 24 (third session): Rasel's order, start here
 
@@ -223,6 +223,20 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 
 ## Needs from others
 
+- **From R1 (Oct 24): column requests 7 to 11 are built**, one PR on R1's branch `rasel/R1-r60-columns-2`. Its PR opened on Oct 24 after the idempotency PR (#1084) merged, one migration PR at a time; not merged yet. Build on these names once it merges:
+  - **7, `firm_licenses`:**
+    - Columns: `regulatory_body` (1 to 120), `license_type` (1 to 80), `license_number` (1 to 60), each trimmed, something visible and no control characters; `expires_on`; `status` (`FirmLicenseStatus`: ACTIVE, EXPIRED, SUSPENDED or REVOKED, default ACTIVE); `verified_by_user_id` with `verified_at`.
+    - Who may write: the firm reads only its own rows. Only the admin scope (a Super Admin, `forAdmin`) or the platform scope inserts or updates, so the firm-side API can only read, and a firm can never verify its own license.
+    - The verifier is a `platform_admins` row, and both verify fields come together.
+    - No DELETE: a license ends by its status.
+  - **8:** a data-only migration. Every firm member's `notification_preferences.email` that was off is now on; clients' rows are untouched.
+  - **9, `users.phone_verified_at`:**
+    - The database clears it whenever `phone` changes, unless the same update sets it too, so "verify and save the new number" works in one update.
+    - It is never set without a phone.
+    - Your `Notifier.phoneChanged` can still clear the SMS choices in the same transaction.
+  - **10, `staff_profiles.work_start_date`:** a nullable date, apart from `hire_date` and `access_starts_on`.
+  - **11, `staff_work_schedules`:** like `staff_job_titles`. Name trimmed, 1 to 80 characters, unique ignoring case while not archived; archived, never deleted (no DELETE grant); `created_by_user_id` must be a member of the firm. It was filled once from each firm's distinct `staff_profiles.work_schedule` (first spelling wins, case ignored), and a staff record keeps its own text.
+  - **Five migrations, one per busy table,** so none holds one table while it waits for another. Tests: `packages/db/test/r60-columns-2.test.ts`.
 - **R1 (columns, items 1 to 11):** all approved by Rasel on Oct 24 (1 to 6 in the morning, 7 to 11
   in the afternoon); the exact request and what R60 builds on each are "Column request for R1"
   below. Items 1 to 6 landed in #1074 (Oct 24); R60 builds on them next. Items 7 to 11 are R1's
@@ -237,7 +251,9 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   applying is all the firm side needs. R60 proposes: admin scope, audited in both logs (platform
   and the firm's), linked from the ticket; a new EIN written as activation writes it (encrypted
   with the firm's KMS key, `ein_enc` and `ein_last4`) and checked for duplicates as an
-  application's is (`ein_hash`). R60 changes nothing on the firm side for it.
+  application's is (`ein_hash`). Rasel (Oct 24): the request keeps only the proposed EIN's last
+  four digits ("Ending in 6789"), so Apply leaves the EIN empty for the admin to type
+  (`rasel/R60-profile-ein-last4`).
 - **R1 (I10):** done in #1025 (2, 5, 10, 50 or 100 MB, enforced in uploads). R60 verifies only.
 - **R56 (I3):** done in #1020 (`PublicLink`, `PublicLinkBlock`); R60 builds I3's link next.
 - **Secure link page (I2):** a form for a lead or a new contact needs the secure link page
@@ -567,3 +583,15 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   8 of 8, staff e2e 8 of 8, contract unit 20 of 20, `r60-staff-job-titles` and the Staff specs 10 of
   10, API and web `tsc` 0 errors; the isolation sweep's only local failures are the known
   file-scanner ones. Sheet shot on the real API. No Locations page exists (Needs).
+- Oct 24 (fourth session): I8 (`rasel/R60-intake-reminders`, from `main`; PR once #1088 merged): the first and final reminders in minutes (`firstReminderAfterMinutes`,
+  `finalReminderAfterMinutes`; her 5, 10, 15 and 30 minutes, 1, 2, 3, 6 and 12 hours and 1 to 30
+  days, "after sending"), the old day columns kept valid on every save (rounded up, the final
+  after the first), the test reminder's wording in minutes, and the Send page's schedule showing
+  the firm's times (a send keeps only on or off; "View Schedule" instead of fields the API never
+  kept). Intake workspace e2e 17 of 17, unit 11 and 10, the Intake Forms mock specs 38 of 38;
+  sheet shot on the real API.
+- Oct 24 (fourth session): Rasel's fix before the next feature (`rasel/R60-profile-ein-last4`,
+  from `main`): Request Change keeps only the proposed EIN's last four digits in the ticket
+  ("Proposed: Ending in 4321"); the full number is in no ticket, audit row, log or answer (the
+  e2e checks the stored ticket, the POST and GET answers and Super Admin's detail). The dialog says
+  so under New EIN. Profile-changes e2e 6 of 6, `r60-profile-request-change` 2 of 2.
