@@ -282,6 +282,8 @@ export class SchedulingAvailabilityService {
     body: RulesReq,
   ): Promise<AvailabilityRules> {
     this.mayEdit(actor, userId);
+    // A day's different hours are working hours: read-only for Staff (time off stays theirs).
+    if (actor.role === 'STAFF' && body.dateOverrides !== undefined) throw errors.hoursReadOnly();
     const changed: string[] = [];
     const result = await retryWhenBusy(() =>
       this.inFirm(businessId, async (tx) => {

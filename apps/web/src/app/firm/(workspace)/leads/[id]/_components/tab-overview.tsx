@@ -1,7 +1,7 @@
 'use client';
 
 import type { ContactChannel, LeadProfile } from '@firmivra/types';
-import { Avatar, Badge, Button, Modal, tileTones } from '@firmivra/ui';
+import { Avatar, Badge, Button, Callout, Modal, tileTones } from '@firmivra/ui';
 import {
   Cake,
   CalendarBlank,
@@ -27,6 +27,7 @@ import {
   UserCircle,
   UserPlus,
   UserSwitch,
+  WarningCircle,
   XCircle,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
@@ -133,6 +134,35 @@ function Figure({
  * with the review actions. Every card keeps its frame with a quiet line while the lead loads or
  * cannot be read.
  */
+/**
+ * Another lead or client with this email or phone (Begin Online can make a second lead for the
+ * same person): warned and linked, never merged (Rasel, Oct 24).
+ */
+function PossibleDuplicates({ lead }: { lead: LeadProfile }) {
+  const { leads, clients } = lead.duplicates;
+  if (!leads.length && !clients.length) return null;
+  const links = [
+    ...clients.map((c) => ({ key: c.id, href: `/clients/${c.id}`, label: `${c.name} (client)` })),
+    ...leads.map((l) => ({ key: l.id, href: `/leads/${l.id}`, label: `${l.name} (lead)` })),
+  ];
+  return (
+    <Callout icon={WarningCircle} tone="amber" surface="warning" size="compact">
+      <span data-testid="lead-duplicates">
+        Possible duplicate: the same email or phone is on{' '}
+        {links.map((link, i) => (
+          <span key={link.key}>
+            {i ? ', ' : ''}
+            <Link href={link.href} className="text-link underline">
+              {link.label}
+            </Link>
+          </span>
+        ))}
+        . Nothing is merged; check them before converting.
+      </span>
+    </Callout>
+  );
+}
+
 export function OverviewTab() {
   const { id, profile: lead, open } = useProfile();
   const [declining, setDeclining] = useState(false);
@@ -170,6 +200,7 @@ export function OverviewTab() {
 
   return (
     <div className="flex flex-col gap-4" data-testid="lead-overview">
+      {lead ? <PossibleDuplicates lead={lead} /> : null}
       <div className="grid items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-[minmax(0,1.1fr)_minmax(0,1.45fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-4">
           <CardFrame

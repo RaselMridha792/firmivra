@@ -170,7 +170,7 @@ export class AvailabilityService {
     });
   }
 
-  /** Replaces the member's whole week. */
+  /** Replaces the member's whole week. Owner and Admin only: Staff hours are read-only. */
   async setWorkingHours(
     businessId: string,
     actor: FirmActor,
@@ -178,6 +178,7 @@ export class AvailabilityService {
     body: HoursBody,
   ): Promise<MemberAvailability> {
     mayChange(actor, userId);
+    if (actor.role === 'STAFF') throw errors.hoursReadOnly();
     const result = await this.inFirm(businessId, async (tx) => {
       const member = await activeMember(tx, businessId, userId);
       // Two replacements at once must not leave the union of both weeks.

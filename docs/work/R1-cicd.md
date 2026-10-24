@@ -110,6 +110,72 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 15. Prod data: the Super Admin (step 9), LVP and its KMS key (`create-firm-key`, then `--check`), set-module for LVP with reasons.
 16. Smoke test: the three sites answer 200, staff sign-in with MFA, a password reset email arrives, a portal sign-in, a document upload turns CLEAN.
 
+## Handoff (R1 session, Oct 24 evening)
+
+This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session stopped at about 95% context, on Rasel's word, before the prod stacks.
+
+**Update (Oct 25).** This wins over the rest of this section.
+- **Merged:** #1097, #1103, #1104 and #1105 (Rasel tells R56).
+- **Step 5:** network, data, email and auth are up (5a to 5d in the prod log). Email went before auth, because auth depends on it.
+- **5e (ci):** stopped, because the ci stack needs the app stack. Rasel chose an infra and workflow PR:
+  - the prod ci role gets its permissions by resource name;
+  - `deploy-prod.yml` creates the empty app stack before it builds.
+  - After that PR merges: the ci diff, for Rasel's yes.
+- **Never create the app stack by hand.** No tag, no app deploy from R1.
+- **Step 6:** diff shown, waiting for Rasel's yes.
+
+### Open PRs (Rasel merges)
+- **#1097:** docs, the prod log and this handoff.
+- **#1103:** infra, step 3.
+  - Prod uses firmivra.com (zone `Z06906951XI9J0KSHI8TO`).
+  - `HOSTED_ZONE_IDS` has the prod zone.
+  - `config.dmarcRecord`: the prod email stack writes no `_dmarc`, because the domain keeps its company mail's record.
+  - **Merge it before step 5**, or the prod stacks can't use the zone.
+- **#1104:** the prod bootstrap one-off (`packages/db/scripts/bootstrap-prod.mjs`, no migration). Run it only after the prod stacks are up, on Rasel's go.
+- **#1105:** the migration `app_admin_apply_profile_change` (from R56's draft, reviewed). When it merges, Rasel tells R56:
+  - its PR (`rasel/R56-admin-apply-profile-change`) can open;
+  - its `LIVE` set should be ACTIVE only: the function refuses SUSPENDED, per Rasel's card.
+
+### Merged today (all applied on dev, every Deploy dev run checked)
+| PR | What |
+| --- | --- |
+| #1053 | Seed ids |
+| #1057, #1064 | Task drafts |
+| #1066, #1067 | Prod config, `deploy-prod.yml` |
+| #1071, #1077, #1087 | Docs |
+| #1074 | R60's columns, item 3 |
+| #1081 | Custom reminders |
+| #1084 | Idempotency keys |
+| #1095 | R60's requests 7 to 11 |
+
+### Prod: where it stands
+Rasel's add-on 4: every AWS change happens on his yes. Step by step in the "Prod log" above.
+- **1. SES:** production access granted (also for dev).
+- **2. DNS:** firmivra.com is in Route 53, every GoDaddy record is copied and checked, and it is delegated at GoDaddy. The `.com` registry lists the 4 AWS name servers, and dev still works.
+- **3. Infra:** #1103, open.
+- **4. Bootstrap policies:** applied. Boundary v5, CloudFormation execution policy v6; v1 deleted. The execution policy now has 5 of 5 versions, so delete its oldest non-default version before the next change.
+- **Next for a fresh R1** (each command or `cdk diff` shown to Rasel first; never `cdk destroy`; never touch dev's stacks except 6):
+  - **5.** After #1103 merges: `cdk diff -c env=prod`, then deploy, for network, data, auth, email and ci, in that order. Stop at the first problem.
+  - **6.** `cdk deploy firmivra-dev-ci -c env=dev`. It narrows dev's deploy role to the dev environment.
+  - **7.** The app stack and the first release go through a `v*` tag that only Rasel creates. Then `firmivra/prod/stripe` (live keys, Rasel), the bootstrap one-off (#1104), `create-firm-key lvp`, and `set-module`.
+
+### Private files (outside the repo; never into the repo, a PR or a reply)
+`F:/firmivra-private/` holds:
+- the GoDaddy export (`firmivra.com.txt`);
+- the change batch;
+- the two verification outputs.
+
+### Local state and lessons
+- **Branches:** every R1 branch above is pushed. The worktree is on `rasel/R1-prod-log`.
+- **Postgres:** if Docker's Postgres is down, run `docker start firmivra-postgres-1 firmivra-s3-1 firmivra-mailpit-1`. Don't run compose from this worktree.
+- **Before testing a branch:** regenerate the Prisma client, then build `@firmivra/db` and `@firmivra/types` there. A client from another branch gives P2022.
+- **Merging `main` into a stacked branch:** where `main` equals the merged PR's head, keep the branch's version.
+- **Before checking out another ref's files, commit your edits.** A checkout over uncommitted edits loses them; this happened once in this session, and the edits were re-applied.
+- **CI flakes, not ours:**
+  - `leads-pipeline.e2e.test.ts:312` fails from 00:00 to 04:00 UTC;
+  - `admin-team.test.ts:1279` fails at random.
+  - Re-run the whole failed run.
+
 ## Handoff (R1 session, Oct 24)
 
 This is newer than every handoff below, so read it first. Where they differ, this one wins.
@@ -117,6 +183,17 @@ This is newer than every handoff below, so read it first. Where they differ, thi
 **Prod log (Rasel's add-on 4, Oct 24; each AWS change on his yes). Newest last:**
 - 1. Read-only: the SSO session works on account 778127141557. SES production access is granted (the account's sandbox is lifted, dev included). firmivra.com has no DNSSEC, and no Route 53 zone yet.
 - 2a. Rasel's yes: hosted zone firmivra.com created, `Z06906951XI9J0KSHI8TO` (only its own NS and SOA so far).
+- 2b. Rasel's yes: GoDaddy's records copied into the zone (16 record sets, the `dev` delegation included, his `_dmarc` kept). Checked: every record matches on all 4 of the zone's name servers, and matches GoDaddy's live answers. Next: Rasel switches the name servers at GoDaddy.
+- 2c. Rasel switched the name servers at GoDaddy. The .com registry (RDAP) now lists the 4 AWS name servers (no DNSSEC), Google and Cloudflare return them, and the 3 dev sites still answer 200.
+- 3. Infra PR #1103: prod uses `FIRMIVRA_COM` (`Z06906951XI9J0KSHI8TO`), the bootstrap policy's `HOSTED_ZONE_IDS` has it, and the prod email stack writes no `_dmarc` (the domain keeps its own). Rasel merges.
+- 4a. Rasel's yes: `firmivra-cdk-cfn-exec` v1 (Oct 5) deleted; the default stays v5.
+- 4b. Rasel's yes: `firmivra-permissions-boundary` v5 created as default, from #1103's branch (adds `application-autoscaling:*` and the ECS auto scaling service-linked role).
+- 4c. Rasel's yes: `firmivra-cdk-cfn-exec` v6 created as default (the same additions, plus DNS records in the prod zone). Next: step 5, the prod stacks, in a fresh R1 session (Rasel).
+- 5a. Oct 25, Rasel's yes on the diff (all creates): `firmivra-prod-network` deployed (`cdk deploy firmivra-prod-network -e -c env=prod`). Checked: `CREATE_COMPLETE`; 2 public and 2 data subnets in us-east-1a and 1b, no NAT; the rejected-traffic flow log is active; the default security group has no rules; the S3 gateway endpoint is available.
+- 5b. Oct 25, Rasel's yes on the diff (all creates): `firmivra-prod-data` deployed. Checked: `CREATE_COMPLETE`; PostgreSQL 16.13 `available`, db.t3.small, single-AZ, encrypted, not public, 14 days of backups, deletion protection on, 20 GiB growing to 100; `firmivra/prod/db/owner` and `firmivra/prod/db/app` exist (names only, no values read); the documents bucket has KMS encryption with a bucket key, versioning, the full public-access block and access logging; the documents key is enabled with rotation on.
+- 5c. Oct 25: email before auth, on Rasel's yes (the auth stack depends on email: its 3 pools send through the SES identity `firmivra.com`). Checked first: no record at `mail.firmivra.com` and no SES identity or configuration set of those names outside CloudFormation. `firmivra-prod-email` deployed (all creates). Checked: `CREATE_COMPLETE`; its 5 records are in the zone (3 DKIM CNAMEs, MX and TXT at `mail.firmivra.com`; no `_dmarc`, the company's 2 DKIM records untouched); the identity is verified for sending, DKIM `SUCCESS` with signing on, MAIL FROM `SUCCESS`, configuration set `firmivra-prod-email`.
+- 5d. Oct 25, Rasel's yes on the re-run diff (the same as the first; email showed no differences): `firmivra-prod-auth` deployed (all creates). Checked: `CREATE_COMPLETE`; `firmivra-prod-staff`, `-clients` and `-admins` each have deletion protection, Plus tier, advanced security enforced, admin-only user creation and email from `no-reply@firmivra.com` through SES (`firmivra-prod-email`); MFA by authenticator app only, required for staff and admins, optional for clients; the API clients' refresh tokens last 7, 30 and 1 days (access tokens 15 minutes, existence errors hidden, revocation on); `firmivra/prod/cognito/api-clients` exists (name only, no value read).
+- 5e. Oct 25, stopped before any deploy: `firmivra-prod-ci` depends on `firmivra-prod-app`. Its deploy role is granted on the app's ECR repositories, cluster, migrate task roles and log group, so `cdk diff firmivra-prod-ci` includes the app stack, and a `-e` deploy would fail. `deploy-prod.yml` also needs both before the first tag: it assumes `firmivra-prod-github-deploy` (ci) and looks up the `firmivra-prod-*` ECR repositories (app) before it builds. With `ImageTag=none` the app stack runs 0 api and web tasks (scaling 0 to 0). Waiting for Rasel's decision.
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
