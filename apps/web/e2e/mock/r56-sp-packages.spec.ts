@@ -95,7 +95,9 @@ test('Promotions: a percentage above 100 is refused before any request', async (
   await page.getByLabel('Promotion name').fill('Too much');
   await page.getByLabel('Percent off').fill('150');
   await page.getByRole('button', { name: 'Save as Draft' }).click();
-  await expect(page.getByRole('alert')).toBeVisible();
+  // Since S10 the refusal is on the field, with a summary above the form (two alerts).
+  await expect(page.getByText('A percentage discount is 1 to 100%.')).toBeVisible();
+  await expect(page.getByLabel('Percent off')).toHaveAttribute('aria-invalid', 'true');
 });
 
 test('No sideways scroll at 375 px', async ({ page }) => {

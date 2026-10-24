@@ -176,10 +176,12 @@ export function addNagSuppressions(
   const cachedReason =
     'The pull-through cache makes one repository per upstream image (ecr-public/docker/library/node, .../postgres) on the first pull; pull and first-pull import only, no push.';
   ack(role, cachedImages, cachedReason);
-  ack(
-    ci.pullRequestRole,
-    'IAM5[Resource::*]',
-    'ecr:GetAuthorizationToken has no resource-level permissions.',
-  );
-  ack(ci.pullRequestRole, cachedImages, cachedReason);
+  if (ci.pullRequestRole) {
+    ack(
+      ci.pullRequestRole,
+      'IAM5[Resource::*]',
+      'ecr:GetAuthorizationToken has no resource-level permissions.',
+    );
+    ack(ci.pullRequestRole, cachedImages, cachedReason);
+  }
 }

@@ -31,9 +31,9 @@ to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/
 
 | # | Branch | State |
 | --- | --- | --- |
-| 1 | `rasel/R60-profile-request-change` | #1063 (open): `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
-| 2 | `rasel/R60-notifications-email` (stacked on #1063) | #1065 (open): staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
-| 3 | `rasel/R60-billing` (stacked on #1065, local until a PR slot frees) | Built: `api.firmBilling` (overview, invoices, invoice, PDF, requests), the Billing page on her design with the plan, usage, details and invoice dialogs; plan and contact changes as support requests. Notes below ("Billing") |
+| 1 | `rasel/R60-profile-request-change` | #1063 (merged Oct 24): `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
+| 2 | `rasel/R60-notifications-email` (stacked on #1063) | #1065 (merged Oct 24): staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
+| 3 | `rasel/R60-billing` PR (Oct 24, after #1065 merged): `api.firmBilling` (overview, invoices, invoice, PDF, requests), the Billing page on her design with the plan, usage, details and invoice dialogs; plan and contact changes as support requests. Notes below ("Billing") |
 
 ### State (Oct 23, second session): open PRs and branches waiting
 

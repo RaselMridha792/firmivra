@@ -70,6 +70,7 @@ import { CommunicationsService } from './communications.service.js';
           : [],
     },
   ],
-  exports: [CommunicationDelivery],
+  // CommunicationsService: the Leads page's campaigns (L7).
+  exports: [CommunicationDelivery, CommunicationsService],
 })
 export class CommunicationsModule {}
