@@ -9,6 +9,9 @@ import {
   type MemberRef,
   parseInput,
   PublishTaskDraftRequest,
+  reminderMinutes,
+  type ReminderRule,
+  type ReminderRuleOut,
   ReorderChecklistRequest,
   SaveTaskDraftRequest,
   SaveTaskAsTemplateRequest,
@@ -76,6 +79,48 @@ const CLIENTS = [
 ];
 const KEVIN: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000001', name: 'Kevin Martin' };
 const ALICIA: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000002', name: 'Alicia Park' };
+
+/** One day before the due date, at the firm's default time (a days rule, as read back). */
+const DAY_BEFORE: ReminderRuleOut = {
+  id: null,
+  daysBefore: 1,
+  timeOfDay: null,
+  amount: null,
+  unit: null,
+  inApp: true,
+  channels: [],
+};
+
+/**
+ * A reminder as the API reads it back: a days rule as sent, or Custom (minutes, hours or days
+ * before the due time) with its amount and unit, its whole days and no time.
+ */
+const reminderOut = (r: ReminderRule): ReminderRuleOut => {
+  const minutes = reminderMinutes(r);
+  const sent = { id: null, inApp: r.inApp ?? true, channels: r.channels ?? [] };
+  return minutes === null
+    ? {
+        ...sent,
+        daysBefore: r.daysBefore ?? 0,
+        timeOfDay: r.timeOfDay ?? null,
+        amount: null,
+        unit: null,
+      }
+    : {
+        ...sent,
+        daysBefore: Math.floor(minutes / 1_440),
+        timeOfDay: null,
+        amount: r.amount ?? null,
+        unit: r.unit ?? null,
+      };
+};
+
+/** As the API: a Custom reminder counts back from a due time (a draft keeps it until publishing). */
+const refuseCustomWithoutTime = (t: TaskDetail) => {
+  const timed = t.dueOn !== null && t.dueTime !== null && !t.allDay;
+  if (!timed && t.reminders.some((r) => r.unit !== null))
+    throw fail(400, 'INVALID_REMINDER', 'A reminder in minutes or hours needs a due time');
+};
 
 /** A draft is kept as the task it will become, with its client apart (a draft may have none). */
 interface StoredDraft {
@@ -213,8 +258,7 @@ function seed(empty: boolean): Store {
         i === 0
           ? 'Prepare initial business plan draft including market analysis, financial projections, and growth strategy.'
           : null,
-      reminders:
-        i === 0 ? [{ id: null, daysBefore: 1, timeOfDay: null, inApp: true, channels: [] }] : [],
+      reminders: i === 0 ? [{ ...DAY_BEFORE }] : [],
       updatedAt: new Date(Date.now() - i * 3_600_000).toISOString(),
     });
   });
@@ -394,7 +438,7 @@ function makeSeries(
       { label: 'Reconcile bank and credit card accounts', required: true },
       { label: 'Review income and expenses', required: false },
     ],
-    reminders: [{ id: null, daysBefore: 1, timeOfDay: null, inApp: true, channels: [] }],
+    reminders: [{ ...DAY_BEFORE }],
     upcoming: dates,
     pausedAt: null,
     endedAt: null,
@@ -475,8 +519,17 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     if (has('priority')) t.priority = b['priority'] as TaskDetail['priority'];
     if (has('progress')) t.progress = b['progress'] as TaskDetail['progress'];
     if (has('startOn')) t.startOn = (b['startOn'] as string | null) ?? null;
-    if (has('dueTime')) t.dueTime = (b['dueTime'] as string | null) ?? null;
+    if (has('dueTime')) {
+      t.dueTime = (b['dueTime'] as string | null) ?? null;
+      // As the API: without "all day" sent, a time turns it off and no time turns it on.
+      if (!has('allDay')) t.allDay = t.dueTime === null;
+    }
     if (has('allDay')) t.allDay = b['allDay'] as boolean;
+    // As the API: no due date, no time.
+    if (has('dueOn') && t.dueOn === null) {
+      t.dueTime = null;
+      t.allDay = true;
+    }
     if (has('clientVisible')) t.clientVisible = b['clientVisible'] as boolean;
     if (has('internalNotes')) t.internalNotes = (b['internalNotes'] as string | null) ?? null;
     if (has('blockedReason')) t.blockedReason = (b['blockedReason'] as string | null) ?? null;
@@ -494,21 +547,10 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       t.dependsOn = dep ? { id: dep.id, title: dep.title, status: dep.status } : null;
     }
     if (has('reminders')) {
-      const list = b['reminders'] as {
-        daysBefore: number;
-        timeOfDay?: string | null;
-        inApp?: boolean;
-        channels?: ('EMAIL' | 'SMS')[];
-      }[];
+      const list = b['reminders'] as ReminderRule[];
       if (list.length && !t.dueOn)
         throw fail(400, 'INVALID_REMINDER', 'A reminder needs a due date');
-      t.reminders = list.map((r) => ({
-        id: null,
-        daysBefore: r.daysBefore,
-        timeOfDay: r.timeOfDay ?? null,
-        inApp: r.inApp ?? true,
-        channels: r.channels ?? [],
-      }));
+      t.reminders = list.map(reminderOut);
     }
     if (has('checklist')) {
       const list = b['checklist'] as {
@@ -652,14 +694,8 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
   // The mock has no catalog: a template's service keeps its id under a neutral name.
   const templateService = (id: string | null | undefined) =>
     id ? { id, name: 'Selected service' } : null;
-  const templateReminders = (list: { daysBefore: number }[] | undefined) =>
-    (list ?? []).map((r) => ({
-      id: null,
-      daysBefore: r.daysBefore,
-      timeOfDay: null,
-      inApp: true,
-      channels: [] as ('EMAIL' | 'SMS')[],
-    }));
+  // Each rule as sent, Custom ones too (a template has no due time).
+  const templateReminders = (list: ReminderRule[] | undefined) => (list ?? []).map(reminderOut);
   const template = (id: string) => {
     const x = s.templates.find((y) => y.id === id);
     if (!x) throw fail(404, 'NOT_FOUND', 'Not found');
@@ -823,6 +859,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         checklist:
           b.checklist ?? tpl?.checklist.map((c) => ({ label: c.label, required: c.required })),
       });
+      refuseCustomWithoutTime(t);
       for (const a of b.attachments ?? []) attach(t, a);
       s.tasks.unshift(t);
       return copy(touch(t));
@@ -839,7 +876,12 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         Object.keys(b).some((k) => k !== 'version')
       )
         throw fail(409, 'TASK_CLOSED', 'Reopen the task before changing it');
-      applyFields(t, b);
+      // Checked on a copy, so a refused change leaves the task as it was. The reminders kept count:
+      // going all-day with a Custom reminder is refused unless the request replaces them.
+      const next = copy(t);
+      applyFields(next, b);
+      refuseCustomWithoutTime(next);
+      Object.assign(t, next);
       if (b.status) t.status = b.status;
       return copy(touch(t));
     },
@@ -944,6 +986,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       type(x.t.type?.id);
       if (x.t.reminders.length && !x.t.dueOn)
         throw fail(400, 'INVALID_REMINDER', 'A reminder needs a due date');
+      refuseCustomWithoutTime(x.t);
       s.drafts = s.drafts.filter((y) => y !== x);
       x.t.client = x.client;
       x.t.status = 'OPEN';
