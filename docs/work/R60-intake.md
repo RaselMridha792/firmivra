@@ -423,3 +423,17 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   contract unit 4 of 4, API and web `tsc` 0 errors, ESLint and Prettier clean; sheet shot on the
   real API. Licensing columns added as item 7 of the column request; question 3 (applying an
   approved change) for Rasel.
+- Oct 24 (third session): #1063 opened (item 1). Its first CI run failed only
+  `leads-pipeline.e2e.test.ts:311` (R55's date test, 00:00 to 04:00 UTC); noted under "Checks that
+  fail". Item 2, Notifications (`rasel/R60-notifications-email`, #1065, stacked on #1063): staff
+  email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, `PreferenceSource.allows` sends staff the
+  email whatever a stored row says), staff SMS only with a verified mobile number (none recorded,
+  so email only); notifications e2e 23 of 23, unit 13 of 13, contract 49 of 49, mock specs 7 of 7.
+  Column items 8 and 9 added.
+- Oct 24: item 3, Billing (`rasel/R60-billing`, stacked on #1065, local: two PRs open). The firm's
+  `api.firmBilling` (overview, invoices, invoice, PDF via pdf-lib, plan and contact requests as
+  support tickets through the shared `settings/firm-tickets.ts`, which Request Change now uses
+  too), and the page on her design with the plan details, usage, change-plan (catalog, blockers,
+  review) and invoice dialogs. Billing e2e 8 of 8, profile-changes 6 of 6, unit 3 of 3, contract
+  3 of 3, `tumit-settings-billing` 3 of 3 (rewritten) and `r56-settings-shell`; sheet shot on the
+  real API. Question 4 for Rasel.

@@ -115,7 +115,7 @@ function Meter({ label, used, allowed }: { label: string; used: number; allowed:
         className="h-2.5 overflow-hidden rounded-pill bg-disabled"
       >
         <span
-          className={`block h-full rounded-pill ${percent >= 100 ? 'bg-danger' : 'bg-action'}`}
+          className={`block h-full rounded-pill ${allowed !== null && used > allowed ? 'bg-danger' : percent >= 100 ? 'bg-gold' : 'bg-action'}`}
           style={{ width: `${percent}%` }}
         />
       </span>
@@ -478,11 +478,13 @@ export function BillingScreen() {
       <MethodAndDetails data={data} loading={overview.isPending} open={setDialog} />
       <InvoicesCard open={setDialog} />
       <Callout icon={Info} tone="navy" surface="plain" size="compact">
-        Payments from your clients (invoices you send, Stripe payouts) are in{' '}
-        <Link href="/settings/payments" className="font-semibold text-link hover:underline">
-          Payments & Payouts
-        </Link>
-        .
+        <span>
+          Payments from your clients (invoices you send, Stripe payouts) are in{' '}
+          <Link href="/settings/payments" className="font-semibold text-link hover:underline">
+            Payments & Payouts
+          </Link>
+          .
+        </span>
       </Callout>
       {dialog?.kind === 'plan' && s ? (
         <PlanDetailsModal subscription={s} onClose={() => setDialog(null)} />

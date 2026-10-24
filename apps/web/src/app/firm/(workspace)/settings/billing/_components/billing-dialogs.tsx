@@ -24,6 +24,9 @@ import { INVOICE_TONES, day, invoiceLabel, money, per, period } from './billing-
 
 export const BILLING = ['settings', 'billing'] as const;
 
+/** A plan card in the catalog lists this many features, then "and N more". */
+const FEATURES_SHOWN = 6;
+
 const ERRORS: Record<string, string> = {
   PLAN_NOT_AVAILABLE: 'That plan is not available for your firm right now.',
   NO_SUBSCRIPTION: 'No subscription is connected to this workspace yet. Contact Firmivra Support.',
@@ -326,7 +329,12 @@ export function ChangePlanModal({
                 {p.direction === 'CURRENT' ? <Badge tone="success">Current plan</Badge> : null}
               </div>
               <p className="text-xl font-bold text-heading">
-                {money(estimate(p))}
+                {money(
+                  // The current plan on its own cycle: what the firm pays, not the list price.
+                  p.direction === 'CURRENT' && cycle === current.billingCycle
+                    ? current.priceCents
+                    : estimate(p),
+                )}
                 <span className="text-sm font-normal text-muted">{per(cycle)}</span>
               </p>
               <div className="flex flex-col gap-0.5 text-xs text-text">
@@ -335,12 +343,15 @@ export function ChangePlanModal({
                 ))}
               </div>
               <ul className="flex flex-col gap-1 text-xs text-text">
-                {p.features.map((f) => (
+                {p.features.slice(0, FEATURES_SHOWN).map((f) => (
                   <li key={f.key} className="flex items-center gap-1.5">
                     <CheckCircle aria-hidden weight="fill" className="size-3.5 text-success" />
                     {f.label}
                   </li>
                 ))}
+                {p.features.length > FEATURES_SHOWN ? (
+                  <li className="text-muted">and {p.features.length - FEATURES_SHOWN} more</li>
+                ) : null}
               </ul>
               {p.blockers.map((b) => (
                 <p key={b} className="text-xs text-danger">
