@@ -704,3 +704,11 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   intake workspace e2e 19 of 19, `r60-intake-settings` 14 of 14. Needs: R55's one line in the
   firm setup invite; the reminder and alert sender and the Locations page recorded, not built;
   per-send reminder times written as a schema request.
+- Oct 25 (fifth session): (d) the firm's licenses (`rasel/R60-firm-licenses`, from `main`, local
+  until a PR slot frees): `GET /business/settings/profile/licenses` (Owner and Admin, also while
+  Pending Setup; no firm route writes one) and `api.profileChanges.licenses()`; the Professional
+  Licensing card lists five locked rows per license (one block per license), "Not on file" when
+  none, a quiet note when unreachable; Request Change's "Current" (dialog and ticket) shows each
+  license's value, oldest first, joined with "; ". Profile changes e2e 8 of 8, contract 5 of 5,
+  `r60-profile-request-change` 2 of 2; sheet shot on the real API (one fake license written as
+  the platform in the local database).

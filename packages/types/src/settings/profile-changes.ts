@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { type ApiRequest, parseInput } from '../client.js';
-import { SupportTicketStatus } from '../db-enums.js';
+import { FirmLicenseStatus, SupportTicketStatus } from '../db-enums.js';
 import { Ein } from '../firm-applications/schemas.js';
 import { ticketText } from './ticket-text.js';
 
@@ -10,10 +10,12 @@ import { ticketText } from './ticket-text.js';
 // the request is a support ticket to the Super Admin team (source Portal, unassigned, in the
 // queue) with the current and proposed values and the reason; the card shows its number and
 // status. Nothing on the profile changes until Firmivra applies it.
-// API: /api/v1/business/settings/profile/change-requests. Owner and Admin, also while the firm is
-// Pending Setup. Responses are plain objects; requests are strict.
+// API: /api/v1/business/settings/profile/change-requests, and .../profile/licenses (the firm's
+// licenses, read-only). Owner and Admin, also while the firm is Pending Setup. Responses are plain
+// objects; requests are strict.
 
 const DateTime = z.iso.datetime({ offset: true });
+const CalendarDate = z.iso.date();
 
 export const ProfileChangeKind = z.enum(['COMPANY', 'LICENSING']);
 export type ProfileChangeKind = z.infer<typeof ProfileChangeKind>;
@@ -107,6 +109,33 @@ export type ProfileChange = z.infer<typeof ProfileChange>;
 export const ProfileChangeList = z.object({ items: z.array(ProfileChange).max(20) });
 export type ProfileChangeList = z.infer<typeof ProfileChangeList>;
 
+/** The Professional Licensing card's Status row. */
+export const FIRM_LICENSE_STATUS_LABELS: Readonly<Record<FirmLicenseStatus, string>> = {
+  ACTIVE: 'Active',
+  EXPIRED: 'Expired',
+  SUSPENDED: 'Suspended',
+  REVOKED: 'Revoked',
+};
+
+/**
+ * One of the firm's professional licenses (firm_licenses, R1's #1095). Read-only for the firm:
+ * only Firmivra (a Super Admin or the platform) adds or changes one, after a Request Change.
+ */
+export const FirmLicense = z.object({
+  id: z.uuid(),
+  regulatoryBody: z.string(),
+  licenseType: z.string(),
+  licenseNumber: z.string(),
+  /** Null when the license has no expiration date. */
+  expiresOn: CalendarDate.nullable(),
+  status: FirmLicenseStatus,
+});
+export type FirmLicense = z.infer<typeof FirmLicense>;
+
+/** GET /business/settings/profile/licenses: the firm's licenses, oldest first; empty when none. */
+export const FirmLicenseList = z.object({ items: z.array(FirmLicense) });
+export type FirmLicenseList = z.infer<typeof FirmLicenseList>;
+
 const BASE = '/business/settings/profile/change-requests';
 
 /**
@@ -117,6 +146,9 @@ const BASE = '/business/settings/profile/change-requests';
 export function createProfileChangesClient(request: ApiRequest) {
   return {
     list: async (): Promise<ProfileChangeList> => request(ProfileChangeList, BASE),
+    /** The firm's licenses for the Professional Licensing card (read-only). */
+    licenses: async (): Promise<FirmLicense[]> =>
+      (await request(FirmLicenseList, '/business/settings/profile/licenses')).items,
     /**
      * Sends the request to Firmivra's Super Admin team. The same `requestId` again answers the
      * first request. 400 VALIDATION_FAILED when a proposed value is already the current one.

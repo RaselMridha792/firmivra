@@ -1,6 +1,11 @@
 'use client';
 
-import { ENTITY_TYPES, type FirmSettings } from '@firmivra/types';
+import {
+  ENTITY_TYPES,
+  FIRM_LICENSE_STATUS_LABELS,
+  type FirmLicense,
+  type FirmSettings,
+} from '@firmivra/types';
 import { Input, Select, Textarea } from '@firmivra/ui';
 import { Buildings, ShieldCheck } from '@phosphor-icons/react';
 import {
@@ -15,6 +20,9 @@ import {
 } from '../../_components/brand-cards';
 import { type BrandDraftState, useBrandDraft } from '../../_components/brand-draft';
 import { BrandCard, BrandFrame } from '../../_components/brand-frame';
+import { api } from '../../../../../../lib/api';
+import { useApiQuery } from '../../../../../../lib/query';
+import { NOT_LOADED, Quiet } from '../../_components/settings-parts';
 import { LockedDetailsCard } from './locked-details';
 
 /**
@@ -123,11 +131,46 @@ function CompanyInformationCard({ state, firm }: { state: BrandDraftState; firm:
   );
 }
 
+const LICENSE_LABELS = [
+  'Regulatory Body',
+  'License Type',
+  'License Number',
+  'Expiration Date',
+  'Status',
+] as const;
+
+/** 2027-12-31 as the design shows it: 12/31/2027. */
+const usDate = (day: string) => {
+  const [y, m, d] = day.split('-');
+  return `${m}/${d}/${y}`;
+};
+
+const licenseRows = (l: FirmLicense, i: number) =>
+  [
+    { label: 'Regulatory Body', value: l.regulatoryBody, startsGroup: i > 0 },
+    { label: 'License Type', value: l.licenseType },
+    { label: 'License Number', value: l.licenseNumber },
+    { label: 'Expiration Date', value: l.expiresOn ? usDate(l.expiresOn) : 'No expiration date' },
+    { label: 'Status', value: FIRM_LICENSE_STATUS_LABELS[l.status] },
+  ].map((row) => ({ ...row, group: l.id }));
+
 /**
- * Professional Licensing Information (her guide B3): read-only; Request Change asks Firmivra.
- * No licensing details are stored yet (Column request for R1, item 7), so each row says so.
+ * Professional Licensing Information (her guide B3): the firm's licenses (firm_licenses), read-only;
+ * only Firmivra writes them, and Request Change asks it to. Five rows per license, one block per
+ * license when the firm holds several; "Not on file" when it holds none.
  */
 function LicensingCard({ firm }: { firm: FirmSettings }) {
+  const licenses = useApiQuery(['settings', 'licenses'], () => api.profileChanges.licenses());
+  const list = licenses.data ?? [];
+  const rows =
+    licenses.data === undefined
+      ? LICENSE_LABELS.map((label) => ({ label, value: '—', quiet: true }))
+      : list.length
+        ? list.flatMap(licenseRows)
+        : LICENSE_LABELS.map((label) => ({ label, value: null }));
+  // The dialog's "Current": each license's value, oldest first, as the request records it.
+  const each = (value: (l: FirmLicense) => string) =>
+    list.length ? list.map(value).join('; ') : null;
   return (
     <LockedDetailsCard
       kind="LICENSING"
@@ -135,17 +178,22 @@ function LicensingCard({ firm }: { firm: FirmSettings }) {
       title="Professional Licensing Information"
       testId="licensing-information"
       timeZone={firm.timezone}
-      rows={['Regulatory Body', 'License Type', 'License Number', 'Expiration Date', 'Status'].map(
-        (label) => ({ label, value: null }),
-      )}
-      current={{}}
+      rows={rows}
+      current={{
+        regulatoryBody: each((l) => l.regulatoryBody),
+        licenseType: each((l) => l.licenseType),
+        licenseNumber: each((l) => l.licenseNumber),
+        expirationDate: each((l) => (l.expiresOn ? usDate(l.expiresOn) : 'No expiration date')),
+      }}
       note={
         <>
           To update your professional licensing information, click <strong>Request Change</strong>.
           Your request will be reviewed by the Firmivra Super Admin team.
         </>
       }
-    />
+    >
+      {licenses.isError ? <Quiet>{NOT_LOADED}</Quiet> : null}
+    </LockedDetailsCard>
   );
 }
 
