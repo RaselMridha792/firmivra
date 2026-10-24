@@ -162,6 +162,10 @@ export const StaffFormOptions = z.object({
    * A record keeps the office it has; the screens show it even when it is not one of these.
    */
   offices: z.array(z.string()),
+  /**
+   * The presets, then the firm's own schedules already given to someone (Octavia's SM8: custom
+   * saved schedules). Free text up to 80 characters is allowed.
+   */
   workSchedules: z.array(z.string()),
   /** Service codes (FIRM_SERVICES) for Service Area(s) and Primary Service Specialty. */
   serviceAreas: z.array(z.object({ code: z.string(), label: z.string() })),

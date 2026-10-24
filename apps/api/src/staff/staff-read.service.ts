@@ -238,37 +238,46 @@ export class StaffReadService {
     return this.inFirm(tenant, async (tx) => {
       const businessId = tenant.businessId;
       const actor = tenant.role as MembershipRole;
-      const [departments, teams, managers, titles, offices, customRoles] = await Promise.all([
-        tx.department.findMany({
-          where: { businessId, status: 'ACTIVE' },
-          select: { id: true, name: true },
-          orderBy: [{ name: 'asc' }, { id: 'asc' }],
-        }),
-        tx.team.findMany({
-          where: { businessId, status: 'ACTIVE' },
-          select: { id: true, name: true, departmentId: true },
-          orderBy: [{ name: 'asc' }, { id: 'asc' }],
-        }),
-        tx.membership.findMany({
-          where: { businessId, status: 'ACTIVE' },
-          select: memberSelect,
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        }),
-        // Offices & Job Titles: the saved titles, and Location Management's active locations.
-        tx.staffJobTitle.findMany({
-          where: { businessId, archivedAt: null },
-          select: { name: true },
-          orderBy: [{ name: 'asc' }, { id: 'asc' }],
-          take: 500,
-        }),
-        tx.firmOffice.findMany({
-          where: { businessId, status: 'ACTIVE', archivedAt: null },
-          select: { name: true },
-          orderBy: [{ isMain: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-          take: 200,
-        }),
-        this.custom.givable(tx, businessId, actor),
-      ]);
+      const [departments, teams, managers, titles, offices, customRoles, schedules] =
+        await Promise.all([
+          tx.department.findMany({
+            where: { businessId, status: 'ACTIVE' },
+            select: { id: true, name: true },
+            orderBy: [{ name: 'asc' }, { id: 'asc' }],
+          }),
+          tx.team.findMany({
+            where: { businessId, status: 'ACTIVE' },
+            select: { id: true, name: true, departmentId: true },
+            orderBy: [{ name: 'asc' }, { id: 'asc' }],
+          }),
+          tx.membership.findMany({
+            where: { businessId, status: 'ACTIVE' },
+            select: memberSelect,
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          }),
+          // Offices & Job Titles: the saved titles, and Location Management's active locations.
+          tx.staffJobTitle.findMany({
+            where: { businessId, archivedAt: null },
+            select: { name: true },
+            orderBy: [{ name: 'asc' }, { id: 'asc' }],
+            take: 500,
+          }),
+          tx.firmOffice.findMany({
+            where: { businessId, status: 'ACTIVE', archivedAt: null },
+            select: { name: true },
+            orderBy: [{ isMain: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+            take: 200,
+          }),
+          this.custom.givable(tx, businessId, actor),
+          // The firm's own schedules already given to someone (Octavia's SM8: custom, saved).
+          tx.staffProfile.findMany({
+            where: { businessId, workSchedule: { not: null } },
+            select: { workSchedule: true },
+            distinct: ['workSchedule'],
+            orderBy: { workSchedule: 'asc' },
+            take: 100,
+          }),
+        ]);
       const roles = (ROLES_MANAGED_BY[actor] ?? []).map((role) => ({
         role,
         label: FIRM_ROLE_LABELS[role],
@@ -284,7 +293,12 @@ export class StaffReadService {
           .map((t) => t.name)
           .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })),
         offices: offices.map((o) => o.name),
-        workSchedules: WORK_SCHEDULES,
+        workSchedules: [
+          ...WORK_SCHEDULES,
+          ...schedules.flatMap((x) =>
+            x.workSchedule && !WORK_SCHEDULES.includes(x.workSchedule) ? [x.workSchedule] : [],
+          ),
+        ],
         serviceAreas: Object.entries(FIRM_SERVICES).map(([code, label]) => ({ code, label })),
       };
     });
