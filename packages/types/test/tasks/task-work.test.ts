@@ -5,10 +5,15 @@ import {
   createRequest,
   createTaskWorkClient,
   CreateTaskSeriesRequest,
+  CreateTaskTemplateRequest,
+  reminderMinutes,
   ReminderRule,
+  ReminderRuleOut,
   Recurrence,
   TaskCalendarQuery,
+  TaskDetail,
   TaskOverviewQuery,
+  TaskReminderUnit,
   UpdateTaskDetailRequest,
 } from '../../src/index.js';
 
@@ -141,6 +146,173 @@ describe('Tasks work contract: requests', () => {
     expect(due({ shiftDays: -3 }).success).toBe(true);
     expect(due({}).success).toBe(false);
     expect(due({ dueOn: '2026-12-01', shiftDays: 1 }).success).toBe(false);
+  });
+});
+
+describe('Tasks work contract: Custom reminders (Oct 24)', () => {
+  const fails = (body: object, path: string) => {
+    const r = ReminderRule.safeParse(body);
+    expect(r.success, JSON.stringify(body)).toBe(false);
+    expect(r.error?.issues.map((i) => i.path.join('.'))).toContain(path);
+  };
+
+  it('keeps the days form: a {daysBefore} body still parses as before', () => {
+    expect(ReminderRule.parse({ daysBefore: 1 })).toEqual({
+      daysBefore: 1,
+      timeOfDay: null,
+      inApp: true,
+      channels: [],
+    });
+    expect(reminderMinutes(ReminderRule.parse({ daysBefore: 1, timeOfDay: '09:00' }))).toBeNull();
+    const base = { clientId: id, title: 'T', dueOn: '2026-11-01' };
+    expect(
+      CreateTaskDetailRequest.safeParse({ ...base, reminders: [{ daysBefore: 1 }] }).success,
+    ).toBe(true);
+  });
+
+  it('takes an amount of minutes, hours or days', () => {
+    expect(TaskReminderUnit.options).toEqual(['MINUTES', 'HOURS', 'DAYS']);
+    for (const [amount, unit, minutes] of [
+      [30, 'MINUTES', 30],
+      [2, 'HOURS', 120],
+      [3, 'DAYS', 4_320],
+      [999, 'HOURS', 59_940],
+      [365, 'DAYS', 525_600],
+    ] as const) {
+      const rule = ReminderRule.parse({ amount, unit, channels: ['EMAIL'] });
+      expect(rule).toMatchObject({ amount, unit, timeOfDay: null, inApp: true });
+      expect(reminderMinutes(rule)).toBe(minutes);
+    }
+    expect(
+      CreateTaskTemplateRequest.safeParse({
+        name: 'Custom',
+        reminders: [{ amount: 2, unit: 'HOURS' }, { daysBefore: 1 }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it('is the days form or an amount with its unit, never half of one', () => {
+    fails({}, 'daysBefore');
+    fails({ inApp: true, channels: ['SMS'] }, 'daysBefore');
+    fails({ amount: 2 }, 'unit');
+    fails({ unit: 'HOURS' }, 'amount');
+    fails({ amount: 2, unit: null }, 'unit');
+    // Days that are not the amount's whole days.
+    fails({ daysBefore: 1, amount: 2, unit: 'HOURS' }, 'daysBefore');
+    fails({ daysBefore: 0, amount: 1, unit: 'DAYS' }, 'daysBefore');
+    // Its whole days may come with it: 36 hours is 1 day, 90 minutes 0.
+    expect(ReminderRule.safeParse({ daysBefore: 1, amount: 36, unit: 'HOURS' }).success).toBe(true);
+    expect(ReminderRule.safeParse({ daysBefore: 0, amount: 90, unit: 'MINUTES' }).success).toBe(
+      true,
+    );
+    // A null amount and unit: a days rule.
+    expect(ReminderRule.safeParse({ daysBefore: 2, amount: null, unit: null }).success).toBe(true);
+  });
+
+  it('takes no time of day with Custom', () => {
+    fails({ amount: 1, unit: 'HOURS', timeOfDay: '09:00' }, 'timeOfDay');
+    expect(ReminderRule.safeParse({ amount: 1, unit: 'HOURS', timeOfDay: null }).success).toBe(
+      true,
+    );
+  });
+
+  it('caps Custom at 365 days and 999 of a unit, whole and above zero', () => {
+    fails({ amount: 366, unit: 'DAYS' }, 'amount');
+    fails({ amount: 1_000, unit: 'MINUTES' }, 'amount');
+    fails({ amount: 0, unit: 'MINUTES' }, 'amount');
+    fails({ amount: -5, unit: 'HOURS' }, 'amount');
+    fails({ amount: 1.5, unit: 'HOURS' }, 'amount');
+    fails({ amount: 2, unit: 'WEEKS' }, 'unit');
+    // Still somewhere to remind.
+    fails({ amount: 2, unit: 'HOURS', inApp: false }, 'channels');
+  });
+
+  it('sends a rule read back as it came, without its id', () => {
+    for (const out of [
+      {
+        id,
+        daysBefore: 1,
+        timeOfDay: '09:00',
+        amount: null,
+        unit: null,
+        inApp: true,
+        channels: [],
+      },
+      {
+        id,
+        daysBefore: 1,
+        timeOfDay: null,
+        amount: 36,
+        unit: 'HOURS',
+        inApp: false,
+        channels: ['SMS'],
+      },
+    ]) {
+      const { id: _id, ...back } = ReminderRuleOut.parse(out);
+      expect(ReminderRule.safeParse(back).success, JSON.stringify(back)).toBe(true);
+    }
+  });
+
+  it('reads an older answer without amount and unit as days rules', () => {
+    const detail = {
+      id,
+      title: 'T',
+      kind: 'GENERAL',
+      client: { id, displayName: 'Jamie Sample' },
+      type: null,
+      engagement: null,
+      service: null,
+      deadline: null,
+      priority: 'MEDIUM',
+      status: 'OPEN',
+      progress: 'PENDING',
+      dueOn: '2026-11-01',
+      dueTime: null,
+      allDay: true,
+      overdue: false,
+      assignedTo: null,
+      additionalAssigneeCount: 0,
+      checklist: { done: 0, total: 0 },
+      blocked: false,
+      recurring: false,
+      clientVisible: false,
+      archivedAt: null,
+      updatedAt: '2026-10-17T10:00:00.000Z',
+      details: null,
+      engagementId: null,
+      startOn: null,
+      assignedUserId: null,
+      additionalAssignees: [],
+      checklistItems: [],
+      reminders: [{ id: other, daysBefore: 1, timeOfDay: null, inApp: true, channels: [] }],
+      attachments: [],
+      dependsOn: null,
+      blockedReason: null,
+      internalNotes: null,
+      templateId: null,
+      series: null,
+      completedAt: null,
+      completedBy: null,
+      createdBy: null,
+      createdAt: '2026-10-17T10:00:00.000Z',
+      version: '2026-10-17T10:00:00.000Z',
+    };
+    expect(TaskDetail.parse(detail).reminders).toEqual([
+      {
+        id: other,
+        daysBefore: 1,
+        timeOfDay: null,
+        amount: null,
+        unit: null,
+        inApp: true,
+        channels: [],
+      },
+    ]);
+    const custom = { ...detail.reminders[0], daysBefore: 0, amount: 2, unit: 'HOURS' };
+    expect(TaskDetail.parse({ ...detail, reminders: [custom] }).reminders[0]).toMatchObject({
+      amount: 2,
+      unit: 'HOURS',
+    });
   });
 });
 

@@ -23,7 +23,7 @@ test('Staff Management shows the cards, the tiles and the directory', async ({ p
   const links = page.getByTestId('staff-links');
   for (const [name, href] of [
     ['Create Staff Account', '/team/new'],
-    ['Manage Staff Accounts', '#staff-directory'],
+    ['Manage Staff Accounts', '/team/directory'],
     ['Roles & Permissions', '/team/roles'],
     ['Teams & Departments', '/team/departments'],
     ['Activity & Login History', '/team/activity'],

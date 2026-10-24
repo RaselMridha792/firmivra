@@ -33,10 +33,10 @@ test('fills the details, queues a document and submits the account', async ({ pa
   await expect(page.getByTestId('account-preview')).toContainText('W-2 Employee');
   await page.getByLabel('Work Schedule').selectOption({ label: 'Full-Time' });
   await page.getByLabel('Primary Team').selectOption({ label: 'Individual Tax' });
-  await page.getByLabel('Maximum Workload (Optional)').fill('lots');
+  await page.getByLabel('Maximum Active Clients (Optional)').fill('lots');
   await page.getByRole('button', { name: 'Submit & Send Invitation' }).click();
   await expect(page.getByText('Use a whole number from 1 to 10,000.')).toBeVisible();
-  await page.getByLabel('Maximum Workload (Optional)').fill('50');
+  await page.getByLabel('Maximum Active Clients (Optional)').fill('50');
 
   await page.getByLabel('Pay Type').selectOption({ label: 'Salary' });
   await page.getByLabel('Pay Rate / Salary').fill('55000');
