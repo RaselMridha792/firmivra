@@ -126,7 +126,7 @@ This is newer than every handoff below, so a fresh R1 starts here. Where they di
   1. **`firmivra/prod/stripe`, by hand (Rasel).** It doesn't exist yet. It needs all three keys: `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` and `STRIPE_WEBHOOK_SECRET`. ECS can't start an API task whose secret lacks one.
      - The live webhook endpoint can be made in Stripe first, at `https://app.firmivra.com/api/v1/webhooks/stripe`, to get its signing secret.
      - This needs the Stripe account activated for live payments.
-  2. **Tag a commit of `main` that has #1120,** after that commit's Deploy dev succeeds.
+  2. **Tag a commit of `main` that has #1120,** after that commit's Deploy dev succeeds. `b6e013696` qualifies (run 40132450092).
 - **Checked, nothing to do (Oct 25):**
   - the zone has no record at `admin.`, `app.` or `portal.firmivra.com`, and no CAA record;
   - GitHub's `prod` environment needs Rasel's review and allows only `v*` tags;
@@ -223,7 +223,8 @@ This is newer than every handoff below, so read it first. Where they differ, thi
   - `UPDATE_COMPLETE` at 20:45 UTC;
   - `firmivra-dev-github-deploy` trusts only the repo's `environment:dev`;
   - Deploy dev run 40129918292 had signed in before the change and succeeded;
-  - run 40131466057, the first after the change, signed in at 20:50 UTC.
+  - run 40131466057, the first after the change, signed in at 20:50 UTC and succeeded at 21:02;
+  - run 40132450092 (`b6e013696`, with #1120) succeeded at 21:15, and the 3 dev sites answer 200. #1120's own run was cancelled by GitHub, because a newer commit's run took its place in the queue.
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
