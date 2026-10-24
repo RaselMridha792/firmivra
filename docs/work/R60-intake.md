@@ -404,6 +404,10 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Windows they cannot start their extra mock servers (`spawn pnpm ENOENT`: `spawn` without a
   shell). Local only; CI (Linux) runs them. Its two in-page tests pass locally.
 
+- `apps/api/test/e2e/automations.e2e.test.ts:708` (R55's automations): the same window. It makes a rule
+  that expired "yesterday" in UTC, while the service compares with the firm's day (New York), so
+  from 00:00 to 04:00 UTC the rule is not yet expired and two more cases after it fail. Seen on
+  #1065's run at 01:20 UTC.
 - `apps/api/test/e2e/leads-pipeline.e2e.test.ts:311` (R55): the date filter test takes "today" in UTC
   while the API filters days in the firm's time zone (America/New_York), so it fails every night
   from 00:00 to 04:00 UTC (06:00 to 10:00 Dhaka). It failed #1063's first run (Oct 24, 00:53
@@ -490,3 +494,7 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   a custom one; "Maximum Active Clients"), SM10 (the header clock). Departments e2e 12 of 12, staff
   e2e 8 of 8, `r60-staff-sm8-13` 5 of 5 and the Staff specs; sheet shot on the real API. Column
   items 10 and 11 added.
+- Oct 24: #1065's CI named the tenant-isolation sweep: `requestId` (Request Change, Billing) is a
+  retry key, now in `NOT_RECORDS` (pushed to #1063 and merged up the stack); isolation cases for
+  the firm's invoice and its PDF (billing branch) and a department's members (staff branch). The
+  sweep passes locally on each; its other local failures are the known file-scanner ones.
