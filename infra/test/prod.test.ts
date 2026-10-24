@@ -159,6 +159,44 @@ describe('prod stacks', () => {
       },
     });
   });
+
+  it('grant the deploy role by name, so the CI stack comes before the app stack', () => {
+    // deploy-prod.yml creates the app stack with this role on the first v* tag.
+    app.synth();
+    expect(stacks.ci.dependencies).not.toContain(stacks.app);
+    const ci = JSON.stringify(t(stacks.ci).toJSON());
+    expect(ci).not.toMatch(/Fn::ImportValue|Fn::GetStackOutput/);
+    for (const key of ['api', 'web', 'migrate']) {
+      expect(ci).toContain(`:ecr:us-east-1:778127141557:repository/firmivra-prod-${key}"`);
+    }
+    expect(ci).toContain(
+      '"ecs:cluster":"arn:aws:ecs:us-east-1:778127141557:cluster/firmivra-prod-cluster"',
+    );
+    expect(ci).toContain('task-definition/firmivra-prod-migrate:*');
+    expect(ci).toContain('"arn:aws:iam::778127141557:role/firmivra-prod-app-MigrateTask*"');
+    expect(ci).toContain(':logs:us-east-1:778127141557:log-group:/firmivra/prod/migrate:*');
+
+    // The names are the app stack's own.
+    const appStack = t(stacks.app);
+    for (const key of ['api', 'web', 'migrate']) {
+      appStack.hasResourceProperties('AWS::ECR::Repository', {
+        RepositoryName: `firmivra-prod-${key}`,
+      });
+    }
+    appStack.hasResourceProperties('AWS::ECS::Cluster', { ClusterName: 'firmivra-prod-cluster' });
+    appStack.hasResourceProperties('AWS::Logs::LogGroup', {
+      LogGroupName: '/firmivra/prod/migrate',
+    });
+    const [migrate] = Object.values(
+      appStack.findResources('AWS::ECS::TaskDefinition', {
+        Properties: { Family: 'firmivra-prod-migrate' },
+      }),
+    ) as { Properties: Record<'TaskRoleArn' | 'ExecutionRoleArn', { 'Fn::GetAtt': string[] }> }[];
+    // Unnamed roles: CloudFormation names them firmivra-prod-app-<logical id>-<suffix>.
+    for (const ref of [migrate!.Properties.TaskRoleArn, migrate!.Properties.ExecutionRoleArn]) {
+      expect(ref['Fn::GetAtt'][0]).toMatch(/^MigrateTask/);
+    }
+  });
 });
 
 describe('prod email', () => {
@@ -183,6 +221,10 @@ describe('dev keeps its settings', () => {
     ci.resourceCountIs('AWS::ECR::PullThroughCacheRule', 1);
     expect(dev.ci.pullRequestRole).toBeDefined();
     ci.resourceCountIs('AWS::IAM::Role', 2);
+  });
+
+  it("grants its deploy role on the app stack's resources by reference, as deployed", () => {
+    expect(JSON.stringify(Template.fromStack(dev.ci).toJSON())).toMatch(/Fn::GetStackOutput/);
   });
 
   it('writes its own DMARC record on dev.firmivra.com', () => {

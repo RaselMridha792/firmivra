@@ -1,13 +1,19 @@
 import { CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import type { Construct } from 'constructs';
 import { type EnvConfig, resourceName } from '../config';
 import type { AppStack } from './app-stack';
 
 export interface CiStackProps extends StackProps {
   config: EnvConfig;
-  app: AppStack;
+  /**
+   * Dev's app stack: the role is granted on its resources by reference, as deployed since Oct 5.
+   * Without it (prod) the role is granted by resource name, so this stack does not depend on the
+   * app stack: deploy-prod.yml uses this role to create the app stack on the first v* tag.
+   */
+  app?: AppStack;
 }
 
 /**
@@ -62,7 +68,12 @@ export class CiStack extends Stack {
     role.addToPolicy(
       new iam.PolicyStatement({ actions: ['ecr:GetAuthorizationToken'], resources: ['*'] }),
     );
-    for (const repository of Object.values(app.repositories)) repository.grantPullPush(role);
+    const repositories = app
+      ? Object.values(app.repositories)
+      : (['api', 'web', 'migrate'] as const).map((key) =>
+          ecr.Repository.fromRepositoryName(this, `${key}Repository`, resourceName(config, key)),
+        );
+    for (const repository of repositories) repository.grantPullPush(role);
 
     // cdk deploy: through the bootstrap roles (qualifier hnb659fds)
     role.addToPolicy(
@@ -76,13 +87,16 @@ export class CiStack extends Stack {
     );
 
     // Migration task
+    const clusterArn =
+      app?.cluster.clusterArn ??
+      `arn:aws:ecs:${this.region}:${this.account}:cluster/${resourceName(config, 'cluster')}`;
     role.addToPolicy(
       new iam.PolicyStatement({
         actions: ['ecs:RunTask'],
         resources: [
-          `arn:aws:ecs:${this.region}:${this.account}:task-definition/${app.migrateTask.family}:*`,
+          `arn:aws:ecs:${this.region}:${this.account}:task-definition/${resourceName(config, 'migrate')}:*`,
         ],
-        conditions: { ArnEquals: { 'ecs:cluster': app.cluster.clusterArn } },
+        conditions: { ArnEquals: { 'ecs:cluster': clusterArn } },
       }),
     );
     role.addToPolicy(
@@ -96,13 +110,16 @@ export class CiStack extends Stack {
     role.addToPolicy(
       new iam.PolicyStatement({
         actions: ['iam:PassRole'],
-        resources: [
-          app.migrateTask.taskRole.roleArn,
-          app.migrateTask.obtainExecutionRole().roleArn,
-        ],
+        resources: app
+          ? [app.migrateTask.taskRole.roleArn, app.migrateTask.obtainExecutionRole().roleArn]
+          : // CloudFormation names them <stack>-MigrateTask<role>-<suffix> (test/prod.test.ts).
+            [`arn:aws:iam::${this.account}:role/${resourceName(config, 'app')}-MigrateTask*`],
       }),
     );
-    app.migrateLogGroup.grantRead(role);
+    (
+      app?.migrateLogGroup ??
+      logs.LogGroup.fromLogGroupName(this, 'MigrateLogs', `/firmivra/${config.envName}/migrate`)
+    ).grantRead(role);
 
     // Read stack outputs (cluster, subnets, security group)
     role.addToPolicy(
