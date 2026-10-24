@@ -18,13 +18,22 @@ info:
     | --- | --- |
     | `/setup` (5 steps) | `getSetup`; each step's fields with `update` (Save Draft); Next: `completeStep(step)`; Finish: `finishSetup` |
     | `/settings/profile`, `/branding`, `/portal` | `get`, `update` |
+    | `/settings/profile` (Request Change) | `api.profileChanges`: `list`, `create` (`packages/types/src/settings/profile-changes.ts`) |
     | `/settings/legal` | `getLegal(kind)`, `getLegalVersion(kind, n)`, `publishLegal(kind, { body })` |
 
     - **Who:** Owner and Admin of the firm (`403 FORBIDDEN` for staff). Every route also works
       while the firm is Pending Setup. The firm comes from the signed-in membership
       (`x-business-id` for staff with more than one firm), never from the body.
     - **Locked:** the business id, slug (portal address), legal name and status are shown but
-      only Firmivra changes them; sending one is `400 VALIDATION_FAILED`.
+      only Firmivra changes them; sending one is `400 VALIDATION_FAILED`. The EIN is entered in
+      the setup wizard; once the firm is Active, sending it is `403 EIN_LOCKED`.
+    - **Request Change** (Company Profile, Rasel's default of Oct 24): the legal name, the EIN and
+      the licensing details are changed only by Firmivra. `POST
+      /business/settings/profile/change-requests` raises a support ticket for the Super Admin
+      team (source Portal, unassigned) with the current and proposed values and the reason; the
+      same `requestId` again answers the first request. `GET` lists the firm's requests with
+      their status and Firmivra's latest reply. Nothing on the profile changes until Firmivra
+      applies it; the audit entry names the fields, never the values.
     - **Clearing:** an empty text field is sent as `null` and clears the setting (`null` colours
       and portal texts mean Firmivra's default). Name, country and time zone cannot be cleared.
     - **Not yet here:** the logo (`logoUrl` is null until R5 adds upload and signed URLs) and the
@@ -86,6 +95,43 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '503': { $ref: '#/components/responses/EncryptionUnavailable' }
+
+  /business/settings/profile/change-requests:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [settings]
+      operationId: listProfileChangeRequests
+      summary: The firm's Request Change requests, newest first (at most 20)
+      responses:
+        '200':
+          description: The requests
+          content: { application/json: { schema: { $ref: '#/components/schemas/ProfileChangeList' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [settings]
+      operationId: createProfileChangeRequest
+      summary: Ask Firmivra to change the legal name, the EIN or the licensing details
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/CreateProfileChangeRequest' } }
+      responses:
+        '201':
+          description: The request (or the first one with this requestId)
+          content: { application/json: { schema: { $ref: '#/components/schemas/ProfileChange' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`CONFLICT`: the requestId belongs to another ticket'
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '503':
+          description: '`SUPPORT_UNAVAILABLE`: the support queue has no active category or priority'
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 
   /business/setup:
     parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
@@ -216,7 +262,7 @@ components:
       description: '`UNAUTHENTICATED`: not signed in'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Forbidden:
-      description: '`FORBIDDEN` (staff and clients), `BUSINESS_INACTIVE` (the firm is suspended or closed) or `ORIGIN_NOT_ALLOWED` (sent from another site)'
+      description: '`FORBIDDEN` (staff and clients), `BUSINESS_INACTIVE` (the firm is suspended or closed), `ORIGIN_NOT_ALLOWED` (sent from another site) or, on `PATCH /business/settings`, `EIN_LOCKED` (the EIN sent while the firm is Active)'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotFound:
       description: '`NOT_FOUND`: no active membership in that firm, or a version that was never published'
@@ -230,6 +276,50 @@ components:
 
   schemas:
     ApiError: { $ref: './client-auth.yaml#/components/schemas/ApiError' }
+    ProfileChangeKind: { type: string, enum: [COMPANY, LICENSING] }
+    ProfileChangeField: { type: string, enum: [legalName, ein, regulatoryBody, licenseType, licenseNumber, expirationDate] }
+    CreateProfileChangeRequest:
+      description: Strict. The fields to change, all of the one card (`kind`), at least one; the current values come from the server
+      type: object
+      additionalProperties: false
+      required: [requestId, kind, changes, reason]
+      properties:
+        requestId: { type: string, format: uuid, description: One per dialog opening }
+        kind: { $ref: '#/components/schemas/ProfileChangeKind' }
+        changes:
+          type: object
+          additionalProperties: false
+          description: COMPANY takes legalName and ein; LICENSING the other four
+          properties:
+            legalName: { type: string, maxLength: 200, description: Not the current legal name }
+            ein: { type: string, pattern: '^[\d\s-]*$', description: 9 digits once dashes and spaces are dropped }
+            regulatoryBody: { type: string, maxLength: 120 }
+            licenseType: { type: string, maxLength: 80 }
+            licenseNumber: { type: string, maxLength: 60 }
+            expirationDate: { type: string, format: date }
+        reason: { type: string, maxLength: 2000 }
+    ProfileChange:
+      type: object
+      required: [id, number, kind, fields, status, submittedAt, submittedBy, closedAt, latestReply]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: string, description: 'The support ticket number, "#1004"' }
+        kind: { $ref: '#/components/schemas/ProfileChangeKind' }
+        fields: { type: array, items: { $ref: '#/components/schemas/ProfileChangeField' } }
+        status: { type: string, enum: [OPEN, IN_PROGRESS, WAITING_ON_CUSTOMER, RESOLVED, CLOSED] }
+        submittedAt: { type: string, format: date-time }
+        submittedBy: { type: string }
+        closedAt: { type: [string, 'null'], format: date-time }
+        latestReply:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [body, at]
+              properties: { body: { type: string }, at: { type: string, format: date-time } }
+    ProfileChangeList:
+      type: object
+      required: [items]
+      properties: { items: { type: array, maxItems: 20, items: { $ref: '#/components/schemas/ProfileChange' } } }
     HexColor: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
     NullableText:
       description: Trimmed; an empty string is stored as null (clears the setting)

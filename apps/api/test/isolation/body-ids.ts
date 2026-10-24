@@ -17,6 +17,11 @@ export interface BodyIdField {
  * and any field named `...Id`, `...Ids` or `ids`, is a record id and needs the case's `bodyIds`.
  */
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
+  {
+    field: 'requestId',
+    routes: /^POST \/api\/v1\/business\/(settings\/profile\/change-requests|billing\/requests)$/,
+    why: "the dialog's retry key (the support ticket's idempotency key): the same key answers the firm's own request and another firm's key is 409 CONFLICT, never its ticket (profile-changes.e2e, firm-billing.e2e) (R60)",
+  },
   ...['details.employeeId', 'compensation.payrollId'].map((field) => ({
     field,
     routes: /^(POST|PATCH) \/api\/v1\/business\/staff(\/:id)?$/,
