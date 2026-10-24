@@ -141,6 +141,54 @@ paths:
           description: '`SUPPORT_UNAVAILABLE`: the support queue has no active category or priority'
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 
+  /business/settings/portal-tabs:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [settings]
+      operationId: getPortalTabs
+      summary: Settings > Client Portal > Portal Features, the five tabs that switch (a tab never switched is on)
+      responses:
+        '200': { $ref: '#/components/responses/PortalTabs' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [settings]
+      operationId: updatePortalTabs
+      summary: Turn tabs on or off (only the tabs sent). Audited as `portal.tabs_changed`; nothing is deleted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [tabs]
+              properties:
+                tabs:
+                  type: object
+                  minProperties: 1
+                  propertyNames: { $ref: '#/components/schemas/PortalTab' }
+                  additionalProperties: { type: boolean }
+      responses:
+        '200': { $ref: '#/components/responses/PortalTabs' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /portal/{firmSlug}/me/tabs:
+    get:
+      tags: [settings]
+      operationId: getMyPortalTabs
+      summary: The signed-in client's firm's tabs, for the portal menu. A hidden tab's portal routes answer 403 `MODULE_OFF`.
+      parameters:
+        - { name: firmSlug, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/PortalTabs' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /business/billing:
     parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
     get:
@@ -349,6 +397,24 @@ components:
     FirmSettings:
       description: The settings after the call
       content: { application/json: { schema: { $ref: '#/components/schemas/FirmSettings' } } }
+    PortalTabs:
+      description: Each tab on (true) or off
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [tabs]
+            properties:
+              tabs:
+                type: object
+                required: [INTAKE_FORMS, DOCUMENTS, TAX_RETURNS, INVOICES_PAYMENTS, MESSAGES]
+                additionalProperties: false
+                properties:
+                  INTAKE_FORMS: { type: boolean }
+                  DOCUMENTS: { type: boolean, description: 'Off: free uploads are refused; a file answering a document request still goes up' }
+                  TAX_RETURNS: { type: boolean }
+                  INVOICES_PAYMENTS: { type: boolean }
+                  MESSAGES: { type: boolean }
     FirmSetup:
       description: Wizard progress after the call
       content: { application/json: { schema: { $ref: '#/components/schemas/FirmSetup' } } }
@@ -376,6 +442,7 @@ components:
 
   schemas:
     ApiError: { $ref: './client-auth.yaml#/components/schemas/ApiError' }
+    PortalTab: { type: string, enum: [INTAKE_FORMS, DOCUMENTS, TAX_RETURNS, INVOICES_PAYMENTS, MESSAGES] }
     ProfileChangeKind: { type: string, enum: [COMPANY, LICENSING] }
     ProfileChangeField: { type: string, enum: [legalName, ein, regulatoryBody, licenseType, licenseNumber, expirationDate] }
     CreateProfileChangeRequest:

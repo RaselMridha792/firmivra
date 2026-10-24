@@ -26,6 +26,7 @@ import type { PortalCaller } from './document-records.js';
 import { DocumentRequestsService } from './document-requests.service.js';
 import { MyDocumentsService } from './my-documents.service.js';
 import { MyPacketsService } from './my-packets.service.js';
+import { PortalTabsService } from '../client-portal/portal-tabs.js';
 
 const docPipe = new ZodValidationPipe(DocumentId);
 
@@ -52,6 +53,7 @@ export class MyDocumentsController {
     private readonly documents: MyDocumentsService,
     private readonly requests: DocumentRequestsService,
     private readonly packetsService: MyPacketsService,
+    private readonly tabs: PortalTabsService,
   ) {}
 
   @Get('documents')
@@ -93,12 +95,14 @@ export class MyDocumentsController {
 
   @Post('documents/uploads')
   @HttpCode(200)
-  createUpload(
+  async createUpload(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Body(new ZodValidationPipe(CreateMyUploadRequest))
     body: z.output<typeof CreateMyUploadRequest>,
   ): Promise<UploadTicket> {
+    // With Upload Documents off, only a file the firm asked for (a document request) goes up.
+    if (!body.requestId) await this.tabs.assertOn(tenant.businessId, 'DOCUMENTS');
     return this.documents.createUpload(callerOf(auth, tenant), body);
   }
 

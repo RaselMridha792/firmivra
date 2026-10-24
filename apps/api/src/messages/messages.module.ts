@@ -9,10 +9,11 @@ import {
 import { MessagesService } from './messages.service.js';
 import { ClientNotesController, MyNotesController, NotesController } from './notes.controller.js';
 import { NotesService } from './notes.service.js';
+import { PortalTabsModule } from '../client-portal/portal-tabs.js';
 
 /** Messages and notes (R20): firm threads, the portal's messages, read state and counts. */
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, PortalTabsModule],
   controllers: [
     ClientMessageThreadsController,
     MessageThreadsController,

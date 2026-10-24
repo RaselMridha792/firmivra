@@ -13,6 +13,7 @@ import {
   MessageCircleMore,
 } from 'lucide-react';
 import Link from 'next/link';
+import { usePortalTabs } from '../../_components/portal-tabs';
 import { FirmContactLinks } from '../../../(public)/_components/firm-contact';
 
 /** The right-hand column: Quick Actions, Need Help? and Be Prepared. */
@@ -29,6 +30,7 @@ export function SideCards({
   onCancel: () => void;
   onHistory: () => void;
 }) {
+  const messagesOn = usePortalTabs(slug)('messages');
   const actions: [string, LucideIcon, () => void][] = [
     ['Schedule an Appointment', CalendarPlus, onSchedule],
     ['Reschedule an Appointment', CalendarClock, onReschedule],
@@ -68,13 +70,15 @@ export function SideCards({
           </div>
         </div>
         <FirmContactLinks className="mb-4 text-text" />
-        <Link
-          href={`/${slug}/messages`}
-          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-control border border-firm-primary bg-surface px-4 py-2 text-sm font-medium text-firm-text hover:bg-firm-primary hover:text-on-action"
-        >
-          <MessageCircleMore aria-hidden className="size-5" />
-          Send a Message
-        </Link>
+        {messagesOn ? (
+          <Link
+            href={`/${slug}/messages`}
+            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-control border border-firm-primary bg-surface px-4 py-2 text-sm font-medium text-firm-text hover:bg-firm-primary hover:text-on-action"
+          >
+            <MessageCircleMore aria-hidden className="size-5" />
+            Send a Message
+          </Link>
+        ) : null}
       </section>
       <section className="flex gap-3 rounded-card bg-warning-soft p-5 shadow-md">
         <Lightbulb aria-hidden className="size-6 shrink-0 text-warning" />

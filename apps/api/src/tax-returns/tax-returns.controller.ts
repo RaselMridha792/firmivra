@@ -19,6 +19,7 @@ import { ReportsModule } from '../reports/reports.module.js';
 import { TaxReturnReviewService } from './review.service.js';
 import { TaxReturnWorkspaceController } from './workspace.controller.js';
 import { TaxReturnWorkspaceService } from './workspace.service.js';
+import { PortalTabRoute, PortalTabsModule } from '../client-portal/portal-tabs.js';
 
 const clientIdPipe = new ZodValidationPipe(ClientId);
 const idPipe = new ZodValidationPipe(TaxReturnId);
@@ -96,6 +97,7 @@ export class TaxReturnsController {
  */
 @Controller('portal/:firmSlug/me/tax-returns')
 @Roles('CLIENT')
+@PortalTabRoute('TAX_RETURNS')
 export class MyTaxReturnsController {
   constructor(private readonly returns: TaxReturnsService) {}
 
@@ -111,7 +113,7 @@ export class MyTaxReturnsController {
 
 @Module({
   // The export writes under the firm's reports prefix (ReportsModule's file store).
-  imports: [ReportsModule],
+  imports: [ReportsModule, PortalTabsModule],
   // The workspace (R55) first: its static routes (summary) before any ':id'.
   controllers: [
     TaxReturnWorkspaceController,
