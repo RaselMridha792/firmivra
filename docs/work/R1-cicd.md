@@ -251,6 +251,21 @@ This is newer than every handoff below, so read it first. Where they differ, thi
   - **Left in the stack:** the load balancer, its empty log bucket, the VPC origin and the cluster (no services).
   - **Not started:** no images, no migrations, no tasks.
   - Waiting for Rasel: delete the failed stack once the VPC origin is deployed, then re-run the run.
+- 8b. Oct 24 ~23:00 UTC, on Rasel's yes with his conditions: the failed `firmivra-prod-app` was cleaned up.
+  - **Checked first:**
+    - the VPC origin was `Deployed`;
+    - 6 resources were left (the load balancer, the log bucket and its policy, the VPC origin, the cluster and its capacity-provider link), none holding data;
+    - no exports or imports, and no other stack references it (ci's `PassRole` name pattern is plain text);
+    - the log bucket held only `ELBAccessLogTestFile`, with no other versions and no delete markers.
+  - **Deleted:**
+    - `delete-stack` with `wait stack-delete-complete` succeeded;
+    - the bucket `firmivra-prod-alb-logs-778127141557` stayed behind (its policy is `RetainExceptOnCreate`), so its one test object and the bucket were deleted, those exact names only.
+  - **Checked after:**
+    - the stack, the load balancer, the VPC origin and the bucket are gone, and the cluster is `INACTIVE` (deleted);
+    - the app's secrets, ECR repositories and log groups had already been deleted, and none waits in a recovery window;
+    - the other 5 prod stacks are unchanged;
+    - the auto scaling service-linked role exists.
+  - Then `gh run rerun 40138508812 --failed`: attempt 2, the same `v1.0.0` on `564c8cfaf`, waiting for Rasel's approval of `prod`.
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
