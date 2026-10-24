@@ -58,6 +58,6 @@ test('Create Document Request opens its own page', async ({ page }) => {
   await open(page);
   await expect(page.getByRole('link', { name: 'Create Document Request' }).first()).toHaveAttribute(
     'href',
-    '/modules/document-request-create',
+    '/documents/requests/new',
   );
 });
