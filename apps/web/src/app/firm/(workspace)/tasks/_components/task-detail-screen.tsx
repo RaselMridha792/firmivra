@@ -26,6 +26,7 @@ import {
   dueText,
   shortName,
   stamp,
+  timeText,
 } from './task-shared';
 
 const quiet = 'rounded-lg bg-canvas p-4 text-center text-sm text-muted';
@@ -237,6 +238,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
                       {r.daysBefore === 0
                         ? 'Same day'
                         : `${r.daysBefore} day${r.daysBefore === 1 ? '' : 's'} before`}
+                      {r.timeOfDay ? `, at ${timeText(r.timeOfDay)}` : ''}
                     </li>
                   ))}
                 </ul>

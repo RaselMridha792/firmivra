@@ -64,6 +64,19 @@ const card =
   'flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm';
 
 /**
+ * Octavia's A3: how far ahead clients can book, in days (the API keeps whole days, 1 to 730; 730
+ * is no limit). Shorter windows in hours have no column yet.
+ */
+const WINDOW_DAYS = [1, 3, 5, 7, 14, 30, 60, 90, 180, 365, 730];
+const windowLabel = (d: number) =>
+  d === 730 ? 'No limit' : d === 1 ? '1 day ahead (24 hours)' : `${d} days ahead`;
+/** The saved value stays a choice when it is not one of the presets, so the select never lies. */
+const withCurrent = (presets: number[], current: number) =>
+  Number.isFinite(current) && !presets.includes(current)
+    ? [...presets, current].sort((a, b) => a - b)
+    : presets;
+
+/**
  * Appointments > Manage Appointment Types (guide §10; no design: Quick Actions opens it): the
  * types (R12 `api.appointmentTypes`: name, length, location, client self-booking, change cutoff,
  * active or archived) with Add, Edit, Archive and Restore, and each type's settings
@@ -446,7 +459,7 @@ function SettingsForm({
       }}
     >
       <Textarea
-        label="Description"
+        label="Description (staff only)"
         rows={2}
         maxLength={500}
         disabled={off}
@@ -454,6 +467,10 @@ function SettingsForm({
         error={fieldErrors.description}
         onChange={(e) => setDescription(e.target.value)}
       />
+      {/* Octavia's A10: the description is internal; no client view or email carries it. */}
+      <p className="-mt-2 text-xs text-muted" data-testid="type-description-note">
+        For your team only: clients never see it, in the portal, booking or emails.
+      </p>
       <fieldset
         className="flex flex-col"
         data-testid="meeting-methods"
@@ -499,7 +516,7 @@ function SettingsForm({
         <Select
           label="Minimum notice"
           disabled={off}
-          options={[0, 2, 12, 24, 48, 72].map((h) => ({
+          options={withCurrent([0, 2, 6, 12, 24, 48, 72], Number(notice)).map((h) => ({
             value: String(h),
             label: h ? `${h} hours` : 'None',
           }))}
@@ -509,9 +526,9 @@ function SettingsForm({
         <Select
           label="Booking window"
           disabled={off}
-          options={[14, 30, 60, 90, 180, 365].map((d) => ({
+          options={withCurrent(WINDOW_DAYS, Number(windowDays)).map((d) => ({
             value: String(d),
-            label: `${d} days ahead`,
+            label: windowLabel(d),
           }))}
           value={windowDays}
           onChange={(e) => setWindowDays(e.target.value)}

@@ -9,25 +9,35 @@ import type {
   UpdateTaskDetailRequest,
 } from '@firmivra/types';
 import { Button, Checkbox, Modal, Textarea, Toast, Toggle } from '@firmivra/ui';
-import { ArrowLeft, CloudArrowUp, FloppyDisk, Plus, X } from '@phosphor-icons/react';
+import { ArrowLeft, FloppyDisk, Plus, X } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import { useClients, useMembers } from './task-data';
+import {
+  AttachmentDrop,
+  FilesNotUploaded,
+  type QueuedFile,
+  useTaskFiles,
+} from './task-attachments';
+import { useMembers } from './task-data';
 import {
   ChecklistItems,
   type Item,
   Label,
   type Reminder,
+  TIMES,
+  reminderProblem,
+  toReminders,
   ReminderList,
   Section,
   Selectbox,
   field,
 } from './task-form-parts';
 import { TaskTypeSelect, useTypeChoice } from './task-type-field';
+import { UnsavedDialog, useUnsavedGuard } from './unsaved-guard';
 import {
   PRIORITY_LABEL,
   PROGRESS_LABEL,
@@ -36,11 +46,6 @@ import {
   dayText,
   timeText,
 } from './task-shared';
-
-const TIMES = Array.from({ length: 48 }, (_, i) => {
-  const m = i * 30;
-  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-});
 
 /** /tasks/new and /tasks/[id]/edit: Create Task and Edit Task, one form. */
 export function TaskFormScreen({ id, templateId }: { id?: string; templateId?: string }) {
@@ -81,11 +86,27 @@ function Form({
   const router = useRouter();
   const editing = !!task;
   const { members } = useMembers();
-  const { clients } = useClients();
   const [title, setTitle] = useState(task?.title ?? '');
   const [typeId, setTypeId] = useState(task?.type?.id ?? template?.type?.id ?? '');
   const [details, setDetails] = useState(task?.details ?? template?.description ?? '');
   const [clientId, setClientId] = useState(task?.client.id ?? '');
+  // Octavia's C4: clients are found by name on the server: the firm's own, and for Staff only
+  // their assigned ones, so a restricted client is never listed or counted.
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientTerm, setClientTerm] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setClientTerm(clientSearch.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [clientSearch]);
+  const clientList = useApiQuery([...TASKS_KEY, 'clients', clientTerm], () =>
+    api.clients.list({ limit: 25, ...(clientTerm ? { search: clientTerm } : {}) }),
+  );
+  const listed = (clientList.data?.items ?? []).map((c) => ({
+    id: c.id,
+    displayName: c.displayName,
+  }));
+  // The names of clients chosen from earlier searches, so the choice keeps its label.
+  const [clientNames, setClientNames] = useState<Record<string, string>>({});
   const [engagementId, setEngagementId] = useState(task?.engagementId ?? '');
   const [serviceId, setServiceId] = useState(task?.service?.id ?? template?.service?.id ?? '');
   const [assignee, setAssignee] = useState(
@@ -117,9 +138,7 @@ function Form({
   );
   const startReminders = task?.reminders ?? template?.reminders ?? [];
   const [remind, setRemind] = useState(startReminders.length > 0);
-  const [reminders, setReminders] = useState<Reminder[]>(
-    startReminders.map((r, i) => ({ key: `r${i}`, daysBefore: r.daysBefore })),
-  );
+  const [reminders, setReminders] = useState<Reminder[]>(() => toReminders(startReminders));
   const [depends, setDepends] = useState(!!task?.dependsOn);
   const [dependsOn, setDependsOn] = useState(task?.dependsOn?.id ?? '');
   const [notes, setNotes] = useState(task?.internalNotes ?? '');
@@ -161,13 +180,94 @@ function Form({
 
   const typeChoice = useTypeChoice(typeId, task?.type);
 
+  // Octavia's C5: Related To is one of the chosen client's engagements (open or not started), not
+  // a second Service list; a task keeps the one it has. Other record types need a contract.
+  const relatedOptions = [
+    ...(editing && task?.engagement
+      ? [{ value: task.engagement.id, label: task.engagement.title }]
+      : []),
+    ...(engagements.data ?? [])
+      .filter(
+        (x) => x.id !== task?.engagement?.id && (x.status === 'ACTIVE' || x.status === 'PENDING'),
+      )
+      .map((x) => ({
+        value: x.id,
+        label: `${x.title} (${x.status === 'ACTIVE' ? 'open' : 'not started'})`,
+      })),
+  ];
+
+  // Attachments (C6): files go to the client's documents under one of the client's open
+  // services: the Related To project when it is open, else the first open one.
+  const files = useTaskFiles();
+  const [version, setVersion] = useState(task?.version ?? '');
+  const [attached, setAttached] = useState(task?.attachments ?? []);
+  const openServices = (engagements.data ?? []).filter((x) => x.status === 'ACTIVE');
+  const fileService = openServices.find((x) => x.id === engagementId) ?? openServices[0];
+  const clientName =
+    listed.find((c) => c.id === clientId)?.displayName ??
+    clientNames[clientId] ??
+    task?.client.displayName ??
+    '';
+  const filesBlocked = !clientId
+    ? "Choose the client first: files are saved to the client's documents."
+    : engagements.isPending
+      ? "Loading the client's services…"
+      : engagements.isError
+        ? "The client's services could not be loaded, so files cannot be added right now."
+        : !fileService
+          ? `${clientName || 'This client'} has no open service, so files cannot be saved to their documents yet.`
+          : undefined;
+  const filesNote = fileService
+    ? `Saved privately to ${clientName}'s documents under ${fileService.title}, staff only.`
+    : undefined;
+  // Edit Task attaches each file as soon as it is up, then reads the task's new version, so
+  // Save Changes does not meet its own attachment as a conflict.
+  const attachNow = useApiMutation(
+    async (picked: QueuedFile[]) => {
+      if (!task || !fileService) return 0;
+      let count = 0;
+      for (const item of picked) {
+        try {
+          const [documentId] = await files.upload([item], task.client.id, fileService.id);
+          if (!documentId) continue;
+          await api.taskWork.addAttachment(task.id, { documentId });
+          files.remove(item.key);
+          count++;
+        } catch (e) {
+          if (!(e instanceof FilesNotUploaded))
+            files.patch(item.key, { state: 'error', error: errorMessage(e, TASK_ERRORS) });
+        }
+      }
+      if (count) {
+        const fresh = await api.taskWork.task(task.id);
+        setVersion(fresh.version);
+        setAttached(fresh.attachments);
+      }
+      return count;
+    },
+    { invalidate: [...TASKS_KEY] },
+  );
+  function addFiles(list: File[]) {
+    if (filesBlocked) return;
+    const ready = files.add(list);
+    if (task && ready.length)
+      attachNow.mutate(ready, {
+        onSuccess: (count) =>
+          count &&
+          setMessage({
+            text: count === 1 ? 'File attached.' : `${count} files attached.`,
+            tone: 'success',
+          }),
+      });
+  }
+
   const checklistBody = items
     .filter((i) => i.label.trim())
     .map((i) => ({ ...(i.id ? { id: i.id } : {}), label: i.label.trim(), required: i.required }));
   const remindersBody = remind
     ? reminders.map((r) => ({
         daysBefore: r.daysBefore,
-        timeOfDay: null,
+        timeOfDay: r.timeOfDay,
         inApp: true,
         channels: [] as ('EMAIL' | 'SMS')[],
       }))
@@ -188,11 +288,37 @@ function Form({
     reminders: remindersBody,
   });
 
+  const guard = useUnsavedGuard({
+    title,
+    typeId,
+    details,
+    clientId,
+    engagementId,
+    serviceId,
+    assignee,
+    extra,
+    priority,
+    startOn,
+    dueOn,
+    dueTime,
+    allDay,
+    progress,
+    blockedReason,
+    visible,
+    remind,
+    reminders: reminders.map((r) => [r.daysBefore, r.timeOfDay]),
+    depends,
+    dependsOn,
+    notes,
+    items: items.map((i) => [i.label, i.required]),
+    files: files.queue.map((f) => f.key),
+  });
+
   const options = { invalidate: [...TASKS_KEY] };
   const save = useApiMutation(async (another: boolean) => {
     if (task) {
       const body: UpdateTaskDetailRequest = {
-        version: task.version,
+        version,
         title: title.trim(),
         details,
         dueOn: dueOn || null,
@@ -202,6 +328,10 @@ function Form({
       };
       return { saved: await api.taskWork.update(task.id, body), another };
     }
+    const documentIds =
+      files.sendable.length && fileService
+        ? await files.upload(files.sendable, clientId, fileService.id)
+        : [];
     const body: CreateTaskDetailRequest = {
       clientId,
       title: title.trim(),
@@ -212,6 +342,9 @@ function Form({
       ...common(),
       checklist: checklistBody,
       ...(template ? { templateId: template.id } : {}),
+      ...(documentIds.length
+        ? { attachments: documentIds.map((documentId) => ({ documentId })) }
+        : {}),
     };
     return { saved: await api.taskWork.create(body), another };
   }, options);
@@ -236,32 +369,58 @@ function Form({
     if (!assignee && !byTeam) e['assignee'] = 'Choose who it is assigned to';
     if (!dueOn) e['due'] = 'Choose a due date';
     if (startOn && dueOn && startOn > dueOn) e['due'] = 'The due date is before the start';
+    if (remind && reminders.length > 0) {
+      const problem = reminderProblem(reminders, dueOn && !allDay ? dueTime : null);
+      if (!dueOn) e['reminders'] = 'Reminders need a due date. Set the due date first.';
+      else if (problem) e['reminders'] = problem;
+    }
+    if (files.queue.some((f) => f.state === 'uploading'))
+      e['files'] = 'Wait for the files to finish uploading.';
+    else if (files.queue.some((f) => f.blocking) || (task && files.queue.length > 0))
+      e['files'] = 'Remove the files marked in red, or choose others.';
+    else if (!task && files.sendable.length && filesBlocked) e['files'] = filesBlocked;
     setErrors(e);
     return Object.keys(e).length === 0;
   }
+  // One save at a time (T2): a second click before the first answers does nothing.
+  const sendingRef = useRef(false);
   function submit(another: boolean) {
+    if (sendingRef.current) return;
     setMessage(undefined);
     if (!validate()) {
       setMessage({ text: 'Fix the highlighted fields to continue.', tone: 'error' });
       return;
     }
+    sendingRef.current = true;
     save.mutate(another, {
+      onSettled: () => {
+        sendingRef.current = false;
+      },
       onSuccess: ({ saved, another: again }) => {
         if (again) {
           setMessage({ text: 'Task saved. Add another.', tone: 'success' });
           router.replace('/tasks/new');
           setTitle('');
-        } else router.push(`/tasks/${saved.id}`);
+          files.setQueue([]);
+          guard.rebase();
+        } else {
+          guard.allow();
+          router.push(`/tasks/${saved.id}`);
+        }
       },
-      onError: (e) => setMessage({ text: errorMessage(e, TASK_ERRORS), tone: 'error' }),
+      onError: (e) =>
+        setMessage({
+          text:
+            e instanceof FilesNotUploaded
+              ? 'A file was not uploaded, so the task was not saved. See Attachments, then save again.'
+              : errorMessage(e, TASK_ERRORS),
+          tone: 'error',
+        }),
     });
   }
 
   const summary: [string, string][] = [
-    [
-      'Client',
-      clients.find((c) => c.id === clientId)?.displayName ?? task?.client.displayName ?? '—',
-    ],
+    ['Client', clientName || '—'],
     [
       'Related To',
       engagements.data?.find((x) => x.id === engagementId)?.title ?? task?.engagement?.title ?? '—',
@@ -384,23 +543,42 @@ function Form({
           >
             <div className="grid gap-4 md:grid-cols-3">
               <Label text="Client" required htmlFor="tf-client">
+                {editing ? null : (
+                  <input
+                    type="search"
+                    aria-label="Search clients by name"
+                    placeholder="Search clients by name…"
+                    className={field}
+                    maxLength={100}
+                    value={clientSearch}
+                    onChange={(e) => setClientSearch(e.target.value)}
+                    data-testid="client-search"
+                  />
+                )}
                 <Selectbox
                   id="tf-client"
                   label="Client"
                   value={clientId}
                   disabled={editing}
                   onChange={(v) => {
+                    const c = listed.find((x) => x.id === v);
+                    if (c) setClientNames((n) => ({ ...n, [c.id]: c.displayName }));
                     setClientId(v);
                     setEngagementId('');
                   }}
                   options={[
-                    { value: '', label: 'Select client' },
-                    ...(editing && task
-                      ? [{ value: task.client.id, label: task.client.displayName }]
+                    {
+                      value: '',
+                      label: clientList.isError
+                        ? 'Clients are not available'
+                        : clientTerm && listed.length === 0
+                          ? 'No clients match'
+                          : 'Select client',
+                    },
+                    ...(clientId && !listed.some((c) => c.id === clientId) && clientName
+                      ? [{ value: clientId, label: clientName }]
                       : []),
-                    ...clients
-                      .filter((c) => c.id !== task?.client.id)
-                      .map((c) => ({ value: c.id, label: c.displayName })),
+                    ...(editing ? [] : listed).map((c) => ({ value: c.id, label: c.displayName })),
                   ]}
                 />
                 {err('client')}
@@ -413,13 +591,21 @@ function Form({
                   disabled={!clientId || editing}
                   onChange={setEngagementId}
                   options={[
-                    { value: '', label: clientId ? 'No project' : 'Choose a client first' },
-                    ...(editing && task?.engagement
-                      ? [{ value: task.engagement.id, label: task.engagement.title }]
-                      : []),
-                    ...(engagements.data ?? []).map((x) => ({ value: x.id, label: x.title })),
+                    {
+                      value: '',
+                      label: !clientId
+                        ? 'Choose a client first'
+                        : relatedOptions.length
+                          ? 'No engagement'
+                          : 'No open engagement for this client',
+                    },
+                    ...relatedOptions,
                   ]}
                 />
+                <p className="text-xs text-muted">
+                  The client&apos;s engagement this work belongs to. The service is chosen
+                  separately.
+                </p>
               </Label>
               <Label text="Service (if applicable)" htmlFor="tf-service">
                 <Selectbox
@@ -546,7 +732,18 @@ function Form({
                 />
                 {err('due')}
               </Label>
-              <Label text="Due Time" htmlFor="tf-time">
+              {/* Octavia's C7: All Day sits with the due time it replaces. */}
+              <div className="flex min-w-0 flex-col gap-1">
+                <div className="flex items-center justify-between gap-2">
+                  <label htmlFor="tf-time" className="text-sm font-medium text-text">
+                    Due Time
+                  </label>
+                  <Checkbox
+                    label="All Day"
+                    checked={allDay}
+                    onChange={(e) => setAllDay(e.target.checked)}
+                  />
+                </div>
                 <select
                   id="tf-time"
                   className={field}
@@ -560,20 +757,21 @@ function Form({
                     </option>
                   ))}
                 </select>
-              </Label>
+              </div>
             </div>
+            <p className="mt-2 text-xs text-muted" data-testid="due-rule">
+              {allDay
+                ? 'All day: due by the end of the due date.'
+                : 'Due at that time on the due date.'}{' '}
+              Dates and times are in your firm&apos;s time zone; an open task is overdue after that.
+            </p>
             <div className="mt-3 flex flex-wrap items-center gap-6">
-              <Checkbox
-                label="All Day"
-                checked={allDay}
-                onChange={(e) => setAllDay(e.target.checked)}
-              />
               <div className="flex items-center gap-3 text-sm text-heading">
                 <div className="flex items-center gap-3">
                   <Toggle
                     label="Recurring Task"
                     checked={false}
-                    onChange={() => router.push('/tasks/recurring/new')}
+                    onChange={() => guard.leave('/tasks/recurring/new')}
                   />
                   <span>
                     <span className="block font-medium">Recurring Task</span>
@@ -616,31 +814,15 @@ function Form({
             subtitle="Upload relevant documents (optional)."
             testId="form-attachments"
           >
-            {task && task.attachments.length > 0 ? (
-              <ul className="mb-3 divide-y divide-divider rounded-lg border border-divider">
-                {task.attachments.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between gap-3 p-3 text-sm">
-                    <span className="truncate text-heading">{a.fileName}</span>
-                    <span className="text-xs text-muted">
-                      {a.clientVisible ? 'Visible to client' : 'Staff only'}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-control-border bg-canvas p-6 text-center">
-              <CloudArrowUp aria-hidden weight="fill" className="size-10 text-action" />
-              <p className="text-sm text-heading">Drag and drop files here or click to upload</p>
-              <p className="text-xs text-muted">
-                Supported files: PDF, DOC, DOCX, XLS, XLSX, PNG, JPG (Max 10MB each)
-              </p>
-              <span
-                className="rounded-control border border-border bg-surface px-4 py-2 text-sm text-muted"
-                title="Documents are attached from the client's own documents once the task is saved."
-              >
-                Browse Files
-              </span>
-            </div>
+            <AttachmentDrop
+              attached={attached}
+              queue={files.queue}
+              onFiles={addFiles}
+              onRemove={files.remove}
+              blocked={filesBlocked}
+              note={filesNote}
+            />
+            {err('files')}
           </Section>
         </div>
 
@@ -677,10 +859,11 @@ function Form({
               onChange={(e) => {
                 setRemind(e.target.checked);
                 if (e.target.checked && reminders.length === 0)
-                  setReminders([{ key: 'r0', daysBefore: 1 }]);
+                  setReminders([{ key: 'r0', daysBefore: 1, timeOfDay: null, custom: false }]);
               }}
             />
             {remind ? <ReminderList reminders={reminders} onChange={setReminders} /> : null}
+            {err('reminders')}
           </Section>
           <Section title="Dependencies" testId="form-depends">
             <Checkbox
@@ -732,7 +915,7 @@ function Form({
         <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="secondary"
-            onClick={() => router.push(task ? `/tasks/${task.id}` : '/tasks')}
+            onClick={() => guard.leave(task ? `/tasks/${task.id}` : '/tasks')}
           >
             Cancel
           </Button>
@@ -777,7 +960,10 @@ function Form({
                 <li key={t.id}>
                   <button
                     type="button"
-                    onClick={() => router.push(`/tasks/new?template=${t.id}`)}
+                    onClick={() => {
+                      setPicking(false);
+                      guard.leave(`/tasks/new?template=${t.id}`);
+                    }}
                     className="flex w-full flex-col py-2 text-left hover:bg-canvas"
                   >
                     <span className="text-sm font-semibold text-heading">{t.name}</span>
@@ -789,6 +975,7 @@ function Form({
           )}
         </Modal>
       ) : null}
+      <UnsavedDialog guard={guard} onSave={() => submit(false)} saving={save.isPending} />
       {tpl ? (
         <Modal
           open

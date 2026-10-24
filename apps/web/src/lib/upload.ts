@@ -168,6 +168,31 @@ export async function uploadLogo<T>(
   return retryWhenUnavailable(() => steps.finish(ticket.uploadToken), { signal: steps.signal });
 }
 
+/**
+ * An image of one of `contentTypes`, at most `maxBytes` (the lead email's inline images): checked
+ * here first (400 FILE_TYPE_NOT_ALLOWED, FILE_EMPTY or FILE_TOO_LARGE), then the same three steps
+ * as a logo.
+ */
+export async function uploadImage<T, C extends string>(
+  file: File,
+  steps: {
+    contentTypes: readonly C[];
+    maxBytes: number;
+    start: (body: { contentType: C; sizeBytes: number; sha256: string }) => Promise<UploadTicket>;
+    finish: (uploadToken: string) => Promise<T>;
+    signal?: AbortSignal;
+  },
+): Promise<T> {
+  const contentType = steps.contentTypes.find((t) => t === file.type);
+  if (!contentType) throw refused('FILE_TYPE_NOT_ALLOWED');
+  if (file.size === 0) throw refused('FILE_EMPTY');
+  if (file.size > steps.maxBytes) throw refused('FILE_TOO_LARGE');
+  const sha256 = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
+  const ticket = await steps.start({ contentType, sizeBytes: file.size, sha256 });
+  await send(file, ticket, steps);
+  return retryWhenUnavailable(() => steps.finish(ticket.uploadToken), { signal: steps.signal });
+}
+
 /** Step 2: the file to storage, the way the ticket says. */
 function send(file: File, ticket: UploadTicket, steps: Sending): Promise<void> {
   return ticket.method === 'PUT' ? sendWhole(file, ticket, steps) : sendParts(file, ticket, steps);

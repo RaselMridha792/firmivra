@@ -6,12 +6,13 @@ import { Button, Checkbox, Modal, normalizeHex } from '@firmivra/ui';
 import Image from 'next/image';
 import { useId, useState } from 'react';
 import {
-  type FrameState,
+  FixedRow,
   InputRow,
   SelectRow,
   SettingsCard,
   TextareaRow,
   ToggleRow,
+  type FrameState,
 } from './settings-look';
 import {
   ALERT_HOURS,
@@ -20,8 +21,8 @@ import {
   FILE_TYPES,
   type FieldErrors,
   type FileType,
-  FINAL_REMINDER_DAYS,
-  FIRST_REMINDER_DAYS,
+  nextReminderDay,
+  REMINDER_DAYS,
   fileSizeOptions,
   type Group,
   type SectionId,
@@ -46,6 +47,12 @@ export interface Member {
 
 const dayOptions = (values: number[]) =>
   values.map((n) => ({ value: String(n), label: `${n} ${n === 1 ? 'day' : 'days'}` }));
+/** A reminder's choices, said from when they count (Octavia's I8: "after sending"). */
+const afterSending = (values: number[]) =>
+  values.map((n) => ({
+    value: String(n),
+    label: `${n} ${n === 1 ? 'day' : 'days'} after sending`,
+  }));
 
 /** The firm's active members, plus the saved owner if the list does not have them. */
 function ownerOptions(members: Member[], current: Member | null) {
@@ -227,7 +234,8 @@ export function NotificationsCard(props: CardProps) {
 
 export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProps) {
   const n = draft?.notifications;
-  const w = 'w-40';
+  const first = n?.firstReminderAfterDays ?? null;
+  const w = 'w-48';
   return (
     <>
       {n ? (
@@ -247,43 +255,68 @@ export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProp
             onChange={(on) => set('notifications', { notifyAssignedStaff: on })}
           />
           <SelectRow
-            label="First reminder after"
+            label="First reminder"
             width={w}
-            value={n.firstReminderAfterDays === null ? '' : String(n.firstReminderAfterDays)}
+            value={first === null ? '' : String(first)}
             options={[
-              { value: '', label: 'No reminder' },
-              ...dayOptions(withCurrent(FIRST_REMINDER_DAYS, n.firstReminderAfterDays)),
+              // Off for both reminders: there is no first reminder without a final one.
+              { value: '', label: 'No reminders' },
+              ...afterSending(
+                withCurrent(
+                  REMINDER_DAYS.filter((d) => nextReminderDay(d) !== null),
+                  first,
+                ),
+              ),
             ]}
             disabled={readOnly}
             error={errors['notifications.firstReminderAfterDays']}
-            onChange={(v) => set('notifications', { firstReminderAfterDays: v ? Number(v) : null })}
+            onChange={(v) => {
+              if (!v) {
+                set('notifications', {
+                  firstReminderAfterDays: null,
+                  finalReminderAfterDays: null,
+                });
+                return;
+              }
+              // The final reminder follows the first: it moves to the next day after it if needed.
+              const days = Number(v);
+              const final = n.finalReminderAfterDays;
+              set('notifications', {
+                firstReminderAfterDays: days,
+                finalReminderAfterDays:
+                  final !== null && final > days ? final : nextReminderDay(days),
+              });
+            }}
           />
           <SelectRow
-            label="Final reminder after"
+            label="Final reminder"
             width={w}
             value={n.finalReminderAfterDays === null ? '' : String(n.finalReminderAfterDays)}
-            options={[
-              { value: '', label: 'No reminder' },
-              ...dayOptions(withCurrent(FINAL_REMINDER_DAYS, n.finalReminderAfterDays)),
-            ]}
-            disabled={readOnly}
+            options={
+              first === null
+                ? [{ value: '', label: 'No reminders' }]
+                : afterSending(
+                    withCurrent(
+                      REMINDER_DAYS.filter((d) => d > first),
+                      n.finalReminderAfterDays,
+                    ),
+                  )
+            }
+            disabled={readOnly || first === null}
             error={errors['notifications.finalReminderAfterDays']}
-            onChange={(v) => set('notifications', { finalReminderAfterDays: v ? Number(v) : null })}
+            onChange={(v) => set('notifications', { finalReminderAfterDays: Number(v) })}
           />
           <SelectRow
             label="Expiration alert"
             width={w}
             value={n.expirationAlertHours === null ? '' : String(n.expirationAlertHours)}
-            options={[
-              { value: '', label: 'No alert' },
-              ...withCurrent(ALERT_HOURS, n.expirationAlertHours).map((h) => ({
-                value: String(h),
-                label: `${h} hours before`,
-              })),
-            ]}
+            options={withCurrent(ALERT_HOURS, n.expirationAlertHours).map((h) => ({
+              value: String(h),
+              label: `${h} ${h === 1 ? 'hour' : 'hours'} before expiry`,
+            }))}
             disabled={readOnly}
             error={errors['notifications.expirationAlertHours']}
-            onChange={(v) => set('notifications', { expirationAlertHours: v ? Number(v) : null })}
+            onChange={(v) => set('notifications', { expirationAlertHours: Number(v) })}
           />
         </>
       ) : null}
@@ -453,13 +486,8 @@ export function SecurityFields({
     <>
       {s ? (
         <>
-          <ToggleRow
-            label="Enable encrypted file uploads"
-            width="w-20"
-            checked
-            fixed="Uploaded files are always stored encrypted."
-            onChange={() => undefined}
-          />
+          {/* Octavia's I11: a label, not a switch that cannot be switched. */}
+          <FixedRow label="Encrypted file uploads" value="Always on" width="w-20" />
           <FileTypesRow
             value={s.acceptedFileTypes}
             disabled={readOnly}
