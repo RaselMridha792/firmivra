@@ -23,6 +23,7 @@ import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { PageState } from '../../../../../../../components/page-state';
 import { CATALOG_ICONS, IconTile, money, tone } from '../../../_components/catalog-shared';
+import { ViewFullPage } from '../../../_components/package-parts';
 
 export function Panel({
   title,
@@ -216,85 +217,96 @@ export function PackagePreview({
   value: CreateServicePackageRequest;
   selected: CatalogServiceRow[];
 }) {
-  const [full, setFull] = useState(false);
   const meta = value.icon ? CATALOG_ICONS[value.icon] : undefined;
   const Glyph = meta?.glyph ?? Cube;
-  const content = (expanded: boolean) => (
-    <Card
-      className="min-w-0 space-y-4 p-4"
-      data-testid={expanded ? 'package-full-preview' : 'package-client-preview'}
+  const offered = (value.addOns ?? []).filter((a) => a.offered && a.name.trim());
+  return (
+    <Panel
+      title="Package Preview (Client View)"
+      marker={<Eye weight="fill" className="size-4" />}
+      action={
+        // Octavia's S8: the full client page, shared with the edit and detail screens.
+        <ViewFullPage
+          data={{
+            name: value.name,
+            icon: value.icon ?? null,
+            priceCents: value.packagePriceCents ?? null,
+            description: value.shortDescription,
+            included: selected.map((row) => ({
+              name: row.name,
+              quoteRequired: row.price.type === 'CUSTOM_QUOTE',
+            })),
+            addOns: offered.map((a) => ({
+              name: a.name.trim(),
+              priceCents: a.priceCents,
+              description: a.description || null,
+            })),
+            allowClientAddOns: value.allowClientAddOns ?? false,
+          }}
+        />
+      }
     >
-      <div className="flex items-start gap-3">
-        <span className="flex size-16 shrink-0 items-center justify-center rounded-lg bg-info-soft text-action">
-          <Glyph weight="fill" className="size-9" />
-        </span>
-        <div className="min-w-0">
-          <h3 className="break-words font-display text-xl font-bold text-heading">
-            {value.name || 'Package Preview'}
-          </h3>
-          <p className="text-xl font-bold text-action">{money(value.packagePriceCents)}</p>
-          <p className="mt-1 break-words text-sm text-muted">
-            {value.shortDescription || 'No package description yet.'}
-          </p>
+      <Card className="min-w-0 space-y-4 p-4" data-testid="package-client-preview">
+        <div className="flex items-start gap-3">
+          <span className="flex size-16 shrink-0 items-center justify-center rounded-lg bg-info-soft text-action">
+            <Glyph weight="fill" className="size-9" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="break-words font-display text-xl font-bold text-heading">
+              {value.name || 'Package Preview'}
+            </h3>
+            <p className="text-xl font-bold text-action">{money(value.packagePriceCents)}</p>
+            <p className="mt-1 break-words text-sm text-muted">
+              {value.shortDescription || 'No package description yet.'}
+            </p>
+          </div>
         </div>
-      </div>
-      <div>
-        <h4 className="font-semibold text-heading">What&apos;s Included:</h4>
-        {selected.length ? (
-          <ul className="mt-2 space-y-2">
-            {selected.map((row) => (
-              <li key={row.id} className="flex gap-2 text-sm">
-                <CheckCircle weight="fill" className="size-5 shrink-0 text-action" />
-                <span className="break-words">{row.name}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-2 text-sm text-muted">No services selected.</p>
-        )}
-      </div>
-      <div className="border-t border-divider pt-3">
-        <h4 className="font-semibold text-heading">Optional Add-Ons:</h4>
-        {value.addOns?.some((a) => a.offered) ? (
-          <ul className="mt-2 space-y-2">
-            {value.addOns
-              .filter((a) => a.offered)
-              .map((a) => (
-                <li key={a.name} className="flex gap-2 text-sm">
-                  <PlusCircle weight="fill" className="size-5 shrink-0 text-action" />
-                  <span className="break-words">
-                    {a.name} (+{money(a.priceCents)})
-                  </span>
+        <div>
+          <h4 className="font-semibold text-heading">What&apos;s Included:</h4>
+          {selected.length ? (
+            <ul className="mt-2 space-y-2">
+              {selected.map((row) => (
+                <li key={row.id} className="flex gap-2 text-sm">
+                  <CheckCircle weight="fill" className="size-5 shrink-0 text-action" />
+                  <span className="break-words">{row.name}</span>
+                  {row.price.type === 'CUSTOM_QUOTE' ? (
+                    <span className="text-xs text-muted">(Quote required)</span>
+                  ) : null}
                 </li>
               ))}
-          </ul>
-        ) : (
-          <p className="mt-2 text-sm text-muted">No optional add-ons selected.</p>
-        )}
-      </div>
-      <Button disabled className="w-full" title="Client checkout is not part of this staff preview">
-        Get Started
-      </Button>
-    </Card>
-  );
-  return (
-    <>
-      <Panel
-        title="Package Preview (Client View)"
-        marker={<Eye weight="fill" className="size-4" />}
-        action={
-          <Button className="text-xs" variant="outline" onClick={() => setFull(true)}>
-            <Eye aria-hidden weight="fill" className="size-4" />
-            View Full Page
-          </Button>
-        }
-      >
-        {content(false)}
-      </Panel>
-      <Modal open={full} title="Package Preview (Client View)" onClose={() => setFull(false)}>
-        {full ? content(true) : null}
-      </Modal>
-    </>
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-muted">No services selected.</p>
+          )}
+        </div>
+        <div className="border-t border-divider pt-3">
+          <h4 className="font-semibold text-heading">Optional Add-Ons:</h4>
+          {value.addOns?.some((a) => a.offered) ? (
+            <ul className="mt-2 space-y-2">
+              {value.addOns
+                .filter((a) => a.offered)
+                .map((a) => (
+                  <li key={a.name} className="flex gap-2 text-sm">
+                    <PlusCircle weight="fill" className="size-5 shrink-0 text-action" />
+                    <span className="break-words">
+                      {a.name} (+{money(a.priceCents)})
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-muted">No optional add-ons selected.</p>
+          )}
+        </div>
+        <Button
+          disabled
+          className="w-full"
+          title="Client checkout is not part of this staff preview"
+        >
+          Get Started
+        </Button>
+      </Card>
+    </Panel>
   );
 }
 

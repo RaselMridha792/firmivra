@@ -22,6 +22,7 @@ import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { CATALOG_ERRORS, money } from '../../../_components/catalog-shared';
+import { QuoteRequiredNote, selectedTotal } from '../../../_components/package-parts';
 import {
   PackageIcon,
   PackagePreview,
@@ -263,7 +264,7 @@ export function PackageBuilder() {
                   className="mt-2 rounded-control bg-disabled px-3 py-2 text-xl font-bold text-heading"
                   data-testid="package-total"
                 >
-                  {money(totals?.totalSelectedCents)}
+                  {selectedTotal(totals)}
                 </p>
                 <p className="mt-1 text-xs text-muted">Based on current individual prices.</p>
               </div>
@@ -346,7 +347,9 @@ export function PackageBuilder() {
                 </p>
               </div>
             </div>
-            {totals?.variablePrice ? (
+            {totals?.quoteRequired ? (
+              <QuoteRequiredNote />
+            ) : totals?.variablePrice ? (
               <p role="status" className="text-sm text-warning">
                 Variable-price services are included. Savings are an estimate, not guaranteed.
               </p>

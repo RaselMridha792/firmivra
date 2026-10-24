@@ -26,7 +26,14 @@ import {
   money,
   tone,
 } from './catalog-shared';
-import { PackagePreview, Panel } from './package-parts';
+import {
+  PackagePreview,
+  Panel,
+  QuoteRequiredNote,
+  selectedTotal,
+  ViewFullPage,
+  type PreviewData,
+} from './package-parts';
 
 const field =
   'min-h-10 w-full min-w-0 rounded-control border border-border bg-surface px-3 text-sm text-text placeholder:text-muted focus:outline-2 focus:outline-accent-500';
@@ -134,7 +141,25 @@ function Builder({
   );
   const panel = pricing.data;
   const included = services.filter((s) => s.included);
-  const total = panel?.totalSelectedCents ?? 0;
+  const preview: PreviewData = {
+    name,
+    icon: icon || null,
+    // The price the API works out (a discount alone sets it), else the one typed.
+    priceCents: panel?.packagePriceCents ?? priceCents,
+    description,
+    included: included.map((s) => ({
+      name: s.name,
+      quoteRequired: s.pricingType === 'CUSTOM_QUOTE',
+    })),
+    addOns: addOns
+      .filter((a) => a.offered && a.name.trim())
+      .map((a) => ({
+        name: a.name.trim(),
+        priceCents: toCents(a.price) ?? 0,
+        description: a.description.trim() || null,
+      })),
+    allowClientAddOns: allowAddOns,
+  };
 
   const body = (): UpdateServicePackageRequest => ({
     version: pkg?.version ?? '',
@@ -397,7 +422,7 @@ function Builder({
                   className="mt-1 rounded-control bg-disabled px-3 py-2 text-xl font-bold text-heading"
                   data-testid="builder-total"
                 >
-                  {money(total)}
+                  {services.length === 0 ? money(0) : selectedTotal(panel)}
                 </p>
                 <p className="mt-1 text-xs text-muted">Based on current individual prices.</p>
               </div>
@@ -450,7 +475,9 @@ function Builder({
                 </p>
               </div>
             </div>
-            {panel?.variablePrice ? (
+            {panel?.quoteRequired ? (
+              <QuoteRequiredNote />
+            ) : panel?.variablePrice ? (
               <p className="mt-3 flex items-center gap-2 rounded-lg bg-warning-soft p-3 text-sm text-text">
                 <Warning aria-hidden weight="fill" className="size-5 shrink-0 text-gold" />A
                 Starting At, Hourly or Custom Quote service is included, so the savings are an
@@ -560,19 +587,12 @@ function Builder({
         </div>
 
         <aside className="flex min-w-0 flex-col gap-4" aria-label="Preview and settings">
-          <Panel title="Package Preview (Client View)" testId="builder-preview">
-            <PackagePreview
-              data={{
-                name,
-                icon: icon || null,
-                priceCents,
-                description,
-                included: included.map((s) => s.name),
-                addOns: addOns
-                  .filter((a) => a.offered && a.name.trim())
-                  .map((a) => ({ name: a.name.trim(), priceCents: toCents(a.price) ?? 0 })),
-              }}
-            />
+          <Panel
+            title="Package Preview (Client View)"
+            testId="builder-preview"
+            aside={<ViewFullPage data={preview} />}
+          >
+            <PackagePreview data={preview} />
           </Panel>
           <Panel title="Internal Notes (Not Visible to Clients)" testId="builder-notes">
             <Textarea

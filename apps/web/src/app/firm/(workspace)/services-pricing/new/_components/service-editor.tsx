@@ -28,6 +28,7 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { activationGap, CATALOG_ERRORS } from '../../_components/catalog-shared';
+import { lineCents, serviceTotalCents } from '../../_components/service-total';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { CatalogHeader, ClientPreview, IconPicker, money, Panel, TextList } from './service-parts';
 
@@ -67,13 +68,6 @@ const frequencies = [
   { value: 'SEMIANNUAL', label: 'Semiannual' },
   { value: 'ANNUAL', label: 'Annual' },
 ];
-
-/** Quantity × rate of one line, in cents (spec §6: calculated automatically). */
-const lineCents = (line?: { quantity?: number; rateCents?: number }) =>
-  Math.round(
-    (typeof line?.quantity === 'number' && Number.isFinite(line.quantity) ? line.quantity : 0) *
-      (line?.rateCents ?? 0),
-  );
 
 /** The column name above a line item field on small screens; the table header shows it on lg. */
 function LineLabel({ children }: { children: ReactNode }) {
@@ -184,8 +178,8 @@ export function ServiceEditor({
       .filter((c) => c.status === 'ACTIVE' || c.id === initial?.category?.id)
       .map((c) => ({ value: c.id, label: c.name })),
   ];
-  const currency = money(value.basePriceCents);
-  const linesTotal = (value.lineItems ?? []).reduce((sum, line) => sum + lineCents(line), 0);
+  // The total, as the API works it out: ADDITIVE line items add to the base price (S6).
+  const currency = money(serviceTotalCents(value));
   const previewPrice =
     value.pricingType === 'CUSTOM_QUOTE'
       ? 'Quote required'
@@ -454,15 +448,10 @@ export function ServiceEditor({
                       min={0}
                       step="0.01"
                       value={(value.lineItems?.[i]?.rateCents ?? 0) / 100}
+                      // Only this line's rate: setting the whole list would remount the rows
+                      // and take the cursor out of the field on every key.
                       onChange={(e) =>
-                        put(
-                          `lineItems`,
-                          (value.lineItems ?? []).map((x, index) =>
-                            index === i
-                              ? { ...x, rateCents: Math.round(Number(e.target.value) * 100) }
-                              : x,
-                          ),
-                        )
+                        put(`lineItems.${i}.rateCents`, Math.round(Number(e.target.value) * 100))
                       }
                       error={errors.lineItems?.[i]?.rateCents?.message}
                     />
@@ -510,8 +499,7 @@ export function ServiceEditor({
                 Add Line Item
               </Button>
               <p className="text-base">
-                Total Price:{' '}
-                <strong>{value.lineItemsMode === 'ADDITIVE' ? money(linesTotal) : currency}</strong>
+                Total Price: <strong data-testid="service-total">{currency}</strong>
               </p>
             </div>
           </Panel>
@@ -523,6 +511,7 @@ export function ServiceEditor({
             icon={value.icon}
             price={previewPrice}
             included={(value.included ?? []).filter(Boolean)}
+            notIncluded={(value.notIncluded ?? []).filter(Boolean)}
             addons={(value.addOns ?? []).filter(
               (a) => a.status !== 'INACTIVE' && a.clientSelectable,
             )}
