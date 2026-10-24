@@ -45,10 +45,21 @@ import {
   UpdateTaskSeriesRequest,
   UpdateTaskTemplateRequest,
 } from './work.js';
+import {
+  PublishTaskDraftRequest,
+  SaveTaskDraftRequest,
+  TaskDraft,
+  TaskDraftId,
+  TaskDraftPage,
+  TaskDraftQuery,
+  UpdateTaskDraftRequest,
+} from './drafts.js';
 import { TaskId } from './schemas.js';
 
 const TASKS = '/business/tasks';
 const task = (id: string) => `${TASKS}/${parseInput(TaskId, id)}`;
+const DRAFTS = `${TASKS}/drafts`;
+const draft = (id: string) => `${DRAFTS}/${parseInput(TaskDraftId, id)}`;
 const type = (id: string) => `/business/task-types/${parseInput(TaskTypeId, id)}`;
 const template = (id: string) => `/business/task-templates/${parseInput(TaskTemplateId, id)}`;
 const series = (id: string) => `/business/task-series/${parseInput(TaskSeriesId, id)}`;
@@ -142,6 +153,24 @@ export function createTaskWorkClient(request: ApiRequest) {
       request(OkResponse, `${task(id)}/attachments/${parseInput(TaskAttachmentId, attachmentId)}`, {
         method: 'DELETE',
       }),
+
+    // ----- Drafts (./drafts.ts) -----
+    drafts: async (query: TaskDraftQuery = {}): Promise<TaskDraftPage> =>
+      request(TaskDraftPage, `${DRAFTS}${toQuery(parseInput(TaskDraftQuery, query))}`),
+    draft: async (id: string): Promise<TaskDraft> => request(TaskDraft, draft(id)),
+    /** Save as Draft: only the title is required. */
+    saveDraft: async (body: SaveTaskDraftRequest): Promise<TaskDraft> =>
+      request(TaskDraft, DRAFTS, post(parseInput(SaveTaskDraftRequest, body))),
+    updateDraft: async (id: string, body: UpdateTaskDraftRequest): Promise<TaskDraft> =>
+      request(TaskDraft, draft(id), {
+        method: 'PATCH',
+        body: parseInput(UpdateTaskDraftRequest, body),
+      }),
+    /** Save Task on a draft: the same id becomes an OPEN task. 400 naming `clientId` without one. */
+    publishDraft: async (id: string, body: PublishTaskDraftRequest = {}): Promise<TaskDetail> =>
+      request(TaskDetail, `${draft(id)}/publish`, post(parseInput(PublishTaskDraftRequest, body))),
+    discardDraft: async (id: string): Promise<OkResponse> =>
+      request(OkResponse, draft(id), { method: 'DELETE' }),
 
     // ----- Task types -----
     types: async (): Promise<TaskType[]> =>

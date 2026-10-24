@@ -3,7 +3,8 @@
 // with such an id breaks the screens locally.
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import * as seed from '../prisma/seed-data.js';
+import * as seedData from '../prisma/seed-data.js';
+import * as seedR38 from '../prisma/seed-r38.js';
 
 const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,7 +21,7 @@ function idsIn(value: unknown, path: string, found: [string, string][]): [string
 }
 
 describe('seed ids', () => {
-  const ids = Object.entries(seed)
+  const ids = Object.entries({ ...seedData, ...seedR38 })
     .filter(([name]) => name.startsWith('SEED_'))
     .flatMap(([name, value]) => idsIn(value, name, []));
 

@@ -12,10 +12,20 @@ export interface DrawerProps {
   footer?: ReactNode;
   children: ReactNode;
   onClose: () => void;
+  /** `wide` (about 1024 px) for a whole builder, such as Create Campaign on Leads; `md` otherwise. */
+  size?: 'md' | 'wide';
 }
 
 /** A panel that slides in from the right edge; the native dialog gives the focus trap and Escape. */
-export function Drawer({ open, title, subtitle, footer, children, onClose }: DrawerProps) {
+export function Drawer({
+  open,
+  title,
+  subtitle,
+  footer,
+  children,
+  onClose,
+  size = 'md',
+}: DrawerProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
@@ -33,7 +43,7 @@ export function Drawer({ open, title, subtitle, footer, children, onClose }: Dra
       aria-labelledby={titleId}
       onCancel={onClose}
       onClick={(event) => event.target === event.currentTarget && onClose()}
-      className="ui-drawer ml-auto h-full max-h-full w-full max-w-md bg-transparent p-0 text-text"
+      className={`ui-drawer ml-auto h-full max-h-full w-full ${size === 'wide' ? 'max-w-5xl' : 'max-w-md'} bg-transparent p-0 text-text`}
     >
       <div className="flex h-full flex-col bg-surface shadow-lg">
         <div

@@ -33,6 +33,7 @@ const base = {
   service: { id: '0196a000-0000-7000-8000-0000000000a1', name: 'Annual Tax' },
   services: [],
   tags: [{ tag: { name: 'Hot' } }],
+  commAudience: [],
   assignedMember: null,
   activities: [],
 } as unknown as RowData;
@@ -134,5 +135,16 @@ describe('requireFirmAdmin (L11)', () => {
     for (const role of ['MANAGER', 'STAFF', 'BOOKKEEPER', 'TAX_PREPARER', 'CLIENT_SUPPORT']) {
       expect(() => requireFirmAdmin(actor(role)), role).toThrow(/Only an Owner or Admin/);
     }
+  });
+});
+
+describe('toRow campaign (L7)', () => {
+  it('shows the Communications campaign the lead joined last, or none', () => {
+    const campaign = { id: '0196a000-0000-7000-8000-0000000000c1', name: 'Spring Email' };
+    expect(toRow(base).campaign).toBeNull();
+    expect(
+      toRow({ ...base, commAudience: [{ communication: campaign }] } as unknown as RowData)
+        .campaign,
+    ).toEqual(campaign);
   });
 });

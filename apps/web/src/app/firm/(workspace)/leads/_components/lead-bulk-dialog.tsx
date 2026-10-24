@@ -1,13 +1,16 @@
 'use client';
 
-import type {
-  LeadBulkRequest,
-  LeadBulkResult,
-  LeadOptions,
-  LeadPipelineStatus,
+import {
+  type LeadBulkRequest,
+  type LeadBulkResult,
+  type LeadOptions,
+  type LeadPipelineStatus,
+  TAG_ERRORS,
 } from '@firmivra/types';
-import { Button, Input, Modal, Select } from '@firmivra/ui';
+import { Button, Modal, Select } from '@firmivra/ui';
 import { useState } from 'react';
+import { useFirm } from '../../../../../components/firm-context';
+import { TagPicker } from '../../../../../components/tag-picker';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
@@ -30,7 +33,10 @@ export function LeadBulkDialog({ state, options, onClose }: LeadBulkDialogProps)
   const [assignedUserId, setAssignedUserId] = useState('');
   const [stage, setStage] = useState<Exclude<LeadPipelineStatus, 'CONVERTED'>>('SUBMITTED');
   const [campaignId, setCampaignId] = useState('');
-  const [tagText, setTagText] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  // Owner and Admin may add a tag the firm does not have (the API's rule too).
+  const { role } = useFirm();
+  const canCreate = role === 'OWNER' || role === 'ADMIN';
   const bulk = useApiMutation((body: LeadBulkRequest) => api.leadPipeline.bulk(body), {
     invalidate: LEAD_PIPELINE_KEY,
   });
@@ -63,7 +69,8 @@ export function LeadBulkDialog({ state, options, onClose }: LeadBulkDialogProps)
             disabled={
               bulk.isPending ||
               (state.action === 'ASSIGN' && !selectedStaffId) ||
-              (state.action === 'CAMPAIGN' && !selectedCampaignId)
+              (state.action === 'CAMPAIGN' && !selectedCampaignId) ||
+              (state.action === 'TAGS' && tags.length === 0)
             }
             className={
               state.action === 'ARCHIVE'
@@ -86,17 +93,8 @@ export function LeadBulkDialog({ state, options, onClose }: LeadBulkDialogProps)
           if (state.action === 'STAGE') submit({ action: 'STAGE', ids: state.ids, stage });
           if (state.action === 'CAMPAIGN' && selectedCampaignId)
             submit({ action: 'CAMPAIGN', ids: state.ids, campaignId: selectedCampaignId });
-          if (state.action === 'TAGS') {
-            const add = [
-              ...new Set(
-                tagText
-                  .split(',')
-                  .map((tag) => tag.trim())
-                  .filter(Boolean),
-              ),
-            ];
-            if (add.length) submit({ action: 'TAGS', ids: state.ids, add: add.slice(0, 10) });
-          }
+          if (state.action === 'TAGS' && tags.length)
+            submit({ action: 'TAGS', ids: state.ids, add: tags });
           if (state.action === 'ARCHIVE') submit({ action: 'ARCHIVE', ids: state.ids });
         }}
       >
@@ -138,17 +136,16 @@ export function LeadBulkDialog({ state, options, onClose }: LeadBulkDialogProps)
           )
         ) : null}
         {state.action === 'TAGS' ? (
-          <>
-            <Input
-              label="Tags"
-              value={tagText}
-              onChange={(event) => setTagText(event.target.value)}
-              placeholder="Separate tags with commas"
-            />
-            {options?.tags.length ? (
-              <p className="text-sm text-muted">Existing tags: {options.tags.join(', ')}</p>
-            ) : null}
-          </>
+          <TagPicker
+            label="Tags to add"
+            value={tags}
+            onChange={setTags}
+            options={options?.tags ?? []}
+            loading={!options}
+            canCreate={canCreate}
+            max={10}
+            hint="The leads keep the tags they have; these are added."
+          />
         ) : null}
         {state.action === 'ARCHIVE' ? (
           <p className="text-sm text-text">
@@ -157,7 +154,7 @@ export function LeadBulkDialog({ state, options, onClose }: LeadBulkDialogProps)
         ) : null}
         {bulk.error ? (
           <p role="alert" className="text-sm text-danger">
-            {errorMessage(bulk.error)}
+            {errorMessage(bulk.error, TAG_ERRORS)}
           </p>
         ) : null}
       </form>

@@ -2,6 +2,7 @@
 
 import { ArrowDown, ArrowUp, Copy, Plus, Trash, X } from '@phosphor-icons/react';
 import type { ReactNode } from 'react';
+import { timeText } from './task-shared';
 
 /** The parts Create / Edit Task and the template editor share. */
 export const field =
@@ -108,9 +109,43 @@ export interface Item {
 }
 export interface Reminder {
   key: string;
+  /** NaN while a custom number is being typed (the form says what to fix). */
   daysBefore: number;
+  /** HH:MM, or null for the firm's usual reminder time. */
+  timeOfDay: string | null;
+  /** Octavia's A3: any number of days before, and a time of day if wanted. */
+  custom: boolean;
 }
 export const DAYS = [0, 1, 2, 3, 7, 14, 30];
+
+/** Every half hour, HH:MM. */
+export const TIMES = Array.from({ length: 48 }, (_, i) => {
+  const m = i * 30;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+});
+
+/** Saved reminders as rows: one that is not a preset, or has a time, is a custom one. */
+export const toReminders = (list: { daysBefore: number; timeOfDay: string | null }[]) =>
+  list.map((r, i) => ({
+    key: `r${i}`,
+    daysBefore: r.daysBefore,
+    timeOfDay: r.timeOfDay,
+    custom: r.timeOfDay !== null || !DAYS.includes(r.daysBefore),
+  }));
+
+/**
+ * What the API would refuse (INVALID_REMINDER), said first: a custom number outside 0 to 365, two
+ * reminders alike, a same-day one after the due time.
+ */
+export function reminderProblem(list: Reminder[], dueTime?: string | null): string | undefined {
+  if (list.some((r) => !Number.isInteger(r.daysBefore) || r.daysBefore < 0 || r.daysBefore > 365))
+    return 'Enter 0 to 365 days before the due date.';
+  const keys = list.map((r) => `${r.daysBefore}@${r.timeOfDay ?? ''}`);
+  if (new Set(keys).size < keys.length) return 'Two reminders are the same. Remove one.';
+  if (dueTime && list.some((r) => r.daysBefore === 0 && r.timeOfDay && r.timeOfDay > dueTime))
+    return 'A same-day reminder cannot be after the due time.';
+  return undefined;
+}
 
 /**
  * The checklist rows: edit the text, mark Required, move up or down, duplicate (Octavia's C11: a
@@ -224,7 +259,10 @@ export function ChecklistItems({
   );
 }
 
-/** The reminders, each a number of days before the due date, with Add Reminder. */
+/**
+ * The reminders, each a number of days before the due date, with Add Reminder. Custom… takes any
+ * number of days (0 to 365) and, if wanted, a time of day; the presets use the firm's usual time.
+ */
 export function ReminderList({
   reminders,
   onChange,
@@ -232,43 +270,90 @@ export function ReminderList({
   reminders: Reminder[];
   onChange: (reminders: Reminder[]) => void;
 }) {
+  const set = (key: string, change: Partial<Reminder>) =>
+    onChange(reminders.map((x) => (x.key === key ? { ...x, ...change } : x)));
   return (
     <ul className="mt-2 flex flex-col gap-2">
       {reminders.map((r, i) => (
-        <li key={r.key} className="flex items-center gap-2">
-          <select
-            aria-label={`Reminder ${i + 1}`}
-            className={field}
-            value={r.daysBefore}
-            onChange={(e) =>
-              onChange(
-                reminders.map((x) =>
-                  x.key === r.key ? { ...x, daysBefore: Number(e.target.value) } : x,
-                ),
-              )
-            }
-          >
-            {DAYS.map((d) => (
-              <option key={d} value={d}>
-                {d === 0 ? 'Same day' : `${d} day${d === 1 ? '' : 's'} before`}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            aria-label={`Remove reminder ${i + 1}`}
-            onClick={() => onChange(reminders.filter((x) => x.key !== r.key))}
-            className="text-muted hover:text-danger"
-          >
-            <X aria-hidden weight="bold" className="size-4" />
-          </button>
+        <li key={r.key} className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <select
+              aria-label={`Reminder ${i + 1}`}
+              className={field}
+              value={r.custom ? 'custom' : r.daysBefore}
+              onChange={(e) =>
+                e.target.value === 'custom'
+                  ? set(r.key, { custom: true })
+                  : set(r.key, {
+                      custom: false,
+                      timeOfDay: null,
+                      daysBefore: Number(e.target.value),
+                    })
+              }
+            >
+              {DAYS.map((d) => (
+                <option key={d} value={d}>
+                  {d === 0 ? 'Same day' : `${d} day${d === 1 ? '' : 's'} before`}
+                </option>
+              ))}
+              <option value="custom">Custom…</option>
+            </select>
+            <button
+              type="button"
+              aria-label={`Remove reminder ${i + 1}`}
+              onClick={() => onChange(reminders.filter((x) => x.key !== r.key))}
+              className="text-muted hover:text-danger"
+            >
+              <X aria-hidden weight="bold" className="size-4" />
+            </button>
+          </div>
+          {r.custom ? (
+            <div className="flex items-center gap-2 pr-6 text-sm text-text">
+              <input
+                type="number"
+                min={0}
+                max={365}
+                inputMode="numeric"
+                aria-label={`Reminder ${i + 1} days before`}
+                className={`${field} w-20!`}
+                value={Number.isNaN(r.daysBefore) ? '' : r.daysBefore}
+                onChange={(e) =>
+                  set(r.key, {
+                    daysBefore: e.target.value === '' ? Number.NaN : Number(e.target.value),
+                  })
+                }
+              />
+              <span className="shrink-0">days before, at</span>
+              <select
+                aria-label={`Reminder ${i + 1} time`}
+                className={field}
+                value={r.timeOfDay ?? ''}
+                onChange={(e) => set(r.key, { timeOfDay: e.target.value || null })}
+              >
+                <option value="">the usual time</option>
+                {TIMES.map((t) => (
+                  <option key={t} value={t}>
+                    {timeText(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
         </li>
       ))}
       <li>
         <button
           type="button"
           onClick={() =>
-            onChange([...reminders, { key: `r${reminders.length}-${Date.now()}`, daysBefore: 1 }])
+            onChange([
+              ...reminders,
+              {
+                key: `r${reminders.length}-${Date.now()}`,
+                daysBefore: 1,
+                timeOfDay: null,
+                custom: false,
+              },
+            ])
           }
           className="inline-flex items-center gap-1 text-sm font-medium text-link"
         >
