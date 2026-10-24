@@ -49,12 +49,13 @@ export function AvailabilityScreen() {
                 }))}
               />
               {shown ? (
-                <WorkingHours
-                  key={shown.member.userId}
-                  member={shown}
-                  editable={manager || shown.member.userId === me.user.id}
-                />
+                <WorkingHours key={shown.member.userId} member={shown} editable={manager} />
               ) : null}
+              {manager ? null : (
+                <p className="text-sm text-muted">
+                  Working hours are set by an Owner or Admin. Ask them for a change.
+                </p>
+              )}
               <BlockedTimes
                 members={members}
                 timeZone={timezone}
