@@ -235,7 +235,7 @@ export function ProvidersCard({
         icon={Plugs}
         title="Connected Payroll Providers"
         aside={
-          <Link href="/modules/integrations" className={linkBtn}>
+          <Link href="/integrations" className={linkBtn}>
             Manage Integrations
           </Link>
         }
