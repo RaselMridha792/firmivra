@@ -266,6 +266,11 @@ This is newer than every handoff below, so read it first. Where they differ, thi
     - the other 5 prod stacks are unchanged;
     - the auto scaling service-linked role exists.
   - Then `gh run rerun 40138508812 --failed`: attempt 2, the same `v1.0.0` on `564c8cfaf`, waiting for Rasel's approval of `prod`.
+- 8c. Oct 24 23:35 UTC: Rasel approved; attempt 2 of run 40138508812.
+  - **Every deploy step succeeded:** the empty app stack (23:10 to 23:25), the images, the migrate image, the migration task (23:31 to 23:32) and the api and web rollout (23:32 to 23:34).
+  - **Only the smoke test failed.** All 6 URLs printed an empty status code, about 0.1 s each, with no curl error. Dev's identical step prints `200` for each, with the same runner image and environment. Not explained yet.
+  - **Checked from R1's machine at 23:4x UTC:** the 3 sites and their `/api/v1/health` all answer 200, and the health check reports `{"status":"ok","db":"ok"}`.
+  - **Not checked yet**, because the SSO session expired: auto scaling and task counts, the alarm topic subscription, and that the migrations ran once.
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
