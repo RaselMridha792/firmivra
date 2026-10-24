@@ -117,6 +117,7 @@ This is newer than every handoff below, so read it first. Where they differ, thi
 **Prod log (Rasel's add-on 4, Oct 24; each AWS change on his yes). Newest last:**
 - 1. Read-only: the SSO session works on account 778127141557. SES production access is granted (the account's sandbox is lifted, dev included). firmivra.com has no DNSSEC, and no Route 53 zone yet.
 - 2a. Rasel's yes: hosted zone firmivra.com created, `Z06906951XI9J0KSHI8TO` (only its own NS and SOA so far).
+- 2b. Rasel's yes: GoDaddy's records copied into the zone (16 record sets, the `dev` delegation included, his `_dmarc` kept). Checked: every record matches on all 4 of the zone's name servers, and matches GoDaddy's live answers. Next: Rasel switches the name servers at GoDaddy.
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
