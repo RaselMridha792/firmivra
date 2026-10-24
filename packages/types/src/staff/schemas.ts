@@ -152,11 +152,14 @@ export const StaffFormOptions = z.object({
       }),
     )
     .optional(),
-  /** Titles already used at the firm, for "Select or enter job title". Free text is allowed. */
+  /**
+   * The firm's saved job titles (Offices & Job Titles; archived ones left out), by name, for
+   * "Select or enter job title". Free text is allowed and stays on the staff record only.
+   */
   jobTitles: z.array(z.string()),
   /**
-   * Offices or branches already used at the firm. No firm locations table yet: the distinct
-   * staff_profiles.office values until Settings > Company Profile adds locations.
+   * The firm's active locations (Settings > Locations, the main one first), for Office / Branch.
+   * A record keeps the office it has; the screens show it even when it is not one of these.
    */
   offices: z.array(z.string()),
   /**
