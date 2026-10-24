@@ -121,7 +121,16 @@ const mark = (what: string) => `${what} ${run} ${randomUUID().slice(0, 6)}`;
 const { ownerA, adminA, staffA, preparerA, ownerB } = people;
 
 const DAY = 86_400_000;
-const day = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10);
+/**
+ * A calendar day relative to the firm's today. The firm has no time zone set, so its day is New
+ * York's, as the server works it out; the UTC day runs ahead of it for 4 to 5 hours each night.
+ */
+const day = (offset: number) => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+    new Date(),
+  );
+  return new Date(Date.parse(`${today}T00:00:00.000Z`) + offset * DAY).toISOString().slice(0, 10);
+};
 
 // ---------- Definitions ----------
 
@@ -233,7 +242,12 @@ beforeAll(async () => {
       overdueDays: number,
     ) => {
       const inv = await tx.invoice.create({
-        data: { businessId, clientId, number, dueOn: new Date(Date.now() - overdueDays * DAY) },
+        data: {
+          businessId,
+          clientId,
+          number,
+          dueOn: new Date(`${day(-overdueDays)}T00:00:00.000Z`),
+        },
         select: { id: true },
       });
       await tx.invoiceLine.create({
