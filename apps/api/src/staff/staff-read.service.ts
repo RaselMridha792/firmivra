@@ -366,6 +366,7 @@ export class StaffReadService {
           workSchedule: p?.workSchedule ?? null,
           office: p?.office ?? null,
           hireDate: day(p?.hireDate),
+          workStartDate: day(p?.workStartDate),
           endDate: day(p?.endDate),
           supervisor: p?.supervisor ? ref(p.supervisor) : null,
           timeZone: p?.timeZone ?? null,
