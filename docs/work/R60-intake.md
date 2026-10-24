@@ -33,9 +33,9 @@ to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/
 | --- | --- | --- |
 | 1 | `rasel/R60-profile-request-change` | #1063 (merged Oct 24): `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
 | 2 | `rasel/R60-notifications-email` (stacked on #1063) | #1065 (merged Oct 24): staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
-| 3 | `rasel/R60-billing` | #1073 (open, Oct 24): `api.firmBilling` (overview, invoices, invoice, PDF, requests), the Billing page on her design with the plan, usage, details and invoice dialogs; plan and contact changes as support requests. Notes below ("Billing") |
-| 4 | `rasel/R60-payments` (stacked on #1073) | PR (Oct 24): the Payments page on her design (web only); Stripe keeps every existing state; Manage Connection, Manage Bank Account and Check Eligibility open the firm's own Stripe Dashboard. Notes below ("Payments") |
-| 5 | `rasel/R60-staff-sm8-13` (from `main`, independent; local until a slot frees) | Built: SM9 cards and `/team/directory`, SM13 department Manage Members (`GET`/`PUT /business/departments/{id}/members`), SM11 custom roles in Create Staff and the Create Custom Role shortcut with Back, SM8 custom schedules and the workload unit, SM10 the header clock. Notes below ("Staff") |
+| 3 | `rasel/R60-billing` | #1073 (merged Oct 24): `api.firmBilling` (overview, invoices, invoice, PDF, requests), the Billing page on her design with the plan, usage, details and invoice dialogs; plan and contact changes as support requests. Notes below ("Billing") |
+| 4 | `rasel/R60-payments` | #1076 (open, Oct 24): the Payments page on her design (web only); Stripe keeps every existing state; Manage Connection, Manage Bank Account and Check Eligibility open the firm's own Stripe Dashboard. Notes below ("Payments") |
+| 5 | `rasel/R60-staff-sm8-13` (from `main`) | PR opened Oct 24 in the slot #1073 freed: SM9 cards and `/team/directory`, SM13 department Manage Members (`GET`/`PUT /business/departments/{id}/members`), SM11 custom roles in Create Staff and the Create Custom Role shortcut with Back, SM8 custom schedules and the workload unit, SM10 the header clock. Notes below ("Staff") |
 
 **Rasel's decisions (Oct 24, afternoon):** Billing stays request-based for now, no self-serve
 Stripe (question 4). The Super Admin action that applies an approved legal name, EIN or licensing
@@ -44,11 +44,10 @@ migration PR at a time ("Column request for R1"). Still waiting for his word, no
 transfer and Sign Out All Sessions (questions 1 and 2). Tests that take "today" in UTC against the
 firm's day take the firm's New York date (the automations test, on the Payments branch).
 
-#1063 and #1065 merged on Oct 24. Open: #1073 (Billing) and the Payments PR stacked on it. Staff
-(from `main`) waits for a slot; its PR body is ready in the third session's scratchpad:
-`C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/fd07679c-e53b-4b16-8968-b670b5107292/scratchpad/`
-(`pr-staff.md`; replace SHEET with the sheet's blob link pinned to the branch head). Shot helpers
-there: `shots-profile.cjs`, `shots-notifications.cjs`, `shots-billing.cjs`, `shots-payments.cjs`,
+#1063, #1065 and #1073 merged on Oct 24. Open: #1076 (Payments) and the Staff PR. Next for R60:
+build on column items 1 to 6 (landed in #1074; "Column request for R1"). The third session's
+scratchpad keeps the shot helpers:
+`C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/fd07679c-e53b-4b16-8968-b670b5107292/scratchpad/`: `shots-profile.cjs`, `shots-notifications.cjs`, `shots-billing.cjs`, `shots-payments.cjs`,
 `shots-staff.cjs`, `compose.cjs`, `spec-*.json`.
 
 ### State (Oct 23, second session): open PRs and branches waiting
@@ -207,8 +206,10 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 ## Needs from others
 
 - **R1 (columns, items 1 to 11):** all approved by Rasel on Oct 24 (1 to 6 in the morning, 7 to 11
-  in the afternoon); the exact request and the order R60 needs them in are "Column request for R1"
-  below. Nothing is built on them until they land.
+  in the afternoon); the exact request and what R60 builds on each are "Column request for R1"
+  below. Items 1 to 6 landed in #1074 (Oct 24); R60 builds on them next. Items 7 to 11 are R1's
+  `rasel/R1-r60-columns-2` (five migrations, third in R1's queue). Nothing is built on an item
+  until it lands.
 - **R56 (applying an approved Request Change; Rasel, Oct 24):** a Super Admin action on the firm's
   detail that changes its legal name, EIN and (once item 7 lands) its licenses after activation.
   Today the team resolves a Request Change ticket and nothing changes. What R60's side gives it:
@@ -349,20 +350,21 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 ## Column request for R1 (approved by Rasel, Oct 24)
 
 For the fresh R1. Items 1 to 6 approved on Oct 24 (morning), 7 to 11 on Oct 24 (afternoon). R1
-builds them one migration PR at a time. Every new firm table gets `business_id` with the firm's
+builds them one migration PR at a time: 1 to 6 in #1074 (merged), 7 to 11 in one PR of five
+migrations. Every new firm table gets `business_id` with the firm's
 row-level security like the other firm tables. R60 builds the API and screens on each after it
 merges. Old columns stay until R60's API reads the new ones, then a later migration drops them.
 
-**The order R60 needs them in (Oct 24), and what R60 builds on each:**
+**Where each stands (Oct 24), and what R60 builds on each:**
 
-| Order | Item | Why this place | R60 builds after it lands |
-| --- | --- | --- | --- |
-| 1 | 8 (staff email on, data only) | No schema change; the table then says what the API already does | Nothing (the API reads them as on today) |
-| 2 | 7 (`firm_licenses`) | R56's apply action needs it, and the Licensing card shows "Not on file" until it lands | The card's rows and the request's "Current" from it; R56 writes the rows |
-| 3 | 1 to 4 (intake settings) | Octavia's I7, I8, I9 and I12 | The four settings on the API and the Notifications & Reminders panel |
-| 4 | 5 and 6 (SM3) | Unblock SM3's two routes | Job titles and new-account security defaults, API and screens |
-| 5 | 10 and 11 (SM11, SM8) | Staff fields in Create and Edit Staff | Work Start Date; company schedules, add and archive |
-| 6 | 9 (`users.phone_verified_at`) | Needs a verification flow too (R6's sender, SNS in AWS) | The staff code-by-text verification, then SMS for verified staff |
+| Item | State | R60 builds after it lands |
+| --- | --- | --- |
+| 1 to 4 (intake settings) | Landed in #1074 | Octavia's I7, I8, I9 and I12: the four settings on the API and the Notifications & Reminders panel |
+| 5 and 6 (SM3) | Landed in #1074 | Saved job titles and new-account security defaults, API and screens; SM3's two routes |
+| 7 (`firm_licenses`) | R1's `rasel/R1-r60-columns-2` | The Licensing card's rows and the request's "Current"; R56's apply action writes the rows. The one R60 needs first from that PR |
+| 8 (staff email on, data only) | Same PR | Nothing (the API reads them as on today) |
+| 10 and 11 (SM11, SM8) | Same PR | Work Start Date in Create and Edit Staff; company schedules, add and archive |
+| 9 (`users.phone_verified_at`) | Same PR | The staff code-by-text verification (R6's sender, SNS in AWS), then SMS for verified staff |
 
 1. **I7, Notify additional emails.** `intake_settings.notify_additional_emails text[] NOT NULL
    DEFAULT '{}'`, `CHECK (cardinality(notify_additional_emails) <= 10)`. The API keeps each one a
