@@ -119,29 +119,30 @@ export function LockedDetailsCard({
       data-testid={testId}
       className="flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm"
     >
-      <div className="flex flex-wrap items-start gap-3">
+      <div className="flex items-start gap-3">
         {createElement(icon, {
           'aria-hidden': true,
           weight: 'fill',
           className: 'mt-0.5 size-9 shrink-0 text-action',
         })}
-        <div className="min-w-0 flex-1 basis-56">
-          <h2 className="text-lg font-bold text-heading">{title}</h2>
-          <p className="text-sm text-muted">
+        {/* The button sits beside the title, and her line runs under both. */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-x-3 gap-y-1">
+          <h2 className="min-w-0 self-center text-lg font-bold text-heading">{title}</h2>
+          <Button variant="outline" onClick={() => setOpen(true)}>
+            <PencilCircle aria-hidden weight="fill" className="size-5 text-action" />
+            Request Change
+          </Button>
+          <p className="basis-full text-sm text-muted">
             Your legal business information is provided during application and is locked. To make
             changes, submit a request to Firmivra.
           </p>
         </div>
-        <Button variant="outline" onClick={() => setOpen(true)}>
-          <PencilCircle aria-hidden weight="fill" className="size-5 text-action" />
-          Request Change
-        </Button>
       </div>
       <dl className="border-t border-divider">
         {rows.map((row) => (
           <div
             key={row.label}
-            className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] items-center gap-3 border-b border-divider py-1.5 text-sm sm:pl-12"
+            className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)_auto] items-center gap-3 border-b border-divider py-1.5 text-sm sm:pl-12"
           >
             <dt className="text-text">{row.label}</dt>
             <dd className={row.value ? 'text-heading' : 'text-muted'}>

@@ -367,3 +367,11 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Delete; Owner and Admin), a chosen file and its type kept across Back and Next, and the saved
   note naming what a draft does not keep (pay, files). Sheet shot on the real API; it also listed an
   Oct 19 draft nothing had shown. `r60-staff-drafts` 2 of 2 and the `tumit-team*` specs 12 of 12.
+- Oct 24 (third session): #1056 merged; `main` merged. Item 1, Company Profile Request Change
+  (`rasel/R60-profile-request-change`): `api.profileChanges` (a Portal support ticket in the Super
+  Admin queue with the current and proposed values; GET with status and the latest sent reply),
+  the locked Company Information and Professional Licensing cards with the Request a Change
+  dialog, and `EIN_LOCKED` on `PATCH /business/settings` once Active. Profile-changes e2e 6 of 6,
+  contract unit 4 of 4, API and web `tsc` 0 errors, ESLint and Prettier clean; sheet shot on the
+  real API. Licensing columns added as item 7 of the column request; question 3 (applying an
+  approved change) for Rasel.
