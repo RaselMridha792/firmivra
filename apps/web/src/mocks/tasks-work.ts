@@ -6,6 +6,7 @@ import {
   CreateTaskDetailRequest,
   CreateTaskSeriesRequest,
   CreateTaskTemplateRequest,
+  DuplicateTaskRequest,
   type MemberRef,
   parseInput,
   PublishTaskDraftRequest,
@@ -49,7 +50,9 @@ import { mockStaff } from './clients';
  * Mock data for `api.taskWork` (R55 contract, the Tasks module). Synthetic people and tasks only,
  * dated around today so Overdue, Upcoming and the calendar are always full. It checks input with
  * the contract's schemas and answers its codes: DUPLICATE_NAME, REQUIRED_ITEMS_OPEN,
- * DEPENDENCY_OPEN, TASK_CLOSED, OCCURRENCE_CLOSED, SERIES_NOT_ACTIVE, INVALID_RECURRENCE.
+ * DEPENDENCY_OPEN, TASK_CLOSED, OCCURRENCE_CLOSED, SERIES_NOT_ACTIVE, INVALID_RECURRENCE,
+ * IDEMPOTENCY_KEY_REUSED. Create, Save as Draft, Duplicate, Set Up Recurring and Convert keep
+ * their idempotency keys: a retry with one returns the first record, as the API does.
  * `empty: true` (NEXT_PUBLIC_API_MOCK_EMPTY=taskWork) starts with no tasks, templates, series or
  * task types, as a firm that never set any up.
  */
@@ -128,6 +131,19 @@ interface StoredDraft {
   client: TaskDraft['client'];
 }
 
+/**
+ * What a save sent with an idempotency key made, as the API keeps it on the row: a task (Create,
+ * Save as Draft, Duplicate) or a series (Set Up Recurring, Convert), the route and task the key
+ * was used for, and the member who used it.
+ */
+interface KeyedSave {
+  kind: 'task' | 'series';
+  /** 'create', 'draft', 'duplicate:<task id>', 'series' or 'convert:<task id>'. */
+  scope: string;
+  id: string;
+  member: string;
+}
+
 interface Store {
   tasks: TaskDetail[];
   drafts: StoredDraft[];
@@ -135,6 +151,8 @@ interface Store {
   templates: TaskTemplate[];
   series: { detail: TaskSeriesDetail; occurrences: TaskOccurrence[] }[];
   next: number;
+  /** By idempotency key, in lower case. */
+  keys: Map<string, KeyedSave>;
 }
 
 const rowFields = (t: Partial<TaskDetail> & { id: string; title: string }): TaskDetail => {
@@ -191,7 +209,17 @@ function seed(empty: boolean): Store {
     'Compliance',
     'Onboarding',
   ].map((name, i) => ({ id: uuid('0e10', i + 1), name, sortOrder: i, archivedAt: null }));
-  if (empty) return { tasks: [], drafts: [], types: [], templates: [], series: [], next: 100 };
+  if (empty) {
+    return {
+      tasks: [],
+      drafts: [],
+      types: [],
+      templates: [],
+      series: [],
+      next: 100,
+      keys: new Map(),
+    };
+  }
   const d = today();
   const ty = (i: number) => ({ id: types[i]!.id, name: types[i]!.name });
   const items: [
@@ -339,6 +367,7 @@ function seed(empty: boolean): Store {
     templates,
     series: [],
     next: 100,
+    keys: new Map(),
   };
   store.series.push(makeSeries(store, 1, 'Quarterly Bookkeeping Review', CLIENTS[2]!, 3, 'MONTH'));
   store.series.push(makeSeries(store, 2, 'Weekly Payroll Check', CLIENTS[3]!, 1, 'WEEK'));
@@ -691,6 +720,32 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     if (!x) throw fail(404, 'NOT_FOUND', 'Not found');
     return x;
   };
+  // ----- Idempotency keys (the contract's IdempotencyKey) -----
+  const keyReused = () =>
+    fail(
+      409,
+      'IDEMPOTENCY_KEY_REUSED',
+      'This request key was already used for another save. Try again.',
+    );
+  /**
+   * As the API, before anything else: a retry of a keyed save by the member who made it, on the
+   * same route and task, gets what the first save made; null for a new key; 409 for any other use.
+   */
+  const keyed = (key: string | undefined, scope: string): KeyedSave | null => {
+    if (!key) return null;
+    const first = s.keys.get(key.toLowerCase());
+    if (!first) return null;
+    if (first.member !== me.userId || first.scope !== scope) throw keyReused();
+    return first;
+  };
+  const remember = (
+    key: string | undefined,
+    kind: KeyedSave['kind'],
+    scope: string,
+    id: string,
+  ) => {
+    if (key) s.keys.set(key.toLowerCase(), { kind, scope, id, member: me.userId });
+  };
   // The mock has no catalog: a template's service keeps its id under a neutral name.
   const templateService = (id: string | null | undefined) =>
     id ? { id, name: 'Selected service' } : null;
@@ -837,6 +892,8 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     create: async (body) => {
       await mockDelay();
       const b = parseInput(CreateTaskDetailRequest, body);
+      const first = keyed(b.idempotencyKey, 'create');
+      if (first) return copy(touchless(find(first.id)));
       const client = CLIENTS.find((c) => c.id === b.clientId) ?? {
         id: b.clientId,
         displayName: 'Selected client',
@@ -862,6 +919,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       refuseCustomWithoutTime(t);
       for (const a of b.attachments ?? []) attach(t, a);
       s.tasks.unshift(t);
+      remember(b.idempotencyKey, 'task', 'create', t.id);
       return copy(touch(t));
     },
     update: async (id, body) => {
@@ -935,6 +993,12 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     saveDraft: async (body) => {
       await mockDelay();
       const b = parseInput(SaveTaskDraftRequest, body);
+      const first = keyed(b.idempotencyKey, 'draft');
+      if (first) {
+        // Only while it is still a draft: once published, the key gives nothing back.
+        if (!s.drafts.some((y) => y.t.id === first.id)) throw keyReused();
+        return copy(draftOf(findDraft(first.id)));
+      }
       const tpl = b.templateId ? template(b.templateId) : undefined;
       const x: StoredDraft = {
         client: null,
@@ -955,6 +1019,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
           b.checklist ?? tpl?.checklist.map((c) => ({ label: c.label, required: c.required })),
       });
       s.drafts.unshift(x);
+      remember(b.idempotencyKey, 'task', 'draft', x.t.id);
       return copy(draftOf(x));
     },
     updateDraft: async (id, body) => {
@@ -997,6 +1062,8 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       const x = findDraft(id);
       await mockDelay();
       s.drafts = s.drafts.filter((y) => y !== x);
+      // A discarded draft frees its key.
+      for (const [key, saved] of s.keys) if (saved.id === x.t.id) s.keys.delete(key);
       return { ok: true };
     },
     complete: async (id) => {
@@ -1033,8 +1100,12 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       t.progress = progress;
       return copy(touch(t));
     },
-    duplicate: async (id) => {
+    duplicate: async (id, body = {}) => {
       await mockDelay();
+      const key = parseInput(DuplicateTaskRequest, body)?.idempotencyKey;
+      const scope = `duplicate:${id.toLowerCase()}`;
+      const first = keyed(key, scope);
+      if (first) return copy(touchless(find(first.id)));
       const src = find(id);
       const t = copy(src);
       t.id = uuid('0a10', s.next++);
@@ -1051,6 +1122,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         completedBy: null,
       }));
       s.tasks.unshift(t);
+      remember(key, 'task', scope, t.id);
       return copy(touch(t));
     },
     archive: async (id) => {
@@ -1353,6 +1425,8 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     createSeries: async (body) => {
       await mockDelay();
       const b = parseInput(CreateTaskSeriesRequest, body);
+      const first = keyed(b.idempotencyKey, 'series');
+      if (first) return copy(series(first.id).detail);
       const client = CLIENTS.find((c) => c.id === b.clientId) ?? {
         id: b.clientId,
         displayName: 'Selected client',
@@ -1379,6 +1453,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       made.occurrences = [];
       reseries(made);
       s.series.unshift(made);
+      remember(b.idempotencyKey, 'series', 'series', made.detail.id);
       return copy(made.detail);
     },
     updateSeries: async (id, body) => {
@@ -1455,6 +1530,9 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     convertToRecurring: async (id, body) => {
       await mockDelay();
       const b = parseInput(ConvertToRecurringRequest, body);
+      const scope = `convert:${id.toLowerCase()}`;
+      const first = keyed(b.idempotencyKey, scope);
+      if (first) return copy(series(first.id).detail);
       const t = find(id);
       const made = makeSeries(
         s,
@@ -1468,6 +1546,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       t.series = { id: made.detail.id, title: made.detail.title };
       touch(t);
       s.series.unshift(made);
+      remember(b.idempotencyKey, 'series', scope, made.detail.id);
       return copy(made.detail);
     },
   };
