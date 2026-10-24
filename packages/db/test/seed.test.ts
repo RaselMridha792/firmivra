@@ -70,6 +70,11 @@ describe('seed', () => {
       'document_links',
       'document_link_codes',
       'firm_office_members',
+      // r1_intake_staff_settings (Oct 24): R60's job titles start from the staff records'
+      // titles when the migration runs (a fresh test database has none yet), and a firm's
+      // security defaults row appears with its first save; seeding stays paused (Rasel).
+      'staff_job_titles',
+      'staff_security_defaults',
     ];
     const empty: string[] = [];
     for (const t of tables) {

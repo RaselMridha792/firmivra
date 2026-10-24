@@ -870,6 +870,8 @@ model Business {
   bookkeepingSettings      BookkeepingSettings[]
   intakeSettings           IntakeSettings?
   intakeTemplates          IntakeTemplate[]
+  staffJobTitles           StaffJobTitle[]
+  staffSecurityDefaults    StaffSecurityDefaults?
   documentFolders          DocumentFolder[]
   firmOffices              FirmOffice[]
   firmOfficeServices       FirmOfficeService[]
@@ -1082,6 +1084,9 @@ model Membership {
   staffDocuments         StaffDocument[] @relation("StaffDocumentOwner")
   staffDocumentsUploaded StaffDocument[] @relation("StaffDocumentUploader")
   staffSessions          StaffSession[]
+
+  staffJobTitlesCreated        StaffJobTitle[]         @relation("StaffJobTitleCreatedBy")
+  staffSecurityDefaultsUpdated StaffSecurityDefaults[] @relation("StaffSecurityDefaultsUpdatedBy")
 
   permissionsSet         MemberPermission[] @relation("MemberPermissionSubject")
   permissionsChanged     MemberPermission[] @relation("MemberPermissionChangedBy")
@@ -8598,6 +8603,56 @@ model StaffSecuritySettings {
   @@map("staff_security_settings")
 }
 
+/// SM3: a firm's saved job titles, offered on Create Staff. Owner and Admin add, rename and archive
+/// them; members read. A staff record keeps its own job_title text. Unique by name ignoring case
+/// among the titles not archived (SQL only). Filled once from the firm's staff records.
+model StaffJobTitle {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  name            String
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business    @relation(fields: [businessId], references: [id])
+  createdBy Membership? @relation("StaffJobTitleCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@index([businessId])
+  @@map("staff_job_titles")
+}
+
+/// SM3: the security settings a new staff account starts from (Create Staff step 3), one row per
+/// firm, with staff_security_settings' types, defaults and rules. Changing it changes no existing
+/// account. Owner and Admin read and change it. No row: these defaults. Sign-in does not enforce
+/// these settings yet.
+model StaffSecurityDefaults {
+  businessId            String              @id @map("business_id") @db.Uuid
+  allowedAuthMethods    StaffAuthMethod[]   @default([AUTHENTICATOR_APP, BACKUP_CODES]) @map("allowed_auth_methods")
+  accessLocation        StaffAccessLocation @default(ANYWHERE) @map("access_location")
+  allowedIps            String[]            @default([]) @map("allowed_ips")
+  allowedCountries      String[]            @default([]) @map("allowed_countries")
+  restrictDevices       Boolean             @default(false) @map("restrict_devices")
+  /// Sign out after this many idle minutes (5 to 480); null means the firm's default.
+  autoLogoutMinutes     Int?                @map("auto_logout_minutes")
+  maxConcurrentSessions Int                 @default(1) @map("max_concurrent_sessions")
+  signOutOtherSessions  Boolean             @default(false) @map("sign_out_other_sessions")
+  allowTrustedDevices   Boolean             @default(false) @map("allow_trusted_devices")
+  notifyNewDeviceLogin  Boolean             @default(true) @map("notify_new_device_login")
+  notifyFailedLogins    Boolean             @default(true) @map("notify_failed_logins")
+  notifyPasswordChanges Boolean             @default(true) @map("notify_password_changes")
+  notifySecurityAlerts  Boolean             @default(true) @map("notify_security_alerts")
+  notifyLockouts        Boolean             @default(true) @map("notify_lockouts")
+  updatedByUserId       String?             @map("updated_by_user_id") @db.Uuid
+  updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business    @relation(fields: [businessId], references: [id])
+  updatedBy Membership? @relation("StaffSecurityDefaultsUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@map("staff_security_defaults")
+}
+
 /// Pay details: HR data, restricted. The database shows these rows only to the acting Owner or
 /// Admin (the session's actor), so a bug in a route or a role list cannot expose them. Never
 /// logged, never in an audit entry's metadata (audit that it changed, not the values).
@@ -10307,6 +10362,20 @@ model IntakeSettings {
   firstReminderDays       Int      @default(3) @map("first_reminder_days")
   finalReminderDays       Int      @default(7) @map("final_reminder_days")
   expiryAlertHours        Int      @default(24) @map("expiry_alert_hours")
+  /// I7: up to 10 more addresses for the staff "form submitted" email (no form content). The API
+  /// keeps each a valid, lower-case, unique email.
+  notifyAdditionalEmails  String[] @default([]) @map("notify_additional_emails")
+  /// I8: the first and final reminders, in minutes after sending: the first 5 minutes to 30 days,
+  /// the final after it and at most 60 days. firstReminderDays and finalReminderDays stay until
+  /// the API reads these.
+  firstReminderMinutes    Int      @default(4320) @map("first_reminder_minutes")
+  finalReminderMinutes    Int      @default(10080) @map("final_reminder_minutes")
+  /// I9: the expiration alert, in minutes before expiry (30 minutes to 7 days); null: no alert.
+  /// expiryAlertHours stays until the API reads this.
+  expiryAlertMinutes      Int?     @default(1440) @map("expiry_alert_minutes")
+  /// I12: how many years submissions are kept (1 to 100); null: not set. Saving it deletes
+  /// nothing, and no job reads it yet.
+  dataRetentionYears      Int?     @map("data_retention_years")
   // Automation (all off)
   autoCreateClient        Boolean  @default(false) @map("auto_create_client")
   autoCreateFollowUpTask  Boolean  @default(false) @map("auto_create_follow_up_task")
