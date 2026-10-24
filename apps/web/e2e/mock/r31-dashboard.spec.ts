@@ -55,9 +55,9 @@ test('every widget of the design, with trends only where the API gives the perio
   for (const [i, name, href] of [
     [0, 'Add Client', '/clients'],
     [1, 'Send Message', '/messages'],
-    [2, 'Go to Communications', '/modules/communications'],
+    [2, 'Go to Communications', '/communications'],
     [3, 'Create Invoice', '/invoices'],
-    [4, 'Upload Now', '/modules/documents'],
+    [4, 'Upload Now', '/documents'],
   ] as const) {
     await expect(actions.nth(i).getByRole('link', { name })).toHaveAttribute('href', href);
   }
