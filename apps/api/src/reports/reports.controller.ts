@@ -250,7 +250,9 @@ export class ReportsController {
 
   // ----- Exports and runs -----
 
+  /** Export, not Create: a role with Reports View and Export exports (SM6); the service checks too. */
   @Post('exports')
+  @Access('REPORTS', 'EXPORT')
   @HttpCode(200)
   exportReport(
     @CurrentAuth() auth: AuthContext,

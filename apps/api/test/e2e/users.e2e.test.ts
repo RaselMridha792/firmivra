@@ -74,7 +74,7 @@ async function get(path: string, who: Who | undefined, firm: 'a' | 'b' = 'a'): P
   return req;
 }
 async function send(
-  method: 'post' | 'patch',
+  method: 'post' | 'patch' | 'put' | 'delete',
   path: string,
   who: Who,
   body: object,
@@ -212,6 +212,21 @@ describe('Users & Roles', () => {
       }),
     );
     expect(row.metadata).toEqual({ count: 1, filters: ['status'] });
+  });
+
+  it("exports for an Admin until the firm closes Staff Management's Export for Admins (SM6)", async () => {
+    const grid = (granted: boolean) =>
+      send('put', '/roles/ADMIN/permissions', ownerA, {
+        grants: [{ module: 'STAFF_MANAGEMENT', capability: 'EXPORT', granted }],
+      });
+    expect((await get('/users/export?pageSize=10', adminA)).status).toBe(200);
+    ok(await grid(false));
+    const refused = await get('/users/export?pageSize=10', adminA);
+    expect([refused.status, codeOf(refused)]).toEqual([403, 'FORBIDDEN']);
+    // The Owner's export never closes; the Admin's opens again with the default back.
+    expect((await get('/users/export?pageSize=10', ownerA)).status).toBe(200);
+    ok(await send('delete', '/roles/ADMIN/permissions', ownerA, {}));
+    expect((await get('/users/export?pageSize=10', adminA)).status).toBe(200);
   });
 
   it('keeps a selection by ids, in the list and in the export (audited)', async () => {
