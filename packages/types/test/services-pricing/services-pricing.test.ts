@@ -4,6 +4,7 @@ import {
   CreateServicePackageRequest,
   createRequest,
   createServicesPricingClient,
+  PackagePricing,
   SavePromotionRequest,
 } from '../../src/index.js';
 
@@ -46,6 +47,22 @@ describe('api.servicesPricing', () => {
       ok({ pricingType: 'RECURRING', basePriceCents: 19900, billingFrequency: 'ONE_TIME' }),
     ).toBe(false);
     expect(ok({ pricingType: 'FIXED', basePriceCents: -1 })).toBe(false);
+  });
+
+  it('has no total for a quote-required package, never $0, and says so (S9)', () => {
+    const pricing = {
+      totalSelectedCents: null,
+      packagePriceCents: 20_000,
+      discountType: 'NONE',
+      discountValue: null,
+      savingsCents: null,
+      savingsPercent: null,
+      variablePrice: true,
+      quoteRequired: true,
+    };
+    expect(PackagePricing.safeParse(pricing).success).toBe(true);
+    const { quoteRequired: _left, ...without } = pricing;
+    expect(PackagePricing.safeParse(without).success).toBe(false);
   });
 
   it('refuses a service twice in a package', () => {

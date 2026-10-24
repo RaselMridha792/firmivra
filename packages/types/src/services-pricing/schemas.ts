@@ -57,7 +57,7 @@ export type CategoryRef = z.infer<typeof CategoryRef>;
 /** How a price reads: "$99.00+", "$75.00/hour", "Quote required", "$199.00 / month". */
 export const PriceDisplay = z.object({
   type: PricingType,
-  /** Null for CUSTOM_QUOTE. */
+  /** The service's price: with ADDITIVE line items, the base plus the lines. Null for CUSTOM_QUOTE. */
   amountCents: z.number().int().nullable(),
   frequency: BillingFrequency.nullable(),
 });
@@ -153,9 +153,11 @@ export const CatalogService = CatalogServiceRow.extend({
   lineItems: z.array(ServiceLineItem),
   /**
    * INCLUDED: the line items explain the base price (never charged twice). ADDITIVE: the total is
-   * the line items' sum. "Total Price" on the form follows this.
+   * the base price plus the line items ($100.50 and a $75.00 line make $175.50). "Total Price" on
+   * the form follows this.
    */
   lineItemsMode: z.enum(['INCLUDED', 'ADDITIVE']),
+  /** What the service costs (see `lineItemsMode`); null for CUSTOM_QUOTE. */
   totalPriceCents: z.number().int().nullable(),
   addOns: z.array(ServiceAddOn),
   /** Staff only; never in the client preview, portal, website or invoices. */
@@ -297,7 +299,7 @@ export const PackageService = z.object({
   name: z.string(),
   icon: z.string().nullable(),
   category: CategoryRef.nullable(),
-  /** The service's current price; null for CUSTOM_QUOTE. */
+  /** The service's current price, its `totalPriceCents`; null for CUSTOM_QUOTE. */
   individualPriceCents: z.number().int().nullable(),
   pricingType: PricingType,
   /** "Included in Package": only included services count in the comparison value. */
@@ -320,8 +322,12 @@ export type PackageAddOn = z.infer<typeof PackageAddOn>;
 
 /** The Package Pricing panel, worked out by the API. */
 export const PackagePricing = z.object({
-  /** "Total of Selected Services": included services' individual prices. */
-  totalSelectedCents: z.number().int(),
+  /**
+   * "Total of Selected Services": the included services' individual prices; optional services
+   * and add-ons never count. Null when an included service needs a quote: the comparison is
+   * unavailable, never $0, and so is a price worked out from a discount.
+   */
+  totalSelectedCents: z.number().int().nullable(),
   packagePriceCents: z.number().int().nullable(),
   discountType: DiscountType,
   /** Basis points for PERCENTAGE (2000 = 20%), cents for FIXED, null for NONE. */
@@ -331,6 +337,8 @@ export const PackagePricing = z.object({
   savingsPercent: z.number().nullable(),
   /** A Starting At, Hourly or Custom Quote service is included: savings are an estimate. */
   variablePrice: z.boolean(),
+  /** A Custom Quote service is included: no total and no savings ("Quote required"). */
+  quoteRequired: z.boolean(),
 });
 export type PackagePricing = z.infer<typeof PackagePricing>;
 

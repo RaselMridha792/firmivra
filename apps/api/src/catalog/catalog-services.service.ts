@@ -21,8 +21,10 @@ import {
   isForeignKeyViolation,
   isUniqueViolation,
   iso,
+  lineTotalCents,
   lockRow,
   priceOf,
+  serviceTotalCents,
   statusOf,
   versionOf,
 } from './catalog.shared.js';
@@ -34,6 +36,8 @@ type UpdateBody = z.output<typeof UpdateCatalogServiceRequest>;
 const rowInclude = {
   category: { select: { id: true, name: true, color: true, archivedAt: true } },
   updatedBy: { select: { user: { select: { name: true } } } },
+  // The list's price is the service's total: ADDITIVE line items add to the base (S6).
+  lineItems: { select: { quantity: true, rateCents: true } },
 } satisfies Prisma.ServiceInclude;
 
 const detailInclude = {
@@ -59,19 +63,14 @@ const row = (s: RowShape) => ({
 });
 
 export function toCatalogService(s: DetailShape): CatalogService {
-  const lineItems = s.lineItems.map((l) => {
-    const quantity = Number(l.quantity.toString());
-    return {
-      id: l.id,
-      name: l.name,
-      description: l.description,
-      quantity,
-      rateCents: l.rateCents,
-      totalCents: Math.round(quantity * l.rateCents),
-    };
-  });
-  const additive = s.lineItemMode === 'ADDITIVE';
-  const sum = lineItems.reduce((n, l) => n + l.totalCents, 0);
+  const lineItems = s.lineItems.map((l) => ({
+    id: l.id,
+    name: l.name,
+    description: l.description,
+    quantity: Number(l.quantity.toString()),
+    rateCents: l.rateCents,
+    totalCents: lineTotalCents(l),
+  }));
   return {
     ...row(s),
     kind: s.kind,
@@ -83,9 +82,8 @@ export function toCatalogService(s: DetailShape): CatalogService {
     included: s.inclusions.filter((i) => i.kind === 'INCLUDED').map((i) => i.text),
     notIncluded: s.inclusions.filter((i) => i.kind === 'NOT_INCLUDED').map((i) => i.text),
     lineItems,
-    lineItemsMode: additive ? 'ADDITIVE' : 'INCLUDED',
-    totalPriceCents:
-      s.pricingType === 'CUSTOM_QUOTE' ? null : additive ? sum : (s.basePriceCents ?? null),
+    lineItemsMode: s.lineItemMode === 'ADDITIVE' ? 'ADDITIVE' : 'INCLUDED',
+    totalPriceCents: serviceTotalCents(s),
     addOns: s.addOns.map((a) => ({
       id: a.id,
       name: a.name,

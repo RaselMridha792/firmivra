@@ -441,9 +441,10 @@ describe('services', () => {
       included: ['Monthly reports', 'Year-end close'],
       notIncluded: ['Payroll'],
       lineItemsMode: 'ADDITIVE',
-      totalPriceCents: 15_000,
+      // ADDITIVE: the base price plus the lines (20_000 + 5_000 + 10_000).
+      totalPriceCents: 35_000,
       billingFrequency: 'MONTHLY',
-      price: { type: 'RECURRING', amountCents: 20_000, frequency: 'MONTHLY' },
+      price: { type: 'RECURRING', amountCents: 35_000, frequency: 'MONTHLY' },
       internalNotes: 'Staff only',
     });
     expect(created.lineItems.map((l) => l.totalCents)).toEqual([5_000, 10_000]);
@@ -467,7 +468,7 @@ describe('services', () => {
     expect(updated.addOns[0]).toMatchObject({ id: rush!.id, status: 'INACTIVE' });
     expect(updated.included).toEqual([]);
     expect(updated.notIncluded).toEqual(['Payroll']);
-    expect(updated.totalPriceCents).toBe(6_000);
+    expect(updated.totalPriceCents).toBe(26_000);
 
     expectError(
       await call('patch', `/services/${created.id}`, people.ownerA, {
@@ -477,6 +478,45 @@ describe('services', () => {
       400,
       'VALIDATION_FAILED',
     );
+  });
+
+  it('S6: additive line items add to the base price everywhere; included ones never charge twice', async () => {
+    const cat = await mkCategory();
+    const svc = await mkService(cat.id, {
+      basePriceCents: 10_050,
+      lineItems: [{ name: 'Test line', quantity: 1, rateCents: 7_500 }],
+      lineItemsMode: 'ADDITIVE',
+    });
+    // $100.50 + $75.00 = $175.50 on the service, its list row and in a package.
+    expect([svc.basePriceCents, svc.totalPriceCents, svc.price.amountCents]).toEqual([
+      10_050, 17_550, 17_550,
+    ]);
+    const listed = exact(
+      CatalogServicePage,
+      await call('get', `/services?search=${encodeURIComponent(svc.name)}`, people.staffA),
+    );
+    expect(listed.items.map((s) => [s.id, s.price.amountCents])).toEqual([[svc.id, 17_550]]);
+    const pkg = await mkPackage(cat.id, [svc.id], { packagePriceCents: 15_000 });
+    expect(pkg.services[0]?.individualPriceCents).toBe(17_550);
+    expect(pkg.pricing).toMatchObject({
+      totalSelectedCents: 17_550,
+      savingsCents: 2_550,
+      quoteRequired: false,
+    });
+
+    // Included in the base: the lines explain the price and are not added again.
+    const included = exact(
+      CatalogService,
+      await call('patch', `/services/${svc.id}`, people.ownerA, {
+        version: svc.version,
+        lineItemsMode: 'INCLUDED',
+      }),
+    );
+    expect([included.totalPriceCents, included.price.amountCents]).toEqual([10_050, 10_050]);
+    const again = exact(ServicePackage, await call('get', `/packages/${pkg.id}`, people.staffA));
+    expect([again.services[0]?.individualPriceCents, again.pricing.totalSelectedCents]).toEqual([
+      10_050, 10_050,
+    ]);
   });
 
   it('refuses a stale save, and a save that would leave a live service unsellable', async () => {
@@ -666,7 +706,7 @@ describe('packages', () => {
       savingsCents: 3_600,
     });
 
-    // The panel for unsaved values: a variable-priced service makes savings an estimate.
+    // The panel for unsaved values: a quote-required service leaves no total and no savings.
     const panel = exact(
       PackagePricing,
       await call('post', '/packages/pricing', people.staffA, {
@@ -680,8 +720,10 @@ describe('packages', () => {
       }),
     );
     expect(panel).toMatchObject({
-      totalSelectedCents: 10_000,
+      totalSelectedCents: null,
+      packagePriceCents: 9_000,
       variablePrice: true,
+      quoteRequired: true,
       savingsCents: null,
     });
     expectError(
@@ -718,6 +760,77 @@ describe('packages', () => {
     const list = exact(ServicePackageList, await call('get', '/packages', people.staffA)).items;
     expect(list.map((p) => p.id)).toEqual(expect.arrayContaining([pkg.id, discounted.id]));
     exact(ServicePackage, await call('get', `/packages/${pkg.id}`, people.staffA));
+  });
+
+  it('S9: a quote-required service is not counted as $0, and optional extras never count', async () => {
+    const cat = await mkCategory();
+    const fixedSvc = await mkService(cat.id, { basePriceCents: 10_000 });
+    const quote = await mkService(cat.id, { pricingType: 'CUSTOM_QUOTE' });
+    const optional = await mkService(cat.id, { basePriceCents: 15_000 });
+    const services = [
+      { serviceId: fixedSvc.id, included: true },
+      { serviceId: quote.id, included: true },
+      { serviceId: optional.id, included: false },
+    ];
+
+    // Her test package: a quote-required service and a $200 package price set by the firm.
+    const pkg = await mkPackage(cat.id, [], {
+      services,
+      packagePriceCents: 20_000,
+      addOns: [{ name: 'Extra', priceCents: 5_000 }],
+    });
+    expect(pkg.services.find((s) => s.serviceId === quote.id)?.individualPriceCents).toBeNull();
+    expect(pkg.pricing).toEqual({
+      totalSelectedCents: null,
+      packagePriceCents: 20_000,
+      discountType: 'NONE',
+      discountValue: null,
+      savingsCents: null,
+      savingsPercent: null,
+      variablePrice: true,
+      quoteRequired: true,
+    });
+    expect(pkg.savingsCents).toBeNull();
+
+    // No price can be worked out from a discount on an unknown total, so none is offered.
+    const panel = (body: object) =>
+      call('post', '/packages/pricing', people.staffA, {
+        services,
+        packagePriceCents: null,
+        discountType: 'PERCENTAGE',
+        discountValue: 1_000,
+        ...body,
+      });
+    expect(exact(PackagePricing, await panel({}))).toMatchObject({
+      totalSelectedCents: null,
+      packagePriceCents: null,
+      quoteRequired: true,
+    });
+    expectError(
+      await call('post', '/packages', people.ownerA, {
+        name: name('package'),
+        categoryId: cat.id,
+        shortDescription: 'A fake package',
+        services,
+        packagePriceCents: null,
+        discountType: 'PERCENTAGE',
+        discountValue: 1_000,
+        activate: true,
+      }),
+      400,
+      'ACTIVATION_INCOMPLETE',
+    );
+
+    // Without the quote: the optional service and the add-on do not add to the total.
+    const known = exact(
+      PackagePricing,
+      await panel({
+        services: [services[0], services[2]],
+        discountType: 'NONE',
+        discountValue: null,
+      }),
+    );
+    expect(known).toMatchObject({ totalSelectedCents: 10_000, quoteRequired: false });
   });
 
   it('flags a deactivated service, refuses to activate with it, and saves with a version', async () => {

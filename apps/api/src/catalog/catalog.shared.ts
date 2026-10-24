@@ -112,14 +112,35 @@ export const statusOf = (row: {
   archivedAt: Date | null;
 }): CatalogStatus => (row.archivedAt ? 'ARCHIVED' : row.status);
 
-export function priceOf(row: {
+/** A stored line item's amount: its quantity (a decimal) times its rate, to the cent. */
+export const lineTotalCents = (l: { quantity: { toString(): string }; rateCents: number }) =>
+  Math.round(Number(l.quantity.toString()) * l.rateCents);
+
+/** What a service's price is made of; without line items it is the base price. */
+export interface ServicePriceParts {
   pricingType: PricingType;
   basePriceCents: number | null;
-  billingFrequency: string | null;
-}): PriceDisplay {
+  lineItemMode?: 'INFORMATIONAL' | 'ADDITIVE';
+  lineItems?: { quantity: { toString(): string }; rateCents: number }[];
+}
+
+/**
+ * What the service costs (Octavia's S6): null for a Custom Quote; with ADDITIVE line items the base
+ * price plus the lines (a $100.50 base and a $75.00 line make $175.50); otherwise the base price,
+ * which INFORMATIONAL lines only explain (never charged twice).
+ */
+export function serviceTotalCents(s: ServicePriceParts): number | null {
+  if (s.pricingType === 'CUSTOM_QUOTE') return null;
+  if (s.lineItemMode !== 'ADDITIVE' || !s.lineItems?.length) return s.basePriceCents;
+  return (s.basePriceCents ?? 0) + s.lineItems.reduce((n, l) => n + lineTotalCents(l), 0);
+}
+
+export function priceOf(
+  row: ServicePriceParts & { billingFrequency: string | null },
+): PriceDisplay {
   return {
     type: row.pricingType,
-    amountCents: row.pricingType === 'CUSTOM_QUOTE' ? null : row.basePriceCents,
+    amountCents: serviceTotalCents(row),
     // SEMI_MONTHLY is in the database but not in the contract: read as the closest, MONTHLY.
     frequency: (row.billingFrequency === 'SEMI_MONTHLY'
       ? 'MONTHLY'
@@ -150,14 +171,23 @@ export function diff(
 // ---------- Package pricing ----------
 
 export interface PricedService {
-  basePriceCents: number | null;
+  /** The service's price (`serviceTotalCents`); null for a Custom Quote. */
+  priceCents: number | null;
   pricingType: PricingType;
 }
 
+/** A package's service as loaded: its price with its line items. */
+export const pricedService = (s: ServicePriceParts): PricedService => ({
+  priceCents: serviceTotalCents(s),
+  pricingType: s.pricingType,
+});
+
 /**
  * The Package Pricing panel. "Total of selected services" counts the included services' current
- * prices. With a discount and no package price, the price is the total less the discount. Savings
- * are known only when the package has a price and every included service has a fixed price.
+ * prices; optional services and add-ons never count. When an included service needs a quote the
+ * total is unknown, never $0 (Octavia's S9), and so is a price worked out from a discount. With a
+ * discount and no package price, the price is the total less the discount. Savings are known only
+ * when the package has a price and every included service has a fixed price.
  */
 export function packagePricing(input: {
   included: PricedService[];
@@ -166,13 +196,16 @@ export function packagePricing(input: {
   /** Basis points for PERCENTAGE, cents for FIXED. */
   discountValue: number | null;
 }): PackagePricing {
-  const total = input.included.reduce((sum, s) => sum + (s.basePriceCents ?? 0), 0);
+  const quoteRequired = input.included.some((s) => s.pricingType === 'CUSTOM_QUOTE');
+  const total = input.included.some((s) => s.priceCents === null)
+    ? null
+    : input.included.reduce((sum, s) => sum + (s.priceCents ?? 0), 0);
   const variable = input.included.some((s) =>
     ['STARTING_AT', 'HOURLY', 'CUSTOM_QUOTE'].includes(s.pricingType),
   );
   const hasDiscount = input.discountType !== 'NONE' && input.discountValue !== null;
   let price = input.packagePriceCents;
-  if (price === null && hasDiscount) {
+  if (price === null && hasDiscount && total !== null) {
     const off =
       input.discountType === 'PERCENTAGE'
         ? Math.round((total * (input.discountValue ?? 0)) / 10_000)
@@ -183,20 +216,25 @@ export function packagePricing(input: {
   if (hasDiscount && input.discountType === 'PERCENTAGE' && (input.discountValue ?? 0) > 10_000) {
     throw errors.invalidDiscount('Use at most 100%');
   }
-  if (hasDiscount && input.discountType === 'FIXED' && (input.discountValue ?? 0) > total) {
+  if (
+    hasDiscount &&
+    input.discountType === 'FIXED' &&
+    total !== null &&
+    (input.discountValue ?? 0) > total
+  ) {
     throw errors.invalidDiscount('The discount is more than the services cost');
   }
-  const known = price !== null && !variable && input.included.length > 0;
-  const savings = known ? Math.max(0, total - (price ?? 0)) : null;
+  const known = price !== null && total !== null && !variable && input.included.length > 0;
+  const savings = known ? Math.max(0, (total ?? 0) - (price ?? 0)) : null;
   return {
     totalSelectedCents: total,
     packagePriceCents: price,
     discountType: input.discountType,
     discountValue: input.discountType === 'NONE' ? null : input.discountValue,
     savingsCents: savings,
-    savingsPercent:
-      savings !== null && total > 0 ? Math.round((savings / total) * 10_000) / 100 : null,
+    savingsPercent: savings !== null && total ? Math.round((savings / total) * 10_000) / 100 : null,
     variablePrice: variable,
+    quoteRequired,
   };
 }
 
