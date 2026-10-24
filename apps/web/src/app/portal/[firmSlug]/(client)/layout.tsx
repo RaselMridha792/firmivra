@@ -26,6 +26,7 @@ import { PortalFooter } from '../(public)/_components/portal-footer';
 import { taglineWords } from '../(public)/_components/tagline';
 import { PortalBell } from './_components/portal-bell';
 import { menuState } from './_components/portal-menu';
+import { usePortalTabs } from './_components/portal-tabs';
 import type { NavSections } from '../../../../components/app-shell/types';
 import { SignedIn, useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
@@ -35,10 +36,16 @@ import { useApiQuery } from '../../../../lib/query';
 const DEFAULT_MOTTO = ['Plan', 'Prepare', 'Prosper'];
 
 // Client menu (docs/junior/PAGE-MAP.md). Messages shows the unread firm messages. "Signatures" shows
-// when the firm uses Firm Sign, "Tax Calculators" when the firm shares at least one calculator.
+// when the firm uses Firm Sign, "Tax Calculators" when the firm shares at least one calculator. A
+// tab the firm turned off (Settings > Client Portal > Features) leaves the menu.
 const sections = (
   slug: string,
-  extra: { signatures: boolean; calculators: boolean; unread: number },
+  extra: {
+    signatures: boolean;
+    calculators: boolean;
+    unread: number;
+    tabOn: (page: string) => boolean;
+  },
 ): NavSections => [
   [
     { label: 'Home', icon: House, href: `/${slug}/home` },
@@ -60,7 +67,7 @@ const sections = (
       ? [{ label: 'Tax Calculators', icon: Calculator, href: `/${slug}/calculator` }]
       : []),
     { label: 'My Profile', icon: UserRound, href: `/${slug}/profile` },
-  ],
+  ].filter((item) => extra.tabOn(item.href.split('/')[2] ?? '')),
 ];
 
 /**
@@ -156,10 +163,12 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
   );
   const firmMotto = taglineWords(branding);
   const motto = firmMotto.length > 0 ? firmMotto : DEFAULT_MOTTO;
+  const tabOn = usePortalTabs(slug);
   const nav = sections(slug, {
     signatures: signatures.data?.enabled === true,
     calculators: (calculators.data?.length ?? 0) > 0,
     unread: unread.data?.count ?? 0,
+    tabOn,
   });
   const mottoBlock = (
     <div
@@ -268,7 +277,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
         <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
       </div>
       <div className="print:hidden">
-        <PortalFooter contact compact />
+        <PortalFooter contact={tabOn('messages')} compact />
       </div>
       <div className="[&_dialog]:m-0 [&_dialog]:h-screen! [&_dialog]:max-h-screen! [&_dialog]:w-sidebar! [&_dialog]:rounded-none [&_dialog]:p-0 [&_dialog>div]:p-4">
         <Modal open={drawer} title="Portal menu" onClose={() => setDrawer(false)}>

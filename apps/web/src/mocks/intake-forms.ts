@@ -126,6 +126,8 @@ function defaultSettings(): IntakeSettings {
       firstReminderAfterMinutes: 4320,
       finalReminderAfterMinutes: 10080,
       expirationAlertMinutes: 1440,
+      // The firm's contact email starts the list (Rasel, Oct 25).
+      additionalEmails: ['office@lvp.test'],
     },
     automation: {
       autoCreateClient: false,
@@ -140,6 +142,7 @@ function defaultSettings(): IntakeSettings {
       acceptedFileTypes: ['PDF', 'JPG', 'PNG'],
       maxFileSizeMb: 10,
       consentRequired: true,
+      dataRetentionYears: null,
     },
     updatedAt: null,
     version: 'v1',

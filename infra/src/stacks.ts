@@ -58,10 +58,12 @@ export function createStacks(app: App, config: EnvConfig) {
     description:
       'Firmivra: ECR, ECS services, load balancer, CloudFront, DNS, malware scan, alarms',
   });
+  // Prod's CI stack grants by resource name and so comes before the app stack: deploy-prod.yml
+  // creates the app stack with its role. Dev's keeps its grants by reference, as deployed.
   const ci = new CiStack(app, id('ci'), {
     ...common,
     config,
-    app: appStack,
+    ...(config.envName === 'dev' ? { app: appStack } : {}),
     description: 'Firmivra: GitHub OIDC deploy role',
   });
   const all = [network, data, auth, email, appStack, ci];

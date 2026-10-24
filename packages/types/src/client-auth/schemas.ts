@@ -38,6 +38,23 @@ export const LegalVersion = z.object({
 });
 export type LegalVersion = z.infer<typeof LegalVersion>;
 
+/** The firm's corporate contact in the portal (Client Portal guide, 4 and 9.4). */
+export const PortalContact = z.object({
+  phone: z.string().nullable(),
+  email: z.string().nullable(),
+  /** The street lines, then "City, ST 12345": empty when the firm has no address. */
+  addressLines: z.array(z.string()),
+  /** The main office's open intervals, 0 Sunday to 6 Saturday, "09:00" in its time zone. */
+  hours: z.array(
+    z.object({
+      weekday: z.number().int().min(0).max(6),
+      opensAt: z.string(),
+      closesAt: z.string(),
+    }),
+  ),
+});
+export type PortalContact = z.infer<typeof PortalContact>;
+
 /** GET /portal/{firmSlug}/info: everything the portal layout and landing page need. */
 export const PortalInfo = z.object({
   business: z.object({ slug: z.string(), name: z.string() }),
@@ -69,6 +86,11 @@ export const PortalInfo = z.object({
   /** False when the firm closed sign-ups or has not published Terms and Privacy yet. */
   signUpOpen: z.boolean(),
   legal: z.object({ terms: LegalVersion.nullable(), privacy: LegalVersion.nullable() }),
+  /**
+   * How clients reach the firm: Company Profile's contact details, each one falling back to the
+   * main office's in Locations, and that office's opening hours. Null or empty: not set.
+   */
+  contact: PortalContact,
 });
 export type PortalInfo = z.infer<typeof PortalInfo>;
 

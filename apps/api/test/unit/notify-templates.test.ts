@@ -289,6 +289,26 @@ describe('Begin Online and leads', () => {
   });
 });
 
+describe('intake.submitted-notice', () => {
+  it('names the form and the firm, links to the workspace, and carries nothing a client wrote', () => {
+    const notice = email('intake.submitted-notice');
+    expect(notice.subject).toBe('Intake form submitted: Personal Tax Intake Form');
+    expect(notice.text).toContain('Personal Tax Intake Form');
+    expect(notice.text).toContain('https://app.example.test/intake-forms');
+    expect(notice.text).toContain('this email has none of them');
+    const probed = email('intake.submitted-notice', {
+      ...SAMPLE_DATA['intake.submitted-notice'],
+      answers: 'Secret probe answer',
+    } as never);
+    expect(probed).toEqual(notice);
+    const escaped = email('intake.submitted-notice', {
+      ...SAMPLE_DATA['intake.submitted-notice'],
+      formTitle: 'Tax <img src=x>',
+    });
+    expect(escaped.html).not.toContain('<img src=x>');
+  });
+});
+
 describe('message.received', () => {
   it('never carries the message text, only the name and the link', () => {
     const plain = email('message.received');
