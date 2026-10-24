@@ -56,6 +56,7 @@ const people = {
   ownerA: person('owner-a'),
   adminA: person('admin-a'),
   staffA: person('staff-a'),
+  managerA: person('manager-a'),
   ownerB: person('owner-b'),
 };
 type Who = (typeof people)[keyof typeof people];
@@ -187,6 +188,7 @@ beforeAll(async () => {
     ['a', people.ownerA.id, 'OWNER'],
     ['a', people.adminA.id, 'ADMIN'],
     ['a', people.staffA.id, 'STAFF'],
+    ['a', people.managerA.id, 'MANAGER'],
     ['b', people.ownerB.id, 'OWNER'],
   ] as const) {
     await inFirm(firm, (tx) =>
@@ -933,6 +935,27 @@ describe('saved reports', () => {
 });
 
 describe('exports', () => {
+  it('lets a Manager export, whose grid gives Reports View and Export, until the firm takes Export away (SM6)', async () => {
+    const exp = () =>
+      call('post', '/reports/exports', people.managerA, {
+        run: { target: { kind: 'SYSTEM', key: 'new_clients' } },
+        format: 'CSV',
+      });
+    // Export, not Create: the Manager's default grid has no Create in Reports.
+    expect(ReportRunStatusView.parse(ok(await exp()))).toMatchObject({
+      kind: 'EXPORT',
+      format: 'CSV',
+    });
+    ok(
+      await call('put', '/roles/MANAGER/permissions', people.ownerA, {
+        grants: [{ module: 'REPORTS', capability: 'EXPORT', granted: false }],
+      }),
+    );
+    expectError(await exp(), 403, 'FORBIDDEN');
+    ok(await call('delete', '/roles/MANAGER/permissions', people.ownerA));
+    ok(await exp());
+  });
+
   it('make a CSV under the firm’s prefix, with the screen’s numbers, and a short-lived link', async () => {
     const saved = await saveReport({
       definition: def({
@@ -1432,7 +1455,8 @@ describe('settings and lookups', () => {
       'Riley Example (fake)',
     ]);
     expect((await lookup('kind=SERVICE')).map((s) => s.label)).toContain('Bookkeeping');
-    expect((await lookup('kind=TEAM_MEMBER')).length).toBe(3);
+    // Owner, Admin, Staff and Manager.
+    expect((await lookup('kind=TEAM_MEMBER')).length).toBe(4);
     expect(await lookup('kind=TEAM_MEMBER', people.staffA)).toEqual([]);
     expect((await lookup('kind=LEAD_SOURCE&search=ref')).map((s) => s.id)).toEqual(['REFERRAL']);
     expect(
