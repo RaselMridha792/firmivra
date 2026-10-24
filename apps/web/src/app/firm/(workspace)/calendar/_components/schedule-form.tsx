@@ -390,6 +390,50 @@ function FormBody({
   const [note, setNote] = useState('');
   const [override, setOverride] = useState('');
   const [panelStaff, setPanelStaff] = useState(form.staffUserIds[0] ?? o.staff[0]?.userId ?? '');
+  // Octavia's A5: the contact typed here saved as a client of the firm, then chosen for this
+  // appointment; every other entry on the form stays as it is.
+  const [clientNote, setClientNote] = useState('');
+  const saveClient = useApiMutation(() =>
+    api.clients.create({
+      accountType: form.clientType,
+      displayName: form.name.trim(),
+      email: form.email.trim(),
+      ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
+      ...(form.clientType === 'BUSINESS' && form.businessName.trim()
+        ? { profile: { businessName: form.businessName.trim() } }
+        : {}),
+    }),
+  );
+  const onSaveClient = () => {
+    const problem = !form.name.trim()
+      ? 'Enter the name first.'
+      : !/^\S+@\S+\.\S+$/.test(form.email.trim())
+        ? 'Enter a valid email first.'
+        : '';
+    setClientNote(problem);
+    if (problem) return;
+    saveClient.mutate(undefined, {
+      onSuccess: (client) => {
+        setForm((f) => ({
+          ...f,
+          newContact: false,
+          contact: {
+            kind: 'CLIENT',
+            id: client.id,
+            name: client.displayName,
+            businessName: f.clientType === 'BUSINESS' ? f.businessName.trim() || null : null,
+            email: client.email,
+            phone: client.phone,
+            clientType: client.accountType,
+          },
+        }));
+        setErrors(({ contact: _contact, ...rest }) => rest);
+        setClientNote(
+          `${client.displayName} is saved as a client and chosen for this appointment.`,
+        );
+      },
+    });
+  };
   const set = <K extends keyof Form>(k: K, v: Form[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
     setNote('');
@@ -654,6 +698,14 @@ function FormBody({
                   onChange={(e) => set('businessName', e.target.value)}
                 />
               ) : null}
+              <div className="flex min-w-0 flex-wrap items-center gap-3 md:col-span-2">
+                <Button variant="outline" disabled={saveClient.isPending} onClick={onSaveClient}>
+                  {saveClient.isPending ? 'Saving…' : 'Save Client'}
+                </Button>
+                <span className="text-xs text-muted">
+                  Adds them to your clients and chooses them here. The rest of the form stays.
+                </span>
+              </div>
             </div>
           ) : (
             <div className={grid}>
@@ -735,6 +787,23 @@ function FormBody({
             </div>
           )}
           {errors.contact ? <p className="text-xs text-danger">{errors.contact}</p> : null}
+          {saveClient.error ? (
+            <p role="alert" className="text-xs text-danger" data-testid="save-client-error">
+              {errorMessage(saveClient.error, {
+                DUPLICATE_EMAIL:
+                  'Another client already has this email. Search for them instead, or use another email.',
+                FORBIDDEN: 'You cannot add clients. Book them as a contact instead.',
+              })}
+            </p>
+          ) : clientNote ? (
+            <p
+              role="status"
+              className={`text-xs ${form.newContact ? 'text-danger' : 'text-success'}`}
+              data-testid="save-client-note"
+            >
+              {clientNote}
+            </p>
+          ) : null}
           {!record ? (
             <Button
               variant="ghost"
@@ -742,6 +811,8 @@ function FormBody({
               onClick={() => {
                 setForm((f) => ({ ...f, newContact: !f.newContact, contact: null }));
                 setSearch('');
+                setClientNote('');
+                saveClient.reset();
               }}
             >
               {form.newContact ? 'Search clients and leads instead' : 'Add a new contact'}

@@ -210,3 +210,38 @@ test('A7: several default reminders, each with its channels, kept after reopenin
   await expect(back.getByLabel('SMS')).toBeChecked();
   await expect(back.getByLabel('Portal')).toBeChecked();
 });
+
+test('A5: Save Client saves the typed contact as a client and chooses it; entries stay', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  // Scheduling details first, so they can be checked afterwards.
+  await page.getByLabel('Appointment Type *').selectOption({ index: 1 });
+  await page.getByLabel('Date *').fill('2026-12-03');
+  await page.getByLabel('Internal Notes').fill('Bring last year return');
+
+  await page.getByRole('button', { name: 'Add a new contact' }).click();
+  const info = page.getByTestId('client-information');
+  await info.getByRole('button', { name: 'Save Client' }).click();
+  await expect(page.getByTestId('save-client-note')).toHaveText('Enter the name first.');
+
+  await info.getByLabel('Name *').fill('Riley Sample');
+  await info.getByLabel('Email *').fill('jamie.sample@example.test');
+  await info.getByRole('button', { name: 'Save Client' }).click();
+  await expect(page.getByTestId('save-client-error')).toContainText(
+    'Another client already has this email',
+  );
+
+  await info.getByLabel('Email *').fill('riley.sample@example.test');
+  await info.getByRole('button', { name: 'Save Client' }).click();
+  await expect(page.getByTestId('save-client-note')).toHaveText(
+    'Riley Sample is saved as a client and chosen for this appointment.',
+  );
+  await expect(page.getByLabel('Client / Lead *')).toHaveValue('Riley Sample');
+  await expect(info.getByRole('link', { name: 'View Client Profile' })).toBeVisible();
+  await expect(page.getByLabel('Date *')).toHaveValue('2026-12-03');
+  await expect(page.getByLabel('Internal Notes')).toHaveValue('Bring last year return');
+  await expect(page.getByLabel('Appointment Type *')).not.toHaveValue('');
+});
