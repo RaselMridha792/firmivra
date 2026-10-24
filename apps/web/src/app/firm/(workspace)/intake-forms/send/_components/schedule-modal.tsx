@@ -1,6 +1,6 @@
 'use client';
 
-import { intakeDurationWords } from '@firmivra/types';
+import { intakeAlertWords, intakeDurationWords } from '@firmivra/types';
 import { Button, Modal } from '@firmivra/ui';
 import Link from 'next/link';
 import { api } from '../../../../../../lib/api';
@@ -32,9 +32,9 @@ function Timing() {
     ['Final reminder', after(n.finalReminderAfterMinutes)],
     [
       'Expiration alert',
-      n.expirationAlertHours === null
+      n.expirationAlertMinutes === null
         ? 'None'
-        : `${n.expirationAlertHours} ${n.expirationAlertHours === 1 ? 'hour' : 'hours'} before it expires`,
+        : `${intakeAlertWords(n.expirationAlertMinutes)} before it expires`,
     ],
   ];
   return (

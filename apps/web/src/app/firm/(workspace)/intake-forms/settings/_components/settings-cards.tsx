@@ -1,7 +1,7 @@
 'use client';
 
 import { Bell, GearSix, Lightning, Palette, ShieldCheck, User } from '@phosphor-icons/react';
-import { intakeDurationWords, type PortalInfo } from '@firmivra/types';
+import { intakeAlertWords, intakeDurationWords, type PortalInfo } from '@firmivra/types';
 import { Button, Checkbox, Modal, normalizeHex } from '@firmivra/ui';
 import Image from 'next/image';
 import { useId, useState } from 'react';
@@ -15,7 +15,7 @@ import {
   type FrameState,
 } from './settings-look';
 import {
-  ALERT_HOURS,
+  ALERT_MINUTES,
   type Draft,
   EXPIRATION_DAYS,
   FILE_TYPES,
@@ -307,14 +307,19 @@ export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProp
           <SelectRow
             label="Expiration alert"
             width={w}
-            value={n.expirationAlertHours === null ? '' : String(n.expirationAlertHours)}
-            options={withCurrent(ALERT_HOURS, n.expirationAlertHours).map((h) => ({
-              value: String(h),
-              label: `${h} ${h === 1 ? 'hour' : 'hours'} before expiry`,
-            }))}
+            value={n.expirationAlertMinutes === null ? '' : String(n.expirationAlertMinutes)}
+            options={[
+              { value: '', label: 'No alert' },
+              ...withCurrent(ALERT_MINUTES, n.expirationAlertMinutes).map((m) => ({
+                value: String(m),
+                label: `${intakeAlertWords(m)} before expiry`,
+              })),
+            ]}
             disabled={readOnly}
-            error={errors['notifications.expirationAlertHours']}
-            onChange={(v) => set('notifications', { expirationAlertHours: Number(v) })}
+            error={errors['notifications.expirationAlertMinutes']}
+            onChange={(v) =>
+              set('notifications', { expirationAlertMinutes: v === '' ? null : Number(v) })
+            }
           />
         </>
       ) : null}

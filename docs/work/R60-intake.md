@@ -547,3 +547,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   the firm's times (a send keeps only on or off; "View Schedule" instead of fields the API never
   kept). Intake workspace e2e 17 of 17, unit 11 and 10, the Intake Forms mock specs 38 of 38;
   sheet shot on the real API.
+- Oct 24 (fourth session): I9 (`rasel/R60-intake-expiry-alert`, stacked on I8, local): the
+  expiration alert in minutes (`expirationAlertMinutes`; 30 minutes and 1, 2, 3, 5, 6, 10, 12, 24,
+  42 and 72 hours) and No alert (null, now taken), the old hour column following (rounded up,
+  kept under No alert), the Send page's schedule saying it. Intake workspace e2e 17 of 17, types
+  unit 12 of 12, the Intake Forms mock specs 39 of 39; sheet shot on the real API.

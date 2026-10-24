@@ -125,7 +125,7 @@ function defaultSettings(): IntakeSettings {
       notifyAssignedStaff: true,
       firstReminderAfterMinutes: 4320,
       finalReminderAfterMinutes: 10080,
-      expirationAlertHours: 24,
+      expirationAlertMinutes: 1440,
     },
     automation: {
       autoCreateClient: false,
@@ -980,19 +980,14 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       }
       const pick = <T extends object>(o: T | undefined) =>
         Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined));
-      // As the API: no first reminder is no reminders; no alert, or a final reminder that is not
-      // after the first, is refused at its field.
+      // As the API: no first reminder is no reminders; a final reminder that is not after the
+      // first is refused at its field. No alert (null) is taken.
       const n = { ...st.notifications, ...pick(input.notifications) };
       if (n.firstReminderAfterMinutes === null) n.finalReminderAfterMinutes = null;
       const refuse = (path: string, message: string) =>
         new ApiRequestError(400, 'VALIDATION_FAILED', message, undefined, undefined, [
           { path, message },
         ]);
-      if (n.expirationAlertHours === null)
-        throw refuse(
-          'notifications.expirationAlertHours',
-          'Choose how long before expiry the alert goes',
-        );
       if (
         n.firstReminderAfterMinutes !== null &&
         (n.finalReminderAfterMinutes ?? 0) <= n.firstReminderAfterMinutes
