@@ -1378,6 +1378,245 @@ describe('Custom reminders', () => {
   });
 });
 
+// R1 (Oct 24): Create Task and Duplicate are retry-safe by the screen's idempotency key (contract:
+// work.ts IdempotencyKey). A retry of the same save returns the first task as it is now; any other
+// use of the key in the firm is 409 and shows nothing; another firm's key is its own.
+describe('idempotency keys', () => {
+  const form = (title: string, key: string) => ({
+    clientId: clients.c1,
+    title,
+    dueOn: '2031-04-01',
+    checklist: [{ label: 'Step' }],
+    reminders: [{ daysBefore: 1 }],
+    idempotencyKey: key,
+  });
+  /** The tasks firm A keeps with this key (read as the owner role, so by firm). */
+  const keyed = (key: string) =>
+    inFirm('a', (tx) =>
+      tx.task.findMany({
+        where: { businessId: firms.a, idempotencyKey: key },
+        select: { id: true, idempotencyScope: true, createdByUserId: true },
+      }),
+    );
+  const audits = (id: string, action: string) =>
+    inFirm('a', (tx) => tx.auditLog.count({ where: { entityId: id, action } }));
+
+  it('the same key twice, one after the other or at once, makes one task, audited once', async () => {
+    const key = randomUUID();
+    const title = mark('Keyed');
+    const first = await create(form(title, key));
+    expect(await create(form(title, key))).toEqual(first);
+    // The key in upper case is the same key.
+    expect((await create(form(title, key.toUpperCase()))).id).toBe(first.id);
+    expect(await keyed(key)).toEqual([
+      { id: first.id, idempotencyScope: 'create', createdByUserId: people.ownerA.id },
+    ]);
+    expect(await audits(first.id, 'task.created')).toBe(1);
+
+    const atOnce = randomUUID();
+    const body = form(mark('At once'), atOnce);
+    const answers = await Promise.all(
+      [1, 2, 3].map(() => call('post', '/tasks', people.ownerA, body)),
+    );
+    const ids = answers.map((r) => detail(r, 201).id);
+    expect(new Set(ids).size).toBe(1);
+    const [id] = ids as [string];
+    expect((await keyed(atOnce)).map((t) => t.id)).toEqual([id]);
+    expect(await audits(id, 'task.created')).toBe(1);
+    // Its checklist and reminders once, too.
+    const made = await get(id);
+    expect([made.checklistItems.length, made.reminders.length]).toEqual([1, 1]);
+  });
+
+  it('a changed body gets the first task as it is now, and changes nothing', async () => {
+    const key = randomUUID();
+    const first = await create(form(mark('First'), key));
+    const renamed = await patch(first.id, { title: mark('Renamed'), priority: 'HIGH' });
+    const retry = await create({
+      ...form(mark('Changed'), key),
+      priority: 'LOW',
+      dueOn: '2032-01-01',
+    });
+    expect(retry).toEqual(renamed);
+    expect(await keyed(key)).toHaveLength(1);
+    expect(await audits(first.id, 'task.created')).toBe(1);
+  });
+
+  it('another member, another route or another task is 409 and shows nothing of the task', async () => {
+    const key = randomUUID();
+    const first = await create(form(mark('Mine'), key));
+    const series = {
+      clientId: clients.c1,
+      title: mark('Series'),
+      recurrence: { unit: 'MONTH', startOn: '2031-05-01' },
+      idempotencyKey: key,
+    };
+    for (const res of [
+      await call('post', '/tasks', people.adminA, form(mark('Mine'), key)),
+      await call('post', '/tasks', people.staffA, form(mark('Mine'), key)),
+      await call('post', '/tasks/drafts', people.ownerA, {
+        title: mark('Draft'),
+        idempotencyKey: key,
+      }),
+      await act(first.id, 'duplicate', people.ownerA, { idempotencyKey: key }),
+      await call('post', '/task-series', people.ownerA, series),
+      await act(first.id, 'convert-to-recurring', people.ownerA, {
+        recurrence: { unit: 'MONTH' },
+        idempotencyKey: key,
+      }),
+    ]) {
+      expectError(res, 409, 'IDEMPOTENCY_KEY_REUSED');
+      expect(JSON.stringify(res.body)).not.toContain(first.id);
+    }
+    expect(await keyed(key)).toHaveLength(1);
+    expect(
+      await inFirm('a', (tx) =>
+        tx.taskSeries.count({ where: { businessId: firms.a, idempotencyKey: key } }),
+      ),
+    ).toBe(0);
+    expect((await get(first.id)).series).toBeNull();
+    // The Owner's own retry still gets it.
+    expect((await create(form(mark('Mine'), key))).id).toBe(first.id);
+  });
+
+  it('Duplicate twice with one key makes one copy, also at once; the key on another task is 409', async () => {
+    const source = await create({
+      clientId: clients.c1,
+      title: mark('Source'),
+      dueOn: '2031-06-01',
+      checklist: [{ label: 'Step' }],
+    });
+    const copies = () =>
+      inFirm('a', (tx) =>
+        tx.task.findMany({
+          where: { businessId: firms.a, title: `${source.title} (Copy)` },
+          select: { id: true, idempotencyScope: true },
+          orderBy: { createdAt: 'asc' },
+        }),
+      );
+    const key = randomUUID();
+    const copy = detail(
+      await act(source.id, 'duplicate', people.ownerA, { idempotencyKey: key }),
+      201,
+    );
+    // The URL's id in upper case is the same task.
+    const again = detail(
+      await act(source.id.toUpperCase(), 'duplicate', people.ownerA, { idempotencyKey: key }),
+      201,
+    );
+    expect(again).toEqual(copy);
+
+    const atOnce = randomUUID();
+    const both = await Promise.all(
+      [1, 2].map(() => act(source.id, 'duplicate', people.ownerA, { idempotencyKey: atOnce })),
+    );
+    const [one, two] = both.map((r) => detail(r, 201).id) as [string, string];
+    expect(one).toBe(two);
+    expect(one).not.toBe(copy.id);
+    expect(await copies()).toEqual([
+      { id: copy.id, idempotencyScope: `duplicate:${source.id}` },
+      { id: one, idempotencyScope: `duplicate:${source.id}` },
+    ]);
+    for (const id of [copy.id, one]) expect(await audits(id, 'task.duplicated')).toBe(1);
+
+    // Without a key, with no body or an empty one, each Duplicate makes a copy, as before.
+    detail(await act(source.id, 'duplicate'), 201);
+    detail(await act(source.id, 'duplicate', people.ownerA, {}), 201);
+    expect(await copies()).toHaveLength(4);
+
+    const other = await create({ clientId: clients.c1, title: mark('Other') });
+    expectError(
+      await act(other.id, 'duplicate', people.ownerA, { idempotencyKey: key }),
+      409,
+      'IDEMPOTENCY_KEY_REUSED',
+    );
+    expectError(
+      await act(source.id, 'duplicate', people.ownerA, { idempotencyKey: 'copy-1' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await act(source.id, 'duplicate', people.ownerA, { title: 'Not a field' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect(await copies()).toHaveLength(4);
+  });
+
+  it('a retry reads the task as it is now: archived, or 404 once out of the member’s reach', async () => {
+    // A client of this test's own, so moving it touches no other test.
+    const own = await inFirm('a', (tx) =>
+      tx.client.create({
+        data: {
+          businessId: firms.a,
+          displayName: 'Keyed Client (fake)',
+          assignedUserId: people.staffA.id,
+        },
+        select: { id: true },
+      }),
+    );
+    const key = randomUUID();
+    const body = { clientId: own.id, title: mark('Staff keyed'), idempotencyKey: key };
+    const t = await create(body, people.staffA);
+    detail(await act(t.id, 'archive'));
+    expect(await create(body, people.staffA)).toMatchObject({
+      id: t.id,
+      archivedAt: expect.any(String) as unknown,
+    });
+    await inFirm('a', (tx) =>
+      tx.client.update({ where: { id: own.id }, data: { assignedUserId: people.staffA2.id } }),
+    );
+    expectError(await call('post', '/tasks', people.staffA, body), 404, 'NOT_FOUND');
+    expect(await keyed(key)).toHaveLength(1);
+  });
+
+  it('is refused on a change (400)', async () => {
+    const t = await create({ clientId: clients.c1, title: mark('No key on a change') });
+    expectError(
+      await call('patch', `/tasks/${t.id}`, people.ownerA, {
+        title: 'Renamed',
+        idempotencyKey: randomUUID(),
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect((await get(t.id)).title).toBe(t.title);
+  });
+
+  it('firm B with firm A’s key makes its own task and never reaches firm A’s', async () => {
+    const key = randomUUID();
+    const a = await create(form(mark('Firm A keyed'), key));
+    const asB = { clientId: clients.cB, title: mark('Firm B keyed'), idempotencyKey: key };
+    const b = await create(asB, people.ownerB, 'b');
+    expect(b.id).not.toBe(a.id);
+    expect(b.client.id).toBe(clients.cB);
+    // Each firm's retry gets its own task.
+    expect((await create(asB, people.ownerB, 'b')).id).toBe(b.id);
+    expect((await create(form(mark('Firm A again'), key))).id).toBe(a.id);
+    // Firm A's task is not firm B's to duplicate, with a new key or with A's key, which in firm
+    // B already made B's own task.
+    expectError(
+      await call(
+        'post',
+        `/tasks/${a.id}/duplicate`,
+        people.ownerB,
+        { idempotencyKey: randomUUID() },
+        'b',
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', `/tasks/${a.id}/duplicate`, people.ownerB, { idempotencyKey: key }, 'b'),
+      409,
+      'IDEMPOTENCY_KEY_REUSED',
+    );
+    expect(await keyed(key)).toEqual([
+      { id: a.id, idempotencyScope: 'create', createdByUserId: people.ownerA.id },
+    ]);
+  });
+});
+
 describe('firm B against firm A', () => {
   it('never reads, changes or uses firm A’s tasks, documents or types', async () => {
     const a = await create({
