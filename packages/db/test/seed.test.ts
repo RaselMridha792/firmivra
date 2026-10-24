@@ -75,6 +75,11 @@ describe('seed', () => {
       // security defaults row appears with its first save; seeding stays paused (Rasel).
       'staff_job_titles',
       'staff_security_defaults',
+      // R60's requests 7 and 11 (Oct 24): a firm's licenses come from Firmivra (admin scope),
+      // and its saved work schedules start from the staff records' schedules when the migration
+      // runs (a fresh test database has none yet); seeding stays paused (Rasel).
+      'firm_licenses',
+      'staff_work_schedules',
     ];
     const empty: string[] = [];
     for (const t of tables) {

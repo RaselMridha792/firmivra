@@ -1201,6 +1201,477 @@ describe('editing and controlling a series', () => {
   });
 });
 
+// Octavia's Tasks review A3 (R1, Oct 24): Custom reminders on templates and series. A series is
+// checked against its due time as a task is (every task made gets its reminders); a template
+// keeps them, and a task or series made from it leaves out the ones that do not fit.
+describe('Custom reminders on templates and series', () => {
+  const shape = (r: {
+    daysBefore: number;
+    timeOfDay: string | null;
+    amount: number | null;
+    unit: string | null;
+  }) => [r.daysBefore, r.timeOfDay, r.amount, r.unit];
+  const refused = (res: Response, message: string) => {
+    expectError(res, 400, 'INVALID_REMINDER');
+    expect((res.body as { error: { message: string } }).error.message).toBe(message);
+  };
+  const NEEDS_TIME = 'A reminder in minutes or hours needs a due time';
+  const SAME_MOMENT = 'Two reminders fire at the same time';
+
+  it('a series needs a due time for them, and keeps it while it has them', async () => {
+    const post = (body: object) =>
+      call('post', '/task-series', people.ownerA, {
+        clientId: clients.c1,
+        title: mark('Custom series'),
+        recurrence: { unit: 'DAY', startOn: '2030-01-01' },
+        ...body,
+      });
+    refused(await post({ reminders: [{ amount: 2, unit: 'HOURS' }] }), NEEDS_TIME);
+    refused(
+      await post({
+        dueTime: '09:00',
+        reminders: [
+          { amount: 60, unit: 'MINUTES' },
+          { amount: 1, unit: 'HOURS' },
+        ],
+      }),
+      SAME_MOMENT,
+    );
+    refused(
+      await post({
+        dueTime: '09:00',
+        reminders: [
+          { daysBefore: 1, timeOfDay: '09:00' },
+          { amount: 24, unit: 'HOURS' },
+        ],
+      }),
+      SAME_MOMENT,
+    );
+    refused(
+      await post({ dueTime: '09:00', reminders: [{ daysBefore: 0, timeOfDay: '10:00' }] }),
+      'A reminder cannot be after the due time',
+    );
+
+    const s = await mkSeries({
+      dueTime: '09:00',
+      reminders: [{ amount: 2, unit: 'HOURS', channels: ['EMAIL'] }, { daysBefore: 1 }],
+      recurrence: { unit: 'MONTH', startOn: '2099-01-05' },
+    });
+    expect(s.reminders.map(shape)).toEqual([
+      [0, null, 2, 'HOURS'],
+      [1, null, null, null],
+    ]);
+    expect(s.reminders[0]).toMatchObject({ id: null, inApp: true, channels: ['EMAIL'] });
+    const read = series(await call('get', `/task-series/${s.id}`, people.staffA));
+    expect(read.reminders).toEqual(s.reminders);
+    // Clearing the due time while it keeps them is refused, unless the request replaces them.
+    refused(
+      await call('patch', `/task-series/${s.id}`, people.ownerA, {
+        scope: 'FUTURE',
+        version: s.version,
+        dueTime: null,
+      }),
+      NEEDS_TIME,
+    );
+    // Moving the due time is checked against them too.
+    const moved = series(
+      await call('patch', `/task-series/${s.id}`, people.ownerA, {
+        scope: 'FUTURE',
+        version: s.version,
+        dueTime: '11:00',
+      }),
+    );
+    expect(moved.dueTime).toBe('11:00');
+    const cleared = series(
+      await call('patch', `/task-series/${s.id}`, people.ownerA, {
+        scope: 'FUTURE',
+        version: moved.version,
+        dueTime: null,
+        reminders: [{ daysBefore: 1 }],
+      }),
+    );
+    expect(cleared.dueTime).toBeNull();
+    expect(cleared.reminders.map(shape)).toEqual([[1, null, null, null]]);
+  });
+
+  it('the job gives every task the series’ Custom reminders', async () => {
+    const s = await mkSeries({
+      dueTime: '10:00',
+      reminders: [{ amount: 90, unit: 'MINUTES', channels: ['EMAIL'] }, { daysBefore: 0 }],
+      recurrence: { unit: 'DAY', startOn: '2030-05-01' },
+    });
+    await runJob('2030-05-02');
+    const [made] = await tasksOf(s.id);
+    expect(made).toMatchObject({ allDay: false });
+    const task = TaskDetail.parse(ok(await call('get', `/tasks/${made!.id}`, people.ownerA)));
+    expect(task.dueTime).toBe('10:00');
+    expect(task.reminders.map(shape)).toEqual([
+      [0, null, 90, 'MINUTES'],
+      [0, null, null, null],
+    ]);
+    expect(task.reminders[0]?.channels).toEqual(['EMAIL']);
+  });
+
+  it('the job leaves them out of a series with no due time (as an older API could save it)', async () => {
+    const s = await mkSeries({
+      dueTime: '10:00',
+      reminders: [{ amount: 30, unit: 'MINUTES' }, { daysBefore: 1 }],
+      recurrence: { unit: 'DAY', startOn: '2030-06-01' },
+    });
+    await inFirm('a', (tx) =>
+      tx.taskSeries.update({ where: { id: s.id }, data: { dueTime: null } }),
+    );
+    await runJob('2030-06-02');
+    const [made] = await tasksOf(s.id);
+    expect(made).toMatchObject({ allDay: true, dueTime: null });
+    expect(made?.taskReminders.map((r) => [r.daysBefore, r.minutesBefore, r.unit])).toEqual([
+      [1, null, null],
+    ]);
+  });
+
+  it('the job leaves out the reminders a task would refuse, so the task can still be changed', async () => {
+    const s = await mkSeries({
+      dueTime: '09:00',
+      reminders: [{ daysBefore: 1 }],
+      recurrence: { unit: 'DAY', startOn: '2030-07-01' },
+    });
+    // As a series saved before its reminders were checked, or changed by an older API, can keep
+    // them: one after the due time, and two that fire at one moment (a day before at 09:00 and
+    // 1 DAYS, on a task due at 09:00).
+    await inFirm('a', (tx) =>
+      tx.taskSeries.update({
+        where: { id: s.id },
+        data: {
+          reminders: [
+            { daysBefore: 0, timeOfDay: '17:00', inApp: true, channels: [] },
+            { daysBefore: 1, timeOfDay: '09:00', inApp: true, channels: ['EMAIL'] },
+            { daysBefore: 1, minutesBefore: 1_440, unit: 'DAYS', inApp: true, channels: [] },
+            { daysBefore: 0, minutesBefore: 120, unit: 'HOURS', inApp: true, channels: [] },
+          ],
+        },
+      }),
+    );
+    await runJob('2030-07-02');
+    const [made] = await tasksOf(s.id);
+    const task = TaskDetail.parse(ok(await call('get', `/tasks/${made!.id}`, people.ownerA)));
+    expect(task.reminders.map(shape)).toEqual([
+      [1, '09:00', null, null],
+      [0, null, 2, 'HOURS'],
+    ]);
+    expect(task.reminders[0]?.channels).toEqual(['EMAIL']);
+    // A change that does not resend the reminders, on its own or in bulk.
+    const renamed = TaskDetail.parse(
+      ok(
+        await call('patch', `/tasks/${task.id}`, people.ownerA, {
+          version: task.version,
+          title: mark('Renamed occurrence'),
+        }),
+      ),
+    );
+    expect(renamed.reminders).toEqual(task.reminders);
+    expect(
+      ok(
+        await call('post', '/tasks/bulk', people.ownerA, {
+          action: 'SET_PRIORITY',
+          ids: [task.id],
+          priority: 'HIGH',
+        }),
+      ),
+    ).toEqual({ updated: 1, skipped: [] });
+  });
+
+  it('turning a task into a series keeps its Custom reminders', async () => {
+    const t = TaskDetail.parse(
+      ok(
+        await call('post', '/tasks', people.ownerA, {
+          clientId: clients.c1,
+          title: mark('Timed one-off'),
+          dueOn: '2031-03-10',
+          dueTime: '11:15',
+          reminders: [
+            { amount: 3, unit: 'HOURS' },
+            { daysBefore: 2, timeOfDay: '08:00' },
+          ],
+        }),
+        201,
+      ),
+    );
+    const s = series(
+      await call('post', `/tasks/${t.id}/convert-to-recurring`, people.ownerA, {
+        recurrence: { unit: 'MONTH' },
+      }),
+      201,
+    );
+    toStop.push(s.id);
+    expect(s.dueTime).toBe('11:15');
+    expect(s.reminders.map(shape)).toEqual([
+      [2, '08:00', null, null],
+      [0, null, 3, 'HOURS'],
+    ]);
+  });
+
+  it('a template keeps them; a series from it leaves out the ones that do not fit', async () => {
+    const tpl = await mkTemplate({
+      reminders: [{ amount: 2, unit: 'HOURS' }, { daysBefore: 1 }, { amount: 1, unit: 'DAYS' }],
+    });
+    expect(tpl.reminders.map(shape)).toEqual([
+      [0, null, 2, 'HOURS'],
+      [1, null, null, null],
+      [1, null, 1, 'DAYS'],
+    ]);
+    const copy = template(
+      await call('post', `/task-templates/${tpl.id}/duplicate`, people.ownerA),
+      201,
+    );
+    expect(copy.reminders).toEqual(tpl.reminders);
+    // A template has no due time: only the same rule twice is refused.
+    expectError(
+      await call('post', '/task-templates', people.ownerA, {
+        name: mark('Twice'),
+        reminders: [
+          { amount: 60, unit: 'MINUTES' },
+          { amount: 1, unit: 'HOURS' },
+        ],
+      }),
+      400,
+      'INVALID_REMINDER',
+    );
+    const noTime = await mkSeries({ templateId: tpl.id });
+    expect(noTime.reminders.map(shape)).toEqual([[1, null, null, null]]);
+    const withTime = await mkSeries({ templateId: tpl.id, dueTime: '09:00' });
+    expect(withTime.reminders.map(shape)).toEqual([
+      [0, null, 2, 'HOURS'],
+      [1, null, null, null],
+      [1, null, 1, 'DAYS'],
+    ]);
+  });
+
+  it('firm B never reads or changes firm A’s series reminders', async () => {
+    const s = await mkSeries({
+      dueTime: '09:00',
+      reminders: [{ amount: 45, unit: 'MINUTES' }],
+      recurrence: { unit: 'MONTH', startOn: '2099-02-01' },
+    });
+    expectError(
+      await call('get', `/task-series/${s.id}`, people.ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call(
+        'patch',
+        `/task-series/${s.id}`,
+        people.ownerB,
+        { scope: 'FUTURE', version: s.version, dueTime: null, reminders: [] },
+        'b',
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    const kept = series(await call('get', `/task-series/${s.id}`, people.ownerA));
+    expect(kept.reminders.map(shape)).toEqual([[0, null, 45, 'MINUTES']]);
+    expect(kept.version).toBe(s.version);
+  });
+});
+
+// R1 (Oct 24): Set Up Recurring Task and Convert to Recurring are retry-safe by the screen's
+// idempotency key (contract: work.ts IdempotencyKey): a retry returns the first series, whose
+// occurrences are made once; any other use of the key is 409. Two conversions of one task at once
+// answer 400 for the second, never 500.
+describe('idempotency keys', () => {
+  /** Firm A's series with this key (read as the owner role, so by firm). */
+  const keyed = (key: string) =>
+    inFirm('a', (tx) =>
+      tx.taskSeries.findMany({
+        where: { businessId: firms.a, idempotencyKey: key },
+        select: { id: true, idempotencyScope: true },
+      }),
+    );
+  const audits = (id: string) =>
+    inFirm('a', (tx) =>
+      tx.auditLog.count({ where: { entityId: id, action: 'task_series.created' } }),
+    );
+  const dated = async () =>
+    TaskDetail.parse(
+      ok(
+        await call('post', '/tasks', people.ownerA, {
+          clientId: clients.c1,
+          title: mark('To convert'),
+          dueOn: '2031-02-10',
+        }),
+        201,
+      ),
+    );
+  const convert = (taskId: string, body: object, who: Who = people.ownerA) =>
+    call('post', `/tasks/${taskId}/convert-to-recurring`, who, {
+      recurrence: { unit: 'MONTH' },
+      ...body,
+    });
+  const seriesTitled = (title: string) =>
+    inFirm('a', (tx) => tx.taskSeries.count({ where: { businessId: firms.a, title } }));
+
+  it('Set Up Recurring twice with one key, one after the other or at once, makes one series', async () => {
+    const key = randomUUID();
+    const first = await mkSeries({ title: mark('Keyed series'), idempotencyKey: key });
+    // A changed body gets the first series as it is.
+    const again = await mkSeries({ title: mark('Changed'), priority: 'HIGH', idempotencyKey: key });
+    expect(again).toEqual(first);
+    expect(await keyed(key)).toEqual([{ id: first.id, idempotencyScope: 'series' }]);
+    expect(await audits(first.id)).toBe(1);
+
+    // Weekly from soon, so the occurrences ahead are made at once.
+    const body = {
+      clientId: clients.c1,
+      title: mark('At once'),
+      recurrence: { unit: 'WEEK', startOn: '2026-11-02', holidayRule: 'NONE' },
+      idempotencyKey: randomUUID(),
+    };
+    const answers = await Promise.all(
+      [1, 2, 3].map(() => call('post', '/task-series', people.ownerA, body)),
+    );
+    const ids = answers.map((r) => series(r, 201).id);
+    const [id] = ids as [string];
+    toStop.push(id);
+    expect(new Set(ids).size).toBe(1);
+    expect((await keyed(body.idempotencyKey)).map((s) => s.id)).toEqual([id]);
+    expect(await audits(id)).toBe(1);
+    // One series, so one set of occurrences.
+    expect(await seriesTitled(body.title)).toBe(1);
+    const dates = (await occurrences(id)).items.map((o) => o.scheduledOn);
+    expect(dates.length).toBeGreaterThan(0);
+    expect(new Set(dates).size).toBe(dates.length);
+  });
+
+  it('another member or another route is 409; a series change takes no key (400)', async () => {
+    const key = randomUUID();
+    const s = await mkSeries({ idempotencyKey: key });
+    for (const res of [
+      await call('post', '/task-series', people.adminA, {
+        clientId: clients.c1,
+        title: mark('Theirs'),
+        recurrence: { unit: 'MONTH', startOn: '2030-01-01' },
+        idempotencyKey: key,
+      }),
+      await call('post', '/tasks', people.ownerA, {
+        clientId: clients.c1,
+        title: mark('A task'),
+        idempotencyKey: key,
+      }),
+      await convert((await dated()).id, { idempotencyKey: key }),
+    ]) {
+      expectError(res, 409, 'IDEMPOTENCY_KEY_REUSED');
+      expect(JSON.stringify(res.body)).not.toContain(s.id);
+    }
+    expect(await keyed(key)).toHaveLength(1);
+    expectError(
+      await call('patch', `/task-series/${s.id}`, people.ownerA, {
+        scope: 'FUTURE',
+        version: s.version,
+        title: 'Renamed',
+        idempotencyKey: randomUUID(),
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+
+  it('one key on Create Task and Set Up Recurring at once: one record, and 409 for the other', async () => {
+    // The two tables' unique indexes never meet: the lock on the firm's key makes the second
+    // wait for the first and then find its record.
+    for (let i = 0; i < 3; i += 1) {
+      const key = randomUUID();
+      const title = mark('One key, two routes');
+      const answers = await Promise.all([
+        call('post', '/tasks', people.ownerA, { clientId: clients.c1, title, idempotencyKey: key }),
+        call('post', '/task-series', people.ownerA, {
+          clientId: clients.c1,
+          title,
+          recurrence: { unit: 'MONTH', startOn: '2030-01-01' },
+          idempotencyKey: key,
+        }),
+      ]);
+      const [task, plan] = answers;
+      expect(answers.map((r) => r.status).sort()).toEqual([201, 409]);
+      expectError(task.status === 409 ? task : plan, 409, 'IDEMPOTENCY_KEY_REUSED');
+      if (plan.status === 201) toStop.push(series(plan, 201).id);
+      const tasks = await inFirm('a', (tx) =>
+        tx.task.count({ where: { businessId: firms.a, idempotencyKey: key } }),
+      );
+      expect(tasks + (await keyed(key)).length).toBe(1);
+    }
+  });
+
+  it('Convert twice with one key returns the same series; the key on another task is 409', async () => {
+    const t = await dated();
+    const key = randomUUID();
+    const s = series(await convert(t.id, { idempotencyKey: key }), 201);
+    toStop.push(s.id);
+    // The retry's body changed and the URL's id is in upper case: still the first series.
+    const again = series(
+      await convert(t.id.toUpperCase(), { recurrence: { unit: 'WEEK' }, idempotencyKey: key }),
+      201,
+    );
+    expect(again).toEqual(s);
+    expect(await keyed(key)).toEqual([{ id: s.id, idempotencyScope: `convert:${t.id}` }]);
+    expect(await audits(s.id)).toBe(1);
+    // Without the key, the task is already recurring: 400, as before.
+    expectError(await convert(t.id, {}), 400, 'VALIDATION_FAILED');
+    // The key on another task, or by another member: 409, and nothing changes.
+    const other = await dated();
+    expectError(await convert(other.id, { idempotencyKey: key }), 409, 'IDEMPOTENCY_KEY_REUSED');
+    expectError(
+      await convert(t.id, { idempotencyKey: key }, people.adminA),
+      409,
+      'IDEMPOTENCY_KEY_REUSED',
+    );
+    const untouched = TaskDetail.parse(ok(await call('get', `/tasks/${other.id}`, people.ownerA)));
+    expect(untouched.series).toBeNull();
+  });
+
+  it('two conversions of one task at once: one series with one key; without, 201 and 400, never 500', async () => {
+    const t = await dated();
+    const key = randomUUID();
+    const both = await Promise.all([1, 2].map(() => convert(t.id, { idempotencyKey: key })));
+    const [one, two] = both.map((r) => series(r, 201).id) as [string, string];
+    toStop.push(one);
+    expect(two).toBe(one);
+    expect(await seriesTitled(t.title)).toBe(1);
+
+    const u = await dated();
+    const race = await Promise.all([1, 2].map(() => convert(u.id, {})));
+    expect(race.map((r) => r.status).sort()).toEqual([201, 400]);
+    expectError(
+      race.find((r) => r.status === 400)!,
+      400,
+      'VALIDATION_FAILED',
+    );
+    toStop.push(
+      series(
+        race.find((r) => r.status === 201)!,
+        201,
+      ).id,
+    );
+    expect(await seriesTitled(u.title)).toBe(1);
+  });
+
+  it('firm B with firm A’s key makes its own series', async () => {
+    const key = randomUUID();
+    const a = await mkSeries({ idempotencyKey: key });
+    const body = {
+      clientId: clients.cB,
+      title: mark('Firm B series'),
+      recurrence: { unit: 'MONTH', startOn: '2030-01-01' },
+      idempotencyKey: key,
+    };
+    const b = series(await call('post', '/task-series', people.ownerB, body, 'b'), 201);
+    expect(b.id).not.toBe(a.id);
+    expect(b.client.id).toBe(clients.cB);
+    expect(series(await call('post', '/task-series', people.ownerB, body, 'b'), 201).id).toBe(b.id);
+    expect((await keyed(key)).map((s) => s.id)).toEqual([a.id]);
+    series(await call('post', `/task-series/${b.id}/stop`, people.ownerB, undefined, 'b'));
+  });
+});
+
 describe('who reaches which series', () => {
   it('Staff read only their assigned clients’ series', async () => {
     const mine = await mkSeries({ clientId: clients.c1, title: mark('Staff mine') });

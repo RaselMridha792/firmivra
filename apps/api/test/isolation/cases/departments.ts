@@ -68,6 +68,13 @@ export const cases: CaseModule['cases'] = {
       leadMembershipId: PLACEHOLDER,
     }),
   },
+  // Manage Members on a department (Octavia's SM13, R60).
+  [`GET ${BASE}/departments/:id/members`]: { params: { id: 'staffDepartment' } },
+  [`PUT ${BASE}/departments/:id/members`]: {
+    params: { id: 'staffDepartment' },
+    bodyIds: { membershipIds: 'staffMembership' },
+    body: { membershipIds: [PLACEHOLDER] },
+  },
   [`PUT ${BASE}/teams/:id/members`]: {
     params: { id: 'staffTeam' },
     bodyIds: { 'members.membershipId': 'staffMembership' },

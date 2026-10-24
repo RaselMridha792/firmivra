@@ -47,6 +47,7 @@ import {
   BulkTaskRequest,
   ConvertToRecurringRequest,
   CreateTaskDetailRequest,
+  DuplicateTaskRequest,
   SaveTaskAsTemplateRequest,
   TaskCalendarQuery,
   TaskOverviewQuery,
@@ -207,8 +208,9 @@ export class TasksController {
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(DuplicateTaskRequest)) body: z.output<typeof DuplicateTaskRequest>,
   ): Promise<TaskDetail> {
-    return this.writer.duplicate(tenant.businessId, actorOf(auth, tenant), id);
+    return this.writer.duplicate(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
   @Post(':id/archive')

@@ -64,6 +64,13 @@ const enumKey = (value: string) => {
     .replace(/[\s-]+/g, '_');
   return key === '1099' ? 'FORM_1099' : key;
 };
+/** Employment Type as the screens label it, besides its key (SM7): "W-2 Employee", "1099 Contractor". */
+const EMPLOYMENT_LABELS: Record<string, StaffEmploymentType> = {
+  W_2: 'W2',
+  W_2_EMPLOYEE: 'W2',
+  W2_EMPLOYEE: 'W2',
+  '1099_CONTRACTOR': 'FORM_1099',
+};
 const validDay = (value: string) => {
   if (!DAY.test(value)) return false;
   const d = new Date(`${value}T00:00:00.000Z`);
@@ -105,7 +112,7 @@ export class StaffImportService {
     const { businessId } = actor;
     return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       const by = await requireManager(tx, actor);
-      const [departments, members] = await Promise.all([
+      const [departments, members, employeeIds] = await Promise.all([
         tx.department.findMany({
           where: { businessId, status: 'ACTIVE' },
           select: { id: true, name: true },
@@ -114,9 +121,18 @@ export class StaffImportService {
           where: { businessId },
           select: { id: true, role: true, userId: true, user: { select: { email: true } } },
         }),
+        tx.staffProfile.findMany({
+          where: { businessId, employeeId: { not: null } },
+          select: { membershipId: true, employeeId: true },
+        }),
       ]);
       const deptByName = new Map(departments.map((d) => [d.name.trim().toLowerCase(), d.id]));
       const memberByEmail = new Map(members.map((m) => [m.user.email.toLowerCase(), m]));
+      // Employee ID is optional; when given it is unique in the firm (SM7).
+      const holderOf = new Map(
+        employeeIds.map((p) => [p.employeeId!.trim().toLowerCase(), p.membershipId]),
+      );
+      const seenIds = new Set<string>();
       const seen = new Set<string>();
       const errors: StaffImportRowError[] = [];
       const planned: PlannedRow[] = [];
@@ -160,12 +176,21 @@ export class StaffImportService {
         }
         let employmentType: StaffEmploymentType | undefined;
         if (v.employmentType) {
-          const parsed = StaffEmploymentType.safeParse(enumKey(v.employmentType));
+          const key = enumKey(v.employmentType);
+          const parsed = StaffEmploymentType.safeParse(EMPLOYMENT_LABELS[key] ?? key);
           if (!parsed.success)
             fail('employmentType', 'Use one of the employment types in the template');
           else employmentType = parsed.data;
         }
         if (v.hireDate && !validDay(v.hireDate)) fail('hireDate', 'Use a date like 2026-01-15');
+        if (v.employeeId) {
+          const key = v.employeeId.toLowerCase();
+          const holder = holderOf.get(key);
+          if (seenIds.has(key)) fail('employeeId', 'This Employee ID is in the file twice');
+          else if (holder && holder !== existing?.id)
+            fail('employeeId', 'Another staff member has this Employee ID');
+          seenIds.add(key);
+        }
         if (!existing) {
           if (!v.firstName) fail('firstName', 'Enter a first name');
           if (!v.lastName) fail('lastName', 'Enter a last name');
@@ -193,15 +218,23 @@ export class StaffImportService {
           ...(v.employeeId ? { employeeId: v.employeeId } : {}),
         });
       });
-      const preview = await tx.staffImportPreview.create({
-        data: { businessId, createdById: by, rows: planned as unknown as Prisma.InputJsonValue },
-        select: { id: true },
-      });
+      // No row can be imported: nothing to keep (a preview holds at least one row), only the
+      // errors to fix (SM1: this was a 500 "Something went wrong").
+      const preview = planned.length
+        ? await tx.staffImportPreview.create({
+            data: {
+              businessId,
+              createdById: by,
+              rows: planned as unknown as Prisma.InputJsonValue,
+            },
+            select: { id: true },
+          })
+        : null;
       const invalid = new Set(errors.map((e) => e.row)).size;
       await this.audit.logIn(
         tx,
         'staff.import_previewed',
-        { type: 'staff_import_preview', id: preview.id },
+        { type: 'staff_import_preview', ...(preview ? { id: preview.id } : {}) },
         {
           rows: body.rows.length,
           toCreate: planned.filter((p) => p.action === 'create').length,
@@ -211,7 +244,7 @@ export class StaffImportService {
         { businessId },
       );
       return {
-        previewToken: preview.id,
+        previewToken: preview?.id ?? null,
         toCreate: planned.filter((p) => p.action === 'create').length,
         toUpdate: planned.filter((p) => p.action === 'update').length,
         invalid,

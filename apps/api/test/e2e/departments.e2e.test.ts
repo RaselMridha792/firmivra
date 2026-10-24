@@ -14,6 +14,7 @@ import {
   Department,
   DepartmentDetail,
   DepartmentListResponse,
+  DepartmentMembers,
   DepartmentSummary,
   OrgChart,
   StaffTeam,
@@ -543,5 +544,96 @@ describe('who may', () => {
     );
     expectError(await call('get', `/departments/${randomUUID()}`, ownerA), 404, 'NOT_FOUND');
     expectError(await call('get', '/departments/nope', ownerA), 400, 'VALIDATION_FAILED');
+  });
+});
+
+describe("department members (Octavia's SM13)", () => {
+  const members = (id: string, who: Who = ownerA, firm: 'a' | 'b' = 'a') =>
+    call('get', `/departments/${id}/members`, who, undefined, firm);
+  const setMembers = (id: string, membershipIds: string[], who: Who = ownerA) =>
+    call('put', `/departments/${id}/members`, who, { membershipIds });
+  const names = (res: Response) => DepartmentMembers.parse(ok(res)).members.map((m) => m.id);
+
+  it('adds and removes staff with no team; the count and the staff filter follow', async () => {
+    const d1 = await dept();
+    const d2 = await dept();
+    // staffA belongs to d2 too, so taking them out of d1 later is allowed.
+    expect(names(await setMembers(d2.id, [member.staffA]))).toEqual([member.staffA]);
+    const both = names(await setMembers(d1.id, [member.staffA, member.invitedA]));
+    expect(new Set(both)).toEqual(new Set([member.staffA, member.invitedA]));
+    expect(new Set(names(await members(d1.id, adminA)))).toEqual(
+      new Set([member.staffA, member.invitedA]),
+    );
+    // The count is active staff (the invitee waits); the directory filter is direct assignment.
+    expect(
+      DepartmentDetail.parse(ok(await call('get', `/departments/${d1.id}`, ownerA))).staffCount,
+    ).toBe(1);
+    const filtered = ok(await call('get', `/staff?departmentId=${d1.id}&status=all`, ownerA)) as {
+      items: { id: string }[];
+    };
+    expect(new Set(filtered.items.map((i) => i.id))).toEqual(
+      new Set([member.staffA, member.invitedA]),
+    );
+    // No team was made or touched.
+    const teams = ok(await call('get', `/teams?departmentId=${d1.id}`, ownerA)) as {
+      items: unknown[];
+    };
+    expect(teams.items).toEqual([]);
+
+    expect(names(await setMembers(d1.id, [member.invitedA], adminA))).toEqual([member.invitedA]);
+    expect(names(await members(d2.id))).toEqual([member.staffA]);
+    const audits = await auditRows(d1.id);
+    expect(
+      audits.filter((a) => a.action === 'department.members_set').map((a) => a.metadata),
+    ).toEqual([
+      expect.objectContaining({ departmentId: d1.id, added: 2, removed: 0 }),
+      expect.objectContaining({ departmentId: d1.id, added: 0, removed: 1 }),
+    ]);
+  });
+
+  it("refuses taking someone out of their only department, and people who can't join", async () => {
+    const d = await dept();
+    ok(await setMembers(d.id, [member.managerA]));
+    // managerA may belong to other departments from earlier tests: give them this one alone.
+    const others = await inFirm('a', (tx) =>
+      tx.memberDepartment.findMany({
+        where: { membershipId: member.managerA, departmentId: { not: d.id } },
+      }),
+    );
+    for (const o of others) {
+      await inFirm('a', (tx) =>
+        tx.memberDepartment.delete({
+          where: {
+            membershipId_departmentId: {
+              membershipId: o.membershipId,
+              departmentId: o.departmentId,
+            },
+          },
+        }),
+      );
+    }
+    const last = await setMembers(d.id, []);
+    expectError(last, 409, 'LAST_DEPARTMENT');
+    expect(JSON.stringify(last.body)).toContain('has no other department');
+    expectError(await setMembers(d.id, [member.managerA, member.ownerB]), 409, 'MEMBER_NOT_ACTIVE');
+    expectError(
+      await setMembers(d.id, [member.managerA, member.managerA]),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const archived = await dept();
+    ok(await call('patch', `/departments/${archived.id}`, ownerA, { status: 'ARCHIVED' }));
+    expectError(await setMembers(archived.id, [member.staffA]), 400, 'VALIDATION_FAILED');
+  });
+
+  it('staff cannot change them; another firm sees nothing', async () => {
+    const d = await dept();
+    expectError(await setMembers(d.id, [member.staffA], staffA), 403, 'FORBIDDEN');
+    expectError(await members(d.id, ownerB, 'b'), 404, 'NOT_FOUND');
+    expectError(
+      await call('put', `/departments/${d.id}/members`, ownerB, { membershipIds: [] }, 'b'),
+      404,
+      'NOT_FOUND',
+    );
   });
 });

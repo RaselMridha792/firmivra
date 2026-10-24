@@ -622,6 +622,85 @@ describe('Bulk Upload Staff', () => {
     expect(audit.metadata).toEqual({ created: 1, updated: 0, failed: 1, invitationsSent: 0 });
   });
 
+  it('gives every row its errors and no preview when nothing can be imported (SM1)', async () => {
+    const none = StaffImportPreview.parse(
+      ok(
+        await call('post', '/staff/import/preview', ownerA, {
+          fileName: 'Fake staff.csv',
+          columnMap,
+          rows: [row('none-1', { Department: 'Nowhere' }), row('none-2', { Role: 'NOT_A_ROLE' })],
+        }),
+      ),
+    );
+    expect(none).toEqual({
+      previewToken: null,
+      toCreate: 0,
+      toUpdate: 0,
+      invalid: 2,
+      errors: [
+        { row: 1, field: 'department', message: 'No active department has this name' },
+        { row: 2, field: 'role', message: 'Use one of the roles in the template' },
+      ],
+    });
+  });
+
+  it('takes an optional, unique Employee ID and the screen’s employment labels (SM7)', async () => {
+    const map = { ...columnMap, 'Employee ID': 'employeeId' } as const;
+    const preview = (rows: Record<string, string>[]) =>
+      call('post', '/staff/import/preview', ownerA, {
+        fileName: 'Fake staff.csv',
+        columnMap: map,
+        rows,
+      });
+    const first = StaffImportPreview.parse(
+      ok(
+        await preview([
+          row('id-1', { 'Employee ID': `E-${run}`, Type: 'W-2 Employee' }),
+          row('id-2', { 'Employee ID': '', Type: '1099 Contractor' }),
+        ]),
+      ),
+    );
+    expect(first).toMatchObject({ toCreate: 2, invalid: 0 });
+    ok(
+      await call('post', '/staff/import', ownerA, {
+        previewToken: first.previewToken,
+        sendInvitations: false,
+      }),
+    );
+    const made = await inFirm('a', (tx) =>
+      tx.membership.findMany({
+        where: {
+          businessId: firms.a,
+          user: { email: { in: [row('id-1').Email, row('id-2').Email] } },
+        },
+        select: { staffProfile: { select: { employmentType: true, employeeId: true } } },
+      }),
+    );
+    expect(
+      made
+        .map((m) => m.staffProfile)
+        .sort((x, y) => String(x?.employmentType).localeCompare(String(y?.employmentType))),
+    ).toEqual([
+      { employmentType: 'FORM_1099', employeeId: null },
+      { employmentType: 'W2', employeeId: `E-${run}` },
+    ]);
+    // Taken by someone else (in any case), or twice in the file.
+    const again = StaffImportPreview.parse(
+      ok(
+        await preview([
+          row('id-3', { 'Employee ID': `e-${run}` }),
+          row('id-4', { 'Employee ID': `X-${run}` }),
+          row('id-5', { 'Employee ID': `x-${run}` }),
+        ]),
+      ),
+    );
+    expect(again.errors.map((e) => [e.row, e.field, e.message])).toEqual([
+      [1, 'employeeId', 'Another staff member has this Employee ID'],
+      [3, 'employeeId', 'This Employee ID is in the file twice'],
+    ]);
+    expect(again).toMatchObject({ toCreate: 1, invalid: 2 });
+  });
+
   it('is for Owners and Admins', async () => {
     expectError(
       await call('post', '/staff/import/preview', staffA, {

@@ -19,6 +19,24 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
+### Oct 24 (fourth session): Rasel's go on column items 1 to 6, start here
+
+Rasel (Oct 24, evening): build I7, I8, I9 and I12 and SM3's two routes (saved job titles, new
+account security defaults) now that items 1 to 6 are on `main` (#1074). One PR per item or route,
+at most two open, each with its contract, API, screen, e2e and isolation tests. Nothing that needs
+items 7 to 11 (R1's next migration PR) until they are on `main`. #1079 (Staff SM8 to SM13) and the
+review thread: its branch is touched only to answer review. Ownership transfer and Sign Out All
+Sessions stay unbuilt. #1073 and #1076 merged.
+
+| # | Branch (from `main`) | What | State |
+| --- | --- | --- | --- |
+| 1 | `rasel/R60-sm3-job-titles` | SM3 Offices & Job Titles: `api.staff` job titles (list, add, rename, archive, restore; 409 `JOB_TITLE_EXISTS`), the editor at `/team/settings/offices-titles`; Create and Edit Staff offer the saved titles and Location Management's active locations | #1088 (merged Oct 24) |
+| 2 | `rasel/R60-sm3-security-defaults` | SM3 New Accounts & Security: the firm's defaults for new accounts (`staff_security_defaults`), a policy page that says existing accounts keep their own and confirms the save; Create Staff (and import) start from them | #1093 |
+| 3 | `rasel/R60-intake-reminders` | I8: first and final reminders in minutes (5 minutes to 30 days, "after sending"); the old day columns kept valid; the Send page's schedule shows the firm's timing (a send keeps only on or off) | PR (Oct 24) |
+| 4 | stacked on 3 | I9: the expiration alert in minutes (30 minutes; 1, 2, 3, 5, 6, 10, 12, 24, 42, 72 hours) and No alert | Next |
+| 5 | stacked on 4 (the same settings) | I7: Notify additional emails (up to 10) and a no-content "form submitted" email to them | Next |
+| 6 | stacked on 5 | I12: Data retention period in years (1 to 100, or not set); saving deletes nothing | Next |
+
 ### Oct 24 (third session): Rasel's order, start here
 
 #1054 and #1056 merged. Rasel's order (Oct 24), one PR each, at most two open: (1) Company
@@ -34,7 +52,7 @@ to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/
 | 1 | `rasel/R60-profile-request-change` | #1063 (merged Oct 24): `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
 | 2 | `rasel/R60-notifications-email` (stacked on #1063) | #1065 (merged Oct 24): staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
 | 3 | `rasel/R60-billing` | #1073 (merged Oct 24): `api.firmBilling` (overview, invoices, invoice, PDF, requests), the Billing page on her design with the plan, usage, details and invoice dialogs; plan and contact changes as support requests. Notes below ("Billing") |
-| 4 | `rasel/R60-payments` | #1076 (open, Oct 24): the Payments page on her design (web only); Stripe keeps every existing state; Manage Connection, Manage Bank Account and Check Eligibility open the firm's own Stripe Dashboard. Notes below ("Payments") |
+| 4 | `rasel/R60-payments` | #1076 (merged Oct 24): the Payments page on her design (web only); Stripe keeps every existing state; Manage Connection, Manage Bank Account and Check Eligibility open the firm's own Stripe Dashboard. Notes below ("Payments") |
 | 5 | `rasel/R60-staff-sm8-13` (from `main`) | PR opened Oct 24 in the slot #1073 freed: SM9 cards and `/team/directory`, SM13 department Manage Members (`GET`/`PUT /business/departments/{id}/members`), SM11 custom roles in Create Staff and the Create Custom Role shortcut with Back, SM8 custom schedules and the workload unit, SM10 the header clock. Notes below ("Staff") |
 
 **Rasel's decisions (Oct 24, afternoon):** Billing stays request-based for now, no self-serve
@@ -205,6 +223,20 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 
 ## Needs from others
 
+- **From R1 (Oct 24): column requests 7 to 11 are built**, one PR on R1's branch `rasel/R1-r60-columns-2`. Its PR opened on Oct 24 after the idempotency PR (#1084) merged, one migration PR at a time; not merged yet. Build on these names once it merges:
+  - **7, `firm_licenses`:**
+    - Columns: `regulatory_body` (1 to 120), `license_type` (1 to 80), `license_number` (1 to 60), each trimmed, something visible and no control characters; `expires_on`; `status` (`FirmLicenseStatus`: ACTIVE, EXPIRED, SUSPENDED or REVOKED, default ACTIVE); `verified_by_user_id` with `verified_at`.
+    - Who may write: the firm reads only its own rows. Only the admin scope (a Super Admin, `forAdmin`) or the platform scope inserts or updates, so the firm-side API can only read, and a firm can never verify its own license.
+    - The verifier is a `platform_admins` row, and both verify fields come together.
+    - No DELETE: a license ends by its status.
+  - **8:** a data-only migration. Every firm member's `notification_preferences.email` that was off is now on; clients' rows are untouched.
+  - **9, `users.phone_verified_at`:**
+    - The database clears it whenever `phone` changes, unless the same update sets it too, so "verify and save the new number" works in one update.
+    - It is never set without a phone.
+    - Your `Notifier.phoneChanged` can still clear the SMS choices in the same transaction.
+  - **10, `staff_profiles.work_start_date`:** a nullable date, apart from `hire_date` and `access_starts_on`.
+  - **11, `staff_work_schedules`:** like `staff_job_titles`. Name trimmed, 1 to 80 characters, unique ignoring case while not archived; archived, never deleted (no DELETE grant); `created_by_user_id` must be a member of the firm. It was filled once from each firm's distinct `staff_profiles.work_schedule` (first spelling wins, case ignored), and a staff record keeps its own text.
+  - **Five migrations, one per busy table,** so none holds one table while it waits for another. Tests: `packages/db/test/r60-columns-2.test.ts`.
 - **R1 (columns, items 1 to 11):** all approved by Rasel on Oct 24 (1 to 6 in the morning, 7 to 11
   in the afternoon); the exact request and what R60 builds on each are "Column request for R1"
   below. Items 1 to 6 landed in #1074 (Oct 24); R60 builds on them next. Items 7 to 11 are R1's
@@ -219,7 +251,9 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   applying is all the firm side needs. R60 proposes: admin scope, audited in both logs (platform
   and the firm's), linked from the ticket; a new EIN written as activation writes it (encrypted
   with the firm's KMS key, `ein_enc` and `ein_last4`) and checked for duplicates as an
-  application's is (`ein_hash`). R60 changes nothing on the firm side for it.
+  application's is (`ein_hash`). Rasel (Oct 24): the request keeps only the proposed EIN's last
+  four digits ("Ending in 6789"), so Apply leaves the EIN empty for the admin to type
+  (`rasel/R60-profile-ein-last4`).
 - **R1 (I10):** done in #1025 (2, 5, 10, 50 or 100 MB, enforced in uploads). R60 verifies only.
 - **R56 (I3):** done in #1020 (`PublicLink`, `PublicLinkBlock`); R60 builds I3's link next.
 - **Secure link page (I2):** a form for a lead or a new contact needs the secure link page
@@ -307,11 +341,14 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   4. *SM12 per-file Save:* storage for draft attachments (as SM5).
   5. *SM10:* the clock shows on the firm workspace and Super Admin (`AppShell`); the client portal
      is left out until its own review (one `clock` prop on its header).
-- **Staff Management SM3 is blocked (handoff item 5):** each wrong route needs a destination that
-  does not exist. Offices & Job Titles needs R1's Locations API and the saved job titles; New
-  Accounts & Security needs the staff security defaults (both in "Column request for R1"). The
-  Reports shortcut needs a Staff and Team report in Reports (its owner to name). Until then the
-  cards stay as they are.
+- **Staff Management SM3 (Oct 24, fourth session):** Offices & Job Titles is built on the saved
+  titles (#1074) and Location Management's locations (`rasel/R60-sm3-job-titles`); New Accounts &
+  Security comes next on the security defaults (#1074). The Reports shortcut still needs a Staff
+  and Team report in Reports (its owner to name), so that card stays as it is.
+- **The Locations screen (R1 or Rasel to name):** R1 built Location Management's API
+  (`/business/locations`), but the web has no Settings > Locations page (`/settings/locations`, which
+  Billing's dialog already links to, answers 404). Offices & Job Titles lists the firm's active
+  locations and says they come from Location Management, without a link until the page exists.
 - **SM5 (Rasel's default, Oct 24):** pay is not kept in a staff draft (her own text says "pay is
   not kept"); the note says so. Per-file Save of a draft's attachments needs storage for draft
   files (an API and maybe a table): not built; the chosen files stay only while the tab is open.
@@ -512,6 +549,15 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   review) and invoice dialogs. Billing e2e 8 of 8, profile-changes 6 of 6, unit 3 of 3, contract
   3 of 3, `tumit-settings-billing` 3 of 3 (rewritten) and `r56-settings-shell`; sheet shot on the
   real API. Question 4 for Rasel.
+- Oct 24 (fourth session, Rasel's "Fresh R60 v2"): `rasel/R60-payments` was 16 commits ahead of
+  origin (the Billing merge and `main`); pushed first. #1073 (Billing): its CI failed once on
+  `workspaces.e2e.test.ts` (q5, a 100 ms race, not Billing's) and passed on a rerun; merged. On
+  Payments: the automations test's `day()` takes the firm's New York date (Rasel's word; 17 of 17
+  locally) and the notes take Rasel's decisions (Billing by request, R56 applies a Request
+  Change, column items 7 to 11 approved with R60's order). #1076 (Payments) opened; CI green.
+  Staff (`rasel/R60-staff-sm8-13`) merged `main` (with #1073 and R1's #1074): API and web `tsc` 0
+  errors, departments and staff e2e 20 of 20, Staff mock specs 54 of 54; its PR opened in the
+  slot #1073 freed.
 - Oct 24: item 4, Payments (`rasel/R60-payments`, stacked on billing, local), web only: the page on
   her design (Stripe, Square, PayPal; Accepted Client Payments; Payout Settings; the Invoices &
   Payments link). Stripe keeps every state and test id of `r19-payments-settings`; Square and
@@ -530,3 +576,22 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   retry key, now in `NOT_RECORDS` (pushed to #1063 and merged up the stack); isolation cases for
   the firm's invoice and its PDF (billing branch) and a department's members (staff branch). The
   sweep passes locally on each; its other local failures are the known file-scanner ones.
+- Oct 24 (fourth session): Rasel's go on column items 1 to 6 (#1074). SM3 Offices & Job Titles
+  (`rasel/R60-sm3-job-titles`): the saved job titles API (Owner and Admin; 409 `JOB_TITLE_EXISTS`
+  and `JOB_TITLE_ARCHIVED`; audit rows hold no name), the editor page, Staff Settings' card opening
+  it, and Create and Edit Staff offering the saved titles and the active locations. Job titles e2e
+  8 of 8, staff e2e 8 of 8, contract unit 20 of 20, `r60-staff-job-titles` and the Staff specs 10 of
+  10, API and web `tsc` 0 errors; the isolation sweep's only local failures are the known
+  file-scanner ones. Sheet shot on the real API. No Locations page exists (Needs).
+- Oct 24 (fourth session): I8 (`rasel/R60-intake-reminders`, from `main`; PR once #1088 merged): the first and final reminders in minutes (`firstReminderAfterMinutes`,
+  `finalReminderAfterMinutes`; her 5, 10, 15 and 30 minutes, 1, 2, 3, 6 and 12 hours and 1 to 30
+  days, "after sending"), the old day columns kept valid on every save (rounded up, the final
+  after the first), the test reminder's wording in minutes, and the Send page's schedule showing
+  the firm's times (a send keeps only on or off; "View Schedule" instead of fields the API never
+  kept). Intake workspace e2e 17 of 17, unit 11 and 10, the Intake Forms mock specs 38 of 38;
+  sheet shot on the real API.
+- Oct 24 (fourth session): Rasel's fix before the next feature (`rasel/R60-profile-ein-last4`,
+  from `main`): Request Change keeps only the proposed EIN's last four digits in the ticket
+  ("Proposed: Ending in 4321"); the full number is in no ticket, audit row, log or answer (the
+  e2e checks the stored ticket, the POST and GET answers and Super Admin's detail). The dialog says
+  so under New EIN. Profile-changes e2e 6 of 6, `r60-profile-request-change` 2 of 2.

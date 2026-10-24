@@ -239,6 +239,8 @@ export class BeginOnlineService {
         data: {
           id: ids.lead,
           businessId,
+          // The firm's website link: Leads shows and filters it as Begin Online (L13).
+          source: 'BEGIN_ONLINE',
           serviceId: service.id,
           firstName: contact.firstName,
           lastName: contact.lastName,

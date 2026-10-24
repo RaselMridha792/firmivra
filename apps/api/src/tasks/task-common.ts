@@ -1,19 +1,37 @@
 import { BadRequestException } from '@nestjs/common';
-import type { Prisma, TaskStatus as StoredTaskStatus } from '@firmivra/db';
+import type { Database, Prisma, TaskStatus as StoredTaskStatus, TxClient } from '@firmivra/db';
+import {
+  reminderMinutes,
+  TASK_REMINDER_MAX_MINUTES,
+  TASK_REMINDER_UNIT_MINUTES,
+} from '@firmivra/types';
 import type {
   ChecklistItem,
+  DeliveryChannel,
   MemberRef,
+  ReminderRule,
   ReminderRuleOut,
   TaskAttachment,
   TaskDetail,
   TaskDraft,
   TaskDraftRow,
+  TaskReminderUnit,
   TaskRow,
   TaskStatus,
   TaskWorkErrorCode,
 } from '@firmivra/types';
-import { assignee, conflict, day, memberRef } from '../workspaces/common.js';
-import { timeOfDayFromDb } from '../appointments/calendar.js';
+import type { z } from 'zod';
+import type { ClientsActor } from '../clients/clients.service.js';
+import {
+  assignee,
+  conflict,
+  day,
+  isUniqueViolation,
+  memberRef,
+  notFound,
+  violatedIndex,
+} from '../workspaces/common.js';
+import { minutesOf, timeOfDayFromDb, timeOfDayToDb } from '../appointments/calendar.js';
 
 // ---------- Live tasks and drafts ----------
 
@@ -58,6 +76,11 @@ export const taskErrors = {
     ),
   seriesNotActive: () => code('SERIES_NOT_ACTIVE', 'This recurring task is not active'),
   occurrenceClosed: () => code('OCCURRENCE_CLOSED', 'This occurrence is already made or skipped'),
+  keyReused: () =>
+    code(
+      'IDEMPOTENCY_KEY_REUSED',
+      'This request key was already used for another save. Try again.',
+    ),
   /** 400 with one of TaskWorkErrorCode's codes (the request is well formed but cannot be kept). */
   bad: (c: 'DEPENDENCY_CYCLE' | 'INVALID_REMINDER' | 'INVALID_RECURRENCE', message: string) =>
     new BadRequestException({ code: c, message }),
@@ -69,6 +92,360 @@ export const taskErrors = {
       details: [{ path, message }],
     }),
 };
+
+// ---------- Reminder rules ----------
+
+const DAY_MINUTES = 1_440;
+const UNITS = Object.keys(TASK_REMINDER_UNIT_MINUTES) as TaskReminderUnit[];
+
+/**
+ * A reminder rule as the Tasks module keeps it (a task_reminders row, or an item of a template's
+ * or a series' JSON). A days rule (`unit` null): `daysBefore` the due date at `timeOfDay` ("HH:MM";
+ * null: the firm's default time). Custom (Octavia's Tasks review A3, Oct 24): `minutesBefore` the
+ * due date and time, typed in `unit`, with no time and its whole days in `daysBefore`, so whatever
+ * reads only days still sees a valid rule.
+ */
+export interface Reminder {
+  daysBefore: number;
+  timeOfDay: string | null;
+  minutesBefore: number | null;
+  unit: TaskReminderUnit | null;
+  inApp: boolean;
+  channels: DeliveryChannel[];
+}
+
+/** A rule as a request sends it (the contract's ReminderRule, parsed). */
+export type ReminderInput = z.output<typeof ReminderRule>;
+
+/** A rule from a request. */
+export function reminderFrom(input: ReminderInput): Reminder {
+  const minutes = reminderMinutes(input);
+  const where = { inApp: input.inApp, channels: input.channels };
+  if (minutes === null || input.unit == null) {
+    const days = { daysBefore: input.daysBefore ?? 0, timeOfDay: input.timeOfDay };
+    return { ...days, minutesBefore: null, unit: null, ...where };
+  }
+  const daysBefore = Math.floor(minutes / DAY_MINUTES);
+  return { daysBefore, timeOfDay: null, minutesBefore: minutes, unit: input.unit, ...where };
+}
+
+/** A stored task_reminders row as a rule. */
+export function reminderFromRow(row: {
+  daysBefore: number;
+  timeOfDay: Date | null;
+  minutesBefore: number | null;
+  unit: TaskReminderUnit | null;
+  inApp: boolean;
+  channels: DeliveryChannel[];
+}): Reminder {
+  const where = { inApp: row.inApp, channels: row.channels };
+  if (row.unit === null || row.minutesBefore === null) {
+    const timeOfDay = row.timeOfDay ? timeOfDayFromDb(row.timeOfDay) : null;
+    return { daysBefore: row.daysBefore, timeOfDay, minutesBefore: null, unit: null, ...where };
+  }
+  const custom = { minutesBefore: row.minutesBefore, unit: row.unit };
+  return { daysBefore: row.daysBefore, timeOfDay: null, ...custom, ...where };
+}
+
+/** The task_reminders columns of a rule (the caller adds the firm and the task). */
+export function reminderRow(r: Reminder) {
+  return {
+    daysBefore: r.daysBefore,
+    timeOfDay: r.timeOfDay ? timeOfDayToDb(r.timeOfDay) : null,
+    minutesBefore: r.minutesBefore,
+    unit: r.unit,
+    inApp: r.inApp,
+    channels: r.channels,
+  };
+}
+
+/** A whole Custom length of `unit` that the database would keep, or null. */
+function wholeMinutes(unit: TaskReminderUnit | null, minutes: unknown): number | null {
+  if (unit === null || typeof minutes !== 'number' || !Number.isInteger(minutes)) return null;
+  const fits =
+    minutes >= 1 &&
+    minutes <= TASK_REMINDER_MAX_MINUTES &&
+    minutes % TASK_REMINDER_UNIT_MINUTES[unit] === 0;
+  return fits ? minutes : null;
+}
+
+/**
+ * A template's or a series' JSON as rules. One saved before Custom rules (Oct 24), or not whole,
+ * reads as the days rule it was.
+ */
+export function remindersFromJson(json: unknown): Reminder[] {
+  if (!Array.isArray(json)) return [];
+  return json.map((item: unknown) => {
+    const r = (item ?? {}) as Partial<Record<keyof Reminder, unknown>>;
+    const where = {
+      inApp: typeof r.inApp === 'boolean' ? r.inApp : true,
+      channels: Array.isArray(r.channels) ? (r.channels as DeliveryChannel[]) : [],
+    };
+    const unit = UNITS.find((u) => u === r.unit) ?? null;
+    const minutes = wholeMinutes(unit, r.minutesBefore);
+    if (unit !== null && minutes !== null) {
+      const daysBefore = Math.floor(minutes / DAY_MINUTES);
+      return { daysBefore, timeOfDay: null, minutesBefore: minutes, unit, ...where };
+    }
+    return {
+      daysBefore: typeof r.daysBefore === 'number' ? r.daysBefore : 0,
+      timeOfDay: typeof r.timeOfDay === 'string' ? r.timeOfDay : null,
+      minutesBefore: null,
+      unit: null,
+      ...where,
+    };
+  });
+}
+
+/**
+ * Rules as the JSON a template or a series keeps: a days rule with the keys it always had, a
+ * Custom rule with `minutesBefore` and `unit` too (and its whole days, for older readers).
+ */
+export function remindersJson(rules: Reminder[]) {
+  return rules.map((r) => ({
+    daysBefore: r.daysBefore,
+    timeOfDay: r.timeOfDay,
+    ...(r.unit === null ? {} : { minutesBefore: r.minutesBefore, unit: r.unit }),
+    inApp: r.inApp,
+    channels: r.channels,
+  }));
+}
+
+/** A rule as the contract shows it: Custom with its amount in the unit it was typed in. */
+export function reminderOut(r: Reminder, id: string | null): ReminderRuleOut {
+  const amount =
+    r.unit === null || r.minutesBefore === null
+      ? null
+      : r.minutesBefore / TASK_REMINDER_UNIT_MINUTES[r.unit];
+  const custom = { amount, unit: amount === null ? null : r.unit };
+  return {
+    id,
+    daysBefore: r.daysBefore,
+    timeOfDay: r.timeOfDay,
+    ...custom,
+    inApp: r.inApp,
+    channels: r.channels,
+  };
+}
+
+/**
+ * Minutes from a rule's reminder to the due moment, when they can be told: always for Custom (it
+ * needs a due time); for a days rule with a time on a task with a due time, the same clock time
+ * that many days earlier. Null otherwise (a days rule with the firm's default time, or no due time).
+ * Plain clock minutes, as the contract's ReminderRule says: an hour is 60, a day 1,440, daylight
+ * saving ignored. The delivery job works out the exact instant.
+ */
+function minutesToDue(r: Reminder, dueTime: string | null): number | null {
+  if (r.minutesBefore !== null) return r.minutesBefore;
+  if (r.timeOfDay === null || dueTime === null) return null;
+  return r.daysBefore * DAY_MINUTES + minutesOf(dueTime) - minutesOf(r.timeOfDay);
+}
+
+/** The same rule twice: a days rule's days and time, a Custom rule's length and unit. */
+const sameRule = (r: Reminder) =>
+  r.unit === null ? `d${r.daysBefore}@${r.timeOfDay ?? ''}` : `c${r.minutesBefore}${r.unit}`;
+/** What the database keeps once: a days rule's days and time, a Custom rule's length. */
+const keptOnce = (r: Reminder) =>
+  r.unit === null ? `d${r.daysBefore}@${r.timeOfDay ?? ''}` : `m${r.minutesBefore}`;
+/** When it fires: its minutes to the due moment when they can be told, else as kept. */
+const firesAt = (r: Reminder, dueTime: string | null) => {
+  const minutes = minutesToDue(r, dueTime);
+  return minutes === null ? keptOnce(r) : `m${minutes}`;
+};
+
+const invalidReminder = (message: string) => taskErrors.bad('INVALID_REMINDER', message);
+export const reminderErrors = {
+  needsDueDate: () => invalidReminder('Set a due date before adding reminders'),
+  needsDueTime: () => invalidReminder('A reminder in minutes or hours needs a due time'),
+  once: () => invalidReminder('Each reminder can be added once'),
+  sameMoment: () => invalidReminder('Two reminders fire at the same time'),
+  afterDue: () => invalidReminder('A reminder cannot be after the due time'),
+};
+
+/**
+ * The reminder rules of a task or a series checked against its due time (`dueTime`: "HH:MM" when
+ * it has one and is not all-day, else null), 400 INVALID_REMINDER. `strict` (a live task, a
+ * publish, a series): a Custom rule needs a due time, two rules never fire at the same moment, and
+ * none after the due time. Otherwise (a draft, a template, kept as sent): only what is kept once,
+ * the same rule twice or two Custom rules of one length. Moments and lengths are plain clock
+ * minutes (see minutesToDue).
+ */
+export function checkReminders(rules: Reminder[], dueTime: string | null, strict: boolean): void {
+  const same = new Set<string>();
+  const moments = new Set<string>();
+  for (const r of rules) {
+    if (strict && r.unit !== null && dueTime === null) throw reminderErrors.needsDueTime();
+    const rule = sameRule(r);
+    if (same.has(rule)) throw reminderErrors.once();
+    same.add(rule);
+    const moment = strict ? firesAt(r, dueTime) : keptOnce(r);
+    if (moments.has(moment)) throw reminderErrors.sameMoment();
+    moments.add(moment);
+    // On the due day itself, a reminder after the due time is too late.
+    if (strict && (minutesToDue(r, dueTime) ?? 0) < 0) throw reminderErrors.afterDue();
+  }
+}
+
+/**
+ * The rules of a template or a series that fit a task or series with this due time (`dueTime` as
+ * in checkReminders), never refused: a Custom rule without a due time, a rule after the due time
+ * and the later of two that fire at the same moment are left out.
+ */
+export function fitReminders(rules: Reminder[], dueTime: string | null): Reminder[] {
+  const same = new Set<string>();
+  const moments = new Set<string>();
+  return rules.filter((r) => {
+    if (r.unit !== null && dueTime === null) return false;
+    if ((minutesToDue(r, dueTime) ?? 0) < 0) return false;
+    const rule = sameRule(r);
+    const moment = firesAt(r, dueTime);
+    if (same.has(rule) || moments.has(moment)) return false;
+    same.add(rule);
+    moments.add(moment);
+    return true;
+  });
+}
+
+/**
+ * A task's rules in the order they fire, the earliest first: by minutes to the due moment (plain
+ * clock minutes, as minutesToDue), a days rule with no time placed as if at the due time, and an
+ * all-day task due at the end of its day; then by days, a days rule before a Custom one, and time.
+ * Ties keep their order.
+ */
+export function inFiringOrder<T extends { rule: Reminder }>(
+  list: T[],
+  dueTime: string | null,
+): T[] {
+  const due = dueTime === null ? DAY_MINUTES : minutesOf(dueTime);
+  const before = (r: Reminder) =>
+    r.minutesBefore ??
+    r.daysBefore * DAY_MINUTES + due - (r.timeOfDay === null ? due : minutesOf(r.timeOfDay));
+  return [...list].sort(
+    (a, b) =>
+      before(b.rule) - before(a.rule) ||
+      b.rule.daysBefore - a.rule.daysBefore ||
+      Number(a.rule.unit !== null) - Number(b.rule.unit !== null) ||
+      (a.rule.timeOfDay ?? '24:00').localeCompare(b.rule.timeOfDay ?? '24:00'),
+  );
+}
+
+// ---------- Idempotency keys ----------
+
+/**
+ * The keys' unique indexes on (business_id, idempotency_key) (migrations r1_task_idempotency_keys
+ * and r1_task_series_idempotency_keys).
+ */
+export const TASK_KEY_INDEX = 'tasks_business_id_idempotency_key_key';
+export const SERIES_KEY_INDEX = 'task_series_business_id_idempotency_key_key';
+
+/**
+ * Where a key was used, kept beside it: the route, and for Duplicate and Convert the task in the
+ * URL, in lower case as ids are stored. Tasks take 'create', 'draft' and 'duplicate:<id>', series
+ * 'series' and 'convert:<id>' (the migrations' CHECKs).
+ */
+export const keyScope = {
+  create: 'create',
+  draft: 'draft',
+  duplicate: (sourceId: string) => `duplicate:${sourceId.toLowerCase()}`,
+  series: 'series',
+  convert: (taskId: string) => `convert:${taskId.toLowerCase()}`,
+} as const;
+
+/** The key's columns for a new row: the key with its scope, or neither without a key. */
+export function keyColumns(key: string | undefined, scope: string) {
+  return key ? { idempotencyKey: key, idempotencyScope: scope } : {};
+}
+
+/**
+ * The record a key already made in this firm, for a retry of the same save: its id when the same
+ * member used the key on the same route for the same task (and, on Save as Draft, while the row
+ * is still a draft); null when the key is new. Any other use of the key, on a task or a series,
+ * is 409 IDEMPOTENCY_KEY_REUSED, and nothing of the record is shown.
+ */
+export async function firstByKey(
+  tx: TxClient,
+  businessId: string,
+  actor: ClientsActor,
+  key: string,
+  scope: string,
+): Promise<string | null> {
+  const where = { businessId, idempotencyKey: key };
+  const keyed = { id: true, createdByUserId: true, idempotencyScope: true } as const;
+  const [task, series] = await Promise.all([
+    tx.task.findFirst({ where, select: { ...keyed, status: true } }),
+    tx.taskSeries.findFirst({ where, select: keyed }),
+  ]);
+  const found = [...(task ? [task] : []), ...(series ? [{ ...series, status: null }] : [])];
+  if (found.length === 0) return null;
+  const member = actor.userId.toLowerCase();
+  const same = found.find(
+    (row) =>
+      row.idempotencyScope === scope &&
+      row.createdByUserId === member &&
+      (scope !== keyScope.draft || row.status === 'DRAFT'),
+  );
+  if (!same) throw taskErrors.keyReused();
+  return same.id;
+}
+
+/**
+ * Locks the key in this firm until the transaction ends (an advisory lock). Tasks and series share
+ * the lock, so saves with one key, on any route, run one after the other: a second one waits for
+ * the first to commit or roll back and then finds what it made (a retry, or 409), instead of
+ * running every check again before it blocks on a unique index, or making a record in the other
+ * table, whose index would not stop it.
+ */
+async function lockKey(tx: TxClient, businessId: string, key: string): Promise<void> {
+  const name = `task-key:${businessId.toLowerCase()}:${key.toLowerCase()}`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${name}, 0))`;
+}
+
+/**
+ * A save that makes a task or a series, retry-safe by the request's idempotency key (R1, Oct 24;
+ * the contract's IdempotencyKey):
+ * - the key is locked first (lockKey), so two requests with one key at once, on the same route or
+ *   not, are answered as if one came after the other;
+ * - then it is looked up, before any check that can change between two tries (an archived type or
+ *   template, an assignee gone, a task already recurring): the same member's retry on the same
+ *   route and task gets `read` of the record the first save made, as it is now and as they reach
+ *   it, with nothing written or audited; any other use of the key is 409 (firstByKey);
+ * - a new key runs `create`, which stores the key with `scope`;
+ * - the key's unique `index` stays as a backstop: an insert that reaches it fails once the first
+ *   commits. Its transaction is aborted, so it is answered as a retry in a new one. This is
+ *   checked before any other error is mapped (`otherwise`).
+ * Without a key, only `create`.
+ */
+export async function keyedSave<T>(
+  database: Database,
+  businessId: string,
+  actor: ClientsActor,
+  keyed: { key: string | undefined; scope: string; index: string },
+  read: (tx: TxClient, id: string) => Promise<T>,
+  create: (tx: TxClient) => Promise<T>,
+  otherwise: (error: unknown) => never,
+): Promise<T> {
+  const { key, scope, index } = keyed;
+  const inFirm = <R>(fn: (tx: TxClient) => Promise<R>) =>
+    database.withScope({ kind: 'business', businessId }, fn);
+  try {
+    return await inFirm(async (tx) => {
+      if (!key) return create(tx);
+      await lockKey(tx, businessId, key);
+      const first = await firstByKey(tx, businessId, actor, key, scope);
+      return first === null ? create(tx) : read(tx, first);
+    });
+  } catch (error) {
+    if (!key || !isUniqueViolation(error) || violatedIndex(error) !== index) {
+      return otherwise(error);
+    }
+    return inFirm(async (tx) => {
+      const first = await firstByKey(tx, businessId, actor, key, scope);
+      // Gone already (a draft discarded at once): as for a record the member no longer reaches.
+      if (first === null) throw notFound();
+      return read(tx, first);
+    });
+  }
+}
 
 // ---------- What a task is read with ----------
 
@@ -181,14 +558,11 @@ function checklistOut(t: DetailShape, names: Map<string, string>): ChecklistItem
   }));
 }
 
+/** In the order they fire, against the task's due time (none when it is all-day). */
 function remindersOut(t: DetailShape): ReminderRuleOut[] {
-  return t.taskReminders.map((r) => ({
-    id: r.id,
-    daysBefore: r.daysBefore,
-    timeOfDay: r.timeOfDay ? timeOfDayFromDb(r.timeOfDay) : null,
-    inApp: r.inApp,
-    channels: r.channels,
-  }));
+  const dueTime = t.dueTime && !t.allDay ? timeOfDayFromDb(t.dueTime) : null;
+  const rules = t.taskReminders.map((row) => ({ id: row.id, rule: reminderFromRow(row) }));
+  return inFiringOrder(rules, dueTime).map(({ id, rule }) => reminderOut(rule, id));
 }
 
 function attachmentsOut(t: DetailShape, names: Map<string, string>): TaskAttachment[] {

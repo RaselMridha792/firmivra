@@ -92,6 +92,10 @@ export type TaskProgress = z.infer<typeof TaskProgress>;
 export const TaskPriority = z.enum(['LOW', 'MEDIUM', 'HIGH']);
 export type TaskPriority = z.infer<typeof TaskPriority>;
 
+/** The unit a Custom task reminder was typed in (TaskReminder.minutesBefore holds its length). */
+export const TaskReminderUnit = z.enum(['MINUTES', 'HOURS', 'DAYS']);
+export type TaskReminderUnit = z.infer<typeof TaskReminderUnit>;
+
 /** What a compliance deadline is for (the Deadline Types chart and filter). */
 export const DeadlineType = z.enum([
   'TAX_FILING',
@@ -571,6 +575,10 @@ export type AgreementScope = z.infer<typeof AgreementScope>;
 /** How a signature was captured. Intake signing is TYPED; DRAWN and UPLOADED are Firm Sign's. */
 export const SignatureMethod = z.enum(['TYPED', 'DRAWN', 'UPLOADED']);
 export type SignatureMethod = z.infer<typeof SignatureMethod>;
+
+/** A firm license's standing (R60's request 7). */
+export const FirmLicenseStatus = z.enum(['ACTIVE', 'EXPIRED', 'SUSPENDED', 'REVOKED']);
+export type FirmLicenseStatus = z.infer<typeof FirmLicenseStatus>;
 
 export const PlatformRoleLevel = z.enum([
   'CEO',

@@ -21,13 +21,23 @@ import {
   notFound,
   sentFields,
 } from '../workspaces/common.js';
-import { LIVE_TASK, taskErrors } from './task-common.js';
+import {
+  checkReminders,
+  inFiringOrder,
+  LIVE_TASK,
+  type Reminder,
+  reminderFrom,
+  reminderFromRow,
+  reminderOut,
+  remindersFromJson,
+  remindersJson,
+  taskErrors,
+} from './task-common.js';
 import { reach } from './task-read.service.js';
 
 type CreateBody = z.output<typeof CreateTaskTemplateRequest>;
 type UpdateBody = z.output<typeof UpdateTaskTemplateRequest>;
 type Query = z.output<typeof TaskTemplatesQuery>;
-type Reminder = NonNullable<CreateBody['reminders']>[number];
 
 const include = {
   type: { select: { id: true, name: true } },
@@ -51,16 +61,9 @@ const FIELDS = [
   'recurrence',
 ] as const;
 
-/** A template's reminders (JSON in the table) as the contract shows them. */
+/** A template's or a series' reminders (JSON in the table) as the contract shows them. */
 export function remindersOf(json: unknown): ReminderRuleOut[] {
-  if (!Array.isArray(json)) return [];
-  return json.map((r: Partial<ReminderRuleOut>) => ({
-    id: null,
-    daysBefore: r.daysBefore ?? 0,
-    timeOfDay: r.timeOfDay ?? null,
-    inApp: r.inApp ?? true,
-    channels: r.channels ?? [],
-  }));
+  return remindersFromJson(json).map((r) => reminderOut(r, null));
 }
 
 export function toTemplate(row: Row, names: Map<string, string>): TaskTemplate {
@@ -89,25 +92,6 @@ export function toTemplate(row: Row, names: Map<string, string>): TaskTemplate {
     updatedAt: row.updatedAt.toISOString(),
     version: row.updatedAt.toISOString(),
   };
-}
-
-/** Reminders as the JSON a template and a series keep (`timeOfDay` "HH:MM", channels listed). */
-export const reminderJson = (reminders: Reminder[]) =>
-  reminders.map((r) => ({
-    daysBefore: r.daysBefore,
-    timeOfDay: r.timeOfDay ?? null,
-    inApp: r.inApp ?? true,
-    channels: r.channels ?? [],
-  }));
-
-/** Two reminders at the same offset and time are one. */
-export function checkReminders(reminders: Reminder[]): void {
-  const seen = new Set<string>();
-  for (const r of reminders) {
-    const key = `${r.daysBefore}@${r.timeOfDay ?? ''}`;
-    if (seen.has(key)) throw taskErrors.bad('INVALID_REMINDER', 'Each reminder can be added once');
-    seen.add(key);
-  }
 }
 
 /**
@@ -153,10 +137,11 @@ export class TaskTemplatesService {
   }
 
   async create(businessId: string, actor: ClientsActor, body: CreateBody): Promise<TaskTemplate> {
+    const reminders = (body.reminders ?? []).map(reminderFrom);
     const made = await this.write(businessId, async (tx) => {
       await this.checkName(tx, businessId, body.name);
       const rule = body.assignmentRule ?? 'UNASSIGNED';
-      await this.checkParts(tx, businessId, { ...body, assignmentRule: rule });
+      await this.checkParts(tx, businessId, { ...body, assignmentRule: rule, reminders });
       const row = await tx.taskTemplate.create({
         data: {
           businessId,
@@ -170,7 +155,7 @@ export class TaskTemplatesService {
           dueOffsetDays: body.dueOffsetDays ?? null,
           clientVisibleDefault: body.clientVisibleDefault ?? false,
           checklist: (body.checklist ?? []).map((i) => ({ label: i.label, required: i.required })),
-          reminders: reminderJson(body.reminders ?? []),
+          reminders: remindersJson(reminders),
           ...(body.recurrence ? { recurrence: body.recurrence } : {}),
           createdByUserId: actor.userId,
         },
@@ -190,6 +175,7 @@ export class TaskTemplatesService {
 
   async update(businessId: string, id: string, body: UpdateBody): Promise<TaskTemplate> {
     const { version, ...changes } = body;
+    const reminders = changes.reminders?.map(reminderFrom);
     const made = await this.write(businessId, async (tx) => {
       const cur = await tx.taskTemplate.findFirst({ where: { businessId, id } });
       if (!cur) throw notFound();
@@ -210,6 +196,7 @@ export class TaskTemplatesService {
         ...changes,
         assignmentRule: rule,
         assignedUserId: assigned,
+        reminders,
       });
       const data: Prisma.TaskTemplateUncheckedUpdateInput = {};
       if (changes.name !== undefined) data.name = changes.name;
@@ -225,7 +212,7 @@ export class TaskTemplatesService {
       if (changes.checklist !== undefined) {
         data.checklist = changes.checklist.map((i) => ({ label: i.label, required: i.required }));
       }
-      if (changes.reminders !== undefined) data.reminders = reminderJson(changes.reminders);
+      if (reminders !== undefined) data.reminders = remindersJson(reminders);
       if (changes.recurrence !== undefined) {
         data.recurrence = changes.recurrence === null ? Prisma.DbNull : changes.recurrence;
       }
@@ -378,12 +365,13 @@ export class TaskTemplatesService {
           dueOffsetDays: offset !== null && offset >= 0 && offset <= 730 ? offset : null,
           clientVisibleDefault: task.clientVisible,
           checklist: task.taskChecklistItems.map((i) => ({ label: i.label, required: i.required })),
-          reminders: task.taskReminders.map((r) => ({
-            daysBefore: r.daysBefore,
-            timeOfDay: r.timeOfDay ? timeOfDayFromDb(r.timeOfDay) : null,
-            inApp: r.inApp,
-            channels: r.channels,
-          })),
+          // Custom ones too, in the order they fire on the task.
+          reminders: remindersJson(
+            inFiringOrder(
+              task.taskReminders.map((r) => ({ rule: reminderFromRow(r) })),
+              task.dueTime && !task.allDay ? timeOfDayFromDb(task.dueTime) : null,
+            ).map((r) => r.rule),
+          ),
           createdByUserId: actor.userId,
         },
         select: { id: true },
@@ -454,7 +442,8 @@ export class TaskTemplatesService {
     } else if (t.assignedUserId) {
       throw taskErrors.invalid('assignedUserId', 'Use a person only with "specific person"');
     }
-    if (t.reminders) checkReminders(t.reminders);
+    // A template has no due time: each rule once; a task made from it leaves out what does not fit.
+    if (t.reminders) checkReminders(t.reminders, null, false);
   }
 
   private async write<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {

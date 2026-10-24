@@ -3,9 +3,11 @@ import type { z } from 'zod';
 import {
   type AvailabilityRules,
   type Availability,
+  type BlockConflictList,
   type BlockedTime,
   BlockedTimeId,
   type BlockedTimeList,
+  type FreeSlotsBlockResult,
   type MemberAvailability,
   MemberId,
   type OkResponse,
@@ -16,7 +18,7 @@ import {
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
-import { BlocksQuery, CreateBlockBody, idParam } from './appointments.input.js';
+import { BlocksQuery, ConflictsQuery, CreateBlockBody, idParam } from './appointments.input.js';
 import { AvailabilityService } from './availability.service.js';
 import { SchedulingAvailabilityService } from './scheduling-availability.service.js';
 import { DayQuery, RulesBody } from './scheduling.input.js';
@@ -104,7 +106,8 @@ export class AvailabilityController {
 
 /**
  * Blocked time (R12 step 2): everyone reads; Owner and Admin block anyone or the whole firm,
- * Staff only themselves (403 otherwise). A block over a scheduled appointment is 409.
+ * Staff only themselves (403 otherwise). A block over a scheduled appointment is 409; the
+ * conflicts list names them, and free-slots blocks only the time around them.
  */
 @Controller('business/blocked-times')
 @Access('APPOINTMENTS')
@@ -120,6 +123,18 @@ export class BlockedTimesController {
     return { items: await this.availability.blockedTimes(tenant.businessId, q) };
   }
 
+  /** The scheduled appointments a block would cover (who may ask is who may block). */
+  @Get('conflicts')
+  async conflicts(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(ConflictsQuery)) q: z.output<typeof ConflictsQuery>,
+  ): Promise<BlockConflictList> {
+    return {
+      items: await this.availability.blockConflicts(tenant.businessId, firmActor(auth, tenant), q),
+    };
+  }
+
   @Post()
   create(
     @CurrentAuth() auth: AuthContext,
@@ -127,6 +142,16 @@ export class BlockedTimesController {
     @Body(new ZodValidationPipe(CreateBlockBody)) body: z.output<typeof CreateBlockBody>,
   ): Promise<BlockedTime> {
     return this.availability.block(tenant.businessId, firmActor(auth, tenant), body);
+  }
+
+  /** "Block available slots only": the block around the appointments it would cover. */
+  @Post('free-slots')
+  freeSlots(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(CreateBlockBody)) body: z.output<typeof CreateBlockBody>,
+  ): Promise<FreeSlotsBlockResult> {
+    return this.availability.blockFreeSlots(tenant.businessId, firmActor(auth, tenant), body);
   }
 
   @Delete(':id')

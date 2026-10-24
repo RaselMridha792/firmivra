@@ -29,13 +29,14 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, createElement, useState } from 'react';
+import { type ReactNode, createElement, useEffect, useRef, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { MultiPick } from '../../team/new/_components/multi-pick';
 import { METHOD_LABELS, NOT_LOADED, SCHEDULING, STATUS_LOOKS } from './appointments-parts';
 import { TONE_DOTS, TONE_NAMES, colourTone } from './colour';
+import { remindersFromType } from './reminder-defaults';
 import { StaffDayPanel } from './staff-day-panel';
 import { localParts, todayIn, toInstant } from './time';
 
@@ -386,13 +387,101 @@ function FormBody({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [key] = useState(() => crypto.randomUUID());
+  // Rasel (Oct 24): a new appointment starts from the chosen type's default reminders, still
+  // editable; once a reminder is changed by hand (or when editing one), choosing a type leaves them.
+  const remindersTouched = useRef(!!record);
+  const [reminderNote, setReminderNote] = useState('');
+  // The form as last drawn, for the type's reminders arriving after the choice.
+  const formNow = useRef(form);
+  useEffect(() => {
+    formNow.current = form;
+  }, [form]);
+  const loadTypeReminders = (typeId: string, typeName: string) => {
+    if (remindersTouched.current || !typeId) return;
+    void api.scheduling
+      .typeConfig(typeId)
+      .then((config) => {
+        const f = formNow.current;
+        if (remindersTouched.current || f.typeId !== typeId) return;
+        const { rows, extra, unavailable } = remindersFromType(
+          config.defaultReminders,
+          { EMAIL: true, SMS: o.smsEnabled, PORTAL: o.portalEnabled },
+          f.reminders,
+        );
+        setForm((now) => (now.typeId === typeId ? { ...now, reminders: rows } : now));
+        setReminderNote(
+          [
+            `From ${typeName}'s default reminders.`,
+            extra.length
+              ? `${extra.length} more of its reminders ${extra.length === 1 ? 'is' : 'are'} not on this appointment: it keeps one per channel.`
+              : '',
+            unavailable.length
+              ? `${unavailable.map((c) => (c === 'SMS' ? 'Text' : 'Portal')).join(' and ')} reminders are off for this firm.`
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+        );
+      })
+      // A type without settings keeps the rows as they are.
+      .catch(() => undefined);
+  };
   const [draftId, setDraftId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [override, setOverride] = useState('');
   const [panelStaff, setPanelStaff] = useState(form.staffUserIds[0] ?? o.staff[0]?.userId ?? '');
+  // Octavia's A5: the contact typed here saved as a client of the firm, then chosen for this
+  // appointment; every other entry on the form stays as it is.
+  const [clientNote, setClientNote] = useState('');
+  const saveClient = useApiMutation(() =>
+    api.clients.create({
+      accountType: form.clientType,
+      displayName: form.name.trim(),
+      email: form.email.trim(),
+      ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
+      ...(form.clientType === 'BUSINESS' && form.businessName.trim()
+        ? { profile: { businessName: form.businessName.trim() } }
+        : {}),
+    }),
+  );
+  const onSaveClient = () => {
+    const problem = !form.name.trim()
+      ? 'Enter the name first.'
+      : !/^\S+@\S+\.\S+$/.test(form.email.trim())
+        ? 'Enter a valid email first.'
+        : '';
+    setClientNote(problem);
+    if (problem) return;
+    saveClient.mutate(undefined, {
+      onSuccess: (client) => {
+        setForm((f) => ({
+          ...f,
+          newContact: false,
+          contact: {
+            kind: 'CLIENT',
+            id: client.id,
+            name: client.displayName,
+            businessName: f.clientType === 'BUSINESS' ? f.businessName.trim() || null : null,
+            email: client.email,
+            phone: client.phone,
+            clientType: client.accountType,
+          },
+        }));
+        setErrors(({ contact: _contact, ...rest }) => rest);
+        setClientNote(
+          `${client.displayName} is saved as a client and chosen for this appointment.`,
+        );
+      },
+    });
+  };
   const set = <K extends keyof Form>(k: K, v: Form[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
     setNote('');
+  };
+  const setReminders = (next: Form['reminders']) => {
+    remindersTouched.current = true;
+    setReminderNote('');
+    set('reminders', next);
   };
   const contacts = useApiQuery([...SCHEDULING, 'contacts', search], () =>
     search.trim().length >= 2
@@ -654,6 +743,14 @@ function FormBody({
                   onChange={(e) => set('businessName', e.target.value)}
                 />
               ) : null}
+              <div className="flex min-w-0 flex-wrap items-center gap-3 md:col-span-2">
+                <Button variant="outline" disabled={saveClient.isPending} onClick={onSaveClient}>
+                  {saveClient.isPending ? 'Saving…' : 'Save Client'}
+                </Button>
+                <span className="text-xs text-muted">
+                  Adds them to your clients and chooses them here. The rest of the form stays.
+                </span>
+              </div>
             </div>
           ) : (
             <div className={grid}>
@@ -735,6 +832,23 @@ function FormBody({
             </div>
           )}
           {errors.contact ? <p className="text-xs text-danger">{errors.contact}</p> : null}
+          {saveClient.error ? (
+            <p role="alert" className="text-xs text-danger" data-testid="save-client-error">
+              {errorMessage(saveClient.error, {
+                DUPLICATE_EMAIL:
+                  'Another client already has this email. Search for them instead, or use another email.',
+                FORBIDDEN: 'You cannot add clients. Book them as a contact instead.',
+              })}
+            </p>
+          ) : clientNote ? (
+            <p
+              role="status"
+              className={`text-xs ${form.newContact ? 'text-danger' : 'text-success'}`}
+              data-testid="save-client-note"
+            >
+              {clientNote}
+            </p>
+          ) : null}
           {!record ? (
             <Button
               variant="ghost"
@@ -742,6 +856,8 @@ function FormBody({
               onClick={() => {
                 setForm((f) => ({ ...f, newContact: !f.newContact, contact: null }));
                 setSearch('');
+                setClientNote('');
+                saveClient.reset();
               }}
             >
               {form.newContact ? 'Search clients and leads instead' : 'Add a new contact'}
@@ -775,6 +891,7 @@ function FormBody({
                     serviceId: f.serviceId || t?.serviceId || '',
                   };
                 });
+                if (t) loadTypeReminders(t.id, t.name);
               }}
             />
             <Select
@@ -1035,7 +1152,7 @@ function FormBody({
                   disabled={!ok}
                   checked={form.reminders[ch].on}
                   onChange={(e) =>
-                    set('reminders', {
+                    setReminders({
                       ...form.reminders,
                       [ch]: { ...form.reminders[ch], on: e.target.checked },
                     })
@@ -1047,13 +1164,13 @@ function FormBody({
                   className="py-1! pr-7! pl-2! text-sm!"
                   hideLabel
                   disabled={!ok || !form.reminders[ch].on}
-                  options={[1, 2, 3, 4, 6, 12, 24, 48].map((n) => ({
-                    value: String(n),
-                    label: String(n),
-                  }))}
+                  // A type's reminder may be any amount (30 minutes, 5 days): it stays a choice.
+                  options={[...new Set([1, 2, 3, 4, 6, 12, 24, 48, form.reminders[ch].amount])]
+                    .sort((a, b) => a - b)
+                    .map((n) => ({ value: String(n), label: String(n) }))}
                   value={String(form.reminders[ch].amount)}
                   onChange={(e) =>
-                    set('reminders', {
+                    setReminders({
                       ...form.reminders,
                       [ch]: { ...form.reminders[ch], amount: Number(e.target.value) },
                     })
@@ -1064,10 +1181,13 @@ function FormBody({
                   className="py-1! pr-7! pl-2! text-sm!"
                   hideLabel
                   disabled={!ok || !form.reminders[ch].on}
-                  options={UNITS.map(([value, l]) => ({ value, label: l }))}
+                  options={(form.reminders[ch].unit === 'MINUTES'
+                    ? [['MINUTES', 'minutes before'] as [ReminderUnit, string], ...UNITS]
+                    : UNITS
+                  ).map(([value, l]) => ({ value, label: l }))}
                   value={form.reminders[ch].unit}
                   onChange={(e) =>
-                    set('reminders', {
+                    setReminders({
                       ...form.reminders,
                       [ch]: { ...form.reminders[ch], unit: e.target.value as ReminderUnit },
                     })
@@ -1075,6 +1195,11 @@ function FormBody({
                 />
               </div>
             ))}
+            {reminderNote ? (
+              <p className="text-xs text-muted" data-testid="reminder-defaults-note">
+                {reminderNote}
+              </p>
+            ) : null}
             <Checkbox
               label="Send Confirmation Message Immediately"
               checked={form.sendConfirmation}

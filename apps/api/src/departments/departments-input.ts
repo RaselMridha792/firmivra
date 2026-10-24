@@ -2,6 +2,7 @@ import {
   CreateDepartmentRequest,
   CreateStaffTeamRequest,
   DepartmentListQuery,
+  SetDepartmentMembersRequest,
   SetStaffTeamMembersRequest,
   StaffTeamListQuery,
   UpdateDepartmentRequest,
@@ -27,3 +28,4 @@ export const TeamListQ = clean(StaffTeamListQuery);
 export const CreateTeamBody = clean(CreateStaffTeamRequest);
 export const UpdateTeamBody = clean(UpdateStaffTeamRequest);
 export const SetTeamMembersBody = clean(SetStaffTeamMembersRequest);
+export const SetDepartmentMembersBody = clean(SetDepartmentMembersRequest);

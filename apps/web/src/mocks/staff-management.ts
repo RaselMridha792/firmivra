@@ -28,6 +28,7 @@ import {
   SetStaffNoteRequest,
   SetStaffOverridesRequest,
   SetStaffPermissionsRequest,
+  SetDepartmentMembersRequest,
   SetStaffTeamMembersRequest,
   StaffAccessInput,
   type StaffActionResult,
@@ -39,6 +40,8 @@ import {
   type StaffDetail,
   type StaffDocument,
   type StaffDraft,
+  type StaffJobTitle,
+  SaveStaffJobTitleRequest,
   StaffListQuery,
   type StaffListItem,
   type StaffLoginEvent,
@@ -121,6 +124,8 @@ interface Store {
   teamMembers: Map<string, Map<string, TeamMemberKind>>;
   roleOverrides: Map<MembershipRole, Map<string, boolean>>;
   drafts: StaffDraft[];
+  /** Offices & Job Titles: the saved titles (staff_job_titles). */
+  jobTitles: Omit<StaffJobTitle, 'staffCount'>[];
   created: Map<string, string>;
   uploads: Map<string, { memberId: string; body: CreateStaffDocumentUploadRequest }>;
   imports: Map<string, { create: number; update: number }>;
@@ -223,6 +228,7 @@ function seed(empty: boolean): Store {
     teamMembers: new Map(),
     roleOverrides: new Map(),
     drafts: [],
+    jobTitles: [],
     created: new Map(),
     uploads: new Map(),
     imports: new Map(),
@@ -455,6 +461,19 @@ function seed(empty: boolean): Store {
     s.teamMembers.get(team.id)?.set(m.detail.id, 'PRIMARY');
     m.detail.profile.primaryTeam = { id: team.id, name: team.name };
   }
+  // The saved titles start as the titles the records carry (R1's backfill), as on the API.
+  const saved = [
+    ...new Set(s.members.map((m) => m.detail.jobTitle).filter((t): t is string => !!t)),
+  ];
+  saved.sort().forEach((name, i) => {
+    s.jobTitles.push({
+      id: uuid('0d30', i + 1),
+      name,
+      archivedAt: null,
+      createdAt: '2026-10-24T00:00:00.000Z',
+      updatedAt: '2026-10-24T00:00:00.000Z',
+    });
+  });
   if (!empty) {
     s.drafts.push({
       id: uuid('0d20', 1),
@@ -769,6 +788,24 @@ export function createStaffMock(options: Options = {}): StaffClient {
   const ownerOrAdmin = () => {
     if (g.role !== 'OWNER' && g.role !== 'ADMIN') throw forbidden();
   };
+  const titleKey = (name: string) => name.trim().toLowerCase();
+  const jobTitleView = (t: Store['jobTitles'][number]): StaffJobTitle =>
+    copy({
+      ...t,
+      staffCount: s.members.filter((m) => titleKey(m.detail.jobTitle ?? '') === titleKey(t.name))
+        .length,
+    });
+  const liveTitle = (name: string, except?: string) =>
+    s.jobTitles.some(
+      (t) => !t.archivedAt && t.id !== except && titleKey(t.name) === titleKey(name),
+    );
+  const titleExists = () =>
+    fail(409, 'JOB_TITLE_EXISTS', 'Your firm already has a job title with this name');
+  const findTitle = (id: string) => {
+    const row = s.jobTitles.find((t) => t.id === id);
+    if (!row) throw notFound();
+    return row;
+  };
 
   return {
     list: async (query = {}) => {
@@ -814,9 +851,10 @@ export function createStaffMock(options: Options = {}): StaffClient {
         customRoles: s.customRoles
           .filter((c) => !c.archivedAt && ROLES_MANAGED_BY[g.role].includes(c.basedOn))
           .map((c) => ({ id: c.id, name: c.name, basedOn: c.basedOn, description: c.description })),
-        jobTitles: [
-          ...new Set(s.members.map((m) => m.detail.jobTitle).filter((t): t is string => !!t)),
-        ].sort(),
+        jobTitles: s.jobTitles
+          .filter((t) => !t.archivedAt)
+          .map((t) => t.name)
+          .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })),
         offices: ['Main Office', 'Riverside Office'],
         workSchedules: ['Full-Time', 'Part-Time', 'Mon-Thu', 'Seasonal'],
         serviceAreas: [
@@ -1342,31 +1380,107 @@ export function createStaffMock(options: Options = {}): StaffClient {
       return { ok: true };
     },
 
+    jobTitles: async (includeArchived = false) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const rows = s.jobTitles.filter((t) => includeArchived || !t.archivedAt);
+      const byName = (a: { name: string }, b: { name: string }) =>
+        a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
+      return [
+        ...rows.filter((t) => !t.archivedAt).sort(byName),
+        ...rows.filter((t) => t.archivedAt).sort(byName),
+      ].map(jobTitleView);
+    },
+    createJobTitle: async (body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const { name } = parseInput(SaveStaffJobTitleRequest, body);
+      if (liveTitle(name)) throw titleExists();
+      const at = new Date().toISOString();
+      const row = {
+        id: uuid('0d31', s.next++),
+        name,
+        archivedAt: null,
+        createdAt: at,
+        updatedAt: at,
+      };
+      s.jobTitles.push(row);
+      return jobTitleView(row);
+    },
+    renameJobTitle: async (id, body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const { name } = parseInput(SaveStaffJobTitleRequest, body);
+      const row = findTitle(id);
+      if (row.archivedAt)
+        throw fail(409, 'JOB_TITLE_ARCHIVED', 'Restore this job title before renaming it');
+      if (row.name !== name) {
+        if (liveTitle(name, id)) throw titleExists();
+        row.name = name;
+        row.updatedAt = new Date().toISOString();
+      }
+      return jobTitleView(row);
+    },
+    archiveJobTitle: async (id) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const row = findTitle(id);
+      if (!row.archivedAt) row.archivedAt = row.updatedAt = new Date().toISOString();
+      return jobTitleView(row);
+    },
+    restoreJobTitle: async (id) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const row = findTitle(id);
+      if (row.archivedAt) {
+        if (liveTitle(row.name, id)) throw titleExists();
+        row.archivedAt = null;
+        row.updatedAt = new Date().toISOString();
+      }
+      return jobTitleView(row);
+    },
+
     importTemplateUrl: () =>
       `data:text/csv;charset=utf-8,${encodeURIComponent('First Name,Last Name,Work Email,Phone,Job Title,Role,Department\n')}`,
     previewImport: async (body) => {
       await g.allowed();
       ownerOrAdmin();
       const input = parseInput(StaffImportPreviewRequest, body);
-      const emailColumn = Object.entries(input.columnMap).find(([, f]) => f === 'email')?.[0];
+      const column = (field: string) =>
+        Object.entries(input.columnMap).find(([, f]) => f === field)?.[0];
+      const emailColumn = column('email');
+      const idColumn = column('employeeId');
+      const ids = new Set<string>();
       const errors = input.rows.flatMap((row, i) => {
         const email = emailColumn ? row[emailColumn] : undefined;
-        return email && email.includes('@')
-          ? []
-          : [{ row: i + 1, field: 'email' as const, message: 'Enter a valid work email' }];
+        const found: { row: number; field: 'email' | 'employeeId'; message: string }[] =
+          email && email.includes('@')
+            ? []
+            : [{ row: i + 1, field: 'email', message: 'Enter a valid work email' }];
+        // As the API: Employee ID is optional, and unique when given.
+        const employeeId = (idColumn ? row[idColumn] : '')?.trim().toLowerCase();
+        if (employeeId && ids.has(employeeId))
+          found.push({
+            row: i + 1,
+            field: 'employeeId',
+            message: 'This Employee ID is in the file twice',
+          });
+        if (employeeId) ids.add(employeeId);
+        return found;
       });
       const existing = new Set(s.members.map((m) => m.detail.email.toLowerCase()));
       const valid = input.rows.filter((_, i) => !errors.some((e) => e.row === i + 1));
       const toUpdate = valid.filter(
         (r) => emailColumn && existing.has((r[emailColumn] ?? '').toLowerCase()),
       ).length;
-      const token = `mock-import-${s.next++}`;
-      s.imports.set(token, { create: valid.length - toUpdate, update: toUpdate });
+      // As the API: no preview to keep when no row can be imported.
+      const token = valid.length ? `mock-import-${s.next++}` : null;
+      if (token) s.imports.set(token, { create: valid.length - toUpdate, update: toUpdate });
       return {
         previewToken: token,
         toCreate: valid.length - toUpdate,
         toUpdate,
-        invalid: errors.length,
+        invalid: new Set(errors.map((e) => e.row)).size,
         errors,
       };
     },
@@ -1595,6 +1709,57 @@ export function createDepartmentsMock(options: Options = {}): DepartmentsClient 
       );
       recount(s);
       return teamDetail(t);
+    },
+    departmentMembers: async (id) => {
+      await g.allowed();
+      const d = dept(id);
+      return {
+        members: s.members
+          .filter(
+            (m) =>
+              m.detail.status !== 'DEACTIVATED' && m.detail.departments.some((x) => x.id === d.id),
+          )
+          .map(ref),
+      };
+    },
+    // As the API (Octavia's SM13): the whole list, no team needed; nobody loses their only one.
+    setDepartmentMembers: async (id, body) => {
+      await g.allowed();
+      change();
+      const input = parseInput(SetDepartmentMembersRequest, body);
+      const d = dept(id);
+      if (d.status !== 'ACTIVE')
+        throw fail(400, 'VALIDATION_FAILED', 'Members join an active department');
+      const wanted = new Set(input.membershipIds.map((x) => g.find(x).detail.id));
+      const listed = s.members.filter((m) => m.detail.status !== 'DEACTIVATED');
+      const alone = listed.filter(
+        (m) =>
+          !wanted.has(m.detail.id) &&
+          m.detail.departments.length === 1 &&
+          m.detail.departments[0]?.id === d.id,
+      );
+      if (alone.length)
+        throw new ApiRequestError(
+          409,
+          'LAST_DEPARTMENT',
+          'Everyone keeps at least one department',
+          undefined,
+          undefined,
+          alone.map((m) => ({
+            path: 'membershipIds',
+            message: `${ref(m).name} has no other department. Add one first.`,
+          })),
+        );
+      for (const m of listed) {
+        const has = m.detail.departments.some((x) => x.id === d.id);
+        if (wanted.has(m.detail.id) && !has) m.detail.departments.push({ id: d.id, name: d.name });
+        if (!wanted.has(m.detail.id) && has)
+          m.detail.departments = m.detail.departments.filter((x) => x.id !== d.id);
+      }
+      recount(s);
+      return {
+        members: listed.filter((m) => m.detail.departments.some((x) => x.id === d.id)).map(ref),
+      };
     },
     orgChart: async () => {
       await g.allowed();

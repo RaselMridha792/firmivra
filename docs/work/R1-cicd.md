@@ -114,6 +114,19 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 
 This is newer than every handoff below, so read it first. Where they differ, this one wins.
 
+**Prod log (Rasel's add-on 4, Oct 24; each AWS change on his yes). Newest last:**
+- 1. Read-only: the SSO session works on account 778127141557. SES production access is granted (the account's sandbox is lifted, dev included). firmivra.com has no DNSSEC, and no Route 53 zone yet.
+- 2a. Rasel's yes: hosted zone firmivra.com created, `Z06906951XI9J0KSHI8TO` (only its own NS and SOA so far).
+
+**Update (Oct 24, 13:40 UTC). This wins over everything below.**
+- **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
+- **Open:** #1084 (the task idempotency key), green. It is the only migration PR open.
+- **Queue, one PR at a time,** each after the one before merges, with `origin/main` merged in first:
+  1. `rasel/R1-r60-columns-2`: R60's requests 7 to 11. PR text in the scratchpad, `r60b/pr.md`.
+  2. `rasel/R1-prod-bootstrap`: Rasel's item of 12:30 UTC, the prod bootstrap one-off (`packages/db/scripts/bootstrap-prod.mjs`). It has no migration. PR text in the scratchpad, `pr-prod-bootstrap.md`; PR title "feat: prod bootstrap one-off for the first Super Admin and LVP (R1)". Nothing runs in prod from R1.
+- **Merging `main` into a stacked branch after its base was squash-merged:** for each conflicted file, compare `main` with the merged PR's head commit. Where they are equal, keep the branch's version (it is the base plus this PR).
+- **Before testing a branch locally:** regenerate the Prisma client, then build `@firmivra/db` and `@firmivra/types` on that branch. A client generated on another branch gives P2022 "column does not exist".
+
 **Update (Oct 24, 11:30 UTC). This wins over the tables below.**
 - **Merged by Rasel:** #1053, #1057, #1064, #1066, #1067 and #1071. #1064's two drafts migrations ran on dev in Deploy dev run 40084265063 (success).
 - **Open:** #1074, item 3 (R60's columns), green. It is the only migration PR open.
