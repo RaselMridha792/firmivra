@@ -179,7 +179,10 @@ export type UpdateTaskDraftRequest = z.input<typeof UpdateTaskDraftRequest>;
  * the task errors of a new task otherwise. An empty body publishes the draft as saved. It takes
  * no idempotency key: a publish retried after it went through (its answer lost) answers 200 with
  * the task as it is now, without publishing or auditing again, when the caller published it and
- * still reaches it; anyone else gets 404.
+ * still reaches it; anyone else gets 404. That answer applies nothing the request sends (its
+ * fields and `version` are not read): the API cannot tell a retry from a second Save Task with
+ * other values, from another tab say, which then gets the task as the first publish left it. So
+ * after Save Task, show the task the answer returns, never the form's values.
  */
 export const PublishTaskDraftRequest = draftChanges.refine(
   (o) => o.clientId !== null || (o.engagementId == null && !o.attachments?.length),

@@ -1,8 +1,11 @@
-// The Tasks mock's idempotency keys (contract: packages/types/src/tasks/work.ts IdempotencyKey), so
+// The Tasks mocks' idempotency keys (contract: packages/types/src/tasks/work.ts IdempotencyKey), so
 // a screen built in mock mode retries as it would against the API: a retry of Create, Save as
 // Draft, Duplicate, Set Up Recurring or Convert with its key returns the first record; another
-// member, route or task gets 409 IDEMPOTENCY_KEY_REUSED.
+// member, route or task gets 409 IDEMPOTENCY_KEY_REUSED. The older `api.tasks.create` (the
+// tax-returns and workspace forms) keeps its key too, and a publish retried after it went through
+// answers the task to the member who published it.
 import { describe, expect, it } from 'vitest';
+import { createTasksMock, mockTaskStore } from '../mocks/tasks';
 import { createTaskWorkMock } from '../mocks/tasks-work';
 
 const JAMIE = '0199b6a1-0000-7000-8000-000000000001';
@@ -105,5 +108,42 @@ describe('task work mock: idempotency keys', () => {
     const gone = await owner.saveDraft({ title: 'Gone', idempotencyKey: g });
     await owner.discardDraft(gone.id);
     expect((await owner.saveDraft({ title: 'Fresh', idempotencyKey: g })).id).not.toBe(gone.id);
+  });
+
+  it('a publish retried after it went through answers the task, applying nothing; anyone else gets 404', async () => {
+    const owner = createTaskWorkMock({ role: 'OWNER', empty: true });
+    const staff = createTaskWorkMock({ role: 'STAFF', empty: true });
+    // Sam's draft (assigned to him), so both see the task once published.
+    const draft = await staff.saveDraft({ title: 'Publish twice', clientId: JAMIE });
+    const task = await staff.publishDraft(draft.id, { version: draft.version });
+    // The answer was lost, or another tab sends other values: the task as the first publish left it.
+    const again = await staff.publishDraft(draft.id, { version: draft.version, title: 'Other' });
+    expect(again).toEqual(task);
+    expect((await owner.task(task.id)).title).toBe('Publish twice');
+    await expect(owner.publishDraft(draft.id)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('tasks mock (api.tasks): idempotency key on Create', () => {
+  it('a retry with the key returns the first task; another member gets 409', async () => {
+    const owner = createTasksMock();
+    const staff = createTasksMock({ role: 'STAFF' });
+    const before = mockTaskStore().length;
+    const k = newKey();
+    const task = await owner.create({ clientId: JAMIE, title: 'Call back', idempotencyKey: k });
+    const retry = await owner.create({
+      clientId: JAMIE,
+      title: 'Changed',
+      idempotencyKey: k.toUpperCase(),
+    });
+    expect(retry).toEqual(task);
+    await expect(
+      staff.create({ clientId: JAMIE, title: 'Theirs', idempotencyKey: k }),
+    ).rejects.toMatchObject(reused);
+    expect(mockTaskStore().length).toBe(before + 1);
+    // Without a key, each create makes a task.
+    await owner.create({ clientId: JAMIE, title: 'No key' });
+    await owner.create({ clientId: JAMIE, title: 'No key' });
+    expect(mockTaskStore().length).toBe(before + 3);
   });
 });

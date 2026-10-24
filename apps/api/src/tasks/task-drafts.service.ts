@@ -253,7 +253,8 @@ export class TaskDraftsService {
    * written in the same transaction; create sends no notification and starts no automation)
    * happens once. A publish retried after it went through (its answer lost, or two at once)
    * finds no draft: it answers the task as it is now when the caller published it and still
-   * reaches it, without publishing or auditing again (`published`); anyone else gets 404.
+   * reaches it, without publishing or auditing again and without applying the body (`published`;
+   * a retry cannot be told from a second publish with other values); anyone else gets 404.
    */
   async publish(
     businessId: string,

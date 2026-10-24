@@ -52,7 +52,8 @@ import { mockStaff } from './clients';
  * the contract's schemas and answers its codes: DUPLICATE_NAME, REQUIRED_ITEMS_OPEN,
  * DEPENDENCY_OPEN, TASK_CLOSED, OCCURRENCE_CLOSED, SERIES_NOT_ACTIVE, INVALID_RECURRENCE,
  * IDEMPOTENCY_KEY_REUSED. Create, Save as Draft, Duplicate, Set Up Recurring and Convert keep
- * their idempotency keys: a retry with one returns the first record, as the API does.
+ * their idempotency keys: a retry with one returns the first record, as the API does; a publish
+ * retried after it went through answers the task to the member who published it.
  * `empty: true` (NEXT_PUBLIC_API_MOCK_EMPTY=taskWork) starts with no tasks, templates, series or
  * task types, as a firm that never set any up.
  */
@@ -153,6 +154,8 @@ interface Store {
   next: number;
   /** By idempotency key, in lower case. */
   keys: Map<string, KeyedSave>;
+  /** Who published each draft, by task id (the API reads it from the publish's audit row). */
+  publishedBy: Map<string, string>;
 }
 
 const rowFields = (t: Partial<TaskDetail> & { id: string; title: string }): TaskDetail => {
@@ -218,6 +221,7 @@ function seed(empty: boolean): Store {
       series: [],
       next: 100,
       keys: new Map(),
+      publishedBy: new Map(),
     };
   }
   const d = today();
@@ -368,6 +372,7 @@ function seed(empty: boolean): Store {
     series: [],
     next: 100,
     keys: new Map(),
+    publishedBy: new Map(),
   };
   store.series.push(makeSeries(store, 1, 'Quarterly Bookkeeping Review', CLIENTS[2]!, 3, 'MONTH'));
   store.series.push(makeSeries(store, 2, 'Weekly Payroll Check', CLIENTS[3]!, 1, 'WEEK'));
@@ -1035,6 +1040,10 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     publishDraft: async (id, body = {}) => {
       await mockDelay();
       const b = parseInput(PublishTaskDraftRequest, body);
+      // As the API: a publish retried after it went through answers the task as it is now, to
+      // the member who published it while they still see it, and applies nothing of the body.
+      const live = s.tasks.find((t) => t.id === id);
+      if (live && sees(live) && s.publishedBy.get(id) === me.userId) return copy(touchless(live));
       const x = findDraft(id);
       if (b.version && b.version !== x.t.version)
         throw fail(409, 'SAVE_CONFLICT', 'Someone saved this draft after you opened it');
@@ -1056,6 +1065,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       x.t.client = x.client;
       x.t.status = 'OPEN';
       s.tasks.unshift(x.t);
+      s.publishedBy.set(x.t.id, me.userId);
       return copy(touch(x.t));
     },
     discardDraft: async (id) => {
