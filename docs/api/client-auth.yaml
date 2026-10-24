@@ -644,7 +644,7 @@ components:
         publishedAt: { $ref: '#/components/schemas/Timestamp' }
     PortalInfo:
       type: object
-      required: [business, branding, signUpOpen, legal]
+      required: [business, branding, signUpOpen, legal, contact]
       properties:
         business:
           type: object
@@ -671,6 +671,29 @@ components:
           properties:
             terms: { oneOf: [{ $ref: '#/components/schemas/LegalVersion' }, { type: 'null' }] }
             privacy: { oneOf: [{ $ref: '#/components/schemas/LegalVersion' }, { type: 'null' }] }
+        contact:
+          type: object
+          description: |
+            How clients reach the firm: Company Profile's phone, email and address, each falling
+            back to the main office's in Locations (the address whole, from one or the other), and
+            the main office's opening hours. Null or empty: not set.
+          required: [phone, email, addressLines, hours]
+          properties:
+            phone: { type: [string, 'null'] }
+            email: { type: [string, 'null'] }
+            addressLines:
+              type: array
+              items: { type: string }
+              description: The street lines, then "City, ST 12345".
+            hours:
+              type: array
+              items:
+                type: object
+                required: [weekday, opensAt, closesAt]
+                properties:
+                  weekday: { type: integer, minimum: 0, maximum: 6, description: 0 Sunday to 6 Saturday }
+                  opensAt: { type: string, example: '09:00' }
+                  closesAt: { type: string, example: '18:00' }
     LegalDocument:
       type: object
       required: [kind, version, publishedAt, body]

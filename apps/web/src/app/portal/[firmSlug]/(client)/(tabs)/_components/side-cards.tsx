@@ -20,10 +20,12 @@ import type { ReactNode } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { ButtonLink } from '../../../(public)/_components/button-link';
+import { FirmContactLinks } from '../../../(public)/_components/firm-contact';
 import { NotesCard } from '../messages/_components/notes-card';
 import { HelpfulResources } from '../business/_components/business-cards';
 import { TaxPaymentCard } from '../taxes/_components/tax-cards';
 import { AnnouncementCard } from '../../_components/announcements';
+import { usePortalTabs } from '../../_components/portal-tabs';
 
 const dateTime = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
@@ -125,6 +127,7 @@ function MessagesRightColumn({ slug, place }: { slug: string; place: Announcemen
       <Card className="bg-firm-primary! text-on-action">
         <h2 className="font-display text-2xl font-bold">Need Help?</h2>
         <p className="my-3 text-sm">Our team is here for you.</p>
+        <FirmContactLinks className="mb-3" />
         <ButtonLink href={`/${slug}/messages`} className="cursor-pointer">
           Send a Message
         </ButtonLink>
@@ -169,6 +172,7 @@ function DefaultRightColumn({
   documentsPage: boolean;
   taxesPage: boolean;
 }) {
+  const tabOn = usePortalTabs(slug);
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
   );
@@ -179,7 +183,10 @@ function DefaultRightColumn({
       <Card className="bg-firm-primary! text-on-action">
         <h2 className="font-display text-2xl font-bold">Need Help?</h2>
         <p className="my-3 text-sm">Our team is here for you.</p>
-        <ButtonLink href={`/${slug}/messages`}>Send a Message</ButtonLink>
+        <FirmContactLinks className="mb-3" />
+        {tabOn('messages') ? (
+          <ButtonLink href={`/${slug}/messages`}>Send a Message</ButtonLink>
+        ) : null}
       </Card>
       <LinkCard
         icon={CalendarDays}
@@ -300,6 +307,7 @@ export function QuickLinks({
   blueAccents?: boolean;
   businessLayout?: boolean;
 }) {
+  const tabOn = usePortalTabs(slug);
   return (
     <Card>
       <h2 className="mb-2 font-display text-2xl font-bold text-heading">Quick Links</h2>
@@ -308,39 +316,41 @@ export function QuickLinks({
           businessLayout ? 'grid grid-cols-2 gap-2 xl:grid-cols-4' : 'divide-y divide-border'
         }
       >
-        {quickLinks(slug).map(([Icon, title, description, href]) => (
-          <li key={title}>
-            <Link
-              href={href}
-              className={
-                businessLayout
-                  ? 'flex h-full flex-col items-center justify-center gap-2 rounded-card border border-folder-border p-3 text-center hover:bg-folder-surface'
-                  : 'flex items-center gap-3 py-2 hover:bg-folder-surface'
-              }
-            >
-              <Icon
-                aria-hidden
-                className={`size-8 shrink-0 ${blueAccents ? 'text-action' : 'text-firm-accent'}`}
-              />
-              <span className={businessLayout ? 'min-w-0' : 'min-w-0 flex-1'}>
-                <span
-                  className={`block font-semibold text-heading ${businessLayout ? 'text-xs leading-tight' : ''}`}
-                >
-                  {title}
-                </span>
-                <span className={`block text-sm text-text ${businessLayout ? 'sr-only' : ''}`}>
-                  {description}
-                </span>
-              </span>
-              {!businessLayout ? (
-                <ChevronRight
+        {quickLinks(slug)
+          .filter(([, , , href]) => tabOn(href.split('/')[2] ?? ''))
+          .map(([Icon, title, description, href]) => (
+            <li key={title}>
+              <Link
+                href={href}
+                className={
+                  businessLayout
+                    ? 'flex h-full flex-col items-center justify-center gap-2 rounded-card border border-folder-border p-3 text-center hover:bg-folder-surface'
+                    : 'flex items-center gap-3 py-2 hover:bg-folder-surface'
+                }
+              >
+                <Icon
                   aria-hidden
-                  className={`size-5 shrink-0 ${blueAccents ? 'text-action' : 'text-firm-accent'}`}
+                  className={`size-8 shrink-0 ${blueAccents ? 'text-action' : 'text-firm-accent'}`}
                 />
-              ) : null}
-            </Link>
-          </li>
-        ))}
+                <span className={businessLayout ? 'min-w-0' : 'min-w-0 flex-1'}>
+                  <span
+                    className={`block font-semibold text-heading ${businessLayout ? 'text-xs leading-tight' : ''}`}
+                  >
+                    {title}
+                  </span>
+                  <span className={`block text-sm text-text ${businessLayout ? 'sr-only' : ''}`}>
+                    {description}
+                  </span>
+                </span>
+                {!businessLayout ? (
+                  <ChevronRight
+                    aria-hidden
+                    className={`size-5 shrink-0 ${blueAccents ? 'text-action' : 'text-firm-accent'}`}
+                  />
+                ) : null}
+              </Link>
+            </li>
+          ))}
       </ul>
     </Card>
   );

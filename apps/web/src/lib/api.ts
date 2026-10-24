@@ -60,6 +60,7 @@ import {
   createNotificationsClient,
   createPaymentsSetupClient,
   createFirmBillingClient,
+  createPortalTabsClient,
   createProfileChangesClient,
   createPublicAgreementsClient,
   createRequest,
@@ -144,6 +145,7 @@ import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-
 import { createFirmBillingMock } from '../mocks/firm-billing';
 import { createProfileChangesMock } from '../mocks/profile-changes';
 import { myAnnouncementsMock } from '../mocks/my-announcements';
+import { createPortalTabsMock } from '../mocks/portal-tabs';
 import { createSettingsMock } from '../mocks/settings';
 import {
   createBrandingMock,
@@ -236,6 +238,11 @@ export const api = {
     dev && mocked('settings')
       ? createSettingsMock({ role: MOCK_ROLE })
       : createSettingsClient(request),
+  /** Settings > Client Portal > Features: the portal tabs on and off; the portal menu reads them. */
+  portalTabs:
+    dev && mocked('portalTabs')
+      ? createPortalTabsMock({ role: MOCK_ROLE })
+      : createPortalTabsClient(request),
   /** Company Profile's Request Change: legal name, EIN and licensing, changed only by Firmivra. */
   profileChanges:
     dev && mocked('profileChanges')

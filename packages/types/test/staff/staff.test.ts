@@ -58,6 +58,7 @@ const detail = {
     workSchedule: null,
     office: null,
     hireDate: '2024-03-15',
+    workStartDate: '2024-04-01',
     endDate: null,
     supervisor: null,
     timeZone: 'America/New_York',

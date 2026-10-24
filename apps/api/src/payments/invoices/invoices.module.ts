@@ -30,6 +30,7 @@ import { InvoiceNotices } from './invoice-notices.js';
 import { InvoicesService } from './invoices.service.js';
 import { MyInvoicesController } from './my-invoices.controller.js';
 import { MyInvoicesService } from './my-invoices.service.js';
+import { PortalTabsModule } from '../../client-portal/portal-tabs.js';
 
 const idPipe = new ZodValidationPipe(InvoiceId);
 /** send takes no fields at all. */
@@ -116,7 +117,7 @@ export class InvoicesController {
 }
 
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, PortalTabsModule],
   controllers: [InvoicesController, MyInvoicesController],
   providers: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceJobs],
   exports: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceJobs],

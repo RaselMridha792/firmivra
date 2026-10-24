@@ -48,6 +48,7 @@ import { MyPacketsService } from './my-packets.service.js';
 import { ScanResultsService } from './scan-results.service.js';
 import { UploadTokens } from './upload-token.js';
 import { UploadsService } from './uploads.service.js';
+import { PortalTabsModule } from '../client-portal/portal-tabs.js';
 
 const clientPipe = new ZodValidationPipe(ClientId);
 const docPipe = new ZodValidationPipe(DocumentId);
@@ -190,7 +191,7 @@ export class DocumentsController {
 
 @Module({
   // R6's Notifier: request and upload events reach the bell (and the email copy) once they commit.
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, PortalTabsModule],
   // The firm-wide library (R55) first: its static routes (documents/summary) before R5's :id.
   controllers: [
     DocumentLibraryController,

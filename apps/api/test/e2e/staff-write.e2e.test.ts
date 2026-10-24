@@ -294,6 +294,7 @@ describe('Create Staff', () => {
         employmentType: 'FULL_TIME',
         office: `Main ${run}`,
         hireDate: '2026-11-01',
+        workStartDate: '2026-11-16',
         supervisorId: member.managerA,
         employeeId: `E-${run}`,
         primaryTeamId: team.evening,
@@ -317,6 +318,7 @@ describe('Create Staff', () => {
       profile: {
         employmentType: 'FULL_TIME',
         hireDate: '2026-11-01',
+        workStartDate: '2026-11-16',
         employeeId: `E-${run}`,
         maxWorkload: 40,
         primaryTeam: { id: team.evening },
@@ -476,6 +478,7 @@ describe('Edit Staff', () => {
             office: `North ${run}`,
             primaryTeamId: team.morning,
             acceptsNewClients: false,
+            workStartDate: '2026-12-01',
           },
           notifyMember: true,
         }),
@@ -488,6 +491,9 @@ describe('Edit Staff', () => {
         office: `North ${run}`,
         primaryTeam: { id: team.morning },
         acceptsNewClients: false,
+        // Octavia's SM11: its own date; the hire date is untouched.
+        workStartDate: '2026-12-01',
+        hireDate: before.profile.hireDate,
       },
     });
     expect(saved.version).not.toBe(before.version);
@@ -507,6 +513,25 @@ describe('Edit Staff', () => {
     );
     expect(audit.metadata).toMatchObject({ notifyMember: true });
     expect(JSON.stringify(audit.metadata)).not.toContain('North');
+    expect(JSON.stringify(audit.metadata)).toContain('details.workStartDate');
+    expect(JSON.stringify(audit.metadata)).not.toContain('2026-12-01');
+    const cleared = StaffDetail.parse(
+      ok(
+        await call('patch', `/staff/${member.staffA}`, ownerA, {
+          version: saved.version,
+          details: { workStartDate: null },
+        }),
+      ),
+    );
+    expect(cleared.profile.workStartDate).toBeNull();
+    expectError(
+      await call('patch', `/staff/${member.staffA}`, ownerA, {
+        version: cleared.version,
+        details: { workStartDate: '2026-13-01' },
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
   });
 
   it("refuses a change of the person's name or email, and roles the actor cannot give", async () => {

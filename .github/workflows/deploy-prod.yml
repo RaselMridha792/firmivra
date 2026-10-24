@@ -6,7 +6,8 @@
 # running image tags are parameters of firmivra-prod-app (ImageTag, MigrateImageTag); only this
 # workflow sets them. The other prod stacks stay manual (diff, then Rasel's yes).
 # Prod deploys only after its other stacks are up (network, data, auth, email, ci), each deployed
-# by hand on Rasel's yes (docs/work/R1-cicd.md, "Prod go-live checklist").
+# by hand on Rasel's yes (docs/work/R1-cicd.md, "Prod go-live checklist"). The first tag creates
+# firmivra-prod-app itself, with no images (0 tasks), so its ECR repositories exist for the build.
 # One job on purpose, as in deploy-dev.yml: each job with an environment is a GitHub deployment.
 # Actions are pinned to commit SHAs (public repo); the comment after each one is its release.
 name: Deploy prod
@@ -59,11 +60,41 @@ jobs:
           fi
           echo "$GITHUB_REF_NAME is $TAG on main"
 
+      # pnpm version from packageManager in package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile --filter @firmivra/infra...
+
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           role-session-name: deploy-prod-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
+
+      # The first tag only: the app stack with no images (ImageTag and MigrateImageTag stay "none",
+      # so 0 api and web tasks). Later tags find it and go on; the steps below deploy their changes.
+      - name: Create the empty app stack (first release)
+        working-directory: infra
+        run: |
+          if status=$(aws cloudformation describe-stacks --stack-name "$APP_STACK" \
+            --query 'Stacks[0].StackStatus' --output text 2>"$RUNNER_TEMP/describe.err"); then
+            echo "$APP_STACK is $status"
+            if [ "$status" = ROLLBACK_COMPLETE ]; then
+              echo "::error::$APP_STACK failed to create; Rasel decides before a new tag runs."
+              exit 1
+            fi
+          elif grep -q 'does not exist' "$RUNNER_TEMP/describe.err"; then
+            pnpm exec cdk deploy "$APP_STACK" -c env=prod --exclusively --require-approval never \
+              --progress events --no-notices
+          else
+            cat "$RUNNER_TEMP/describe.err" >&2
+            exit 1
+          fi
 
       # ECR tags cannot be overwritten, so a re-run skips images this commit already pushed.
       - name: Find images to build
@@ -101,16 +132,6 @@ jobs:
             CONTEXT=${{ github.workspace }}
             REGISTRY=${{ env.REGISTRY }}
             TAG=${{ github.sha }}
-
-      # pnpm version from packageManager in package.json.
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile --filter @firmivra/infra...
 
       # A fresh one-hour session for the deploy steps, after the image builds.
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
