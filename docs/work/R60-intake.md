@@ -404,3 +404,12 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   contract unit 4 of 4, API and web `tsc` 0 errors, ESLint and Prettier clean; sheet shot on the
   real API. Licensing columns added as item 7 of the column request; question 3 (applying an
   approved change) for Rasel.
+- Oct 24 (fourth session, Rasel's "Fresh R60 v2"): `rasel/R60-payments` was 16 commits ahead of
+  origin (the Billing merge and `main`); pushed first. #1073 (Billing) was already open; its CI
+  failed once on `workspaces.e2e.test.ts` (q5, a 100 ms race, not Billing's) and passed on a rerun.
+  On Payments: the automations test's `day()` takes the firm's New York date (Rasel's word; 17 of
+  17 locally) and the notes take Rasel's decisions (Billing by request, R56 applies a Request
+  Change, column items 7 to 11 approved with R60's order). #1076 (Payments) opened, stacked on
+  #1073; both CI green. Staff (`rasel/R60-staff-sm8-13`) merged `main`: API and web `tsc` 0
+  errors, departments and staff e2e 20 of 20, Staff mock specs 54 of 54. Its PR waits for a slot
+  (two open); body in this session's scratchpad (`pr-staff.md`).
