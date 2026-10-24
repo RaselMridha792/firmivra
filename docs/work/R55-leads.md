@@ -16,11 +16,12 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
 - [x] L3 (P1): the card turns on a visible "Overdue Follow-Ups" chip (remove to clear; More Filters keeps its checkbox), and the filter now combines with a status instead of clearing it. The API already counts only open leads' past-due, unfinished follow-ups (closing a lead clears its follow-up); the mock now does the same. With the API unreachable the Leads page keeps every frame (the cards show a dash, the filters stay, the table says why with Try again) instead of one error panel per section.
 - [x] L9 (P1): Convert to Client's steps are editable (client type, full and business name, email, phone, address, services, primary and additional staff, what to carry over, the portal invitation), from the lead's values, kept across the steps in one draft (the convert layout), checked when Client Details & Services is left, and Review & Confirm shows and sends exactly that. Live: a converted lead became a Business client with the edited name, phone, address and staff, no invitation (Send later), and the lead stayed, Converted. Arfan's mock specs `arfan-convert-lead-step-2` (3 cases) and `-step-3` (1 case) already fail on main (they expect every card and a highlight on step 2); not changed here.
 - [x] L4 (P3): the email composer, with fonts, sizes, images and a saved signature with the logo. Contract #1042, API #1044 and web #1049 are merged.
-- [x] L5 (P2): the tag picker for leads and clients. Contract #1048 and API #1050 are merged; the web PR is #1058.
-- [x] L6 (P3): Add New Tag. Branch `rasel/R55-tags-add`, stacked on #1058; open its PR when a slot frees.
+- [x] L5 (P2): the tag picker for leads and clients: #1048, #1050 and #1058 are merged.
+- [x] L6 (P3): Add New Tag. Branch `rasel/R55-tags-add`.
 - [ ] L7 (P3): Create Campaign. The API PR is #1059. The web is on branch `rasel/R55-leads-campaign-web`, stacked on L6 and #1059.
 - [ ] L8 (P3): several follow-ups. It waits for the schema request, issue #1051 (`lead_follow_ups`, R0).
-- [ ] L10 to L14: next, in order.
+- [x] L10 (P3): Archived Leads and Restore. Branch `rasel/R55-leads-archived`; open its PR when a slot frees.
+- [ ] L11 to L14: next, in order. L11 needs Rasel's answer on what "delete" means.
 
 ## L4: the email composer (Oct 23)
 

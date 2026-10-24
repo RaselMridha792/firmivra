@@ -15,23 +15,28 @@ The older sections below are history.
 
 | PR | Branch | What |
 | --- | --- | --- |
-| #1058 | `rasel/R55-tags-web` | L5: the tag picker (`components/tag-picker.tsx`) in the Leads Tags dialog, Edit Lead and a Tags card on the client Overview |
-| #1059 | `rasel/R55-leads-campaigns` | L7 API: Leads campaigns are Communications campaigns (options, Add to Campaign, filter, row) |
+| #1059 | `rasel/R55-leads-campaigns` | L7 API: Leads campaigns are Communications campaigns (options, Add to Campaign, filter, row). CI shard 3 failed on a unit fixture (`commAudience`); fixed in 1388bfbd. |
+| (this PR) | `rasel/R55-tags-add` | L6: Add New Tag. It also carries this handoff and `R55-leads.md`. |
 
 ### Pushed, waiting for a slot (open them in this order, one at a time)
 
-1. `rasel/R55-tags-add`: L6, Add New Tag beside Add New Lead. It is stacked on #1058, and the PR text is in its commit message. This branch also carries this handoff and the updated `R55-leads.md`.
-2. `rasel/R55-leads-campaign-web`: L7 web, stacked on L6 and #1059. It contains:
+1. `rasel/R55-leads-campaign-web`: L7 web. It is stacked on L6 and #1059 (merge `origin/main` once those land). It contains:
    - `packages/ui` Drawer `size="wide"` (Rasel's yes, Oct 24);
    - the Communications composer's embedded mode;
-   - Create Campaign in a wide panel.
+   - Create Campaign in a wide panel;
+   - mock spec `r55-create-campaign`.
+2. `rasel/R55-leads-archived`: L10, from main, one PR covering contract, API and screen.
+   - **What:** Archived Leads under More Filters, read-only rows, and Restore per row and in the bulk bar.
+   - **Tests:** leads-pipeline e2e (21 pass); mock spec `r55-leads-archived`.
+   - **Also fixed:** the date-filter e2e now uses the firm's New York day. It used to fail between midnight and 4 a.m. UTC.
+   - **Gap:** there is no lead activity kind for archive or restore, so they are audited only. A visible history entry needs an enum value from R0.
 
 When a PR before them merges, merge `origin/main` into the next branch (no rebase, no force-push), rerun its typecheck and its mock specs, and push.
 
 ### Merged this round
 
 - L4 (email composer): #1042, #1044, #1049.
-- L5 contract and API: #1048, #1050.
+- L5: #1048, #1050, #1058.
 - Earlier: L1 #1030, L2 #1032, L3 #1035, L9 #1036.
 
 ### Decisions (Rasel, Oct 23 and 24)
@@ -50,7 +55,6 @@ When a PR before them merges, merge `origin/main` into the next branch (no rebas
 ### Next, in this order
 
 1. **Leads:**
-   - L10 (P3) **Archived Leads** under More Filters, with Restore per record (permission-gated); the lead comes back with its prior status and history.
    - **L11 (P2) only Firm Admin may delete leads**, single and bulk, enforced on the server and in the UI.
      - Note: today the API has no delete at all. The bulk "Delete" is `ARCHIVE`, gated by the grid's `DELETE` (`lead-pipeline-write.service.ts`).
      - Ask Rasel what "delete" should mean before building: archive only for Owner/Admin, or a real delete. The app role has no DELETE on `leads`.
