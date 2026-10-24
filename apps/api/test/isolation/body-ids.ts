@@ -17,6 +17,11 @@ export interface BodyIdField {
  * and any field named `...Id`, `...Ids` or `ids`, is a record id and needs the case's `bodyIds`.
  */
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
+  {
+    field: 'requestId',
+    routes: /^POST \/api\/v1\/business\/(settings\/profile\/change-requests|billing\/requests)$/,
+    why: "the dialog's retry key (the support ticket's idempotency key): the same key answers the firm's own request and another firm's key is 409 CONFLICT, never its ticket (profile-changes.e2e, firm-billing.e2e) (R60)",
+  },
   ...['details.employeeId', 'compensation.payrollId'].map((field) => ({
     field,
     routes: /^(POST|PATCH) \/api\/v1\/business\/staff(\/:id)?$/,
@@ -165,8 +170,8 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   },
   {
     field: 'checklist.id',
-    routes: /^POST \/api\/v1\/business\/tasks$/,
-    why: 'a new task has no checklist steps yet: any step id is refused (400), so the field names no record (R55)',
+    routes: /^POST \/api\/v1\/business\/tasks(\/drafts)?$/,
+    why: 'a new task or draft has no checklist steps yet: any step id is refused (400), so the field names no record (R55, R1)',
   },
   ...[
     [

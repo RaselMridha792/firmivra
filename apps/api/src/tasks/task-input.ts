@@ -4,17 +4,21 @@ import {
   CreateTaskDetailRequest as CreateContract,
   CreateTaskSeriesRequest as CreateSeriesContract,
   CreateTaskTemplateRequest as CreateTemplateContract,
+  PublishTaskDraftRequest as PublishDraftContract,
   SaveTaskAsTemplateRequest as SaveAsTemplateContract,
+  SaveTaskDraftRequest as SaveDraftContract,
   SaveTaskTypeRequest as TypeContract,
   SeriesPreviewRequest as PreviewContract,
   SkipFutureRequest as SkipFutureContract,
   SkipOccurrenceRequest as SkipContract,
   TaskCalendarQuery as CalendarContract,
+  TaskDraftQuery as DraftQueryContract,
   TaskOccurrencesQuery as OccurrencesContract,
   TaskOverviewQuery as OverviewContract,
   TaskSeriesQuery as SeriesQueryContract,
   TaskTemplatesQuery as TemplatesQueryContract,
   UpdateTaskDetailRequest as UpdateContract,
+  UpdateTaskDraftRequest as UpdateDraftContract,
   UpdateTaskSeriesRequest as UpdateSeriesContract,
   UpdateTaskTemplateRequest as UpdateTemplateContract,
 } from '@firmivra/types';
@@ -88,3 +92,11 @@ export const SkipOccurrenceRequest = clean(SkipContract);
 export const SkipFutureRequest = clean(SkipFutureContract);
 /** POST /business/tasks/{id}/convert-to-recurring */
 export const ConvertToRecurringRequest = clean(ConvertContract);
+/** GET /business/tasks/drafts */
+export const TaskDraftQuery = clean(DraftQueryContract);
+/** POST /business/tasks/drafts */
+export const SaveTaskDraftRequest = clean(SaveDraftContract);
+/** PATCH /business/tasks/drafts/{id} */
+export const UpdateTaskDraftRequest = clean(UpdateDraftContract);
+/** POST /business/tasks/drafts/{id}/publish */
+export const PublishTaskDraftRequest = clean(PublishDraftContract);

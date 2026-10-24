@@ -28,6 +28,8 @@ import {
   PortalBrandingController,
 } from './branding.controller.js';
 import { FirmLogoController, LOGO_PROVIDERS, PortalLogoController } from './logo.controller.js';
+import { ProfileChangesController } from './profile-changes.controller.js';
+import { ProfileChangesService } from './profile-changes.service.js';
 import { SettingsOverviewController } from './settings-overview.controller.js';
 import { SettingsOverviewService } from './settings-overview.service.js';
 import { SettingsService } from './settings.service.js';
@@ -123,7 +125,14 @@ export class SettingsController {
     PortalLogoController,
     BrandingController,
     PortalBrandingController,
+    ProfileChangesController,
   ],
-  providers: [SettingsService, SettingsOverviewService, ...LOGO_PROVIDERS, ...BRANDING_PROVIDERS],
+  providers: [
+    SettingsService,
+    SettingsOverviewService,
+    ProfileChangesService,
+    ...LOGO_PROVIDERS,
+    ...BRANDING_PROVIDERS,
+  ],
 })
 export class SettingsModule {}

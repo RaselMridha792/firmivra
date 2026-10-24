@@ -8,6 +8,7 @@ import type {
   MemberRef,
 } from '@firmivra/types';
 import type { ClientsActor } from '../clients/clients.service.js';
+import { LIVE_TASK } from '../tasks/task-common.js';
 import { memberNames } from '../workspaces/common.js';
 import {
   addDays,
@@ -147,6 +148,7 @@ export const detailInclude = {
     },
   },
   tasks: {
+    where: LIVE_TASK,
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     select: {
       id: true,

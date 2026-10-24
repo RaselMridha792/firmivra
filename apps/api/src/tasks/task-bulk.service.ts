@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { notAMember, notFound } from '../workspaces/common.js';
+import { LIVE_TASK } from './task-common.js';
 import type { BulkTaskRequest } from './task-input.js';
 import { reach } from './task-read.service.js';
 import { TaskWriteService } from './task-write.service.js';
@@ -101,7 +102,7 @@ export class TaskBulkService {
   private dueOf(businessId: string, actor: ClientsActor, id: string): Promise<string | null> {
     return this.database.withScope({ kind: 'business', businessId }, async (tx: TxClient) => {
       const t = await tx.task.findFirst({
-        where: { businessId, id, ...reach(actor) },
+        where: { businessId, id, ...LIVE_TASK, ...reach(actor) },
         select: { dueOn: true },
       });
       if (!t) throw new HttpException({ code: 'NOT_FOUND' }, 404);
