@@ -92,13 +92,20 @@ export const FIELDS: {
   { field: 'employeeId', label: 'Employee ID', names: ['employee id', 'employee number', 'id'] },
 ];
 
-/** Maps each column whose name matches a field; one column per field. */
+/**
+ * Maps each column whose name matches a field; one column per field. The template's own headers
+ * (`firstName`, `employeeId`) match too (SM7).
+ */
 export function guessMap(headers: string[]): Record<string, StaffImportField> {
   const map: Record<string, StaffImportField> = {};
   const used = new Set<StaffImportField>();
+  const squash = (s: string) => s.replace(/\s+/g, '');
   for (const h of headers) {
     const name = h.toLowerCase().replace(/[_*]/g, ' ').replace(/\s+/g, ' ').trim();
-    const hit = FIELDS.find((f) => !used.has(f.field) && f.names.includes(name));
+    const hit = FIELDS.find(
+      (f) =>
+        !used.has(f.field) && (f.names.includes(name) || f.field.toLowerCase() === squash(name)),
+    );
     if (hit) {
       map[h] = hit.field;
       used.add(hit.field);

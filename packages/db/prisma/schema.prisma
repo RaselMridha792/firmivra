@@ -3203,6 +3203,12 @@ model Task {
   deadlineId        String?      @map("deadline_id") @db.Uuid
   /// The template the task was made from; with deadlineId at most one task per pair (SQL only).
   templateId        String?      @map("template_id") @db.Uuid
+  /// R1 (Oct 24): the key the screen sent with the save that made this task (Create Task, Save as
+  /// Draft, Duplicate), so a retry after a lost answer returns this task instead of making a second
+  /// one. Unique per firm; set together with its scope (SQL only: tasks_idempotency_*).
+  idempotencyKey    String?      @map("idempotency_key") @db.Uuid
+  /// Where the key was used: 'create', 'draft' or 'duplicate:<source task id>'.
+  idempotencyScope  String?      @map("idempotency_scope")
 
   client             Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement         Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -3220,6 +3226,7 @@ model Task {
   template           TaskTemplate?       @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
 
   @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
   @@index([businessId, clientId])
   @@index([businessId, engagementId])
   @@index([businessId, assignedUserId, status])
@@ -9065,6 +9072,13 @@ model TaskSeries {
   createdByUserId     String?            @map("created_by_user_id") @db.Uuid
   createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// R1 (Oct 24): the key the screen sent with the save that made this series (Set Up Recurring
+  /// Task, Convert to Recurring), so a retry after a lost answer returns this series instead of
+  /// making a second one. Unique per firm; set together with its scope (SQL only:
+  /// task_series_idempotency_*).
+  idempotencyKey      String?            @map("idempotency_key") @db.Uuid
+  /// Where the key was used: 'series' or 'convert:<task id>'.
+  idempotencyScope    String?            @map("idempotency_scope")
 
   client         Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement     Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -9074,6 +9088,7 @@ model TaskSeries {
   occurrences    TaskOccurrence[]
 
   @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
   @@index([businessId, clientId])
   @@index([businessId, status])
   @@map("task_series")
