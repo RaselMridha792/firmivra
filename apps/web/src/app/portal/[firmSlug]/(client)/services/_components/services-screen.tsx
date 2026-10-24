@@ -23,6 +23,7 @@ import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { usePortal } from '../../../layout';
 import { usePortalTabs } from '../../_components/portal-tabs';
+import { FirmContactLinks } from '../../../(public)/_components/firm-contact';
 import {
   PayButton,
   PayError,
@@ -194,6 +195,7 @@ export function ServicesScreen() {
                         <p className="text-sm text-muted">Our team is here for you.</p>
                       </div>
                     </div>
+                    <FirmContactLinks className="mt-3 text-heading" />
                     {tabOn('messages') ? (
                       <Link
                         href={'/' + slug + '/messages'}

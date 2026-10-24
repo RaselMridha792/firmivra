@@ -6,6 +6,7 @@ import { Mail, MapPin, Phone } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
+import { officeHoursLines, phoneLabel, telHref } from '../../../../../lib/firm-contact';
 import { usePortal } from '../../layout';
 import lvpLogoWhite from '../begin/_blocks/lvp-logo-white.png';
 import { LegalDialog } from './legal-dialog';
@@ -27,7 +28,7 @@ export function PortalFooter({
   width?: PageWidth;
   compact?: boolean;
 }) {
-  const { business, branding, legal } = usePortal();
+  const { business, branding, legal, contact: firmContact } = usePortal();
   const [kind, setKind] = useState<LegalKind | null>(null);
   const motto = taglineWords(branding);
   const links = [
@@ -48,6 +49,8 @@ export function PortalFooter({
   ];
 
   if (business.slug === 'lvp' && width === 'public' && !compact) {
+    // Company Profile and Locations, never fixed text (Client Portal guide 9.4).
+    const hours = officeHoursLines(firmContact.hours);
     const columns: { title: string; items: FooterItem[] }[] = [
       {
         title: 'Quick Links',
@@ -55,7 +58,7 @@ export function PortalFooter({
           { label: 'Home', href: `/${business.slug}` },
           { label: 'Services', href: `/${business.slug}/begin` },
           { label: 'Client Portal', href: `/${business.slug}/sign-in` },
-          { label: 'Contact', href: 'mailto:info@LVPAccounting.com' },
+          ...(firmContact.email ? [{ label: 'Contact', href: `mailto:${firmContact.email}` }] : []),
           { label: 'Resources', href: `/${business.slug}/calculators` },
           { label: 'About', href: `/${business.slug}` },
           { label: 'Book an Appointment', href: `/${business.slug}/appointments` },
@@ -178,24 +181,21 @@ export function PortalFooter({
               </section>
             ))}
 
-            <section className="min-w-0 lg:border-l lg:border-firm-accent lg:pl-4">
-              <h2 className="mb-2 text-sm font-semibold text-on-action">Office Hours</h2>
-              <p className="text-xs leading-relaxed">
-                Monday - Friday
-                <br />
-                9:00 AM - 6:00 PM
-              </p>
-              <p className="mt-2 text-xs leading-relaxed">
-                Saturday
-                <br />
-                By Appointment Only
-              </p>
-              <p className="mt-2 text-xs leading-relaxed">
-                Sunday
-                <br />
-                Closed
-              </p>
-            </section>
+            {hours.length > 0 ? (
+              <section className="min-w-0 lg:border-l lg:border-firm-accent lg:pl-4">
+                <h2 className="mb-2 text-sm font-semibold text-on-action">Office Hours</h2>
+                {hours.map((line, index) => (
+                  <p
+                    key={line.days}
+                    className={`text-xs leading-relaxed ${index > 0 ? 'mt-2' : ''}`}
+                  >
+                    {line.days}
+                    <br />
+                    {line.hours}
+                  </p>
+                ))}
+              </section>
+            ) : null}
           </PageContainer>
 
           <div className="border-t-2 border-firm-accent">
@@ -203,28 +203,36 @@ export function PortalFooter({
               width={width ?? 'public'}
               className="flex flex-col items-start gap-4 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
             >
-              <div className="flex items-center gap-2 text-xs leading-relaxed">
-                <MapPin aria-hidden className="size-5 shrink-0 text-firm-accent" />
-                <span>
-                  1393 Duncan Lane, Unit 100
-                  <br />
-                  Auburn, GA 30011
-                </span>
-              </div>
-              <a
-                href="tel:+17701234567"
-                className="flex items-center gap-2 text-xs hover:text-firm-accent xl:border-l xl:border-firm-accent xl:pl-3"
-              >
-                <Phone aria-hidden className="size-5 shrink-0 text-firm-accent" />
-                <span>(770) 123-4567</span>
-              </a>
-              <a
-                href="mailto:info@LVPAccounting.com"
-                className="flex min-w-0 items-center gap-2 break-all text-xs hover:text-firm-accent xl:border-l xl:border-firm-accent xl:pl-3"
-              >
-                <Mail aria-hidden className="size-5 shrink-0 text-firm-accent" />
-                <span>info@LVPAccounting.com</span>
-              </a>
+              {firmContact.addressLines.length > 0 ? (
+                <div className="flex items-center gap-2 text-xs leading-relaxed">
+                  <MapPin aria-hidden className="size-5 shrink-0 text-firm-accent" />
+                  <span>
+                    {firmContact.addressLines.map((line) => (
+                      <span key={line} className="block">
+                        {line}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ) : null}
+              {firmContact.phone ? (
+                <a
+                  href={telHref(firmContact.phone)}
+                  className="flex items-center gap-2 text-xs hover:text-firm-accent xl:border-l xl:border-firm-accent xl:pl-3"
+                >
+                  <Phone aria-hidden className="size-5 shrink-0 text-firm-accent" />
+                  <span>{phoneLabel(firmContact.phone)}</span>
+                </a>
+              ) : null}
+              {firmContact.email ? (
+                <a
+                  href={`mailto:${firmContact.email}`}
+                  className="flex min-w-0 items-center gap-2 break-all text-xs hover:text-firm-accent xl:border-l xl:border-firm-accent xl:pl-3"
+                >
+                  <Mail aria-hidden className="size-5 shrink-0 text-firm-accent" />
+                  <span>{firmContact.email}</span>
+                </a>
+              ) : null}
               <span className="flex items-center text-xs leading-relaxed xl:whitespace-nowrap xl:border-l xl:border-firm-accent xl:pl-3">
                 © {YEAR}{' '}
                 <span data-testid="firm-name" className="mx-1">
