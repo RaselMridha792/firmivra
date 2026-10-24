@@ -35,6 +35,7 @@ to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/
 | 2 | `rasel/R60-notifications-email` (stacked on #1063) | #1065 (open): staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
 | 3 | `rasel/R60-billing` (stacked on #1065, local until a PR slot frees) | Built: `api.firmBilling` (overview, invoices, invoice, PDF, requests), the Billing page on her design with the plan, usage, details and invoice dialogs; plan and contact changes as support requests. Notes below ("Billing") |
 | 4 | `rasel/R60-payments` (stacked on billing, local) | Built: the Payments page on her design (web only); Stripe keeps every existing state; Manage Connection, Manage Bank Account and Check Eligibility open the firm's own Stripe Dashboard. Notes below ("Payments") |
+| 5 | `rasel/R60-staff-sm8-13` (from `main`, independent; local until a slot frees) | Built: SM9 cards and `/team/directory`, SM13 department Manage Members (`GET`/`PUT /business/departments/{id}/members`), SM11 custom roles in Create Staff and the Create Custom Role shortcut with Back, SM8 custom schedules and the workload unit, SM10 the header clock. Notes below ("Staff") |
 
 ### State (Oct 23, second session): open PRs and branches waiting
 
@@ -270,6 +271,16 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
      with the firm's Stripe login. Firmivra does not read the bank account or instant payout
      eligibility from Stripe (it would need the Accounts API's external accounts and balance on
      the connected account).
+- **Staff SM8 to SM13 (built, `rasel/R60-staff-sm8-13`): what it cannot do yet.**
+  1. *SM11 managed job titles* (add, rename, archive): column request item 5 (approved, not landed).
+     Titles are already searchable from the firm's saved ones, with free text.
+  2. *SM11 Work Start Date:* column request item 10.
+  3. *SM8:* the saved schedules are the firm's schedules in use; renaming or retiring one needs a
+     table (item 11). The workload cap is "Maximum Active Clients", and client assignment does
+     not check it yet: its owner to be named by Rasel.
+  4. *SM12 per-file Save:* storage for draft attachments (as SM5).
+  5. *SM10:* the clock shows on the firm workspace and Super Admin (`AppShell`); the client portal
+     is left out until its own review (one `clock` prop on its header).
 - **Staff Management SM3 is blocked (handoff item 5):** each wrong route needs a destination that
   does not exist. Offices & Job Titles needs R1's Locations API and the saved job titles; New
   Accounts & Security needs the staff security defaults (both in "Column request for R1"). The
@@ -376,6 +387,15 @@ later migration drops them.
    same transaction that clears the SMS choices, `Notifier.phoneChanged`). With it R60 builds
    the staff verification (a code by text through R6's sender) and offers SMS to verified staff.
 
+10. **Staff SM11, Work Start Date (added Oct 24, not yet approved).**
+    `staff_profiles.work_start_date date NULL`, distinct from `hire_date` and the access start
+    date. Create Staff step 4 and Edit Staff show it.
+11. **Staff SM8, company work schedules (added Oct 24, not yet approved).** Table
+    `staff_work_schedules`: `id` (uuid7), `business_id`, `name text NOT NULL` (1 to 80),
+    `archived_at timestamptz NULL`, `created_by_user_id`, `created_at`, `updated_at`; unique
+    `(business_id, lower(name)) WHERE archived_at IS NULL`; filled once from the distinct
+    `staff_profiles.work_schedule`. A staff record keeps its own text.
+
 Offices need no column: they are R1's Locations API (`firm_offices`).
 
 ## Checks that fail on clean `main` too (not R60's changes)
@@ -463,3 +483,10 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   the connection, the bank and instant payouts. Web `tsc` 0 errors; `r60-payments-settings` 2 of
   2, r19's in-page tests pass (its server-spawning ones cannot run on Windows); sheet shot on the
   local API with `STRIPE_MODE=fake`.
+- Oct 24: item 5, Staff SM8 to SM13 (`rasel/R60-staff-sm8-13`, from `main`): SM9 (the cards
+  open the matching list; `/team/directory` for Manage Staff Accounts and Staff Settings), SM13
+  (department Manage Members, with no team; 409 `LAST_DEPARTMENT`), SM11 (custom roles in the
+  Role selector, Create Custom Role and Back to the same draft), SM8 (the firm's own schedules and
+  a custom one; "Maximum Active Clients"), SM10 (the header clock). Departments e2e 12 of 12, staff
+  e2e 8 of 8, `r60-staff-sm8-13` 5 of 5 and the Staff specs; sheet shot on the real API. Column
+  items 10 and 11 added.
