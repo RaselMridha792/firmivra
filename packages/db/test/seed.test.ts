@@ -91,6 +91,33 @@ describe('seed', () => {
       [lvpId],
     );
     expect(strays).toEqual([]);
+
+    // Every id the seed leaves is a UUID the API contracts' z.uuid() accepts (a seeded firm's
+    // lists fail to load on one that isn't).
+    const { rows: uuidColumns } = await client.query<{
+      table: string;
+      column: string;
+      array: boolean;
+    }>(`
+      SELECT table_name AS table, column_name AS column, udt_name = '_uuid' AS array
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND udt_name IN ('uuid', '_uuid') ORDER BY 1, 2`);
+    expect(uuidColumns.length).toBeGreaterThan(100);
+    const refused: string[] = [];
+    let checked = 0;
+    for (const { table, column, array } of uuidColumns) {
+      const values = array ? `unnest("${column}")` : `"${column}"`;
+      const { rows } = await client.query<{ id: string }>(
+        `SELECT DISTINCT v::text AS id FROM (SELECT ${values} AS v FROM "${table}") s
+         WHERE v IS NOT NULL`,
+      );
+      checked += rows.length;
+      for (const { id } of rows) {
+        if (!z.uuid().safeParse(id).success) refused.push(`${table}.${column} ${id}`);
+      }
+    }
+    expect(checked).toBeGreaterThan(1000);
+    expect(refused).toEqual([]);
   }, 180_000);
 
   it("stores LVP's application form so the review page reads it, and repairs an older seed's", async () => {

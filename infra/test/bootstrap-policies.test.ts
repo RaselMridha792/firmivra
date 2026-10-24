@@ -21,9 +21,15 @@ const exec = cfnExecPolicy(account, region);
 const boundary = permissionsBoundary(account, region);
 
 type Resources = Record<string, { Type: string; Properties?: Record<string, unknown> }>;
-const templates = [undefined, DEV_FIRMIVRA_COM].flatMap((customDomain) => {
-  const app = new App({ context: { ...cdkJsonContext(), env: 'dev' } });
-  const stacks = createStacks(app, configFor('dev', { customDomain }));
+// Dev on both domain setups, and prod (with its auto scaling), whose zone id may still be pending.
+const configs = [
+  configFor('dev', { customDomain: undefined }),
+  configFor('dev', { customDomain: DEV_FIRMIVRA_COM }),
+  configFor('prod', {}, { allowPending: true }),
+];
+const templates = configs.flatMap((config) => {
+  const app = new App({ context: { ...cdkJsonContext(), env: config.envName } });
+  const stacks = createStacks(app, config);
   return Object.values(stacks)
     .filter((s) => s !== undefined)
     .map((s) => ({
@@ -46,6 +52,7 @@ const matches = (pattern: string, action: string) =>
 
 /** IAM service prefix for each CloudFormation resource type our stacks use. */
 const SERVICE: Record<string, string> = {
+  ApplicationAutoScaling: 'application-autoscaling',
   CertificateManager: 'acm',
   CloudFront: 'cloudfront',
   Cognito: 'cognito-idp',
@@ -263,6 +270,7 @@ describe('bootstrap policies', () => {
       'vpcorigin.cloudfront.amazonaws.com',
       'email.cognito-idp.amazonaws.com',
       'pullthroughcache.ecr.amazonaws.com',
+      'ecs.application-autoscaling.amazonaws.com',
     ]);
     for (const doc of [exec, boundary]) {
       const statements = doc.Statement.filter((s) =>
