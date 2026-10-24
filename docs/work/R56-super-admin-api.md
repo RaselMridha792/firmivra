@@ -374,3 +374,17 @@ Rasel (Oct 24, via the Scrum thread): open C6, then P2, one at a time; the `seed
 
 **Local stack:** API on 4560 (`DATABASE_URL`/`DATABASE_URL_APP` at `firmivra_r56`; started Oct 23 from the Tasks code, so restart it after pulling main), web on 3560. Live specs (never committed) in `e2e/zz-r56-live/`: `tasks-p1`, `tasks-c3`, `tasks-c6`, `tasks-p2`, `tasks-p3`. After changing branches, rebuild `packages/types` (`pnpm --filter @firmivra/types build`) before typecheck.
 
+
+## Handoff for a fresh R56 (Oct 24, evening)
+
+Rasel (Oct 24, evening): while the apply action waits for R1's function, build (1) Upload Document, (2) Document Requests, (3) the `/modules/` links, one page per PR, at most two open; every screen complete to its mockup with tidy empty states; before each page fetch, read `git log origin/main --oneline -30` and the open PRs (R55, R60, R1); never `packages/db`, `infra/`, `.github/workflows/`; Client Portal settings is R55's.
+
+**Open PRs:** **#1100** `rasel/R56-upload-document` (Upload Document, Frame 1) and **#1102** `rasel/R56-document-requests` (Document Requests, Frame 3; stacked on #1100), both CI green.
+
+**Committed and pushed, no PR yet:**
+1. `rasel/R56-module-links` (from main): task 3. Open it when #1100 or #1102 merges (merge `origin/main` first). Title `fix: the /modules/ links open their real pages: Integrations, and a template's Use starts a Communications draft (R56)`; the body lists the five links (Integrations twice, Use template, and the upload and requests links from #1100 and #1102), the Use rule (Email and SMS only), the automations mock, `r31-dashboard`, Client Portal left to R55, tests (unit 2, mock 1, `r56-templates` and `r31-dashboard` 12 of 12), and the filled checklist.
+2. `rasel/R56-admin-apply-profile-change` (from main): the Super Admin apply action. Its PR opens once R1's `app_admin_apply_profile_change` lands (the SQL is under Needs on that branch). Then merge `origin/main`, drop the hand-made function from the local `firmivra_r56` and `firmivra_r56_test_api` before migrating, and run the e2e (6) and `admin-scope` (3).
+
+**Next, in order:** Create Document Request (Frame 4: `firmivra-create-document-request-dashboard.jpg` and `-1.jpg`) on the library API (`createRequest`, templates, items), replacing the placeholder `/modules/document-request-create` (in `firm-modules.ts`, linked from #1102's Create buttons and the Documents page's card); then one request's page (`firmivra-document-request-dashboard.jpg`) so the requests table's titles can link; then Document Settings and Sharing (`firmivra-document-settings-dashboard.jpg`, `firmivra-document-sharing-dashboard.jpg`).
+
+**Gotchas from this session:** after merging main, rebuild `packages/types` and, if typecheck names `.next/mock/dev/types/routes.d.ts`, delete that generated folder (a dev server was writing it). Python with apostrophes or `\S` goes in a script file, not a heredoc. The live API on 4560 is not running (restart it from the branch under test, as in the Oct 23 handoff).
