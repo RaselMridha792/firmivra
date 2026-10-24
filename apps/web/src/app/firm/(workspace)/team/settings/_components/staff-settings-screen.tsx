@@ -179,7 +179,7 @@ export function StaffSettingsScreen() {
           title="Staff Directory"
           subtitle="Who has an account, and who still has to accept their invitation."
           icon={UsersThree}
-          href="/team"
+          href="/team/directory"
           action="Open Staff Directory"
           testId="settings-directory"
         >

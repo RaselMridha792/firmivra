@@ -19,6 +19,37 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
+### Oct 24 (third session): Rasel's order, start here
+
+#1054 and #1056 merged. Rasel's order (Oct 24), one PR each, at most two open: (1) Company
+Profile Request Change, (2) Notifications settings, (3) Billing, (4) Payments, (5) Staff SM8 to
+SM13. His defaults: Request Change goes to Super Admin through the existing support-request flow;
+the branding editors stay on Company Profile; pay is not kept in a staff draft. Waiting for his
+word, not built: ownership transfer, Sign Out All Sessions (questions 1 and 2 below). Columns go
+to "Column request for R1" (I7, I8, I9, I12 and SM3 are approved). No `packages/db`, `infra`,
+`.github`, auth guards or AWS work.
+
+| # | Branch | State |
+| --- | --- | --- |
+| 1 | `rasel/R60-profile-request-change` | #1063 (merged Oct 24): `api.profileChanges` (contract, API, e2e), the two locked cards and the dialog, the EIN locked on the server once Active. Notes below ("Request Change") |
+| 2 | `rasel/R60-notifications-email` (stacked on #1063) | #1065 (merged Oct 24): staff email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, the sender sends anyway, older Off rows read as on); staff SMS only with a verified mobile number, which no staff login records, so email only for now. Notes below ("Notifications") |
+| 3 | `rasel/R60-billing` | #1073 (merged Oct 24): `api.firmBilling` (overview, invoices, invoice, PDF, requests), the Billing page on her design with the plan, usage, details and invoice dialogs; plan and contact changes as support requests. Notes below ("Billing") |
+| 4 | `rasel/R60-payments` | #1076 (open, Oct 24): the Payments page on her design (web only); Stripe keeps every existing state; Manage Connection, Manage Bank Account and Check Eligibility open the firm's own Stripe Dashboard. Notes below ("Payments") |
+| 5 | `rasel/R60-staff-sm8-13` (from `main`) | PR opened Oct 24 in the slot #1073 freed: SM9 cards and `/team/directory`, SM13 department Manage Members (`GET`/`PUT /business/departments/{id}/members`), SM11 custom roles in Create Staff and the Create Custom Role shortcut with Back, SM8 custom schedules and the workload unit, SM10 the header clock. Notes below ("Staff") |
+
+**Rasel's decisions (Oct 24, afternoon):** Billing stays request-based for now, no self-serve
+Stripe (question 4). The Super Admin action that applies an approved legal name, EIN or licensing
+change is R56's (question 3; under Needs). Column requests 7 to 11 are approved; R1 builds them one
+migration PR at a time ("Column request for R1"). Still waiting for his word, not built: ownership
+transfer and Sign Out All Sessions (questions 1 and 2). Tests that take "today" in UTC against the
+firm's day take the firm's New York date (the automations test, on the Payments branch).
+
+#1063, #1065 and #1073 merged on Oct 24. Open: #1076 (Payments) and the Staff PR. Next for R60:
+build on column items 1 to 6 (landed in #1074; "Column request for R1"). The third session's
+scratchpad keeps the shot helpers:
+`C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/fd07679c-e53b-4b16-8968-b670b5107292/scratchpad/`: `shots-profile.cjs`, `shots-notifications.cjs`, `shots-billing.cjs`, `shots-payments.cjs`,
+`shots-staff.cjs`, `compose.cjs`, `spec-*.json`.
+
 ### State (Oct 23, second session): open PRs and branches waiting
 
 #1028, #1031, #1033 and #1034 merged on Oct 23; #1038, #1039, #1045 and #1047 merged on Oct 23
@@ -174,8 +205,21 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 
 ## Needs from others
 
-- **R1 (columns for I7, I8, I9, I12 and SM3):** approved by Rasel on Oct 24; the exact request is
-  "Column request for R1" below. Nothing is built on them until they land.
+- **R1 (columns, items 1 to 11):** all approved by Rasel on Oct 24 (1 to 6 in the morning, 7 to 11
+  in the afternoon); the exact request and what R60 builds on each are "Column request for R1"
+  below. Items 1 to 6 landed in #1074 (Oct 24); R60 builds on them next. Items 7 to 11 are R1's
+  `rasel/R1-r60-columns-2` (five migrations, third in R1's queue). Nothing is built on an item
+  until it lands.
+- **R56 (applying an approved Request Change; Rasel, Oct 24):** a Super Admin action on the firm's
+  detail that changes its legal name, EIN and (once item 7 lands) its licenses after activation.
+  Today the team resolves a Request Change ticket and nothing changes. What R60's side gives it:
+  the ticket (`apps/api/src/settings/firm-tickets.ts`, category and subject from
+  `api.profileChanges`) holds the current and proposed values and the reason; the firm's card
+  shows the ticket's status and Firmivra's latest sent reply, so resolving the ticket after
+  applying is all the firm side needs. R60 proposes: admin scope, audited in both logs (platform
+  and the firm's), linked from the ticket; a new EIN written as activation writes it (encrypted
+  with the firm's KMS key, `ein_enc` and `ein_last4`) and checked for duplicates as an
+  application's is (`ein_hash`). R60 changes nothing on the firm side for it.
 - **R1 (I10):** done in #1025 (2, 5, 10, 50 or 100 MB, enforced in uploads). R60 verifies only.
 - **R56 (I3):** done in #1020 (`PublicLink`, `PublicLinkBlock`); R60 builds I3's link next.
 - **Secure link page (I2):** a form for a lead or a new contact needs the secure link page
@@ -196,6 +240,73 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   4. *Notifications* next: employee email always on, enforced on the server, existing Off settings
      migrated to On; SMS only after a verified mobile number.
   5. *Billing and Payments* after Notifications, by R60.
+- **Request Change (built, `rasel/R60-profile-request-change`): what it cannot do yet.**
+  1. *Applying an approved request:* Super Admin has no way to change a firm's legal name, EIN or
+     licensing details after activation. R56 builds it (Rasel, Oct 24; the R56 item above). Until
+     then the team resolves the ticket and nothing changes.
+  2. *Licensing details:* no columns, so the card's five rows say "Not on file" and a request's
+     "Current" says the same (Column request for R1, item 7).
+  3. *History and SLA (R0's policies):* a firm-raised ticket gets no Activity entry and no
+     response due time, because the firm's scope can neither write `support_ticket_events` nor
+     read `support_settings` and `support_holidays`. It shows in the queue, unassigned. A
+     SECURITY DEFINER function that stamps both on a firm insert, or the SLA job filling a
+     missing due time, would fix it.
+  4. *Conversation:* the firm sees only Firmivra's latest sent reply on the card; there is no firm
+     Support page to read the thread or answer ("Waiting on You" has no answer path). Owner to be
+     named by Rasel.
+  5. *Supporting document (guide E4, optional):* not built; the firm side has no support upload
+     route (`support_ticket_attachments_firm_add` exists in the database).
+- **Notifications (built, `rasel/R60-notifications-email`): what it cannot do yet.**
+  1. *Staff SMS is off until a verified mobile number exists* (Rasel's default, Oct 24). Staff
+     logins have no verified marker (only `client_accounts.phone_verified_at`), so staff are
+     offered email only and the sender sends them no text. Before Oct 24 any staff number turned
+     the SMS switches on (q27). Octavia's SMS tests (her checks 02 and 04) wait on item 9 of the
+     column request and a verification flow (a code by SMS: R6's sender, SNS in AWS, so R1).
+     If Rasel prefers q27 until then, it is two lines (`smsOffered` and `allows`).
+  2. *Older Off rows:* the API reads a staff row stored with email off as on and the sender sends
+     anyway; item 8 of the column request flips the stored rows so the table says the same.
+  3. *SMS opt-out (STOP):* no inbound SMS handler exists (an SNS topic and a route: R1 and R6).
+  4. *Delivery records:* `notification_deliveries` already keeps each email and SMS outcome
+     (QUEUED, SENT, FAILED, SKIPPED, the provider's id); no screen shows them yet.
+  5. *Portal:* the client portal keeps its own preferences (email may be switched off there);
+     her guide leaves the portal to its own review.
+- **Billing (built, `rasel/R60-billing`): what it cannot do yet.**
+  1. *Self-serve plan changes:* request-based for now (Rasel, Oct 24: no self-serve Stripe). The
+     firm's scope reads its subscription but writes none of the platform's billing rows (R0's
+     policies), and there is no provider quote or payment for Firmivra's own subscription. So
+     Upgrade and Downgrade go through her catalog and Review (with the blockers and an estimate at
+     today's usage) and send a request to the Super Admin team, who apply it in Subscriptions.
+  2. *Payment methods:* no card or account is stored for Firmivra's subscription (no Stripe
+     customer for platform billing). The card shows the latest recorded payment and no
+     Add, Update, Set as Default or Remove buttons, rather than dead ones (the same decision).
+  3. *Storage and "Monthly usage":* the plans measure staff seats and locations only, so those
+     two show; her design's storage and monthly rows have no measure behind them.
+  4. *Billing address:* the billing profile keeps a contact, not an address; the card shows the
+     company address from Company Profile.
+- **Payments (built, `rasel/R60-payments`, web only): what it cannot do yet.**
+  1. *Square and PayPal:* no Firmivra app or credentials exist for either (an OAuth app each, the
+     callback bound to the firm, stored tokens, webhooks). Their cards say so with the button off.
+     Rasel to decide whether Firmivra offers them, and R1 to hold the provider accounts.
+  2. *Accepted methods:* checkout takes cards only (`stripe-gateway.ts`: bank debits wait until a
+     refund can wait for settlement, R7), and no firm setting stores a choice, so the switches
+     show what clients can pay with and cannot change; there is no Save. Choosing methods needs a
+     setting per firm (cards on, ACH on, default processor) and ACH in checkout: a column item for
+     R1 when Rasel wants it.
+  3. *Stripe management:* each connected account has the full Stripe Dashboard, so Manage
+     Connection, Manage Bank Account and Check Eligibility open dashboard.stripe.com, signed in
+     with the firm's Stripe login. Firmivra does not read the bank account or instant payout
+     eligibility from Stripe (it would need the Accounts API's external accounts and balance on
+     the connected account).
+- **Staff SM8 to SM13 (built, `rasel/R60-staff-sm8-13`): what it cannot do yet.**
+  1. *SM11 managed job titles* (add, rename, archive): column request item 5 (approved, not landed).
+     Titles are already searchable from the firm's saved ones, with free text.
+  2. *SM11 Work Start Date:* column request item 10.
+  3. *SM8:* the saved schedules are the firm's schedules in use; renaming or retiring one needs a
+     table (item 11). The workload cap is "Maximum Active Clients", and client assignment does
+     not check it yet: its owner to be named by Rasel.
+  4. *SM12 per-file Save:* storage for draft attachments (as SM5).
+  5. *SM10:* the clock shows on the firm workspace and Super Admin (`AppShell`); the client portal
+     is left out until its own review (one `clock` prop on its header).
 - **Staff Management SM3 is blocked (handoff item 5):** each wrong route needs a destination that
   does not exist. Offices & Job Titles needs R1's Locations API and the saved job titles; New
   Accounts & Security needs the staff security defaults (both in "Column request for R1"). The
@@ -233,13 +344,27 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 2. **Sign Out All Sessions ends no real session** (check 6): it marks `staff_sessions` rows that
    sign-in never writes, and never signs anyone out of Cognito. Fix it as Reset MFA does (a Cognito
    global sign-out of the member), and by whom (Users & Roles is R55's page)?
+3. ~~Applying a Request Change~~ Answered Oct 24: R56 builds the Super Admin action (Needs).
+4. ~~Billing: requests or self-serve?~~ Answered Oct 24: requests for now, no self-serve Stripe.
 
 ## Column request for R1 (approved by Rasel, Oct 24)
 
-For the fresh R1. One migration per item, or one batch, as R1 prefers. Every new firm table gets
-`business_id` with the firm's row-level security like the other firm tables. R60 builds the API
-and screens on each after it merges. Old columns stay until R60's API reads the new ones, then a
-later migration drops them.
+For the fresh R1. Items 1 to 6 approved on Oct 24 (morning), 7 to 11 on Oct 24 (afternoon). R1
+builds them one migration PR at a time: 1 to 6 in #1074 (merged), 7 to 11 in one PR of five
+migrations. Every new firm table gets `business_id` with the firm's
+row-level security like the other firm tables. R60 builds the API and screens on each after it
+merges. Old columns stay until R60's API reads the new ones, then a later migration drops them.
+
+**Where each stands (Oct 24), and what R60 builds on each:**
+
+| Item | State | R60 builds after it lands |
+| --- | --- | --- |
+| 1 to 4 (intake settings) | Landed in #1074 | Octavia's I7, I8, I9 and I12: the four settings on the API and the Notifications & Reminders panel |
+| 5 and 6 (SM3) | Landed in #1074 | Saved job titles and new-account security defaults, API and screens; SM3's two routes |
+| 7 (`firm_licenses`) | R1's `rasel/R1-r60-columns-2` | The Licensing card's rows and the request's "Current"; R56's apply action writes the rows. The one R60 needs first from that PR |
+| 8 (staff email on, data only) | Same PR | Nothing (the API reads them as on today) |
+| 10 and 11 (SM11, SM8) | Same PR | Work Start Date in Create and Edit Staff; company schedules, add and archive |
+| 9 (`users.phone_verified_at`) | Same PR | The staff code-by-text verification (R6's sender, SNS in AWS), then SMS for verified staff |
 
 1. **I7, Notify additional emails.** `intake_settings.notify_additional_emails text[] NOT NULL
    DEFAULT '{}'`, `CHECK (cardinality(notify_additional_emails) <= 10)`. The API keeps each one a
@@ -277,9 +402,48 @@ later migration drops them.
    and Admin read and change it through the API. (Sign-in does not enforce these settings for
    anyone yet: Settings checks, check 6.)
 
+7. **Company Profile, professional licensing (added Oct 24, approved Oct 24).** Table
+   `firm_licenses`: `id uuid` (uuid7), `business_id`, `regulatory_body text NOT NULL` (1 to 120
+   characters), `license_type text NOT NULL` (1 to 80), `license_number text NOT NULL` (1 to 60),
+   `expires_on date NULL`, `status` (`ACTIVE`, `EXPIRED`, `SUSPENDED`, `REVOKED`; default
+   `ACTIVE`), `verified_by_user_id uuid NULL` (a Super Admin), `verified_at timestamptz NULL`,
+   `created_at`, `updated_at`. One row per license (a firm may hold several). The firm reads its
+   own rows; only the admin or platform scope writes them (Firmivra applies an approved request).
+
+8. **Notifications, staff email on (added Oct 24, a data change only).** One data migration:
+   `UPDATE notification_preferences np SET email = true FROM memberships m WHERE
+   m.business_id = np.business_id AND m.user_id = np.user_id AND np.email = false`. The API
+   already treats these rows as on; this makes the table say so.
+9. **Notifications, a verified staff mobile number (added Oct 24, approved Oct 24).**
+   `users.phone_verified_at timestamptz NULL`, cleared whenever `users.phone` changes (the
+   same transaction that clears the SMS choices, `Notifier.phoneChanged`). With it R60 builds
+   the staff verification (a code by text through R6's sender) and offers SMS to verified staff.
+
+10. **Staff SM11, Work Start Date (added Oct 24, approved Oct 24).**
+    `staff_profiles.work_start_date date NULL`, distinct from `hire_date` and the access start
+    date. Create Staff step 4 and Edit Staff show it.
+11. **Staff SM8, company work schedules (added Oct 24, approved Oct 24).** Table
+    `staff_work_schedules`: `id` (uuid7), `business_id`, `name text NOT NULL` (1 to 80),
+    `archived_at timestamptz NULL`, `created_by_user_id`, `created_at`, `updated_at`; unique
+    `(business_id, lower(name)) WHERE archived_at IS NULL`; filled once from the distinct
+    `staff_profiles.work_schedule`. A staff record keeps its own text.
+
 Offices need no column: they are R1's Locations API (`firm_offices`).
 
 ## Checks that fail on clean `main` too (not R60's changes)
+
+- `apps/web/e2e/mock/r19-payments-settings.spec.ts` "other roles" and "answers from the API": on
+  Windows they cannot start their extra mock servers (`spawn pnpm ENOENT`: `spawn` without a
+  shell). Local only; CI (Linux) runs them. Its two in-page tests pass locally.
+
+- `apps/api/test/e2e/automations.e2e.test.ts:708` (R55's automations): the same window. It makes a rule
+  that expired "yesterday" in UTC, while the service compares with the firm's day (New York), so
+  from 00:00 to 04:00 UTC the rule is not yet expired and two more cases after it fail. Seen on
+  #1065's run at 01:20 UTC. **Fixed on `rasel/R60-payments` (Oct 24, Rasel's word):** its `day()`
+  takes the firm's New York date, which the job's expiry, task due dates and the runs filter use.
+- `apps/api/test/e2e/leads-pipeline.e2e.test.ts:311` (R55): the date filter test took "today" in
+  UTC while the API filters days in the firm's time zone (America/New_York). Fixed on `main` (it
+  takes the New York date now).
 
 - `apps/api/test/isolation/tenant-isolation.test.ts`, locally: 4 of 19 fail on clean `main` as on
   the I1 branch. The two refusal sweeps time out at 30 s; the controls list file and export routes
@@ -326,3 +490,52 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Delete; Owner and Admin), a chosen file and its type kept across Back and Next, and the saved
   note naming what a draft does not keep (pay, files). Sheet shot on the real API; it also listed an
   Oct 19 draft nothing had shown. `r60-staff-drafts` 2 of 2 and the `tumit-team*` specs 12 of 12.
+- Oct 24 (third session): #1056 merged; `main` merged. Item 1, Company Profile Request Change
+  (`rasel/R60-profile-request-change`): `api.profileChanges` (a Portal support ticket in the Super
+  Admin queue with the current and proposed values; GET with status and the latest sent reply),
+  the locked Company Information and Professional Licensing cards with the Request a Change
+  dialog, and `EIN_LOCKED` on `PATCH /business/settings` once Active. Profile-changes e2e 6 of 6,
+  contract unit 4 of 4, API and web `tsc` 0 errors, ESLint and Prettier clean; sheet shot on the
+  real API. Licensing columns added as item 7 of the column request; question 3 (applying an
+  approved change) for Rasel.
+- Oct 24 (third session): #1063 opened (item 1). Its first CI run failed only
+  `leads-pipeline.e2e.test.ts:311` (R55's date test, 00:00 to 04:00 UTC); noted under "Checks that
+  fail". Item 2, Notifications (`rasel/R60-notifications-email`, #1065, stacked on #1063): staff
+  email always on (`emailLocked`, 400 `EMAIL_ALWAYS_ON`, `PreferenceSource.allows` sends staff the
+  email whatever a stored row says), staff SMS only with a verified mobile number (none recorded,
+  so email only); notifications e2e 23 of 23, unit 13 of 13, contract 49 of 49, mock specs 7 of 7.
+  Column items 8 and 9 added.
+- Oct 24: item 3, Billing (`rasel/R60-billing`, stacked on #1065, local: two PRs open). The firm's
+  `api.firmBilling` (overview, invoices, invoice, PDF via pdf-lib, plan and contact requests as
+  support tickets through the shared `settings/firm-tickets.ts`, which Request Change now uses
+  too), and the page on her design with the plan details, usage, change-plan (catalog, blockers,
+  review) and invoice dialogs. Billing e2e 8 of 8, profile-changes 6 of 6, unit 3 of 3, contract
+  3 of 3, `tumit-settings-billing` 3 of 3 (rewritten) and `r56-settings-shell`; sheet shot on the
+  real API. Question 4 for Rasel.
+- Oct 24 (fourth session, Rasel's "Fresh R60 v2"): `rasel/R60-payments` was 16 commits ahead of
+  origin (the Billing merge and `main`); pushed first. #1073 (Billing): its CI failed once on
+  `workspaces.e2e.test.ts` (q5, a 100 ms race, not Billing's) and passed on a rerun; merged. On
+  Payments: the automations test's `day()` takes the firm's New York date (Rasel's word; 17 of 17
+  locally) and the notes take Rasel's decisions (Billing by request, R56 applies a Request
+  Change, column items 7 to 11 approved with R60's order). #1076 (Payments) opened; CI green.
+  Staff (`rasel/R60-staff-sm8-13`) merged `main` (with #1073 and R1's #1074): API and web `tsc` 0
+  errors, departments and staff e2e 20 of 20, Staff mock specs 54 of 54; its PR opened in the
+  slot #1073 freed.
+- Oct 24: item 4, Payments (`rasel/R60-payments`, stacked on billing, local), web only: the page on
+  her design (Stripe, Square, PayPal; Accepted Client Payments; Payout Settings; the Invoices &
+  Payments link). Stripe keeps every state and test id of `r19-payments-settings`; Square and
+  PayPal and the ACH and PayPal methods are off with the reason; the Stripe Dashboard opens for
+  the connection, the bank and instant payouts. Web `tsc` 0 errors; `r60-payments-settings` 2 of
+  2, r19's in-page tests pass (its server-spawning ones cannot run on Windows); sheet shot on the
+  local API with `STRIPE_MODE=fake`.
+- Oct 24: item 5, Staff SM8 to SM13 (`rasel/R60-staff-sm8-13`, from `main`): SM9 (the cards
+  open the matching list; `/team/directory` for Manage Staff Accounts and Staff Settings), SM13
+  (department Manage Members, with no team; 409 `LAST_DEPARTMENT`), SM11 (custom roles in the
+  Role selector, Create Custom Role and Back to the same draft), SM8 (the firm's own schedules and
+  a custom one; "Maximum Active Clients"), SM10 (the header clock). Departments e2e 12 of 12, staff
+  e2e 8 of 8, `r60-staff-sm8-13` 5 of 5 and the Staff specs; sheet shot on the real API. Column
+  items 10 and 11 added.
+- Oct 24: #1065's CI named the tenant-isolation sweep: `requestId` (Request Change, Billing) is a
+  retry key, now in `NOT_RECORDS` (pushed to #1063 and merged up the stack); isolation cases for
+  the firm's invoice and its PDF (billing branch) and a department's members (staff branch). The
+  sweep passes locally on each; its other local failures are the known file-scanner ones.

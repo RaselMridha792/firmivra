@@ -57,6 +57,8 @@ import {
   createMyTaxReturnsClient,
   createNotificationsClient,
   createPaymentsSetupClient,
+  createFirmBillingClient,
+  createProfileChangesClient,
   createPublicAgreementsClient,
   createRequest,
   createRolesClient,
@@ -135,6 +137,8 @@ import {
 } from '../mocks/messages';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
+import { createFirmBillingMock } from '../mocks/firm-billing';
+import { createProfileChangesMock } from '../mocks/profile-changes';
 import { createSettingsMock } from '../mocks/settings';
 import {
   createBrandingMock,
@@ -224,6 +228,16 @@ export const api = {
     dev && mocked('settings')
       ? createSettingsMock({ role: MOCK_ROLE })
       : createSettingsClient(request),
+  /** Company Profile's Request Change: legal name, EIN and licensing, changed only by Firmivra. */
+  profileChanges:
+    dev && mocked('profileChanges')
+      ? createProfileChangesMock({ role: MOCK_ROLE, empty: mockedEmpty('profileChanges') })
+      : createProfileChangesClient(request),
+  /** Settings > Billing & Subscriptions: the firm's Firmivra plan, usage, invoices and requests. */
+  firmBilling:
+    dev && mocked('firmBilling')
+      ? createFirmBillingMock({ role: MOCK_ROLE, empty: mockedEmpty('firmBilling') })
+      : createFirmBillingClient(request, options.baseUrl),
   /** Pending client sign-ups, approve and decline (docs/api/client-auth.yaml). */
   clientSignUps:
     dev && mocked('clientSignUps')

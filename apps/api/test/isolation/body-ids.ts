@@ -17,6 +17,11 @@ export interface BodyIdField {
  * and any field named `...Id`, `...Ids` or `ids`, is a record id and needs the case's `bodyIds`.
  */
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
+  {
+    field: 'requestId',
+    routes: /^POST \/api\/v1\/business\/(settings\/profile\/change-requests|billing\/requests)$/,
+    why: "the dialog's retry key (the support ticket's idempotency key): the same key answers the firm's own request and another firm's key is 409 CONFLICT, never its ticket (profile-changes.e2e, firm-billing.e2e) (R60)",
+  },
   ...['details.employeeId', 'compensation.payrollId'].map((field) => ({
     field,
     routes: /^(POST|PATCH) \/api\/v1\/business\/staff(\/:id)?$/,
@@ -125,8 +130,8 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   },
   {
     field: 'campaignId',
-    routes: /^(POST \/api\/v1\/business\/leads(\/bulk)?|PATCH \/api\/v1\/business\/leads\/:id)$/,
-    why: 'leads have no campaign column yet: a campaign id is refused (400 FIELD_UNAVAILABLE) or, in the bulk bar, every lead is skipped, so it names no record (R57)',
+    routes: /^POST \/api\/v1\/business\/leads\/bulk$/,
+    why: "the bulk bar's case is the ASSIGN variant of a strict union; the CAMPAIGN variant's campaign (a Communications campaign, L7) is checked by lead-campaigns.e2e.test.ts: another firm's is 404 and changes nothing (R55)",
   },
   {
     field: 'ids',

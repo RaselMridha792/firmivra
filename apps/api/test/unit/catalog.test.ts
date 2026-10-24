@@ -8,12 +8,13 @@ import {
   diff,
   packagePricing,
   priceOf,
+  serviceTotalCents,
   statusOf,
   toneOf,
   TONE_COLORS,
 } from '../../src/catalog/catalog.shared.js';
 
-const fixed = (cents: number) => ({ basePriceCents: cents, pricingType: 'FIXED' as const });
+const fixed = (cents: number) => ({ priceCents: cents, pricingType: 'FIXED' as const });
 const none = { discountType: 'NONE' as const, discountValue: null };
 
 describe('packagePricing', () => {
@@ -32,6 +33,7 @@ describe('packagePricing', () => {
       savingsCents: 3_000,
       savingsPercent: 16.67,
       variablePrice: false,
+      quoteRequired: false,
     });
   });
 
@@ -84,14 +86,43 @@ describe('packagePricing', () => {
   });
 
   it('calls savings an estimate when a variable-priced service is included', () => {
-    for (const pricingType of ['STARTING_AT', 'HOURLY', 'CUSTOM_QUOTE'] as const) {
+    for (const pricingType of ['STARTING_AT', 'HOURLY'] as const) {
       const p = packagePricing({
-        included: [fixed(10_000), { basePriceCents: null, pricingType }],
+        included: [fixed(10_000), { priceCents: 5_000, pricingType }],
         packagePriceCents: 9_000,
         ...none,
       });
       expect([p.variablePrice, p.savingsCents, p.savingsPercent]).toEqual([true, null, null]);
+      expect([p.totalSelectedCents, p.quoteRequired]).toEqual([15_000, false]);
     }
+  });
+
+  it('never counts a quote-required service as $0 (S9): no total, no savings, no derived price', () => {
+    const quote = { priceCents: null, pricingType: 'CUSTOM_QUOTE' as const };
+    const set = packagePricing({
+      included: [fixed(10_000), quote],
+      packagePriceCents: 20_000,
+      ...none,
+    });
+    expect(set).toMatchObject({
+      totalSelectedCents: null,
+      packagePriceCents: 20_000,
+      savingsCents: null,
+      savingsPercent: null,
+      variablePrice: true,
+      quoteRequired: true,
+    });
+    const derived = (discountType: 'PERCENTAGE' | 'FIXED', discountValue: number) =>
+      packagePricing({
+        included: [fixed(10_000), quote],
+        packagePriceCents: null,
+        discountType,
+        discountValue,
+      });
+    expect(derived('PERCENTAGE', 2_000).packagePriceCents).toBeNull();
+    // A fixed discount cannot be checked against an unknown total; it is not refused for it.
+    expect(derived('FIXED', 50_000).packagePriceCents).toBeNull();
+    expect(() => derived('PERCENTAGE', 10_001)).toThrow(/at most 100%/);
   });
 
   it('has no savings without a price or without any service', () => {
@@ -143,6 +174,27 @@ describe('tones, prices and statuses', () => {
     }
     expect(toneOf('#123456')).toBeNull();
     expect(toneOf(null)).toBeNull();
+  });
+
+  it('adds ADDITIVE line items to the base price, and never INFORMATIONAL ones (S6)', () => {
+    const lines = [{ quantity: '1', rateCents: 7_500 }];
+    const base = { pricingType: 'FIXED' as const, basePriceCents: 10_050, lineItems: lines };
+    expect(serviceTotalCents({ ...base, lineItemMode: 'ADDITIVE' })).toBe(17_550);
+    expect(serviceTotalCents({ ...base, lineItemMode: 'INFORMATIONAL' })).toBe(10_050);
+    expect(serviceTotalCents({ ...base, lineItemMode: 'ADDITIVE', lineItems: [] })).toBe(10_050);
+    expect(
+      serviceTotalCents({
+        ...base,
+        lineItemMode: 'ADDITIVE',
+        lineItems: [{ quantity: '2.5', rateCents: 4_000 }],
+      }),
+    ).toBe(20_050);
+    expect(
+      serviceTotalCents({ ...base, pricingType: 'CUSTOM_QUOTE', lineItemMode: 'ADDITIVE' }),
+    ).toBeNull();
+    expect(
+      priceOf({ ...base, lineItemMode: 'ADDITIVE', billingFrequency: 'ONE_TIME' }).amountCents,
+    ).toBe(17_550);
   });
 
   it('shows a custom quote with no amount, and a half-month billing as monthly', () => {
