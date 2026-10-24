@@ -15,18 +15,16 @@ The older sections below are history.
 
 | PR | Branch | What |
 | --- | --- | --- |
-| #1089 (docs) | `rasel/R55-leads-website-capture` | L13 website lead capture, and L14 creating a client without a lead. |
-| #1090 | `rasel/R55-staff-import` | SM1 and SM7: Validate & Preview lists every row's errors instead of a 500, Excel files, a unique Employee ID, guidance. |
-| #1091 | `rasel/R55-availability-blocks` | Availability blocked time: the booked appointments a block covers, Block available slots only, a reason for staff, the list's filters. |
-| (this PR, docs) | `rasel/R55-settings-repro` | `R55-settings.md` (reproduction) and these R file updates. |
-| next | `rasel/R55-export-permission` | SM6: report exports and the users export check the Export permission. Open when #1090 or #1091 merges. |
-| next | `rasel/R55-leads-search` | L12: Leads search matches every word (API and mock). Branched from L11, so merge `origin/main` first. The screen waits for the placement decision. |
+| #1096 | `rasel/R55-export-permission` | SM6: report exports and the users export check the Export permission. |
+| #1098 | `rasel/R55-leads-search` | L12: search in the Leads filter row; every word matches, so a full name works. |
+| (this PR, docs) | `rasel/R55-settings-repro` | `R55-settings.md` (reproduction), the R file updates and Rasel's answers. |
 
 Docs PRs go one at a time. Code PRs: at most two open.
 
 ### Merged this round (Oct 24)
 
-- L10 #1075, L11 #1078, L12 #1080.
+- L10 #1075, L11 #1078, L12 #1080, L13 and L14 #1089.
+- SM1 and SM7 #1090; Availability blocked time #1091.
 - Fixes found by L12 and L13: #1082 (Begin Online source), #1083 (Schedule Appointment's reason, phone and email).
 - Before that: L4 #1042, #1044, #1049; L5 #1048, #1050, #1058; L6 #1061; L7 #1059, #1070; L1 #1030; L2 #1032; L3 #1035; L9 #1036.
 
@@ -39,15 +37,17 @@ Docs PRs go one at a time. Code PRs: at most two open.
 - **L8** waits for #1051.
 - **The automations test-date fix** wasn't needed: R60's #1076 made the same `day()` change on main. The pushed branch `rasel/R55-automations-test-dates` can be deleted.
 
-### Decisions needed from Rasel
+### Decided (Rasel, Oct 24 evening; reversible defaults)
 
-1. Leads search box: the header search on `/leads` (design, shell) or the Leads filter row (as Clients)?
-2. Bulk Convert to Client, and the Preferred column: both in the written spec, not in the design. Build them?
-3. Begin Online: duplicates (warn, link or merge?), and a data fix for leads saved as Other since Oct 14.
-4. Availability: Staff read-only working hours now or with the request flow? HR: a built-in role or a custom role?
-5. Client Portal: may R55 change the portal pages for contact details, module on and off, and announcements?
-6. SM4 and Sign Out All Sessions: who changes the sign-in flow, and when?
-7. SM14: as before (Original and Delegated Owner, Lock scope, direct reports or role rank).
+1. Leads search in the Leads filter row, as Clients (#1098). The shared header stays.
+2. Bulk Convert to Client and the Preferred column: build both, small, in the existing table and bulk-bar style.
+3. Begin Online duplicates: warn and link to the existing lead or client, with no merge. No data fix for leads saved as Other.
+4. Availability: Staff hours are read-only now. HR is a custom role.
+5. Client Portal: portal pages may change, but only for the parts that need no schema. The schema items wait for R1 and Rasel's tap.
+6. SM4 (sessions, login history): Rasel decides it himself. Leave it.
+7. SM14, ownership transfer and Sign Out All Sessions stay unbuilt.
+
+**Next, in order:** bulk Convert to Client, the Preferred column, Begin Online duplicates (warn and link), Staff hours read-only, then the Client Portal parts without schema ((e) to (h) in `R55-settings.md`).
 
 ### Needs from others (current)
 

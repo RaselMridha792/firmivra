@@ -60,7 +60,7 @@ R60 took SM8 to SM13 (#1079, merged). SM5 (drafts) and SM14 (account authority) 
 - **SM4, Active Sessions and Login History. The cause is known; the fix belongs to the sign-in flow.** Nothing writes `staff_sessions`. Staff sign-ins (`auth.signed_in`) go to the platform's log without a firm, and a member's Login History reads only the firm's log (notes 14 and 16; "R2: sign-ins the firm can see" below).
   - The fix: record a session row and a firm-scoped sign-in row when the member opens the firm.
   - That means changing the sign-in or session path (auth), and revoking needs Cognito, which is "Sign Out All Sessions", waiting for Rasel's word.
-  - Not built.
+  - Not built. **Rasel (Oct 24 evening): leave it; he decides SM4 himself.**
 - **SM6, the Export permission (`rasel/R55-export-permission`, PR when a slot frees).**
   - The grid already has Export for every module, and Payroll, Tax Returns, Bookkeeping, Compliance, Automations and Communications check it.
   - **Report exports** asked the guard for Create, so a Manager (Reports View and Export by default) got 403. They now ask for Export.

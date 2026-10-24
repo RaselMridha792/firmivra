@@ -129,12 +129,11 @@ Guide: `docs/specs/review-2026-10-21/leads--developer-review-package.md`; her sc
   - Gaps: duplicates (a second lead for the same email), and a data fix for the leads saved as Other.
 - **L14 (#1089):** Add New Client works for the Owner, and a role without Clients create is refused. The button shows for every role, and the full name fills only the display name.
 
-### Decisions needed (L12 to L14)
+### Decided (Rasel, Oct 24 evening; reversible defaults)
 
-1. **Leads search box:** in the header search on `/leads` (the design's place, which is the shell, R56), or in the Leads filter row (as Clients)?
-2. **Bulk Convert to Client:** it's in the written spec but not in the design. Build it?
-3. **Preferred column:** it's in the written spec but not in the design. Add it?
-4. **Begin Online duplicates:** warn, link or merge? And should the leads saved as Other since Oct 14 be fixed (a migration or a script, R0)?
+1. **Leads search:** in the Leads filter row, as Clients does; the shared header stays. Built in #1098 with the every-word API.
+2. **Bulk Convert to Client and the Preferred column:** build both, in the existing table and bulk-bar style, kept small, with no new visual language.
+3. **Begin Online duplicates:** warn and link to the existing lead or client, with no merge. **No data fix** for leads saved with source Other: #1082 fixes new ones.
 
 ## Decisions
 

@@ -49,9 +49,9 @@ This was reproduced by reading the code and by calling the local API. The local 
 - **R0 (schema), Availability:** `schedule_change_requests` and the reschedule proposal; `blocked_times.office_id` with the trigger; an emergency block kind.
 - **R0 (schema), Client Portal:** `clients.office_id`; portal contact and announcement settings; the `ANNOUNCEMENTS` category; `portal_module_visibility.label` and `sort_order` plus a Business Resources value; custom tabs.
 
-## Decisions for Rasel
+## Decided (Rasel, Oct 24 evening; reversible defaults)
 
-1. **Staff read-only working hours (guide 4 and 19).** This changes who may edit what in the Appointments module. Until the request flow exists (it needs the schema above), making Staff read-only leaves them no way to change their hours. Should it wait for the table, or happen now?
-2. **HR:** a new built-in role, or a custom role based on Admin?
-3. **Portal pages.** Items (e), (f) and (h) change the client portal's pages and several portal APIs. Earlier rule: no portal page changes without your word. May R55 make them?
-4. **Order.** R55 can start with (a) to (d), the Availability blocked time work, which needs no schema and no guard change. Does that come before or after Staff Management SM1, SM2, SM4, SM6 and SM7?
+1. **Availability:** Staff working hours are read-only now. Staff change their hours through a request once the request flow exists (schema).
+2. **HR** is a custom role, not a new built-in role.
+3. **Client Portal:** R55 may change the portal pages, but only for the parts that need no schema: (e) contact details from Company Profile and Locations, (f) module on and off for the five modules in the enum, (g) personal email locked on and SMS only with consent, (h) announcements shown in the portal. The schema items wait for R1 and Rasel's tap.
+4. **Order:** Leads first (search, bulk Convert, Preferred, Begin Online duplicates), then the Client Portal parts without schema.
