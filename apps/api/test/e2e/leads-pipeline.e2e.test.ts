@@ -312,6 +312,12 @@ describe('the table, the cards and the dropdowns', () => {
       made.hot!.id,
     ]);
     expect((await list('?search=facebook')).items.map((i) => i.id)).toEqual([made.overdue!.id]);
+    // Every word must match one field (L12): a full name finds the lead, an unknown word none.
+    const words = (...w: string[]) => `?search=${encodeURIComponent(w.join(' '))}`;
+    expect(
+      (await list(words(made.hot!.firstName, made.hot!.lastName))).items.map((i) => i.id),
+    ).toEqual([made.hot!.id]);
+    expect((await list(words(made.hot!.lastName, `nowhere${run}`))).total).toBe(0);
     expect((await list('?tag=nothing')).total).toBe(0);
     // The firm's day (New York, the default zone), not the UTC one: they differ for 4 to 5 hours.
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
