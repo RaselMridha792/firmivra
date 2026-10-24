@@ -114,6 +114,23 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 
 This is newer than every handoff below, so read it first. Where they differ, this one wins.
 
+**Update (Oct 24, 11:30 UTC). This wins over the tables below.**
+- **Merged by Rasel:** #1053, #1057, #1064, #1066, #1067 and #1071. #1064's two drafts migrations ran on dev in Deploy dev run 40084265063 (success).
+- **Open:** #1074, item 3 (R60's columns), green. It is the only migration PR open.
+- **Queue, one migration PR at a time.** Each opens after the one before merges, with `origin/main` merged in first:
+  1. `rasel/R1-task-reminders` (Tasks A, Custom reminders).
+  2. `rasel/R1-task-idempotency` (Tasks B, the idempotency key).
+  3. `rasel/R1-r60-columns-2` (R60's requests 7 to 11, Rasel's block of Oct 24).
+- **PR texts** in the session scratchpad: `design/pr-reminders.md`, `design/pr-idempotency.md` and `r60b/pr.md`.
+- **R60's requests 7 to 11** come as five migrations, one per busy table:
+  - `firm_licenses`: the firm reads its own; only the admin or platform scope writes.
+  - The staff email preferences set on (data only).
+  - `users.phone_verified_at`, cleared when the phone changes.
+  - `staff_profiles.work_start_date`.
+  - `staff_work_schedules`.
+  - R60 is told at the top of its "Needs from others" (on that branch).
+- **Docker Desktop had stopped** (Oct 24 morning). Its Postgres recovered after a restart (crash recovery took about 3 minutes). Start the existing containers with `docker start firmivra-postgres-1 firmivra-s3-1 firmivra-mailpit-1`; `docker compose up` from this worktree would make a second set.
+
 Rasel's three blocks of Oct 23 and 24 ("From me, follow it."):
 1. `packages/db` items 1 to 3.
 2. The prod items 1 to 3. No AWS, no GoDaddy, no Stripe live key, no Deploy dev.

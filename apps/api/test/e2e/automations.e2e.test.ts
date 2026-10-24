@@ -121,7 +121,10 @@ const mark = (what: string) => `${what} ${run} ${randomUUID().slice(0, 6)}`;
 const { ownerA, adminA, staffA, preparerA, ownerB } = people;
 
 const DAY = 86_400_000;
-const day = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10);
+// The firm's day (New York, the default zone), as the rules, the job and the runs filter use it:
+// a UTC day is a day ahead from 00:00 to 04:00 or 05:00 UTC.
+const nyDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
+const day = (offset: number) => nyDay.format(new Date(Date.now() + offset * DAY));
 
 // ---------- Definitions ----------
 

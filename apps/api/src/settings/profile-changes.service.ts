@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
   type CreateProfileChangeRequest,
@@ -18,6 +12,17 @@ import {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import {
+  closedAtOf,
+  duplicateKey,
+  isUniqueViolation,
+  latestReplies,
+  raiseTicket,
+  ticketByKey,
+  ticketNumber,
+  type TicketRow,
+  ticketsStartingWith,
+} from './firm-tickets.js';
 
 type Body = z.output<typeof CreateProfileChangeRequest>;
 
@@ -51,47 +56,19 @@ export function parseSubject(
   return null;
 }
 
-/**
- * Where a request lands in the Super Admin queue. Categories and priorities are the team's
- * reference data (renamed or turned off there), so these are preferences: the first active one
- * otherwise.
- */
-const CATEGORY = 'Compliance';
-const PRIORITY = 'MEDIUM';
-
-const ROLE_NAMES: Record<string, string> = { OWNER: 'Owner', ADMIN: 'Admin', STAFF: 'Staff' };
+export const ROLE_NAMES: Record<string, string> = {
+  OWNER: 'Owner',
+  ADMIN: 'Admin',
+  STAFF: 'Staff',
+};
 
 const EIN_SHOWN = (ein: string) => `${ein.slice(0, 2)}-${ein.slice(2)}`;
-
-const select = {
-  id: true,
-  number: true,
-  subject: true,
-  status: true,
-  createdAt: true,
-  resolvedAt: true,
-  closedAt: true,
-  contact: { select: { user: { select: { name: true } } } },
-} as const;
-
-type Row = {
-  id: string;
-  number: number;
-  subject: string;
-  status: ProfileChange['status'];
-  createdAt: Date;
-  resolvedAt: Date | null;
-  closedAt: Date | null;
-  contact: { user: { name: string } };
-};
 
 /**
  * Company Profile's Request Change (Rasel's default, Oct 24): the legal name, the EIN and the
  * licensing details are changed only by Firmivra. An Owner or Admin raises a support ticket for
- * the Super Admin team (source Portal, unassigned, in the queue; `support_tickets_firm_raise`)
- * with the current and proposed values and the reason. Nothing on the profile changes here.
- * Runs in the firm's scope with the member as the actor, which the ticket policy requires. The
- * audit entry names the fields, never the values.
+ * the Super Admin team (`firm-tickets.ts`) with the current and proposed values and the reason.
+ * Nothing on the profile changes here. The audit entry names the fields, never the values.
  */
 @Injectable()
 export class ProfileChangesService {
@@ -107,17 +84,7 @@ export class ProfileChangesService {
   /** GET: the firm's requests, newest first, with Firmivra's latest reply on each. */
   list(businessId: string, userId: string): Promise<ProfileChangeList> {
     return this.inFirm(businessId, userId, async (tx) => {
-      const rows = await tx.supportTicket.findMany({
-        where: {
-          businessId,
-          source: 'PORTAL',
-          deletedAt: null,
-          OR: KINDS.map((kind) => ({ subject: { startsWith: prefixOf(kind) } })),
-        },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: 20,
-        select,
-      });
+      const rows = await ticketsStartingWith(tx, businessId, KINDS.map(prefixOf), 20);
       return { items: await this.views(tx, businessId, rows) };
     });
   }
@@ -176,36 +143,14 @@ export class ProfileChangesService {
           '',
           "Nothing on the firm's profile changes until Firmivra applies it.",
         ].join('\n');
-        const category = await tx.supportCategory.findMany({
-          where: { isActive: true },
-          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-          select: { id: true, name: true },
-        });
-        const priority = await tx.supportPriority.findMany({
-          where: { isActive: true },
-          orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
-          select: { id: true, code: true },
-        });
-        const categoryId = (category.find((c) => c.name === CATEGORY) ?? category[0])?.id;
-        const priorityId = (priority.find((p) => p.code === PRIORITY) ?? priority[0])?.id;
-        if (!categoryId || !priorityId)
-          throw new ServiceUnavailableException({
-            code: 'SUPPORT_UNAVAILABLE',
-            message: "Requests can't be sent right now. Try again later.",
-          });
-        const row = await tx.supportTicket.create({
-          data: {
-            businessId,
-            contactUserId: userId,
-            createdByUserId: userId,
-            subject: subjectOf(body.kind, fields),
-            description,
-            categoryId,
-            priorityId,
-            source: 'PORTAL',
-            idempotencyKey: body.requestId,
-          },
-          select,
+        const row = await raiseTicket(tx, {
+          businessId,
+          userId,
+          requestId: body.requestId,
+          subject: subjectOf(body.kind, fields),
+          description,
+          category: 'Compliance',
+          priority: 'MEDIUM',
         });
         await this.audit.logIn(
           tx,
@@ -219,7 +164,7 @@ export class ProfileChangesService {
     } catch (error) {
       // The same key at the same moment: the first insert won; answer it. A key this firm cannot
       // see is another firm's.
-      if ((error as { code?: string }).code === 'P2002') {
+      if (isUniqueViolation(error)) {
         const again = await this.byKey(businessId, userId, body.requestId);
         if (again) return again;
         throw duplicateKey();
@@ -234,58 +179,39 @@ export class ProfileChangesService {
    */
   private async byKey(businessId: string, userId: string, key: string) {
     return this.inFirm(businessId, userId, async (tx) => {
-      const row = await tx.supportTicket.findFirst({
-        where: { businessId, idempotencyKey: key },
-        select,
-      });
+      const row = await ticketByKey(tx, businessId, key);
       if (!row) return null;
       if (!parseSubject(row.subject)) throw duplicateKey();
       return (await this.views(tx, businessId, [row]))[0]!;
     });
   }
 
-  private async views(tx: TxClient, businessId: string, rows: Row[]): Promise<ProfileChange[]> {
-    const replies =
-      rows.length === 0
-        ? []
-        : await tx.supportTicketMessage.findMany({
-            // Replies the team sent to the firm; one kept in the conversation was never sent.
-            where: {
-              businessId,
-              ticketId: { in: rows.map((r) => r.id) },
-              authorSide: 'STAFF',
-              deliveryChannel: 'PORTAL',
-            },
-            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-            select: { ticketId: true, body: true, createdAt: true },
-          });
+  private async views(
+    tx: TxClient,
+    businessId: string,
+    rows: TicketRow[],
+  ): Promise<ProfileChange[]> {
+    const replies = await latestReplies(
+      tx,
+      businessId,
+      rows.map((r) => r.id),
+    );
     return rows.flatMap((r) => {
       const parsed = parseSubject(r.subject);
       if (!parsed) return [];
-      const reply = replies.find((m) => m.ticketId === r.id);
-      const closedAt = r.closedAt ?? r.resolvedAt;
       return [
         {
           id: r.id,
-          number: `#${r.number}`,
+          number: ticketNumber(r),
           kind: parsed.kind,
           fields: parsed.fields,
           status: r.status,
           submittedAt: r.createdAt.toISOString(),
           submittedBy: r.contact.user.name,
-          closedAt:
-            r.status === 'RESOLVED' || r.status === 'CLOSED'
-              ? (closedAt?.toISOString() ?? null)
-              : null,
-          latestReply: reply ? { body: reply.body, at: reply.createdAt.toISOString() } : null,
+          closedAt: closedAtOf(r),
+          latestReply: replies.get(r.id) ?? null,
         },
       ];
     });
   }
 }
-
-const duplicateKey = () =>
-  new ConflictException({
-    code: 'CONFLICT',
-    message: 'This request was already used. Close the dialog and try again.',
-  });

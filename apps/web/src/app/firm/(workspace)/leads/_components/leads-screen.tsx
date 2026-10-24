@@ -18,6 +18,7 @@ import {
   Select,
 } from '@firmivra/ui';
 import {
+  ArrowCounterClockwise,
   ArrowsClockwise,
   Clock,
   ClockCountdown,
@@ -61,6 +62,8 @@ interface LeadFilters {
   campaignId: string;
   tag: string;
   overdue: boolean;
+  /** Archived Leads (L10): only the archived ones, with Restore. */
+  archived: boolean;
 }
 
 /** The dropdowns' choices before (or without) GET /business/leads/options: the "All …" entries. */
@@ -77,6 +80,7 @@ const EMPTY_FILTERS: LeadFilters = {
   campaignId: '',
   tag: '',
   overdue: false,
+  archived: false,
 };
 
 function LeadsSummary({
@@ -235,6 +239,13 @@ function LeadFilters({
           onChange={(event) => onFilter({ overdue: event.target.checked })}
         />
       </FilterGroup>
+      <FilterGroup title="Archive">
+        <Checkbox
+          label="Archived leads"
+          checked={filters.archived}
+          onChange={(event) => onFilter({ archived: event.target.checked })}
+        />
+      </FilterGroup>
     </>
   );
 
@@ -310,6 +321,13 @@ export function LeadsScreen() {
   const [appointmentLead, setAppointmentLead] = useState<LeadRow | null>(null);
   const summary = useApiQuery([...LEAD_PIPELINE_KEY, 'summary'], () => api.leadPipeline.summary());
   const options = useApiQuery([...LEAD_PIPELINE_KEY, 'options'], () => api.leadPipeline.options());
+  // Delete (the archive) and Restore: Firm Admin only, the Owner and the Admin (L11).
+  const canDelete = role === 'OWNER' || role === 'ADMIN';
+  const canRestore = canDelete;
+  const restore = useApiMutation(
+    (ids: string[]) => api.leadPipeline.bulk({ action: 'RESTORE', ids }),
+    { invalidate: LEAD_PIPELINE_KEY },
+  );
   const query = useMemo<LeadPipelineQuery>(
     () => ({
       page,
@@ -324,6 +342,7 @@ export function LeadsScreen() {
       ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
       ...(filters.tag ? { tag: filters.tag } : {}),
       ...(filters.overdue ? { overdue: true } : {}),
+      ...(filters.archived ? { archived: true } : {}),
     }),
     [filters, page, pageSize],
   );
@@ -402,8 +421,15 @@ export function LeadsScreen() {
       { label: 'Change Status', icon: ArrowsClockwise, onClick: () => openBulk('STAGE') },
       { label: 'Add to Campaign', icon: EnvelopeSimple, onClick: () => openBulk('CAMPAIGN') },
       { label: 'Add Tags', icon: Tag, onClick: () => openBulk('TAGS') },
-      { label: 'Delete', icon: Trash, danger: true, onClick: () => openBulk('ARCHIVE') },
+      ...(canDelete
+        ? [{ label: 'Delete', icon: Trash, danger: true, onClick: () => openBulk('ARCHIVE') }]
+        : []),
     ];
+    // Archived Leads (L10): Restore is the only bulk action, for those who may restore.
+    const archivedActions = canRestore
+      ? [{ label: 'Restore', icon: ArrowCounterClockwise, onClick: () => restore.mutate(selected) }]
+      : [];
+    const actions: typeof bulkActions = filters.archived ? archivedActions : bulkActions;
     const updateSelection = (checked: boolean) =>
       select(
         checked
@@ -426,7 +452,7 @@ export function LeadsScreen() {
               onChange={(event) => updateSelection(event.target.checked)}
             />
           </label>
-          <BulkBar count={selected.length} noun="leads" actions={bulkActions} />
+          <BulkBar count={selected.length} noun="leads" actions={actions} />
         </div>
         <div className="min-w-0 xl:hidden">
           <div className="flex items-center gap-2">
@@ -449,7 +475,7 @@ export function LeadsScreen() {
             aria-label="Bulk actions"
             className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-3"
           >
-            {bulkActions.map(({ label, icon: Icon, onClick, danger }) => (
+            {actions.map(({ label, icon: Icon, onClick, danger }) => (
               <Button
                 key={label}
                 variant="secondary"
@@ -468,6 +494,12 @@ export function LeadsScreen() {
           </div>
         </div>
         <LeadsTable
+          canDelete={canDelete}
+          archived={
+            filters.archived
+              ? { canRestore, onRestore: (lead) => restore.mutate([lead.id]) }
+              : undefined
+          }
           rows={data.items}
           total={data.total}
           page={data.page}
@@ -557,6 +589,23 @@ export function LeadsScreen() {
         onFilter={changeFilters}
         onReset={resetFilters}
       />
+      {filters.archived ? (
+        <div aria-label="Archived filter" className="-mt-2 flex flex-wrap items-center gap-3">
+          <FilterChip label="Archived Leads" onRemove={() => changeFilters({ archived: false })} />
+          {restore.data ? (
+            <p role="status" className="text-sm text-success">
+              {restore.data.changed === 1
+                ? '1 lead restored, with its status and history.'
+                : `${restore.data.changed} leads restored, with their status and history.`}
+            </p>
+          ) : null}
+          {restore.error ? (
+            <p role="alert" className="text-sm text-danger">
+              {errorMessage(restore.error)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {filters.overdue ? (
         // The Overdue Follow-Ups card's filter, visible on the page (Octavia's review, item 2);
         // it combines with any status, which it never changes.
