@@ -25,6 +25,7 @@ import {
   requireActiveMember,
   requireCapability,
   visibleLead,
+  requireFirmAdmin,
 } from './pipeline.shared.js';
 
 type Create = z.output<typeof CreateLeadRequest>;
@@ -218,6 +219,8 @@ export class LeadPipelineWriteService {
         RESTORE: 'DELETE',
       }[body.action] as 'EDIT',
     );
+    // Delete (the archive) and its undo, Restore: Firm Admin only (L11). Nothing else changes.
+    if (body.action === 'ARCHIVE' || body.action === 'RESTORE') requireFirmAdmin(actor);
     const ids = [...new Set(body.ids)];
     if (body.action === 'CAMPAIGN')
       return this.addToCampaign(businessId, actor, tenant, ids, body.campaignId);
