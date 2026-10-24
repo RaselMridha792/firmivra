@@ -1231,7 +1231,7 @@ describe('app: GuardDuty malware scan (R1 step 19)', () => {
 });
 
 describe('ci', () => {
-  it('trusts only the dev and prod GitHub environments of the Firmivra repo', () => {
+  it('trusts only the dev GitHub environment of the Firmivra repo (prod has its own role)', () => {
     t('ci').hasResourceProperties('AWS::IAM::Role', {
       RoleName: 'firmivra-dev-github-deploy',
       AssumeRolePolicyDocument: {
@@ -1241,10 +1241,8 @@ describe('ci', () => {
             Condition: {
               StringEquals: {
                 'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-                'token.actions.githubusercontent.com:sub': [
+                'token.actions.githubusercontent.com:sub':
                   'repo:RaselMridha792@149437621/firmivra@1404534844:environment:dev',
-                  'repo:RaselMridha792@149437621/firmivra@1404534844:environment:prod',
-                ],
               },
             },
           }),

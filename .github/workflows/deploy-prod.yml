@@ -1,0 +1,179 @@
+# Deploys a v* tag to prod: builds the api, web and migrate images of the tagged commit, pushes them
+# to ECR, runs the migration task, then rolls api and web to the new images and checks the three
+# prod sites. Only Rasel creates v* tags, after approval (CLAUDE.md), and only on a commit of main.
+# AWS access only through the GitHub environment `prod` (required reviewers; deployments only from
+# v* tags) and the OIDC role firmivra-prod-github-deploy, which trusts that environment only. The
+# running image tags are parameters of firmivra-prod-app (ImageTag, MigrateImageTag); only this
+# workflow sets them. The other prod stacks stay manual (diff, then Rasel's yes).
+# Until firmivra.com's Route 53 zone id is in infra/src/config.ts, `-c env=prod` refuses to
+# synthesize, so this workflow stops at its first cdk step and changes nothing.
+# One job on purpose, as in deploy-dev.yml: each job with an environment is a GitHub deployment.
+# Actions are pinned to commit SHAs (public repo); the comment after each one is its release.
+name: Deploy prod
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer tag waits instead of cancelling a rollout halfway.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE_ARN: arn:aws:iam::778127141557:role/firmivra-prod-github-deploy
+  REGISTRY: 778127141557.dkr.ecr.us-east-1.amazonaws.com
+  APP_STACK: firmivra-prod-app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: prod
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ github.sha }}
+      HUSKY: '0'
+    steps:
+      # Full history, so the next step can see main.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Check that the tag is on main
+        run: |
+          if ! git merge-base --is-ancestor "$TAG" origin/main; then
+            echo "::error::$GITHUB_REF_NAME ($TAG) is not a commit of main. Tag a merged commit."
+            exit 1
+          fi
+          echo "$GITHUB_REF_NAME is $TAG on main"
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: deploy-prod-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ECR tags cannot be overwritten, so a re-run skips images this commit already pushed.
+      - name: Find images to build
+        id: missing
+        run: |
+          targets=()
+          for image in api web migrate; do
+            count=$(aws ecr batch-get-image --repository-name "firmivra-prod-$image" \
+              --image-ids imageTag="$TAG" --query 'length(images)' --output text)
+            if [ "$count" = 0 ]; then targets+=("$image"); fi
+          done
+          echo "Images to build: ${targets[*]:-none}"
+          echo "any=$([ ${#targets[@]} -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "targets=$(IFS=,; echo "${targets[*]}")" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to ECR
+        if: steps.missing.outputs.any == 'true'
+        run: aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: steps.missing.outputs.any == 'true'
+
+      # The missing images build in parallel in this one step (deploy-prod.docker-bake.hcl).
+      - name: Build and push images
+        if: steps.missing.outputs.any == 'true'
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
+        with:
+          source: .
+          files: .github/workflows/deploy-prod.docker-bake.hcl
+          targets: ${{ steps.missing.outputs.targets }}
+          push: true
+          provenance: false
+          sbom: false
+          vars: |
+            CONTEXT=${{ github.workspace }}
+            REGISTRY=${{ env.REGISTRY }}
+            TAG=${{ github.sha }}
+
+      # pnpm version from packageManager in package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile --filter @firmivra/infra...
+
+      # A fresh one-hour session for the deploy steps, after the image builds.
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: deploy-prod-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Template changes in the tag go live with this deploy; the diff stays in the log.
+      - name: Show app stack changes
+        working-directory: infra
+        run: pnpm exec cdk diff "$APP_STACK" -c env=prod --exclusively --no-notices
+
+      - name: Deploy the migration image
+        working-directory: infra
+        run: |
+          pnpm exec cdk deploy "$APP_STACK" -c env=prod --exclusively --require-approval never \
+            --progress events --no-notices --parameters "$APP_STACK:MigrateImageTag=$TAG"
+
+      # Migrations run here, once per deploy, never in the api or web tasks.
+      - name: Run the migration task
+        run: |
+          outputs=$(aws cloudformation describe-stacks --stack-name "$APP_STACK" --query 'Stacks[0].Outputs' --output json)
+          out() { jq -r --arg k "$1" '.[] | select(.OutputKey == $k) | .OutputValue' <<< "$outputs"; }
+          cluster=$(out ClusterName)
+          task=$(aws ecs run-task --cluster "$cluster" --task-definition "$(out MigrateTaskDefinition)" \
+            --capacity-provider-strategy capacityProvider=FARGATE,weight=1 \
+            --network-configuration "awsvpcConfiguration={subnets=[$(out TaskSubnets)],securityGroups=[$(out MigrateSecurityGroup)],assignPublicIp=ENABLED}" \
+            --started-by "deploy-prod-$GITHUB_RUN_ID" --query 'tasks[0].taskArn' --output text)
+          if [[ "$task" != arn:* ]]; then echo "::error::The migration task did not start"; exit 1; fi
+          echo "Migration task: $task"
+          aws ecs wait tasks-stopped --cluster "$cluster" --tasks "$task"
+          result=$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task" --output json)
+          code=$(jq -r '.tasks[0].containers[0].exitCode' <<< "$result")
+          aws logs get-log-events --log-group-name "$(out MigrateLogGroup)" \
+            --log-stream-name "migrate/migrate/${task##*/}" --start-from-head \
+            --query 'events[].message' --output text || true
+          if [ "$code" != 0 ]; then
+            echo "::error::Migration failed (exit $code): $(jq -r '.tasks[0].stoppedReason' <<< "$result")"
+            exit 1
+          fi
+
+      # With an image, Application Auto Scaling keeps 2 to 6 tasks per service (infra config);
+      # the rollout replaces them with the new images.
+      - name: Roll out api and web
+        working-directory: infra
+        run: |
+          pnpm exec cdk deploy "$APP_STACK" -c env=prod --exclusively --require-approval never \
+            --progress events --no-notices --parameters "$APP_STACK:ImageTag=$TAG"
+
+      # The site URLs come from the stack outputs (infra config), not from this file. The portal is
+      # checked at its root, which needs no firm, so the first deploy passes before LVP exists.
+      - name: Smoke test the three sites
+        run: |
+          outputs=$(aws cloudformation describe-stacks --stack-name "$APP_STACK" --query 'Stacks[0].Outputs' --output json)
+          out() { jq -r --arg k "$1" '.[] | select(.OutputKey == $k) | .OutputValue' <<< "$outputs"; }
+          admin=$(out AdminUrl) app=$(out AppUrl) portal=$(out PortalUrl)
+          failed=0
+          for url in "$admin/" "$app/" "$portal/" \
+            "$admin/api/v1/health" "$app/api/v1/health" "$portal/api/v1/health"; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -L --max-time 20 --retry 6 --retry-delay 10 "$url" || true)
+            echo "$code $url"
+            [ "$code" = 200 ] || failed=1
+          done
+          { echo "Deployed \`$GITHUB_REF_NAME\` (\`$TAG\`) to prod"; echo; echo "- $admin"; echo "- $app"; echo "- $portal"; } >> "$GITHUB_STEP_SUMMARY"
+          exit $failed

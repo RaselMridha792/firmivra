@@ -12,8 +12,9 @@ export interface CiStackProps extends StackProps {
 
 /**
  * GitHub Actions deploy access without stored AWS keys (OIDC).
- * Trust: only jobs of RaselMridha792/firmivra running in the GitHub environments `dev` or `prod`
- * (docs/SETUP-LOG.md). GitHub limits those environments to `main` and `v*` tags.
+ * Trust: only jobs of RaselMridha792/firmivra running in this environment's own GitHub environment:
+ * `dev` for firmivra-dev-github-deploy, `prod` for firmivra-prod-github-deploy (docs/SETUP-LOG.md).
+ * GitHub limits `dev` to `main` and `prod` to `v*` tags, with required reviewers.
  * Permissions: push images to this environment's ECR repositories, run the migration task,
  * and `cdk deploy` through the CDK bootstrap roles.
  */
@@ -46,15 +47,12 @@ export class CiStack extends Stack {
 
     this.deployRole = new iam.Role(this, 'DeployRole', {
       roleName: resourceName(config, 'github-deploy'),
-      description: 'GitHub Actions deploys (environments dev and prod of the Firmivra repo only)',
+      description: `GitHub Actions deploys (environment ${config.envName} of the Firmivra repo only)`,
       maxSessionDuration: Duration.hours(1),
       assumedBy: new iam.WebIdentityPrincipal(github.oidcProviderArn, {
         StringEquals: {
           'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-          'token.actions.githubusercontent.com:sub': [
-            `${repo}:environment:dev`,
-            `${repo}:environment:prod`,
-          ],
+          'token.actions.githubusercontent.com:sub': `${repo}:environment:${config.envName}`,
         },
       }),
     });
