@@ -349,6 +349,15 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   (`/business/locations`), but the web has no Settings > Locations page (`/settings/locations`, which
   Billing's dialog already links to, answers 404). Offices & Job Titles lists the firm's active
   locations and says they come from Location Management, without a link until the page exists.
+- **New Accounts & Security (built, `rasel/R60-sm3-security-defaults`): what it cannot do yet.**
+  1. *Firm setup's Team step* invites through `POST /auth/invites`
+     (`apps/api/src/auth/invites.controller.ts`, outside R60's paths), which creates an account
+     with no security row; the row is made later with the columns' own defaults, not the firm's.
+     Create Staff and Bulk Upload Staff start from the firm's defaults. The invite would call
+     `newAccountSecurity` (`apps/api/src/staff/staff-security-defaults.service.ts`) when it
+     creates the member: Rasel to say who (auth is off limits to R60).
+  2. *Enforcement:* sign-in does not enforce any staff security setting yet (Settings checks,
+     check 6), so the defaults, like each account's own settings, are stored and shown only.
 - **SM5 (Rasel's default, Oct 24):** pay is not kept in a staff draft (her own text says "pay is
   not kept"); the note says so. Per-file Save of a draft's attachments needs storage for draft
   files (an API and maybe a table): not built; the chosen files stay only while the tab is open.
@@ -590,6 +599,14 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   the firm's times (a send keeps only on or off; "View Schedule" instead of fields the API never
   kept). Intake workspace e2e 17 of 17, unit 11 and 10, the Intake Forms mock specs 38 of 38;
   sheet shot on the real API.
+- Oct 24 (fourth session): SM3 New Accounts & Security (`rasel/R60-sm3-security-defaults`, from
+  `main`): `api.staff.securityDefaults` and `saveSecurityDefaults` (Owner and Admin; version and
+  409 `SAVE_CONFLICT`; the lists with their access choice; the audit row names the changed
+  settings), the page at `/team/settings/security` (who it affects, a confirm before saving), Staff
+  Settings' card showing them, Create Staff step 3 and every new account (Bulk Upload too)
+  starting from them, step 3's choices winning. Defaults e2e 6 of 6, staff write and security e2e
+  34 of 34, contract unit 20 of 20, the Staff mock specs 55 of 55, API and web `tsc` 0 errors.
+  Sheet shot on the real API. Firm setup's invite (`/auth/invites`) is outside R60's paths (Needs).
 - Oct 24 (fourth session): Rasel's fix before the next feature (`rasel/R60-profile-ein-last4`,
   from `main`): Request Change keeps only the proposed EIN's last four digits in the ticket
   ("Proposed: Ending in 4321"); the full number is in no ticket, audit row, log or answer (the
