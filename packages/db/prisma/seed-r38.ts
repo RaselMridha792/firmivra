@@ -19,8 +19,10 @@ export interface WorkSeedContext {
   reportId: string;
 }
 
-/** Stable ids: 00000000-0000-4000-d<module>-<n>. */
-const id = (n: number) => `00000000-0000-4000-d000-${String(n).padStart(12, '0')}`;
+/** Stable ids: RFC 9562 UUIDs (version 4, variant 8), 00000000-0000-4d38-8000-<n>. */
+const id = (n: number) => `00000000-0000-4d38-8000-${String(n).padStart(12, '0')}`;
+/** The task type's id before Oct 24 (variant d, which z.uuid() refuses). */
+const LEGACY_TASK_TYPE_ID = '00000000-0000-4000-d000-000000000001';
 export const SEED_R38_IDS = {
   taskType: id(1),
   checklist1: id(2),
@@ -103,6 +105,14 @@ export const SEED_C1_IDS = {
 
 export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise<void> {
   const { businessId } = c;
+
+  // A database seeded before the ids became UUIDs would collide on the rows' names.
+  if (await tx.taskType.findUnique({ where: { id: LEGACY_TASK_TYPE_ID } })) {
+    throw new Error(
+      "LVP's work-module rows have the old non-UUID seed ids. Reset the local database and seed " +
+        'again (packages/db/README.md, "Commands").',
+    );
+  }
 
   // Tasks.
   const taskType = await tx.taskType.upsert({

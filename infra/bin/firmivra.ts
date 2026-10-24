@@ -14,7 +14,14 @@ if (app.node.tryGetContext('imageTag') !== undefined) {
       'set by deploy-dev.yml. A cdk deploy without --parameters keeps the running images.',
   );
 }
-const config = configFor(app.node.tryGetContext('env'));
+// -c allowPending=true: prod synthesizes before its Route 53 zone exists (read-only checks only).
+const config = configFor(
+  app.node.tryGetContext('env'),
+  {},
+  {
+    allowPending: app.node.tryGetContext('allowPending') === 'true',
+  },
+);
 
 const stacks = createStacks(app, config);
 

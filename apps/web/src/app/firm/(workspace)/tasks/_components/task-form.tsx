@@ -12,7 +12,7 @@ import { Button, Checkbox, Modal, Textarea, Toast, Toggle } from '@firmivra/ui';
 import { ArrowLeft, FloppyDisk, Plus, X } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -28,6 +28,9 @@ import {
   type Item,
   Label,
   type Reminder,
+  TIMES,
+  reminderProblem,
+  toReminders,
   ReminderList,
   Section,
   Selectbox,
@@ -43,11 +46,6 @@ import {
   dayText,
   timeText,
 } from './task-shared';
-
-const TIMES = Array.from({ length: 48 }, (_, i) => {
-  const m = i * 30;
-  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-});
 
 /** /tasks/new and /tasks/[id]/edit: Create Task and Edit Task, one form. */
 export function TaskFormScreen({ id, templateId }: { id?: string; templateId?: string }) {
@@ -140,9 +138,7 @@ function Form({
   );
   const startReminders = task?.reminders ?? template?.reminders ?? [];
   const [remind, setRemind] = useState(startReminders.length > 0);
-  const [reminders, setReminders] = useState<Reminder[]>(
-    startReminders.map((r, i) => ({ key: `r${i}`, daysBefore: r.daysBefore })),
-  );
+  const [reminders, setReminders] = useState<Reminder[]>(() => toReminders(startReminders));
   const [depends, setDepends] = useState(!!task?.dependsOn);
   const [dependsOn, setDependsOn] = useState(task?.dependsOn?.id ?? '');
   const [notes, setNotes] = useState(task?.internalNotes ?? '');
@@ -271,7 +267,7 @@ function Form({
   const remindersBody = remind
     ? reminders.map((r) => ({
         daysBefore: r.daysBefore,
-        timeOfDay: null,
+        timeOfDay: r.timeOfDay,
         inApp: true,
         channels: [] as ('EMAIL' | 'SMS')[],
       }))
@@ -310,7 +306,7 @@ function Form({
     blockedReason,
     visible,
     remind,
-    reminders: reminders.map((r) => r.daysBefore),
+    reminders: reminders.map((r) => [r.daysBefore, r.timeOfDay]),
     depends,
     dependsOn,
     notes,
@@ -373,6 +369,11 @@ function Form({
     if (!assignee && !byTeam) e['assignee'] = 'Choose who it is assigned to';
     if (!dueOn) e['due'] = 'Choose a due date';
     if (startOn && dueOn && startOn > dueOn) e['due'] = 'The due date is before the start';
+    if (remind && reminders.length > 0) {
+      const problem = reminderProblem(reminders, dueOn && !allDay ? dueTime : null);
+      if (!dueOn) e['reminders'] = 'Reminders need a due date. Set the due date first.';
+      else if (problem) e['reminders'] = problem;
+    }
     if (files.queue.some((f) => f.state === 'uploading'))
       e['files'] = 'Wait for the files to finish uploading.';
     else if (files.queue.some((f) => f.blocking) || (task && files.queue.length > 0))
@@ -381,13 +382,20 @@ function Form({
     setErrors(e);
     return Object.keys(e).length === 0;
   }
+  // One save at a time (T2): a second click before the first answers does nothing.
+  const sendingRef = useRef(false);
   function submit(another: boolean) {
+    if (sendingRef.current) return;
     setMessage(undefined);
     if (!validate()) {
       setMessage({ text: 'Fix the highlighted fields to continue.', tone: 'error' });
       return;
     }
+    sendingRef.current = true;
     save.mutate(another, {
+      onSettled: () => {
+        sendingRef.current = false;
+      },
       onSuccess: ({ saved, another: again }) => {
         if (again) {
           setMessage({ text: 'Task saved. Add another.', tone: 'success' });
@@ -851,10 +859,11 @@ function Form({
               onChange={(e) => {
                 setRemind(e.target.checked);
                 if (e.target.checked && reminders.length === 0)
-                  setReminders([{ key: 'r0', daysBefore: 1 }]);
+                  setReminders([{ key: 'r0', daysBefore: 1, timeOfDay: null, custom: false }]);
               }}
             />
             {remind ? <ReminderList reminders={reminders} onChange={setReminders} /> : null}
+            {err('reminders')}
           </Section>
           <Section title="Dependencies" testId="form-depends">
             <Checkbox
