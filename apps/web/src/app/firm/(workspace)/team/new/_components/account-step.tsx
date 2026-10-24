@@ -55,7 +55,8 @@ interface Form {
   requirePasswordChange: boolean;
   sendWelcomeEmail: boolean;
   employmentType: StaffEmploymentType | '';
-  hireDate: string;
+  /** The design's "Start Date": the first day of work (SM11), not the hire date (step 4). */
+  workStartDate: string;
   office: string;
   endDate: string;
   supervisorId: string;
@@ -93,7 +94,7 @@ function fromDraft(d: StaffDraftData): Form {
     requirePasswordChange: d.access?.requirePasswordChange ?? true,
     sendWelcomeEmail: d.sendWelcomeEmail ?? true,
     employmentType: x.employmentType ?? '',
-    hireDate: x.hireDate ?? '',
+    workStartDate: x.workStartDate ?? '',
     office: x.office ?? '',
     endDate: x.endDate ?? '',
     supervisorId: x.supervisorId ?? '',
@@ -121,7 +122,7 @@ function toAccount(f: Form) {
 function toDetails(f: Form) {
   return {
     employmentType: f.employmentType || null,
-    hireDate: f.hireDate || null,
+    workStartDate: f.workStartDate || null,
     office: f.office || null,
     endDate: f.endDate || null,
     supervisorId: f.supervisorId || null,
@@ -544,8 +545,8 @@ function AccountForm({
               <Input
                 label="Start Date"
                 type="date"
-                value={form.hireDate}
-                onChange={(e) => set('hireDate', e.target.value)}
+                value={form.workStartDate}
+                onChange={(e) => set('workStartDate', e.target.value)}
               />
               <Select
                 label="Work Location"

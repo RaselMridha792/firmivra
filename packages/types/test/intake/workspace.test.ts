@@ -211,3 +211,17 @@ describe('the expiration alert (I9)', () => {
     expect(ok(10081)).toBe(false);
   });
 });
+
+describe('the data retention period (I12)', () => {
+  it('takes 1 to 100 whole years, or none', () => {
+    const ok = (dataRetentionYears: unknown) =>
+      UpdateIntakeSettingsRequest.safeParse({ version: 'v', security: { dataRetentionYears } })
+        .success;
+    expect(ok(1)).toBe(true);
+    expect(ok(100)).toBe(true);
+    expect(ok(null)).toBe(true);
+    expect(ok(0)).toBe(false);
+    expect(ok(101)).toBe(false);
+    expect(ok(2.5)).toBe(false);
+  });
+});
