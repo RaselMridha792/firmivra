@@ -131,13 +131,17 @@ const clientFirstError = {
  * field otherwise), and the same reminder twice (or two Custom ones of one length) is 400
  * INVALID_REMINDER. `templateId` fills the fields the request leaves out, as for a new task,
  * except that the draft keeps all the template's reminders: publishing checks them as if sent.
+ * `idempotencyKey` (./work.ts IdempotencyKey) makes a retry return the draft the first save made,
+ * while it is still a draft: once it is published, or for any other use of the key, 409
+ * IDEMPOTENCY_KEY_REUSED.
  */
 export const SaveTaskDraftRequest = CreateTaskDetailRequest.extend({
   clientId: z.uuid().optional(),
 }).refine(clientFirst, clientFirstError);
 export type SaveTaskDraftRequest = z.input<typeof SaveTaskDraftRequest>;
 
-const draftChanges = CreateTaskDetailRequest.omit({ templateId: true })
+/** A draft's changes; never a key (an edit or a publish changes the same row). */
+const draftChanges = CreateTaskDetailRequest.omit({ templateId: true, idempotencyKey: true })
   .partial()
   .extend({
     /** Setting, changing or clearing the client also clears the engagement and attachments
@@ -172,7 +176,10 @@ export type UpdateTaskDraftRequest = z.input<typeof UpdateTaskDraftRequest>;
  * PATCH does, then checks the draft as a new task is checked (a client, the engagement, the
  * assignee's reach, an active type, reminders) and makes it an OPEN task with the same id.
  * Answers the TaskDetail (./work.ts). 400 VALIDATION_FAILED naming `clientId` when it has none;
- * the task errors of a new task otherwise. An empty body publishes the draft as saved.
+ * the task errors of a new task otherwise. An empty body publishes the draft as saved. It takes
+ * no idempotency key: a publish retried after it went through (its answer lost) answers 200 with
+ * the task as it is now, without publishing or auditing again, when the caller published it and
+ * still reaches it; anyone else gets 404.
  */
 export const PublishTaskDraftRequest = draftChanges.refine(
   (o) => o.clientId !== null || (o.engagementId == null && !o.attachments?.length),

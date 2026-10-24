@@ -351,6 +351,21 @@ export const TaskCalendarItem = z.object({
 export const TaskCalendar = z.object({ items: z.array(TaskCalendarItem).max(500) });
 export type TaskCalendar = z.infer<typeof TaskCalendar>;
 
+/**
+ * The key a screen makes for one save that creates something (`crypto.randomUUID()`): Create
+ * Task, Save as Draft, Duplicate, Set Up Recurring Task and Convert to Recurring (R1, Oct 24).
+ * Send it again only when retrying that same save after a lost answer (a network error or a
+ * timeout); make a new one after a success (Save & Create Another), after any change to the form
+ * and after a 409. A retry with the key makes nothing new: it answers the route's success status
+ * with the record the first save made, as it is now and as the caller reaches it (404 when they
+ * no longer do), and nothing is saved or audited again, even when the body changed. Only the
+ * member who made the record gets it back, and only on the same route for the same task in the
+ * URL: any other use of the key in the firm is 409 IDEMPOTENCY_KEY_REUSED, and the record is
+ * never shown. Kept as long as the record (a discarded draft frees its key). Never on a change
+ * (PATCH) or on publishing a draft.
+ */
+const IdempotencyKey = z.uuid();
+
 const taskFields = {
   typeId: z.uuid().nullable().optional(),
   priority: TaskPriority.optional(),
@@ -384,6 +399,7 @@ const taskFields = {
  * reminders, visibility), as a snapshot; the request's own fields win. The template's reminders
  * that do not fit the new task are left out, never refused: all of them when it has no due date,
  * a Custom one when it has no due time, and one after the due time or at the moment of another.
+ * `idempotencyKey` makes a retry return the task the first save made (see IdempotencyKey).
  */
 export const CreateTaskDetailRequest = z.strictObject({
   clientId: z.uuid(),
@@ -398,6 +414,7 @@ export const CreateTaskDetailRequest = z.strictObject({
   /** Documents of the client to attach. */
   attachments: z.array(AddTaskAttachmentRequest).max(20).optional(),
   templateId: TaskTemplateId.optional(),
+  idempotencyKey: IdempotencyKey.optional(),
 });
 export type CreateTaskDetailRequest = z.input<typeof CreateTaskDetailRequest>;
 
@@ -422,6 +439,16 @@ export const UpdateTaskDetailRequest = z
     'Change at least one field',
   );
 export type UpdateTaskDetailRequest = z.input<typeof UpdateTaskDetailRequest>;
+
+/**
+ * POST /business/tasks/{id}/duplicate: a new OPEN copy with its checklist and reminders (not the
+ * attachments or history). The body is optional. `idempotencyKey` makes a retry return the copy
+ * the first one made; a key that duplicated another task is 409 IDEMPOTENCY_KEY_REUSED.
+ */
+export const DuplicateTaskRequest = z
+  .strictObject({ idempotencyKey: IdempotencyKey.optional() })
+  .optional();
+export type DuplicateTaskRequest = z.input<typeof DuplicateTaskRequest>;
 
 /** POST /business/tasks/{id}/progress: the stage of an OPEN task, nothing else. */
 export const SetTaskProgressRequest = z.strictObject({ progress: TaskProgress });
@@ -687,12 +714,16 @@ const seriesDefaults = {
   reminders: z.array(ReminderRule).max(10).optional(),
 };
 
-/** POST /business/task-series. The client and the start date cannot change afterwards. */
+/**
+ * POST /business/task-series. The client and the start date cannot change afterwards.
+ * `idempotencyKey` makes a retry return the series the first save made (see IdempotencyKey).
+ */
 export const CreateTaskSeriesRequest = z.strictObject({
   clientId: z.uuid(),
   ...seriesDefaults,
   recurrence: Recurrence,
   templateId: TaskTemplateId.optional(),
+  idempotencyKey: IdempotencyKey.optional(),
 });
 export type CreateTaskSeriesRequest = z.input<typeof CreateTaskSeriesRequest>;
 
@@ -819,9 +850,15 @@ export type SkipOccurrenceRequest = z.input<typeof SkipOccurrenceRequest>;
 export const SkipFutureRequest = z.strictObject({ confirm: z.literal(true) });
 export type SkipFutureRequest = z.input<typeof SkipFutureRequest>;
 
-/** POST /business/tasks/{id}/convert-to-recurring: the task becomes the first occurrence. */
+/**
+ * POST /business/tasks/{id}/convert-to-recurring: the task becomes the first occurrence. A task
+ * that already belongs to a series is 400 VALIDATION_FAILED, also when two conversions run at
+ * once. `idempotencyKey` makes a retry return the series the first one made; a key that converted
+ * another task is 409 IDEMPOTENCY_KEY_REUSED.
+ */
 export const ConvertToRecurringRequest = z.strictObject({
   recurrence: endRules(z.strictObject(recurrenceShape)),
+  idempotencyKey: IdempotencyKey.optional(),
 });
 export type ConvertToRecurringRequest = z.input<typeof ConvertToRecurringRequest>;
 
@@ -853,5 +890,10 @@ export const TaskWorkErrorCode = z.enum([
   'TASK_CLOSED',
   /** 409: the document is not one of the task's client's, or is internal and made visible. */
   'ATTACHMENT_NOT_ALLOWED',
+  /**
+   * 409: the idempotency key was already used in the firm by another member, on another route,
+   * for another task, or for a draft since published. Nothing is saved or shown: make a new key.
+   */
+  'IDEMPOTENCY_KEY_REUSED',
 ]);
 export type TaskWorkErrorCode = z.infer<typeof TaskWorkErrorCode>;

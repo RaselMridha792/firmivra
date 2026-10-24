@@ -69,6 +69,12 @@ export const CreateTaskRequest = z.strictObject({
   details: clearable(text(5_000, 'many')),
   dueOn: CalendarDate.optional(),
   assignedUserId: z.uuid().optional(),
+  /**
+   * The screen's key for this save (`crypto.randomUUID()`), sent again only on a retry of the
+   * same save: the retry returns the task the first one made instead of a second. Another use of
+   * the key is 409 IDEMPOTENCY_KEY_REUSED (./work.ts IdempotencyKey has the rules).
+   */
+  idempotencyKey: z.uuid().optional(),
 });
 export type CreateTaskRequest = z.input<typeof CreateTaskRequest>;
 
