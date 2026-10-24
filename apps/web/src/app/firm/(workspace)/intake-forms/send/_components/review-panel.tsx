@@ -178,11 +178,11 @@ export function ReviewPanel({
                 Enabled{' '}
                 <button
                   type="button"
-                  aria-label="Edit reminder schedule"
+                  aria-label="View reminder schedule"
                   onClick={onEditSchedule}
                   className="font-normal text-link underline"
                 >
-                  (Edit)
+                  (View)
                 </button>
               </>
             ) : (

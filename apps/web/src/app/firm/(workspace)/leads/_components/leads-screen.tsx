@@ -15,6 +15,7 @@ import {
   FilterChip,
   FilterGroup,
   KpiCard,
+  SearchField,
   Select,
 } from '@firmivra/ui';
 import {
@@ -33,7 +34,7 @@ import {
   ChatCircleDots,
   EnvelopeSimple,
 } from '@phosphor-icons/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
@@ -52,6 +53,8 @@ import { LEAD_PIPELINE_KEY, PRIORITIES, SOURCES, STAGES, summaryTrend } from './
 import { LeadsTable, type LeadRowAction } from './leads-table';
 
 interface LeadFilters {
+  /** Name, email, phone, source, campaign or notes; every word must match (L12). */
+  search: string;
   source: LeadSource | '';
   serviceId: string;
   stage: LeadPipelineStatus | '';
@@ -70,6 +73,7 @@ interface LeadFilters {
 const NO_OPTIONS = { services: [], staff: [], campaigns: [], tags: [] };
 
 const EMPTY_FILTERS: LeadFilters = {
+  search: '',
   source: '',
   serviceId: '',
   stage: '',
@@ -82,6 +86,16 @@ const EMPTY_FILTERS: LeadFilters = {
   overdue: false,
   archived: false,
 };
+
+/** Waits until typing pauses, so each key press doesn't send a request (as Clients). */
+function useSettled(value: string, ms = 300) {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
 
 function LeadsSummary({
   summary,
@@ -251,6 +265,14 @@ function LeadFilters({
 
   return (
     <FilterBar more={more} onReset={onReset}>
+      <SearchField
+        label="Search leads"
+        placeholder="Search leads by name, email, phone, source..."
+        maxLength={100}
+        minWidth="12rem"
+        value={filters.search}
+        onChange={(event) => onFilter({ search: event.target.value })}
+      />
       <div className="w-full min-w-40 flex-1 sm:w-auto">
         <Select
           label="All Lead Sources"
@@ -328,10 +350,12 @@ export function LeadsScreen() {
     (ids: string[]) => api.leadPipeline.bulk({ action: 'RESTORE', ids }),
     { invalidate: LEAD_PIPELINE_KEY },
   );
+  const search = useSettled(filters.search.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim());
   const query = useMemo<LeadPipelineQuery>(
     () => ({
       page,
       pageSize,
+      ...(search ? { search } : {}),
       ...(filters.source ? { source: filters.source } : {}),
       ...(filters.serviceId ? { serviceId: filters.serviceId } : {}),
       ...(filters.stage ? { stage: filters.stage } : {}),
@@ -344,7 +368,7 @@ export function LeadsScreen() {
       ...(filters.overdue ? { overdue: true } : {}),
       ...(filters.archived ? { archived: true } : {}),
     }),
-    [filters, page, pageSize],
+    [filters, search, page, pageSize],
   );
   const leads = useApiQuery([...LEAD_PIPELINE_KEY, 'list', query], () =>
     api.leadPipeline.list(query),

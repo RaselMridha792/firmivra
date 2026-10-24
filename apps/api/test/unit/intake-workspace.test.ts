@@ -4,6 +4,7 @@ import { INTAKE_FORMS, IntakeFormDefinition } from '@firmivra/types';
 import { publishable, toDefinition } from '../../src/intake-workspace/form-builder.js';
 import { renderIntakePdf } from '../../src/intake-workspace/intake-pdf.js';
 import { maskEmail } from '../../src/intake-workspace/intake-send.service.js';
+import { reminderDays } from '../../src/intake-workspace/intake-settings.service.js';
 import { sectionsOf } from '../../src/intake-workspace/workspace.common.js';
 
 const META = { key: 'ANNUAL_TAX' as const, version: 2, title: 'Fake form' };
@@ -193,5 +194,16 @@ describe('maskEmail', () => {
   it('shows the first letter and the domain only', () => {
     expect(maskEmail('dana@example.test')).toBe('d***@example.test');
     expect(maskEmail(null)).toBe('');
+  });
+});
+
+describe('the old reminder day columns (I8)', () => {
+  it('follow the minutes, rounded up to days, the final after the first and within their rules', () => {
+    expect(reminderDays(4320, 10080)).toEqual({ firstReminderDays: 3, finalReminderDays: 7 });
+    expect(reminderDays(5, 10)).toEqual({ firstReminderDays: 1, finalReminderDays: 2 });
+    expect(reminderDays(30, 1440)).toEqual({ firstReminderDays: 1, finalReminderDays: 2 });
+    expect(reminderDays(1441, 2880)).toEqual({ firstReminderDays: 2, finalReminderDays: 3 });
+    expect(reminderDays(43200, 86400)).toEqual({ firstReminderDays: 30, finalReminderDays: 60 });
+    expect(reminderDays(43200, 43260)).toEqual({ firstReminderDays: 30, finalReminderDays: 31 });
   });
 });

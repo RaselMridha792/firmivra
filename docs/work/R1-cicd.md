@@ -114,6 +114,10 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 
 This is newer than every handoff below, so read it first. Where they differ, this one wins.
 
+**Prod log (Rasel's add-on 4, Oct 24; each AWS change on his yes). Newest last:**
+- 1. Read-only: the SSO session works on account 778127141557. SES production access is granted (the account's sandbox is lifted, dev included). firmivra.com has no DNSSEC, and no Route 53 zone yet.
+- 2a. Rasel's yes: hosted zone firmivra.com created, `Z06906951XI9J0KSHI8TO` (only its own NS and SOA so far).
+
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
 - **Open:** #1084 (the task idempotency key), green. It is the only migration PR open.

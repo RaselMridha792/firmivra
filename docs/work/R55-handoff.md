@@ -1,84 +1,67 @@
 # R55: handoff
 
-## Start here (handoff of 2026-10-24, for the next R55)
+## Start here (handoff of 2026-10-24 evening, for the next R55)
 
 Read these first:
 - `CLAUDE.md` and `docs/work/README.md`;
 - this section;
-- `docs/work/R55-leads.md` (Items, then the L4, L5/L6 and L7 sections);
-- `docs/specs/review-2026-10-21/CHANGE-LIST.md` (section C, Leads);
-- `docs/specs/review-2026-10-23/CHANGE-LIST.md` (section B, Staff Management), with its guide `staff-management--developer-feedback-updated.md`.
+- `docs/work/R55-leads.md` (Items, then "L12 to L14");
+- `docs/work/R55-settings.md` (Availability and Client Portal, reproduced);
+- `docs/work/R55-staff.md` (the section "Octavia's review of Oct 23").
 
 The older sections below are history.
 
-### Open PRs
+### Open PRs and branches
 
 | PR | Branch | What |
 | --- | --- | --- |
-| (this PR) | `rasel/R55-leads-archived` | L10: Archived Leads and Restore (contract, API, screen). It also carries this handoff. |
-| (next) | `rasel/R55-leads-delete-admin` | L11, stacked on L10: only the Owner and the Admin may delete (archive) or restore leads. `requireFirmAdmin` is in `pipeline.shared.ts`; the screen hides Delete, Archive and Restore from everyone else. Tests: unit (every role); e2e (Staff and a Manager get 403 on delete and restore by direct request, a Manager's other bulk actions are unchanged). |
+| #1096 | `rasel/R55-export-permission` | SM6: report exports and the users export check the Export permission. |
+| #1098 | `rasel/R55-leads-search` | L12: search in the Leads filter row; every word matches, so a full name works. |
+| (this PR, docs) | `rasel/R55-settings-repro` | `R55-settings.md` (reproduction), the R file updates and Rasel's answers. |
 
-When a PR before them merges, merge `origin/main` into the next branch (no rebase, no force-push), rerun its typecheck and its mock specs, and push. One open non-contract PR may be stacked on another.
+Docs PRs go one at a time. Code PRs: at most two open.
 
-### Merged this round
+### Merged this round (Oct 24)
 
-- L4: #1042, #1044, #1049.
-- L5: #1048, #1050, #1058.
-- L6: #1061.
-- L7: #1059 (API), #1070 (screen).
-- Earlier: L1 #1030, L2 #1032, L3 #1035, L9 #1036.
+- L10 #1075, L11 #1078, L12 #1080, L13 and L14 #1089.
+- SM1 and SM7 #1090; Availability blocked time #1091.
+- Fixes found by L12 and L13: #1082 (Begin Online source), #1083 (Schedule Appointment's reason, phone and email).
+- Before that: L4 #1042, #1044, #1049; L5 #1048, #1050, #1058; L6 #1061; L7 #1059, #1070; L1 #1030; L2 #1032; L3 #1035; L9 #1036.
 
-### Decisions (Rasel, Oct 23 and 24)
+### Not done, and why
 
-- **L4:**
-  - editor controls as opt-in props in `packages/ui` RichTextEditor;
-  - inline images on a public URL under the firm's portal;
-  - the signature per member.
-- **L5:** client tags are built too.
-- **L7:**
-  - the Communications builder in a panel;
-  - Leads campaigns are Communications campaigns, with no send on creation;
-  - the wide Drawer in `packages/ui`.
-- **L8:** a new `lead_follow_ups` table through R0, **issue #1051**. L8 waits for it.
-- **L11:** "Delete" stays the archive (leads are never deleted) and is Firm Admin only, meaning the Owner and the Admin. Restore follows it.
+- **SM2** (custom role as Admin) didn't reproduce on main: both screens save, with and without escalation. Ask Octavia to retest on dev.
+- **SM4** (Active Sessions, Login History): the cause is known (nothing writes `staff_sessions`, and staff sign-ins go to the platform's log). The fix is in the sign-in flow, and revoking needs "Sign Out All Sessions". Both wait for Rasel.
+- **Client Portal settings:** nothing built. It needs schema, plus Rasel's word on the portal pages (`R55-settings.md`).
+- **Availability's** requests, approval queue, client confirmation and office scope need schema (`R55-settings.md`).
+- **L8** waits for #1051.
+- **The automations test-date fix** wasn't needed: R60's #1076 made the same `day()` change on main. The pushed branch `rasel/R55-automations-test-dates` can be deleted.
 
-### Next, in this order
+### Decided (Rasel, Oct 24 evening; reversible defaults)
 
-1. **Leads:**
-   - L12: the verification checklist (bulk Convert to Client, filters alone and combined, search with paging, columns, Schedule Appointment prefill, statuses). Record Pass, Fail or Blocked with evidence, in a docs PR (it doesn't count toward the two).
-   - L13: website lead capture beyond the intake form. Answer which methods exist, with test steps; don't guess platforms.
-   - L14: direct client creation without a lead (check on Clients).
-   - L8: once #1051 lands.
-2. **Settings > Availability and Settings > Client Portal settings** (`docs/specs/settings-review-2026-10-20/`): reproduce first, one PR each.
-3. **Staff Management API items** (CHANGE-LIST Oct 23, section B, in the guide's retest order):
-   - SM1 bulk upload errors;
-   - SM2 custom role as Admin;
-   - SM4 sessions and login history;
-   - SM5 drafts;
-   - SM6 the Export permission;
-   - SM7 the bulk upload formats.
-4. **SM14 waits for Rasel's own word.** Don't touch role or guard checks for it.
+1. Leads search in the Leads filter row, as Clients (#1098). The shared header stays.
+2. Bulk Convert to Client and the Preferred column: build both, small, in the existing table and bulk-bar style.
+3. Begin Online duplicates: warn and link to the existing lead or client, with no merge. No data fix for leads saved as Other.
+4. Availability: Staff hours are read-only now. HR is a custom role.
+5. Client Portal: portal pages may change, but only for the parts that need no schema. The schema items wait for R1 and Rasel's tap.
+6. SM4 (sessions, login history): Rasel decides it himself. Leave it.
+7. SM14, ownership transfer and Sign Out All Sessions stay unbuilt.
 
-**Gaps noted:**
-- Leads have no activity kind for archive or restore, so both are audited only. A visible entry needs an enum value from R0.
-- The `r23-client-record` mock spec (4 cases) and Arfan's `convert-lead-step-2/3` already fail on main.
-
-### Question for Rasel
-
-SM14 covers Original Owner and Delegated Owner, own password reset, Reset MFA, Resend Invitation, Sign Out All Other Sessions, Lock Account, and the Deactivate hierarchy. It changes role and guard checks in the API and the UI. Should R55 build it? And how are the two points her text leaves open decided:
-- how far an Admin may lock accounts;
-- whether "direct reports" or role rank decides who may act on whom.
+**Next, in order:** bulk Convert to Client, the Preferred column, Begin Online duplicates (warn and link), Staff hours read-only, then the Client Portal parts without schema ((e) to (h) in `R55-settings.md`).
 
 ### Needs from others (current)
 
-- **R0:** issue #1051, `lead_follow_ups` (L8).
-- **Rasel (infra, dev):** register the toll-free number and set `SMS_ORIGINATION_NUMBER` for the dev API, so texts work on dev (L2).
-- **Rasel (dev):** L4's real-inbox check (Gmail, Outlook) needs the dev SES identity. Mailpit verified the HTML.
-- **Contract (later):** a Begin Online lead's answers can be read only while it is in a Begin Online status.
-- **Arfan:** two of his mock specs already fail on main:
-  - `arfan-convert-lead-step-2` (3 cases) and `-step-3` (1 case);
-  - `r23-client-record` (4 cases) also fails on main; seen while testing the client Tags card, not caused by it.
-- **Still open from `R55-users-roles.md`:** R2 (report a failed admin reset email) and R42 (drop `InviteUserRequest`).
+- **R0:**
+  - #1051 `lead_follow_ups` (L8);
+  - `appointments.lead_id` (book a lead before conversion);
+  - Availability's `schedule_change_requests`, `blocked_times.office_id` and an emergency kind;
+  - Client Portal's `clients.office_id`, portal contact and announcement settings, an `ANNOUNCEMENTS` category, and the module label and order, plus custom tabs.
+- **R0 or Rasel (data):** Begin Online leads saved with source OTHER since Oct 14.
+- **R2 (auth):** sign-ins the firm can see and staff sessions (SM4).
+- **Rasel (infra, dev):**
+  - the toll-free number and `SMS_ORIGINATION_NUMBER` (L2);
+  - the dev SES identity for L4's real-inbox check.
+- **Arfan:** `arfan-convert-lead-step-2` (3 cases) and `-step-3` (1 case), and `r23-client-record` (4 cases), already fail on main.
 
 ### Working notes
 
