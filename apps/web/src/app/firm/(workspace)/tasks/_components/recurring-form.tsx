@@ -13,7 +13,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -88,8 +88,32 @@ const Lbl = ({
 
 type Unit = 'DAY' | 'WEEK' | 'MONTH' | 'QUARTER' | 'YEAR';
 
-/** /tasks/recurring/new: Set Up Recurring Task. */
+/**
+ * /tasks/recurring/new: Set Up Recurring Task. Save & Create Another (Octavia's A5) saves the
+ * series once and starts a fresh form (a new key), saying what was saved.
+ */
 export function RecurringFormScreen() {
+  const [round, setRound] = useState(0);
+  const [saved, setSaved] = useState<string>();
+  return (
+    <RecurringForm
+      key={round}
+      saved={saved}
+      onAnother={(title) => {
+        setSaved(title);
+        setRound(round + 1);
+      }}
+    />
+  );
+}
+
+function RecurringForm({
+  saved,
+  onAnother,
+}: {
+  saved: string | undefined;
+  onAnother: (title: string) => void;
+}) {
   const router = useRouter();
   const { members } = useMembers();
   const { clients } = useClients();
@@ -127,7 +151,11 @@ export function RecurringFormScreen() {
   // snapshots it), so ticking a step on one occurrence never ticks it on another.
   const [applyChecklist, setApplyChecklist] = useState(true);
   const [nextKey, setNextKey] = useState(0);
-  const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
+  const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' } | undefined>(
+    saved ? { text: `${saved} saved. Set up the next one.`, tone: 'success' } : undefined,
+  );
+  // One save at a time: a second click before the first answers does nothing.
+  const sendingRef = useRef(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [picking, setPicking] = useState(false);
   const [tpl, setTpl] = useState(false);
@@ -234,7 +262,8 @@ export function RecurringFormScreen() {
       }),
     options,
   );
-  function submit() {
+  function submit(another = false) {
+    if (sendingRef.current) return;
     const e: Record<string, string> = {};
     if (!title.trim()) e['title'] = 'Enter the task name';
     if (typeChoice.problem) e['type'] = typeChoice.problem;
@@ -247,12 +276,17 @@ export function RecurringFormScreen() {
       setMessage({ text: 'Fix the highlighted fields to continue.', tone: 'error' });
       return;
     }
+    sendingRef.current = true;
     save.mutate(undefined, {
       onSuccess: (s) => {
+        if (another) return onAnother(s.title);
         guard.allow();
         router.push(`/tasks/recurring/${s.id}`);
       },
       onError: (er) => setMessage({ text: errorMessage(er, TASK_ERRORS), tone: 'error' }),
+      onSettled: () => {
+        sendingRef.current = false;
+      },
     });
   }
   const err = (k: string) =>
@@ -288,7 +322,7 @@ export function RecurringFormScreen() {
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
-      <UnsavedDialog guard={guard} onSave={submit} saving={save.isPending} />
+      <UnsavedDialog guard={guard} onSave={() => submit(false)} saving={save.isPending} />
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-4">
           <Section
@@ -857,8 +891,20 @@ export function RecurringFormScreen() {
           >
             <FloppyDisk aria-hidden weight="fill" className="size-4" /> Save as Template
           </Button>
-          <Button disabled={save.isPending} onClick={submit} data-testid="series-save">
+          <Button
+            variant="secondary"
+            disabled={save.isPending}
+            onClick={() => submit(false)}
+            data-testid="series-save"
+          >
             Save Recurring Task
+          </Button>
+          <Button
+            disabled={save.isPending}
+            onClick={() => submit(true)}
+            data-testid="series-save-another"
+          >
+            Save &amp; Create Another
           </Button>
         </div>
       </div>
