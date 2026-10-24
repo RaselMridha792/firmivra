@@ -21,8 +21,10 @@ import {
   AppointmentType,
   AppointmentTypeList,
   Availability,
+  BlockConflictList,
   BlockedTime,
   BlockedTimeList,
+  FreeSlotsBlockResult,
   MemberAvailability,
   OkResponse,
   SlotList,
@@ -731,6 +733,7 @@ describe('blocked time', () => {
           userId,
           startsAt: at(5, '09:45'),
           endsAt: at(5, '10:15'),
+          reason: 'Training',
         }),
         409,
         'BLOCKS_APPOINTMENT',
@@ -743,6 +746,7 @@ describe('blocked time', () => {
         userId: people.staffA.id,
         startsAt: at(5, '10:00'),
         endsAt: at(5, '10:30'),
+        reason: 'Training',
       }),
       201,
     );
@@ -752,6 +756,7 @@ describe('blocked time', () => {
         userId: people.staffA2.id,
         startsAt: at(5, '10:30'),
         endsAt: at(5, '11:00'),
+        reason: 'Training',
       }),
       201,
     );
@@ -762,9 +767,171 @@ describe('blocked time', () => {
         userId: people.staffA2.id,
         startsAt: at(5, '09:45'),
         endsAt: at(5, '10:15'),
+        reason: 'Training',
       }),
       201,
     );
+  });
+
+  it('Staff say why they block their own time (400 on reason); Owner and Admin need not', async () => {
+    for (const reason of [undefined, null, '']) {
+      const res = await call('post', '/blocked-times', people.staffA, {
+        userId: people.staffA.id,
+        startsAt: at(2, '15:00'),
+        endsAt: at(2, '15:30'),
+        ...(reason === undefined ? {} : { reason }),
+      });
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect((res.body as { error: { details: { path: string }[] } }).error.details[0]!.path).toBe(
+        'reason',
+      );
+    }
+    const made = exact(
+      BlockedTime,
+      await call('post', '/blocked-times', people.ownerA, {
+        userId: people.staffA.id,
+        startsAt: at(2, '15:00'),
+        endsAt: at(2, '15:30'),
+      }),
+      201,
+    );
+    await call('delete', `/blocked-times/${made.id}`, people.ownerA);
+  });
+
+  it('lists the appointments a block would cover: one member, or anyone for the whole firm', async () => {
+    const one = await seedAppointment(ids.c3, people.staffA2.id, consult, at(20, '10:00'));
+    const other = await seedAppointment(ids.c2, people.staffA.id, consult, at(20, '13:00'));
+    const range = `startsAt=${encodeURIComponent(at(20, '09:00'))}&endsAt=${encodeURIComponent(at(20, '17:00'))}`;
+    const forA2 = exact(
+      BlockConflictList,
+      await call(
+        'get',
+        `/blocked-times/conflicts?${range}&userId=${people.staffA2.id}`,
+        people.staffA2,
+      ),
+    );
+    expect(forA2.items.map((i) => i.id)).toEqual([one.id]);
+    expect(forA2.items[0]).toMatchObject({
+      member: { userId: people.staffA2.id, name: names.staffA2 },
+    });
+    expect(forA2.items[0]!.clientName.length).toBeGreaterThan(0);
+    const firm = exact(
+      BlockConflictList,
+      await call('get', `/blocked-times/conflicts?${range}`, people.ownerA),
+    );
+    expect(firm.items.map((i) => i.id)).toEqual([one.id, other.id]);
+    // Staff ask only about themselves, as they block only themselves.
+    expectError(
+      await call('get', `/blocked-times/conflicts?${range}`, people.staffA2),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call(
+        'get',
+        `/blocked-times/conflicts?${range}&userId=${people.staffA.id}`,
+        people.staffA2,
+      ),
+      403,
+      'FORBIDDEN',
+    );
+    await cancelSeeded(one.id);
+    await cancelSeeded(other.id);
+  });
+
+  it("blocks only the free time around a member's appointments, which stay scheduled", async () => {
+    const a = await seedAppointment(ids.c3, people.staffA2.id, consult, at(21, '10:00'));
+    const aEnd = new Date(
+      Date.parse(at(21, '10:00')) + consult.durationMinutes * 60_000,
+    ).toISOString();
+    const res = exact(
+      FreeSlotsBlockResult,
+      await call('post', '/blocked-times/free-slots', people.staffA2, {
+        userId: people.staffA2.id,
+        startsAt: at(21, '09:00'),
+        endsAt: at(21, '12:00'),
+        reason: 'Training',
+      }),
+      201,
+    );
+    expect(res.kept.map((k) => k.id)).toEqual([a.id]);
+    expect(res.items.map((b) => [b.member?.userId, b.startsAt, b.endsAt])).toEqual([
+      [people.staffA2.id, at(21, '09:00'), at(21, '10:00')],
+      [people.staffA2.id, aEnd, at(21, '12:00')],
+    ]);
+    expect(res.items.every((b) => b.reason === 'Training')).toBe(true);
+    const still = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findUniqueOrThrow({ where: { id: a.id }, select: { status: true } }),
+    );
+    expect(still.status).toBe('SCHEDULED');
+    // All of it booked: nothing to block.
+    expectError(
+      await call('post', '/blocked-times/free-slots', people.ownerA, {
+        userId: people.staffA2.id,
+        startsAt: at(21, '10:00'),
+        endsAt: aEnd,
+      }),
+      409,
+      'NOTHING_FREE',
+    );
+    // Staff still block only themselves, with a reason.
+    expectError(
+      await call('post', '/blocked-times/free-slots', people.staffA2, {
+        userId: null,
+        startsAt: at(21, '13:00'),
+        endsAt: at(21, '14:00'),
+        reason: 'Training',
+      }),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call('post', '/blocked-times/free-slots', people.staffA2, {
+        userId: people.staffA2.id,
+        startsAt: at(21, '13:00'),
+        endsAt: at(21, '14:00'),
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    await cancelSeeded(a.id);
+    for (const b of res.items) await call('delete', `/blocked-times/${b.id}`, people.ownerA);
+  });
+
+  it('a whole-firm free-slots block: the firm where nobody is booked, each member around their bookings', async () => {
+    const a = await seedAppointment(ids.c3, people.staffA2.id, consult, at(15, '10:00'));
+    const aEnd = new Date(
+      Date.parse(at(15, '10:00')) + consult.durationMinutes * 60_000,
+    ).toISOString();
+    const res = exact(
+      FreeSlotsBlockResult,
+      await call('post', '/blocked-times/free-slots', people.ownerA, {
+        userId: null,
+        startsAt: at(15, '09:00'),
+        endsAt: at(15, '12:00'),
+        reason: 'Office closed',
+      }),
+      201,
+    );
+    expect(res.kept.map((k) => k.id)).toEqual([a.id]);
+    const firm = res.items.filter((b) => b.member === null);
+    expect(firm.map((b) => [b.startsAt, b.endsAt])).toEqual([
+      [at(15, '09:00'), at(15, '10:00')],
+      [aEnd, at(15, '12:00')],
+    ]);
+    // Inside the busy window: everyone but the booked member gets the window as their own block.
+    const inWindow = res.items.filter((b) => b.member !== null);
+    expect(inWindow.some((b) => b.member!.userId === people.staffA2.id)).toBe(false);
+    expect(inWindow.find((b) => b.member!.userId === people.staffA.id)).toMatchObject({
+      startsAt: at(15, '10:00'),
+      endsAt: aEnd,
+    });
+    const still = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findUniqueOrThrow({ where: { id: a.id }, select: { status: true } }),
+    );
+    expect(still.status).toBe('SCHEDULED');
+    await cancelSeeded(a.id);
+    for (const b of res.items) await call('delete', `/blocked-times/${b.id}`, people.ownerA);
   });
 
   it('Staff delete only their own; Owner any; another firm gets 404 and changes nothing', async () => {
@@ -775,6 +942,7 @@ describe('blocked time', () => {
           userId,
           startsAt: at(6, '13:00'),
           endsAt: at(6, '13:15'),
+          reason: 'Training',
         }),
         201,
       );
@@ -2284,6 +2452,7 @@ describe('#108 review', () => {
         userId: upper(people.staffA.id),
         startsAt: at(34, '13:00'),
         endsAt: at(34, '13:30'),
+        reason: 'Training',
       }),
       201,
     );
