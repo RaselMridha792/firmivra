@@ -141,6 +141,7 @@ function defaultSettings(): IntakeSettings {
       acceptedFileTypes: ['PDF', 'JPG', 'PNG'],
       maxFileSizeMb: 10,
       consentRequired: true,
+      dataRetentionYears: null,
     },
     updatedAt: null,
     version: 'v1',

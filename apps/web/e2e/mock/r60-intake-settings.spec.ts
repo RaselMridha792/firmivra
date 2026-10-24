@@ -253,6 +253,25 @@ test('additional emails to notify are added, checked, removed and saved (I7)', a
   await expect(list.getByRole('listitem')).toHaveText(['office@example.test']);
 });
 
+// Octavia's I12: a custom number of years, saved; choosing one deletes nothing.
+test('a data retention period in years saves, and can be cleared (I12)', async ({ page }) => {
+  await openSettings(page);
+  const row = page.getByTestId('data-retention');
+  const years = row.getByLabel('Data retention period (years)');
+  await expect(years).toHaveValue('');
+  await expect(row).toContainText('Saving a period deletes nothing.');
+  await years.fill('7');
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
+  await expect(years).toHaveValue('7');
+  await years.fill('0');
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(row).toContainText('Enter 1 to 100 years');
+  await years.fill('');
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(years).toHaveValue('');
+});
+
 test('a reminder in minutes and one in hours save (I8)', async ({ page }) => {
   await openSettings(page);
   const first = page.getByRole('combobox', { name: 'First reminder' });

@@ -130,6 +130,7 @@ export class IntakeSettingsService {
         }),
         maxFileSizeMb: r.maxFileSizeMb,
         consentRequired: r.consentRequired,
+        dataRetentionYears: r.dataRetentionYears,
       },
       updatedAt: iso(r.updatedAt),
       version: r.updatedAt.toISOString(),
@@ -280,6 +281,8 @@ export class IntakeSettingsService {
           data.maxFileSizeMb = s.maxFileSizeMb;
         }
         if (s.consentRequired !== undefined) data.consentRequired = s.consentRequired;
+        // Octavia's I12: saved and shown only; nothing is deleted because of it.
+        if (s.dataRetentionYears !== undefined) data.dataRetentionYears = s.dataRetentionYears;
       }
       const sections = (
         [
@@ -346,6 +349,7 @@ export class IntakeSettingsService {
           acceptedFileTypes: ['application/pdf', 'image/jpeg', 'image/png'],
           maxFileSizeMb: INTAKE_DEFAULT_FILE_SIZE_MB,
           consentRequired: true,
+          dataRetentionYears: null,
         },
         include: { defaultOwner: MEMBER, followUpOwner: MEMBER },
       });

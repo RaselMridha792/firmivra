@@ -600,3 +600,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   answer; `intake-workspace/submitted-notice.ts`, called after the Notifier in the portal submit).
   Intake workspace and intakes e2e 45 of 45, notify templates unit 75 of 75, the Intake Forms mock
   specs 40 of 40; sheet shot on the real API with the email as rendered.
+- Oct 24 (fourth session): I12 (`rasel/R60-intake-retention`, stacked on I7, local): Data
+  retention period in Security & Compliance (`dataRetentionYears`: 1 to 100 whole years, or not
+  set), saved and shown only; the e2e checks that saving one deletes no intake, submission or
+  document. Intake workspace e2e 19 of 19, types unit 13 of 13, the Intake Forms mock specs 41 of
+  41 (one cold-start failure passed on rerun); sheet shot on the real API.
