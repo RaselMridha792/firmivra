@@ -1,6 +1,5 @@
 import { Card } from '@firmivra/ui';
 import { Folder } from '@phosphor-icons/react';
-import { moduleHref } from '../../../../../lib/firm-modules';
 import { ButtonLink } from './button-link';
 
 /** Opens Frame 4, not built yet (R34 PR). */
@@ -18,7 +17,7 @@ export function DocumentRequestsCard() {
       </div>
       <ButtonLink
         variant="outline"
-        href={moduleHref('document-request-create')}
+        href="/documents/requests/new"
         className="mt-4 w-full"
         data-testid="create-document-request"
       >
