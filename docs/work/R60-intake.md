@@ -29,6 +29,12 @@ R60's context was full; the next R60 starts from this section. Read `CLAUDE.md`,
 Notify additional emails, from `main`) and #1116 (I12, data retention, stacked on #1115). After
 #1115 merges, merge `origin/main` into `rasel/R60-intake-retention` before #1116 merges.
 
+**Later on Oct 25:**
+- #1115's CI fix: the client-submit notice (`intake.submitted-notice`) left `ALWAYS_SENT` and keeps the INTAKE category. It is sent with no `recipient`, so no preference applies anyway, and `notify.test.ts` keeps its rule that always-sent templates are ACCOUNT. `main` merged in; new head `a2479a0`.
+- API unit tests: 1724 of 1724. Intakes e2e: 27 of 27. Types, API and web typecheck: 0 errors.
+- Column request item 12 (each existing firm's contact email in Notify additional emails) waits for Rasel's own tap before anyone touches `packages/db`. It stays written in this file (on #1115's branch); he will ask.
+- Items (a) to (d) below are not started.
+
 **Rasel's answers (Oct 25):**
 1. Column items 7 to 11 are on `main` (R1's #1095): build them now, in this order, one PR each,
    at most two open: (a) SM11 Work Start Date, (b) SM8 company schedules, (c) the staff phone
