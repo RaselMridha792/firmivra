@@ -1574,6 +1574,14 @@ export const StaffPayFrequency = z.enum([
 ]);
 export type StaffPayFrequency = z.infer<typeof StaffPayFrequency>;
 
+/** R55's D4 (Oct 25): what a Dashboard service card counts. */
+export const DashboardCardMetric = z.enum([
+  'ACTIVE_ENGAGEMENTS',
+  'ENGAGEMENTS_IN_STATUS',
+  'COMPLETED_IN_PERIOD',
+]);
+export type DashboardCardMetric = z.infer<typeof DashboardCardMetric>;
+
 export const StaffDocumentType = z.enum([
   'EMPLOYMENT_AGREEMENT',
   'CONTRACTOR_AGREEMENT',

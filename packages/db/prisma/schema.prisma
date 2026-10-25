@@ -988,7 +988,9 @@ model Business {
   platformFirmMetrics       PlatformFirmMetricsDaily[]       @relation("PlatformFirmMetricsDaily")
   platformLegalAcceptances  PlatformLegalAcceptance[]
 
-  firmOfficeMembers FirmOfficeMember[]
+  firmOfficeMembers      FirmOfficeMember[]
+  // R55's D4 (Oct 25): the firm's Dashboard service-card templates.
+  dashboardCardTemplates DashboardCardTemplate[]
 
   @@map("businesses")
 }
@@ -1218,6 +1220,9 @@ model Membership {
   signupCandidatesReviewed  ClientSignupMatchCandidate[] @relation("SignupCandidateReviewedBy")
   signupVerifications       ClientSignupVerification[]
   signupOperations          ClientSignupOperation[]
+  // R55's D4 (Oct 25): Dashboard card templates this member made or last changed.
+  dashboardCardsCreated     DashboardCardTemplate[]      @relation("DashboardCardCreatedBy")
+  dashboardCardsUpdated     DashboardCardTemplate[]      @relation("DashboardCardUpdatedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -3188,7 +3193,9 @@ model Service {
   appointmentTypes AppointmentType[]
 
   // R1 (Oct 21): the locations offering this service.
-  firmOffices FirmOfficeService[]
+  firmOffices    FirmOfficeService[]
+  // R55's D4 (Oct 25): Dashboard cards that count this service.
+  dashboardCards DashboardCardTemplate[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -8870,6 +8877,42 @@ model ClientSignupOperation {
   @@unique([businessId, idempotencyKey])
   @@index([businessId, clientAccountId])
   @@map("client_signup_operations")
+}
+
+/// R55's D4 (Oct 25): what a Dashboard service card counts.
+enum DashboardCardMetric {
+  ACTIVE_ENGAGEMENTS
+  ENGAGEMENTS_IN_STATUS
+  COMPLETED_IN_PERIOD
+}
+
+/// R55's D4 (Oct 25): a firm's Dashboard service-card template, one per slot (1 to 6). The fixed
+/// cards (Total Clients, New Leads, Outstanding Invoices) are never rows. `status_key` is the
+/// engagement or tax status the metric counts, empty only for ACTIVE_ENGAGEMENTS (SQL only). A card
+/// is turned off with `enabled`, never deleted; `version` refuses a stale edit.
+model DashboardCardTemplate {
+  id              String              @id @default(uuid(7)) @db.Uuid
+  businessId      String              @map("business_id") @db.Uuid
+  slot            Int                 @db.SmallInt
+  serviceId       String?             @map("service_id") @db.Uuid
+  metric          DashboardCardMetric
+  statusKey       String?             @map("status_key")
+  /// 1 to 40 characters, trimmed.
+  label           String
+  enabled         Boolean             @default(true)
+  version         Int                 @default(1)
+  createdByUserId String              @map("created_by_user_id") @db.Uuid
+  updatedByUserId String              @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business   @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  service   Service?   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  createdBy Membership @relation("DashboardCardCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy Membership @relation("DashboardCardUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, slot])
+  @@map("dashboard_card_templates")
 }
 
 /// SM8 (R60's request 11): a firm's saved work schedules, offered on Create Staff, like the saved
