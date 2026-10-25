@@ -44,12 +44,17 @@ const relatedLabel = (t: MessageThread) =>
   t.related ? t.related.type.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Client';
 
 /** /messages: the firm's inbox, the open conversation and the client beside it. */
-export function MessagesScreen() {
+export function MessagesScreen({
+  initialComposing = false,
+}: {
+  /** Open New Message at once (the dashboard's shortcuts). */
+  initialComposing?: boolean;
+} = {}) {
   const qc = useQueryClient();
   const [tab, setTab] = useState<TabId>('all');
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState<string>();
-  const [composing, setComposing] = useState(false);
+  const [composing, setComposing] = useState(initialComposing);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const inbox = useApiQuery([...KEY, 'inbox'], () => api.messages.inbox({ limit: 100 }));
   const unread = useApiQuery([...KEY, 'unread'], () => api.messages.unreadCount());

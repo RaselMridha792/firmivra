@@ -52,6 +52,16 @@ async function summary(
     .set('x-business-id', firms[firm].id)
     .set('authorization', `Bearer ${token}`);
 }
+/** A list the dashboard opens, as the same member reads it: its total. */
+async function totalOf(who: Person, path: string): Promise<number> {
+  const { token } = await app.get(TokenService).signLocal(who.id, 'STAFF');
+  const res = await request(app.getHttpServer())
+    .get(`/api/v1${path}`)
+    .set('x-business-id', firms.a.id)
+    .set('authorization', `Bearer ${token}`);
+  expect(res.status, `${path}: ${JSON.stringify(res.body)}`).toBe(200);
+  return (res.body as { total: number }).total;
+}
 const read = async (who: Person, firm: 'a' | 'b', query = '') => {
   const res = await summary(who, firm, 'STAFF', query);
   expect(res.status, JSON.stringify(res.body)).toBe(200);
@@ -247,8 +257,8 @@ describe('GET /business/dashboard/summary', () => {
       previousTo: expect.any(String) as string,
     });
     expect(s.pipeline).toEqual({
-      // The New Lead and In Review leads; an archived one is not in the pipeline.
-      leads: 2,
+      // C5: the New Lead that came this month, as Leads lists them (In Review and archived not).
+      leads: 1,
       consultation: null,
       intake: 0,
       inProgress: 2,
@@ -410,6 +420,26 @@ describe('GET /business/dashboard/summary', () => {
     const future = await summary(people.ownerA, 'a', 'STAFF', `?revenueYear=${lastYear + 2}`);
     expect(future.status).toBe(400);
     expect((future.body as { error: { code: string } }).error.code).toBe('VALIDATION_FAILED');
+  });
+
+  // Octavia's C5 (V1): each stage counts exactly what the list it opens shows, for each member.
+  it('counts each pipeline stage as the list it opens shows it', async () => {
+    for (const who of [people.ownerA, people.staffA]) {
+      for (const query of ['', '?pipelinePeriod=THIS_YEAR', '?pipelinePeriod=TODAY']) {
+        const { pipeline: p } = await read(who, 'a', query);
+        const span = `from=${p.from}&to=${p.to}`;
+        expect([
+          query,
+          await totalOf(who, `/business/leads/pipeline?stage=SUBMITTED&${span}`),
+          await totalOf(who, '/business/intakes?tab=open'),
+          await totalOf(who, '/business/tax-returns?workflowGroup=IN_PROGRESS'),
+          await totalOf(
+            who,
+            `/business/tax-returns?workflowStatus=ACCEPTED&acceptedFrom=${p.from}&acceptedTo=${p.to}`,
+          ),
+        ]).toEqual([query, p.leads, p.intake, p.inProgress, p.completed]);
+      }
+    }
   });
 
   it("gives each due task its priority, and no tax season until the firm's settings hold one", async () => {

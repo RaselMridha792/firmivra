@@ -17,3 +17,4 @@ export { createLocationsClient, type LocationsClient } from './locations-client.
 export * from './profile-changes.js';
 export * from './firm-billing.js';
 export * from './portal-tabs.js';
+export * from './support-messages.js';
