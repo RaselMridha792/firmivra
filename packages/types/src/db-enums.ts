@@ -36,6 +36,53 @@ export const ClientAccountStatus = z.enum([
 ]);
 export type ClientAccountStatus = z.infer<typeof ClientAccountStatus>;
 
+/** R55's Client Sign-ups (Oct 25): how a firm decides its portal sign-ups. */
+export const ClientSignupMode = z.enum(['MANUAL', 'AUTOMATIC']);
+export type ClientSignupMode = z.infer<typeof ClientSignupMode>;
+
+/** R55's Client Sign-ups: a sign-up's check against the firm's client records, apart from its status. */
+export const SignupMatchStatus = z.enum([
+  'UNCHECKED',
+  'NO_MATCH',
+  'POTENTIAL_MATCH',
+  'NOT_A_MATCH',
+  'LINKED',
+  'RESTORED',
+]);
+export type SignupMatchStatus = z.infer<typeof SignupMatchStatus>;
+
+export const SignupCandidateResolution = z.enum(['OPEN', 'NOT_A_MATCH', 'VERIFIED']);
+export type SignupCandidateResolution = z.infer<typeof SignupCandidateResolution>;
+
+/** Which contact on the firm's own client record was called: never the value, never a sign-up's. */
+export const SignupContactRef = z.enum(['CLIENT_PHONE', 'CLIENT_EMAIL', 'CLIENT_CONTACT']);
+export type SignupContactRef = z.infer<typeof SignupContactRef>;
+
+export const SignupCallOutcome = z.enum(['REACHED', 'NOT_REACHED']);
+export type SignupCallOutcome = z.infer<typeof SignupCallOutcome>;
+
+export const SignupIdentityResult = z.enum(['VERIFIED', 'NOT_VERIFIED']);
+export type SignupIdentityResult = z.infer<typeof SignupIdentityResult>;
+
+export const SignupPermissionScope = z.enum(['RESTORE_ACCESS', 'LINK_RECORD', 'BOTH']);
+export type SignupPermissionScope = z.infer<typeof SignupPermissionScope>;
+
+export const SignupOperationKind = z.enum([
+  'APPROVE',
+  'DECLINE',
+  'LINK_EXISTING',
+  'RESTORE_ACCESS',
+  'NOT_A_MATCH',
+  'KEEP_PENDING',
+  'INVITE_DELIVERY',
+  'RECOVERY_DELIVERY',
+  'POLICY_CHANGE',
+]);
+export type SignupOperationKind = z.infer<typeof SignupOperationKind>;
+
+export const SignupOperationStatus = z.enum(['COMMITTED', 'PENDING', 'SUCCEEDED', 'FAILED']);
+export type SignupOperationStatus = z.infer<typeof SignupOperationStatus>;
+
 export const ClientAccountType = z.enum(['INDIVIDUAL', 'BUSINESS']);
 export type ClientAccountType = z.infer<typeof ClientAccountType>;
 
