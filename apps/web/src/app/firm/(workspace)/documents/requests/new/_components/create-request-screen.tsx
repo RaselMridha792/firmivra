@@ -1,7 +1,7 @@
 'use client';
 
 import type { RequestPacketDetail, RequestTemplate } from '@firmivra/types';
-import { Button, Modal, PageHeader, Select, Stepper } from '@firmivra/ui';
+import { Button, Modal, PageHeader, Select, Skeleton, Stepper } from '@firmivra/ui';
 import { ArrowLeft, ArrowRight, CaretRight, CheckCircle } from '@phosphor-icons/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -16,6 +16,9 @@ import { ChooseDocumentsStep } from './choose-documents';
 import {
   check,
   type CheckPoint,
+  draftFromPacket,
+  itemPlan,
+  setupBody,
   defaultMessage,
   defaultSubject,
   type DraftErrors,
@@ -113,8 +116,19 @@ export function CreateRequestScreen() {
   const [done, setDone] = useState<RequestPacketDetail | null>(null);
   const [idempotencyKey] = useState(() => crypto.randomUUID());
 
+  // Edit Draft (`?draft=`, the guide: "Edit Draft returns to Frame 4 with the same draft"): the
+  // saved draft opens here; its client, recipient, service and type stay as saved (the API's
+  // update changes the rest).
+  const draftId = params.get('draft');
+  const stored = useQuery({
+    queryKey: ['document-requests', draftId],
+    queryFn: () => api.documentLibrary.request(draftId ?? ''),
+    enabled: Boolean(draftId),
+  });
+  const editing = Boolean(draftId) && stored.data?.status === 'DRAFT';
+
   // Opened from a client's profile (`?clientId=`): that client is chosen until another is.
-  const presetId = params.get('clientId');
+  const presetId = params.get('clientId') ?? stored.data?.client.id ?? null;
   const preset = useQuery({
     queryKey: ['create-request', 'client', presetId],
     queryFn: () => api.clients.get(presetId ?? ''),
@@ -126,6 +140,12 @@ export function CreateRequestScreen() {
     queryFn: () => api.documentLibrary.settings(),
   });
   const [reminderChosen, setReminderChosen] = useState(false);
+  const [opened, setOpened] = useState<string | null>(null);
+  if (editing && stored.data && opened !== stored.data.id) {
+    setOpened(stored.data.id);
+    setReminderChosen(true);
+    setDraft(fill(draftFromPacket(stored.data, { ...EMPTY_DRAFT, client: preset.data ?? null })));
+  }
   const days = defaults.data?.requestReminderDaysBefore;
   const withDefaults: RequestDraft =
     reminderChosen || days === undefined
@@ -166,7 +186,8 @@ export function CreateRequestScreen() {
   const today = todayIso();
   function verify(at: CheckPoint): DraftErrors {
     const found = check(view, at, today);
-    if (at !== 'documents' && at !== 'message' && view.client) {
+    // A saved draft keeps its service; a new request needs one open service, or one chosen.
+    if (at !== 'documents' && at !== 'message' && view.client && !editing) {
       if (services && services.length === 0)
         found['service'] =
           'This client has no open service. Start one on the client’s profile first.';
@@ -205,9 +226,12 @@ export function CreateRequestScreen() {
     }
     setBusy(true);
     try {
-      const packet = await api.documentLibrary.createRequest(
-        packetBody(view, { idempotencyKey, send, type: typeOf(view.typeId) }),
-      );
+      const packet =
+        editing && stored.data
+          ? await saveDraft(stored.data, send)
+          : await api.documentLibrary.createRequest(
+              packetBody(view, { idempotencyKey, send, type: typeOf(view.typeId) }),
+            );
       setDone(packet);
       void queryClient.invalidateQueries({ queryKey: ['document-requests'] });
     } catch (error) {
@@ -215,6 +239,31 @@ export function CreateRequestScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  /** A saved draft: its setup, then its checklist made the form's, then sent if asked. */
+  async function saveDraft(p: RequestPacketDetail, send: boolean) {
+    const lib = api.documentLibrary;
+    let last = await lib.updateRequest(p.id, setupBody(view));
+    const plan = itemPlan(p.checklist, view);
+    for (const id of plan.remove) last = await lib.removeItem(p.id, id);
+    for (const u of plan.update) last = await lib.updateItem(p.id, u.id, u.body);
+    const added: string[] = [];
+    for (const body of plan.add) {
+      const before = new Set(last.checklist.map((i) => i.id));
+      last = await lib.addItem(p.id, body);
+      const made = last.checklist.find((i) => !before.has(i.id));
+      if (made) added.push(made.id);
+    }
+    let n = 0;
+    const order = plan.order.flatMap((id) => {
+      const at = id ?? added[n++];
+      return at ? [at] : [];
+    });
+    const now = last.checklist.filter((i) => i.status !== 'CANCELLED').map((i) => i.id);
+    if (order.length > 1 && order.join() !== now.join())
+      last = await lib.reorderItems(p.id, { ids: order });
+    return send ? lib.sendRequest(p.id) : last;
   }
 
   const dirty = view.client !== null || view.title.trim() !== '' || view.items.length > 0;
@@ -228,6 +277,7 @@ export function CreateRequestScreen() {
       <Select
         label="Service *"
         value={view.serviceId}
+        disabled={editing}
         error={errors['service']}
         onChange={(e) => patch({ serviceId: e.target.value })}
         options={[
@@ -241,6 +291,7 @@ export function CreateRequestScreen() {
       </p>
     ) : null;
 
+  const heading = editing ? 'Edit Document Request' : 'Create Document Request';
   const actions =
     step === 'details' ? (
       <Button variant="outline" onClick={leave}>
@@ -259,6 +310,25 @@ export function CreateRequestScreen() {
           </Button>
         )}
       </>
+    );
+
+  if (draftId && !editing && !done)
+    return (
+      <div data-testid="create-document-request" className="flex min-w-0 flex-col gap-5">
+        <PageHeader title="Edit Document Request" actions={actions} />
+        {stored.isPending ? (
+          <Skeleton className="h-96" />
+        ) : (
+          <p role="alert" className="rounded-card bg-surface p-6 text-center text-text shadow-card">
+            {stored.isError
+              ? 'This draft was not found, or it could not be loaded right now.'
+              : 'This request was sent, so it is no longer a draft. Open it from Document Requests.'}{' '}
+            <Link href="/documents/requests" className="font-medium text-action underline">
+              Back to Document Requests
+            </Link>
+          </p>
+        )}
+      </div>
     );
 
   return (
@@ -287,12 +357,12 @@ export function CreateRequestScreen() {
                 <CaretRight weight="bold" className="size-3 text-muted" />
               </li>
               <li aria-current="page" className="font-medium text-heading">
-                Create Document Request
+                {heading}
               </li>
             </ol>
           </nav>
         }
-        title="Create Document Request"
+        title={heading}
         subtitle={SUBTITLES[step]}
         actions={actions}
       />
@@ -342,10 +412,17 @@ export function CreateRequestScreen() {
         ) : step === 'details' ? (
           <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
             <div className="flex min-w-0 flex-col gap-5">
-              <RecipientSection draft={view} onChange={patch} team={members} errors={errors} />
+              <RecipientSection
+                draft={view}
+                onChange={patch}
+                team={members}
+                errors={errors}
+                locked={editing}
+              />
               <DetailsSection
                 draft={view}
                 types={templates.isError ? null : (types ?? [])}
+                typeLocked={editing}
                 onType={setType}
                 onChange={patch}
                 errors={errors}

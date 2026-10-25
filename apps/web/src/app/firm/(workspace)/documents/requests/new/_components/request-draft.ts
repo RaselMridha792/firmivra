@@ -1,4 +1,12 @@
-import type { ClientListItem, CreateRequestPacketRequest, RequestTemplate } from '@firmivra/types';
+import type {
+  ClientListItem,
+  CreateRequestItemRequest,
+  CreateRequestPacketRequest,
+  RequestPacketDetail,
+  RequestTemplate,
+  UpdateRequestItemRequest,
+  UpdateRequestPacketRequest,
+} from '@firmivra/types';
 
 /** One document on the request's checklist; unticked rows stay listed but are not requested. */
 export interface DraftItem {
@@ -10,6 +18,8 @@ export interface DraftItem {
   selected: boolean;
   /** The template it came from (Request Type, "Use a Template" or a saved list). */
   templateId: string | null;
+  /** A saved draft's own item (Edit Draft): changed, removed or kept in place. */
+  itemId?: string;
 }
 
 export interface RequestDraft {
@@ -232,4 +242,111 @@ export const endOfDay = (day: string) => new Date(`${day}T23:59:59`).toISOString
 export function todayIso(now = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** A saved draft as the form (Edit Draft): what was saved, the message as typed. */
+export function draftFromPacket(p: RequestPacketDetail, base: RequestDraft): RequestDraft {
+  const day = (iso: string | null) => (iso ? todayIso(new Date(iso)) : '');
+  // The saved client by name until the full record (email, phone) loads in its place.
+  const client = {
+    id: p.client.id,
+    displayName: p.client.name,
+    email: null,
+    phone: null,
+  } as unknown as ClientListItem;
+  return {
+    ...base,
+    client: base.client ?? client,
+    recipientKind: p.recipient.kind,
+    memberUserId: p.recipient.kind === 'MEMBER' ? (p.recipient.userId ?? '') : '',
+    serviceId: p.service.id,
+    title: p.title,
+    typeId: p.templateId ?? CUSTOM,
+    dueOn: p.dueOn ?? '',
+    items: p.checklist
+      .filter((i) => i.status !== 'CANCELLED')
+      .map((i) => ({
+        key: itemKey(),
+        itemId: i.id,
+        title: i.title,
+        description: i.instructions ?? '',
+        required: i.required,
+        categoryId: i.category?.id ?? null,
+        selected: true,
+        templateId: null,
+      })),
+    subject: p.messageSubject ?? base.subject,
+    message: p.messageBody ?? base.message,
+    subjectEdited: p.messageSubject !== null,
+    messageEdited: p.messageBody !== null,
+    notifyEmail: p.notifyEmail,
+    notifyPortal: p.notifyPortal,
+    notifySms: p.notifySms,
+    reminder: p.reminderDaysBefore !== null,
+    reminderDays: p.reminderDaysBefore ?? base.reminderDays,
+    allowMultipleFiles: p.allowMultipleFiles,
+    allowClientComments: p.allowClientComments,
+    expires: p.expiresAt !== null,
+    expiresOn: day(p.expiresAt),
+  };
+}
+
+/** The draft's setup for PATCH: everything a draft may change (never its client or type). */
+export function setupBody(draft: RequestDraft): UpdateRequestPacketRequest {
+  const text = (s: string) => (s.trim() ? s.trim() : null);
+  return {
+    title: draft.title.trim(),
+    dueOn: draft.dueOn || null,
+    expiresAt: draft.expires && draft.expiresOn ? endOfDay(draft.expiresOn) : null,
+    messageSubject: text(draft.subject),
+    messageBody: text(draft.message),
+    notifyEmail: draft.notifyEmail,
+    notifyPortal: draft.notifyPortal,
+    notifySms: draft.notifySms,
+    reminderDaysBefore: draft.reminder ? draft.reminderDays : null,
+    allowMultipleFiles: draft.allowMultipleFiles,
+    allowClientComments: draft.allowClientComments,
+  };
+}
+
+/**
+ * What the saved checklist needs to become the form's: items to take off (unticked or removed),
+ * items to change, items to add, and the order afterwards (`null` stands for each added one).
+ */
+export function itemPlan(
+  saved: RequestPacketDetail['checklist'],
+  draft: RequestDraft,
+): {
+  remove: string[];
+  update: { id: string; body: UpdateRequestItemRequest }[];
+  add: CreateRequestItemRequest[];
+  order: (string | null)[];
+} {
+  const live = saved.filter((i) => i.status !== 'CANCELLED');
+  const keep = selectedItems(draft);
+  const kept = new Set(keep.flatMap((i) => (i.itemId ? [i.itemId] : [])));
+  const text = (s: string) => (s.trim() ? s.trim() : null);
+  const update = keep.flatMap((i) => {
+    const was = i.itemId ? live.find((x) => x.id === i.itemId) : undefined;
+    if (!was) return [];
+    const body: UpdateRequestItemRequest = {};
+    if (i.title.trim() !== was.title) body.title = i.title.trim();
+    if (text(i.description) !== was.instructions) body.instructions = text(i.description);
+    if (i.required !== was.required) body.required = i.required;
+    if ((i.categoryId ?? null) !== (was.category?.id ?? null)) body.categoryId = i.categoryId;
+    return Object.keys(body).length ? [{ id: was.id, body }] : [];
+  });
+  return {
+    remove: live.filter((i) => !kept.has(i.id)).map((i) => i.id),
+    update,
+    add: keep
+      .filter((i) => !i.itemId || !live.some((x) => x.id === i.itemId))
+      .map((i) => ({
+        title: i.title.trim(),
+        instructions: text(i.description),
+        required: i.required,
+        categoryId: i.categoryId,
+      })),
+    order: keep.map((i) => (i.itemId && live.some((x) => x.id === i.itemId) ? i.itemId : null)),
+  };
 }
