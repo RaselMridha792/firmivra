@@ -1,14 +1,27 @@
-import type {
-  DashboardKpi,
-  DashboardRevenue,
-  DashboardTask,
-  Task,
-  TaskPriority,
+import {
+  bucketsOf,
+  type DashboardKpi,
+  type DashboardRevenue,
+  type DashboardRevenuePeriod,
+  type DashboardTask,
+  shapeOf,
+  type Task,
+  type TaskPriority,
 } from '@firmivra/types';
 
-/** One row of the revenue query: net cents received in one month of the year for one service. */
+// The periods live in packages/types (the web's mock and selectors use the same days).
+export {
+  addDays,
+  bucketsOf,
+  rangeOf,
+  revenueRangeOf,
+  shapeOf,
+  type BucketShape,
+} from '@firmivra/types';
+
+/** One row of the revenue query: net cents received on one firm-local day for one service. */
 export interface RevenueRow {
-  month: number;
+  day: string;
   serviceId: string | null;
   name: string | null;
   cents: number;
@@ -17,30 +30,36 @@ export interface RevenueRow {
 export const kpi = (value: number, previous: number | null): DashboardKpi => ({ value, previous });
 
 /**
- * The year's money by month and by service. A month or a service can be negative when refunds
- * exceed the money received in it; services at or below zero are left out of the breakdown,
- * since a share of a donut cannot be negative. The total is always the sum of the months.
+ * The span's money by bar and by service. A bar or a service can be negative when refunds exceed
+ * the money received in it; services at or below zero are left out of the breakdown, since a
+ * share of a donut cannot be negative. The total is always the sum of the bars.
  */
 export function revenueOf(
   rows: RevenueRow[],
-  year: number,
-  previousYearCents: number | null,
+  range: { period: DashboardRevenuePeriod; from: string; to: string },
+  previousCents: number | null,
 ): DashboardRevenue {
-  const byMonthCents = Array.from({ length: 12 }, () => 0);
+  const buckets = bucketsOf(range.from, range.to, shapeOf(range.period)).map((b) => ({
+    ...b,
+    cents: 0,
+  }));
   const services = new Map<string, DashboardRevenue['byService'][number]>();
   for (const row of rows) {
-    if (row.month < 1 || row.month > 12) continue;
-    byMonthCents[row.month - 1] = (byMonthCents[row.month - 1] ?? 0) + row.cents;
+    const bucket = buckets.find((b) => b.from <= row.day && row.day <= b.to);
+    if (!bucket) continue;
+    bucket.cents += row.cents;
     const key = row.serviceId ?? '';
     const service = services.get(key) ?? { serviceId: row.serviceId, name: row.name, cents: 0 };
     service.cents += row.cents;
     services.set(key, service);
   }
   return {
-    year,
-    totalCents: byMonthCents.reduce((sum, cents) => sum + cents, 0),
-    previousYearCents,
-    byMonthCents,
+    period: range.period,
+    from: range.from,
+    to: range.to,
+    totalCents: buckets.reduce((sum, b) => sum + b.cents, 0),
+    previousCents,
+    buckets,
     byService: [...services.values()]
       .filter((s) => s.cents > 0)
       .sort((a, b) => b.cents - a.cents || (a.name ?? '').localeCompare(b.name ?? '')),
@@ -67,16 +86,4 @@ export function dueTasks(tasks: Task[], priorities: Map<string, TaskPriority>): 
         : [],
     )
     .slice(0, 5);
-}
-
-/** The pipeline's Completed count for the chosen period (DashboardPipelinePeriod). */
-export function completedIn(
-  period: 'THIS_MONTH' | 'LAST_MONTH' | 'THIS_YEAR',
-  counts: { thisMonth: number; lastMonth: number; thisYear: number },
-): number {
-  return period === 'LAST_MONTH'
-    ? counts.lastMonth
-    : period === 'THIS_YEAR'
-      ? counts.thisYear
-      : counts.thisMonth;
 }
