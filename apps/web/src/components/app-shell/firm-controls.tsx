@@ -389,7 +389,8 @@ export function HelpSupportPanel({
         <HelpOption
           icon={WarningCircle}
           title="Report a Problem"
-          body="Tell us what went wrong. The email names your firm and the page you were on."
+          // Octavia's D3, word for word. Attachments are the user's to add in their own email.
+          body="Describe what went wrong. Your firm name and affected page will be included in the report."
           href={`mailto:${email}?${report}`}
         />
       </div>
