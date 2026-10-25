@@ -620,19 +620,30 @@ export class DocumentPacketsService {
   }
 
   /** The client's bell and email copy for the request (R6, on its first item). */
+  /** Tells the client on the channels the request's switches chose (email, portal, text). */
   private async tell(businessId: string, packetId: string, actorUserId: string) {
-    const first = await this.database.forBusiness(businessId).documentRequest.findFirst({
+    const db = this.database.forBusiness(businessId);
+    const packet = await db.documentRequestPacket.findFirst({
+      where: { businessId, id: packetId },
+      select: { notifyEmail: true, notifyPortal: true, notifySms: true },
+    });
+    const first = await db.documentRequest.findFirst({
       where: { businessId, packetId, status: { not: 'CANCELLED' } },
       orderBy: { sortOrder: 'asc' },
       select: { id: true },
     });
-    if (!first) return;
+    if (!packet || !first) return;
     try {
       await this.notifier.notify({
         businessId,
         event: 'document.requested',
         recordId: first.id,
         actorUserId,
+        channels: {
+          inApp: packet.notifyPortal,
+          email: packet.notifyEmail,
+          sms: packet.notifySms,
+        },
       });
     } catch (error) {
       this.logger.warn(

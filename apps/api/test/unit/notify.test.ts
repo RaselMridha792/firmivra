@@ -230,7 +230,12 @@ describe('SendingNotifyService', () => {
         .filter(([, c]) => c === 'sms')
         .map(([t]) => t)
         .sort(),
-    ).toEqual(['client.signup-sms-code', 'lead.message-sms', 'platform.message-sms']);
+    ).toEqual([
+      'client.signup-sms-code',
+      'document.requested-sms',
+      'lead.message-sms',
+      'platform.message-sms',
+    ]);
     for (const t of ALWAYS_SENT) expect(TEMPLATE_CATEGORY[t]).toBe('ACCOUNT');
     expect(Object.keys(TEMPLATE_CATEGORY).sort()).toEqual(Object.keys(TEMPLATE_CHANNEL).sort());
   });
