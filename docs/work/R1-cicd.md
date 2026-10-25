@@ -271,6 +271,14 @@ This is newer than every handoff below, so read it first. Where they differ, thi
   - **Only the smoke test failed.** All 6 URLs printed an empty status code, about 0.1 s each, with no curl error. Dev's identical step prints `200` for each, with the same runner image and environment. Not explained yet.
   - **Checked from R1's machine at 23:4x UTC:** the 3 sites and their `/api/v1/health` all answer 200, and the health check reports `{"status":"ok","db":"ok"}`.
   - **Not checked yet**, because the SSO session expired: auto scaling and task counts, the alarm topic subscription, and that the migrations ran once.
+- 8d. Oct 24 ~23:55 UTC, read-only after Rasel's SSO login. Rasel: don't re-run the failed run.
+  - **Auto scaling:** `firmivra-prod-api` and `-web` each have min 2, max 6, target tracking at 55% average CPU, not suspended. Both are `ACTIVE` with 2 of 2 tasks running, rollouts `COMPLETED`, on images `564c8cfaf` (task definitions `:3`).
+  - **Migrations ran once:** one stream in `/firmivra/prod/migrate`. All 162 migrations were applied ("All migrations have been successfully applied."), then "App role firmivra_app can log in". The workflow step fails on a non-zero exit, and it succeeded.
+  - **Alarms:** the topic `firmivra-prod-alarms` exists with **no subscription** yet; Rasel subscribes by CLI, so no address goes in the repo. All 5 alarms send to it, and all are `OK`.
+  - **Smoke test:** #1137 logs each curl's exit code and error (dev and prod). Rasel merges.
+  - **One-offs, for later:**
+    - `create-firm-key` refuses outside `APP_ENV=dev`. In prod, the API's firm-key sweep (every few minutes) gives LVP its key after the bootstrap, so check its alias read-only.
+    - The headers of `bootstrap-prod.ts` and `bootstrap-prod.mjs` still say to run `create-firm-key` after the bootstrap. That's out of date for prod.
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).
