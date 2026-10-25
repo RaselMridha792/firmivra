@@ -274,7 +274,7 @@ export function PacketScreen() {
             {(
               [
                 ['checklist', 'Document Checklist', p?.items.length],
-                ['messages', 'Messages', 0],
+                ['messages', 'Messages', p ? (p.message ? 1 : 0) : undefined],
                 ['activity', 'Activity', undefined],
               ] as const
             ).map(([id, label, n]) => (
@@ -333,6 +333,32 @@ export function PacketScreen() {
                   Need to correct an upload? Replace the file before submitting your request.
                 </p>
               </>
+            ) : tab === 'messages' && p?.message ? (
+              // The firm's message as it sent it (R56): the email and text only say a request is
+              // waiting; the words stay in the portal.
+              <div className="flex flex-col gap-3" data-testid="packet-message">
+                <article className="flex flex-col gap-2 rounded-lg border border-border p-4">
+                  <p className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                    <span className="font-semibold text-heading">
+                      {p.requestedBy ?? business.name}
+                    </span>
+                    <time dateTime={p.sentAt} className="text-xs text-muted">
+                      {new Date(p.sentAt).toLocaleDateString('en-US', {
+                        month: 'long',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </time>
+                  </p>
+                  <p className="text-sm whitespace-pre-wrap text-text">{p.message}</p>
+                </article>
+                <Link
+                  href={`/${slug}/messages`}
+                  className="self-start text-sm font-semibold text-action"
+                >
+                  Message Your Firm
+                </Link>
+              </div>
             ) : tab === 'messages' ? (
               <div className="flex flex-col items-center gap-3 rounded-lg bg-canvas p-6 text-center text-sm text-muted">
                 <MessageSquare aria-hidden className="size-6" />

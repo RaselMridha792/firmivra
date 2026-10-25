@@ -71,6 +71,8 @@ describe('templates', () => {
     for (const t of templates) {
       const out = JSON.stringify(render(t, SAMPLE_DATA[t], brandingOf(t), { canOptOut: true }));
       if (ALWAYS_SENT.has(t)) expect(out).not.toContain('notification settings');
+      else if (TEMPLATE_CHANNEL[t] === 'sms')
+        expect(out).toContain('Turn off texts like this in your notification settings.');
       else expect(out).toContain('turn off emails like this in your notification settings');
       expect(JSON.stringify(render(t, SAMPLE_DATA[t], brandingOf(t)))).not.toContain(
         'notification settings',

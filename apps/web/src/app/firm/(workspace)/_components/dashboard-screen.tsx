@@ -1,6 +1,11 @@
 'use client';
 
-import { type PermissionModule, roleCan } from '@firmivra/types';
+import {
+  type DashboardPeriod,
+  type DashboardRevenuePeriod,
+  type PermissionModule,
+  roleCan,
+} from '@firmivra/types';
 import { Skeleton } from '@firmivra/ui';
 import {
   CalendarDots,
@@ -11,6 +16,7 @@ import {
   UploadSimple,
   UserPlus,
 } from '@phosphor-icons/react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useFirm } from '../../../../components/firm-context';
@@ -22,6 +28,7 @@ import { RevenueOverview, ServiceBreakdown } from './charts';
 import { IconTile } from './icon-tile';
 import { KpiCards } from './kpi-cards';
 import { RecentMessages, TasksDue, UpcomingAppointments } from './lists';
+import { PERIOD_LABELS, type PeriodChoice, PeriodSelect, REVENUE_LABELS } from './period-select';
 import { PipelineWidget } from './pipeline-widget';
 
 const actions: {
@@ -86,7 +93,33 @@ const actions: {
 export function DashboardScreen() {
   const { me } = useMe();
   const { role } = useFirm();
-  const summary = useApiQuery(['dashboard', 'summary'], () => api.dashboard.summary());
+  // Octavia's review of Oct 25, C1 and C2: the global period (the first four cards), and the
+  // Client Pipeline's and Revenue Overview's own (Service Breakdown shares Revenue Overview's).
+  const [period, setPeriod] = useState<PeriodChoice<DashboardPeriod>>({ period: 'THIS_MONTH' });
+  const [pipelinePeriod, setPipelinePeriod] = useState<PeriodChoice<DashboardPeriod>>({
+    period: 'THIS_MONTH',
+  });
+  const [revenuePeriod, setRevenuePeriod] = useState<PeriodChoice<DashboardRevenuePeriod>>({
+    period: 'YEAR',
+  });
+  const query = {
+    period: period.period,
+    from: period.from,
+    to: period.to,
+    pipelinePeriod: pipelinePeriod.period,
+    pipelineFrom: pipelinePeriod.from,
+    pipelineTo: pipelinePeriod.to,
+    revenuePeriod: revenuePeriod.period,
+    revenueFrom: revenuePeriod.from,
+    revenueTo: revenuePeriod.to,
+  };
+  // The cards keep the numbers they show while another period loads, then change together.
+  const summary = useQuery({
+    queryKey: ['dashboard', 'summary', query],
+    queryFn: () => api.dashboard.summary(query),
+    placeholderData: keepPreviousData,
+  });
+  const firmToday = summary.data?.today;
   // The firm's time zone: every role may read it, and "today" is the firm's today.
   const availability = useApiQuery(['availability'], () => api.availability.get());
   const timeZone = availability.data?.timezone;
@@ -117,11 +150,63 @@ export function DashboardScreen() {
         ) : null}
       </div>
 
-      <KpiCards summary={summary} />
+      <section
+        aria-label="Key numbers"
+        aria-busy={summary.isFetching ? true : undefined}
+        className="flex flex-col gap-3"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p id="dashboard-period-note" className="text-sm text-muted">
+            Total Clients, New Leads, Returns In Progress and Completed Returns follow the period.
+            Outstanding Invoices and Appointments Today are always as of today.
+          </p>
+          <PeriodSelect
+            label="Dashboard period"
+            value={period}
+            labels={PERIOD_LABELS}
+            today={firmToday}
+            onChange={setPeriod}
+          />
+        </div>
+        <KpiCards summary={summary} />
+      </section>
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-        <PipelineWidget summary={summary} />
-        <RevenueOverview summary={summary} />
-        <ServiceBreakdown summary={summary} />
+        <PipelineWidget
+          summary={summary}
+          action={
+            <PeriodSelect
+              label="Client Pipeline period"
+              value={pipelinePeriod}
+              labels={PERIOD_LABELS}
+              today={firmToday}
+              onChange={setPipelinePeriod}
+            />
+          }
+        />
+        <RevenueOverview
+          summary={summary}
+          action={
+            <PeriodSelect
+              label="Revenue Overview period"
+              value={revenuePeriod}
+              labels={REVENUE_LABELS}
+              today={firmToday}
+              onChange={setRevenuePeriod}
+            />
+          }
+        />
+        <ServiceBreakdown
+          summary={summary}
+          action={
+            <PeriodSelect
+              label="Service Breakdown period"
+              value={revenuePeriod}
+              labels={REVENUE_LABELS}
+              today={firmToday}
+              onChange={setRevenuePeriod}
+            />
+          }
+        />
         {timeZone && today ? (
           <>
             <RecentMessages timeZone={timeZone} today={today} />

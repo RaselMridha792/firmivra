@@ -109,6 +109,16 @@ export interface NotifyTemplates {
     dueOn: string | null;
     link: string;
   };
+  /**
+   * The same request as a text, to a client who agreed to texts about documents (their own
+   * preference) when the firm sends texts. No content beyond the title: the portal holds the rest.
+   */
+  'document.requested-sms': IgnoredFirmName & {
+    title: string;
+    /** YYYY-MM-DD in the firm's calendar, or null. */
+    dueOn: string | null;
+    link: string;
+  };
 
   // ----- Appointments (R12) -----
   'appointment.booked': AppointmentData;
@@ -207,6 +217,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'firm-application.approved': 'email',
   'firm-application.declined': 'email',
   'document.requested': 'email',
+  'document.requested-sms': 'sms',
   'appointment.booked': 'email',
   'appointment.changed': 'email',
   'appointment.reminder': 'email',
@@ -252,6 +263,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'firm-application.approved': 'platform',
   'firm-application.declined': 'platform',
   'document.requested': 'firm',
+  'document.requested-sms': 'firm',
   'appointment.booked': 'firm',
   'appointment.changed': 'firm',
   'appointment.reminder': 'firm',
@@ -326,6 +338,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'firm-application.approved': 'ACCOUNT',
   'firm-application.declined': 'ACCOUNT',
   'document.requested': 'DOCUMENTS',
+  'document.requested-sms': 'DOCUMENTS',
   'appointment.booked': 'APPOINTMENTS',
   'appointment.changed': 'APPOINTMENTS',
   'appointment.reminder': 'APPOINTMENTS',

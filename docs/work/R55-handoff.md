@@ -1,11 +1,12 @@
 # R55: handoff
 
-## Start here (handoff of 2026-10-25 afternoon, for the next R55)
+## Start here (handoff of 2026-10-25 evening, for the next R55)
 
 Read these first:
 - `CLAUDE.md` and `docs/work/README.md`;
 - this section;
-- `docs/work/R55-settings.md` (Client Portal, and "Built on Oct 25").
+- `docs/work/R55-oct25-review.md` (the schema requests and what is built without schema);
+- Octavia's review of Oct 25: `docs/specs/review-2026-10-25/CHANGE-LIST.md` (A and D), `dashboard--developer-feedback.md`, `client-signups--developer-instructions.md`, `screenshots/client-signups-expanded-sidebar.png`.
 
 The older sections below are history.
 
@@ -13,21 +14,24 @@ The older sections below are history.
 
 | PR | Branch | What |
 | --- | --- | --- |
-| #1131 | `rasel/R55-portal-notify-consent` | (g) A client's email notices are always on (400 `EMAIL_ALWAYS_ON`); SMS only with their Text box on and never after a STOP in `communication_consents` (`smsStopped`). The first CI run failed in all shards: the types package's own fixture (`packages/types/test/notifications/client.test.ts`) lacked `smsStopped`. Fixed at `ff19f45f1`. |
-| #1134 | `rasel/R55-portal-announcements` | (h) Announcements from Communications in the portal: `GET /portal/{slug}/me/announcements`, the dismissable card on the tabs, View All Announcements (`/{slug}/announcements`). Merged with main after #1123; the conflicts were import and registration lines only (both kept). |
-| next | `rasel/R55-checkout-busy-test` | Test only: `invoice-checkout` e2e's "503 SERVICE_BUSY" and "409 PAYMENT_IN_PROGRESS" cases hold the fake's creates on a gate (`holdCreates()`) instead of a fixed delay. Pushed at `49e93e906`. Open it when #1131 or #1134 merges: merge `origin/main`, run `invoice-checkout` e2e, then open with the title `test: the checkout overlap tests hold Stripe until released instead of a fixed delay (R55)`. |
+| #1141 | `rasel/R55-checkout-busy-test` | Test only: `invoice-checkout` e2e's 503 and 409 overlap cases hold the fake Stripe on a gate instead of a fixed delay. |
+| #1146 | `rasel/R55-dashboard-periods` | Dashboard C1 (global period and the widgets' own), C2 (Revenue Overview Month, Quarter, Year, Custom), K8 (comparisons: arrow, %, words, metric-aware colour, No change, New, N/A). The periods live in `packages/types/src/dashboard/periods.ts` (`rangeOf`). |
+| #1143 | `rasel/R55-oct25-schema-requests` | Docs: the two schema requests for Rasel's tap (D4 card templates; Client Sign-ups) and this handoff. |
 
-Before opening a PR: `git fetch origin && git merge origin/main`, rebuild `@firmivra/types`, re-run its e2e and mock spec, and check CI on the head. Run `packages/types`' own tests (`npx vitest run` in `packages/types`) whenever a schema changes. Docs PRs go one at a time. Code PRs: at most two open.
+Code PRs: at most two open (#1141 and #1146 now). Docs PRs: one at a time (#1143).
 
-### Merged this round (Oct 25)
+### Next, in order (Octavia's review of Oct 25)
 
-- #1122 (e) portal contact details; #1123 (f) portal tabs on and off; #1124 the morning handoff.
-- #1112 Staff working hours read-only; #1113 Leads duplicates warning.
-- Before that (Oct 24): #1107, #1108, #1109 and the earlier L and SM items (history below).
-
-### The flaky checkout test (cause)
-
-Each held Stripe create on the fake ended 1 s after it *started* (`delayMs`). The fourth request had to pass auth, the tenant and portal-tab guards (#1123 added one query) and the per-invoice lock before the first holder's second ran out. Under load it didn't, so a place was free and the fourth answered 200. "409 PAYMENT_IN_PROGRESS" has the same shape: a 3 s hold against two lock waits of up to 1 s plus their overhead. The fix changes only that test file: it wraps the test's own `FakeStripeGateway` instance so the creates wait until the test releases them. The fake and the API are unchanged. 12 pass alone, and 144 in the 9-file parallel run that failed before.
+1. **Dashboard C5** (stage drill-down), one PR after #1141 or #1146 merges:
+   - Leads stage to `/leads?stage=SUBMITTED&from=&to=` (the Leads screen reads no URL filters yet: add them to `leads-screen.tsx`'s initial filters);
+   - Intake to the intake forms list with its open statuses;
+   - In Progress and Completed to `/tax-returns` with the status and the pipeline's days.
+   - The Tax Returns list filters by one `workflowStatus` while the dashboard counts `tax_returns.status` IN_PROGRESS and `first_filed_at`. R60's K4 and K5 redefine those cards by workflow statuses and Accepted. Agree the parameters with R60 (or wait for K4 and K5) so the stage counts reconcile with the destinations (her V1).
+   - Consultation holds no records: keep it unclickable with the dash.
+2. **Dashboard D2** (Help: in-app support message, FAQ, live chat or call by configured availability; show only configured channels; nothing sent by opening Help). Find the header Help menu (the `?` button) first.
+3. **D5** waits for K5 (R60) and D4 (schema, #1143).
+4. **Client Sign-ups D1** (the screen, no schema): tabs Waiting for Approval / Approved / Declined with tenant-wide counts, search, Date submitted sort (newest first, stable id tie-break, server paging), Filters (date range, potential-match status), Checks column (Potential match amber / No match found green, from the existing `existingClient` link candidate until `match_status` lands), detail panel, activity list, client view preview, approval-mode card (read-only until the schema), Back with restored context (B01 to B04), states and accessibility (spec §10). Today's API: `apps/api/src/client-auth/client-sign-ups.*` (oldest first, Waiting and Declined only, no counts, no search): extend it.
+5. **Client Sign-ups D2 to D4** (the guarded flow, the approval-mode setting with D3's defaults, contracts, F01 to F14, S01 to S16, B01 to B04) after Rasel's tap on #1143's Request 2.
 
 ### Not done, and why
 

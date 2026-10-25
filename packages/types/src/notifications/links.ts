@@ -13,7 +13,8 @@ const FIRM: Record<NotificationTargetKind, ((clientId: string) => string) | stri
   tax_return: (c) => `/clients/${c}`,
   message_thread: (c) => `/clients/${c}/messages`,
   invoice: (c) => `/clients/${c}/invoices`,
-  appointment: '/calendar',
+  // By its own id (below): the appointment itself.
+  appointment: null,
   client_account: '/sign-ups',
   membership: '/team',
   // The client's private notes never reach the firm; the member's own account has no page yet.
@@ -47,12 +48,14 @@ const PORTAL: Record<NotificationTargetKind, string | null> = {
 export function notificationLink(target: unknown, where: NotificationSite): string | null {
   const parsed = NotificationTarget.safeParse(target);
   if (!parsed.success) return null;
-  const { kind, clientId } = parsed.data;
+  const { kind, id, clientId } = parsed.data;
   if (where.site === 'portal') {
     const slug = FirmSlug.safeParse(where.firmSlug);
     const page = PORTAL[kind];
     return slug.success && page ? `/${slug.data}${page}` : null;
   }
+  // An appointment opens that appointment (Octavia's N3); its page checks access again.
+  if (kind === 'appointment') return `/calendar/${id}`;
   const page = FIRM[kind];
   if (typeof page !== 'function') return page;
   return clientId ? page(clientId) : null;
