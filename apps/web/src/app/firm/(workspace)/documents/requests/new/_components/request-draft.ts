@@ -179,31 +179,14 @@ export function check(draft: RequestDraft, at: CheckPoint, today: string): Draft
   return e;
 }
 
-const same = (a: DraftItem, b: RequestTemplate['items'][number]) =>
-  a.title.trim() === b.title &&
-  (a.description.trim() || null) === (b.description ?? null) &&
-  a.required === b.required &&
-  a.categoryId === (b.category?.id ?? null);
-
 /**
- * The API body. The API copies a `templateId`'s documents before `items`, so the type is named
- * only when its documents lead the list unchanged; otherwise every document is sent as written
- * (the request then has no type: the API cannot take a type without copying its documents).
+ * The API body. The Request Type is kept as `templateId` without copying its documents
+ * (`copyTemplateItems: false`): the checklist is sent as written, edits and all.
  */
 export function packetBody(
   draft: RequestDraft,
   options: { idempotencyKey: string; send: boolean; type?: RequestTemplate },
 ): CreateRequestPacketRequest {
-  const chosen = selectedItems(draft);
-  const t = options.type;
-  const head = t ? chosen.slice(0, t.items.length) : [];
-  const typed = Boolean(
-    t &&
-    t.items.length &&
-    head.length === t.items.length &&
-    head.every((i, n) => same(i, t.items[n]!)),
-  );
-  const rest = typed ? chosen.slice(t!.items.length) : chosen;
   const text = (s: string) => (s.trim() ? s.trim() : null);
   return {
     idempotencyKey: options.idempotencyKey,
@@ -213,8 +196,9 @@ export function packetBody(
       draft.recipientKind === 'MEMBER'
         ? { kind: 'MEMBER', userId: draft.memberUserId }
         : { kind: 'CLIENT' },
-    templateId: typed ? t!.id : null,
-    items: rest.map((i) => ({
+    templateId: options.type?.id ?? null,
+    copyTemplateItems: false,
+    items: selectedItems(draft).map((i) => ({
       title: i.title.trim(),
       instructions: text(i.description),
       required: i.required,

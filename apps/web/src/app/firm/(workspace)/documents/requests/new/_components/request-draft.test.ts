@@ -9,7 +9,6 @@ import {
   check,
   defaultMessage,
   EMPTY_DRAFT,
-  itemsOf,
   packetBody,
   type RequestDraft,
   withTemplate,
@@ -79,34 +78,31 @@ describe('check', () => {
 });
 
 describe('packetBody', () => {
-  it('names the type when its documents lead unchanged, and sends only the others', () => {
+  it('keeps the type and sends every ticked document as written', () => {
     const draft = ready();
     draft.items = withTemplate(draft.items, business);
     const body = packetBody(draft, { idempotencyKey: uuid(1), send: true, type: personal });
-    expect(body.templateId).toBe(personal.id);
-    expect(body.items?.map((i) => i.title)).toEqual(['Profit and Loss']);
+    expect([body.templateId, body.copyTemplateItems]).toEqual([personal.id, false]);
+    expect(body.items?.map((i) => i.title)).toEqual(['W-2 Forms', '1099 Forms', 'Profit and Loss']);
     expect(body).toMatchObject({ send: true, dueOn: '2026-11-20', reminderDaysBefore: 3 });
     expect(body.recipient).toEqual({ kind: 'CLIENT' });
   });
 
-  it('sends every document as written once the type’s documents changed', () => {
+  it('keeps the type after its documents changed, and leaves unticked ones out', () => {
     const draft = ready({ recipientKind: 'MEMBER', memberUserId: uuid(7), reminder: false });
-    draft.items = draft.items.map((i, n) => (n === 0 ? { ...i, required: false } : i));
+    draft.items = draft.items.map((i, n) =>
+      n === 0 ? { ...i, required: false } : { ...i, selected: false },
+    );
     const body = packetBody(draft, { idempotencyKey: uuid(1), send: false, type: personal });
-    expect(body.templateId).toBeNull();
-    expect(body.items?.map((i) => [i.title, i.required])).toEqual([
-      ['W-2 Forms', false],
-      ['1099 Forms', true],
-    ]);
+    expect(body.templateId).toBe(personal.id);
+    expect(body.items?.map((i) => [i.title, i.required])).toEqual([['W-2 Forms', false]]);
     expect(body.recipient).toEqual({ kind: 'MEMBER', userId: uuid(7) });
     expect(body.reminderDaysBefore).toBeNull();
   });
 
-  it('leaves unticked documents out', () => {
-    const draft = ready();
-    draft.items = [...itemsOf(personal).map((i) => ({ ...i, selected: i.title === '1099 Forms' }))];
-    const body = packetBody(draft, { idempotencyKey: uuid(1), send: false, type: personal });
-    expect([body.templateId, body.items?.map((i) => i.title)]).toEqual([null, ['1099 Forms']]);
+  it('sends no type for a custom request', () => {
+    const body = packetBody(ready({ typeId: CUSTOM }), { idempotencyKey: uuid(1), send: false });
+    expect(body.templateId).toBeNull();
   });
 });
 

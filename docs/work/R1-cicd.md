@@ -244,6 +244,41 @@ This is newer than every handoff below, so read it first. Where they differ, thi
   - run 40131466057, the first after the change, signed in at 20:50 UTC and succeeded at 21:02;
   - run 40132450092 (`b6e013696`, with #1120) succeeded at 21:15, and the 3 dev sites answer 200. #1120's own run was cancelled by GitHub, because a newer commit's run took its place in the queue.
 - 7a. Oct 25, Rasel's yes on the command (empty values, his decision): `firmivra/prod/stripe` created with `aws secretsmanager create-secret` (`aws/secretsmanager` key and the tags `project=firmivra` and `env=prod`, as the other prod secrets; no rotation). Checked read-only: the keys are `STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, all three empty (printed as true or false, no values).
+- 8a. Oct 24 22:25 UTC: Rasel tagged `v1.0.0` on `564c8cfaf` and approved `prod`. Deploy prod run 40138508812 failed at its first new step, "Create the empty app stack":
+  - **Cause:** both auto scaling targets failed with "Unable to assume IAM role" on `AWSServiceRoleForApplicationAutoScaling_ECSService`. Application Auto Scaling had created that service-linked role on its first use in the account, at 22:31:18, and tried to assume it the same second. It's a one-time timing race; the role exists now.
+  - **The other failures followed from it:** the VPC origin's create was cancelled, and so were the 3 distributions'.
+  - **The rollback failed** (`ROLLBACK_FAILED`). The VPC origin can't be deleted while CloudFront is still deploying it, and the cluster's capacity provider was still in use as the services were removed.
+  - **Left in the stack:** the load balancer, its empty log bucket, the VPC origin and the cluster (no services).
+  - **Not started:** no images, no migrations, no tasks.
+  - Waiting for Rasel: delete the failed stack once the VPC origin is deployed, then re-run the run.
+- 8b. Oct 24 ~23:00 UTC, on Rasel's yes with his conditions: the failed `firmivra-prod-app` was cleaned up.
+  - **Checked first:**
+    - the VPC origin was `Deployed`;
+    - 6 resources were left (the load balancer, the log bucket and its policy, the VPC origin, the cluster and its capacity-provider link), none holding data;
+    - no exports or imports, and no other stack references it (ci's `PassRole` name pattern is plain text);
+    - the log bucket held only `ELBAccessLogTestFile`, with no other versions and no delete markers.
+  - **Deleted:**
+    - `delete-stack` with `wait stack-delete-complete` succeeded;
+    - the bucket `firmivra-prod-alb-logs-778127141557` stayed behind (its policy is `RetainExceptOnCreate`), so its one test object and the bucket were deleted, those exact names only.
+  - **Checked after:**
+    - the stack, the load balancer, the VPC origin and the bucket are gone, and the cluster is `INACTIVE` (deleted);
+    - the app's secrets, ECR repositories and log groups had already been deleted, and none waits in a recovery window;
+    - the other 5 prod stacks are unchanged;
+    - the auto scaling service-linked role exists.
+  - Then `gh run rerun 40138508812 --failed`: attempt 2, the same `v1.0.0` on `564c8cfaf`, waiting for Rasel's approval of `prod`.
+- 8c. Oct 24 23:35 UTC: Rasel approved; attempt 2 of run 40138508812.
+  - **Every deploy step succeeded:** the empty app stack (23:10 to 23:25), the images, the migrate image, the migration task (23:31 to 23:32) and the api and web rollout (23:32 to 23:34).
+  - **Only the smoke test failed.** All 6 URLs printed an empty status code, about 0.1 s each, with no curl error. Dev's identical step prints `200` for each, with the same runner image and environment. Not explained yet.
+  - **Checked from R1's machine at 23:4x UTC:** the 3 sites and their `/api/v1/health` all answer 200, and the health check reports `{"status":"ok","db":"ok"}`.
+  - **Not checked yet**, because the SSO session expired: auto scaling and task counts, the alarm topic subscription, and that the migrations ran once.
+- 8d. Oct 24 ~23:55 UTC, read-only after Rasel's SSO login. Rasel: don't re-run the failed run.
+  - **Auto scaling:** `firmivra-prod-api` and `-web` each have min 2, max 6, target tracking at 55% average CPU, not suspended. Both are `ACTIVE` with 2 of 2 tasks running, rollouts `COMPLETED`, on images `564c8cfaf` (task definitions `:3`).
+  - **Migrations ran once:** one stream in `/firmivra/prod/migrate`. All 162 migrations were applied ("All migrations have been successfully applied."), then "App role firmivra_app can log in". The workflow step fails on a non-zero exit, and it succeeded.
+  - **Alarms:** the topic `firmivra-prod-alarms` exists with **no subscription** yet; Rasel subscribes by CLI, so no address goes in the repo. All 5 alarms send to it, and all are `OK`.
+  - **Smoke test:** #1137 logs each curl's exit code and error (dev and prod). Rasel merges.
+  - **One-offs, for later:**
+    - `create-firm-key` refuses outside `APP_ENV=dev`. In prod, the API's firm-key sweep (every few minutes) gives LVP its key after the bootstrap, so check its alias read-only.
+    - The headers of `bootstrap-prod.ts` and `bootstrap-prod.mjs` still say to run `create-firm-key` after the bootstrap. That's out of date for prod.
 
 **Update (Oct 24, 13:40 UTC). This wins over everything below.**
 - **Merged:** #1074 (item 3) and #1081 (Custom reminders). Deploy dev applied their migrations (runs 40090728270 and 40095651979, both success).

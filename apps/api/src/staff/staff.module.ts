@@ -17,6 +17,8 @@ import { StaffDraftsController } from './staff-drafts.controller.js';
 import { StaffImportService } from './staff-import.service.js';
 import { StaffJobTitlesController } from './staff-job-titles.controller.js';
 import { StaffJobTitlesService } from './staff-job-titles.service.js';
+import { StaffWorkSchedulesController } from './staff-work-schedules.controller.js';
+import { StaffWorkSchedulesService } from './staff-work-schedules.service.js';
 import { StaffPermissionsService } from './staff-permissions.service.js';
 import { StaffReadService } from './staff-read.service.js';
 import { StaffRecordsService } from './staff-records.service.js';
@@ -48,6 +50,7 @@ import { UsersService } from './users.service.js';
     StaffSecurityController,
     StaffDraftsController,
     StaffJobTitlesController,
+    StaffWorkSchedulesController,
     StaffSecurityDefaultsController,
     UsersController,
   ],
@@ -62,6 +65,7 @@ import { UsersService } from './users.service.js';
     StaffScanHandler,
     StaffImportService,
     StaffJobTitlesService,
+    StaffWorkSchedulesService,
     StaffSecurityDefaultsService,
     UsersService,
     // The documents bucket and settings, as DocumentsModule builds them (that module exports none).

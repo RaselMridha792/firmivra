@@ -49,6 +49,31 @@ async function until(check: () => boolean) {
   expect(check()).toBe(true);
 }
 
+/**
+ * Holds every Checkout Session create at the fake until `release()`, so a test's overlap never
+ * depends on the machine's speed: a fixed delay ends on its own clock, and under load a request
+ * the test sends next can arrive after it (the flaky SERVICE_BUSY case). `held` counts the
+ * creates waiting. Releasing twice is harmless.
+ */
+function holdCreates() {
+  const original = fake.createCheckoutSession;
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => (open = resolve));
+  let held = 0;
+  fake.createCheckoutSession = async (...args) => {
+    held += 1;
+    await gate;
+    return original.apply(fake, args);
+  };
+  return {
+    held: () => held,
+    release: () => {
+      open();
+      fake.createCheckoutSession = original;
+    },
+  };
+}
+
 describe('Pay Now', () => {
   it("charges the balance from the database on the firm's own account, and answers the same checkout again", async () => {
     const invoice = await open();
@@ -128,19 +153,20 @@ describe('Pay Now', () => {
   it('answers a click 409 PAYMENT_IN_PROGRESS while another one waits long on Stripe', async () => {
     const invoice = await open();
     const before = creates().length;
-    // The first one holds the row for 3 s; each one after it waits at most 1 s.
-    fake.delayMs = 3_000;
+    // The first one holds the row until released; each one after it waits at most 1 s.
+    const hold = holdCreates();
     try {
       const first = pay(invoice.id);
-      await until(() => creates().length === before + 1);
+      await until(() => hold.held() === 1);
       const second = await pay(invoice.id, t.people.spouse);
       expect([second.status, codeOf(second)]).toEqual([409, 'PAYMENT_IN_PROGRESS']);
       // So does a cancel by the firm; neither held a connection waiting for the row.
       const noCancel = await cancel(invoice.id);
       expect([noCancel.status, codeOf(noCancel)]).toEqual([409, 'PAYMENT_IN_PROGRESS']);
+      hold.release();
       expectOk(await first);
     } finally {
-      fake.delayMs = 0;
+      hold.release();
     }
     expect(creates().length).toBe(before + 1);
   });
@@ -149,17 +175,20 @@ describe('Pay Now', () => {
     const invoices = [];
     for (let i = 0; i < 4; i += 1) invoices.push(await open());
     const before = creates().length;
-    fake.delayMs = 1_000;
+    // The three hold their places until released, however long the fourth takes to arrive.
+    const hold = holdCreates();
     try {
       const first = invoices.slice(0, 3).map((i) => pay(i.id));
-      await until(() => creates().length === before + 3);
+      await until(() => hold.held() === 3);
       const fourth = await pay(invoices[3]!.id);
       expect([fourth.status, codeOf(fourth)]).toEqual([503, 'SERVICE_BUSY']);
       expect(fourth.headers['retry-after']).toBe('5');
+      hold.release();
       for (const res of await Promise.all(first)) expectOk(res);
     } finally {
-      fake.delayMs = 0;
+      hold.release();
     }
+    expect(creates().length).toBe(before + 3);
     expect(await paymentsOf(invoices[3]!.id)).toEqual([]);
     expectOk(await pay(invoices[3]!.id));
   });

@@ -39,13 +39,15 @@ info:
     - **Preferences.** The bell is always on; preferences choose the email and SMS copies per
       category. Nothing saved means email on, SMS off. `ACCOUNT` (sign-in and security) is
       `locked`: always sent, shown with its switches disabled, and a request that changes it is
-      refused (`400`). **The firm's staff always get the email** (Octavia's Notifications review of
-      Oct 18): every item answers `email: true` and `emailLocked: true` on the firm site, a row
-      stored off before reads as on and the sender sends anyway, and `email: false` is
-      `400 EMAIL_ALWAYS_ON`. A client may still switch email off (`emailLocked` only on
-      `ACCOUNT`). `channels` lists what to show switches for: `EMAIL` always, `SMS` for a
-      client with a phone number (q27: the switch only stores the choice; no text goes out until
-      SMS is switched on in config), and for staff only with a verified mobile number (Rasel,
+      refused (`400`). **Email always goes** (staff: Octavia's Notifications review of Oct 18;
+      clients: Client Portal guide 9.2, every notice is about their own account or services):
+      every item answers `email: true` and `emailLocked: true`, a row stored off before reads as
+      on and the sender sends anyway, and `email: false` is `400 EMAIL_ALWAYS_ON`. `channels`
+      lists what to show switches for: `EMAIL` always, `SMS` for a client with a phone number
+      whose texts are not stopped (q27: the switch only stores the choice; no text goes out until
+      SMS is switched on in config; `smsStopped`: the client replied STOP or unsubscribed, in the
+      firm's consent records, and nothing is texted until the firm records a new opt-in), and
+      for staff only with a verified mobile number (Rasel,
       Oct 24), which no staff login records yet, so staff get `EMAIL` only. While `SMS` is not
       listed, every item answers `sms: false` and a change with `sms: true` is refused (`400`);
       turning SMS off is always allowed. A new or removed phone number clears every SMS choice, so
@@ -418,7 +420,7 @@ components:
       description: '`BUSINESS_INACTIVE`, `BUSINESS_SETUP_REQUIRED` (firm site) or `ORIGIN_NOT_ALLOWED` (changes)'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     ValidationFailed:
-      description: '`VALIDATION_FAILED` (bad id, query or body, a locked category, or `sms: true` while SMS is not offered), `EMAIL_ALWAYS_ON` (`email: false` from the firm''s staff) or `BUSINESS_REQUIRED` (firm site)'
+      description: '`VALIDATION_FAILED` (bad id, query or body, a locked category, or `sms: true` while SMS is not offered), `EMAIL_ALWAYS_ON` (`email: false`) or `BUSINESS_REQUIRED` (firm site)'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotFound:
       description: '`NOT_FOUND`: no place in that firm, or not the caller''s own notification'
@@ -479,12 +481,15 @@ components:
         unreadCount: { type: integer, minimum: 0 }
     NotificationPreferences:
       type: object
-      required: [channels, items]
+      required: [channels, smsStopped, items]
       properties:
         channels:
           type: array
           description: Show a switch only for these, in this order
           items: { type: string, enum: [EMAIL, SMS] }
+        smsStopped:
+          type: boolean
+          description: The client's texts are stopped at this firm (a STOP reply or an unsubscribe in its consent records); always false for staff
         items:
           type: array
           description: Every category, in the order of the enum
@@ -496,7 +501,7 @@ components:
               email: { type: boolean }
               sms: { type: boolean }
               locked: { type: boolean, description: 'Always sent (ACCOUNT): switches disabled' }
-              emailLocked: { type: boolean, description: 'Email always goes out (every category for the firm''s staff; ACCOUNT for everyone): the email box checked and disabled' }
+              emailLocked: { type: boolean, description: 'Email always goes out (every category, for staff and clients): the email box checked and disabled' }
     UpdateNotificationPreferencesRequest:
       type: object
       additionalProperties: false
