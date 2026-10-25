@@ -19,6 +19,79 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
+### Oct 25 (sixth session, end): start here
+
+The sixth R60 stopped here (Rasel needed the laptop). The next R60 reads `CLAUDE.md`,
+`docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules) and this file, then
+`git fetch origin`.
+
+**Merged this session:** #1147 (group 1, squash `49eb6497`), after `origin/main` was merged in over
+R55's periods.
+
+**Open (two, the limit):**
+- **#1150** (group 3, Q1 to Q7, Q10), `rasel/R60-dashboard-quick`, head `f43c97c`, mergeable.
+  `main` was merged in after #1147: Clients and Leads keep both prop sets (`?new=1` and the
+  drill-down). Its sheet still says Completed Returns (shot before #1147 merged; noted in the body).
+- **#1153** (group 4, D1 and D3), `rasel/R60-client-form`, head `2191e06`. D1's checks are the
+  contract's `NewClientForm`; the API keeps `CreateClientRequest` for the calendar's quick add.
+
+**Built and pushed, no PR yet:**
+1. (c) Staff phone verification, `rasel/R60-staff-phone`, head `a654e22` (from `main`, on R1's
+   `staff_phone_codes`). The PR body is this session's scratchpad `pr-phone.md`: replace `(SHEET)`
+   with the blob link of `apps/web/e2e/screenshots/r60-staff-phone/r60-staff-phone.jpg` pinned to
+   `a654e22` (`?raw=true`). When a slot frees: merge `origin/main`, check, `gh pr create`.
+2. Clients PR 1 (part), `rasel/R60-clients-e1`, head: this commit (from `main` at `49eb6497`).
+   Done:
+   - E1: the Pending Documents and Balances Due cards filter the list. The contract has
+     `ListClientsQuery.owes` (DOCUMENTS, BALANCE), with the summary's own SQL, so the counts match.
+   - E7: the list's place lives in its address (`lib/clients-place.ts`, `history.replaceState`).
+     Back restores it, the profile's Clients link returns to the last list with its scroll, and a
+     plain `/clients` starts fresh.
+   - E6: Edit Details asks Save Changes, Discard Changes or Keep Editing on Cancel, Escape or the
+     close button. `packages/ui` `Modal` now prevents the browser's own close on Escape and leaves
+     it to `onClose`; existing modals behave the same.
+   - E3: an advisory enrollment (workstream ACCEPTED, IN_PROGRESS, AWAITING_CLIENT or ON_HOLD, not
+     archived) counts as the client's service in the row tags, the service filter and the tab
+     counts.
+
+   Tests: clients e2e 11 of 11 plus 19 of 19, `r60-clients.spec.ts` (E1, E6, E7) green, and a test
+   fix in `clients-work.e2e.test.ts` (an unscoped owner query). No sheet yet.
+
+**Next, in this order:**
+1. When #1150 or #1153 merges: open (c) staff phone (above).
+2. Clients PR 1, the rest:
+   - E4: the profile tabs Services, Intake Forms, Tasks, Notes and Activity, with a More overflow.
+     Enrolled services (status, link) and the Activity Log go on Overview.
+   - E5: required fields and format checks in Edit Details, as D1. The responsible party waits for
+     column request 14.
+   - E2: waits for Rasel (below).
+   - Then the sheet (the clients list with data, empty and unreachable), and merge `origin/main`
+     (#1150 and #1153 touch `clients-screen.tsx`, `clients/page.tsx` and `clients-dialogs.tsx`).
+     Open the PR.
+3. Clients PR 2: E8 to E10, Added Last 30 Days, More Filters and the Archived Clients shortcut.
+
+**Waiting on Rasel:**
+- **E2, Last Activity:** `clients.last_activity_at` (R37) is meant to be set by the API on each
+  event, but only e-sign completion sets it. So the column and its From/To filter miss almost all
+  activity. The day boundaries are right: the firm's time zone, both ends included. Which events
+  count? Proposed: a message in the client's thread, a document uploaded or requested, an invoice
+  sent or a payment received, an appointment booked or held, an intake submitted, a signature
+  completed, and a note or task change. Either each module sets the column in its own write, or the
+  list computes the latest of them in SQL.
+- **Column request 14** (E5's responsible party): below, under the column requests.
+- **Staff texts:** verified staff can choose SMS, but no staff notice has a text copy yet, so
+  nothing is texted to them until one is added.
+- These fail on `main` without R60's changes: `arfan-create-broadcast` ("makes the draft...") and
+  `r23-client-record` (4 cases).
+
+**Local state:** `firmivra_r60` has the fake number +17705550123 on `owner@lvp.test`, verified by
+the sheet. Clear `phone_verified_at` (or change the number) to shoot it again. This session's
+scratchpad is
+`C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/f91ebf82-40e0-4f47-be72-f45b4f80350f/scratchpad/`:
+`shots-kpi.cjs`, `shots-quick.cjs`, `shots-form.cjs`, `shots-phone.cjs`, `compose.cjs`,
+`spec-*.json`, `pr-*.md`, `sub.py` and `region.py`. Worktrees: `F:/firmivra-R60` (Clients
+branch), `F:/firmivra-R60-web` (#1150's branch).
+
 ### Oct 25 (fifth session, later): start here
 
 The fifth R60 stops here; its context is full. The next R60 reads `CLAUDE.md`,
