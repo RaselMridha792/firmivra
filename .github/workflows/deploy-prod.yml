@@ -190,10 +190,15 @@ jobs:
           out() { jq -r --arg k "$1" '.[] | select(.OutputKey == $k) | .OutputValue' <<< "$outputs"; }
           admin=$(out AdminUrl) app=$(out AppUrl) portal=$(out PortalUrl)
           failed=0
+          curl --version | sed -n 1p
           for url in "$admin/" "$app/" "$portal/" \
             "$admin/api/v1/health" "$app/api/v1/health" "$portal/api/v1/health"; do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' -L --max-time 20 --retry 6 --retry-delay 10 "$url" || true)
-            echo "$code $url"
+            # curl's exit code and its own error lines go in the log, so an empty code is explained.
+            rc=0
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -L --max-time 20 --retry 6 --retry-delay 10 \
+              "$url" 2>"$RUNNER_TEMP/curl.err") || rc=$?
+            echo "${code:-none} $url (curl exit $rc)"
+            if [ -s "$RUNNER_TEMP/curl.err" ]; then sed 's/^/    /' "$RUNNER_TEMP/curl.err"; fi
             [ "$code" = 200 ] || failed=1
           done
           { echo "Deployed \`$GITHUB_REF_NAME\` (\`$TAG\`) to prod"; echo; echo "- $admin"; echo "- $app"; echo "- $portal"; } >> "$GITHUB_STEP_SUMMARY"
