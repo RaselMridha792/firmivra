@@ -85,3 +85,24 @@ test('+ New offers each place something new starts, and closes as a menu should'
   });
   await expect(page.getByRole('menu')).toBeHidden();
 });
+
+test('?new=1 opens the form and keeps the drill-down: Back to Dashboard, stage and dates', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(app('/clients?new=1&back=dashboard'));
+  const dialog = page.getByRole('dialog', { name: 'Add New Client' });
+  await expect(dialog).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('back-to-dashboard')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByTestId('back-to-dashboard').click();
+  await expect(page).toHaveURL(app('/'));
+
+  // Leads takes both too: Add New Lead opens over the New Lead filter with Back to Dashboard.
+  await page.goto(app('/leads?new=1&stage=SUBMITTED&back=dashboard'));
+  await expect(page.getByRole('dialog', { name: /Add New Lead/ })).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId('back-to-dashboard')).toBeVisible();
+});

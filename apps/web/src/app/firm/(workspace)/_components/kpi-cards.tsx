@@ -14,6 +14,7 @@ import {
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ArrowDown, ArrowRight, ArrowUp } from 'lucide-react';
 import Link from 'next/link';
+import { FROM_DASHBOARD } from '../../../../lib/from-dashboard';
 import type { ReactNode } from 'react';
 import { IconTile, type Tone } from './icon-tile';
 import { comparedWith } from './period-select';
@@ -92,12 +93,19 @@ export function Trend({
   );
 }
 
+/** The global period's days (C1): the span the periodic cards count and their lists filter by. */
+type Span = { from: string; to: string } | null;
+
+/**
+ * The six cards and where each opens (Octavia's K3 to K7): the list filtered to exactly the records
+ * the card counts, with Back to Dashboard. `span` is null until the summary gives the period.
+ */
 const CARDS: {
   key: keyof DashboardSummary['kpis'];
   label: string;
   icon: Icon;
   tone: Tone;
-  href: string;
+  href: (span: Span) => string;
   /** Null: the card shows no comparison (the design draws none for Appointments Today). */
   favour: Favour | null;
   /** Follows the global period (C1); the others are always as of today. */
@@ -108,7 +116,7 @@ const CARDS: {
     label: 'Total Clients',
     icon: UsersThree,
     tone: 'blue',
-    href: '/clients',
+    href: () => `/clients?${FROM_DASHBOARD}`,
     favour: 'up',
     periodic: true,
   },
@@ -117,7 +125,8 @@ const CARDS: {
     label: 'New Leads',
     icon: UserPlus,
     tone: 'amber',
-    href: '/leads',
+    // Stage New Lead, created in the period (the API counts the same).
+    href: (s) => `/leads?stage=SUBMITTED${s ? `&from=${s.from}&to=${s.to}` : ''}&${FROM_DASHBOARD}`,
     favour: 'up',
     periodic: true,
   },
@@ -126,16 +135,19 @@ const CARDS: {
     label: 'Returns In Progress',
     icon: FileText,
     tone: 'purple',
-    href: '/tax-returns',
+    // In Preparation, Waiting on Client and Ready for Review/Signature/File.
+    href: () => `/tax-returns?status=IN_PROGRESS&${FROM_DASHBOARD}`,
     favour: 'neutral',
     periodic: true,
   },
   {
-    key: 'completedReturns',
-    label: 'Completed Returns',
+    key: 'acceptedReturns',
+    label: 'Accepted Returns',
     icon: CheckCircle,
     tone: 'green',
-    href: '/tax-returns',
+    // Accepted only (not Transmitted, not Rejected), accepted in the period.
+    href: (s) =>
+      `/tax-returns?status=ACCEPTED${s ? `&acceptedFrom=${s.from}&acceptedTo=${s.to}` : ''}&${FROM_DASHBOARD}`,
     favour: 'up',
     periodic: true,
   },
@@ -144,7 +156,8 @@ const CARDS: {
     label: 'Outstanding Invoices',
     icon: CurrencyDollar,
     tone: 'red',
-    href: '/invoices',
+    // Every unpaid balance, overdue or not.
+    href: () => `/invoices?status=OUTSTANDING&${FROM_DASHBOARD}`,
     favour: 'down',
     periodic: false,
   },
@@ -153,7 +166,7 @@ const CARDS: {
     label: 'Appointments Today',
     icon: CalendarDots,
     tone: 'blue',
-    href: '/calendar',
+    href: () => `/calendar/today?${FROM_DASHBOARD}`,
     favour: null,
     periodic: false,
   },
@@ -165,10 +178,11 @@ const daysIn = (r: DashboardRange) => (Date.parse(r.to) - Date.parse(r.from)) / 
 export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary> }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      {CARDS.map(({ key, label, icon, tone, href, favour, periodic }) => {
+      {CARDS.map(({ key, label, icon, tone, href: to, favour, periodic }) => {
         const kpi = summary.data?.kpis[key];
         const range = summary.data?.range;
         const against = range ? comparedWith(range.period, daysIn(range)) : '';
+        const href = to(range ? { from: range.from, to: range.to } : null);
         const value = kpi
           ? key === 'outstandingInvoicesCents'
             ? money(kpi.value)

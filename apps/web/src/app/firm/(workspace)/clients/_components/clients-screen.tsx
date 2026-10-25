@@ -29,6 +29,7 @@ import {
   PAGE_SIZES,
   tabFor,
 } from './list-parts';
+import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 
 /** Waits until typing pauses, so each key press doesn't send a request. */
 function useSettled(value: string, ms = 300) {
@@ -64,10 +65,13 @@ type Pending = { kind: BulkKind; clients: { id: string; displayName: string }[] 
 export function ClientsScreen({
   initialSearch = '',
   initialAdding = false,
+  fromDashboard = false,
 }: {
   initialSearch?: string;
   /** Open Add Client at once (the dashboard's shortcuts). */
   initialAdding?: boolean;
+  /** Opened from the dashboard (Total Clients, Add Client): Back to Dashboard (Octavia's K2). */
+  fromDashboard?: boolean;
 }) {
   const { role } = useFirm();
   const manager = role === 'OWNER' || role === 'ADMIN';
@@ -141,6 +145,7 @@ export function ClientsScreen({
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {fromDashboard ? <BackToDashboard /> : null}
       <header>
         <h1 data-testid="page-title" className="font-display text-3xl font-bold text-heading">
           Clients

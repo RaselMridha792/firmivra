@@ -36,6 +36,7 @@ import {
   type TaxReturnRow,
   type TaxReturnWorkflowStatus,
   type TaxReturnWorkspaceClient,
+  TAX_RETURN_IN_PROGRESS_STATUSES,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
@@ -714,6 +715,11 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
           (q.archived ? r.archivedAt !== null : r.archivedAt === null) &&
           tabOf(r, q.tab) &&
           (!q.workflowStatus || r.workflowStatus === q.workflowStatus) &&
+          (q.workflowGroup !== 'IN_PROGRESS' ||
+            (TAX_RETURN_IN_PROGRESS_STATUSES as readonly string[]).includes(r.workflowStatus)) &&
+          // The mock keeps no status history: Accepted dates use the last update.
+          (!q.acceptedFrom || r.updatedAt.slice(0, 10) >= q.acceptedFrom) &&
+          (!q.acceptedTo || r.updatedAt.slice(0, 10) <= q.acceptedTo) &&
           (!q.taxYear || r.taxYear === q.taxYear) &&
           (!q.formType || r.formType?.toLowerCase() === q.formType.toLowerCase()) &&
           (!q.clientType || c.accountType === q.clientType) &&
