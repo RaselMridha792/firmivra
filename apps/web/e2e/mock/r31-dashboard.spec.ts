@@ -39,7 +39,7 @@ test('every widget of the design, with trends only where the API gives the perio
     'Consultation—',
     'Intake15',
     'In Progress38',
-    'Completed52',
+    'Accepted52',
   ]);
   const revenue = page.getByRole('region', { name: 'Revenue Overview' });
   await expect(revenue.getByRole('img', { name: /^Revenue from / })).toBeVisible();

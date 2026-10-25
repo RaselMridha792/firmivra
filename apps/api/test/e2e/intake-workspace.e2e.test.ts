@@ -293,6 +293,10 @@ describe('the forms sent', () => {
     expect((await list('tab=submitted')).items.map((i) => i.id)).toEqual([ids.submitted]);
     expect((await list('tab=completed')).items.map((i) => i.id)).toEqual([ids.completed]);
     expect((await list('tab=expired')).items.map((i) => i.id)).toEqual([ids.expired]);
+    // The dashboard's Intake stage (C5): everything not finished, neither completed nor expired.
+    expect((await list('tab=open&pageSize=100')).items.map((i) => i.id).sort()).toEqual(
+      [ids.sent, ids.leadForm, ids.progress, ids.submitted].sort(),
+    );
     expect((await list('search=Theo')).total).toBe(2);
     expect((await list('search=Lead')).items.map((i) => i.id)).toEqual([ids.leadForm]);
     expect((await list(`assignedUserId=${otherStaffA.id}`)).items.map((i) => i.id)).toEqual([
