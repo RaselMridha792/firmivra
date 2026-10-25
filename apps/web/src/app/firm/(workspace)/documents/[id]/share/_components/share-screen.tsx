@@ -280,6 +280,17 @@ export function ShareScreen({ id, portalBase }: { id: string; portalBase: string
             <li aria-hidden>
               <CaretRight weight="bold" className="size-3 text-muted" />
             </li>
+            <li>
+              <Link
+                href={`/documents/${id}`}
+                className="text-text hover:text-action hover:underline"
+              >
+                Document Details
+              </Link>
+            </li>
+            <li aria-hidden>
+              <CaretRight weight="bold" className="size-3 text-muted" />
+            </li>
             <li aria-current="page" className="font-medium text-heading">
               Share Document
             </li>
@@ -290,11 +301,11 @@ export function ShareScreen({ id, portalBase }: { id: string; portalBase: string
       subtitle="Control who can access this document and what they can do."
       actions={
         <Link
-          href="/documents"
+          href={`/documents/${id}`}
           className="inline-flex min-h-11 items-center gap-2 rounded-control border border-action bg-surface px-4 text-sm font-medium text-action hover:bg-accent-soft"
         >
           <ArrowLeft aria-hidden weight="bold" className="size-5" />
-          Back to Documents
+          Back to Document Details
         </Link>
       }
     />

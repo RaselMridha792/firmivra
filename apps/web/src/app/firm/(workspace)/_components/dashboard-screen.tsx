@@ -1,5 +1,11 @@
 'use client';
 
+import {
+  type DashboardPeriod,
+  type DashboardRevenuePeriod,
+  type PermissionModule,
+  roleCan,
+} from '@firmivra/types';
 import { Skeleton } from '@firmivra/ui';
 import {
   CalendarDots,
@@ -10,11 +16,10 @@ import {
   UploadSimple,
   UserPlus,
 } from '@phosphor-icons/react';
-import type { DashboardPeriod, DashboardRevenuePeriod } from '@firmivra/types';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
-import { RequireRole } from '../../../../components/require-role';
+import { useFirm } from '../../../../components/firm-context';
 import { useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
 import { useApiQuery } from '../../../../lib/query';
@@ -32,44 +37,54 @@ const actions: {
   button: string;
   href: string;
   icon: Icon;
-  managers?: true;
+  /** Shown when the role's grid lets it create in this module. */
+  module: PermissionModule;
   outline?: true;
 }[] = [
   {
     title: 'Add a New Client',
     hint: 'Manually add a client to your database.',
     button: 'Add Client',
-    href: '/clients',
+    // The Add Client form itself (Q1).
+    href: '/clients?new=1',
     icon: UserPlus,
+    module: 'CLIENTS',
   },
   {
     title: 'Send a Message',
     hint: 'Send a portal message to a client.',
     button: 'Send Message',
-    href: '/messages',
+    // A new message with the client to choose, not an old conversation (Q2).
+    href: '/messages?new=1',
     icon: ChatCircleDots,
+    module: 'MESSAGES',
   },
   {
     title: 'Create a Bulk Email',
     hint: 'Send updates to multiple clients at once.',
-    button: 'Go to Communications',
-    href: '/communications',
+    button: 'Create Bulk Email',
+    // The bulk email composer; opening it creates and sends nothing (Q3).
+    href: '/communications/new?channel=EMAIL',
     icon: PaperPlaneTilt,
+    module: 'COMMUNICATIONS',
   },
   {
     title: 'Generate an Invoice',
     hint: 'Create and send an invoice in seconds.',
     button: 'Create Invoice',
-    href: '/invoices',
+    // A blank invoice (Q4).
+    href: '/invoices/new',
     icon: CurrencyDollar,
-    managers: true,
+    module: 'INVOICES_PAYMENTS',
   },
   {
     title: 'Upload Documents',
     hint: 'Upload and organize client documents securely.',
     button: 'Upload Now',
-    href: '/documents',
+    // The secure upload, which asks for the client first (Q5).
+    href: '/documents/upload',
     icon: UploadSimple,
+    module: 'DOCUMENTS',
     outline: true,
   },
 ];
@@ -77,6 +92,7 @@ const actions: {
 /** The firm dashboard (Octavia's "Firm dashboard"): every number and row comes from the API. */
 export function DashboardScreen() {
   const { me } = useMe();
+  const { role } = useFirm();
   // Octavia's review of Oct 25, C1 and C2: the global period (the first four cards), and the
   // Client Pipeline's and Revenue Overview's own (Service Breakdown shares Revenue Overview's).
   const [period, setPeriod] = useState<PeriodChoice<DashboardPeriod>>({ period: 'THIS_MONTH' });
@@ -215,12 +231,11 @@ export function DashboardScreen() {
       </div>
 
       <section aria-label="Quick actions" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {actions.map(({ title, hint, button, href, icon: Glyph, managers, outline }) => (
-          <RequireRole
-            key={title}
-            roles={managers ? ['OWNER', 'ADMIN'] : ['OWNER', 'ADMIN', 'STAFF']}
-          >
+        {actions
+          .filter((a) => role && roleCan(role, a.module, 'CREATE'))
+          .map(({ title, hint, button, href, icon: Glyph, outline }) => (
             <div
+              key={title}
               data-testid="quick-action"
               className="flex h-full flex-col gap-3 rounded-xl bg-surface p-4 shadow-md"
             >
@@ -238,8 +253,7 @@ export function DashboardScreen() {
                 {button}
               </Link>
             </div>
-          </RequireRole>
-        ))}
+          ))}
       </section>
     </div>
   );

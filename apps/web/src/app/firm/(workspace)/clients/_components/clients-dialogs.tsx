@@ -3,8 +3,10 @@
 import {
   type BulkClientsRequest,
   type ClientAccountType,
-  CreateClientRequest,
+  type CreateClientRequest,
   type MemberRef,
+  NewClientForm,
+  US_STATES,
 } from '@firmivra/types';
 import { Button, Input, Modal, Select } from '@firmivra/ui';
 import { useRouter } from 'next/navigation';
@@ -15,18 +17,40 @@ import { useApiMutation } from '../../../../../lib/query';
 import { ACCOUNT_TYPES, CLIENT_ERRORS, CLIENTS } from './client-parts';
 import { bulkSummary } from './list-parts';
 
-type Field = 'accountType' | 'displayName' | 'email' | 'phone' | 'assignedUserId';
+type Field =
+  | 'accountType'
+  | 'displayName'
+  | 'email'
+  | 'phone'
+  | 'line1'
+  | 'line2'
+  | 'city'
+  | 'state'
+  | 'postalCode'
+  | 'assignedUserId';
 const EMPTY_FORM: Record<Field, string> = {
   accountType: 'INDIVIDUAL',
   displayName: '',
   email: '',
   phone: '',
+  line1: '',
+  line2: '',
+  city: '',
+  state: '',
+  postalCode: '',
   assignedUserId: '',
 };
+const STATE_OPTIONS = [
+  { value: '', label: 'Choose a state' },
+  ...Object.entries(US_STATES).map(([value, label]) => ({ value, label })),
+];
 
 /**
- * "Add New Client": a client with no portal login yet (POST /business/clients), then their record
- * opens. Owner and Admin may assign someone; a client Staff add is assigned to them.
+ * "Add New Client", the shared new-client form (the Clients list and the dashboard's + New and
+ * quick action): a client with no portal login yet (POST /business/clients), then their record
+ * opens. Name, email, phone and the address are required for both types, and a Business gives
+ * its Business Name (Octavia's D1, checked with the contract's NewClientForm). Owner and Admin may
+ * assign someone; a client Staff add is assigned to them.
  */
 export function AddClientDialog({
   manager,
@@ -53,18 +77,30 @@ export function AddClientDialog({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const body: CreateClientRequest = {
+    const body: NewClientForm = {
       accountType: values.accountType as ClientAccountType,
       displayName: values.displayName,
-      ...(values.email.trim() ? { email: values.email } : {}),
-      ...(values.phone.trim() ? { phone: values.phone } : {}),
+      email: values.email,
+      phone: values.phone,
       ...(manager && values.assignedUserId ? { assignedUserId: values.assignedUserId } : {}),
+      profile: {
+        ...(business ? { businessName: values.displayName } : {}),
+        address: {
+          line1: values.line1,
+          line2: values.line2,
+          city: values.city,
+          state: values.state,
+          postalCode: values.postalCode,
+        },
+      },
     };
-    const check = CreateClientRequest.safeParse(body);
+    const check = NewClientForm.safeParse(body);
     if (!check.success) {
       const found: Partial<Record<Field, string>> = {};
       for (const issue of check.error.issues) {
-        const name = String(issue.path[0] ?? 'displayName') as Field;
+        const last = String(issue.path.at(-1) ?? 'displayName');
+        // The Business Name is the name typed in the name field.
+        const name = (last === 'businessName' ? 'displayName' : last) as Field;
         found[name] ??= issue.message;
       }
       setErrors(found);
@@ -83,20 +119,48 @@ export function AddClientDialog({
     >
       <form onSubmit={submit} noValidate className="flex flex-col gap-4">
         <Select
-          label="Client type"
+          label="Client type *"
           {...field('accountType')}
           options={Object.entries(ACCOUNT_TYPES).map(([value, label]) => ({ value, label }))}
         />
         <Input
-          label={business ? 'Business name' : 'Full name'}
+          label={business ? 'Business name *' : 'Full name *'}
           autoComplete="off"
           required
           {...field('displayName')}
         />
         <div className="grid gap-4 sm:grid-cols-2">
-          <Input label="Email (optional)" type="email" autoComplete="off" {...field('email')} />
-          <Input label="Phone (optional)" type="tel" autoComplete="off" {...field('phone')} />
+          <Input
+            label={business ? 'Business email *' : 'Email *'}
+            type="email"
+            autoComplete="off"
+            required
+            {...field('email')}
+          />
+          <Input
+            label={business ? 'Business phone *' : 'Phone *'}
+            type="tel"
+            autoComplete="off"
+            required
+            {...field('phone')}
+          />
         </div>
+        <fieldset className="grid gap-4 sm:grid-cols-2">
+          <legend className="mb-2 text-sm font-semibold text-heading">
+            {business ? 'Business address' : 'Home address'}
+          </legend>
+          <Input label="Street address *" autoComplete="off" required {...field('line1')} />
+          <Input label="Apt, suite or unit" autoComplete="off" {...field('line2')} />
+          <Input label="City *" autoComplete="off" required {...field('city')} />
+          <Select label="State *" required options={STATE_OPTIONS} {...field('state')} />
+          <Input
+            label="ZIP code *"
+            inputMode="numeric"
+            autoComplete="off"
+            required
+            {...field('postalCode')}
+          />
+        </fieldset>
         {manager ? (
           <Select
             label="Assigned to"

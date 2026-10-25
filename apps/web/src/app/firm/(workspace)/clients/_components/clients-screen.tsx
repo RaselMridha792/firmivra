@@ -64,10 +64,13 @@ type Pending = { kind: BulkKind; clients: { id: string; displayName: string }[] 
  */
 export function ClientsScreen({
   initialSearch = '',
+  initialAdding = false,
   fromDashboard = false,
 }: {
   initialSearch?: string;
-  /** Opened from the dashboard's Total Clients: Back to Dashboard (Octavia's K2). */
+  /** Open Add Client at once (the dashboard's shortcuts). */
+  initialAdding?: boolean;
+  /** Opened from the dashboard (Total Clients, Add Client): Back to Dashboard (Octavia's K2). */
   fromDashboard?: boolean;
 }) {
   const { role } = useFirm();
@@ -76,7 +79,7 @@ export function ClientsScreen({
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(PAGE_SIZES[0] ?? 8);
   const [selected, setSelected] = useState<string[]>([]);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(initialAdding);
   const [pending, setPending] = useState<Pending>(null);
   const [notice, setNotice] = useState('');
 
