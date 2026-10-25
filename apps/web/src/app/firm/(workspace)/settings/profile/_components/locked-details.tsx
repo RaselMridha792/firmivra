@@ -102,7 +102,17 @@ export function LockedDetailsCard({
   kind: ProfileChangeKind;
   icon: Icon;
   title: string;
-  rows: readonly { label: string; value: string | null }[];
+  /**
+   * The locked rows. `quiet` greys a placeholder value (unreachable); `group` names the license a
+   * row belongs to when the firm holds several, and `startsGroup` spaces off the next one.
+   */
+  rows: readonly {
+    label: string;
+    value: string | null;
+    quiet?: boolean;
+    group?: string;
+    startsGroup?: boolean;
+  }[];
   note: ReactNode;
   /** The values the dialog shows as current, by field. */
   current: Partial<Record<ProfileChangeField, string | null>>;
@@ -141,11 +151,11 @@ export function LockedDetailsCard({
       <dl className="border-t border-divider">
         {rows.map((row) => (
           <div
-            key={row.label}
-            className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)_auto] items-center gap-3 border-b border-divider py-1.5 text-sm sm:pl-12"
+            key={`${row.group ?? ''}-${row.label}`}
+            className={`grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)_auto] items-center gap-3 border-b border-divider py-1.5 text-sm sm:pl-12 ${row.startsGroup ? 'mt-3 border-t' : ''}`}
           >
             <dt className="text-text">{row.label}</dt>
-            <dd className={row.value ? 'text-heading' : 'text-muted'}>
+            <dd className={row.value && !row.quiet ? 'text-heading' : 'text-muted'}>
               {row.value ?? 'Not on file'}
             </dd>
             <Lock role="img" aria-label="Locked" weight="fill" className="size-4 text-heading" />
