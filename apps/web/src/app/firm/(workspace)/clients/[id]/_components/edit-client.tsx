@@ -83,6 +83,8 @@ function bodies(client: ClientRecord, values: Values) {
  */
 export function EditClient({ client }: { client: ClientRecord }) {
   const [open, setOpen] = useState(false);
+  /** Closing after an edit asks first (Octavia's E6): Save Changes, Discard Changes, Keep Editing. */
+  const [leaving, setLeaving] = useState(false);
   const form = useForm<Values>({ defaultValues: initial(client) });
   const save = useApiMutation(
     async ({ contact, profile }: ReturnType<typeof bodies>) => {
@@ -116,6 +118,13 @@ export function EditClient({ client }: { client: ClientRecord }) {
     if (!checks.some(Boolean)) return setOpen(false);
     save.mutate({ contact, profile }, { onSuccess: () => setOpen(false) });
   });
+  const dirty = form.formState.isDirty;
+  const close = () => (dirty ? setLeaving(true) : setOpen(false));
+  const discard = () => {
+    form.reset(initial(client));
+    setLeaving(false);
+    setOpen(false);
+  };
 
   return (
     <>
@@ -124,12 +133,13 @@ export function EditClient({ client }: { client: ClientRecord }) {
         onClick={() => {
           save.reset();
           form.reset(initial(client));
+          setLeaving(false);
           setOpen(true);
         }}
       >
         Edit details
       </Button>
-      <Modal open={open} title={`Edit ${client.displayName}`} onClose={() => setOpen(false)}>
+      <Modal open={open} title={`Edit ${client.displayName}`} onClose={close}>
         <form onSubmit={submit} noValidate className="flex flex-col gap-5">
           <fieldset className="grid gap-4 sm:grid-cols-2">
             <legend className="mb-2 text-sm font-semibold text-text">Contact</legend>
@@ -198,14 +208,50 @@ export function EditClient({ client }: { client: ClientRecord }) {
               {errorMessage(save.error, CLIENT_ERRORS)}
             </p>
           ) : null}
-          <div className="flex justify-end gap-3">
-            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={save.isPending}>
-              Save changes
-            </Button>
-          </div>
+          {leaving ? (
+            <div
+              role="alertdialog"
+              aria-labelledby="edit-client-leaving"
+              data-testid="unsaved-changes"
+              className="flex flex-col gap-3 rounded-control border border-warning bg-warning-soft p-4"
+            >
+              <p id="edit-client-leaving" className="text-sm font-semibold text-heading">
+                You have unsaved changes. Save them before you close?
+              </p>
+              <div className="flex flex-wrap justify-end gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  autoFocus
+                  onClick={() => setLeaving(false)}
+                >
+                  Keep Editing
+                </Button>
+                <Button type="button" variant="secondary" onClick={discard}>
+                  Discard Changes
+                </Button>
+                <Button
+                  type="button"
+                  disabled={save.isPending}
+                  onClick={() => {
+                    setLeaving(false);
+                    void submit();
+                  }}
+                >
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="secondary" onClick={close}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={save.isPending}>
+                Save changes
+              </Button>
+            </div>
+          )}
         </form>
       </Modal>
     </>

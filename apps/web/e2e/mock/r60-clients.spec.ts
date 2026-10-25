@@ -76,3 +76,45 @@ test('E7: Return to Clients and Back bring the same list back; a new visit start
   await page.goto(app('/clients'));
   await expect(card(page, 'Balances Due')).toHaveAttribute('aria-pressed', 'false');
 });
+
+test('E6: closing Edit Details after a change asks Save, Discard or Keep Editing', async ({
+  page,
+}) => {
+  await open(page);
+  await names(page).first().click();
+  await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}$/, { timeout: 60_000 });
+  const edit = page.getByRole('button', { name: 'Edit details' });
+  await edit.click();
+  const dialog = page.getByRole('dialog');
+  const city = dialog.getByLabel('City');
+  const was = await city.inputValue();
+
+  // Nothing changed: Cancel simply closes.
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeHidden();
+
+  await edit.click();
+  await city.fill('Faketown');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  const ask = dialog.getByTestId('unsaved-changes');
+  await expect(ask).toContainText('You have unsaved changes');
+  await ask.getByRole('button', { name: 'Keep Editing' }).click();
+  await expect(ask).toBeHidden();
+  await expect(city).toHaveValue('Faketown');
+
+  // Escape asks too; Discard Changes closes and keeps the record as it was.
+  await page.keyboard.press('Escape');
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'Discard Changes' }).click();
+  await expect(dialog).toBeHidden();
+  await edit.click();
+  await expect(city).toHaveValue(was);
+
+  // Save Changes saves.
+  await city.fill('Faketown');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await ask.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(dialog).toBeHidden();
+  await edit.click();
+  await expect(city).toHaveValue('Faketown');
+});

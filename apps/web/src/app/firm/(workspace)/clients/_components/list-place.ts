@@ -49,9 +49,15 @@ export function useListPlace(place: ClientsPlace, fromDashboard: boolean, loaded
     session.set(LAST_CLIENTS_LIST, url);
   }, [url]);
   useEffect(() => {
-    const save = () => session.set(SCROLL, String(Math.round(window.scrollY)));
-    window.addEventListener('scroll', save, { passive: true });
-    return () => window.removeEventListener('scroll', save);
+    // Kept when a link is followed (a client's page, a row action), before the page changes and
+    // the next page's scroll resets it.
+    const save = (event: MouseEvent) => {
+      if ((event.target as Element | null)?.closest('a[href]')) {
+        session.set(SCROLL, String(Math.round(window.scrollY)));
+      }
+    };
+    document.addEventListener('click', save, true);
+    return () => document.removeEventListener('click', save, true);
   }, []);
   const restoredRef = useRef(false);
   useEffect(() => {
