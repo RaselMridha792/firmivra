@@ -19,8 +19,9 @@ export interface BodyIdField {
 export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   {
     field: 'requestId',
-    routes: /^POST \/api\/v1\/business\/(settings\/profile\/change-requests|billing\/requests)$/,
-    why: "the dialog's retry key (the support ticket's idempotency key): the same key answers the firm's own request and another firm's key is 409 CONFLICT, never its ticket (profile-changes.e2e, firm-billing.e2e) (R60)",
+    routes:
+      /^POST \/api\/v1\/business\/(settings\/profile\/change-requests|billing\/requests|support\/messages)$/,
+    why: "the dialog's retry key (the support ticket's idempotency key): the same key answers the firm's own request and another firm's key is 409 CONFLICT, never its ticket (profile-changes.e2e, firm-billing.e2e, support-messages.e2e) (R60, R55)",
   },
   ...['details.employeeId', 'compensation.payrollId'].map((field) => ({
     field,

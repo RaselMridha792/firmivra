@@ -35,6 +35,10 @@ import { ProfileChangesService } from './profile-changes.service.js';
 import { SettingsOverviewController } from './settings-overview.controller.js';
 import { SettingsOverviewService } from './settings-overview.service.js';
 import { SettingsService } from './settings.service.js';
+import {
+  SupportMessagesController,
+  SupportMessagesService,
+} from './support-messages.controller.js';
 
 const kindPipe = new ZodValidationPipe(LegalKind);
 /** A version in the path: plain digits ("2", not "02" or "2e0"). */
@@ -129,8 +133,10 @@ export class SettingsController {
     PortalBrandingController,
     ProfileChangesController,
     FirmBillingController,
+    SupportMessagesController,
   ],
   providers: [
+    SupportMessagesService,
     SettingsService,
     SettingsOverviewService,
     ProfileChangesService,

@@ -62,6 +62,7 @@ import {
   createFirmBillingClient,
   createPortalTabsClient,
   createProfileChangesClient,
+  createSupportMessagesClient,
   createPublicAgreementsClient,
   createRequest,
   createRolesClient,
@@ -144,6 +145,7 @@ import { createNotificationsMock, myNotificationsMock } from '../mocks/notificat
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createFirmBillingMock } from '../mocks/firm-billing';
 import { createProfileChangesMock } from '../mocks/profile-changes';
+import { createSupportMessagesMock } from '../mocks/support-messages';
 import { myAnnouncementsMock } from '../mocks/my-announcements';
 import { createPortalTabsMock } from '../mocks/portal-tabs';
 import { createSettingsMock } from '../mocks/settings';
@@ -244,6 +246,11 @@ export const api = {
       ? createPortalTabsMock({ role: MOCK_ROLE })
       : createPortalTabsClient(request),
   /** Company Profile's Request Change: legal name, EIN and licensing, changed only by Firmivra. */
+  /** Help & Support's in-app message to the Firmivra team (D2): any member. */
+  supportMessages:
+    dev && mocked('supportMessages')
+      ? createSupportMessagesMock()
+      : createSupportMessagesClient(request),
   profileChanges:
     dev && mocked('profileChanges')
       ? createProfileChangesMock({ role: MOCK_ROLE, empty: mockedEmpty('profileChanges') })

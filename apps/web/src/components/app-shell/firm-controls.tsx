@@ -4,8 +4,10 @@ import { notificationLink } from '@firmivra/types';
 import { Drawer, Skeleton } from '@firmivra/ui';
 import {
   Bell,
+  ChatCircleText,
   EnvelopeSimple,
   MagnifyingGlass,
+  Phone,
   Plus,
   Question,
   WarningCircle,
@@ -18,6 +20,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useId, useState } from 'react';
 import { api } from '../../lib/api';
+import { COMPANY } from '../../lib/company';
+import { errorMessage } from '../../lib/errors';
 import { useApiQuery } from '../../lib/query';
 
 const popover =
@@ -349,10 +353,121 @@ function HelpOption({
 }
 
 /**
- * The shared Help & Support slide-out (Settings review, Overview item 8), from the "?" button and
- * the account menu. Contact Support keeps the support email; Report a Problem writes to it with the
- * firm and the page's path (no query, so nothing typed in a search travels). Help Center joins when
- * there is a help site to open (Rasel, Oct 21).
+ * Common questions, each answered with where the app does it (D2). Only pages that exist.
+ */
+const FAQ: { q: string; a: string }[] = [
+  {
+    q: 'How do clients get access to the portal?',
+    a: "They create an account on your portal's sign-up page (while sign-up is on in Settings > Client Portal), and an Owner or Admin approves them in Clients > Sign-ups.",
+  },
+  {
+    q: 'How do I request documents from a client?',
+    a: 'In Documents, open Document Requests and choose New Request.',
+  },
+  {
+    q: 'How do I change what clients see in the portal?',
+    a: 'Settings > Client Portal: the heading and welcome message, client sign-up, and which portal tabs are on.',
+  },
+  {
+    q: 'Who can see a client’s records?',
+    a: 'Owners and Admins see every client; Staff see the clients assigned to them.',
+  },
+];
+
+/** Help & Support's in-app message (D2): nothing is sent until Send. */
+function SupportMessageForm() {
+  const pathname = usePathname();
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
+  const [sent, setSent] = useState<number | null>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const subjectId = useId();
+  const messageId = useId();
+  if (sent !== null) {
+    return (
+      <div role="status" className="flex flex-col gap-2 text-sm text-text">
+        <p>
+          Message sent. It is ticket #{sent} in the Firmivra support queue; the team replies to you.
+        </p>
+        <button
+          type="button"
+          className="w-fit text-link underline"
+          onClick={() => {
+            setSent(null);
+            setSubject('');
+            setMessage('');
+            setRequestId(crypto.randomUUID());
+          }}
+        >
+          Write another message
+        </button>
+      </div>
+    );
+  }
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!subject.trim() || !message.trim()) {
+          setError('Enter a subject and your message.');
+          return;
+        }
+        setPending(true);
+        setError(null);
+        // The page's path only: nothing typed in a search travels.
+        api.supportMessages
+          .send({ requestId, subject, message, page: pathname })
+          .then((r) => setSent(r.number))
+          .catch((err: unknown) => setError(`${errorMessage(err)} Your message is kept.`))
+          .finally(() => setPending(false));
+      }}
+    >
+      <label htmlFor={subjectId} className="text-sm font-medium text-heading">
+        Subject
+      </label>
+      <input
+        id={subjectId}
+        value={subject}
+        maxLength={120}
+        onChange={(e) => setSubject(e.target.value)}
+        className="min-h-10 rounded-control border border-control-border bg-surface px-3 text-sm"
+      />
+      <label htmlFor={messageId} className="text-sm font-medium text-heading">
+        Message
+      </label>
+      <textarea
+        id={messageId}
+        value={message}
+        maxLength={4000}
+        rows={4}
+        onChange={(e) => setMessage(e.target.value)}
+        className="rounded-control border border-control-border bg-surface px-3 py-2 text-sm"
+      />
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+      <button
+        type="submit"
+        disabled={pending}
+        className="min-h-10 w-fit rounded-control bg-action px-4 text-sm font-semibold text-on-action hover:bg-action-hover disabled:bg-disabled disabled:text-disabled-text"
+      >
+        {pending ? 'Sending…' : 'Send Message'}
+      </button>
+    </form>
+  );
+}
+
+/**
+ * The shared Help & Support slide-out (Settings review, Overview item 8; Octavia's dashboard
+ * review of Oct 25, D2), from the "?" button and the account menu. Only channels that exist show:
+ * an in-app message (a ticket in Firmivra's support queue), Firmivra's phone (no hours are kept,
+ * so none are promised), the support email, Report a Problem (with the firm and the page's path,
+ * no query), and the common questions. There is no live chat to offer. Opening it sends nothing.
  */
 export function HelpSupportPanel({
   open,
@@ -380,6 +495,31 @@ export function HelpSupportPanel({
       subtitle="Reach the Firmivra team."
     >
       <div className="flex flex-col gap-3">
+        <section
+          aria-labelledby="help-message-title"
+          className="flex flex-col gap-3 rounded-card border border-border p-4"
+        >
+          <div className="flex items-start gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-control bg-info-soft text-action">
+              <ChatCircleText aria-hidden weight="fill" className="size-5" />
+            </span>
+            <span>
+              <span id="help-message-title" className="block font-semibold text-heading">
+                Send a Support Message
+              </span>
+              <span className="block text-sm text-text">
+                Write to the Firmivra team from here. Nothing is sent until you press Send.
+              </span>
+            </span>
+          </div>
+          <SupportMessageForm />
+        </section>
+        <HelpOption
+          icon={Phone}
+          title="Call Firmivra"
+          body={`Talk to the Firmivra team at ${COMPANY.phone}.`}
+          href={`tel:${COMPANY.phone.replace(/[^\d+]/g, '')}`}
+        />
         <HelpOption
           icon={EnvelopeSimple}
           title="Contact Support"
@@ -392,6 +532,17 @@ export function HelpSupportPanel({
           body="Tell us what went wrong. The email names your firm and the page you were on."
           href={`mailto:${email}?${report}`}
         />
+        <section aria-labelledby="help-faq-title" className="flex flex-col gap-2">
+          <h3 id="help-faq-title" className="font-semibold text-heading">
+            Common Questions
+          </h3>
+          {FAQ.map(({ q, a }) => (
+            <details key={q} className="rounded-card border border-border p-3">
+              <summary className="cursor-pointer text-sm font-medium text-heading">{q}</summary>
+              <p className="mt-2 text-sm text-text">{a}</p>
+            </details>
+          ))}
+        </section>
       </div>
     </Drawer>
   );
