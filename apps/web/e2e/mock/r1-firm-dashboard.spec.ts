@@ -11,7 +11,8 @@ test('KPI tiles are the design size and each due task has a done checkbox', asyn
   const tile = await card.locator('span.rounded-full').first().boundingBox();
   expect(tile?.width).toBe(56);
   const tasks = page.getByRole('region', { name: 'Tasks Due' });
-  const boxes = tasks.getByRole('checkbox', { name: /^Mark .+ done$/ });
+  // Each task's checkbox asks before completing it (Octavia's T5); its title opens the task (T4).
+  const boxes = tasks.getByRole('checkbox', { name: /^Mark .+ complete$/ });
   await expect(boxes.first()).toBeVisible();
-  expect(await boxes.count()).toBe(await tasks.getByRole('link').filter({ hasText: '–' }).count());
+  expect(await boxes.count()).toBe(await tasks.getByTestId('task-title').count());
 });

@@ -18,12 +18,19 @@ export function RowMenu({
   label,
   items,
   vertical,
+  fixed = false,
 }: {
   label: string;
   items: RowMenuItem[];
   vertical?: boolean;
+  /**
+   * Place the menu over the page (position fixed) so a scrolling list does not clip it; it closes
+   * when anything scrolls.
+   */
+  fixed?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [at, setAt] = useState<{ top?: number; bottom?: number; right: number }>();
   const rootRef = useRef<HTMLDivElement>(null);
   const id = useId();
   useEffect(() => {
@@ -32,8 +39,13 @@ export function RowMenu({
     const away = (event: MouseEvent) =>
       rootRef.current && !rootRef.current.contains(event.target as Node) && setOpen(false);
     document.addEventListener('mousedown', away);
-    return () => document.removeEventListener('mousedown', away);
-  }, [open]);
+    const scrolled = () => setOpen(false);
+    if (fixed) window.addEventListener('scroll', scrolled, true);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      window.removeEventListener('scroll', scrolled, true);
+    };
+  }, [open, fixed]);
   function key(event: React.KeyboardEvent) {
     const all = [...(rootRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
     const at = all.indexOf(document.activeElement as HTMLElement);
@@ -55,7 +67,20 @@ export function RowMenu({
         aria-controls={id}
         aria-label={label}
         title={label}
-        onClick={() => setOpen(!open)}
+        onClick={(event) => {
+          if (fixed) {
+            const r = event.currentTarget.getBoundingClientRect();
+            const right = window.innerWidth - r.right;
+            // Upward when the menu (36 px a line) would run past the bottom of the window.
+            const fits = r.bottom + 4 + items.length * 36 + 8 <= window.innerHeight;
+            setAt(
+              fits
+                ? { top: r.bottom + 4, right }
+                : { bottom: window.innerHeight - r.top + 4, right },
+            );
+          }
+          setOpen(!open);
+        }}
         className="inline-flex size-8 items-center justify-center rounded-lg border border-divider bg-surface text-heading hover:bg-canvas"
       >
         {vertical ? (
@@ -69,7 +94,8 @@ export function RowMenu({
           id={id}
           role="menu"
           aria-label={label}
-          className="absolute right-0 z-20 mt-1 flex w-48 flex-col rounded-lg border border-divider bg-surface py-1 shadow-md"
+          style={fixed && at ? at : undefined}
+          className={`${fixed ? 'fixed z-30' : 'absolute right-0 z-20 mt-1'} flex w-48 flex-col rounded-lg border border-divider bg-surface py-1 shadow-md`}
         >
           {items.map((item) => (
             <button

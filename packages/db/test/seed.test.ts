@@ -80,6 +80,8 @@ describe('seed', () => {
       // runs (a fresh test database has none yet); seeding stays paused (Rasel).
       'firm_licenses',
       'staff_work_schedules',
+      // R60's request 13 (Oct 25): staff phone codes are short lived and never seeded.
+      'staff_phone_codes',
     ];
     const empty: string[] = [];
     for (const t of tables) {

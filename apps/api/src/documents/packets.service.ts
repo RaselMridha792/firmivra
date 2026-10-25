@@ -422,11 +422,12 @@ export class DocumentPacketsService {
       if (body.recipient.kind === 'MEMBER')
         await requireActiveMember(tx, businessId, body.recipient.userId);
       if (body.assignedUserId) await requireActiveMember(tx, businessId, body.assignedUserId);
+      // The template is checked either way; its items are copied unless the screen sent them.
       const fromTemplate = body.templateId
         ? await this.templateItems(tx, businessId, userId, body.templateId)
         : [];
       const items = [
-        ...fromTemplate,
+        ...(body.copyTemplateItems ? fromTemplate : []),
         ...(body.items ?? []).map((i) => ({
           title: i.title,
           instructions: i.instructions ?? null,

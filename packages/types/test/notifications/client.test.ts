@@ -230,7 +230,9 @@ describe('notification links', () => {
       `/clients/${clientId}/invoices`,
     );
     expect(notificationLink(target('engagement', clientId), firm)).toBe(`/clients/${clientId}`);
-    expect(notificationLink(target('appointment'), firm)).toBe('/calendar');
+    // The appointment itself (Octavia's N3), with or without a client.
+    expect(notificationLink(target('appointment'), firm)).toBe(`/calendar/${id}`);
+    expect(notificationLink(target('appointment', clientId), firm)).toBe(`/calendar/${id}`);
     expect(notificationLink(target('client_account'), firm)).toBe('/sign-ups');
     expect(notificationLink(target('membership'), firm)).toBe('/team');
     expect(notificationLink(target('document'), portal)).toBe('/lvp/documents');

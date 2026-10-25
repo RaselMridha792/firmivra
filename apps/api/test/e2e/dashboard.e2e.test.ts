@@ -233,10 +233,18 @@ describe('GET /business/dashboard/summary', () => {
     expect(s.kpis).toEqual({
       totalClients: { value: 3, previous: 1 },
       newLeads: { value: 1, previous: 0 },
-      returnsInProgress: { value: 2, previous: 1 },
+      // The return made 10 days ago did not exist on the same day last month.
+      returnsInProgress: { value: 2, previous: 0 },
       acceptedReturns: { value: 1, previous: 0 },
       outstandingInvoicesCents: { value: 36_000, previous: null },
       appointmentsToday: { value: 1, previous: null },
+    });
+    expect(s.range).toEqual({
+      period: 'THIS_MONTH',
+      from: `${s.today.slice(0, 8)}01`,
+      to: s.today,
+      previousFrom: expect.stringMatching(/-01$/) as string,
+      previousTo: expect.any(String) as string,
     });
     expect(s.pipeline).toEqual({
       // The New Lead and In Review leads; an archived one is not in the pipeline.
@@ -246,16 +254,23 @@ describe('GET /business/dashboard/summary', () => {
       inProgress: 2,
       completed: 1,
       period: 'THIS_MONTH',
+      from: s.range.from,
+      to: s.today,
     });
   });
 
   it("adds up this year's money by month and by service", async () => {
     const { revenue, today } = await read(people.ownerA, 'a');
     const month = Number(today.slice(5, 7)) - 1;
-    expect(revenue.year).toBe(Number(today.slice(0, 4)));
+    expect(revenue).toMatchObject({
+      period: 'YEAR',
+      from: `${today.slice(0, 4)}-01-01`,
+      to: today,
+    });
     expect(revenue.totalCents).toBe(24_000);
-    expect(revenue.byMonthCents[month]).toBe(24_000);
-    expect(revenue.byMonthCents.filter((c) => c !== 0)).toHaveLength(1);
+    expect(revenue.buckets).toHaveLength(12);
+    expect(revenue.buckets[month]?.cents).toBe(24_000);
+    expect(revenue.buckets.filter((b) => b.cents !== 0)).toHaveLength(1);
     expect(revenue.byService).toEqual([
       { serviceId: bookkeeping, name: 'Bookkeeping', cents: 20_000 },
       { serviceId: null, name: null, cents: 4_000 },
@@ -303,19 +318,95 @@ describe('GET /business/dashboard/summary', () => {
     expect(year.pipeline).toMatchObject({ completed: 1, period: 'THIS_YEAR' });
     const last = await read(people.ownerA, 'a', '?pipelinePeriod=LAST_MONTH');
     expect(last.pipeline).toMatchObject({ completed: 0, period: 'LAST_MONTH' });
+    const today = await read(people.ownerA, 'a', '?pipelinePeriod=TODAY');
+    expect(today.pipeline).toMatchObject({ completed: 1, from: today.today, to: today.today });
+    const custom = await read(
+      people.ownerA,
+      'a',
+      `?pipelinePeriod=CUSTOM&pipelineFrom=${nyDay(-3)}&pipelineTo=${nyDay(-1)}`,
+    );
+    expect(custom.pipeline).toMatchObject({ completed: 0, from: nyDay(-3), to: nyDay(-1) });
     expect((await summary(people.ownerA, 'a', 'STAFF', '?pipelinePeriod=NEXT_YEAR')).status).toBe(
       400,
     );
   });
 
-  it('gives the chosen revenue year and the year before over the same span', async () => {
+  // Octavia's review of Oct 25: C1 (the global period) and K8 (each card's period before).
+  it('counts the cards for the global period and its equivalent period before', async () => {
+    const today = await read(people.ownerA, 'a', '?period=TODAY');
+    expect(today.range).toMatchObject({
+      from: today.today,
+      to: today.today,
+      previousTo: nyDay(-1),
+    });
+    expect(today.kpis.acceptedReturns).toEqual({ value: 1, previous: 0 });
+    expect(today.kpis.newLeads).toEqual({ value: 1, previous: 0 });
+    expect(today.kpis.totalClients).toEqual({ value: 3, previous: 1 });
+    const lastMonth = await read(people.ownerA, 'a', '?period=LAST_MONTH');
+    // Nothing was accepted last month; the cards that never follow the period stay as they are.
+    expect(lastMonth.kpis.acceptedReturns.value).toBe(0);
+    expect(lastMonth.kpis.newLeads.value).toBe(0);
+    expect(lastMonth.kpis.totalClients.value).toBe(1);
+    expect(lastMonth.kpis.outstandingInvoicesCents).toEqual({ value: 36_000, previous: null });
+    expect(lastMonth.kpis.appointmentsToday).toEqual({ value: 1, previous: null });
+    const custom = await read(
+      people.ownerA,
+      'a',
+      `?period=CUSTOM&from=${nyDay(-11)}&to=${nyDay(0)}`,
+    );
+    expect(custom.range).toMatchObject({
+      period: 'CUSTOM',
+      from: nyDay(-11),
+      to: nyDay(0),
+      previousFrom: nyDay(-23),
+      previousTo: nyDay(-12),
+    });
+    expect(custom.kpis.returnsInProgress).toEqual({ value: 2, previous: 0 });
+  });
+
+  it('refuses a Custom period without both days, ending after today or backwards', async () => {
+    for (const query of [
+      '?period=CUSTOM',
+      `?period=CUSTOM&from=${nyDay(-2)}`,
+      `?period=CUSTOM&from=${nyDay(-1)}&to=${nyDay(1)}`,
+      `?period=CUSTOM&from=${nyDay(-1)}&to=${nyDay(-3)}`,
+      `?period=THIS_MONTH&from=${nyDay(-1)}`,
+      `?revenuePeriod=CUSTOM&revenueFrom=${nyDay(-1)}&revenueTo=${nyDay(2)}`,
+      '?revenuePeriod=MONTH&revenueYear=2024',
+    ]) {
+      const res = await summary(people.ownerA, 'a', 'STAFF', query);
+      expect([query, res.status]).toEqual([query, 400]);
+      expect((res.body as { error: { code: string } }).error.code).toBe('VALIDATION_FAILED');
+    }
+  });
+
+  it('gives Revenue Overview by month, quarter, year or Custom days, with the span before', async () => {
     const now = await read(people.ownerA, 'a');
     // No money before this year: nothing to compare with.
-    expect(now.revenue.previousYearCents).toBeNull();
+    expect(now.revenue.previousCents).toBeNull();
+    const month = await read(people.ownerA, 'a', '?revenuePeriod=MONTH');
+    expect(month.revenue.buckets).toHaveLength(Number(now.today.slice(8)));
+    expect(month.revenue.buckets.at(-1)).toEqual({ from: now.today, to: now.today, cents: 24_000 });
+    expect(month.revenue.totalCents).toBe(24_000);
+    const quarter = await read(people.ownerA, 'a', '?revenuePeriod=QUARTER');
+    expect(quarter.revenue.buckets.length).toBeLessThanOrEqual(3);
+    expect(quarter.revenue.buckets.at(-1)?.cents).toBe(24_000);
+    const custom = await read(
+      people.ownerA,
+      'a',
+      `?revenuePeriod=CUSTOM&revenueFrom=${nyDay(-2)}&revenueTo=${nyDay(-1)}`,
+    );
+    expect(custom.revenue).toMatchObject({ totalCents: 0, previousCents: null });
+    expect(custom.revenue.buckets).toHaveLength(2);
     const lastYear = Number(now.today.slice(0, 4)) - 1;
     const past = await read(people.ownerA, 'a', `?revenueYear=${lastYear}`);
-    expect(past.revenue).toMatchObject({ year: lastYear, totalCents: 0, previousYearCents: null });
-    expect(past.revenue.byMonthCents.every((c) => c === 0)).toBe(true);
+    expect(past.revenue).toMatchObject({
+      from: `${lastYear}-01-01`,
+      to: `${lastYear}-12-31`,
+      totalCents: 0,
+      previousCents: null,
+    });
+    expect(past.revenue.buckets.every((b) => b.cents === 0)).toBe(true);
     const future = await summary(people.ownerA, 'a', 'STAFF', `?revenueYear=${lastYear + 2}`);
     expect(future.status).toBe(400);
     expect((future.body as { error: { code: string } }).error.code).toBe('VALIDATION_FAILED');

@@ -1,7 +1,7 @@
 'use client';
 
 import { Skeleton } from '@firmivra/ui';
-import type { DashboardKpi, DashboardSummary } from '@firmivra/types';
+import type { DashboardKpi, DashboardRange, DashboardSummary } from '@firmivra/types';
 import {
   CalendarDots,
   CheckCircle,
@@ -15,7 +15,9 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import { ArrowDown, ArrowRight, ArrowUp } from 'lucide-react';
 import Link from 'next/link';
 import { FROM_DASHBOARD } from '../../../../lib/from-dashboard';
+import type { ReactNode } from 'react';
 import { IconTile, type Tone } from './icon-tile';
+import { comparedWith } from './period-select';
 
 export const money = (cents: number) =>
   new Intl.NumberFormat('en-US', {
@@ -24,42 +26,90 @@ export const money = (cents: number) =>
     maximumFractionDigits: 0,
   }).format(cents / 100);
 
-/** "↑ 12% vs last month", only when the API gives the period before and it isn't zero. */
-function Trend({ kpi, period }: { kpi: DashboardKpi; period: string }) {
-  if (!kpi.previous) return null;
-  const change = Math.round(((kpi.value - kpi.previous) / kpi.previous) * 100);
-  const Arrow = change > 0 ? ArrowUp : change < 0 ? ArrowDown : null;
-  return (
-    <span className="flex flex-col text-sm text-muted">
-      {/* A small pill, green or red, as the design draws each trend (R1, Oct 20). */}
-      <span
-        className={`flex w-fit items-center gap-1 rounded-pill px-1.5 py-0.5 font-semibold ${change > 0 ? 'bg-success-soft text-success' : change < 0 ? 'bg-danger-soft text-danger' : 'bg-canvas'}`}
-      >
-        {Arrow ? <Arrow aria-hidden className="size-4" /> : null}
-        <span>
-          <span className="sr-only">{change > 0 ? 'Up ' : change < 0 ? 'Down ' : ''}</span>
-          {Math.abs(change)}%
-        </span>
-      </span>
-      vs {period}
+/** Which way is good for a card (K8): more clients is good, more unpaid balance is not. */
+type Favour = 'up' | 'down' | 'neutral';
+
+const PILL = {
+  good: 'bg-success-soft text-success',
+  bad: 'bg-danger-soft text-danger',
+  neutral: 'bg-canvas text-muted',
+  info: 'bg-info-soft text-info',
+};
+
+/**
+ * Octavia's review of Oct 25, K8: the change against the equivalent period before, as an arrow,
+ * a percentage and words, its colour by whether the change is good for this card (with the
+ * words saying so too). Unchanged is "No change"; nothing before is "New" (or "No change" when
+ * both are zero); a card the data keeps no history for says N/A.
+ */
+export function Trend({
+  kpi,
+  favour,
+  against,
+}: {
+  kpi: DashboardKpi;
+  favour: Favour;
+  against: string;
+}) {
+  const pill = (tone: keyof typeof PILL, body: ReactNode) => (
+    <span
+      className={`flex w-fit items-center gap-1 rounded-pill px-1.5 py-0.5 font-semibold ${PILL[tone]}`}
+    >
+      {body}
     </span>
+  );
+  const line = (badge: ReactNode, words: string) => (
+    <span data-testid="kpi-trend" className="flex flex-col text-sm text-muted">
+      {badge}
+      {words}
+    </span>
+  );
+  if (kpi.previous === null) return line(pill('neutral', 'N/A'), 'no earlier figure is kept');
+  if (kpi.previous === 0) {
+    return kpi.value === 0
+      ? line(pill('neutral', 'No change'), against)
+      : line(pill('info', 'New'), `none ${against.replace(/^vs /, 'in ')}`);
+  }
+  const change = Math.round(((kpi.value - kpi.previous) / kpi.previous) * 100);
+  if (change === 0) return line(pill('neutral', 'No change'), against);
+  const up = change > 0;
+  const tone = favour === 'neutral' ? 'neutral' : up === (favour === 'up') ? 'good' : 'bad';
+  const Arrow = up ? ArrowUp : ArrowDown;
+  return line(
+    pill(
+      tone,
+      <>
+        <Arrow aria-hidden className="size-4" />
+        <span>
+          <span className="sr-only">{up ? 'Up ' : 'Down '}</span>
+          {Math.abs(change)}%
+          {tone === 'neutral' ? null : (
+            <span className="sr-only">{tone === 'good' ? ', favourable' : ', unfavourable'}</span>
+          )}
+        </span>
+      </>,
+    ),
+    against,
   );
 }
 
-/** This month so far, in the firm's days: the period the monthly cards count. */
-type Month = { from: string; to: string } | null;
+/** The global period's days (C1): the span the periodic cards count and their lists filter by. */
+type Span = { from: string; to: string } | null;
 
 /**
  * The six cards and where each opens (Octavia's K3 to K7): the list filtered to exactly the records
- * the card counts, with Back to Dashboard. `month` is null until the summary gives the firm's day.
+ * the card counts, with Back to Dashboard. `span` is null until the summary gives the period.
  */
 const CARDS: {
   key: keyof DashboardSummary['kpis'];
   label: string;
   icon: Icon;
   tone: Tone;
-  href: (month: Month) => string;
-  period?: string;
+  href: (span: Span) => string;
+  /** Null: the card shows no comparison (the design draws none for Appointments Today). */
+  favour: Favour | null;
+  /** Follows the global period (C1); the others are always as of today. */
+  periodic: boolean;
 }[] = [
   {
     key: 'totalClients',
@@ -67,16 +117,18 @@ const CARDS: {
     icon: UsersThree,
     tone: 'blue',
     href: () => `/clients?${FROM_DASHBOARD}`,
-    period: 'last month',
+    favour: 'up',
+    periodic: true,
   },
   {
     key: 'newLeads',
     label: 'New Leads',
     icon: UserPlus,
     tone: 'amber',
-    // Stage New Lead, created this month (the API counts the same).
-    href: (m) => `/leads?stage=SUBMITTED${m ? `&from=${m.from}&to=${m.to}` : ''}&${FROM_DASHBOARD}`,
-    period: 'last month',
+    // Stage New Lead, created in the period (the API counts the same).
+    href: (s) => `/leads?stage=SUBMITTED${s ? `&from=${s.from}&to=${s.to}` : ''}&${FROM_DASHBOARD}`,
+    favour: 'up',
+    periodic: true,
   },
   {
     key: 'returnsInProgress',
@@ -85,17 +137,19 @@ const CARDS: {
     tone: 'purple',
     // In Preparation, Waiting on Client and Ready for Review/Signature/File.
     href: () => `/tax-returns?status=IN_PROGRESS&${FROM_DASHBOARD}`,
-    period: 'last week',
+    favour: 'neutral',
+    periodic: true,
   },
   {
     key: 'acceptedReturns',
     label: 'Accepted Returns',
     icon: CheckCircle,
     tone: 'green',
-    // Accepted only (not Transmitted, not Rejected), accepted this month.
-    href: (m) =>
-      `/tax-returns?status=ACCEPTED${m ? `&acceptedFrom=${m.from}&acceptedTo=${m.to}` : ''}&${FROM_DASHBOARD}`,
-    period: 'last month',
+    // Accepted only (not Transmitted, not Rejected), accepted in the period.
+    href: (s) =>
+      `/tax-returns?status=ACCEPTED${s ? `&acceptedFrom=${s.from}&acceptedTo=${s.to}` : ''}&${FROM_DASHBOARD}`,
+    favour: 'up',
+    periodic: true,
   },
   {
     key: 'outstandingInvoicesCents',
@@ -104,7 +158,8 @@ const CARDS: {
     tone: 'red',
     // Every unpaid balance, overdue or not.
     href: () => `/invoices?status=OUTSTANDING&${FROM_DASHBOARD}`,
-    period: 'last month',
+    favour: 'down',
+    periodic: false,
   },
   {
     key: 'appointmentsToday',
@@ -112,17 +167,22 @@ const CARDS: {
     icon: CalendarDots,
     tone: 'blue',
     href: () => `/calendar/today?${FROM_DASHBOARD}`,
+    favour: null,
+    periodic: false,
   },
 ];
+
+const daysIn = (r: DashboardRange) => (Date.parse(r.to) - Date.parse(r.from)) / 86_400_000 + 1;
 
 /** The six numbers of the design's top row, from the dashboard summary. */
 export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary> }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      {CARDS.map(({ key, label, icon, tone, href: to, period }) => {
+      {CARDS.map(({ key, label, icon, tone, href: to, favour, periodic }) => {
         const kpi = summary.data?.kpis[key];
-        const today = summary.data?.today;
-        const href = to(today ? { from: `${today.slice(0, 8)}01`, to: today } : null);
+        const range = summary.data?.range;
+        const against = range ? comparedWith(range.period, daysIn(range)) : '';
+        const href = to(range ? { from: range.from, to: range.to } : null);
         const value = kpi
           ? key === 'outstandingInvoicesCents'
             ? money(kpi.value)
@@ -138,7 +198,9 @@ export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary
                 <span className="text-2xl font-bold text-heading">{value}</span>
               )}
               <span className="text-sm text-muted">{label}</span>
-              {kpi && period ? <Trend kpi={kpi} period={period} /> : null}
+              {kpi && favour ? (
+                <Trend kpi={kpi} favour={favour} against={periodic ? against : ''} />
+              ) : null}
             </span>
           </>
         );
