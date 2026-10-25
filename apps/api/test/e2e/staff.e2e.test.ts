@@ -283,6 +283,13 @@ describe('summary, options and the template', () => {
           { businessId: firms.a, name: `Old Title ${run}`, archivedAt: new Date() },
         ],
       });
+      // Work Schedules (SM8): the saved live schedules, not the records' own text.
+      await tx.staffWorkSchedule.createMany({
+        data: [
+          { businessId: firms.a, name: `Four Tens ${run}` },
+          { businessId: firms.a, name: `Old Shift ${run}`, archivedAt: new Date() },
+        ],
+      });
       await tx.firmOffice.create({ data: { businessId: firms.a, name: `Branch ${run}` } });
       await tx.firmOffice.create({
         data: { businessId: firms.a, name: `Closed ${run}`, status: 'INACTIVE' },
@@ -312,10 +319,12 @@ describe('summary, options and the template', () => {
     expect(o.jobTitles).not.toContain('Senior Preparer');
     expect(o.offices).toEqual([`Branch ${run}`]);
     expect(o.serviceAreas.map((s) => s.code)).toContain('TAX_PREPARATION');
-    // The presets first, then the firm's own schedules already given (Octavia's SM8).
+    // The presets first, then the firm's saved live schedules (Octavia's SM8). A record's own
+    // schedule text is not a saved choice.
     expect(o.workSchedules.slice(0, 5)).toContain('Flexible');
-    expect(o.workSchedules).toContain(`Mon-Thu ${run}`);
-    expect(o.workSchedules.indexOf(`Mon-Thu ${run}`)).toBeGreaterThanOrEqual(5);
+    expect(o.workSchedules.indexOf(`Four Tens ${run}`)).toBeGreaterThanOrEqual(5);
+    expect(o.workSchedules).not.toContain(`Old Shift ${run}`);
+    expect(o.workSchedules).not.toContain(`Mon-Thu ${run}`);
   });
 
   it('serves the import template as a CSV file', async () => {

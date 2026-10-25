@@ -782,10 +782,12 @@ export function OptionsSection({
             disabled={!draft.reminder}
             value={String(draft.reminderDays)}
             onChange={(e) => onChange({ reminderDays: Number(e.target.value) })}
-            options={REMINDER_DAYS.map((d) => ({
-              value: String(d),
-              label: `${d} ${d === 1 ? 'day' : 'days'} before due date`,
-            }))}
+            options={[...new Set<number>([...REMINDER_DAYS, draft.reminderDays])]
+              .sort((a, b) => a - b)
+              .map((d) => ({
+                value: String(d),
+                label: `${d} ${d === 1 ? 'day' : 'days'} before due date`,
+              }))}
           />
         </OptionRow>
         <OptionRow

@@ -145,7 +145,7 @@ function IndividualDocuments({
   };
   for (const t of templates)
     for (const i of t.items) add(i.title, i.description, i.category?.id ?? null);
-  for (const c of categories ?? []) add(c.name, null, c.id);
+  for (const c of categories ?? []) if (!c.archivedAt) add(c.name, null, c.id);
   const have = new Set(items.map((i) => i.title.trim().toLowerCase()));
   const shown = pool
     .filter((p) => !term || p.title.toLowerCase().includes(term))
@@ -517,17 +517,19 @@ export function ChooseDocumentsStep({
           testId="choose-documents"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Tabs
-              label="Choose documents by"
-              variant="segmented"
-              value={tab}
-              onChange={setTab}
-              items={[
-                { id: 'templates', label: 'Use a Template' },
-                { id: 'individual', label: 'Add Individual Documents' },
-                { id: 'saved', label: 'My Saved Lists' },
-              ]}
-            />
+            <div className="max-w-full overflow-x-auto">
+              <Tabs
+                label="Choose documents by"
+                variant="segmented"
+                value={tab}
+                onChange={setTab}
+                items={[
+                  { id: 'templates', label: 'Use a Template' },
+                  { id: 'individual', label: 'Add Individual Documents' },
+                  { id: 'saved', label: 'My Saved Lists' },
+                ]}
+              />
+            </div>
             <label className="flex min-h-11 w-full items-center gap-2 rounded-control border border-border bg-surface px-3 text-sm sm:w-64">
               <MagnifyingGlass aria-hidden weight="bold" className="size-4 text-muted" />
               <span className="sr-only">

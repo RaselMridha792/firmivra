@@ -41,6 +41,8 @@ import {
   type StaffDocument,
   type StaffDraft,
   type StaffJobTitle,
+  type StaffWorkSchedule,
+  SaveStaffWorkScheduleRequest,
   SaveStaffJobTitleRequest,
   type StaffSecurityDefaults,
   SaveStaffSecurityDefaultsRequest,
@@ -93,6 +95,14 @@ const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
 const copy = <T>(value: T): T => structuredClone(value);
 const now = () => new Date().toISOString();
 const day = (iso: string) => iso.slice(0, 10);
+/** The API's presets (WORK_SCHEDULES in staff-read.service.ts), offered before the saved ones. */
+const WORK_SCHEDULE_PRESETS = [
+  'Full-time (Mon-Fri, 9-5)',
+  'Part-time (mornings)',
+  'Part-time (afternoons)',
+  'Seasonal (tax season)',
+  'Flexible',
+];
 
 interface Member {
   detail: StaffDetail;
@@ -128,6 +138,8 @@ interface Store {
   drafts: StaffDraft[];
   /** Offices & Job Titles: the saved titles (staff_job_titles). */
   jobTitles: Omit<StaffJobTitle, 'staffCount'>[];
+  /** Offices & Job Titles > Work Schedules: the saved schedules (staff_work_schedules). */
+  workSchedules: Omit<StaffWorkSchedule, 'staffCount'>[];
   /** New Accounts & Security: Firmivra's defaults until the firm saves its own. */
   securityDefaults: Omit<StaffSecurityDefaults, 'existingAccounts'>;
   created: Map<string, string>;
@@ -233,6 +245,7 @@ function seed(empty: boolean): Store {
     roleOverrides: new Map(),
     drafts: [],
     jobTitles: [],
+    workSchedules: [],
     securityDefaults: {
       allowedAuthMethods: ['AUTHENTICATOR_APP', 'BACKUP_CODES'],
       restrictDevices: false,
@@ -494,6 +507,19 @@ function seed(empty: boolean): Store {
   saved.sort().forEach((name, i) => {
     s.jobTitles.push({
       id: uuid('0d30', i + 1),
+      name,
+      archivedAt: null,
+      createdAt: '2026-10-24T00:00:00.000Z',
+      updatedAt: '2026-10-24T00:00:00.000Z',
+    });
+  });
+  // The saved schedules start as the schedules the records carry (R1's fill), as on the API.
+  const schedules = [
+    ...new Set(s.members.map((m) => m.detail.profile.workSchedule).filter((t): t is string => !!t)),
+  ];
+  schedules.sort().forEach((name, i) => {
+    s.workSchedules.push({
+      id: uuid('0d32', i + 1),
       name,
       archivedAt: null,
       createdAt: '2026-10-24T00:00:00.000Z',
@@ -833,6 +859,24 @@ export function createStaffMock(options: Options = {}): StaffClient {
     if (!row) throw notFound();
     return row;
   };
+  const scheduleView = (t: Store['workSchedules'][number]): StaffWorkSchedule =>
+    copy({
+      ...t,
+      staffCount: s.members.filter(
+        (m) => titleKey(m.detail.profile.workSchedule ?? '') === titleKey(t.name),
+      ).length,
+    });
+  const liveSchedule = (name: string, except?: string) =>
+    s.workSchedules.some(
+      (t) => !t.archivedAt && t.id !== except && titleKey(t.name) === titleKey(name),
+    );
+  const scheduleExists = () =>
+    fail(409, 'WORK_SCHEDULE_EXISTS', 'Your firm already has a work schedule with this name');
+  const findSchedule = (id: string) => {
+    const row = s.workSchedules.find((t) => t.id === id);
+    if (!row) throw notFound();
+    return row;
+  };
 
   return {
     list: async (query = {}) => {
@@ -883,7 +927,17 @@ export function createStaffMock(options: Options = {}): StaffClient {
           .map((t) => t.name)
           .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })),
         offices: ['Main Office', 'Riverside Office'],
-        workSchedules: ['Full-Time', 'Part-Time', 'Mon-Thu', 'Seasonal'],
+        workSchedules: [
+          ...WORK_SCHEDULE_PRESETS,
+          ...s.workSchedules
+            .filter(
+              (t) =>
+                !t.archivedAt &&
+                !WORK_SCHEDULE_PRESETS.some((p) => titleKey(p) === titleKey(t.name)),
+            )
+            .map((t) => t.name)
+            .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })),
+        ],
         serviceAreas: [
           { code: 'TAX_PREPARATION', label: 'Tax Preparation' },
           { code: 'TAX_PLANNING', label: 'Tax Planning' },
@@ -1468,6 +1522,65 @@ export function createStaffMock(options: Options = {}): StaffClient {
         row.updatedAt = new Date().toISOString();
       }
       return jobTitleView(row);
+    },
+    workSchedules: async (includeArchived = false) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const rows = s.workSchedules.filter((t) => includeArchived || !t.archivedAt);
+      const byName = (a: { name: string }, b: { name: string }) =>
+        a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
+      return [
+        ...rows.filter((t) => !t.archivedAt).sort(byName),
+        ...rows.filter((t) => t.archivedAt).sort(byName),
+      ].map(scheduleView);
+    },
+    createWorkSchedule: async (body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const { name } = parseInput(SaveStaffWorkScheduleRequest, body);
+      if (liveSchedule(name)) throw scheduleExists();
+      const at = new Date().toISOString();
+      const row = {
+        id: uuid('0d33', s.next++),
+        name,
+        archivedAt: null,
+        createdAt: at,
+        updatedAt: at,
+      };
+      s.workSchedules.push(row);
+      return scheduleView(row);
+    },
+    renameWorkSchedule: async (id, body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const { name } = parseInput(SaveStaffWorkScheduleRequest, body);
+      const row = findSchedule(id);
+      if (row.archivedAt)
+        throw fail(409, 'WORK_SCHEDULE_ARCHIVED', 'Restore this work schedule before renaming it');
+      if (row.name !== name) {
+        if (liveSchedule(name, id)) throw scheduleExists();
+        row.name = name;
+        row.updatedAt = new Date().toISOString();
+      }
+      return scheduleView(row);
+    },
+    archiveWorkSchedule: async (id) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const row = findSchedule(id);
+      if (!row.archivedAt) row.archivedAt = row.updatedAt = new Date().toISOString();
+      return scheduleView(row);
+    },
+    restoreWorkSchedule: async (id) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const row = findSchedule(id);
+      if (row.archivedAt) {
+        if (liveSchedule(row.name, id)) throw scheduleExists();
+        row.archivedAt = null;
+        row.updatedAt = new Date().toISOString();
+      }
+      return scheduleView(row);
     },
     securityDefaults: async () => {
       await g.allowed();

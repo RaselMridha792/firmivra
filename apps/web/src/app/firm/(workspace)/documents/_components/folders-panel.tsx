@@ -33,9 +33,9 @@ export function FoldersPanel({
     <Card className="flex flex-col gap-1 p-4" data-testid="folders-panel">
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-lg font-bold text-heading">Folders</h2>
-        {/* Add Folder opens Frame 6 (Document Settings), not built yet. */}
+        {/* Add Folder opens Frame 6 (Document Settings). */}
         <Link
-          href="/documents/requests"
+          href="/documents/settings"
           className="inline-flex size-9 items-center justify-center rounded-control border border-border text-text hover:bg-canvas"
           aria-label="Add folder"
           data-testid="add-folder"

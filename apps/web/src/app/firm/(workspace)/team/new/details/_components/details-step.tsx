@@ -395,7 +395,8 @@ function DetailsForm({
                   />
                 ) : null}
                 <p className="text-xs text-muted">
-                  A custom schedule is saved for the firm and offered for the next staff member.
+                  A custom schedule stays on this staff record. The firm&apos;s saved schedules are
+                  managed in Staff Settings &gt; Offices &amp; Job Titles.
                 </p>
               </div>
               <Select
