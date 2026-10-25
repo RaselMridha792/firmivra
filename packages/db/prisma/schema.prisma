@@ -61,6 +61,70 @@ enum ClientAccountStatus {
   DISABLED
 }
 
+/// R55's Client Sign-ups (Oct 25): how a firm decides its portal sign-ups.
+enum ClientSignupMode {
+  MANUAL
+  AUTOMATIC
+}
+
+/// R55's Client Sign-ups: a sign-up's check against the firm's client records, apart from its status.
+enum SignupMatchStatus {
+  UNCHECKED
+  NO_MATCH
+  POTENTIAL_MATCH
+  NOT_A_MATCH
+  LINKED
+  RESTORED
+}
+
+enum SignupCandidateResolution {
+  OPEN
+  NOT_A_MATCH
+  VERIFIED
+}
+
+/// Which contact on the firm's own client record was called: never the value, never a sign-up's.
+enum SignupContactRef {
+  CLIENT_PHONE
+  CLIENT_EMAIL
+  CLIENT_CONTACT
+}
+
+enum SignupCallOutcome {
+  REACHED
+  NOT_REACHED
+}
+
+enum SignupIdentityResult {
+  VERIFIED
+  NOT_VERIFIED
+}
+
+enum SignupPermissionScope {
+  RESTORE_ACCESS
+  LINK_RECORD
+  BOTH
+}
+
+enum SignupOperationKind {
+  APPROVE
+  DECLINE
+  LINK_EXISTING
+  RESTORE_ACCESS
+  NOT_A_MATCH
+  KEEP_PENDING
+  INVITE_DELIVERY
+  RECOVERY_DELIVERY
+  POLICY_CHANGE
+}
+
+enum SignupOperationStatus {
+  COMMITTED
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
 enum ClientAccountType {
   INDIVIDUAL
   BUSINESS
@@ -1146,9 +1210,14 @@ model Membership {
   supportTickets            SupportTicket[]           @relation("SupportTicketContact")
 
   // R1 (Oct 21): the locations this member is assigned to.
-  officesAssigned FirmOfficeMember[]
+  officesAssigned           FirmOfficeMember[]
   // R1 (Oct 25, R60's request 13): codes sent to verify this member's phone.
-  phoneCodes      StaffPhoneCode[]
+  phoneCodes                StaffPhoneCode[]
+  // R55's Client Sign-ups (Oct 25): policy changes, candidate reviews, calls and operations.
+  clientSignupPolicyChanges BusinessSettings[]           @relation("ClientSignupPolicyChangedBy")
+  signupCandidatesReviewed  ClientSignupMatchCandidate[] @relation("SignupCandidateReviewedBy")
+  signupVerifications       ClientSignupVerification[]
+  signupOperations          ClientSignupOperation[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1162,27 +1231,37 @@ model Membership {
 /// clientId links it to the firm's Client record; one client can have several logins
 /// (primary, spouse, authorized). Nullable until every sign-up path creates the Client too.
 model ClientAccount {
-  id               String              @id @default(uuid(7)) @db.Uuid
-  businessId       String              @map("business_id") @db.Uuid
-  userId           String              @unique @map("user_id") @db.Uuid
-  clientId         String?             @map("client_id") @db.Uuid
-  portalRole       ClientPortalRole    @default(PRIMARY) @map("portal_role")
-  email            String
-  accountType      ClientAccountType   @default(INDIVIDUAL) @map("account_type")
-  status           ClientAccountStatus @default(PENDING_APPROVAL)
-  emailVerifiedAt  DateTime?           @map("email_verified_at") @db.Timestamptz(3)
-  phoneVerifiedAt  DateTime?           @map("phone_verified_at") @db.Timestamptz(3)
-  approvedAt       DateTime?           @map("approved_at") @db.Timestamptz(3)
-  approvedByUserId String?             @map("approved_by_user_id") @db.Uuid
-  declinedAt       DateTime?           @map("declined_at") @db.Timestamptz(3)
-  declinedByUserId String?             @map("declined_by_user_id") @db.Uuid
-  declineReason    String?             @map("decline_reason")
-  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                    String              @id @default(uuid(7)) @db.Uuid
+  businessId            String              @map("business_id") @db.Uuid
+  userId                String              @unique @map("user_id") @db.Uuid
+  clientId              String?             @map("client_id") @db.Uuid
+  portalRole            ClientPortalRole    @default(PRIMARY) @map("portal_role")
+  email                 String
+  accountType           ClientAccountType   @default(INDIVIDUAL) @map("account_type")
+  status                ClientAccountStatus @default(PENDING_APPROVAL)
+  emailVerifiedAt       DateTime?           @map("email_verified_at") @db.Timestamptz(3)
+  phoneVerifiedAt       DateTime?           @map("phone_verified_at") @db.Timestamptz(3)
+  approvedAt            DateTime?           @map("approved_at") @db.Timestamptz(3)
+  approvedByUserId      String?             @map("approved_by_user_id") @db.Uuid
+  declinedAt            DateTime?           @map("declined_at") @db.Timestamptz(3)
+  declinedByUserId      String?             @map("declined_by_user_id") @db.Uuid
+  declineReason         String?             @map("decline_reason")
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// R55's Client Sign-ups (Oct 25): each decision or resolution raises it; a stale write is 409.
+  version               Int                 @default(1)
+  matchStatus           SignupMatchStatus   @default(UNCHECKED) @map("match_status")
+  matchCheckedAt        DateTime?           @map("match_checked_at") @db.Timestamptz(3)
+  /// The firm's sign-up policy version an approval or decline used.
+  decisionPolicyVersion Int?                @map("decision_policy_version")
+  decidedAutomatically  Boolean             @default(false) @map("decided_automatically")
 
-  business                 Business               @relation(fields: [businessId], references: [id])
-  user                     User                   @relation(fields: [userId], references: [id])
-  client                   Client?                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  business                 Business                     @relation(fields: [businessId], references: [id])
+  user                     User                         @relation(fields: [userId], references: [id])
+  signupMatchCandidates    ClientSignupMatchCandidate[]
+  signupVerifications      ClientSignupVerification[]
+  signupOperations         ClientSignupOperation[]
+  client                   Client?                      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   invites                  Invite[]
   privateNotes             ClientPrivateNote[]
   legalAcceptances         LegalAcceptance[]
@@ -2739,29 +2818,36 @@ model BusinessSettings {
   // R36 (Settings, r36_money_portal_rest): the Company Profile and Branding screens' fields. The primary
   // and accent colours, the logos, the slogan and motto, the portal text and the time zone are above.
   /// S3 keys under the firm's prefix (`tenant/<business_id>/`, CHECK).
-  faviconKey          String?         @map("favicon_key")
-  loginBackgroundKey  String?         @map("login_background_key")
+  faviconKey                        String?          @map("favicon_key")
+  loginBackgroundKey                String?          @map("login_background_key")
   /// `#rrggbb` (CHECK); contrast is the API's rule.
-  secondaryColor      String?         @map("secondary_color")
-  backgroundColor     String?         @map("background_color")
-  theme               BrandTheme      @default(LIGHT)
-  sidebarStyle        SidebarStyle    @default(SOLID) @map("sidebar_style")
-  sidebarPosition     SidebarPosition @default(LEFT) @map("sidebar_position")
-  showLogoText        Boolean         @default(true) @map("show_logo_text")
-  roundedCorners      Boolean         @default(true) @map("rounded_corners")
+  secondaryColor                    String?          @map("secondary_color")
+  backgroundColor                   String?          @map("background_color")
+  theme                             BrandTheme       @default(LIGHT)
+  sidebarStyle                      SidebarStyle     @default(SOLID) @map("sidebar_style")
+  sidebarPosition                   SidebarPosition  @default(LEFT) @map("sidebar_position")
+  showLogoText                      Boolean          @default(true) @map("show_logo_text")
+  roundedCorners                    Boolean          @default(true) @map("rounded_corners")
   /// Plain text, up to 200 characters; never styled like a password or MFA prompt.
-  loginMessage        String?         @map("login_message")
-  supportEmail        String?         @map("support_email")
+  loginMessage                      String?          @map("login_message")
+  supportEmail                      String?          @map("support_email")
   /// What the firm does ("Accounting & Tax Services"), up to 80 characters.
-  industry            String?
-  locale              String          @default("en-US")
-  currency            String          @default("usd")
-  dateFormat          DateFormat      @default(MDY) @map("date_format")
+  industry                          String?
+  locale                            String           @default("en-US")
+  currency                          String           @default("usd")
+  dateFormat                        DateFormat       @default(MDY) @map("date_format")
   /// Counts up on every publish, so two admins never overwrite each other silently.
-  brandingVersion     Int             @default(1) @map("branding_version")
-  brandingPublishedAt DateTime?       @map("branding_published_at") @db.Timestamptz(3)
+  brandingVersion                   Int              @default(1) @map("branding_version")
+  brandingPublishedAt               DateTime?        @map("branding_published_at") @db.Timestamptz(3)
+  /// R55's Client Sign-ups (Oct 25): the approval mode, versioned (raised by each change; a PATCH
+  /// sends the version it read).
+  clientSignupMode                  ClientSignupMode @default(MANUAL) @map("client_signup_mode")
+  clientSignupPolicyVersion         Int              @default(1) @map("client_signup_policy_version")
+  clientSignupPolicyChangedAt       DateTime?        @map("client_signup_policy_changed_at") @db.Timestamptz(3)
+  clientSignupPolicyChangedByUserId String?          @map("client_signup_policy_changed_by_user_id") @db.Uuid
 
-  business Business @relation(fields: [businessId], references: [id])
+  business                    Business    @relation(fields: [businessId], references: [id])
+  clientSignupPolicyChangedBy Membership? @relation("ClientSignupPolicyChangedBy", fields: [businessId, clientSignupPolicyChangedByUserId], references: [businessId, userId], onDelete: Restrict)
 
   @@map("business_settings")
 }
@@ -2923,7 +3009,10 @@ model Client {
   salesTaxRegistrations ClientSalesTaxRegistration[] @relation("ClientSalesTaxRegistrations")
 
   // R1 (Oct 21): secure links sent to this client.
-  documentLinks DocumentLink[]
+  documentLinks         DocumentLink[]
+  // R55's Client Sign-ups (Oct 25): sign-ups that may be this client, and the calls that checked.
+  signupMatchCandidates ClientSignupMatchCandidate[]
+  signupVerifications   ClientSignupVerification[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -8703,6 +8792,84 @@ model StaffPhoneCode {
 
   @@index([userId, createdAt(sort: Desc)])
   @@map("staff_phone_codes")
+}
+
+/// R55's Client Sign-ups (Oct 25): a firm client record a portal sign-up may be (match review).
+/// `matched_on` holds field names only, never values. Reviewed by and at once no longer OPEN.
+model ClientSignupMatchCandidate {
+  id                String                    @id @default(uuid(7)) @db.Uuid
+  businessId        String                    @map("business_id") @db.Uuid
+  clientAccountId   String                    @map("client_account_id") @db.Uuid
+  candidateClientId String                    @map("candidate_client_id") @db.Uuid
+  matchedOn         String[]                  @map("matched_on")
+  resolution        SignupCandidateResolution @default(OPEN)
+  reviewedByUserId  String?                   @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt        DateTime?                 @map("reviewed_at") @db.Timestamptz(3)
+  /// At most 500 characters.
+  rationale         String?
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  account    ClientAccount @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  candidate  Client        @relation(fields: [businessId, candidateClientId], references: [businessId, id], onDelete: Restrict)
+  reviewedBy Membership?   @relation("SignupCandidateReviewedBy", fields: [businessId, reviewedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, clientAccountId, candidateClientId])
+  @@index([businessId, candidateClientId])
+  @@map("client_signup_match_candidates")
+}
+
+/// R55's Client Sign-ups: a staff call that checked a sign-up against a client record. Append-only.
+/// Which contact on the firm's own record was called, never the value; no evidence, recordings or
+/// passwords.
+model ClientSignupVerification {
+  id                   String                 @id @default(uuid(7)) @db.Uuid
+  businessId           String                 @map("business_id") @db.Uuid
+  clientAccountId      String                 @map("client_account_id") @db.Uuid
+  candidateClientId    String                 @map("candidate_client_id") @db.Uuid
+  contactRef           SignupContactRef       @map("contact_ref")
+  callOutcome          SignupCallOutcome      @map("call_outcome")
+  identityResult       SignupIdentityResult   @map("identity_result")
+  permissionScope      SignupPermissionScope? @map("permission_scope")
+  permissionRecordedAt DateTime?              @map("permission_recorded_at") @db.Timestamptz(3)
+  actorUserId          String                 @map("actor_user_id") @db.Uuid
+  createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account   ClientAccount @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  candidate Client        @relation(fields: [businessId, candidateClientId], references: [businessId, id], onDelete: Restrict)
+  actor     Membership    @relation(fields: [businessId, actorUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, clientAccountId, createdAt])
+  @@map("client_signup_verifications")
+}
+
+/// R55's Client Sign-ups: a sign-up decision, resolution or delivery, by idempotency key. No client
+/// account only for POLICY_CHANGE. An invite or recovery is dispatched at most once per sign-up
+/// (SQL only). The result holds ids, state and version: no tokens or identity evidence.
+model ClientSignupOperation {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  businessId      String                @map("business_id") @db.Uuid
+  clientAccountId String?               @map("client_account_id") @db.Uuid
+  kind            SignupOperationKind
+  idempotencyKey  String                @map("idempotency_key")
+  /// Hex SHA-256 of the request payload, to refuse a key reused with other data.
+  requestHash     String                @map("request_hash")
+  status          SignupOperationStatus
+  result          Json?
+  attempts        Int                   @default(0)
+  lastErrorCode   String?               @map("last_error_code")
+  correlationId   String                @map("correlation_id") @db.Uuid
+  /// Null for an automatic decision.
+  actorUserId     String?               @map("actor_user_id") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  account ClientAccount? @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  actor   Membership?    @relation(fields: [businessId, actorUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, clientAccountId])
+  @@map("client_signup_operations")
 }
 
 /// SM8 (R60's request 11): a firm's saved work schedules, offered on Create Staff, like the saved

@@ -82,6 +82,11 @@ describe('seed', () => {
       'staff_work_schedules',
       // R60's request 13 (Oct 25): staff phone codes are short lived and never seeded.
       'staff_phone_codes',
+      // R55's Client Sign-ups (Oct 25): match candidates, call verifications and operations are
+      // written by the sign-up review as it runs, never seeded.
+      'client_signup_match_candidates',
+      'client_signup_verifications',
+      'client_signup_operations',
     ];
     const empty: string[] = [];
     for (const t of tables) {
