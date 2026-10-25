@@ -238,6 +238,7 @@ export class ClientsService {
     const after = q.cursor ? decodeCursor(q.cursor) : undefined;
     const term = q.search ? likeEscape(q.search) : undefined;
     const days = await this.dayBounds(businessId, q.lastActivityFrom, q.lastActivityTo);
+    const owing = q.owes ? await this.owing(businessId, q.owes) : null;
     const filters: Prisma.ClientWhereInput[] = [
       { businessId },
       this.reach(actor),
@@ -253,6 +254,7 @@ export class ClientsService {
           }
         : {},
       days ? { lastActivityAt: { gte: days.start, lt: days.end } } : {},
+      owing ? { id: { in: owing } } : {},
       term
         ? {
             OR: [
@@ -309,6 +311,26 @@ export class ClientsService {
   }
 
   /** The firm's calendar days `from` to `to` (both included) as instants; null without either. */
+  /**
+   * The firm's clients who still owe documents or a balance (Octavia's E1), by the same rules as
+   * the summary's Pending Documents and Balances Due cards, so a card's count is what its list shows.
+   */
+  private async owing(businessId: string, owes: 'DOCUMENTS' | 'BALANCE'): Promise<string[]> {
+    const rows = await this.inFirm(businessId, (tx) =>
+      owes === 'DOCUMENTS'
+        ? tx.$queryRaw<{ id: string }[]>`
+            SELECT c.id::text AS id FROM clients c WHERE c.business_id = ${businessId}::uuid
+              AND EXISTS (SELECT 1 FROM document_requests d WHERE d.business_id = c.business_id
+                AND d.client_id = c.id AND d.status IN ('REQUESTED', 'REJECTED'))`
+        : tx.$queryRaw<{ id: string }[]>`
+            SELECT c.id::text AS id FROM clients c WHERE c.business_id = ${businessId}::uuid
+              AND EXISTS (SELECT 1 FROM invoices i WHERE i.business_id = c.business_id
+                AND i.client_id = c.id AND i.status = 'OPEN'
+                AND i.total_cents > app_invoice_paid_cents(i.id))`,
+    );
+    return rows.map((r) => r.id);
+  }
+
   private async dayBounds(
     businessId: string,
     from: string | undefined,
