@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { RolesGuard } from './auth/roles.guard.js';
 import { SignInModule } from './auth/sign-in.controller.js';
 import { PortalInfoModule } from './client-auth/portal-info.controller.js';
+import { PortalAnnouncementsModule } from './client-portal/portal-announcements.js';
 import { PortalTabsModule } from './client-portal/portal-tabs.js';
 import { ClientSignUpsModule } from './client-auth/client-sign-ups.controller.js';
 import { PortalSignInModule } from './client-auth/portal-sign-in.controller.js';
@@ -175,6 +176,7 @@ export class AppModule {
         PaymentsSetupModule,
         SignInModule,
         PortalInfoModule,
+        PortalAnnouncementsModule,
         PortalTabsModule,
         SignUpModule,
         PortalSignInModule,

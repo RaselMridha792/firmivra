@@ -4,6 +4,8 @@ import {
   CreateProfileChangeRequest,
   createProfileChangesClient,
   createRequest,
+  FIRM_LICENSE_STATUS_LABELS,
+  FirmLicense,
   PROFILE_CHANGE_FIELDS,
   ProfileChange,
 } from '../../src/index.js';
@@ -91,5 +93,30 @@ describe('Request Change contract', () => {
       ApiRequestError,
     );
     expect(none.calls).toHaveLength(0);
+  });
+
+  it("reads the firm's licenses, each status labelled, from their own route", async () => {
+    const license = {
+      id: '0199c0e0-0c10-7000-8000-000000000001',
+      regulatoryBody: 'Fake State Board of Accountancy',
+      licenseType: 'CPA Firm Permit',
+      licenseNumber: 'FAKE-1',
+      expiresOn: null,
+      status: 'SUSPENDED',
+    };
+    expect(FirmLicense.parse(license).expiresOn).toBeNull();
+    expect(FirmLicense.safeParse({ ...license, expiresOn: '12/31/2027' }).success).toBe(false);
+    expect(Object.keys(FIRM_LICENSE_STATUS_LABELS)).toEqual([
+      'ACTIVE',
+      'EXPIRED',
+      'SUSPENDED',
+      'REVOKED',
+    ]);
+    const f = fakeFetch({ items: [license] });
+    const client = createProfileChangesClient(createRequest({ fetch: f.fn, baseUrl: '/api/v1' }));
+    expect(await client.licenses()).toEqual([license]);
+    expect(f.calls.map((c) => [c.init.method ?? 'GET', c.url])).toEqual([
+      ['GET', '/api/v1/business/settings/profile/licenses'],
+    ]);
   });
 });

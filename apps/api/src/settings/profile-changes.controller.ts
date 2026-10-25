@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import {
   CreateProfileChangeRequest,
+  type FirmLicenseList,
   type ProfileChange,
   type ProfileChangeList,
 } from '@firmivra/types';
@@ -18,15 +19,16 @@ import { ProfileChangesService } from './profile-changes.service.js';
 
 /**
  * Company Profile's Request Change (`api.profileChanges`): the legal name, the EIN and the
- * licensing details, changed only by Firmivra. Owner and Admin, also while Pending Setup.
+ * licensing details, changed only by Firmivra; and the firm's licenses, read-only (no firm route
+ * writes one). Owner and Admin, also while Pending Setup.
  */
-@Controller('business/settings/profile/change-requests')
+@Controller('business/settings/profile')
 @Roles(...FIRM_MANAGERS)
 @AllowBusinessStatuses('PENDING_SETUP', 'ACTIVE')
 export class ProfileChangesController {
   constructor(private readonly changes: ProfileChangesService) {}
 
-  @Get()
+  @Get('change-requests')
   list(
     @CurrentTenant() tenant: TenantContext,
     @CurrentAuth() auth: AuthContext,
@@ -34,7 +36,7 @@ export class ProfileChangesController {
     return this.changes.list(tenant.businessId, auth.userId);
   }
 
-  @Post()
+  @Post('change-requests')
   create(
     @CurrentTenant() tenant: TenantContext,
     @CurrentAuth() auth: AuthContext,
@@ -42,5 +44,13 @@ export class ProfileChangesController {
     body: z.output<typeof CreateProfileChangeRequest>,
   ): Promise<ProfileChange> {
     return this.changes.create(tenant.businessId, auth.userId, body);
+  }
+
+  @Get('licenses')
+  licenses(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<FirmLicenseList> {
+    return this.changes.licenses(tenant.businessId, auth.userId);
   }
 }

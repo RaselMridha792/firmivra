@@ -84,7 +84,7 @@ test('Additional Details: a custom work schedule and the workload in active clie
   const schedule = page.getByRole('combobox', { name: 'Work Schedule' });
   await schedule.selectOption({ label: 'Custom schedule…' }, { timeout: 60_000 });
   await page.getByLabel('Custom schedule').fill('Mon-Thu, 10-hour days');
-  await expect(page.getByText('A custom schedule is saved for the firm')).toBeVisible();
+  await expect(page.getByText('A custom schedule stays on this staff record.')).toBeVisible();
   await expect(page.getByLabel('Maximum Active Clients (Optional)')).toBeVisible();
   await expect(page.getByText('Client assignment does not check it yet.')).toBeVisible();
 });

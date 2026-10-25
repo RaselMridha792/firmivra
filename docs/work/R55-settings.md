@@ -48,16 +48,16 @@ This was reproduced by reading the code and by calling the local API. The local 
 
 | Part | Branch, PR | What works now | What still needs schema |
 | --- | --- | --- | --- |
-| (e) Contact | #1122 | The portal's contact comes from Company Profile, each field falling back to the main office in Locations, plus its hours: the LVP public footer and the Need Help? cards. | The local office (`clients.office_id`), and the switches for corporate or local office and each contact method. |
-| (f) Features | #1123 | Five tabs switch on and off in Settings > Client Portal, with a warning, Save and Cancel; the portal API refuses a hidden tab (403 `MODULE_OFF`); the menu, folder tabs, Quick Links, Send a Message and Contact Us follow. | Business Documents & Resources as a module value, rename (`label`), reorder (`sort_order`), custom tabs and per-client targeting. |
-| (g) Notifications | `rasel/R55-portal-notify-consent` | Email is always on for clients (400 `EMAIL_ALWAYS_ON`); SMS only with their Text box on and never after a STOP or an unsubscribe in `communication_consents`; the card shows the opt-in wording and explains a stop. | The announcement channel policy and an `ANNOUNCEMENTS` category. Rasel's decision on recording the portal opt-in as consent. |
-| (h) Announcements | `rasel/R55-portal-announcements` | Published announcements show in the portal, by their "Where", inside their window: a dismissable card on the tabs and View All Announcements. | The firm's announcements switch, login-page announcements, and server-side read state. |
+| (e) Contact | #1122, merged | The portal's contact comes from Company Profile, each field falling back to the main office in Locations, plus its hours: the LVP public footer and the Need Help? cards. | The local office (`clients.office_id`), and the switches for corporate or local office and each contact method. |
+| (f) Features | #1123, merged | Five tabs switch on and off in Settings > Client Portal, with a warning, Save and Cancel; the portal API refuses a hidden tab (403 `MODULE_OFF`); the menu, folder tabs, Quick Links, Send a Message and Contact Us follow. | Business Documents & Resources as a module value, rename (`label`), reorder (`sort_order`), custom tabs and per-client targeting. |
+| (g) Notifications | #1131 | Email is always on for clients (400 `EMAIL_ALWAYS_ON`); SMS only with their Text box on and never after a STOP or an unsubscribe in `communication_consents`; the card shows the opt-in wording and explains a stop. | The announcement channel policy and an `ANNOUNCEMENTS` category. Rasel (Oct 25): the Text box does not record campaign consent. |
+| (h) Announcements | #1134 | Published announcements show in the portal, by their "Where", inside their window: a dismissable card on the tabs and View All Announcements. | The firm's announcements switch and login-page announcements. Rasel (Oct 25): dismissal stays per browser. |
 
 ## Needs from others
 
 - **R0 (schema), Availability:** `schedule_change_requests` and the reschedule proposal; `blocked_times.office_id` with the trigger; an emergency block kind.
 - **R0 (schema), Client Portal:** `clients.office_id`; portal contact and announcement settings; the `ANNOUNCEMENTS` category; `portal_module_visibility.label` and `sort_order` plus a Business Resources value; custom tabs.
-- **Rasel (decisions):** whether the portal's Text box also records an SMS opt-in in `communication_consents` (it would then count for SMS campaigns too); and whether a dismissed announcement should be remembered on the server rather than per browser.
+- **Rasel (decided Oct 25):** the portal's Text box does not record an SMS opt-in in `communication_consents` (Octavia has not approved it for campaigns); a dismissed announcement stays per browser.
 
 ## Decided (Rasel, Oct 24 evening; reversible defaults)
 
