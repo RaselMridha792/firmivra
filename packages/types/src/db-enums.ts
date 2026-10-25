@@ -83,6 +83,10 @@ export type SignupOperationKind = z.infer<typeof SignupOperationKind>;
 export const SignupOperationStatus = z.enum(['COMMITTED', 'PENDING', 'SUCCEEDED', 'FAILED']);
 export type SignupOperationStatus = z.infer<typeof SignupOperationStatus>;
 
+/** R56's B15 (Oct 25): a business client's EIN status. */
+export const EinStatus = z.enum(['HAS_EIN', 'NOT_APPLICABLE', 'TO_BE_APPLIED_FOR']);
+export type EinStatus = z.infer<typeof EinStatus>;
+
 export const ClientAccountType = z.enum(['INDIVIDUAL', 'BUSINESS']);
 export type ClientAccountType = z.infer<typeof ClientAccountType>;
 
