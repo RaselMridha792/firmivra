@@ -783,3 +783,14 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   stays on its record. Staff e2e 24 of 24 (schedules 8, job titles 8, staff 8), isolation: only
   the four known local failures, mock specs 11 of 11; sheet shot on the real API. (c) is blocked:
   no table holds a staff code (column request item 13, for Rasel); (d) next.
+- Oct 25 (fifth session): Octavia's review of Oct 25 (`docs/specs/review-2026-10-25/`), Dashboard
+  group 1, K2 to K7 (`rasel/R60-dashboard-kpis`): each KPI card opens its list filtered to what it
+  counts, with Back to Dashboard (`?back=dashboard`, `components/back-to-dashboard.tsx`). New Leads
+  = stage New Lead created this month (Leads' scope); Returns In Progress = the five in-progress
+  workflow statuses (`TAX_RETURN_IN_PROGRESS_STATUSES`, `workflowGroup=IN_PROGRESS` on the list);
+  Completed Returns renamed Accepted Returns = Accepted this month by the status history
+  (`acceptedFrom`/`acceptedTo` on the list); Outstanding Invoices = every OPEN invoice (an
+  Outstanding option and its total on the list); Appointments Today and View Calendar open Today.
+  The pipeline's Leads leaves archived leads out (as Leads does). Dashboard e2e 9 of 9, returns
+  workspace e2e 7 of 7, mock specs 28 of 28; sheet shot on the real API. (c) still waits for R1's
+  `staff_phone_codes`.

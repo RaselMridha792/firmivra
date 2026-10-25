@@ -52,6 +52,7 @@ import { LeadMessageDialog, type MessageRecipient, recipientOf } from './lead-me
 import { LeadsDateFilter } from './leads-date-filter';
 import { LEAD_PIPELINE_KEY, PRIORITIES, SOURCES, STAGES, summaryTrend } from './lead-shared';
 import { LeadsTable, type LeadRowAction } from './leads-table';
+import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 
 interface LeadFilters {
   /** Name, email, phone, source, campaign or notes; every word must match (L12). */
@@ -324,8 +325,15 @@ function LeadFilters({
   );
 }
 
-export function LeadsScreen() {
-  const [filters, setFilters] = useState<LeadFilters>(EMPTY_FILTERS);
+export function LeadsScreen({
+  initial,
+  fromDashboard = false,
+}: {
+  /** Filters from the address (a dashboard card's drill-down). */
+  initial?: Pick<LeadFilters, 'stage' | 'from' | 'to'>;
+  fromDashboard?: boolean;
+} = {}) {
+  const [filters, setFilters] = useState<LeadFilters>({ ...EMPTY_FILTERS, ...initial });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
   const [selected, setSelected] = useState<string[]>([]);
@@ -573,6 +581,7 @@ export function LeadsScreen() {
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {fromDashboard ? <BackToDashboard /> : null}
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 data-testid="page-title" className="font-display text-3xl font-bold text-heading">

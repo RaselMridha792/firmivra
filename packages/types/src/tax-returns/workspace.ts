@@ -99,10 +99,24 @@ export const TaxReturnRow = z.object({
 });
 export type TaxReturnRow = z.infer<typeof TaxReturnRow>;
 
+/**
+ * The workflow statuses that count as in progress (Octavia's K4: In Preparation, Waiting on Client
+ * and Ready for Review/Signature/File); `workflowGroup: 'IN_PROGRESS'` filters to them.
+ */
+export const TAX_RETURN_IN_PROGRESS_STATUSES = [
+  'IN_PREPARATION',
+  'WAITING_ON_CLIENT',
+  'READY_FOR_REVIEW',
+  'READY_FOR_SIGNATURE',
+  'READY_TO_FILE',
+] as const satisfies readonly z.infer<typeof TaxReturnWorkflowStatus>[];
+
 /** GET /business/tax-returns. Search: client name, business name, SSN/EIN last 4, form, id. */
 export const TaxReturnsQuery = z.strictObject({
   tab: TaxReturnTab.optional().default('all'),
   workflowStatus: TaxReturnWorkflowStatus.optional(),
+  /** A group of statuses: IN_PROGRESS = TAX_RETURN_IN_PROGRESS_STATUSES. */
+  workflowGroup: z.enum(['IN_PROGRESS']).optional(),
   taxYear: z.coerce.number().int().min(2000).max(2100).optional(),
   formType: text(20).optional(),
   clientType: ClientAccountType.optional(),
@@ -110,6 +124,12 @@ export const TaxReturnsQuery = z.strictObject({
   assignedUserId: z.uuid().optional(),
   updatedFrom: CalendarDate.optional(),
   updatedTo: CalendarDate.optional(),
+  /**
+   * Accepted between these days, both inclusive, in the firm's time zone (the status history): with
+   * workflowStatus ACCEPTED, the dashboard's Accepted Returns.
+   */
+  acceptedFrom: CalendarDate.optional(),
+  acceptedTo: CalendarDate.optional(),
   archived: z.union([z.boolean(), z.stringbool()]).optional().default(false),
   search: SearchText.optional(),
   sort: z.enum(['updated', 'client', 'due', 'year', 'status']).optional().default('updated'),

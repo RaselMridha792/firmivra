@@ -40,7 +40,7 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
       totalClients: { value: 127, previous: 113 },
       newLeads: { value: 24, previous: 17 },
       returnsInProgress: { value: 38, previous: 32 },
-      completedReturns: { value: 52, previous: 41 },
+      acceptedReturns: { value: 52, previous: 41 },
       outstandingInvoicesCents: { value: 1_856_000, previous: null },
       appointmentsToday: { value: 6, previous: null },
     },

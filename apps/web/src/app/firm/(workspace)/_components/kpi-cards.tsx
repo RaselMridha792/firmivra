@@ -14,6 +14,7 @@ import {
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ArrowDown, ArrowRight, ArrowUp } from 'lucide-react';
 import Link from 'next/link';
+import { FROM_DASHBOARD } from '../../../../lib/from-dashboard';
 import { IconTile, type Tone } from './icon-tile';
 
 export const money = (cents: number) =>
@@ -45,12 +46,19 @@ function Trend({ kpi, period }: { kpi: DashboardKpi; period: string }) {
   );
 }
 
+/** This month so far, in the firm's days: the period the monthly cards count. */
+type Month = { from: string; to: string } | null;
+
+/**
+ * The six cards and where each opens (Octavia's K3 to K7): the list filtered to exactly the records
+ * the card counts, with Back to Dashboard. `month` is null until the summary gives the firm's day.
+ */
 const CARDS: {
   key: keyof DashboardSummary['kpis'];
   label: string;
   icon: Icon;
   tone: Tone;
-  href: string;
+  href: (month: Month) => string;
   period?: string;
 }[] = [
   {
@@ -58,7 +66,7 @@ const CARDS: {
     label: 'Total Clients',
     icon: UsersThree,
     tone: 'blue',
-    href: '/clients',
+    href: () => `/clients?${FROM_DASHBOARD}`,
     period: 'last month',
   },
   {
@@ -66,7 +74,8 @@ const CARDS: {
     label: 'New Leads',
     icon: UserPlus,
     tone: 'amber',
-    href: '/leads',
+    // Stage New Lead, created this month (the API counts the same).
+    href: (m) => `/leads?stage=SUBMITTED${m ? `&from=${m.from}&to=${m.to}` : ''}&${FROM_DASHBOARD}`,
     period: 'last month',
   },
   {
@@ -74,15 +83,18 @@ const CARDS: {
     label: 'Returns In Progress',
     icon: FileText,
     tone: 'purple',
-    href: '/tax-returns',
+    // In Preparation, Waiting on Client and Ready for Review/Signature/File.
+    href: () => `/tax-returns?status=IN_PROGRESS&${FROM_DASHBOARD}`,
     period: 'last week',
   },
   {
-    key: 'completedReturns',
-    label: 'Completed Returns',
+    key: 'acceptedReturns',
+    label: 'Accepted Returns',
     icon: CheckCircle,
     tone: 'green',
-    href: '/tax-returns',
+    // Accepted only (not Transmitted, not Rejected), accepted this month.
+    href: (m) =>
+      `/tax-returns?status=ACCEPTED${m ? `&acceptedFrom=${m.from}&acceptedTo=${m.to}` : ''}&${FROM_DASHBOARD}`,
     period: 'last month',
   },
   {
@@ -90,7 +102,8 @@ const CARDS: {
     label: 'Outstanding Invoices',
     icon: CurrencyDollar,
     tone: 'red',
-    href: '/invoices',
+    // Every unpaid balance, overdue or not.
+    href: () => `/invoices?status=OUTSTANDING&${FROM_DASHBOARD}`,
     period: 'last month',
   },
   {
@@ -98,7 +111,7 @@ const CARDS: {
     label: 'Appointments Today',
     icon: CalendarDots,
     tone: 'blue',
-    href: '/calendar',
+    href: () => `/calendar/today?${FROM_DASHBOARD}`,
   },
 ];
 
@@ -106,8 +119,10 @@ const CARDS: {
 export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary> }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      {CARDS.map(({ key, label, icon, tone, href, period }) => {
+      {CARDS.map(({ key, label, icon, tone, href: to, period }) => {
         const kpi = summary.data?.kpis[key];
+        const today = summary.data?.today;
+        const href = to(today ? { from: `${today.slice(0, 8)}01`, to: today } : null);
         const value = kpi
           ? key === 'outstandingInvoicesCents'
             ? money(kpi.value)

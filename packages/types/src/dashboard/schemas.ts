@@ -21,12 +21,21 @@ export type DashboardKpi = z.infer<typeof DashboardKpi>;
 export const DashboardKpis = z.object({
   /** Clients not archived; previous: at the start of this month. */
   totalClients: DashboardKpi,
-  /** Leads sent this month; previous: last month. */
+  /**
+   * Leads still at New Lead (SUBMITTED) that came in this month, as Leads lists them with Stage
+   * New Lead and this month's dates; previous: last month's, still at New Lead.
+   */
   newLeads: DashboardKpi,
-  /** Tax returns IN_PROGRESS; previous: 7 days ago (a return reworked after a rejection counts from its first filing). */
+  /**
+   * Tax returns in one of the in-progress workflow statuses (TAX_RETURN_IN_PROGRESS_STATUSES), as
+   * Tax Returns lists them with Status In Progress; previous: 7 days ago (the status history).
+   */
   returnsInProgress: DashboardKpi,
-  /** Tax returns first filed this month; previous: last month. */
-  completedReturns: DashboardKpi,
+  /**
+   * Tax returns Accepted this month (Octavia's K5: not Transmitted, not Rejected), as Tax Returns
+   * lists them with Status Accepted and this month's accepted dates; previous: last month.
+   */
+  acceptedReturns: DashboardKpi,
   /** Balance due on OPEN invoices, in cents; previous is null (partial payments keep no history). */
   outstandingInvoicesCents: DashboardKpi,
   /** Scheduled appointments today; previous is null (the design compares none). */
@@ -57,7 +66,7 @@ export const DashboardPipeline = z.object({
   intake: Count.nullable(),
   /** The same as kpis.returnsInProgress.value. */
   inProgress: Count.nullable(),
-  /** Tax returns first filed in `period` (this month: the same as kpis.completedReturns.value). */
+  /** Tax returns first filed in `period`. */
   completed: Count.nullable(),
   /** The period `completed` counts. */
   period: DashboardPipelinePeriod,

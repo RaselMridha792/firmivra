@@ -18,7 +18,7 @@ test('every widget of the design, with trends only where the API gives the perio
     [0, 'Total Clients', '12%vs last month'],
     [1, 'New Leads', '41%vs last month'],
     [2, 'Returns In Progress', '19%vs last week'],
-    [3, 'Completed Returns', '27%vs last month'],
+    [3, 'Accepted Returns', '27%vs last month'],
   ] as const) {
     await expect(cards.nth(i)).toContainText(label);
     await expect(cards.nth(i)).toContainText(`Up ${trend}`);
@@ -27,7 +27,7 @@ test('every widget of the design, with trends only where the API gives the perio
   await expect(cards.nth(4)).toHaveText(/\$18,560Outstanding Invoices$/);
   await expect(cards.nth(5).getByRole('link', { name: 'View Calendar' })).toHaveAttribute(
     'href',
-    '/calendar',
+    '/calendar/today?back=dashboard',
   );
 
   const stages = page.getByTestId('pipeline-stage');
