@@ -87,6 +87,9 @@ describe('seed', () => {
       'client_signup_match_candidates',
       'client_signup_verifications',
       'client_signup_operations',
+      // R55's D4 (Oct 25): a firm has no card templates until it saves one (the defaults are not
+      // rows), never seeded.
+      'dashboard_card_templates',
     ];
     const empty: string[] = [];
     for (const t of tables) {
