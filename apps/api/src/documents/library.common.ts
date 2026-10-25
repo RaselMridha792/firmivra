@@ -61,6 +61,7 @@ export const librarySelect = {
   },
   folder: { select: { id: true, name: true, color: true } },
   category: { select: { id: true, name: true } },
+  request: { select: { id: true, title: true, packetId: true } },
   documentShares: {
     where: { recipientKind: 'CLIENT' as const, ...liveShare() },
     select: { id: true },
@@ -118,6 +119,7 @@ export function toLibraryDocument(
     replacesId: r.replacesId,
     superseded: r.supersededAt !== null,
     requestId: r.requestId,
+    request: r.request,
     visibleToClient: r.direction !== 'INTERNAL' || r.documentShares.length > 0,
     uploadedBy: r.uploadedByUserId ? (names.uploaders.get(r.uploadedByUserId) ?? null) : null,
     createdAt: r.createdAt.toISOString(),
