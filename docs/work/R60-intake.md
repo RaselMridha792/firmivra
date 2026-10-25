@@ -783,3 +783,14 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   stays on its record. Staff e2e 24 of 24 (schedules 8, job titles 8, staff 8), isolation: only
   the four known local failures, mock specs 11 of 11; sheet shot on the real API. (c) is blocked:
   no table holds a staff code (column request item 13, for Rasel); (d) next.
+- Oct 25 (fifth session): Dashboard group 2 (`rasel/R60-dashboard-lists`): T4 (a task's title
+  opens `/tasks/{id}`; the client is a separate link, shown as a link only with Clients view), T5
+  (the checkbox asks "Mark this task complete?"; Cancel changes nothing; an error says the task is
+  unchanged), A2 (a row opens `/calendar/{id}`), A3 (the row menu: View Details, Edit,
+  Reschedule, Send Reminder, Mark Complete, Cancel with the calendar's own confirmation, Open
+  Client; by the role's grid; the video icon links only an https meeting link), A4 (the next two
+  weeks in a scrolling, keyboard-reachable list; `RowMenu` gains `fixed` so a scrolling list does
+  not clip it), N2 (opening the bell marks the notifications it shows as read), N3 (an appointment
+  notification opens `/calendar/{id}`). Contract unit 49 of 49, mock specs 3 new plus the
+  dashboard's and the notifications' 21; sheet shot on the real API (two fake appointments added
+  to the local database).
