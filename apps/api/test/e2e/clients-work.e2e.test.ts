@@ -478,3 +478,40 @@ describe('POST /business/clients/bulk', () => {
     expect(leaked.status).toBe(400);
   });
 });
+
+describe('services from advisory enrollment (E3)', () => {
+  it('counts an enrolled advisory workstream as the service, in the row, the filter and the tab', async () => {
+    const svc = await inFirm('a', async (tx) => {
+      const service = await tx.service.create({
+        data: { businessId: firms.a.id, kind: 'BUSINESS_DEVELOPMENT', name: 'Growth Advisory' },
+      });
+      // w5 is enrolled (no engagement: the advisory module keeps it as a workstream); w2 only
+      // showed interest, which is not an enrolment.
+      for (const [clientId, status] of [
+        [ids.w5, 'ACCEPTED'],
+        [ids.w2, 'PROPOSED'],
+      ] as const) {
+        const advisory = await tx.advisoryClient.create({
+          data: { businessId: firms.a.id, clientId },
+        });
+        await tx.advisoryWorkstream.create({
+          data: {
+            businessId: firms.a.id,
+            advisoryClientId: advisory.id,
+            serviceId: service.id,
+            status,
+          },
+        });
+      }
+      return service.id;
+    });
+    const filtered = await list(`?serviceId=${svc}`);
+    expect(filtered.items.map((r) => r.id)).toEqual([ids.w5]);
+    expect(filtered.items[0]?.services.map((s) => s.name)).toContain('Growth Advisory');
+    const s = await summary(people.ownerA);
+    expect(s.counts.byService.find((b) => b.id === svc)).toMatchObject({ count: 1 });
+    // Firm B's tabs never see firm A's enrolments.
+    const b = await summary(people.ownerB, 'b');
+    expect(b.counts.byService.some((x) => x.id === svc)).toBe(false);
+  });
+});
