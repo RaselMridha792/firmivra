@@ -148,18 +148,32 @@ export const DashboardSummaryQuery = z
 export type DashboardSummaryQuery = z.input<typeof DashboardSummaryQuery>;
 
 /**
- * The design's five stages. Null: no record holds that stage (Consultation, for now). Leads,
- * Intake and In Progress are open now; Completed counts returns first filed in `from` to `to`.
+ * The design's five stages (Octavia's C5: each opens its list filtered to exactly what it counts).
+ * Null: no record holds that stage (Consultation, for now). Leads and Completed follow `from` to
+ * `to`; Intake and In Progress are open now, as their lists show them.
  */
 export const DashboardPipeline = z.object({
-  /** Leads waiting for the firm (SUBMITTED or IN_REVIEW). */
+  /**
+   * Leads at New Lead that came in the period, as the Leads list shows them with Stage New Lead
+   * and the period's dates (Staff: those assigned to them, as kpis.newLeads).
+   */
   leads: Count.nullable(),
   consultation: Count.nullable(),
-  /** Intakes not finished (sent, being filled, submitted, to correct or under review). */
+  /**
+   * Intakes not finished now (sent, being filled, to correct, submitted or under review): the
+   * Intake Forms list's Not Finished view (`tab=open`).
+   */
   intake: Count.nullable(),
-  /** The same as kpis.returnsInProgress.value. */
+  /**
+   * Tax returns in an in-progress workflow status now (TAX_RETURN_IN_PROGRESS_STATUSES), as Tax
+   * Returns lists them with Status In Progress; the same as kpis.returnsInProgress when the global
+   * period ends today.
+   */
   inProgress: Count.nullable(),
-  /** Tax returns first filed in `period`. */
+  /**
+   * Tax returns Accepted in the period (K5: not Transmitted, not Rejected), as Tax Returns lists
+   * them with Status Accepted and the period's accepted dates. The stage reads "Accepted".
+   */
   completed: Count.nullable(),
   /** The period `completed` counts, and its days. */
   period: DashboardPeriod,

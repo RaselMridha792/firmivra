@@ -30,14 +30,13 @@ interface Counts {
   clients_before: number;
   leads_now: number;
   leads_before: number;
-  leads_open: number;
+  leads_pipeline: number;
   returns_now: number;
   returns_before: number;
   returns_current: number;
-  returns_open: number;
   accepted_now: number;
   accepted_before: number;
-  filed_pipeline: number;
+  accepted_pipeline: number;
   intakes_open: number;
   appointments_today: number;
   outstanding: number;
@@ -150,9 +149,8 @@ export class DashboardService {
               AND l.status = 'SUBMITTED' AND l.archived_at IS NULL AND ${reachLead}
               AND l.created_at >= p.pk_start AND l.created_at < p.pk_end) AS leads_before,
             (SELECT count(*)::int FROM leads l WHERE l.business_id = ${businessId}::uuid
-              AND l.status IN ('SUBMITTED', 'IN_REVIEW') AND l.archived_at IS NULL) AS leads_open,
-            (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
-              AND t.status = 'IN_PROGRESS' AND ${mine}) AS returns_open,
+              AND l.status = 'SUBMITTED' AND l.archived_at IS NULL AND ${reachLead}
+              AND l.created_at >= p.pl_start AND l.created_at < p.pl_end) AS leads_pipeline,
             (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
               AND t.archived_at IS NULL AND t.workflow_status IN (${inProgress})
               AND ${reachReturn}) AS returns_current,
@@ -169,8 +167,8 @@ export class DashboardService {
               AND t.archived_at IS NULL AND ${reachReturn}
               AND ${acceptedIn('p.pk_start', 'p.pk_end')}) AS accepted_before,
             (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
-              AND t.first_filed_at >= p.pl_start AND t.first_filed_at < p.pl_end
-              AND ${mine}) AS filed_pipeline,
+              AND t.archived_at IS NULL AND t.workflow_status = 'ACCEPTED' AND ${reachReturn}
+              AND ${acceptedIn('p.pl_start', 'p.pl_end')}) AS accepted_pipeline,
             (SELECT count(*)::int FROM intakes i
               JOIN engagements e ON e.business_id = i.business_id AND e.id = i.engagement_id
               ${ofClient('e')} WHERE i.business_id = ${businessId}::uuid
@@ -257,11 +255,11 @@ export class DashboardService {
         appointmentsToday: kpi(c.appointments_today, null),
       },
       pipeline: {
-        leads: c.leads_open,
+        leads: c.leads_pipeline,
         consultation: null,
         intake: c.intakes_open,
-        inProgress: c.returns_open,
-        completed: c.filed_pipeline,
+        inProgress: c.returns_current,
+        completed: c.accepted_pipeline,
         period: pipeline.period,
         from: pipeline.from,
         to: pipeline.to,
