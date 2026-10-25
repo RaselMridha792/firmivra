@@ -2,7 +2,16 @@ import {
   ApiRequestError,
   BulkRequestPacketsRequest,
   CreateRequestPacketRequest,
+  CreateDocumentCategoryRequest,
+  CreateDocumentFolderRequest,
   DocumentFolder,
+  type DocumentCategory,
+  type DocumentSettings,
+  ReorderDocumentFoldersRequest,
+  UpdateDocumentCategoryRequest,
+  UpdateDocumentFolderRequest,
+  UpdateDocumentSettingsRequest,
+  UPLOAD_LIMITS,
   type DocumentLibraryClient,
   type DocumentsClient,
   parseInput,
@@ -67,9 +76,28 @@ export function documentFolderFixtures(): DocumentFolder[] {
     'Marketing & Misc',
   ];
   return [
-    { ...folder(1, 'Client Documents', 'CLIENT', null, 'YELLOW'), subfolderCount: children.length },
-    ...children.map((name, i) => folder(i + 2, name, 'CLIENT', 1, 'BLUE')),
-    folder(20, 'Firm Documents', 'FIRM', null, 'GRAY'),
+    {
+      ...folder(1, 'Client Documents', 'CLIENT', null, 'YELLOW'),
+      description: "Each client's own documents, by service.",
+      subfolderCount: children.length,
+      documentCount: 4,
+    },
+    ...children.map((name, i) => ({
+      ...folder(i + 2, name, 'CLIENT', 1, 'BLUE'),
+      ...(i === 0
+        ? {
+            description: 'Client documents for individual tax preparation, prior returns and IDs.',
+            requireExpiryDate: true,
+            remindBeforeExpiry: true,
+            defaultClientAccess: 'VIEW_UPLOAD' as const,
+            documentCount: 12,
+          }
+        : {}),
+    })),
+    { ...folder(20, 'Firm Documents', 'FIRM', null, 'GRAY'), subfolderCount: 3 },
+    folder(21, 'Templates', 'FIRM', 20, 'PURPLE'),
+    folder(22, 'Marketing', 'FIRM', 20, 'ORANGE'),
+    folder(23, 'Staff Only', 'FIRM', 20, 'GRAY'),
   ];
 }
 
@@ -365,7 +393,44 @@ export function createDocumentLibraryMock(options: {
   documents: DocumentsClient;
   empty?: boolean;
 }): DocumentLibraryClient {
-  const folders = options.empty ? [] : documentFolderFixtures();
+  let folders = options.empty ? [] : documentFolderFixtures();
+  let settings: DocumentSettings = {
+    requestReminderDaysBefore: options.empty ? null : 3,
+    requestExpiryDays: null,
+    documentExpiryReminderDays: options.empty ? null : 30,
+    shareExpiryDays: options.empty ? null : 14,
+    uploadMaxBytes: UPLOAD_LIMITS.maxBytes,
+    uploadTypes: [],
+    defaultReviewer: options.empty ? null : (MEMBERS[0] ?? null),
+    updatedAt: null,
+  };
+  // New and changed document types live here; the documents mock's own list answers the rest.
+  const added: DocumentCategory[] = [];
+  const changed = new Map<string, Partial<DocumentCategory>>();
+  const baseCategories = options.documents.categories;
+  options.documents.categories = async () => {
+    const base = await baseCategories();
+    return [...base, ...added].map((c) => ({ ...c, ...changed.get(c.id) }));
+  };
+  const folderOf = (id: string) => {
+    const f = folders.find((x) => x.id === id);
+    if (!f) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+    return f;
+  };
+  const recountFolders = () => {
+    folders = folders.map((f) => ({
+      ...f,
+      subfolderCount: folders.filter((x) => x.parentId === f.id).length,
+    }));
+  };
+  const nameTaken = (name: string, parentId: string | null, except?: string) =>
+    folders.some(
+      (f) =>
+        f.id !== except &&
+        (f.parentId ?? null) === parentId &&
+        f.name.toLowerCase() === name.toLowerCase(),
+    );
+  let nextFolder = 100;
   const packets = options.empty ? [] : packetFixtures();
   const templates = options.empty ? [] : requestTemplateFixtures();
   const fail = (status: number, code: string, message: string) =>
@@ -504,12 +569,100 @@ export function createDocumentLibraryMock(options: {
       await mockDelay();
       return structuredClone(folders);
     },
-    createFolder: notInMock,
-    updateFolder: notInMock,
-    deleteFolder: notInMock,
-    reorderFolders: notInMock,
-    createCategory: notInMock,
-    updateCategory: notInMock,
+    createFolder: async (body) => {
+      await mockDelay();
+      const input = parseInput(CreateDocumentFolderRequest, body);
+      const parent = input.parentId ? folderOf(input.parentId) : null;
+      if (nameTaken(input.name, input.parentId ?? null))
+        throw new ApiRequestError(409, 'DUPLICATE_NAME', 'That name is taken');
+      const scope = parent?.scope ?? input.scope;
+      const now = new Date().toISOString();
+      const f: DocumentFolder = {
+        id: folderId(nextFolder++),
+        name: input.name,
+        description: input.description ?? null,
+        parentId: parent?.id ?? null,
+        scope,
+        color: input.color ?? 'BLUE',
+        sortOrder:
+          folders.filter((x) => (x.parentId ?? null) === (parent?.id ?? null)).length + 100,
+        requireExpiryDate: input.requireExpiryDate ?? false,
+        remindBeforeExpiry: input.remindBeforeExpiry ?? false,
+        allowClientUploads: scope === 'CLIENT' && (input.allowClientUploads ?? true),
+        notifyStaffOnUpload: input.notifyStaffOnUpload ?? true,
+        defaultClientAccess: scope === 'CLIENT' ? (input.defaultClientAccess ?? 'NONE') : 'NONE',
+        documentCount: 0,
+        subfolderCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      folders = [...folders, f];
+      recountFolders();
+      return structuredClone(folderOf(f.id));
+    },
+    updateFolder: async (id, body) => {
+      await mockDelay();
+      const input = parseInput(UpdateDocumentFolderRequest, body);
+      const f = folderOf(id);
+      const parentId = input.parentId === undefined ? f.parentId : input.parentId;
+      if (nameTaken(input.name ?? f.name, parentId, id))
+        throw new ApiRequestError(409, 'DUPLICATE_NAME', 'That name is taken');
+      folders = folders.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              ...Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)),
+              parentId,
+              updatedAt: new Date().toISOString(),
+            }
+          : x,
+      );
+      recountFolders();
+      return structuredClone(folderOf(id));
+    },
+    deleteFolder: async (id) => {
+      await mockDelay();
+      const f = folderOf(id);
+      if (f.documentCount || folders.some((x) => x.parentId === id))
+        throw new ApiRequestError(409, 'FOLDER_NOT_EMPTY', 'The folder is not empty');
+      folders = folders.filter((x) => x.id !== id);
+      recountFolders();
+      return { ok: true };
+    },
+    reorderFolders: async (body) => {
+      await mockDelay();
+      const input = parseInput(ReorderDocumentFoldersRequest, body);
+      folders = folders.map((f) =>
+        input.ids.includes(f.id) ? { ...f, sortOrder: input.ids.indexOf(f.id) } : f,
+      );
+      return structuredClone(folders.filter((f) => (f.parentId ?? null) === input.parentId));
+    },
+    createCategory: async (body) => {
+      await mockDelay();
+      const input = parseInput(CreateDocumentCategoryRequest, body);
+      const c: DocumentCategory = {
+        id: folderId(500 + added.length),
+        name: input.name,
+        retentionYears: input.retentionYears ?? null,
+        archivedAt: null,
+      };
+      added.push(c);
+      return structuredClone(c);
+    },
+    updateCategory: async (id, body) => {
+      await mockDelay();
+      const input = parseInput(UpdateDocumentCategoryRequest, body);
+      const next: Partial<DocumentCategory> = { ...changed.get(id) };
+      if (input.name !== undefined) next.name = input.name;
+      if (input.retentionYears !== undefined) next.retentionYears = input.retentionYears;
+      if (input.archived !== undefined)
+        next.archivedAt = input.archived ? new Date().toISOString() : null;
+      changed.set(id, next);
+      const all = await options.documents.categories();
+      const c = all.find((x) => x.id === id);
+      if (!c) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+      return structuredClone(c);
+    },
     requests: async (query) => {
       await mockDelay();
       const q = parseInput(RequestPacketsQuery, query ?? {});
@@ -773,7 +926,23 @@ export function createDocumentLibraryMock(options: {
     createTemplate: notInMock,
     updateTemplate: notInMock,
     archiveTemplate: notInMock,
-    settings: notInMock,
-    updateSettings: notInMock,
+    settings: async () => {
+      await mockDelay();
+      return structuredClone(settings);
+    },
+    updateSettings: async (body) => {
+      await mockDelay();
+      const input = parseInput(UpdateDocumentSettingsRequest, body);
+      const { defaultReviewerUserId, ...rest } = input;
+      settings = {
+        ...settings,
+        ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)),
+        ...(defaultReviewerUserId !== undefined
+          ? { defaultReviewer: MEMBERS.find((m) => m.userId === defaultReviewerUserId) ?? null }
+          : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      return structuredClone(settings);
+    },
   };
 }

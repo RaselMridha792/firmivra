@@ -120,8 +120,21 @@ export function CreateRequestScreen() {
     queryFn: () => api.clients.get(presetId ?? ''),
     enabled: Boolean(presetId),
   });
+  // The firm's default reminder (Document Settings) until one is chosen here.
+  const defaults = useQuery({
+    queryKey: ['document-settings'],
+    queryFn: () => api.documentLibrary.settings(),
+  });
+  const [reminderChosen, setReminderChosen] = useState(false);
+  const days = defaults.data?.requestReminderDaysBefore;
+  const withDefaults: RequestDraft =
+    reminderChosen || days === undefined
+      ? draft
+      : { ...draft, reminder: days !== null, reminderDays: days ?? draft.reminderDays };
   const view: RequestDraft =
-    draft.client || !preset.data ? draft : fill({ ...draft, client: preset.data });
+    withDefaults.client || !preset.data
+      ? withDefaults
+      : fill({ ...withDefaults, client: preset.data });
   const clientId = view.client?.id;
   const engagements = useQuery({
     queryKey: ['engagements', clientId, 'ACTIVE'],
@@ -130,13 +143,19 @@ export function CreateRequestScreen() {
   });
   const services = engagements.data ?? null;
 
-  const patch = (next: Partial<RequestDraft>) =>
-    setDraft((d) => {
+  const patch = (next: Partial<RequestDraft>) => {
+    if ('reminder' in next || 'reminderDays' in next) setReminderChosen(true);
+    setDraft((current) => {
+      const d =
+        reminderChosen || days === undefined
+          ? current
+          : { ...current, reminder: days !== null, reminderDays: days ?? current.reminderDays };
       const base = d.client || !preset.data ? d : { ...d, client: preset.data };
       // Another client's services differ: the service is chosen again.
       const service = next.client && next.client.id !== base.client?.id ? { serviceId: '' } : {};
       return fill({ ...base, ...next, ...service });
     });
+  };
   const typeOf = (id: string) => types?.find((t) => t.id === id);
   const setType = (typeId: string) => patch(withType(view, typeId, typeOf(typeId)));
   const addTemplate = (id: string) => {
