@@ -27,6 +27,7 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     expiresAt: new Date('2026-10-15T13:00:00Z'),
   },
   'client.signup-email-code': { code: '482913' },
+  'staff.phone-code': { code: '482913' },
   'client.signup-sms-code': { code: '482913' },
   'client.already-registered': {
     signInLink: 'https://portal.example.test/sample/sign-in',

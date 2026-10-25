@@ -301,6 +301,11 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
+  'staff.phone-code': (d, b) => ({
+    channel: 'sms',
+    text: `${code(d)} is your ${b.name} code to verify your mobile number. Never share it.`,
+  }),
+
   'client.signup-sms-code': (d, b) => ({
     channel: 'sms',
     text: `${code(d)} is your ${b.name} verification code. Never share it.`,

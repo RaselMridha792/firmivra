@@ -865,3 +865,11 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   notification opens `/calendar/{id}`). Contract unit 49 of 49, mock specs 3 new plus the
   dashboard's and the notifications' 21; sheet shot on the real API (two fake appointments added
   to the local database).
+- Oct 25 (sixth session): (c) staff phone verification (`rasel/R60-staff-phone`), on R1's
+  `staff_phone_codes` (#1145): `GET /business/me/phone`, `POST .../code` (one a minute, 10 a day,
+  the firm's SMS cap over staff and client codes), `POST .../verify` (HMAC, five tries, the code
+  used up in the firm's scope, then `phone_verified_at` in the member's own scope while the number
+  is unchanged); template `staff.phone-code`; SMS offered to verified staff (the switch stores the
+  choice: no staff notice has a text copy yet, for Rasel). Mobile Number card on My Settings,
+  Notifications. API unit 1730 of 1730, staff phone e2e 9 of 9, notify 149 of 149, mock specs 7 of 7.
+  Local: `owner@lvp.test` has the fake number +17705550123 in `firmivra_r60` (verified by the sheet).
