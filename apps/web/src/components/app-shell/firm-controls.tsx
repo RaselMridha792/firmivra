@@ -16,34 +16,78 @@ import { ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { type ReactNode, useEffect, useId, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { useApiQuery } from '../../lib/query';
 
 const popover =
   'absolute right-0 z-30 mt-2 rounded-card border border-border bg-surface p-2 shadow-card';
 
-/** Opens its panel on click; closes on Escape, a click on the panel or a click elsewhere. */
+/**
+ * Opens its panel on click (the bell, + New). Closes on Escape (focus back on the button), a choice,
+ * a click or tab elsewhere and a route change; arrow keys, Home and End move through the items
+ * (Octavia's Q10).
+ */
 function Popover({
   trigger,
+  onOpen,
   children,
 }: {
   trigger: (open: boolean) => ReactNode;
+  /** Called each time the panel opens. */
+  onOpen?: () => void;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const pathname = usePathname();
+  const [path, setPath] = useState(pathname);
+  if (path !== pathname) {
+    setPath(pathname);
+    setOpen(false);
+  }
+  useEffect(() => {
+    if (!open) return;
+    rootRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    const away = (event: MouseEvent) =>
+      rootRef.current && !rootRef.current.contains(event.target as Node) && setOpen(false);
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [open]);
+  function key(event: React.KeyboardEvent) {
+    if (!open) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+      return;
+    }
+    const all = [...(rootRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    const at = all.indexOf(document.activeElement as HTMLElement);
+    const move = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 }[event.key];
+    if (move !== undefined && all.length) {
+      event.preventDefault();
+      all[(move + all.length) % all.length]?.focus();
+    }
+  }
   return (
     <div
+      ref={rootRef}
       className="relative"
-      onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
+      onKeyDown={key}
       onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setOpen(false)}
     >
       <button
+        ref={buttonRef}
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="contents"
+        onClick={() => {
+          if (!open) onOpen?.();
+          setOpen((v) => !v);
+        }}
+        className="block rounded-control"
       >
         {trigger(open)}
       </button>

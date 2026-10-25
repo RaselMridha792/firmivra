@@ -6,10 +6,11 @@ export const metadata: Metadata = { title: 'Clients' };
 export default async function ClientsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string | string[] }>;
+  searchParams: Promise<{ search?: string | string[]; new?: string | string[] }>;
 }) {
-  const { search } = await searchParams;
+  const { search, new: adding } = await searchParams;
   const text = typeof search === 'string' ? search : '';
   // Keyed by the search, so the header's search box opens a fresh list on this page too.
-  return <ClientsScreen key={text} initialSearch={text} />;
+  // `?new=1`: the dashboard's Add Client and + New > Client open the form itself (Q1, Q7).
+  return <ClientsScreen key={text} initialSearch={text} initialAdding={adding === '1'} />;
 }

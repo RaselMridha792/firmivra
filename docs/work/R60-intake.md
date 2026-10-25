@@ -783,3 +783,13 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   stays on its record. Staff e2e 24 of 24 (schedules 8, job titles 8, staff 8), isolation: only
   the four known local failures, mock specs 11 of 11; sheet shot on the real API. (c) is blocked:
   no table holds a staff code (column request item 13, for Rasel); (d) next.
+- Oct 25 (fifth session): Dashboard group 3 (`rasel/R60-dashboard-quick`, from `main`, pushed,
+  no PR yet: #1147 and #1148 hold the two slots): Q1 to Q5 (the quick actions open Add Client,
+  New Message, the bulk email start, a blank invoice and the secure upload; shown by the role's
+  grid), Q6 and Q7 (+ New: client, lead, appointment, task, invoice, message, bulk email, upload,
+  each by the role's CREATE; `?new=1` opens the Clients, Messages and Leads dialogs), Q3 (the
+  bulk email page creates nothing until Start; a template's Use still starts at once), Q10 (the
+  shared popover: a real button, focus on the first item, arrows, Home and End, Escape gives focus
+  back, outside click, a choice and a route change close it). Mock specs 45 of 45; sheet shot on
+  the real API. The popover also carries #1148's `onOpen` (same API), so merging `main` after
+  #1148 keeps this branch's version.

@@ -324,12 +324,17 @@ function LeadFilters({
   );
 }
 
-export function LeadsScreen() {
+export function LeadsScreen({
+  initialCreate = false,
+}: {
+  /** Open Add New Lead at once (+ New > Lead). */
+  initialCreate?: boolean;
+} = {}) {
   const [filters, setFilters] = useState<LeadFilters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
   const [selected, setSelected] = useState<string[]>([]);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(initialCreate);
   // Create Campaign (L7): the Communications builder in a panel over this page.
   const [campaignOpen, setCampaignOpen] = useState(false);
   // Add New Tag (L6): Owner and Admin add to the firm's one tag list.
