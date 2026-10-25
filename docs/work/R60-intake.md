@@ -883,3 +883,22 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Returns = accepted in the period (history). New Leads and Accepted Returns open their lists with
   the period's dates. The pipeline keeps R55's counts. Dashboard and returns workspace e2e 18 of 18,
   dashboard unit 12 of 12, dashboard mock specs 29 of 29 (two only pass serially: load).
+- Oct 25 (fifth session): Dashboard group 3 (`rasel/R60-dashboard-quick`, from `main`, pushed,
+  no PR yet: #1147 and #1148 hold the two slots): Q1 to Q5 (the quick actions open Add Client,
+  New Message, the bulk email start, a blank invoice and the secure upload; shown by the role's
+  grid), Q6 and Q7 (+ New: client, lead, appointment, task, invoice, message, bulk email, upload,
+  each by the role's CREATE; `?new=1` opens the Clients, Messages and Leads dialogs), Q3 (the
+  bulk email page creates nothing until Start; a template's Use still starts at once), Q10 (the
+  shared popover: a real button, focus on the first item, arrows, Home and End, Escape gives focus
+  back, outside click, a choice and a route change close it). Mock specs 45 of 45; sheet shot on
+  the real API. The popover also carries #1148's `onOpen` (same API), so merging `main` after
+  #1148 keeps this branch's version.
+- Oct 25 (sixth session): `origin/main` merged into group 3 (`rasel/R60-dashboard-quick`) after
+  #1146 and #1148: the header `Popover` stays this branch's (with #1148's `onOpen`), `FirmBell` is
+  #1148's, the dashboard keeps R55's periods with this branch's `useFirm` role. Web typecheck 0.
+- Oct 25 (sixth session): `origin/main` merged into #1150 after #1147 merged (squash `49eb6497`):
+  Clients and Leads keep both prop sets (`initialAdding` / `initialCreate` from `?new=1` with
+  `fromDashboard` and the stage and dates from #1147). New test: `/clients?new=1&back=dashboard`
+  opens Add New Client with Back to Dashboard, and `/leads?new=1&stage=SUBMITTED&back=dashboard`
+  opens Add New Lead with it. Web `tsc` 0, ESLint clean, mock specs 17 of 17 (r60 quick and KPI
+  cards, r31 dashboard, r23 clients).
