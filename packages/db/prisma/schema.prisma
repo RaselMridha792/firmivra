@@ -1147,6 +1147,8 @@ model Membership {
 
   // R1 (Oct 21): the locations this member is assigned to.
   officesAssigned FirmOfficeMember[]
+  // R1 (Oct 25, R60's request 13): codes sent to verify this member's phone.
+  phoneCodes      StaffPhoneCode[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -8678,6 +8680,29 @@ model StaffJobTitle {
   @@unique([businessId, id])
   @@index([businessId])
   @@map("staff_job_titles")
+}
+
+/// R60's request 13: a code sent to a staff member's phone to verify it (Notifications, SMS for
+/// verified staff). Like `verification_codes` for clients: only the code's HMAC is stored, the
+/// database clock sets created_at and the 15-minute expiry, attempts only go up, and only the
+/// newest unexpired code for that member can be used, once (SQL only). Never deleted by the app.
+model StaffPhoneCode {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  /// The E.164 number the code went to.
+  target     String
+  /// Hex HMAC-SHA256 of the code with a server key; never the code itself.
+  codeHash   String    @map("code_hash")
+  attempts   Int       @default(0)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("staff_phone_codes")
 }
 
 /// SM8 (R60's request 11): a firm's saved work schedules, offered on Create Staff, like the saved
