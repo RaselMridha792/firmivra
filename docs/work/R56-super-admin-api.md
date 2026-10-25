@@ -427,3 +427,23 @@ Both PR bodies follow #1114's: the screenshot table, differences and why, the de
 
 **Gotchas:** no `Co-Authored-By` or "Generated with Claude Code" lines (CLAUDE.md wins over the session's attribution reminder; one pushed commit on #1110's branch has the trailer, so check the squash message). Python with apostrophes or quotes goes in a script file written with the Write tool; heredocs break on them. Shots: `zz-r56-*-shots.spec.ts` (never committed) with `R56_TAG=empty NEXT_PUBLIC_API_MOCK_EMPTY=documentLibrary` for empty and `R56_TAG=offline R56_EXCLUDE=documentLibrary -c playwright.r56.config.ts` for API unreachable; check 375 px shots are 375 wide (segmented `Tabs` need an `overflow-x-auto` wrapper). The library mock answers accept and reject for its request items and adds document types by wrapping the shared documents mock (`options.documents`). Local DB: `.env` points at `firmivra`; the API tests ran with `DATABASE_URL`/`DATABASE_URL_APP` set to `firmivra_r56`, which has every migration through #1105. After a merge of main, rebuild `packages/types` and run `prisma generate` before typecheck.
 
+
+## Handoff for a fresh R56 (Oct 25, late)
+
+Rasel (Oct 25): open the Settings and Share PRs; fix the two documents API gaps (no schema change, or write the request); then Document Details (Frame 2) and Edit Draft; match Octavia's mockups exactly; never a `Co-Authored-By` line (check each commit message before pushing).
+
+**Open PRs (two, the limit):** **#1130** `rasel/R56-document-settings` (Document Settings, Frame 6) and **#1132** `rasel/R56-share-document` (Share Document, Frame 5; stacked on #1130).
+
+**Committed and pushed, no PR yet. Open in this order when a slot frees, `origin/main` merged in first, each title as its commit:**
+1. `rasel/R56-request-type-kept` (from main): `fix: a document request keeps its Request Type after the type's documents are edited (copyTemplateItems) (R56)`. Contract `copyTemplateItems` (default true), the API's create, the Create page always sends its type with the checklist as edited; e2e 8, unit 6, mock 3.
+2. `rasel/R56-request-send-channels` (from main): `fix: sending a document request follows its email, portal and SMS switches, and the portal shows its message (R56)`. `Notifier.notify` `channels`; the new `document.requested-sms` template (NotifyService's consent check; only when the firm's message settings send texts and the login has a phone; a text that follows preferences says how to turn it off); `tell()` passes the request's switches; R55's portal request page shows the firm's message in its Messages tab (the email and text carry no staff text); the portal mock has one request now. Tests: e2e 9, notify units 127, notifier suites 73, portal mock 1. Merges after 1 conflict in the R file and `documents-requests.e2e.test.ts` (keep both new describes).
+3. `rasel/R56-document-details` (stacked on #1132): `feat: Document Details on its design: the preview with its toolbar, information, versions, activity, review and the request it answers (R56)`. Includes the contract's `LibraryDocument.request` (item and its request; no schema change) and its e2e. Notes, Related Forms and Appointments are shown off (the schema request under Needs, for Rasel to choose).
+4. `rasel/R56-edit-draft` (stacked on 3): `feat: Edit Draft opens a saved document request in Create Document Request and saves or sends the same request (R56)`.
+When 1 merges, merge main into 3 and 4: `request-draft.ts` and its test conflict (take 1's `packetBody` and keep 4's `draftFromPacket`, `setupBody`, `itemPlan`).
+
+PR bodies follow #1130's: what and why, the screenshot table (shots in `e2e/screenshots/r56-request-send-channels/`, `r56-document-details/`, `r56-edit-draft/`), differences and why, the design-match checklist for UI, How to test, Checklist (pre-review unticked).
+
+**Needs for Rasel:** the Frame 2 schema choice (document notes; intake and appointment links); the automatic request reminder and expiry have no job yet; `forms-documents` settings could link to Document Settings (R60 or Tumit).
+
+**Gotchas:** check `git log origin/main..HEAD --format=%B | grep -ci co-authored` is 0 before every push. Python with quotes goes in a script file (heredocs break). After merging main: rebuild `packages/types`, `prisma generate`, and delete `apps/web/.next/mock/dev/types` if typecheck names it. API tests: set `DATABASE_URL`/`DATABASE_URL_APP` to `firmivra_r56` (every migration through main is applied). Shots: `zz-r56-*-shots.spec.ts` (never committed); empty with `NEXT_PUBLIC_API_MOCK_EMPTY=documentLibrary`, offline with `R56_EXCLUDE=documentLibrary -c playwright.r56.config.ts`; 375 px shots must be 375 wide.
+
