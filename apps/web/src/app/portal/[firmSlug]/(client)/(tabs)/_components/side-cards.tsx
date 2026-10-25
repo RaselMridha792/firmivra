@@ -1,5 +1,6 @@
 'use client';
 
+import type { AnnouncementPlace } from '@firmivra/types';
 import { Card } from '@firmivra/ui';
 import {
   ArrowRight,
@@ -23,6 +24,7 @@ import { FirmContactLinks } from '../../../(public)/_components/firm-contact';
 import { NotesCard } from '../messages/_components/notes-card';
 import { HelpfulResources } from '../business/_components/business-cards';
 import { TaxPaymentCard } from '../taxes/_components/tax-cards';
+import { AnnouncementCard } from '../../_components/announcements';
 import { usePortalTabs } from '../../_components/portal-tabs';
 
 const dateTime = new Intl.DateTimeFormat('en-US', {
@@ -73,6 +75,7 @@ function LinkCard({
 /** Need Help, appointment and document shortcuts; Messages also places Notes here. */
 export function RightColumn({
   slug,
+  place = 'dashboard',
   isMessagesPage = false,
   blueAccents = false,
   showInvoiceInfo = false,
@@ -82,6 +85,8 @@ export function RightColumn({
   taxesPage = false,
 }: {
   slug: string;
+  /** Which announcements show on top (Communications' "Where"). */
+  place?: AnnouncementPlace;
   isMessagesPage?: boolean;
   blueAccents?: boolean;
   showInvoiceInfo?: boolean;
@@ -93,10 +98,11 @@ export function RightColumn({
   taxesPage?: boolean;
 }) {
   return isMessagesPage ? (
-    <MessagesRightColumn slug={slug} />
+    <MessagesRightColumn slug={slug} place={place} />
   ) : (
     <DefaultRightColumn
       slug={slug}
+      place={place}
       blueAccents={blueAccents}
       businessPage={businessPage}
       showIntakeTip={showIntakeTip}
@@ -107,7 +113,7 @@ export function RightColumn({
   );
 }
 
-function MessagesRightColumn({ slug }: { slug: string }) {
+function MessagesRightColumn({ slug, place }: { slug: string; place: AnnouncementPlace }) {
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
   );
@@ -117,6 +123,7 @@ function MessagesRightColumn({ slug }: { slug: string }) {
       aria-label="Help, appointments, and notes"
       className="flex w-full flex-col gap-4 lg:w-72"
     >
+      <AnnouncementCard slug={slug} place={place} />
       <Card className="bg-firm-primary! text-on-action">
         <h2 className="font-display text-2xl font-bold">Need Help?</h2>
         <p className="my-3 text-sm">Our team is here for you.</p>
@@ -148,6 +155,7 @@ function MessagesRightColumn({ slug }: { slug: string }) {
 
 function DefaultRightColumn({
   slug,
+  place,
   blueAccents,
   businessPage,
   showIntakeTip,
@@ -156,6 +164,7 @@ function DefaultRightColumn({
   taxesPage,
 }: {
   slug: string;
+  place: AnnouncementPlace;
   blueAccents: boolean;
   businessPage: boolean;
   showIntakeTip: boolean;
@@ -170,6 +179,7 @@ function DefaultRightColumn({
   const next = upcoming.data?.[0];
   return (
     <aside aria-label="Help and shortcuts" className="flex w-full flex-col gap-4 lg:w-72">
+      <AnnouncementCard slug={slug} place={place} />
       <Card className="bg-firm-primary! text-on-action">
         <h2 className="font-display text-2xl font-bold">Need Help?</h2>
         <p className="my-3 text-sm">Our team is here for you.</p>

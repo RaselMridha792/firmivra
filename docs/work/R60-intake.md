@@ -766,3 +766,20 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   design's "Start Date" (step 1 card 4 and Edit Staff card 4) now saves it, and Edit Staff gains
   Hire Date so it stays editable; the Success page's Start Date reads it first. staff-write e2e
   23 of 23, types 22 of 22, staff mock specs 18 of 18; sheet shot on the real API.
+- Oct 25 (fifth session): (d) the firm's licenses (`rasel/R60-firm-licenses`, from `main`, local
+  until a PR slot frees): `GET /business/settings/profile/licenses` (Owner and Admin, also while
+  Pending Setup; no firm route writes one) and `api.profileChanges.licenses()`; the Professional
+  Licensing card lists five locked rows per license (one block per license), "Not on file" when
+  none, a quiet note when unreachable; Request Change's "Current" (dialog and ticket) shows each
+  license's value, oldest first, joined with "; ". Profile changes e2e 8 of 8, contract 5 of 5,
+  `r60-profile-request-change` 2 of 2; sheet shot on the real API (one fake license written as
+  the platform in the local database).
+- Oct 25 (fifth session): (b) SM8 company work schedules (`rasel/R60-staff-schedules`, from
+  `main`, local until a PR slot frees): `api.staff` work schedules (list, add, rename, archive,
+  restore; 409 `WORK_SCHEDULE_EXISTS` and `WORK_SCHEDULE_ARCHIVED`) on R1's
+  `staff_work_schedules`, as #1088's job titles; `StaffFormOptions.workSchedules` = the presets,
+  then the saved live ones (a saved one named like a preset is offered once); a Work Schedules card
+  on Offices & Job Titles (the Job Titles card made generic); step 4's note says a custom schedule
+  stays on its record. Staff e2e 24 of 24 (schedules 8, job titles 8, staff 8), isolation: only
+  the four known local failures, mock specs 11 of 11; sheet shot on the real API. (c) is blocked:
+  no table holds a staff code (column request item 13, for Rasel); (d) next.
