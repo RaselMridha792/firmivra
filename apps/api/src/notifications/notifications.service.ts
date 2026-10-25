@@ -14,7 +14,12 @@ import {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
-import { DEFAULT_CHOICE, isLockedCategory, PreferenceSource } from '../notify/preferences.js';
+import {
+  DEFAULT_CHOICE,
+  isLockedCategory,
+  PreferenceSource,
+  textsStopped,
+} from '../notify/preferences.js';
 import { decodeTimeCursor, encodeTimeCursor } from '../workspaces/paging.js';
 import { notificationText, type Side } from './notification-text.js';
 
@@ -214,28 +219,40 @@ export class NotificationsService {
   }
 
   async getPreferences(me: Me): Promise<NotificationPreferences> {
-    return this.answer(me, await this.smsOffered(me));
+    return this.answer(me, await this.texts(me));
   }
 
   /**
    * Upserts each category given (only the switches given change), in one transaction, and audits
    * the change: the categories and switches only (consent to texts). `sms: true` while SMS is not
-   * offered is 400, and so is `email: false` from the firm's staff (their email is always on).
+   * offered is 400, and so is `email: false`: every notice is about the person's own account or
+   * services, so its email is always on (staff: Octavia's review of Oct 18; clients: Client
+   * Portal guide 9.2).
    */
   async updatePreferences(me: Me, body: UpdateBody): Promise<NotificationPreferences> {
-    if (me.side === 'staff' && body.items.some((i) => i.email === false)) {
+    if (body.items.some((i) => i.email === false)) {
       throw new BadRequestException({
         code: 'EMAIL_ALWAYS_ON',
-        message: "Email notices are always on for the firm's staff",
+        message:
+          me.side === 'staff'
+            ? "Email notices are always on for the firm's staff"
+            : 'Email notices about your account and services are always on',
         details: [{ path: 'items', message: 'Email cannot be switched off' }],
       });
     }
-    const sms = await this.smsOffered(me);
-    if (!sms && body.items.some((i) => i.sms === true)) {
+    const texts = await this.texts(me);
+    if (!texts.offered && body.items.some((i) => i.sms === true)) {
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
-        message: 'Text messages are not available for you yet',
-        details: [{ path: 'items', message: 'SMS is not offered: add a phone number' }],
+        message: texts.stopped
+          ? 'You stopped text messages from this firm. Ask them to turn texts back on.'
+          : 'Text messages are not available for you yet',
+        details: [
+          {
+            path: 'items',
+            message: texts.stopped ? 'SMS is stopped' : 'SMS is not offered: add a phone number',
+          },
+        ],
       });
     }
     await this.inFirm(me, async (tx) => {
@@ -270,40 +287,49 @@ export class NotificationsService {
         { businessId: me.businessId, actorUserId: me.userId },
       );
     });
-    return this.answer(me, sms);
+    return this.answer(me, texts);
   }
 
   /**
    * q27 (Rasel, Oct 8): the SMS switch shows for a client with a phone number on their login; it
-   * only stores the choice, and no text goes out until SMS is switched on in config. The firm's
-   * staff need a verified mobile number (Rasel, Oct 24), which no staff login records yet (the
-   * R60 file's column request), so they are offered email only.
+   * only stores the choice, and no text goes out until SMS is switched on in config. Not while
+   * the client's texts are stopped at this firm (a STOP reply, an unsubscribe: Client Portal guide
+   * 7.5). The firm's staff need a verified mobile number (Rasel, Oct 24), which no staff login
+   * records yet (the R60 file's column request), so they are offered email only.
    */
-  private async smsOffered(me: Me): Promise<boolean> {
-    if (me.side === 'staff') return false;
-    const user = await this.database.forBusiness(me.businessId).user.findFirst({
-      where: { id: me.userId },
-      select: { phone: true },
-    });
-    return Boolean(user?.phone);
+  private async texts(me: Me): Promise<{ offered: boolean; stopped: boolean }> {
+    if (me.side === 'staff') return { offered: false, stopped: false };
+    const scope = this.database.forBusiness(me.businessId);
+    const [user, account] = await Promise.all([
+      scope.user.findFirst({ where: { id: me.userId }, select: { phone: true } }),
+      scope.clientAccount.findFirst({
+        where: { businessId: me.businessId, userId: me.userId },
+        select: { clientId: true },
+      }),
+    ]);
+    const stopped = await textsStopped(scope, me.businessId, account?.clientId);
+    return { offered: Boolean(user?.phone) && !stopped, stopped };
   }
 
-  private async answer(me: Me, sms: boolean): Promise<NotificationPreferences> {
+  private async answer(
+    me: Me,
+    texts: { offered: boolean; stopped: boolean },
+  ): Promise<NotificationPreferences> {
     const saved = await this.preferences.choices(me.businessId, me.userId);
-    const channels: DeliveryChannel[] = sms ? ['EMAIL', 'SMS'] : ['EMAIL'];
+    const channels: DeliveryChannel[] = texts.offered ? ['EMAIL', 'SMS'] : ['EMAIL'];
     return {
       channels,
+      smsStopped: texts.stopped,
       items: NotificationCategory.options.map((category) => {
         const locked = isLockedCategory(category);
-        // The firm's staff always get the email: a row stored off before this rule reads as on.
-        const emailLocked = locked || me.side === 'staff';
         const choice = locked ? DEFAULT_CHOICE : (saved.get(category) ?? DEFAULT_CHOICE);
+        // Email always goes: a row stored off before this rule reads as on.
         return {
           category,
-          email: emailLocked || choice.email,
-          sms: sms && choice.sms,
+          email: true,
+          sms: texts.offered && choice.sms,
           locked,
-          emailLocked,
+          emailLocked: true,
         };
       }),
     };

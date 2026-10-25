@@ -16,6 +16,7 @@ export * from './client-auth/index.js';
 export * from './team/index.js';
 export * from './staff/index.js';
 export * from './settings/index.js';
+export * from './client-portal/index.js';
 export * from './clients/index.js';
 export * from './engagements/index.js';
 export * from './tax-returns/index.js';

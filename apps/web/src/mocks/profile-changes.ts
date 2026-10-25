@@ -6,6 +6,7 @@ import {
   type ProfileChange,
   type ProfileChangeField,
   type ProfileChangesClient,
+  type FirmLicense,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { settingsFixture } from './settings';
@@ -14,8 +15,8 @@ import { settingsFixture } from './settings';
  * Mock data for `api.profileChanges` (Company Profile's Request Change). Synthetic data only.
  * STAFF gets 403 FORBIDDEN, like the API; the same `requestId` again answers the first request;
  * the current legal name is refused as a proposed one. `empty: true`
- * (NEXT_PUBLIC_API_MOCK_EMPTY=profileChanges) starts with no requests; otherwise one licensing
- * request is in review with a reply from Firmivra.
+ * (NEXT_PUBLIC_API_MOCK_EMPTY=profileChanges) starts with no requests and no license; otherwise
+ * one license is on file and one licensing request is in review with a reply from Firmivra.
  */
 type MockRole = 'OWNER' | 'ADMIN' | 'STAFF';
 
@@ -36,6 +37,18 @@ const seed = (): ProfileChange[] => [
   },
 ];
 
+/** One license Firmivra recorded for the firm (read-only for the firm). */
+const licenses = (): FirmLicense[] => [
+  {
+    id: '0199c0e0-0c10-7000-8000-000000000001',
+    regulatoryBody: 'Fake State Board of Accountancy',
+    licenseType: 'CPA Firm Permit',
+    licenseNumber: 'FAKE-123456',
+    expiresOn: '2027-12-31',
+    status: 'ACTIVE',
+  },
+];
+
 export function createProfileChangesMock(
   options: { role?: MockRole; empty?: boolean } = {},
 ): ProfileChangesClient {
@@ -51,6 +64,10 @@ export function createProfileChangesMock(
     list: async () => {
       await allowed();
       return { items: items.slice(0, 20) };
+    },
+    licenses: async () => {
+      await allowed();
+      return options.empty ? [] : licenses();
     },
     create: async (input) => {
       const body = parseInput(CreateProfileChangeRequest, input);

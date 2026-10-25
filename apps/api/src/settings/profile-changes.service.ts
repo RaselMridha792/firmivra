@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
   type CreateProfileChangeRequest,
+  type FirmLicenseList,
   PROFILE_CHANGE_FIELDS,
   PROFILE_CHANGE_KIND_LABELS,
   type ProfileChange,
@@ -69,6 +70,24 @@ export const ROLE_NAMES: Record<string, string> = {
  */
 const EIN_KEPT = (ein: string) => `Ending in ${ein.slice(-4)}`;
 
+const LICENSE = {
+  id: true,
+  regulatoryBody: true,
+  licenseType: true,
+  licenseNumber: true,
+  expiresOn: true,
+  status: true,
+} as const;
+const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+
+/** The firm's licenses (firm_licenses), oldest first. The firm reads them; only Firmivra writes. */
+const licensesOf = (tx: TxClient, businessId: string) =>
+  tx.firmLicense.findMany({
+    where: { businessId },
+    select: LICENSE,
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  });
+
 /**
  * Company Profile's Request Change (Rasel's default, Oct 24): the legal name, the EIN and the
  * licensing details are changed only by Firmivra. An Owner or Admin raises a support ticket for
@@ -95,6 +114,13 @@ export class ProfileChangesService {
     });
   }
 
+  /** GET licenses: the Professional Licensing card's rows (read-only for the firm). */
+  licenses(businessId: string, userId: string): Promise<FirmLicenseList> {
+    return this.inFirm(businessId, userId, async (tx) => ({
+      items: (await licensesOf(tx, businessId)).map((l) => ({ ...l, expiresOn: day(l.expiresOn) })),
+    }));
+  }
+
   /** POST: one ticket per `requestId`; the same key again answers the first request. */
   async create(businessId: string, userId: string, body: Body): Promise<ProfileChange> {
     const known = await this.byKey(businessId, userId, body.requestId);
@@ -110,6 +136,7 @@ export class ProfileChangesService {
           where: { businessId },
           select: { einLast4: true },
         });
+        const licenses = await licensesOf(tx, businessId);
         const member = await tx.membership.findUniqueOrThrow({
           where: { businessId_userId: { businessId, userId } },
           select: { role: true, user: { select: { name: true } } },
@@ -121,14 +148,16 @@ export class ProfileChangesService {
             details: [{ path: 'changes.legalName', message: 'This is already the legal name' }],
           });
         const fields = FIELDS.filter((f) => body.changes[f] !== undefined);
+        const eachLicense = (value: (l: (typeof licenses)[number]) => string) =>
+          licenses.length ? licenses.map(value).join('; ') : 'Not on file';
         const current: Record<ProfileChangeField, string> = {
           legalName: business.legalName ?? 'Not on file',
           ein: settings?.einLast4 ? `Ending in ${settings.einLast4}` : 'Not on file',
-          // No licensing columns yet (Column request for R1, item 7).
-          regulatoryBody: 'Not on file',
-          licenseType: 'Not on file',
-          licenseNumber: 'Not on file',
-          expirationDate: 'Not on file',
+          // Each license's value, oldest first (a firm may hold several).
+          regulatoryBody: eachLicense((l) => l.regulatoryBody),
+          licenseType: eachLicense((l) => l.licenseType),
+          licenseNumber: eachLicense((l) => l.licenseNumber),
+          expirationDate: eachLicense((l) => day(l.expiresOn) ?? 'No expiration date'),
         };
         const proposed = (f: ProfileChangeField) => {
           const value = body.changes[f] as string;

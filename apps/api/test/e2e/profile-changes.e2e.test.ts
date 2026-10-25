@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
+  FirmLicenseList,
   FirmSettings,
   ProfileChange,
   ProfileChangeList,
@@ -355,6 +356,81 @@ describe('POST and GET /business/settings/profile/change-requests', () => {
     });
     expect([reused.status, codeOf(reused)]).toEqual([409, 'CONFLICT']);
     expect(JSON.stringify(reused.body)).not.toContain(first.id);
+  });
+});
+
+describe('GET /business/settings/profile/licenses: read-only for the firm', () => {
+  const LICENSES = '/business/settings/profile/licenses';
+
+  it('lists the licenses Firmivra wrote, oldest first, and Request Change shows them as current', async () => {
+    const none = await call('get', LICENSES, people.ownerPending, firms.pending.id);
+    expect(none.status).toBe(200);
+    expect(FirmLicenseList.parse(none.body).items).toEqual([]);
+
+    // Only the platform (or a Super Admin) writes a license.
+    await asOwner({ kind: 'platform' }, async (tx) => {
+      await tx.firmLicense.create({
+        data: {
+          businessId: firms.a.id,
+          regulatoryBody: 'Fake State Board of Accountancy',
+          licenseType: 'CPA Firm Permit',
+          licenseNumber: 'FAKE-1001',
+          expiresOn: new Date('2027-12-31T00:00:00.000Z'),
+        },
+      });
+      await tx.firmLicense.create({
+        data: {
+          businessId: firms.a.id,
+          regulatoryBody: 'Fake Federal Registry',
+          licenseType: 'Enrolled Agent',
+          licenseNumber: 'FAKE-2002',
+          status: 'SUSPENDED',
+        },
+      });
+    });
+    const res = await call('get', LICENSES, people.adminA, firms.a.id);
+    expect(res.status).toBe(200);
+    expect(FirmLicenseList.parse(res.body).items).toMatchObject([
+      {
+        regulatoryBody: 'Fake State Board of Accountancy',
+        licenseType: 'CPA Firm Permit',
+        licenseNumber: 'FAKE-1001',
+        expiresOn: '2027-12-31',
+        status: 'ACTIVE',
+      },
+      { licenseNumber: 'FAKE-2002', expiresOn: null, status: 'SUSPENDED' },
+    ]);
+
+    const asked = await ask(people.ownerA, firms.a.id, {
+      kind: 'LICENSING',
+      requestId: randomUUID(),
+      changes: { licenseNumber: 'FAKE-3003', expirationDate: '2028-12-31' },
+      reason: 'Our permit number changed.',
+    });
+    expect(asked.status).toBe(201);
+    const row = await ticketOf(ProfileChange.parse(asked.body).id);
+    expect(row.description).toContain(
+      'License Number\nCurrent: FAKE-1001; FAKE-2002\nProposed: FAKE-3003',
+    );
+    expect(row.description).toContain(
+      'Expiration Date\nCurrent: 2027-12-31; No expiration date\nProposed: 2028-12-31',
+    );
+  });
+
+  it("is the Owner's and Admin's, firm by firm, and no firm route writes a license", async () => {
+    const staff = await call('get', LICENSES, people.staffA, firms.a.id);
+    expect([staff.status, codeOf(staff)]).toEqual([403, 'FORBIDDEN']);
+    const outsider = await call('get', LICENSES, people.ownerB, firms.a.id);
+    expect([outsider.status, codeOf(outsider)]).toEqual([404, 'NOT_FOUND']);
+    const theirs = await call('get', LICENSES, people.ownerB, firms.b.id);
+    expect(FirmLicenseList.parse(theirs.body).items).toEqual([]);
+    const body = { regulatoryBody: 'Fake', licenseType: 'Fake', licenseNumber: 'FAKE-9' };
+    for (const method of ['post', 'patch'] as const)
+      expect((await call(method, LICENSES, people.ownerA, firms.a.id, body)).status).toBe(404);
+    const count = await asOwner({ kind: 'platform' }, (tx) =>
+      tx.firmLicense.count({ where: { businessId: firms.a.id } }),
+    );
+    expect(count).toBe(2);
   });
 });
 

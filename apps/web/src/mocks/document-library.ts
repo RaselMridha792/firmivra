@@ -2,7 +2,20 @@ import {
   ApiRequestError,
   BulkRequestPacketsRequest,
   CreateRequestPacketRequest,
+  CreateDocumentCategoryRequest,
+  CreateDocumentFolderRequest,
+  CreateDocumentShareRequest,
   DocumentFolder,
+  type DocumentShare,
+  type LibraryDocument,
+  UpdateDocumentShareRequest,
+  type DocumentCategory,
+  type DocumentSettings,
+  ReorderDocumentFoldersRequest,
+  UpdateDocumentCategoryRequest,
+  UpdateDocumentFolderRequest,
+  UpdateDocumentSettingsRequest,
+  UPLOAD_LIMITS,
   type DocumentLibraryClient,
   type DocumentsClient,
   parseInput,
@@ -67,9 +80,28 @@ export function documentFolderFixtures(): DocumentFolder[] {
     'Marketing & Misc',
   ];
   return [
-    { ...folder(1, 'Client Documents', 'CLIENT', null, 'YELLOW'), subfolderCount: children.length },
-    ...children.map((name, i) => folder(i + 2, name, 'CLIENT', 1, 'BLUE')),
-    folder(20, 'Firm Documents', 'FIRM', null, 'GRAY'),
+    {
+      ...folder(1, 'Client Documents', 'CLIENT', null, 'YELLOW'),
+      description: "Each client's own documents, by service.",
+      subfolderCount: children.length,
+      documentCount: 4,
+    },
+    ...children.map((name, i) => ({
+      ...folder(i + 2, name, 'CLIENT', 1, 'BLUE'),
+      ...(i === 0
+        ? {
+            description: 'Client documents for individual tax preparation, prior returns and IDs.',
+            requireExpiryDate: true,
+            remindBeforeExpiry: true,
+            defaultClientAccess: 'VIEW_UPLOAD' as const,
+            documentCount: 12,
+          }
+        : {}),
+    })),
+    { ...folder(20, 'Firm Documents', 'FIRM', null, 'GRAY'), subfolderCount: 3 },
+    folder(21, 'Templates', 'FIRM', 20, 'PURPLE'),
+    folder(22, 'Marketing', 'FIRM', 20, 'ORANGE'),
+    folder(23, 'Staff Only', 'FIRM', 20, 'GRAY'),
   ];
 }
 
@@ -365,7 +397,132 @@ export function createDocumentLibraryMock(options: {
   documents: DocumentsClient;
   empty?: boolean;
 }): DocumentLibraryClient {
-  const folders = options.empty ? [] : documentFolderFixtures();
+  let folders = options.empty ? [] : documentFolderFixtures();
+  let settings: DocumentSettings = {
+    requestReminderDaysBefore: options.empty ? null : 3,
+    requestExpiryDays: null,
+    documentExpiryReminderDays: options.empty ? null : 30,
+    shareExpiryDays: options.empty ? null : 14,
+    uploadMaxBytes: UPLOAD_LIMITS.maxBytes,
+    uploadTypes: [],
+    defaultReviewer: options.empty ? null : (MEMBERS[0] ?? null),
+    updatedAt: null,
+  };
+  // New and changed document types live here; the documents mock's own list answers the rest.
+  const added: DocumentCategory[] = [];
+  const changed = new Map<string, Partial<DocumentCategory>>();
+  const baseCategories = options.documents.categories;
+  options.documents.categories = async () => {
+    const base = await baseCategories();
+    return [...base, ...added].map((c) => ({ ...c, ...changed.get(c.id) }));
+  };
+  const folderOf = (id: string) => {
+    const f = folders.find((x) => x.id === id);
+    if (!f) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+    return f;
+  };
+  const recountFolders = () => {
+    folders = folders.map((f) => ({
+      ...f,
+      subfolderCount: folders.filter((x) => x.parentId === f.id).length,
+    }));
+  };
+  const nameTaken = (name: string, parentId: string | null, except?: string) =>
+    folders.some(
+      (f) =>
+        f.id !== except &&
+        (f.parentId ?? null) === parentId &&
+        f.name.toLowerCase() === name.toLowerCase(),
+    );
+  let nextFolder = 100;
+  // Sharing (Frame 5): grants and their history per document; the tax return starts shared.
+  const sharedDoc = '0199b6a5-0000-7000-8000-000000000006';
+  const grants = new Map<string, DocumentShare[]>();
+  const accessLog = new Map<string, DocumentActivity[]>();
+  let nextShare = 1;
+  const shareId = () => `0199d2b0-6b00-7000-8000-${String(nextShare++).padStart(12, '0')}`;
+  const record = (docId: string, kind: DocumentActivity['kind'], label: string) =>
+    accessLog.set(docId, [
+      { id: shareId(), at: new Date().toISOString(), kind, label, by: MEMBERS[0]?.name ?? null },
+      ...(accessLog.get(docId) ?? []),
+    ]);
+  if (!options.empty) {
+    grants.set(sharedDoc, [
+      {
+        id: shareId(),
+        recipient: {
+          kind: 'MEMBER',
+          id: MEMBERS[1]!.userId,
+          name: MEMBERS[1]!.name,
+          email: null,
+        },
+        canDownload: true,
+        canUpload: true,
+        canSign: false,
+        expiresAt: null,
+        grantedBy: MEMBERS[0] ?? null,
+        createdAt: ago(72),
+      },
+    ]);
+    accessLog.set(sharedDoc, [
+      {
+        id: shareId(),
+        at: ago(72),
+        kind: 'SHARED',
+        label: `Shared with ${MEMBERS[1]!.name}`,
+        by: MEMBERS[0]?.name ?? null,
+      },
+    ]);
+  }
+  /** The documents mock's file, as the library reads it. */
+  const libraryDoc = async (id: string): Promise<LibraryDocument> => {
+    const d = await options.documents.get(id);
+    const client = clientFixtures().find((c) => c.id === d.clientId);
+    return {
+      id: d.id,
+      fileName: d.fileName,
+      contentType: d.contentType,
+      sizeBytes: d.sizeBytes,
+      client: { id: d.clientId, name: client?.displayName ?? 'Client' },
+      service: d.service,
+      folder: null,
+      category: d.category,
+      direction: d.direction,
+      taxYear: d.taxYear,
+      description: null,
+      tags: [],
+      reviewStatus: d.direction === 'FIRM_TO_CLIENT' ? 'COMPLETED' : null,
+      reviewer: null,
+      reviewedAt: null,
+      reviewedBy: null,
+      scanStatus: d.scanStatus,
+      expiresOn: null,
+      versionNo: 1,
+      replacesId: null,
+      superseded: false,
+      requestId: d.requestId,
+      visibleToClient: d.direction !== 'INTERNAL',
+      uploadedBy: d.uploadedBy,
+      createdAt: d.createdAt,
+      updatedAt: d.createdAt,
+      archivedAt: null,
+      trashedAt: null,
+    };
+  };
+  const loginsOf = (clientId: string) =>
+    (clientFixtures().find((c) => c.id === clientId)?.portalLogins ?? [])
+      .filter((l) => l.status === 'ACTIVE')
+      .map((l) => ({
+        id: l.clientAccountId,
+        name: clientFixtures().find((c) => c.id === clientId)?.displayName ?? l.email,
+        email: l.email,
+        primary: l.portalRole === 'PRIMARY',
+      }));
+  const shareOf = (docId: string, id: string) => {
+    const g = (grants.get(docId) ?? []).find((x) => x.id === id);
+    if (!g) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+    return g;
+  };
   const packets = options.empty ? [] : packetFixtures();
   const templates = options.empty ? [] : requestTemplateFixtures();
   const fail = (status: number, code: string, message: string) =>
@@ -472,7 +629,10 @@ export function createDocumentLibraryMock(options: {
   return {
     list: notInMock,
     summary: notInMock,
-    get: notInMock,
+    get: async (id) => {
+      await mockDelay();
+      return libraryDoc(id);
+    },
     /** Through the documents mock, so `api.documents.confirmUpload` finds the ticket. */
     createUpload: async (body) =>
       options.documents.createUpload(body.clientId, {
@@ -493,23 +653,173 @@ export function createDocumentLibraryMock(options: {
     untrash: notInMock,
     versions: notInMock,
     activity: notInMock,
-    preview: notInMock,
+    preview: async (id) => {
+      const d = await libraryDoc(id);
+      if (d.scanStatus !== 'CLEAN') throw new ApiRequestError(409, 'FILE_NOT_CLEAN', 'Not clean');
+      return options.documents.download(id);
+    },
     bulk: notInMock,
-    access: notInMock,
-    share: notInMock,
-    updateShare: notInMock,
-    revokeShare: notInMock,
-    accessHistory: notInMock,
+    access: async (id) => {
+      const d = await libraryDoc(id);
+      return {
+        document: { id, fileName: d.fileName, versionNo: d.versionNo, direction: d.direction },
+        shares: structuredClone(grants.get(id) ?? []),
+        clientLogins: d.direction === 'INTERNAL' ? [] : loginsOf(d.client.id),
+      };
+    },
+    share: async (id, body) => {
+      const input = parseInput(CreateDocumentShareRequest, body);
+      const d = await libraryDoc(id);
+      const list = grants.get(id) ?? [];
+      const r = input.recipient;
+      if (r.kind === 'CLIENT' && d.direction === 'INTERNAL')
+        throw new ApiRequestError(409, 'INTERNAL_DOCUMENT', 'Internal document');
+      const who =
+        r.kind === 'CLIENT'
+          ? loginsOf(d.client.id).find((l) => l.id === r.clientAccountId)
+          : MEMBERS.map((m) => ({ id: m.userId, name: m.name, email: null })).find(
+              (m) => m.id === r.userId,
+            );
+      if (!who) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+      if (list.some((g) => g.recipient.kind === r.kind && g.recipient.id === who.id))
+        throw new ApiRequestError(409, 'SHARE_EXISTS', 'Already shared');
+      const g: DocumentShare = {
+        id: shareId(),
+        recipient: { kind: r.kind, id: who.id, name: who.name, email: who.email },
+        canDownload: input.canDownload,
+        canUpload: input.canUpload,
+        canSign: input.canSign,
+        expiresAt: input.expiresAt ?? null,
+        grantedBy: MEMBERS[0] ?? null,
+        createdAt: new Date().toISOString(),
+      };
+      grants.set(id, [...list, g]);
+      record(id, 'SHARED', `Shared with ${who.name}`);
+      return structuredClone(g);
+    },
+    updateShare: async (id, sid, body) => {
+      await mockDelay();
+      const input = parseInput(UpdateDocumentShareRequest, body);
+      const g = shareOf(id, sid);
+      Object.assign(
+        g,
+        Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)),
+      );
+      record(id, 'SHARE_CHANGED', `Access of ${g.recipient.name} changed`);
+      return structuredClone(g);
+    },
+    revokeShare: async (id, sid) => {
+      await mockDelay();
+      const g = shareOf(id, sid);
+      grants.set(
+        id,
+        (grants.get(id) ?? []).filter((x) => x.id !== sid),
+      );
+      record(id, 'SHARE_REVOKED', `Access of ${g.recipient.name} revoked`);
+      return { ok: true };
+    },
+    accessHistory: async (id) => {
+      await mockDelay();
+      return structuredClone(accessLog.get(id) ?? []);
+    },
     folders: async () => {
       await mockDelay();
       return structuredClone(folders);
     },
-    createFolder: notInMock,
-    updateFolder: notInMock,
-    deleteFolder: notInMock,
-    reorderFolders: notInMock,
-    createCategory: notInMock,
-    updateCategory: notInMock,
+    createFolder: async (body) => {
+      await mockDelay();
+      const input = parseInput(CreateDocumentFolderRequest, body);
+      const parent = input.parentId ? folderOf(input.parentId) : null;
+      if (nameTaken(input.name, input.parentId ?? null))
+        throw new ApiRequestError(409, 'DUPLICATE_NAME', 'That name is taken');
+      const scope = parent?.scope ?? input.scope;
+      const now = new Date().toISOString();
+      const f: DocumentFolder = {
+        id: folderId(nextFolder++),
+        name: input.name,
+        description: input.description ?? null,
+        parentId: parent?.id ?? null,
+        scope,
+        color: input.color ?? 'BLUE',
+        sortOrder:
+          folders.filter((x) => (x.parentId ?? null) === (parent?.id ?? null)).length + 100,
+        requireExpiryDate: input.requireExpiryDate ?? false,
+        remindBeforeExpiry: input.remindBeforeExpiry ?? false,
+        allowClientUploads: scope === 'CLIENT' && (input.allowClientUploads ?? true),
+        notifyStaffOnUpload: input.notifyStaffOnUpload ?? true,
+        defaultClientAccess: scope === 'CLIENT' ? (input.defaultClientAccess ?? 'NONE') : 'NONE',
+        documentCount: 0,
+        subfolderCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      folders = [...folders, f];
+      recountFolders();
+      return structuredClone(folderOf(f.id));
+    },
+    updateFolder: async (id, body) => {
+      await mockDelay();
+      const input = parseInput(UpdateDocumentFolderRequest, body);
+      const f = folderOf(id);
+      const parentId = input.parentId === undefined ? f.parentId : input.parentId;
+      if (nameTaken(input.name ?? f.name, parentId, id))
+        throw new ApiRequestError(409, 'DUPLICATE_NAME', 'That name is taken');
+      folders = folders.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              ...Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)),
+              parentId,
+              updatedAt: new Date().toISOString(),
+            }
+          : x,
+      );
+      recountFolders();
+      return structuredClone(folderOf(id));
+    },
+    deleteFolder: async (id) => {
+      await mockDelay();
+      const f = folderOf(id);
+      if (f.documentCount || folders.some((x) => x.parentId === id))
+        throw new ApiRequestError(409, 'FOLDER_NOT_EMPTY', 'The folder is not empty');
+      folders = folders.filter((x) => x.id !== id);
+      recountFolders();
+      return { ok: true };
+    },
+    reorderFolders: async (body) => {
+      await mockDelay();
+      const input = parseInput(ReorderDocumentFoldersRequest, body);
+      folders = folders.map((f) =>
+        input.ids.includes(f.id) ? { ...f, sortOrder: input.ids.indexOf(f.id) } : f,
+      );
+      return structuredClone(folders.filter((f) => (f.parentId ?? null) === input.parentId));
+    },
+    createCategory: async (body) => {
+      await mockDelay();
+      const input = parseInput(CreateDocumentCategoryRequest, body);
+      const c: DocumentCategory = {
+        id: folderId(500 + added.length),
+        name: input.name,
+        retentionYears: input.retentionYears ?? null,
+        archivedAt: null,
+      };
+      added.push(c);
+      return structuredClone(c);
+    },
+    updateCategory: async (id, body) => {
+      await mockDelay();
+      const input = parseInput(UpdateDocumentCategoryRequest, body);
+      const next: Partial<DocumentCategory> = { ...changed.get(id) };
+      if (input.name !== undefined) next.name = input.name;
+      if (input.retentionYears !== undefined) next.retentionYears = input.retentionYears;
+      if (input.archived !== undefined)
+        next.archivedAt = input.archived ? new Date().toISOString() : null;
+      changed.set(id, next);
+      const all = await options.documents.categories();
+      const c = all.find((x) => x.id === id);
+      if (!c) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+      return structuredClone(c);
+    },
     requests: async (query) => {
       await mockDelay();
       const q = parseInput(RequestPacketsQuery, query ?? {});
@@ -776,7 +1086,23 @@ export function createDocumentLibraryMock(options: {
     createTemplate: notInMock,
     updateTemplate: notInMock,
     archiveTemplate: notInMock,
-    settings: notInMock,
-    updateSettings: notInMock,
+    settings: async () => {
+      await mockDelay();
+      return structuredClone(settings);
+    },
+    updateSettings: async (body) => {
+      await mockDelay();
+      const input = parseInput(UpdateDocumentSettingsRequest, body);
+      const { defaultReviewerUserId, ...rest } = input;
+      settings = {
+        ...settings,
+        ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)),
+        ...(defaultReviewerUserId !== undefined
+          ? { defaultReviewer: MEMBERS.find((m) => m.userId === defaultReviewerUserId) ?? null }
+          : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      return structuredClone(settings);
+    },
   };
 }
