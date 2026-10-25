@@ -882,6 +882,24 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   notification opens `/calendar/{id}`). Contract unit 49 of 49, mock specs 3 new plus the
   dashboard's and the notifications' 21; sheet shot on the real API (two fake appointments added
   to the local database).
+- Oct 25 (fifth session): Octavia's review of Oct 25 (`docs/specs/review-2026-10-25/`), Dashboard
+  group 1, K2 to K7 (`rasel/R60-dashboard-kpis`): each KPI card opens its list filtered to what it
+  counts, with Back to Dashboard (`?back=dashboard`, `components/back-to-dashboard.tsx`). New Leads
+  = stage New Lead created this month (Leads' scope); Returns In Progress = the five in-progress
+  workflow statuses (`TAX_RETURN_IN_PROGRESS_STATUSES`, `workflowGroup=IN_PROGRESS` on the list);
+  Completed Returns renamed Accepted Returns = Accepted this month by the status history
+  (`acceptedFrom`/`acceptedTo` on the list); Outstanding Invoices = every OPEN invoice (an
+  Outstanding option and its total on the list); Appointments Today and View Calendar open Today.
+  The pipeline's Leads leaves archived leads out (as Leads does). Dashboard e2e 9 of 9, returns
+  workspace e2e 7 of 7, mock specs 28 of 28; sheet shot on the real API. (c) still waits for R1's
+  `staff_phone_codes`.
+- Oct 25 (sixth session): `origin/main` merged into #1147 after R55's periods (#1146) and #1148.
+  The cards keep R55's period selector and comparisons and count by group 1's rules over the global
+  period: New Leads = New Lead created in the period; Returns In Progress = the in-progress
+  workflow statuses at the period's end (now: their status; earlier: the status history); Accepted
+  Returns = accepted in the period (history). New Leads and Accepted Returns open their lists with
+  the period's dates. The pipeline keeps R55's counts. Dashboard and returns workspace e2e 18 of 18,
+  dashboard unit 12 of 12, dashboard mock specs 29 of 29 (two only pass serially: load).
 - Oct 25 (sixth session): #1147 merged with `main` (head `a833bea`); group 3 opened as #1150.
   Group 4 (`rasel/R60-client-form`): D1, the shared new-client form requires the name, email,
   phone and the address (home or business), and a Business its Business Name, checked with the

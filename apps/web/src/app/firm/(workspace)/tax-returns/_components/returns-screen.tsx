@@ -12,6 +12,7 @@ import {
   BulkBar,
   DateRangePicker,
   DonutChart,
+  Button,
   type KpiTrend,
   Modal,
   SearchField,
@@ -67,6 +68,7 @@ import {
   TR_ERRORS,
   TR_KEY,
   card,
+  dayText,
   linkText,
   numericDay,
   outlined,
@@ -74,6 +76,7 @@ import {
   quiet,
   shortName,
 } from './tr-shared';
+import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 
 const TAB_ICON: Record<TaxReturnTab, Icon> = {
   all: FileText,
@@ -158,14 +161,25 @@ function trendOf(
  * /tax-returns (Frame 1, Tax Returns Overview): one return dataset with tax-type tabs, KPI cards
  * that filter, the filters and table, Tax Season Progress, Quick Actions and Helpful Links.
  */
-export function ReturnsScreen() {
+export function ReturnsScreen({
+  initialStatus = '',
+  accepted: acceptedFromUrl = { from: '', to: '' },
+  fromDashboard = false,
+}: {
+  /** A workflow status, or IN_PROGRESS for the five in-progress ones (the dashboard's K4). */
+  initialStatus?: string;
+  /** Accepted between these days (the dashboard's Accepted Returns, K5). */
+  accepted?: { from: string; to: string };
+  fromDashboard?: boolean;
+} = {}) {
   const manager = useManager();
   const members = useMembers();
   const [tab, setTab] = useState<TaxReturnTab>('all');
   const [year, setYear] = useState('');
   const [formType, setFormType] = useState('');
   const [clientType, setClientType] = useState('');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState(initialStatus);
+  const [accepted, setAccepted] = useState(acceptedFromUrl);
   const [assigned, setAssigned] = useState('');
   const [search, setSearch] = useState('');
   const [more, setMore] = useState(false);
@@ -186,7 +200,13 @@ export function ReturnsScreen() {
     ...(year ? { taxYear: Number(year) } : {}),
     ...(formType ? { formType } : {}),
     ...(clientType ? { clientType: clientType as ClientAccountType } : {}),
-    ...(status ? { workflowStatus: status as TaxReturnWorkflowStatus } : {}),
+    ...(status === 'IN_PROGRESS'
+      ? { workflowGroup: 'IN_PROGRESS' as const }
+      : status
+        ? { workflowStatus: status as TaxReturnWorkflowStatus }
+        : {}),
+    ...(accepted.from ? { acceptedFrom: accepted.from } : {}),
+    ...(accepted.to ? { acceptedTo: accepted.to } : {}),
     ...(assigned ? { assignedUserId: assigned } : {}),
     ...(range.from ? { updatedFrom: range.from } : {}),
     ...(range.to ? { updatedTo: range.to } : {}),
@@ -322,6 +342,7 @@ export function ReturnsScreen() {
 
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="tax-returns-page">
+      {fromDashboard ? <BackToDashboard /> : null}
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <span
@@ -348,6 +369,24 @@ export function ReturnsScreen() {
           </button>
         </div>
       </header>
+      {accepted.from || accepted.to ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="accepted-filter">
+          <span className="text-muted">Accepted</span>
+          <span className="font-semibold text-heading">
+            {[accepted.from, accepted.to].filter(Boolean).map(dayText).join(' to ')}
+          </span>
+          <Button
+            variant="ghost"
+            aria-label="Clear the accepted dates"
+            onClick={() => {
+              setAccepted({ from: '', to: '' });
+              setPage(1);
+            }}
+          >
+            Clear
+          </Button>
+        </div>
+      ) : null}
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
@@ -460,6 +499,7 @@ export function ReturnsScreen() {
                 onChange={(e) => filter(setStatus)(e.target.value)}
                 options={[
                   { value: '', label: 'All Statuses' },
+                  { value: 'IN_PROGRESS', label: 'In Progress (all)' },
                   ...STATUS_ORDER.map((v) => ({ value: v, label: STATUS_LABEL[v] })),
                 ]}
               />
