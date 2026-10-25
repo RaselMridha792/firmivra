@@ -95,6 +95,7 @@ interface Form {
   office: string;
   timeZone: string;
   hireDate: string;
+  workStartDate: string;
   employeeId: string;
   primaryTeamId: string;
   primarySpecialty: string;
@@ -118,6 +119,7 @@ function fromDraft(d: StaffDraftData): Form {
     office: x.office ?? '',
     timeZone: x.timeZone ?? 'America/New_York',
     hireDate: x.hireDate ?? '',
+    workStartDate: x.workStartDate ?? '',
     employeeId: x.employeeId ?? '',
     primaryTeamId: x.primaryTeamId ?? '',
     primarySpecialty: x.primarySpecialty ?? '',
@@ -139,6 +141,7 @@ function toDetails(f: Form): DetailsInput {
     workSchedule: f.workSchedule || null,
     office: f.office || null,
     hireDate: f.hireDate || null,
+    workStartDate: f.workStartDate || null,
     endDate: f.endDate || null,
     supervisorId: f.supervisorId || null,
     timeZone: f.timeZone || null,
@@ -392,7 +395,8 @@ function DetailsForm({
                   />
                 ) : null}
                 <p className="text-xs text-muted">
-                  A custom schedule is saved for the firm and offered for the next staff member.
+                  A custom schedule stays on this staff record. The firm&apos;s saved schedules are
+                  managed in Staff Settings &gt; Offices &amp; Job Titles.
                 </p>
               </div>
               <Select
@@ -432,6 +436,13 @@ function DetailsForm({
                 value={form.employeeId}
                 error={errors.employeeId}
                 onChange={(e) => set('employeeId', e.target.value)}
+              />
+              {/* Octavia's SM11: the first day of work, apart from Hire Date and Access Start Date. */}
+              <Input
+                label="Work Start Date"
+                type="date"
+                value={form.workStartDate}
+                onChange={(e) => set('workStartDate', e.target.value)}
               />
             </div>
           </SubCard>

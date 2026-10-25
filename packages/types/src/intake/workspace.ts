@@ -576,6 +576,11 @@ export const IntakeSettings = z.object({
      */
     maxFileSizeMb: z.number().int(),
     consentRequired: z.boolean(),
+    /**
+     * Data retention period (Octavia's I12), in whole years; null is not set. Saving it deletes
+     * nothing: no job reads it until the start event, what it covers and the end are defined.
+     */
+    dataRetentionYears: z.number().int().nullable(),
   }),
   updatedAt: DateTime.nullable(),
   version: z.string(),
@@ -645,6 +650,13 @@ export const UpdateIntakeSettingsRequest = z.strictObject({
        */
       maxFileSizeMb: z.number().int().min(1).max(INTAKE_MAX_FILE_SIZE_MB),
       consentRequired: z.boolean(),
+      /** 1 to 100 whole years, or null for not set. */
+      dataRetentionYears: z
+        .number()
+        .int('Enter whole years')
+        .min(1, 'Enter 1 to 100 years')
+        .max(100, 'Enter 1 to 100 years')
+        .nullable(),
     })
     .partial()
     .optional(),

@@ -51,6 +51,8 @@ interface Form {
   serviceAreas: string[];
   accessLevel: StaffAccessLevel | '';
   employmentType: StaffEmploymentType | '';
+  /** The design's "Start Date": the first day of work (SM11), apart from the hire date. */
+  workStartDate: string;
   hireDate: string;
   office: string;
   endDate: string;
@@ -69,6 +71,7 @@ const EMPTY: Form = {
   serviceAreas: [],
   accessLevel: '',
   employmentType: '',
+  workStartDate: '',
   hireDate: '',
   office: '',
   endDate: '',
@@ -99,6 +102,7 @@ function fromMember(m: StaffDetail): Form {
     serviceAreas: m.serviceAreas,
     accessLevel: m.accessLevel,
     employmentType: p.employmentType ?? '',
+    workStartDate: p.workStartDate ?? '',
     hireDate: p.hireDate ?? '',
     office: p.office ?? '',
     endDate: p.endDate ?? '',
@@ -121,6 +125,7 @@ const toAccount = (f: Form) => ({
 
 const toDetails = (f: Form) => ({
   employmentType: f.employmentType || null,
+  workStartDate: f.workStartDate || null,
   hireDate: f.hireDate || null,
   office: f.office || null,
   endDate: f.endDate || null,
@@ -591,8 +596,8 @@ function EditForm({
             label="Start Date"
             type="date"
             disabled={locked}
-            value={form.hireDate}
-            onChange={(e) => set('hireDate', e.target.value)}
+            value={form.workStartDate}
+            onChange={(e) => set('workStartDate', e.target.value)}
           />
           <Select
             label="Work Location"
@@ -627,6 +632,14 @@ function EditForm({
             ]}
             value={form.timeZone}
             onChange={(e) => set('timeZone', e.target.value)}
+          />
+          {/* Create Staff step 4's Hire Date, kept apart from the Start Date above (SM11). */}
+          <Input
+            label="Hire Date"
+            type="date"
+            disabled={locked}
+            value={form.hireDate}
+            onChange={(e) => set('hireDate', e.target.value)}
           />
         </div>
       </SectionCard>

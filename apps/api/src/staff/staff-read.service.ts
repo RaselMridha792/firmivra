@@ -33,6 +33,7 @@ export const WORK_SCHEDULES = [
   'Seasonal (tax season)',
   'Flexible',
 ];
+const PRESETS = new Set(WORK_SCHEDULES.map((s) => s.toLowerCase()));
 
 const STATUS: Record<string, Prisma.MembershipWhereInput | undefined> = {
   all: undefined,
@@ -269,13 +270,10 @@ export class StaffReadService {
             take: 200,
           }),
           this.custom.givable(tx, businessId, actor),
-          // The firm's own schedules already given to someone (Octavia's SM8: custom, saved).
-          tx.staffProfile.findMany({
-            where: { businessId, workSchedule: { not: null } },
-            select: { workSchedule: true },
-            distinct: ['workSchedule'],
-            orderBy: { workSchedule: 'asc' },
-            take: 100,
+          // The firm's saved live schedules (Octavia's SM8: company-defined, Offices & Job Titles).
+          tx.staffWorkSchedule.findMany({
+            where: { businessId, archivedAt: null },
+            select: { name: true },
           }),
         ]);
       const roles = (ROLES_MANAGED_BY[actor] ?? []).map((role) => ({
@@ -295,9 +293,10 @@ export class StaffReadService {
         offices: offices.map((o) => o.name),
         workSchedules: [
           ...WORK_SCHEDULES,
-          ...schedules.flatMap((x) =>
-            x.workSchedule && !WORK_SCHEDULES.includes(x.workSchedule) ? [x.workSchedule] : [],
-          ),
+          ...schedules
+            .map((x) => x.name)
+            .filter((name) => !PRESETS.has(name.toLowerCase()))
+            .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })),
         ],
         serviceAreas: Object.entries(FIRM_SERVICES).map(([code, label]) => ({ code, label })),
       };
@@ -366,6 +365,7 @@ export class StaffReadService {
           workSchedule: p?.workSchedule ?? null,
           office: p?.office ?? null,
           hireDate: day(p?.hireDate),
+          workStartDate: day(p?.workStartDate),
           endDate: day(p?.endDate),
           supervisor: p?.supervisor ? ref(p.supervisor) : null,
           timeZone: p?.timeZone ?? null,

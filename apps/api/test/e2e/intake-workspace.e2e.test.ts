@@ -670,6 +670,33 @@ describe('the settings', () => {
     expect(JSON.stringify(rows)).not.toContain('@example.test');
   });
 
+  it('saves a data retention period in years, and deletes nothing for it (I12)', async () => {
+    const counts = () =>
+      inFirm('a', async (tx) => ({
+        intakes: await tx.intake.count({ where: { businessId: firms.a } }),
+        submissions: await tx.intakeSubmission.count({ where: { businessId: firms.a } }),
+        documents: await tx.document.count({ where: { businessId: firms.a } }),
+      }));
+    const before = await counts();
+    const at = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
+    expect(at.security.dataRetentionYears).toBeNull();
+    const put = (version: string, dataRetentionYears: unknown) =>
+      call('put', '/intake-settings', ownerA, { version, security: { dataRetentionYears } });
+    const seven = IntakeSettings.parse(ok(await put(at.version, 7)));
+    expect(seven.security.dataRetentionYears).toBe(7);
+    for (const years of [0, 101, 1.5, '7']) {
+      const res = await put(seven.version, years);
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(JSON.stringify(res.body)).toContain('security.dataRetentionYears');
+    }
+    const hundred = IntakeSettings.parse(ok(await put(seven.version, 100)));
+    expect(hundred.security.dataRetentionYears).toBe(100);
+    const cleared = IntakeSettings.parse(ok(await put(hundred.version, null)));
+    expect(cleared.security.dataRetentionYears).toBeNull();
+    expect(await counts()).toEqual(before);
+    IntakeSettings.parse(ok(await put(cleared.version, 7)));
+  });
+
   it('lists the recent changes without their values, and resets to the defaults', async () => {
     const changes = IntakeSettingsChangeList.parse(
       ok(await call('get', '/intake-settings/changes', adminA)),
@@ -688,6 +715,7 @@ describe('the settings', () => {
       expirationAlertMinutes: 1440,
       additionalEmails: [],
     });
+    expect(back.security.dataRetentionYears).toBeNull();
     expect(back.clientExperience.thankYouMessage).toBeNull();
     expect(
       IntakeSettingsChangeList.parse(ok(await call('get', '/intake-settings/changes', ownerA)))

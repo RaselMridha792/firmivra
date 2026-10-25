@@ -1,12 +1,18 @@
 'use client';
 
-import { SaveStaffJobTitleRequest, type StaffJobTitle } from '@firmivra/types';
+import {
+  SaveStaffJobTitleRequest,
+  SaveStaffWorkScheduleRequest,
+  type StaffJobTitle,
+  type StaffWorkSchedule,
+} from '@firmivra/types';
 import { Badge, Button, Checkbox, Input, Skeleton } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   ArrowLeft,
   Briefcase,
   Buildings,
+  CalendarCheck,
   type Icon,
   Info,
   MapPin,
@@ -20,13 +26,89 @@ import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { NOT_LOADED } from '../../../_components/quiet-card';
 
-/** The saved titles' key. A change refetches every staff query: the list and the form options. */
-const TITLES = ['staff', 'job-titles'];
+/** A change refetches every staff query: the saved lists and the form options. */
 const STAFF = ['staff'];
 
-const TITLE_ERRORS: Record<string, string> = {
-  JOB_TITLE_EXISTS: 'Your firm already has a job title with this name.',
-  JOB_TITLE_ARCHIVED: 'Restore this job title before renaming it.',
+/** One saved name: a job title or a work schedule (the two contracts have the same shape). */
+type Saved = StaffJobTitle | StaffWorkSchedule;
+type SaveName = SaveStaffJobTitleRequest;
+
+/** What differs between the Job Titles and Work Schedules cards. */
+interface SavedKind {
+  key: string[];
+  testId: string;
+  /** Singular, for the row, name and input test ids: `job-title` or `work-schedule`. */
+  item: string;
+  title: string;
+  subtitle: string;
+  icon: Icon;
+  /** Plural in lower case, for "Show archived …". */
+  plural: string;
+  addLabel: string;
+  addButton: string;
+  placeholder: string;
+  empty: string;
+  note: string;
+  errors: Record<string, string>;
+  schema: typeof SaveStaffJobTitleRequest | typeof SaveStaffWorkScheduleRequest;
+  list: () => Promise<Saved[]>;
+  create: (body: SaveName) => Promise<Saved>;
+  rename: (id: string, body: SaveName) => Promise<Saved>;
+  archive: (id: string) => Promise<Saved>;
+  restore: (id: string) => Promise<Saved>;
+}
+
+const JOB_TITLES: SavedKind = {
+  key: ['staff', 'job-titles', 'all'],
+  testId: 'job-titles',
+  item: 'job-title',
+  title: 'Job Titles',
+  subtitle:
+    'Saved titles are offered in Create Staff and Edit Staff. A staff member can still be given a title that is not on this list.',
+  icon: Briefcase,
+  plural: 'titles',
+  addLabel: 'New job title',
+  addButton: 'Add Job Title',
+  placeholder: 'e.g., Senior Tax Preparer',
+  empty: 'No saved job titles yet. Add the titles your firm uses.',
+  note: 'Renaming or archiving a title changes no staff record: each keeps the title it has.',
+  errors: {
+    JOB_TITLE_EXISTS: 'Your firm already has a job title with this name.',
+    JOB_TITLE_ARCHIVED: 'Restore this job title before renaming it.',
+  },
+  schema: SaveStaffJobTitleRequest,
+  list: () => api.staff.jobTitles(true),
+  create: (body) => api.staff.createJobTitle(body),
+  rename: (id, body) => api.staff.renameJobTitle(id, body),
+  archive: (id) => api.staff.archiveJobTitle(id),
+  restore: (id) => api.staff.restoreJobTitle(id),
+};
+
+// Octavia's SM8: company-defined schedules, offered after the standard ones.
+const WORK_SCHEDULES: SavedKind = {
+  key: ['staff', 'work-schedules', 'all'],
+  testId: 'work-schedules',
+  item: 'work-schedule',
+  title: 'Work Schedules',
+  subtitle:
+    'Saved schedules are offered in Create Staff and Edit Staff after the standard ones. A staff member can still be given a custom schedule.',
+  icon: CalendarCheck,
+  plural: 'schedules',
+  addLabel: 'New work schedule',
+  addButton: 'Add Work Schedule',
+  placeholder: 'e.g., Mon-Thu, 10-hour days',
+  empty: 'No saved work schedules yet. Add the schedules your firm uses.',
+  note: 'Renaming or archiving a schedule changes no staff record: each keeps the schedule it has.',
+  errors: {
+    WORK_SCHEDULE_EXISTS: 'Your firm already has a work schedule with this name.',
+    WORK_SCHEDULE_ARCHIVED: 'Restore this work schedule before renaming it.',
+  },
+  schema: SaveStaffWorkScheduleRequest,
+  list: () => api.staff.workSchedules(true),
+  create: (body) => api.staff.createWorkSchedule(body),
+  rename: (id, body) => api.staff.renameWorkSchedule(id, body),
+  archive: (id) => api.staff.archiveWorkSchedule(id),
+  restore: (id) => api.staff.restoreWorkSchedule(id),
 };
 
 const quiet = 'rounded-lg bg-subtle p-4 text-sm text-muted';
@@ -69,15 +151,12 @@ function Panel({
   );
 }
 
-function AddTitleForm() {
-  const form = useForm<SaveStaffJobTitleRequest>({
-    resolver: zodResolver(SaveStaffJobTitleRequest),
+function AddForm({ kind }: { kind: SavedKind }) {
+  const form = useForm<SaveName>({
+    resolver: zodResolver(kind.schema),
     defaultValues: { name: '' },
   });
-  const create = useApiMutation(
-    (body: SaveStaffJobTitleRequest) => api.staff.createJobTitle(body),
-    { invalidate: STAFF },
-  );
+  const create = useApiMutation(kind.create, { invalidate: STAFF });
   return (
     <form
       onSubmit={form.handleSubmit((body) => create.mutate(body, { onSuccess: () => form.reset() }))}
@@ -85,20 +164,20 @@ function AddTitleForm() {
     >
       <div className="min-w-0 flex-1">
         <Input
-          label="New job title"
-          placeholder="e.g., Senior Tax Preparer"
-          data-testid="new-job-title"
+          label={kind.addLabel}
+          placeholder={kind.placeholder}
+          data-testid={`new-${kind.item}`}
           error={form.formState.errors.name?.message}
           {...form.register('name')}
         />
       </div>
       <Button type="submit" disabled={create.isPending}>
         <PlusCircle aria-hidden weight="fill" className="size-5" />
-        {create.isPending ? 'Adding…' : 'Add Job Title'}
+        {create.isPending ? 'Adding…' : kind.addButton}
       </Button>
       {create.error ? (
         <p role="alert" className="text-sm text-danger sm:w-full">
-          {errorMessage(create.error, TITLE_ERRORS)}
+          {errorMessage(create.error, kind.errors)}
         </p>
       ) : null}
     </form>
@@ -108,28 +187,23 @@ function AddTitleForm() {
 const staffLine = (n: number) =>
   n === 0 ? 'No staff records' : `${n} staff record${n === 1 ? '' : 's'}`;
 
-function TitleRow({ row }: { row: StaffJobTitle }) {
+function SavedRow({ kind, row }: { kind: SavedKind; row: Saved }) {
   const [editing, setEditing] = useState(false);
-  const form = useForm<SaveStaffJobTitleRequest>({
-    resolver: zodResolver(SaveStaffJobTitleRequest),
+  const form = useForm<SaveName>({
+    resolver: zodResolver(kind.schema),
     defaultValues: { name: row.name },
   });
-  const rename = useApiMutation(
-    (body: SaveStaffJobTitleRequest) => api.staff.renameJobTitle(row.id, body),
-    { invalidate: STAFF },
-  );
-  const archive = useApiMutation((id: string) => api.staff.archiveJobTitle(id), {
+  const rename = useApiMutation((body: SaveName) => kind.rename(row.id, body), {
     invalidate: STAFF,
   });
-  const restore = useApiMutation((id: string) => api.staff.restoreJobTitle(id), {
-    invalidate: STAFF,
-  });
+  const archive = useApiMutation(kind.archive, { invalidate: STAFF });
+  const restore = useApiMutation(kind.restore, { invalidate: STAFF });
   const error = archive.error ?? restore.error;
   const archived = row.archivedAt !== null;
 
   if (editing) {
     return (
-      <li data-testid="job-title-row" className="p-3">
+      <li data-testid={`${kind.item}-row`} className="p-3">
         <form
           className="flex flex-wrap items-end gap-2"
           onSubmit={form.handleSubmit((body) =>
@@ -157,7 +231,7 @@ function TitleRow({ row }: { row: StaffJobTitle }) {
           </Button>
           {rename.error ? (
             <p role="alert" className="w-full text-sm text-danger">
-              {errorMessage(rename.error, TITLE_ERRORS)}
+              {errorMessage(rename.error, kind.errors)}
             </p>
           ) : null}
         </form>
@@ -165,10 +239,10 @@ function TitleRow({ row }: { row: StaffJobTitle }) {
     );
   }
   return (
-    <li data-testid="job-title-row" className="flex flex-wrap items-center gap-2 p-3">
+    <li data-testid={`${kind.item}-row`} className="flex flex-wrap items-center gap-2 p-3">
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="flex items-center gap-2">
-          <span data-testid="job-title-name" className="text-sm font-semibold text-heading">
+          <span data-testid={`${kind.item}-name`} className="text-sm font-semibold text-heading">
             {row.name}
           </span>
           {archived ? <Badge>Archived</Badge> : null}
@@ -205,39 +279,39 @@ function TitleRow({ row }: { row: StaffJobTitle }) {
       )}
       {error ? (
         <p role="alert" className="w-full text-sm text-danger">
-          {errorMessage(error, TITLE_ERRORS)}
+          {errorMessage(error, kind.errors)}
         </p>
       ) : null}
     </li>
   );
 }
 
-function JobTitles() {
+function SavedList({ kind }: { kind: SavedKind }) {
   const [showArchived, setShowArchived] = useState(false);
-  const titles = useApiQuery([...TITLES, 'all'], () => api.staff.jobTitles(true));
-  const rows = titles.data ?? [];
+  const saved = useApiQuery(kind.key, kind.list);
+  const rows = saved.data ?? [];
   const live = rows.filter((t) => t.archivedAt === null);
   const archived = rows.filter((t) => t.archivedAt !== null);
   const shown = showArchived ? [...live, ...archived] : live;
 
   return (
     <Panel
-      title="Job Titles"
-      subtitle="Saved titles are offered in Create Staff and Edit Staff. A staff member can still be given a title that is not on this list."
-      icon={Briefcase}
-      testId="job-titles"
+      title={kind.title}
+      subtitle={kind.subtitle}
+      icon={kind.icon}
+      testId={kind.testId}
       className="min-[1440px]:col-span-2"
     >
-      <AddTitleForm />
-      {titles.isPending ? (
+      <AddForm kind={kind} />
+      {saved.isPending ? (
         <Skeleton className="h-32" />
-      ) : titles.data === undefined ? (
+      ) : saved.data === undefined ? (
         <p className={quiet}>{NOT_LOADED}</p>
       ) : (
         <>
           {archived.length ? (
             <Checkbox
-              label={`Show archived titles (${archived.length})`}
+              label={`Show archived ${kind.plural} (${archived.length})`}
               checked={showArchived}
               onChange={(e) => setShowArchived(e.target.checked)}
               className="text-sm"
@@ -246,17 +320,17 @@ function JobTitles() {
           {shown.length ? (
             <ul className="flex flex-col divide-y divide-divider rounded-lg border border-divider">
               {shown.map((row) => (
-                <TitleRow key={row.id} row={row} />
+                <SavedRow key={row.id} kind={kind} row={row} />
               ))}
             </ul>
           ) : (
-            <p className={quiet}>No saved job titles yet. Add the titles your firm uses.</p>
+            <p className={quiet}>{kind.empty}</p>
           )}
         </>
       )}
       <p className="flex items-start gap-2 text-xs text-muted">
         <Info aria-hidden weight="fill" className="mt-0.5 size-4 shrink-0" />
-        Renaming or archiving a title changes no staff record: each keeps the title it has.
+        {kind.note}
       </p>
     </Panel>
   );
@@ -301,9 +375,9 @@ function Offices() {
 }
 
 /**
- * Staff Settings > Offices & Job Titles (`/team/settings/offices-titles`, Octavia's SM3 and
- * SM11): the firm's saved job titles, added, renamed, archived and restored here, and its
- * offices as Location Management has them. Owner and Admin.
+ * Staff Settings > Offices & Job Titles (`/team/settings/offices-titles`, Octavia's SM3, SM8 and
+ * SM11): the firm's saved job titles and work schedules, added, renamed, archived and restored
+ * here, and its offices as Location Management has them. Owner and Admin.
  */
 export function OfficesTitlesScreen() {
   return (
@@ -325,14 +399,15 @@ export function OfficesTitlesScreen() {
               Offices &amp; Job Titles
             </h1>
             <p className="text-base text-link">
-              The job titles and offices your staff records choose from.
+              The job titles, work schedules and offices your staff records choose from.
             </p>
           </div>
         </div>
       </header>
       <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
-        <JobTitles />
+        <SavedList kind={JOB_TITLES} />
         <Offices />
+        <SavedList kind={WORK_SCHEDULES} />
       </div>
     </div>
   );

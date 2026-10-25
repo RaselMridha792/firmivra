@@ -11,12 +11,17 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { usePortal } from '../../../layout';
 
 /**
- * Notification Preferences: email and (when the client has a phone) SMS per category. The SMS
- * switch only stores the choice until SMS sending is on. Account notices are always sent.
+ * Notification Preferences: email and (when the client has a phone) SMS per category. Email is
+ * always on: every notice is about the client's own account or services (Client Portal guide
+ * 9.2). A Text box is the client's opt-in to texts, so the card says what they agree to; after a
+ * STOP reply texts are stopped until the firm turns them back on. The SMS switch only stores the
+ * choice until SMS sending is on. Account notices are always sent.
  */
 export function NotificationPreferencesCard({ slug }: { slug: string }) {
+  const { business } = usePortal();
   const prefs = useApiQuery(['my-notification-preferences', slug], () =>
     api.myNotifications(slug).preferences(),
   );
@@ -57,17 +62,35 @@ export function NotificationPreferencesCard({ slug }: { slug: string }) {
         </summary>
         <PageState query={prefs} isEmpty={(p) => p.items.length === 0}>
           {(p) => (
-            <ul className="grid gap-2">
-              {p.items.map((item) => (
-                <PreferenceRow
-                  key={item.category}
-                  item={item}
-                  hasSms={p.channels.includes('SMS')}
-                  pending={update.isPending}
-                  onChange={set}
-                />
-              ))}
-            </ul>
+            <>
+              <ul className="grid gap-2">
+                {p.items.map((item) => (
+                  <PreferenceRow
+                    key={item.category}
+                    item={item}
+                    hasSms={p.channels.includes('SMS')}
+                    pending={update.isPending}
+                    onChange={set}
+                  />
+                ))}
+              </ul>
+              <p className="text-xs text-muted">
+                Email is always on: these notices are about your own account and services.
+              </p>
+              {p.channels.includes('SMS') ? (
+                <p data-testid="sms-consent" className="text-xs text-muted">
+                  By checking Text, you agree to receive notification texts from {business.name} at
+                  the phone number on your profile. Message and data rates may apply. Reply STOP to
+                  stop.
+                </p>
+              ) : null}
+              {p.smsStopped ? (
+                <p data-testid="sms-stopped" className="text-xs text-muted">
+                  You stopped text messages from {business.name}. To get texts again, ask them to
+                  turn texts back on.
+                </p>
+              ) : null}
+            </>
           )}
         </PageState>
         {update.isError ? (
@@ -103,7 +126,7 @@ function PreferenceRow({
         label="Email"
         aria-label={`${label} by email`}
         checked={item.email}
-        disabled={item.locked || pending}
+        disabled={item.locked || item.emailLocked || pending}
         onChange={(e) => onChange(item, 'email', e.target.checked)}
       />
       {hasSms && (

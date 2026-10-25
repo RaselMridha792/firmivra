@@ -44,10 +44,20 @@ This was reproduced by reading the code and by calling the local API. The local 
 | Availability | (a) The blocked time list: creator column, staff and date filters, location filter through `FirmOfficeMember`. (b) Conflict preview, the clashing appointments named in the 409, and **"Block available slots only"**, saved as several blocks around the bookings. (c) A required reason on a staff member's own block. (d) Notify the affected staff. | `schedule_change_requests` (requester, appointment, dates, reason, proposed action, status, decided by and at, replacement staff, escalated, and the proposed new time with the client's answer). `blocked_times.office_id`, and the `appointments_rules` trigger made aware of it. An EMERGENCY block kind or category. An HR role, or a decision that HR is a custom role. |
 | Client Portal | (e) Contact details from Company Profile and Locations instead of fixed text (portal pages). (f) Module on and off for the five modules already in the `PortalModule` enum, enforced on the portal API (portal pages and several APIs). (g) Email locked on for personal and service notices, and SMS only with consent (notifications). (h) Announcements shown in the portal, from Communications. | `clients.office_id` (the assigned office). Switches for main or local office display and each contact method (`business_settings` columns or a portal settings table). Announcement on/off and channel policy. An `ANNOUNCEMENTS` notification category. A Business Resources module value, plus `label` and `sort_order` on `portal_module_visibility`. Custom tabs: a table with label, template key, order, portal type and targeting, plus a tab link on documents. |
 
+## Built on Oct 25 (the parts without schema)
+
+| Part | Branch, PR | What works now | What still needs schema |
+| --- | --- | --- | --- |
+| (e) Contact | #1122, merged | The portal's contact comes from Company Profile, each field falling back to the main office in Locations, plus its hours: the LVP public footer and the Need Help? cards. | The local office (`clients.office_id`), and the switches for corporate or local office and each contact method. |
+| (f) Features | #1123, merged | Five tabs switch on and off in Settings > Client Portal, with a warning, Save and Cancel; the portal API refuses a hidden tab (403 `MODULE_OFF`); the menu, folder tabs, Quick Links, Send a Message and Contact Us follow. | Business Documents & Resources as a module value, rename (`label`), reorder (`sort_order`), custom tabs and per-client targeting. |
+| (g) Notifications | #1131 | Email is always on for clients (400 `EMAIL_ALWAYS_ON`); SMS only with their Text box on and never after a STOP or an unsubscribe in `communication_consents`; the card shows the opt-in wording and explains a stop. | The announcement channel policy and an `ANNOUNCEMENTS` category. Rasel (Oct 25): the Text box does not record campaign consent. |
+| (h) Announcements | #1134 | Published announcements show in the portal, by their "Where", inside their window: a dismissable card on the tabs and View All Announcements. | The firm's announcements switch and login-page announcements. Rasel (Oct 25): dismissal stays per browser. |
+
 ## Needs from others
 
 - **R0 (schema), Availability:** `schedule_change_requests` and the reschedule proposal; `blocked_times.office_id` with the trigger; an emergency block kind.
 - **R0 (schema), Client Portal:** `clients.office_id`; portal contact and announcement settings; the `ANNOUNCEMENTS` category; `portal_module_visibility.label` and `sort_order` plus a Business Resources value; custom tabs.
+- **Rasel (decided Oct 25):** the portal's Text box does not record an SMS opt-in in `communication_consents` (Octavia has not approved it for campaigns); a dismissed announcement stays per browser.
 
 ## Decided (Rasel, Oct 24 evening; reversible defaults)
 

@@ -622,9 +622,50 @@ export function SecurityFields({
             disabled={readOnly}
             onChange={(on) => set('security', { consentRequired: on })}
           />
+          <RetentionRow
+            years={s.dataRetentionYears}
+            readOnly={readOnly}
+            error={errors['security.dataRetentionYears']}
+            onChange={(dataRetentionYears) => set('security', { dataRetentionYears })}
+          />
         </>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Data retention period (Octavia's I12): a custom number of years, or none. Saving it deletes
+ * nothing; what it covers, when it starts and what happens at the end are still to be decided.
+ */
+function RetentionRow({
+  years,
+  readOnly,
+  error,
+  onChange,
+}: {
+  years: number | null;
+  readOnly: boolean;
+  error?: string;
+  onChange: (years: number | null) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1 py-1" data-testid="data-retention">
+      <InputRow
+        label="Data retention period (years)"
+        labelWidth="w-40"
+        type="number"
+        placeholder="Not set"
+        value={years === null ? '' : String(years)}
+        disabled={readOnly}
+        error={error}
+        onChange={(v) => onChange(v.trim() === '' ? null : Number(v))}
+      />
+      <p className="text-xs text-muted">
+        Saving a period deletes nothing. What it covers, when it starts and what happens at the end
+        are still being decided.
+      </p>
+    </div>
   );
 }
 
