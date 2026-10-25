@@ -125,6 +125,13 @@ enum SignupOperationStatus {
   FAILED
 }
 
+/// R56's B15 (Oct 25): a business client's EIN status.
+enum EinStatus {
+  HAS_EIN
+  NOT_APPLICABLE
+  TO_BE_APPLIED_FOR
+}
+
 enum ClientAccountType {
   INDIVIDUAL
   BUSINESS
@@ -3050,6 +3057,9 @@ model ClientProfile {
   ssnLast4               String?        @map("ssn_last4")
   /// BUSINESS clients: the EIN, encrypted with the firm's key (field-encryption helper), never plain.
   einEnc                 Bytes?         @map("ein_enc")
+  /// R56's B15 (Oct 25): Has EIN, Not Applicable or To Be Applied For, apart from the number, so a
+  /// status is never saved as an EIN. A number only with HAS_EIN (or no status yet: SQL only).
+  einStatus              EinStatus?     @map("ein_status")
   /// Last 4 digits only, for display.
   einLast4               String?        @map("ein_last4")
   addressLine1           String?        @map("address_line1")
