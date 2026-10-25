@@ -116,3 +116,83 @@ Her T01 to T12 and the PENDING rows: for the PR that touches the area, run the r
 - **Dashboard (A):** R60 takes K, T, A, N, Q and D1, D3 first (routes, menus, confirmations); R55 takes K8, C1, C2, C5, D2, D4 and D5 after its open PRs.
 - **Business Advisory (B):** R56 takes B1 to B5 first (upload, request, invitation, schedule, meetings card), then B6 to B12; the rest in the order of the table. A fresh session may be needed for B13 onwards.
 - **Schema or guard changes** (B15, D4, anything that adds a column): write the request in the session's R file and ask Rasel for the tap; do not touch `packages/db`.
+
+---
+
+# Addendum of Oct 25, 10:07 UTC: Client Sign-ups and Clients
+
+Two more of her folders: **Sign ups** (a new functional spec, v1.0 of 25 Oct, plus an expanded-sidebar concept image) and **Clients** (consolidated first-screen review, 24 to 25 Oct). Text conversions: `client-signups--developer-instructions.md`, `clients--developer-feedback.md`. Image: `screenshots/client-signups-expanded-sidebar.png` (design concept, sample data: match the layout, never seed its names).
+
+Same reading rules as above. Her labels in the Sign-ups spec: APPROVED REQUIREMENT is built; RECOMMENDED SAFEGUARD is built unless an equivalent is cheaper and no weaker; OWNER DECISION PENDING gets the default below (Rasel decided, reversible, shown to Octavia at review: we never ask her for inputs).
+
+## D. Client Sign-ups (spec; screen `apps/web/src/app/firm/(workspace)/sign-ups`, API `apps/api/src/client-auth/client-sign-ups.*`)
+
+Already on main: a queue of verified portal sign-ups with Waiting and Declined views, approve, decline, link to an existing client by email (`CLIENT_CODE...`, `linkable`), audit on list and decisions, owner and admin only. Not on main: everything below.
+
+### D1. Screen to the concept image (P2)
+
+- Sidebar: **Clients** group with Overview, **Sign-ups** (active), Documents, as in the image; Back never goes to Dashboard but to the page the user came from, with tab, search, filters, page and scroll restored (spec §14, tests B01 to B04). Cancel and Close never submit anything.
+- Header card **Client self-sign-up approval**: Manual Review / Automatic Approval radios with the two explanation lines, "Manage settings" button, "Authorized admins only".
+- Tabs **Waiting for Approval / Approved / Declined** with tenant-wide counts (independent of search; the result area says the filtered total separately). Search name or email, **Date submitted** sort, Filters (date range, potential-match status), Clear. Row: avatar initials, name, email, submitted date, Checks column (**Potential match** amber, **No match found** green: text, never colour only), explicit detail action. Newest first, stable id tie-break, server paging, first page after a filter change. Today's queue is oldest first: change it.
+- **Resolve Existing Account** panel (staff only) with the amber "Potential Match, Automatic Approval Paused" box and "View existing client record", the three checkboxes (Call the contact already on file, Verify the client's identity, Record the client's permission), buttons Restore Access / Link Existing Record (disabled until all three are recorded, with the plain reason), Keep Pending, Approve / Decline. Activity list under the table (Application submitted, Email verified, decision events: who, when, result, never tokens or identity evidence).
+- **Client view preview** card: only Sign In, Reset Password, Contact Firm; no staff controls, no side effects.
+- Footer note and the "still to confirm" strip as in the image only if Octavia's design keeps them in production: leave the strip out (it is a design note, not product copy).
+- Loading, empty ("no requests for this status"), no results (with query and Clear), list error with retry, action in progress, unknown outcome, permission lost, version conflict, validation: spec §10 table. Labelled tab list, focus trap in dialogs, accessible names, narrow layout keeps the same labels (cards or scroll region).
+
+### D2. Match detection and the verification gate (P1 for the safety rules)
+
+- A sign-up that matches an existing client of the firm (normalized email, phone, name plus other fields: a name alone never counts as proof) becomes a **potential match**: it stays in Waiting, with a flag separate from the decision state, and auto-approval never applies. Unresolved candidates block approval and re-check at commit (S07). Two sign-ups for the same existing client never create two profiles (S08).
+- Review Match: read-only, minimum candidate data, audited access. Restore Access and Link Existing Record need all of: call to a contact already on the canonical record (never the contact from the sign-up), identity verified, permission recorded with scope, actor and time; checked again on the server (F08, F09, S02, S03). Link keeps the existing Client ID, does not overwrite contacts, merges nothing (F10). Restore goes through the existing recovery service, one operation id, no secret in logs.
+- Not a Match (record reviewed candidates, actor, time, short reason; fresh check before a new client is created: F12), Keep Pending (note allowed, no change: F11), Approve and Decline after the guards (F13). Approve or decline replays return the existing outcome; stale version, a different decision on a finished request and key reuse with other data return a conflict (S04 to S06). No merge, close or replace anywhere in this flow (S13). Approval creates no subscription, invoice or charge (S16).
+- Approved tab shows the canonical Client ID to those who may see it. Delivery failure after approval is shown apart from the approval and retried without a second client (S09).
+
+### D3. Approval mode setting (P2)
+
+- Manage settings opens a confirmation naming the firm, current mode, requested mode and scope; Cancel changes nothing; every change is audited with old and new value and a policy version; stale edits rejected (S11, S12). Permission `firm.signup_policy.manage`. A mode change never approves the existing queue.
+- Defaults I chose for her OWNER DECISION PENDING items (change on Rasel's word only):
+  - Pending applicant: signs in to nothing, sees a "waiting for the firm" message with Contact Firm (what the portal does today); no entitlement before approval.
+  - Automatic eligibility: email and phone verified (or the existing optional-phone rule), no match of any kind, firm in Automatic mode; nothing else. Every automatic decision stores the policy version it used.
+  - Decline: the applicant is emailed once with the firm's neutral text (as today); staff may untick "notify" in the decline dialog.
+  - Mode change: prospective only.
+  - Reversal, reopening, resubmission merge: not built; a declined person can sign up again and is matched like anyone.
+  - Retention: keep request and verification metadata as audit rows; no evidence documents, recordings or passwords stored.
+
+### D4. Contracts and permissions (P2)
+
+- Capabilities (map to the existing role model, deny by default, server-side): `signups.read`, `signups.review`, `signups.decide`, `clients.match.read`, `clients.identity.verify`, `clients.access.restore`, `clients.identity.link`, `firm.signup_policy.manage`. Today only the controller's FIRM_MANAGERS roles pass: keep Owner and Admin as the holders; no new role editing in this round (Rasel's word first if a custom role is needed).
+- Operations (names are hers, adapt): list with counts, detail, matches, verification, resolution, restore-access, decision, settings GET and PATCH. Every write takes an idempotency key and the expected version and returns request id, state, version, allowed actions, correlation id. Tenant ids from the host and membership only; a foreign firm id or request id is a 404 that leaks nothing (S01). Public sign-up and reset answers never reveal whether an account exists. Rate limits as existing.
+- **Needs Rasel's tap (`packages/db`)**: approval-mode setting with version, match-review and verification records, resolution and operation tables, a request version column and a potential-match flag. Write one request in `docs/work/R55-*.md` (or the owner's R file) listing the exact tables and columns; do not touch the schema.
+- Tests: her F01 to F14, S01 to S16 and B01 to B04 with synthetic data, Pass / Fail / Blocked with evidence in the PR; plus the usual tenant-isolation and audit tests.
+
+## E. Clients (first screen review; screens `apps/web/src/app/firm/(workspace)/clients`)
+
+Provisional passes to keep: six directory cards present, status and service routing, name, email and phone search, Reset All, assigned-staff filter, profile and Edit Details with save persisting after refresh, row routes (View Profile, Invoices, Signatures), Bulk Actions enablement and the three options, Add Client form with Individual / Business and a blank-save block, document request form, Messages context, invoice draft to Open, tags add and remove, narrow layout, Tab / Enter / Escape on the row menu.
+
+### E1. Defects and gaps (P1/P2)
+
+- **E1. Pending Docs card** does nothing: filter to clients with at least one outstanding document request (count reconciled to canonical requests). **Balance Due card** does nothing: filter to clients with an unpaid invoice balance (counts clients, not dollars; not only overdue; source Invoices and Payments).
+- **E2. Last Activity range** (From Oct 22 to today) misses expected activity: check the activity timestamp, inclusive ends, date parsing and the firm time zone; retest with events inside, outside and on both boundaries.
+- **E3. Stacy's services**: she is in Annual Tax only, but her advisory enrollment is not reflected; Business Development gives zero. Reconcile the client / service link and the Services & Pricing mapping; directory tags, service filter and profile must agree. Her tab labels (Bookkeeping Copy, Quarterly Copy, LVP Accounting Taxes...) are configured services: check the mapping, do not delete or rename anything.
+- **E4. Profile workspace**: only Overview, Documents, Messages, Invoices, Signatures exist. Add Services, Intake Forms, Tasks, Notes and Activity (and a More overflow), with enrolled services (status, link to the service workspace) on Overview, separate from tags; Activity Log at the bottom of Overview (actor, action, time, permitted links). Tax Returns, Bookkeeping, Payroll, Tax Planning, Advisory tabs appear by enrollment, configuration and permission.
+- **E5. Required fields**: Individual: type, name, email, phone, address (home); Business: also Business Name, business email, phone, address, and a **responsible party** (full name, email, phone) linked to the business, not replacing it. Format checks; test field by field.
+- **E6. Unsaved edits**: Cancel after an edit asks Save Changes / Discard Changes / Keep Editing; each works.
+- **E7. Return to Clients** (and Back from any client sub-page) restores filters, search, sort, page and scroll; only Reset or a new navigation clears them.
+- **E8. Documents**: add Upload Document (client preselected, canonical Documents flow, permissions) and View Request Details for request rows; View and Download for uploaded files when permitted.
+- **E9. Messages composer** shows the client, destination and channel before sending; no send until the channel rules are settled (default: the portal message thread, plus the client's email notice as the existing notifier does).
+- **E10. Portal Access** gets Send Invitation Link: prefilled, recipient confirmed, status, permission-controlled resend and revoke, reusing the canonical Client Portal identity; no duplicate login or client.
+
+### E2. Approved additions (P2/P3)
+
+- Separate **Added Last 30 Days** filter (creation date); New stays the New/onboarding status.
+- **More Filters**: deadline range, next appointment, primary client type (Individual / Business, separate from entity type), location (state, city, county), balance, missing documents, tags, source, priority, Apply and Clear, removable chips; keep the existing status, services and Records (Current / Archived / both). **Archived Clients** shortcut using the Records filter.
+- **Export** visible to the owner and to anyone explicitly granted Export: scope and count preview, audit, minimal sensitive data, server-side check.
+- **Bulk Actions** beyond Assign Staff / Archive / Restore: tag, service or status, message, document or intake request, export, inactive; each with permission, consent, preview, confirmation and audit. No Bulk Delete.
+- **Linked Business and Personal profiles** under one client relationship: prefill known data, ask only the missing fields, no duplicate client or login.
+- Billing additions for the Invoices review (cross reference only, do them when that module is touched): firm logo on invoices, permission-controlled Archive / Cancel / Edit-Correct that keep the sent original and its history, line-item description searchable from Services & Pricing while custom typing stays free, optional service start and end dates, "Save As New Service" only as an explicit authorized choice. Defaults hierarchy (settings, location, template): not decided: do not guess.
+- Her pending tests (duplicate prevention, counts, populated fixtures, bulk mutations, export and security, loading and error states, full accessibility): run with controlled fixtures when the PR touches the area; report Pass, Fail or Blocked.
+
+## F. Routing addendum (Rasel, Oct 25)
+
+- **Client Sign-ups (D):** R55 (it already owns Users, Roles and Staff API); starts after its Dashboard items. The schema request in D4 goes in its R file for Rasel's tap first.
+- **Clients (E):** R60 takes E1 to E7 after its Dashboard block; E8 to E10 and the E2 additions in a second PR; the Export, Bulk Actions and linked-profile work may need a fresh session.
+- Her next module after Clients and Sign-ups is Invoices & Payments (the billing additions above).
