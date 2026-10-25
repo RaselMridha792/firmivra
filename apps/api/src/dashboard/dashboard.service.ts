@@ -1,9 +1,15 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { type Database, Prisma } from '@firmivra/db';
-import type { DashboardSummary, DashboardSummaryQuery, TaskPriority } from '@firmivra/types';
+import {
+  type DashboardSummary,
+  type DashboardSummaryQuery,
+  TAX_RETURN_IN_PROGRESS_STATUSES,
+  type TaskPriority,
+} from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
+import { legacyFirmRole } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { LIVE_TASK } from '../tasks/task-common.js';
 import { TasksService } from '../workspaces/tasks.service.js';
@@ -27,9 +33,10 @@ interface Counts {
   leads_open: number;
   returns_now: number;
   returns_before: number;
+  returns_current: number;
   returns_open: number;
-  filed_now: number;
-  filed_before: number;
+  accepted_now: number;
+  accepted_before: number;
   filed_pipeline: number;
   intakes_open: number;
   appointments_today: number;
@@ -72,8 +79,28 @@ export class DashboardService {
     const staff = actor.role === 'STAFF' ? actor.userId : null;
     // The clients in reach, on a query that names the client `c`.
     const mine = Prisma.sql`(${staff}::uuid IS NULL OR c.assigned_user_id = ${staff}::uuid)`;
+    // Leads and Tax Returns scope Staff (and the roles that act as Staff) as those modules do, so
+    // each card's count is what its list shows (Octavia's K3 to K5).
+    const reachUser = legacyFirmRole(actor.role) === 'STAFF' ? actor.userId : null;
+    const reachLead = Prisma.sql`(${reachUser}::uuid IS NULL OR l.assigned_user_id = ${reachUser}::uuid)`;
+    const reachReturn = Prisma.sql`(${reachUser}::uuid IS NULL OR c.assigned_user_id = ${reachUser}::uuid)`;
+    const inProgress = Prisma.join(
+      TAX_RETURN_IN_PROGRESS_STATUSES.map((v) => Prisma.sql`${v}::"TaxReturnWorkflowStatus"`),
+    );
     const ofClient = (alias: string) =>
       Prisma.sql`JOIN clients c ON c.business_id = ${Prisma.raw(alias)}.business_id AND c.id = ${Prisma.raw(alias)}.client_id`;
+    // A return's workflow status at an instant (its last change before then; a return with no
+    // change before then still had its first one), and whether it was Accepted within a span.
+    const statusAt = (instant: string) => Prisma.sql`COALESCE(
+      (SELECT h.workflow_status FROM tax_return_history h
+        WHERE h.business_id = t.business_id AND h.tax_return_id = t.id
+          AND h.changed_at < ${Prisma.raw(instant)} ORDER BY h.seq DESC LIMIT 1),
+      'IN_PREPARATION')`;
+    const acceptedIn = (start: string, end: string) => Prisma.sql`EXISTS (
+      SELECT 1 FROM tax_return_history h
+        WHERE h.business_id = t.business_id AND h.tax_return_id = t.id
+          AND h.workflow_status = 'ACCEPTED' AND h.changed_at >= ${Prisma.raw(start)}
+          AND h.changed_at < ${Prisma.raw(end)})`;
     const { today, range, pipeline, revenueRange, counts, revenue, previousCents } =
       await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
         const [day] = await tx.$queryRaw<{ today: string }[]>`
@@ -117,24 +144,30 @@ export class DashboardService {
               AND c.created_at < p.pk_end
               AND (c.archived_at IS NULL OR c.archived_at >= p.pk_end) AND ${mine}) AS clients_before,
             (SELECT count(*)::int FROM leads l WHERE l.business_id = ${businessId}::uuid
-              AND l.submitted_at >= p.k_start AND l.submitted_at < p.k_end) AS leads_now,
+              AND l.status = 'SUBMITTED' AND l.archived_at IS NULL AND ${reachLead}
+              AND l.created_at >= p.k_start AND l.created_at < p.k_end) AS leads_now,
             (SELECT count(*)::int FROM leads l WHERE l.business_id = ${businessId}::uuid
-              AND l.submitted_at >= p.pk_start AND l.submitted_at < p.pk_end) AS leads_before,
+              AND l.status = 'SUBMITTED' AND l.archived_at IS NULL AND ${reachLead}
+              AND l.created_at >= p.pk_start AND l.created_at < p.pk_end) AS leads_before,
             (SELECT count(*)::int FROM leads l WHERE l.business_id = ${businessId}::uuid
-              AND l.status IN ('SUBMITTED', 'IN_REVIEW')) AS leads_open,
+              AND l.status IN ('SUBMITTED', 'IN_REVIEW') AND l.archived_at IS NULL) AS leads_open,
             (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
               AND t.status = 'IN_PROGRESS' AND ${mine}) AS returns_open,
             (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
-              AND t.created_at < p.k_end
-              AND (t.first_filed_at IS NULL OR t.first_filed_at >= p.k_end) AND ${mine}) AS returns_now,
+              AND t.archived_at IS NULL AND t.workflow_status IN (${inProgress})
+              AND ${reachReturn}) AS returns_current,
             (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
-              AND t.created_at < p.pk_end
-              AND (t.first_filed_at IS NULL OR t.first_filed_at >= p.pk_end) AND ${mine}) AS returns_before,
+              AND t.archived_at IS NULL AND ${reachReturn}
+              AND t.created_at < p.k_end AND ${statusAt('p.k_end')} IN (${inProgress})) AS returns_now,
             (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
-              AND t.first_filed_at >= p.k_start AND t.first_filed_at < p.k_end AND ${mine}) AS filed_now,
+              AND t.archived_at IS NULL AND ${reachReturn}
+              AND t.created_at < p.pk_end AND ${statusAt('p.pk_end')} IN (${inProgress})) AS returns_before,
             (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
-              AND t.first_filed_at >= p.pk_start AND t.first_filed_at < p.pk_end
-              AND ${mine}) AS filed_before,
+              AND t.archived_at IS NULL AND t.workflow_status = 'ACCEPTED' AND ${reachReturn}
+              AND ${acceptedIn('p.k_start', 'p.k_end')}) AS accepted_now,
+            (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
+              AND t.archived_at IS NULL AND ${reachReturn}
+              AND ${acceptedIn('p.pk_start', 'p.pk_end')}) AS accepted_before,
             (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
               AND t.first_filed_at >= p.pl_start AND t.first_filed_at < p.pl_end
               AND ${mine}) AS filed_pipeline,
@@ -210,8 +243,8 @@ export class DashboardService {
     );
     await this.audit.log('dashboard.viewed', { type: 'dashboard' });
     const c = counts;
-    // Now: the exact IN_PROGRESS count; a period that ended earlier: the count made from dates.
-    const returnsNow = range.to === today ? c.returns_open : c.returns_now;
+    // Now: the exact count by status; a period that ended earlier: the status history then.
+    const returnsNow = range.to === today ? c.returns_current : c.returns_now;
     return {
       today,
       range,
@@ -219,7 +252,7 @@ export class DashboardService {
         totalClients: kpi(c.clients_now, c.clients_before),
         newLeads: kpi(c.leads_now, c.leads_before),
         returnsInProgress: kpi(returnsNow, c.returns_before),
-        completedReturns: kpi(c.filed_now, c.filed_before),
+        acceptedReturns: kpi(c.accepted_now, c.accepted_before),
         outstandingInvoicesCents: kpi(c.outstanding, null),
         appointmentsToday: kpi(c.appointments_today, null),
       },

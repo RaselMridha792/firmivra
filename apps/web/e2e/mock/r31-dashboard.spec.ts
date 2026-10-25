@@ -19,7 +19,7 @@ test('every widget of the design, with trends only where the API gives the perio
     [0, 'Total Clients', 'Up 12%, favourablevs last month to date'],
     [1, 'New Leads', 'Up 41%, favourablevs last month to date'],
     [2, 'Returns In Progress', 'No changevs last month to date'],
-    [3, 'Completed Returns', 'Up 27%, favourablevs last month to date'],
+    [3, 'Accepted Returns', 'Up 27%, favourablevs last month to date'],
   ] as const) {
     await expect(cards.nth(i)).toContainText(label);
     await expect(cards.nth(i)).toContainText(trend);
@@ -30,7 +30,7 @@ test('every widget of the design, with trends only where the API gives the perio
   );
   await expect(cards.nth(5).getByRole('link', { name: 'View Calendar' })).toHaveAttribute(
     'href',
-    '/calendar',
+    '/calendar/today?back=dashboard',
   );
 
   const stages = page.getByTestId('pipeline-stage');

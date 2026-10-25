@@ -49,17 +49,17 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
     }),
   );
   const totalCents = buckets.reduce((sum, b) => sum + b.cents, 0);
-  // Flow cards scale with the period's length; Today shows a first filing (New) and no leads.
+  // Flow cards scale with the period's length; Today shows a first acceptance (New) and no leads.
   const days = (Date.parse(range.to) - Date.parse(range.from)) / 86_400_000 + 1;
   // This Month keeps the design's numbers.
   const scale = (n: number) =>
     q.period === 'THIS_MONTH' ? n : Math.max(0, Math.round((n * days) / 30));
   const flows =
     q.period === 'TODAY'
-      ? { newLeads: { value: 0, previous: 0 }, completedReturns: { value: 3, previous: 0 } }
+      ? { newLeads: { value: 0, previous: 0 }, acceptedReturns: { value: 3, previous: 0 } }
       : {
           newLeads: { value: scale(24), previous: scale(17) },
-          completedReturns: { value: scale(52), previous: scale(41) },
+          acceptedReturns: { value: scale(52), previous: scale(41) },
         };
 
   const pipelineDays = (Date.parse(pipeline.to) - Date.parse(pipeline.from)) / 86_400_000 + 1;
@@ -70,7 +70,7 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
       totalClients: { value: 127, previous: 113 },
       newLeads: flows.newLeads,
       returnsInProgress: { value: 38, previous: 38 },
-      completedReturns: flows.completedReturns,
+      acceptedReturns: flows.acceptedReturns,
       outstandingInvoicesCents: { value: 1_856_000, previous: null },
       appointmentsToday: { value: 6, previous: null },
     },
