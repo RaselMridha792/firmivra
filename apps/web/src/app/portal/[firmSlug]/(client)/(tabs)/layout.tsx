@@ -115,6 +115,15 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
       </div>
       <RightColumn
         slug={firmSlug}
+        place={
+          isMessagesPage
+            ? 'messages'
+            : documentsPage
+              ? 'documents'
+              : invoicesPage
+                ? 'billing'
+                : 'dashboard'
+        }
         isMessagesPage={isMessagesPage}
         blueAccents={
           intakeActive ||
