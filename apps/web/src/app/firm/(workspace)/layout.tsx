@@ -5,6 +5,8 @@ import {
   type BusinessSummary,
   FIRM_ROLE_LABELS,
   type MembershipRole,
+  type PermissionModule,
+  roleCan,
 } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
 import {
@@ -112,11 +114,19 @@ const items: (NavItem & { managers?: true })[] = [
 ];
 
 /** The "+ New" menu: where each new thing is created (all of them are pages that exist). */
-const newLinks = [
-  { label: 'New client', href: '/clients' },
-  { label: 'New appointment', href: '/calendar' },
-  { label: 'New invoice', href: '/invoices/new', managers: true },
-  { label: 'New message', href: '/messages' },
+/**
+ * "+ New" (Octavia's Q6 and Q7): each opens its creation form; opening the menu creates nothing.
+ * Shown when the role's grid lets it create in the module.
+ */
+const newLinks: { label: string; href: string; module: PermissionModule }[] = [
+  { label: 'New client', href: '/clients?new=1', module: 'CLIENTS' },
+  { label: 'New lead', href: '/leads?new=1', module: 'LEADS' },
+  { label: 'New appointment', href: '/calendar', module: 'APPOINTMENTS' },
+  { label: 'New task', href: '/tasks/new', module: 'TASKS' },
+  { label: 'New invoice', href: '/invoices/new', module: 'INVOICES_PAYMENTS' },
+  { label: 'New message', href: '/messages?new=1', module: 'MESSAGES' },
+  { label: 'Bulk email', href: '/communications/new?channel=EMAIL', module: 'COMMUNICATIONS' },
+  { label: 'Upload documents', href: '/documents/upload', module: 'DOCUMENTS' },
 ];
 
 /** What a signed-in person sees when the firm can't be opened (GET /business). */
@@ -248,7 +258,7 @@ function FirmShell({
       headerStart={<FirmSearch team={manager} />}
       headerActions={
         <>
-          <NewMenu links={newLinks.filter((l) => manager || !('managers' in l))} />
+          <NewMenu links={newLinks.filter((l) => role && roleCan(role, l.module, 'CREATE'))} />
           <HelpButton onOpen={() => setHelp(true)} />
         </>
       }

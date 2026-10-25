@@ -149,9 +149,13 @@ export function DocumentsTable({
         <span className="flex min-w-0 items-center gap-3">
           <FileIcon contentType={row.contentType} />
           <span className="min-w-0">
-            <span className="block truncate font-semibold text-heading" data-testid="document-name">
+            <Link
+              href={`/documents/${row.id}`}
+              className="block truncate font-semibold text-heading hover:text-action hover:underline"
+              data-testid="document-name"
+            >
               {row.fileName}
-            </span>
+            </Link>
             <span className="block text-xs text-muted">{sizeText(row.sizeBytes)}</span>
           </span>
         </span>
@@ -257,7 +261,12 @@ export function DocumentsTable({
               />
               <FileIcon contentType={row.contentType} />
               <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold text-heading">{row.fileName}</p>
+                <Link
+                  href={`/documents/${row.id}`}
+                  className="block truncate font-semibold text-heading hover:underline"
+                >
+                  {row.fileName}
+                </Link>
                 <p className="text-xs text-muted">{sizeText(row.sizeBytes)}</p>
               </div>
               <ActionsMenu
