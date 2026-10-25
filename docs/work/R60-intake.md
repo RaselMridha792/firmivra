@@ -658,6 +658,23 @@ merges. Old columns stay until R60's API reads the new ones, then a later migrat
     then SMS for verified staff. Alternative for Rasel: let `verification_codes` take a staff
     `user_id` as well as a client account.
 
+14. **Clients E5, a Business client's responsible party (Oct 25, for Rasel's word; blocks E5's
+    last part).** Octavia's E5: a Business client also needs a **responsible party** (full name,
+    email, phone) linked to the business, not replacing it. Nothing holds one today:
+    `client_profiles` has the business's own name, address and contact, and `clients.email` and
+    `phone` are the business's. Proposed: table `client_contacts`: `id` (uuid7), `business_id`,
+    `client_id` (FK `(business_id, id)` on `clients`, restrict), `role` enum `ClientContactRole`
+    (`RESPONSIBLE_PARTY` for now), `full_name text NOT NULL` (1 to 200), `email text NOT NULL`,
+    `phone text NOT NULL` (E.164), `person_client_id uuid NULL` (FK `clients`, for the later
+    "Linked Business and Personal profiles"), `created_by_user_id`, `updated_by_user_id`,
+    `created_at`, `updated_at`; one `RESPONSIBLE_PARTY` per client (partial unique index on
+    `(business_id, client_id) WHERE role = 'RESPONSIBLE_PARTY'`); the firm's row-level security;
+    SELECT, INSERT and UPDATE (no DELETE: a change replaces the values, and the audit log keeps the
+    old ones). With it R60 builds: the responsible party in Add New Client (Business) and Edit
+    Details, on the profile's Overview, and in the create and update contracts. Alternative for
+    Rasel: three nullable columns on `client_profiles` (`responsible_party_name`, `_email`,
+    `_phone`), simpler but with no room for the linked profiles.
+
 **Schema request, for Rasel to decide later (Oct 25, not a PR):** per-send reminder times. The
 Send page shows the firm's times ("View Schedule", read-only) because a send keeps only
 `intakes.reminders_enabled`. Times of its own would need `intakes.first_reminder_minutes`,
@@ -883,6 +900,12 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Returns = accepted in the period (history). New Leads and Accepted Returns open their lists with
   the period's dates. The pipeline keeps R55's counts. Dashboard and returns workspace e2e 18 of 18,
   dashboard unit 12 of 12, dashboard mock specs 29 of 29 (two only pass serially: load).
+- Oct 25 (sixth session): #1147 merged with `main` (head `a833bea`); group 3 opened as #1150.
+  Group 4 (`rasel/R60-client-form`): D1, the shared new-client form requires the name, email,
+  phone and the address (home or business), and a Business its Business Name, checked with the
+  contract's `NewClientForm` (the API keeps `CreateClientRequest` for the calendar's quick add);
+  D3, Report a Problem's exact text. Types tests 1080 of 1080, mock specs 12 of 12; sheet shot on
+  the real API. Column request item 14 (E5's responsible party) written for Rasel's word.
 - Oct 25 (fifth session): Dashboard group 3 (`rasel/R60-dashboard-quick`, from `main`, pushed,
   no PR yet: #1147 and #1148 hold the two slots): Q1 to Q5 (the quick actions open Add Client,
   New Message, the bulk email start, a blank invoice and the secure upload; shown by the role's
