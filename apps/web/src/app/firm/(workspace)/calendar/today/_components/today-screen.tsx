@@ -16,6 +16,7 @@ import {
 } from '../../_components/appointments-parts';
 import { AppointmentsSide } from '../../_components/appointments-side';
 import { localParts, todayIn, toInstant } from '../../_components/time';
+import { BackToDashboard } from '../../../../../../components/back-to-dashboard';
 
 /** The day's rows, 8 AM to 6 PM, as the design's calendar; earlier or later ones go first or last. */
 const HOURS = Array.from({ length: 11 }, (_, i) => 8 + i);
@@ -30,7 +31,7 @@ const card =
  * cards, the view switch, New Appointment and the right column), with today's schedule hour by
  * hour (`api.scheduling.agenda` for the firm's today).
  */
-export function TodayScreen() {
+export function TodayScreen({ fromDashboard = false }: { fromDashboard?: boolean } = {}) {
   const options = useApiQuery([...SCHEDULING, 'options'], () => api.scheduling.options());
   const tz = options.data?.timezone ?? 'America/New_York';
   const today = todayIn(tz);
@@ -80,6 +81,7 @@ export function TodayScreen() {
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
+      {fromDashboard ? <BackToDashboard /> : null}
       <AppointmentsHeader />
       <SummaryCards />
       <AppointmentsToolbar current="today" />

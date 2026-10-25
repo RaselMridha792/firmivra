@@ -141,7 +141,7 @@ export function DashboardScreen() {
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p id="dashboard-period-note" className="text-sm text-muted">
-            Total Clients, New Leads, Returns In Progress and Completed Returns follow the period.
+            Total Clients, New Leads, Returns In Progress and Accepted Returns follow the period.
             Outstanding Invoices and Appointments Today are always as of today.
           </p>
           <PeriodSelect
