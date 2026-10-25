@@ -209,25 +209,49 @@ describe('PreferenceSource', () => {
     expect(forBusiness).not.toHaveBeenCalled();
   });
 
-  it("reads the person's own choice, and the defaults (email on, SMS off) without one", async () => {
-    const row = { email: false, sms: true };
+  it("always sends the email, and a client's text only with their switch on and texts not stopped", async () => {
+    const CLIENT_ID = '00000000-0000-4000-8000-000000000009';
+    const row = { sms: true };
     const findUnique = vi.fn(() => Promise.resolve<typeof row | null>(row));
-    // Not a member of the firm (a client login): the stored choice counts.
     const findFirst = vi.fn(() => Promise.resolve<{ userId: string } | null>(null));
+    const account = vi.fn(() =>
+      Promise.resolve<{ userId: string; clientId: string | null } | null>({
+        userId: USER_ID,
+        clientId: CLIENT_ID,
+      }),
+    );
+    const consent = vi.fn(() => Promise.resolve<{ status: string } | null>(null));
     const source = new PreferenceSource({
-      forBusiness: () => ({ notificationPreference: { findUnique }, membership: { findFirst } }),
+      forBusiness: () => ({
+        notificationPreference: { findUnique },
+        membership: { findFirst },
+        clientAccount: { findFirst: account },
+        communicationConsent: { findFirst: consent },
+      }),
     } as never);
-    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'email')).toBe(false);
-    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'sms')).toBe(true);
+    const allows = (channel: 'email' | 'sms') =>
+      source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', channel);
+    // A client login (not a member): personal and service email always goes (guide 9.2).
+    expect([await allows('email'), await allows('sms')]).toEqual([true, true]);
+    // Texts stopped in the firm's consent records (a STOP reply): no text.
+    consent.mockResolvedValue({ status: 'OPTED_OUT' });
+    expect(await allows('sms')).toBe(false);
+    expect(consent).toHaveBeenLastCalledWith({
+      where: { businessId: FIRM_ID, clientId: CLIENT_ID, channel: 'SMS' },
+      select: { status: true },
+    });
+    consent.mockResolvedValue({ status: 'OPTED_IN' });
+    expect(await allows('sms')).toBe(true);
+    // No stored choice: SMS off; no login at this firm: the defaults.
     findUnique.mockResolvedValue(null);
-    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'email')).toBe(true);
-    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'sms')).toBe(false);
+    expect([await allows('email'), await allows('sms')]).toEqual([true, false]);
+    findUnique.mockResolvedValue(row);
+    account.mockResolvedValue(null);
+    expect(await allows('sms')).toBe(false);
 
     // An active member (staff): always the email, never a text, whatever the row says.
-    findUnique.mockResolvedValue(row);
     findFirst.mockResolvedValue({ userId: USER_ID });
-    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'email')).toBe(true);
-    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'sms')).toBe(false);
+    expect([await allows('email'), await allows('sms')]).toEqual([true, false]);
     expect(findFirst).toHaveBeenLastCalledWith({
       where: { businessId: FIRM_ID, userId: USER_ID, status: 'ACTIVE' },
       select: { userId: true },

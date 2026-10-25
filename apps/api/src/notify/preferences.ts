@@ -13,6 +13,28 @@ export type Recipient = { userId: string } | { clientAccountId: string };
 export const isLockedCategory = (category: NotificationCategory) =>
   (LOCKED_NOTIFICATION_CATEGORIES as readonly NotificationCategory[]).includes(category);
 
+/** SMS standings that stop every text: a STOP reply, an unsubscribe, a complaint, a dead number. */
+const TEXTS_STOPPED: readonly string[] = ['OPTED_OUT', 'COMPLAINED', 'BOUNCED', 'INVALID'];
+
+/**
+ * Whether the client's texts are stopped at this firm (`communication_consents`, SMS). Client
+ * Portal guide 7.5 and 9.2: a text needs the person's opt-in (their SMS switch) and respects an
+ * opt-out; after one, only the firm records a new opt-in (Communications). No client record, or
+ * no row: not stopped.
+ */
+export async function textsStopped(
+  scope: ReturnType<Database['forBusiness']>,
+  businessId: string,
+  clientId: string | null | undefined,
+): Promise<boolean> {
+  if (!clientId) return false;
+  const row = await scope.communicationConsent.findFirst({
+    where: { businessId, clientId, channel: 'SMS' },
+    select: { status: true },
+  });
+  return row !== null && TEXTS_STOPPED.includes(row.status);
+}
+
 /**
  * A person's email and SMS choices in one firm (R6 step 5), read in that firm's own scope (row-level
  * security shows nothing of another firm). NotifyService asks it before sending a message that is
@@ -45,10 +67,13 @@ export class PreferenceSource {
 
   /**
    * Whether the person wants this category on this channel. A locked category (ACCOUNT) always
-   * goes out. The firm's staff always get the email, whatever a stored row says (Octavia's
-   * Notifications review of Oct 18; older rows switched off count as on), and no text until a
-   * verified mobile number exists for staff logins (Rasel, Oct 24; none is recorded yet). A
-   * client login that is not this firm's has no choices here: the defaults apply.
+   * goes out. Every notice here is about the person's own account or services, so its email
+   * always goes, whatever a stored row says (Octavia's Notifications review of Oct 18 for staff;
+   * Client Portal guide 9.2 for clients; older rows switched off count as on). The firm's staff
+   * get no text until a verified mobile number exists for staff logins (Rasel, Oct 24; none is
+   * recorded yet). A client gets a text only with their SMS switch on and their texts not
+   * stopped (`textsStopped`). A client login that is not this firm's has no choices here: the
+   * defaults apply.
    */
   async allows(
     businessId: string,
@@ -56,26 +81,22 @@ export class PreferenceSource {
     category: NotificationCategory,
     channel: NotifyChannel,
   ): Promise<boolean> {
-    if (isLockedCategory(category)) return true;
+    if (isLockedCategory(category) || channel === 'email') return true;
     const scope = this.db.forBusiness(businessId);
-    if ('userId' in recipient && (await isStaff(scope, businessId, recipient.userId)))
-      return channel === 'email';
-    const userId =
-      'userId' in recipient
-        ? recipient.userId
-        : (
-            await scope.clientAccount.findFirst({
-              where: { businessId, id: recipient.clientAccountId },
-              select: { userId: true },
-            })
-          )?.userId;
-    const row = userId
-      ? await scope.notificationPreference.findUnique({
-          where: { businessId_userId_category: { businessId, userId, category } },
-          select: { email: true, sms: true },
-        })
-      : null;
-    const choice = row ?? DEFAULT_CHOICE;
-    return channel === 'sms' ? choice.sms : choice.email;
+    if ('userId' in recipient && (await isStaff(scope, businessId, recipient.userId))) return false;
+    const account = await scope.clientAccount.findFirst({
+      where:
+        'userId' in recipient
+          ? { businessId, userId: recipient.userId }
+          : { businessId, id: recipient.clientAccountId },
+      select: { userId: true, clientId: true },
+    });
+    if (!account) return DEFAULT_CHOICE.sms;
+    const row = await scope.notificationPreference.findUnique({
+      where: { businessId_userId_category: { businessId, userId: account.userId, category } },
+      select: { sms: true },
+    });
+    if (!(row ?? DEFAULT_CHOICE).sms) return false;
+    return !(await textsStopped(scope, businessId, account.clientId));
   }
 }
